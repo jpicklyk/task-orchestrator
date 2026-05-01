@@ -12,6 +12,12 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.utils.io.readRemaining
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.io.readByteArray
@@ -22,6 +28,7 @@ import org.slf4j.LoggerFactory
 import java.nio.file.Paths
 import java.time.Clock
 import java.time.Instant
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Snapshot of the cache state at the time the last key set was served.
@@ -172,6 +179,26 @@ class DefaultJwksKeySetProvider(
         }
     private val didCacheLock = Mutex()
 
+    /**
+     * Coroutine scope used to launch per-issuer in-flight fetches for coalescing.
+     * Uses [SupervisorJob] so a failing fetch for one issuer does not cancel fetches
+     * for other issuers. Cancelled in [close].
+     */
+    private val cacheScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
+    /**
+     * Tracks in-flight DID resolution deferred values keyed by issuer DID.
+     *
+     * Concurrent cache misses for the *same* issuer share a single [Deferred] (coalescing).
+     * Concurrent misses for *different* issuers get independent [Deferred] instances so they
+     * fan out in parallel rather than serialising through a global lock.
+     *
+     * The entry is removed in the `finally` block of the async lambda so that after the
+     * fetch completes (whether successfully or with an error), the next caller starts a fresh
+     * fetch rather than re-awaiting a completed (potentially error) [Deferred].
+     */
+    private val inFlight = ConcurrentHashMap<String, Deferred<JwksResult>>()
+
     override suspend fun getKeySet(): JwksResult {
         val now = clock.instant()
 
@@ -231,26 +258,55 @@ class DefaultJwksKeySetProvider(
             }
         }
 
-        // Slow path: resolve, extract, cache.
-        return didCacheLock.withLock {
-            val nowInLock = clock.instant()
-            // Double-check inside lock.
-            didCache[issuer]?.let { (set, fetchedAt) ->
-                if (nowInLock.isBefore(fetchedAt.plusSeconds(config.cacheTtlSeconds))) {
-                    return@withLock JwksResult(set, FRESH_CACHE)
+        // Slow path: coalesce concurrent cache misses for the same issuer.
+        //
+        // For a given issuer, computeIfAbsent ensures all concurrent cache-missing callers
+        // share a single Deferred<JwksResult>. The first caller creates the Deferred; the
+        // rest just await it. Different issuers get independent Deferreds (no global lock).
+        //
+        // The Deferred is started lazily in computeIfAbsent and immediately started below,
+        // which prevents a race where two threads both see no entry and both try to insert.
+        @Suppress("DeferredResultUnused")
+        val deferred =
+            inFlight.computeIfAbsent(issuer) { iss ->
+                cacheScope.async { fetchAndCacheForIssuer(iss) }
+            }
+        return deferred.await()
+    }
+
+    /**
+     * Performs the actual DID resolution and cache population for [issuer].
+     *
+     * Called only from the in-flight [Deferred] created in [getKeySetForIssuer].
+     * Removes itself from [inFlight] in the finally block so that once the fetch
+     * completes (or fails), the next caller starts a fresh fetch.
+     */
+    private suspend fun fetchAndCacheForIssuer(issuer: String): JwksResult {
+        try {
+            val nowInFetch = clock.instant()
+
+            // Re-check the cache inside the fetch (another caller may have populated it).
+            didCacheLock.withLock {
+                didCache[issuer]?.let { (set, fetchedAt) ->
+                    if (nowInFetch.isBefore(fetchedAt.plusSeconds(config.cacheTtlSeconds))) {
+                        return JwksResult(set, FRESH_CACHE)
+                    }
                 }
             }
 
-            val previousCached = didCache[issuer]
-            try {
+            val previousCached = didCacheLock.withLock { didCache[issuer] }
+
+            return try {
                 val doc = didResolverRegistry.resolve(issuer)
                 val jwks = didDocumentJwksExtractor.extract(doc)
-                didCache[issuer] = Pair(jwks, nowInLock)
+                didCacheLock.withLock {
+                    didCache[issuer] = Pair(jwks, nowInFetch)
+                }
                 JwksResult(jwks, FRESH_CACHE)
             } catch (e: Exception) {
                 if (config.staleOnError && previousCached != null) {
                     val (staleSet, fetchedAt) = previousCached
-                    val ageSeconds = nowInLock.epochSecond - fetchedAt.epochSecond
+                    val ageSeconds = nowInFetch.epochSecond - fetchedAt.epochSecond
                     logger.warn(
                         "DID resolution failed for {} ({}); serving stale cache (age={}s)",
                         issuer,
@@ -262,6 +318,8 @@ class DefaultJwksKeySetProvider(
                     throw e
                 }
             }
+        } finally {
+            inFlight.remove(issuer)
         }
     }
 
@@ -293,6 +351,7 @@ class DefaultJwksKeySetProvider(
     override fun getResolvedIssuer(): String? = resolvedIssuer
 
     override fun close() {
+        cacheScope.cancel()
         if (httpClientDelegate.isInitialized()) {
             httpClient.close()
         }

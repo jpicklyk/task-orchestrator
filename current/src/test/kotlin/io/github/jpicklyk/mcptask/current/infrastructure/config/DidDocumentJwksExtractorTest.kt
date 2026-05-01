@@ -420,9 +420,11 @@ class DidDocumentJwksExtractorTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `extractor via resolver - resolver warns and drops VM missing controller field`() {
+    fun `extract_skipsVerificationMethodWithControllerMismatch_andLogsWarning`() {
         // Use a Logback ListAppender to capture WARN messages from DidDocumentJwksExtractor.
-        // This verifies that operator-visible logging is emitted when a required field is absent.
+        // This verifies that operator-visible logging is emitted when a verification method's
+        // controller field does not match the document id (a controller *mismatch*, not a
+        // missing field — the extractor warns and drops the offending method).
         val loggerName = DidDocumentJwksExtractor::class.java.name
         val logbackLogger = LoggerFactory.getLogger(loggerName) as Logger
         val listAppender =

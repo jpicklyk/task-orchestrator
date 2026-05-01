@@ -1,5 +1,9 @@
 package io.github.jpicklyk.mcptask.current.integration
 
+import ch.qos.logback.classic.Level
+import ch.qos.logback.classic.Logger
+import ch.qos.logback.classic.spi.ILoggingEvent
+import ch.qos.logback.core.read.ListAppender
 import com.nimbusds.jose.JWSAlgorithm
 import com.nimbusds.jose.JWSHeader
 import com.nimbusds.jose.crypto.Ed25519Signer
@@ -31,6 +35,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeAll
 import org.junit.jupiter.api.Test
+import org.slf4j.LoggerFactory
 import java.security.SecureRandom
 import java.security.Security
 import java.time.Clock
@@ -324,6 +329,9 @@ class DidVerificationIntegrationTest {
      * agents set a thumbprint-based kid in the JWT header that does not appear in the DID
      * document's verification method fragment. With a single-key document and loose-kid
      * matching enabled, the sole key is used regardless of the kid mismatch.
+     *
+     * Also asserts that the loose-kid match fires an INFO log so operators can observe the
+     * fallback in production logs without requiring debug-level logging.
      */
     @Test
     fun `verify_didTrust_kidMismatchSingleKey_looseMatchVerifies`() =
@@ -337,15 +345,39 @@ class DidVerificationIntegrationTest {
                     )
                 }
 
-            // "ab0502f7" is a thumbprint-style kid not present in the resolved JWKSet
-            val verifier = verifierWithMockHttp(engine, didLooseKidMatch = true)
-            val result = verifier.verify(actor(signJwt(kid = "ab0502f7")))
+            // Attach a Logback ListAppender to capture INFO messages from JwksActorVerifier.
+            val loggerName = JwksActorVerifier::class.java.name
+            val logbackLogger = LoggerFactory.getLogger(loggerName) as Logger
+            val listAppender =
+                ListAppender<ILoggingEvent>().also {
+                    it.start()
+                    logbackLogger.addAppender(it)
+                }
+            val savedLevel = logbackLogger.level
+            logbackLogger.level = Level.INFO
 
-            assertEquals(
-                VerificationStatus.VERIFIED,
-                result.status,
-                "Expected VERIFIED via loose-kid match (AgentLair-shape single-key document)"
-            )
+            try {
+                // "ab0502f7" is a thumbprint-style kid not present in the resolved JWKSet
+                val verifier = verifierWithMockHttp(engine, didLooseKidMatch = true)
+                val result = verifier.verify(actor(signJwt(kid = "ab0502f7")))
+
+                assertEquals(
+                    VerificationStatus.VERIFIED,
+                    result.status,
+                    "Expected VERIFIED via loose-kid match (AgentLair-shape single-key document)"
+                )
+
+                // The loose-kid fallback must emit an INFO log containing "loose" so operators
+                // can observe it without enabling debug-level logging.
+                val infoMessages = listAppender.list.filter { it.level == Level.INFO }
+                assertTrue(
+                    infoMessages.any { it.formattedMessage.contains("loose", ignoreCase = true) },
+                    "Expected an INFO log mentioning 'loose' for the kid-match fallback; got: ${infoMessages.map { it.formattedMessage }}"
+                )
+            } finally {
+                logbackLogger.detachAppender(listAppender)
+                logbackLogger.level = savedLevel
+            }
         }
 
     /**

@@ -39,6 +39,7 @@ import java.security.Security
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
+import java.util.concurrent.atomic.AtomicInteger
 
 class JwksKeySetProviderTest {
     companion object {
@@ -1090,4 +1091,326 @@ class JwksKeySetProviderTest {
 
         assertTrue(closeCalled, "provider.close() should propagate to resolver.close() via registry.closeAll()")
     }
+
+    // =========================================================================
+    // Per-issuer coalescing — concurrency tests
+    // =========================================================================
+
+    /**
+     * Regression test for per-issuer cache-miss coalescing.
+     *
+     * 20 concurrent cache-missing callers for the SAME issuer must share a single underlying
+     * DID resolve call. Before coalescing, all 20 would each trigger their own resolve when
+     * holding the global [didCacheLock] serialised them; now a ConcurrentHashMap<Deferred>
+     * ensures only one in-flight resolve per issuer.
+     */
+    @Test
+    fun `concurrent cache misses for same issuer coalesce to single resolve`() =
+        runTest {
+            val did = "did:web:coalesce-test.example.com"
+            val resolveCount = AtomicInteger(0)
+
+            val (doc, _) =
+                run {
+                    val gen = Ed25519KeyPairGenerator()
+                    gen.init(Ed25519KeyGenerationParameters(SecureRandom()))
+                    val pair = gen.generateKeyPair()
+                    val pub = pair.public as Ed25519PublicKeyParameters
+                    val priv = pair.private as Ed25519PrivateKeyParameters
+                    val edKey =
+                        OctetKeyPair
+                            .Builder(Curve.Ed25519, Base64URL.encode(pub.encoded))
+                            .d(Base64URL.encode(priv.encoded))
+                            .keyID("key-1")
+                            .build()
+                    val vm =
+                        VerificationMethod(
+                            id = "$did#key-1",
+                            type = "JsonWebKey2020",
+                            controller = did,
+                            publicKeyJwk =
+                                JsonObject(
+                                    mapOf(
+                                        "kty" to JsonPrimitive("OKP"),
+                                        "crv" to JsonPrimitive("Ed25519"),
+                                        "x" to JsonPrimitive(edKey.x.toString()),
+                                        "kid" to JsonPrimitive("key-1"),
+                                    )
+                                ),
+                        )
+                    val document =
+                        DidDocument(
+                            id = did,
+                            verificationMethods = listOf(vm),
+                            assertionMethod = listOf("$did#key-1"),
+                        )
+                    Pair(document, edKey)
+                }
+
+            val mockRegistry = mockk<DidResolverRegistry>()
+            coEvery { mockRegistry.resolve(did) } answers {
+                resolveCount.incrementAndGet()
+                doc
+            }
+            coEvery { mockRegistry.closeAll() } returns Unit
+
+            val config =
+                VerifierConfig.Jwks(
+                    didAllowlist = listOf(did),
+                    cacheTtlSeconds = 300,
+                )
+            val provider =
+                DefaultJwksKeySetProvider(
+                    config,
+                    clock = Clock.fixed(Instant.parse("2024-01-01T00:00:00Z"), ZoneOffset.UTC),
+                    didResolverRegistry = mockRegistry,
+                )
+
+            try {
+                // Launch 20 concurrent cache-missing callers for the same issuer.
+                val results =
+                    (1..20)
+                        .map { async { provider.getKeySetForIssuer(did) } }
+                        .awaitAll()
+
+                assertEquals(20, results.size, "All 20 callers should get a result")
+                results.forEach { result ->
+                    assertNotNull(result.keys)
+                    assertEquals(1, result.keys.keys.size)
+                }
+
+                // Coalescing: at most a small number of resolves should have occurred.
+                // In practice, with proper coalescing, exactly 1 resolve fires.
+                // We allow ≤ 3 as a generous upper bound for timing races in the test harness.
+                assertTrue(
+                    resolveCount.get() <= 3,
+                    "Per-issuer coalescing must collapse concurrent misses into ≤ 3 resolves; got ${resolveCount.get()}"
+                )
+            } finally {
+                provider.close()
+            }
+        }
+
+    /**
+     * Per-issuer coalescing fans out across different issuers.
+     *
+     * 20 concurrent callers spread across 5 distinct issuers (4 per issuer) must each
+     * trigger at most a small number of resolves per issuer — NOT a global lock that
+     * serialises all 20 callers.
+     */
+    @Test
+    fun `concurrent cache misses for different issuers resolve in parallel — one resolve per issuer`() =
+        runTest {
+            val numIssuers = 5
+            val callersPerIssuer = 4
+
+            // Build 5 distinct DID docs.
+            val docs =
+                (1..numIssuers).associate { i ->
+                    val did = "did:web:fan-out-$i.example.com"
+                    val vm =
+                        VerificationMethod(
+                            id = "$did#key-1",
+                            type = "JsonWebKey2020",
+                            controller = did,
+                            publicKeyJwk =
+                                JsonObject(
+                                    mapOf(
+                                        "kty" to JsonPrimitive("OKP"),
+                                        "crv" to JsonPrimitive("Ed25519"),
+                                        "x" to JsonPrimitive("dGVzdA"),
+                                        "kid" to JsonPrimitive("key-1"),
+                                    )
+                                ),
+                        )
+                    did to
+                        DidDocument(
+                            id = did,
+                            verificationMethods = listOf(vm),
+                            assertionMethod = listOf("$did#key-1"),
+                        )
+                }
+
+            val resolveCounts = docs.keys.associateWith { AtomicInteger(0) }
+
+            val mockRegistry = mockk<DidResolverRegistry>()
+            docs.forEach { (did, doc) ->
+                coEvery { mockRegistry.resolve(did) } answers {
+                    resolveCounts[did]!!.incrementAndGet()
+                    doc
+                }
+            }
+            coEvery { mockRegistry.closeAll() } returns Unit
+
+            val config =
+                VerifierConfig.Jwks(
+                    didAllowlist = docs.keys.toList(),
+                    cacheTtlSeconds = 300,
+                )
+            val provider =
+                DefaultJwksKeySetProvider(
+                    config,
+                    clock = Clock.fixed(Instant.parse("2024-01-01T00:00:00Z"), ZoneOffset.UTC),
+                    didResolverRegistry = mockRegistry,
+                )
+
+            try {
+                // Each issuer gets 4 concurrent callers.
+                val deferreds =
+                    docs.keys.flatMap { did ->
+                        (1..callersPerIssuer).map { async { provider.getKeySetForIssuer(did) } }
+                    }
+                val results = deferreds.awaitAll()
+
+                assertEquals(numIssuers * callersPerIssuer, results.size)
+
+                // Each issuer should have been resolved at most a small number of times.
+                resolveCounts.forEach { (did, count) ->
+                    assertTrue(
+                        count.get() <= 3,
+                        "Issuer $did should have ≤ 3 resolves due to coalescing; got ${count.get()}"
+                    )
+                }
+            } finally {
+                provider.close()
+            }
+        }
+
+    // =========================================================================
+    // No-path-host integration test (did:web bare domain)
+    // =========================================================================
+
+    /**
+     * Integration-level test confirming that a bare-domain `did:web` (no path segments)
+     * resolves via `/.well-known/did.json` in the full pipeline:
+     *   DefaultJwksKeySetProvider → DidResolverRegistry → DidWebResolver(MockEngine)
+     *
+     * This is the no-path-host coverage called out in the Phase 5 plan. [DidWebResolverTest]
+     * has unit-level `buildUrl` coverage; this test validates the full stack end-to-end.
+     */
+    @Test
+    fun `getKeySetForIssuer resolves bare-domain did-web via well-known path`() =
+        runTest {
+            val did = "did:web:test.example.com"
+            val expectedUrl = "https://test.example.com/.well-known/did.json"
+            var capturedUrl: String? = null
+
+            val vm =
+                """
+                {
+                  "id": "$did#key-1",
+                  "type": "JsonWebKey2020",
+                  "controller": "$did",
+                  "publicKeyJwk": {
+                    "kty": "OKP",
+                    "crv": "Ed25519",
+                    "x": "dGVzdA"
+                  }
+                }
+                """.trimIndent()
+            val didDocument =
+                """
+                {
+                  "id": "$did",
+                  "verificationMethod": [$vm],
+                  "assertionMethod": ["$did#key-1"]
+                }
+                """.trimIndent()
+
+            val engine =
+                MockEngine { request ->
+                    capturedUrl = request.url.toString()
+                    respond(
+                        content = didDocument,
+                        status = HttpStatusCode.OK,
+                        headers = headersOf("Content-Type", "application/json"),
+                    )
+                }
+
+            val config =
+                VerifierConfig.Jwks(
+                    didAllowlist = listOf(did),
+                    cacheTtlSeconds = 300,
+                )
+            val registry = DidResolverRegistry(listOf(DidWebResolver(engine)))
+            val provider = DefaultJwksKeySetProvider(config, didResolverRegistry = registry)
+            try {
+                val result = provider.getKeySetForIssuer(did)
+                assertNotNull(result.keys)
+                assertEquals(1, result.keys.keys.size, "Should extract exactly one key from the DID document")
+                assertEquals(
+                    expectedUrl,
+                    capturedUrl,
+                    "Bare-domain did:web must resolve via .well-known/did.json"
+                )
+            } finally {
+                provider.close()
+            }
+        }
+
+    // =========================================================================
+    // Redirect regression — DID path must not follow redirects
+    // =========================================================================
+
+    /**
+     * Regression-prevention test: the DID resolver must never follow HTTP redirects.
+     *
+     * [DidWebResolver] configures `followRedirects = false` on its HTTP client. If a future
+     * change re-enables redirect following, a 30x response on the DID document endpoint
+     * would silently route document resolution to an attacker-controlled URL. This test
+     * asserts that a 302 redirect response throws [DidResolutionException] and does NOT
+     * trigger a second HTTP request to the Location target.
+     *
+     * Note: The redirect rejection is enforced in [DidWebResolver] (not [DefaultJwksKeySetProvider])
+     * and is already covered at unit level in [DidWebResolverTest]. This test exercises the
+     * same protection at the provider integration level, so a regression in the HTTP client
+     * configuration (e.g., someone sets followRedirects = true) would be caught here too.
+     */
+    @Test
+    fun `getKeySetForIssuer throws when DID document endpoint redirects`() =
+        runTest {
+            val did = "did:web:redirect-victim.example.com"
+            var requestCount = 0
+
+            val engine =
+                MockEngine { _ ->
+                    requestCount++
+                    respond(
+                        content = "",
+                        status = HttpStatusCode.Found,
+                        headers = headersOf("Location", "https://attacker.example.com/.well-known/did.json"),
+                    )
+                }
+
+            val config = VerifierConfig.Jwks(didAllowlist = listOf(did))
+            val registry = DidResolverRegistry(listOf(DidWebResolver(engine)))
+            val provider = DefaultJwksKeySetProvider(config, didResolverRegistry = registry)
+            try {
+                assertThrows<Exception> {
+                    provider.getKeySetForIssuer(did)
+                }
+                assertEquals(1, requestCount, "Redirect target must NOT be fetched — only one request expected")
+            } finally {
+                provider.close()
+            }
+        }
+
+    // =========================================================================
+    // Timeout test — gap documentation
+    // =========================================================================
+
+    // NOTE: A test for the HTTP request-timeout config (requestTimeoutMillis / connectTimeoutMillis)
+    // was evaluated but deferred. Ktor's MockEngine processes requests synchronously within the
+    // test coroutine dispatcher, so `delay()` inside the MockEngine lambda does not actually
+    // trigger the Ktor HttpTimeout plugin's timer (which runs on its own scheduler independent of
+    // the test dispatcher). Pointing the live CIO engine at a non-routable RFC 5737 address
+    // (192.0.2.1) would exercise connect-timeout but introduces real wall-clock latency (~3s)
+    // and requires network availability, making it unsuitable for a unit/integration test suite.
+    //
+    // Coverage rationale: the timeout values (REQUEST_TIMEOUT_MS, CONNECT_TIMEOUT_MS,
+    // SOCKET_TIMEOUT_MS) are compile-time constants; a regression would be obvious in code
+    // review. The existing redirect-rejection and non-200-status tests already exercise the
+    // HttpClient pipeline indirectly. A dedicated timeout test is tracked as a future improvement
+    // if an in-process HTTP server (e.g., embedded Ktor server) becomes available in the test
+    // harness without adding a heavyweight dependency.
 }

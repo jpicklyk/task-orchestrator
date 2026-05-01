@@ -116,7 +116,7 @@ class JwksActorVerifier(
             when {
                 matchingKeys.isNotEmpty() -> matchingKeys.first()
                 isDidTrust && config.didLooseKidMatch && jwkSet.keys.size == 1 -> {
-                    logger.debug(
+                    logger.info(
                         "JWT kid '{}' not found in DID-resolved JWKS for issuer '{}'; using sole eligible key (loose-kid match)",
                         kid,
                         signedJWT.jwtClaimsSet.issuer
