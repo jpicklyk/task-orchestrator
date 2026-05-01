@@ -3,11 +3,24 @@ package io.github.jpicklyk.mcptask.current.infrastructure.config
 import com.nimbusds.jose.jwk.JWKSet
 import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
 import io.ktor.client.HttpClient
+import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.engine.cio.CIO
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.request.get
-import io.ktor.client.statement.bodyAsText
+import io.ktor.client.statement.bodyAsChannel
+import io.ktor.http.ContentType
+import io.ktor.http.HttpStatusCode
+import io.ktor.http.contentType
+import io.ktor.utils.io.readRemaining
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.io.readByteArray
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -15,6 +28,7 @@ import org.slf4j.LoggerFactory
 import java.nio.file.Paths
 import java.time.Clock
 import java.time.Instant
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Snapshot of the cache state at the time the last key set was served.
@@ -30,7 +44,30 @@ data class CacheState(
 )
 
 /**
- * Provides a [JWKSet] for JWT signature verification.
+ * Thrown by [JwksKeySetProvider.getKeySetForIssuer] when the given issuer DID does not
+ * match the configured [VerifierConfig.Jwks.didAllowlist] or [VerifierConfig.Jwks.didPattern].
+ */
+class IssuerNotTrustedException(
+    issuer: String
+) : Exception("issuer not in DID trust policy: $issuer")
+
+/**
+ * Bundles a fetched (or cached) [JWKSet] with the [CacheState] that describes how it was served.
+ *
+ * Returning [CacheState] alongside the keys eliminates the need for a separate
+ * `getCacheState()` side-channel and prevents concurrent-call races where one call's
+ * cache state could clobber another's shared instance field.
+ *
+ * @param keys The JWK set to use for verification.
+ * @param cacheState The cache state at the moment this result was produced.
+ */
+data class JwksResult(
+    val keys: JWKSet,
+    val cacheState: CacheState
+)
+
+/**
+ * Provides a [JwksResult] for JWT signature verification.
  *
  * Implementations are responsible for loading keys from a configured source (remote URI,
  * OIDC discovery document, or local file) and caching the result according to the
@@ -38,9 +75,11 @@ data class CacheState(
  */
 interface JwksKeySetProvider {
     /**
-     * Returns the current [JWKSet]. Implementations may cache and refresh transparently.
+     * Returns the current [JwksResult]. Implementations may cache and refresh transparently.
+     * The returned [JwksResult.cacheState] reflects whether this specific call was served
+     * from a stale entry or freshly fetched.
      */
-    suspend fun getKeySet(): JWKSet
+    suspend fun getKeySet(): JwksResult
 
     /**
      * Returns the issuer resolved via OIDC discovery, or null if discovery was not configured
@@ -50,15 +89,20 @@ interface JwksKeySetProvider {
     fun getResolvedIssuer(): String?
 
     /**
-     * Returns the [CacheState] reflecting whether the most recent [getKeySet] call was served
-     * from a stale cache entry and, if so, how old that entry was.
-     */
-    fun getCacheState(): CacheState
-
-    /**
      * Releases any underlying resources (e.g., HTTP client connections).
      */
     fun close()
+
+    /**
+     * Returns the [JwksResult] for a specific issuer DID. Used under DID-rooted trust.
+     * Resolves the issuer via the configured DidResolverRegistry, projects the resulting
+     * DID document into a JWKSet via DidDocumentJwksExtractor, and caches the result
+     * per-issuer with TTL semantics matching getKeySet().
+     *
+     * @throws IssuerNotTrustedException if the issuer does not match the configured
+     *   didAllowlist or didPattern.
+     */
+    suspend fun getKeySetForIssuer(issuer: String): JwksResult
 }
 
 /**
@@ -75,7 +119,15 @@ interface JwksKeySetProvider {
  */
 class DefaultJwksKeySetProvider(
     private val config: VerifierConfig.Jwks,
-    private val clock: Clock = Clock.systemUTC()
+    private val clock: Clock = Clock.systemUTC(),
+    private val didResolverRegistry: DidResolverRegistry = DidResolverRegistry(listOf(DidWebResolver())),
+    private val didDocumentJwksExtractor: DidDocumentJwksExtractor =
+        DidDocumentJwksExtractor(strictRelationship = config.didStrictRelationship),
+    /**
+     * Optional [HttpClientEngine] for testing. When provided, the HTTP client will use this engine
+     * instead of the default CIO engine, allowing tests to mock HTTP responses hermetically.
+     */
+    internal val httpClientEngineForTest: HttpClientEngine? = null
 ) : JwksKeySetProvider {
     private val logger = LoggerFactory.getLogger(DefaultJwksKeySetProvider::class.java)
 
@@ -92,22 +144,68 @@ class DefaultJwksKeySetProvider(
     @Volatile
     private var resolvedIssuer: String? = null
 
-    /** Cache state reflecting the most recent [getKeySet] outcome. */
-    @Volatile
-    private var lastCacheState: CacheState = FRESH_CACHE
-
     /** Thread-safe lazy HTTP client — created only when a remote fetch is needed. */
-    private val httpClientDelegate = lazy { HttpClient(CIO) }
+    private val httpClientDelegate =
+        lazy {
+            val configure: io.ktor.client.HttpClientConfig<*>.() -> Unit = {
+                followRedirects = false
+                install(HttpTimeout) {
+                    requestTimeoutMillis = REQUEST_TIMEOUT_MS
+                    connectTimeoutMillis = CONNECT_TIMEOUT_MS
+                    socketTimeoutMillis = SOCKET_TIMEOUT_MS
+                }
+            }
+            if (httpClientEngineForTest != null) {
+                HttpClient(httpClientEngineForTest, configure)
+            } else {
+                HttpClient(CIO) { configure(this) }
+            }
+        }
     private val httpClient: HttpClient by httpClientDelegate
 
-    override suspend fun getKeySet(): JWKSet {
+    /** Per-issuer DID cache with LRU eviction at [MAX_DID_CACHE_ENTRIES] entries. */
+    private val didCache =
+        object : LinkedHashMap<String, Pair<JWKSet, Instant>>(16, 0.75f, true) {
+            override fun removeEldestEntry(eldest: Map.Entry<String, Pair<JWKSet, Instant>>?): Boolean {
+                val shouldEvict = size > MAX_DID_CACHE_ENTRIES
+                if (shouldEvict) {
+                    logger.warn(
+                        "DID cache LRU eviction at capacity {} — fleet churn or cache size too small",
+                        MAX_DID_CACHE_ENTRIES
+                    )
+                }
+                return shouldEvict
+            }
+        }
+    private val didCacheLock = Mutex()
+
+    /**
+     * Coroutine scope used to launch per-issuer in-flight fetches for coalescing.
+     * Uses [SupervisorJob] so a failing fetch for one issuer does not cancel fetches
+     * for other issuers. Cancelled in [close].
+     */
+    private val cacheScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
+    /**
+     * Tracks in-flight DID resolution deferred values keyed by issuer DID.
+     *
+     * Concurrent cache misses for the *same* issuer share a single [Deferred] (coalescing).
+     * Concurrent misses for *different* issuers get independent [Deferred] instances so they
+     * fan out in parallel rather than serialising through a global lock.
+     *
+     * The entry is removed in the `finally` block of the async lambda so that after the
+     * fetch completes (whether successfully or with an error), the next caller starts a fresh
+     * fetch rather than re-awaiting a completed (potentially error) [Deferred].
+     */
+    private val inFlight = ConcurrentHashMap<String, Deferred<JwksResult>>()
+
+    override suspend fun getKeySet(): JwksResult {
         val now = clock.instant()
 
         // Fast path: return cached value if still valid.
         cached?.let { (set, fetchedAt) ->
             if (now.isBefore(fetchedAt.plusSeconds(config.cacheTtlSeconds))) {
-                lastCacheState = FRESH_CACHE
-                return set
+                return JwksResult(set, FRESH_CACHE)
             }
         }
 
@@ -117,8 +215,7 @@ class DefaultJwksKeySetProvider(
             // Double-check after acquiring the lock.
             cached?.let { (set, fetchedAt) ->
                 if (nowInLock.isBefore(fetchedAt.plusSeconds(config.cacheTtlSeconds))) {
-                    lastCacheState = FRESH_CACHE
-                    return@withLock set
+                    return@withLock JwksResult(set, FRESH_CACHE)
                 }
             }
 
@@ -128,8 +225,7 @@ class DefaultJwksKeySetProvider(
             try {
                 val fresh = fetchKeySet()
                 cached = Pair(fresh, nowInLock)
-                lastCacheState = FRESH_CACHE
-                fresh
+                JwksResult(fresh, FRESH_CACHE)
             } catch (e: Exception) {
                 if (config.staleOnError && previousCached != null) {
                     val (staleSet, fetchedAt) = previousCached
@@ -139,8 +235,7 @@ class DefaultJwksKeySetProvider(
                         e.message,
                         ageSeconds
                     )
-                    lastCacheState = CacheState(fromStaleCache = true, ageSeconds = ageSeconds)
-                    staleSet
+                    JwksResult(staleSet, CacheState(fromStaleCache = true, ageSeconds = ageSeconds))
                 } else {
                     throw e
                 }
@@ -148,14 +243,119 @@ class DefaultJwksKeySetProvider(
         }
     }
 
+    override suspend fun getKeySetForIssuer(issuer: String): JwksResult {
+        if (!isIssuerTrusted(issuer)) {
+            throw IssuerNotTrustedException(issuer)
+        }
+        val now = clock.instant()
+
+        // Fast path: return cached value if still valid.
+        didCacheLock.withLock {
+            didCache[issuer]?.let { (set, fetchedAt) ->
+                if (now.isBefore(fetchedAt.plusSeconds(config.cacheTtlSeconds))) {
+                    return JwksResult(set, FRESH_CACHE)
+                }
+            }
+        }
+
+        // Slow path: coalesce concurrent cache misses for the same issuer.
+        //
+        // For a given issuer, computeIfAbsent ensures all concurrent cache-missing callers
+        // share a single Deferred<JwksResult>. The first caller creates the Deferred; the
+        // rest just await it. Different issuers get independent Deferreds (no global lock).
+        //
+        // The Deferred is started lazily in computeIfAbsent and immediately started below,
+        // which prevents a race where two threads both see no entry and both try to insert.
+        @Suppress("DeferredResultUnused")
+        val deferred =
+            inFlight.computeIfAbsent(issuer) { iss ->
+                cacheScope.async { fetchAndCacheForIssuer(iss) }
+            }
+        return deferred.await()
+    }
+
+    /**
+     * Performs the actual DID resolution and cache population for [issuer].
+     *
+     * Called only from the in-flight [Deferred] created in [getKeySetForIssuer].
+     * Removes itself from [inFlight] in the finally block so that once the fetch
+     * completes (or fails), the next caller starts a fresh fetch.
+     */
+    private suspend fun fetchAndCacheForIssuer(issuer: String): JwksResult {
+        try {
+            val nowInFetch = clock.instant()
+
+            // Re-check the cache inside the fetch (another caller may have populated it).
+            didCacheLock.withLock {
+                didCache[issuer]?.let { (set, fetchedAt) ->
+                    if (nowInFetch.isBefore(fetchedAt.plusSeconds(config.cacheTtlSeconds))) {
+                        return JwksResult(set, FRESH_CACHE)
+                    }
+                }
+            }
+
+            val previousCached = didCacheLock.withLock { didCache[issuer] }
+
+            return try {
+                val doc = didResolverRegistry.resolve(issuer)
+                val jwks = didDocumentJwksExtractor.extract(doc)
+                didCacheLock.withLock {
+                    didCache[issuer] = Pair(jwks, nowInFetch)
+                }
+                JwksResult(jwks, FRESH_CACHE)
+            } catch (e: Exception) {
+                if (config.staleOnError && previousCached != null) {
+                    val (staleSet, fetchedAt) = previousCached
+                    val ageSeconds = nowInFetch.epochSecond - fetchedAt.epochSecond
+                    logger.warn(
+                        "DID resolution failed for {} ({}); serving stale cache (age={}s)",
+                        issuer,
+                        e.message,
+                        ageSeconds
+                    )
+                    JwksResult(staleSet, CacheState(fromStaleCache = true, ageSeconds = ageSeconds))
+                } else {
+                    throw e
+                }
+            }
+        } finally {
+            inFlight.remove(issuer)
+        }
+    }
+
+    private fun isIssuerTrusted(issuer: String): Boolean {
+        if (config.didAllowlist.contains(issuer)) return true
+        config.didPattern?.let { pattern ->
+            if (matchesGlob(issuer, pattern)) return true
+        }
+        return false
+    }
+
+    // Glob match: "*" matches any single DID path segment (i.e., any sequence of characters
+    // that does NOT contain ":"). This prevents sub-path hijack where, for example,
+    // "did:web:host:agents:alice:fake" would wrongly match "did:web:host:agents:*" under an
+    // unrestricted ".*" wildcard. No "**" escape-hatch is provided in v1.
+    // Compile pattern to regex once per call (acceptable; patterns are typically short).
+    internal fun matchesGlob(
+        value: String,
+        pattern: String
+    ): Boolean {
+        val regex =
+            pattern
+                .split("*")
+                .joinToString("[^:]*") { Regex.escape(it) }
+                .let { Regex("^$it$") }
+        return regex.matches(value)
+    }
+
     override fun getResolvedIssuer(): String? = resolvedIssuer
 
-    override fun getCacheState(): CacheState = lastCacheState
-
     override fun close() {
+        cacheScope.cancel()
         if (httpClientDelegate.isInitialized()) {
             httpClient.close()
         }
+        didResolverRegistry.closeAll()
     }
 
     // -------------------------------------------------------------------------
@@ -228,9 +428,46 @@ class DefaultJwksKeySetProvider(
         }
     }
 
-    private suspend fun httpGet(url: String): String = httpClient.get(url).bodyAsText()
+    private suspend fun httpGet(url: String): String {
+        val response = httpClient.get(url)
+
+        // Reject non-200 responses (including 3xx — we never follow redirects).
+        if (response.status != HttpStatusCode.OK) {
+            throw IllegalStateException("HTTP ${response.status.value} fetching JWKS from $url")
+        }
+
+        // Validate Content-Type: accept application/json or application/jwk-set+json.
+        val contentType = response.contentType()
+        if (contentType == null || !isAcceptableJwksContentType(contentType)) {
+            throw IllegalStateException(
+                "unexpected Content-Type '$contentType' from $url; expected application/json or application/jwk-set+json"
+            )
+        }
+
+        // Read body with a hard cap to prevent unbounded memory consumption.
+        val bytes = response.bodyAsChannel().readRemaining(MAX_BODY_BYTES.toLong() + 1).readByteArray()
+        if (bytes.size > MAX_BODY_BYTES) {
+            throw IllegalStateException(
+                "response body from $url exceeds maximum allowed size of ${MAX_BODY_BYTES} bytes"
+            )
+        }
+        return bytes.toString(Charsets.UTF_8)
+    }
+
+    /** Returns true if the given [ContentType] is acceptable for a JWKS endpoint response. */
+    private fun isAcceptableJwksContentType(contentType: ContentType): Boolean =
+        contentType.match(ContentType.Application.Json) ||
+            contentType.match(ContentType("application", "jwk-set+json"))
 
     companion object {
         private val FRESH_CACHE = CacheState(fromStaleCache = false, ageSeconds = null)
+        private const val MAX_DID_CACHE_ENTRIES = 256
+
+        /** Maximum response body size accepted from a JWKS or OIDC discovery endpoint (1 MiB). */
+        const val MAX_BODY_BYTES: Int = 1 * 1024 * 1024
+
+        private const val REQUEST_TIMEOUT_MS = 5_000L
+        private const val CONNECT_TIMEOUT_MS = 3_000L
+        private const val SOCKET_TIMEOUT_MS = 5_000L
     }
 }

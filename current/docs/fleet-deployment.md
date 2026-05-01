@@ -83,22 +83,104 @@ Valid values (case-insensitive): `accept-cached`, `accept-self-reported`, `rejec
 
 ### Cross-Org `did:web` Deployments
 
-For deployments where agents from different organizations share a single Task Orchestrator instance, use `reject`:
+For deployments where agents from different organizations share a single Task Orchestrator instance,
+combine `reject` policy with native DID-trust mode:
 
 ```yaml
 auditing:
   enabled: true
-  degraded_mode_policy: reject
+  degraded_mode_policy: reject        # unverified actors cannot claim or advance claimed items
   verifier:
     type: jwks
-    jwks_uri: "https://your-org-idp/.well-known/jwks.json"
-    issuer: "https://your-org-idp"
+    # DID trust mode — each agent is identified by its own did:web DID
+    did_allowlist:
+      - "did:web:agent.org-a.example"
+      - "did:web:agent.org-b.example"
+    # OR match an entire domain's agent fleet — note: * is segment-bounded (see below)
+    # did_pattern: "did:web:agents.example.com:*"
+    algorithms:
+      - EdDSA                         # required — empty or missing causes startup error
+    audience: "mcp-task-orchestrator"
     require_sub_match: true
+    did_loose_kid_match: true         # accommodates AgentLair-style thumbprint kid headers
 ```
 
-`did:web` identifiers (e.g., `did:web:agent.example.com`) work as `claimedBy` values natively — they are opaque strings and require no special handling.
+**Algorithm name for Ed25519 tokens.** Use the string `EdDSA`, not `Ed25519`. This matches the
+`alg` claim that Ed25519-signed JWTs carry per [RFC 8037](https://datatracker.ietf.org/doc/html/rfc8037),
+and corresponds to `JWSAlgorithm.Ed25519.name` in the Nimbus JOSE library this verifier uses
+internally. Because `algorithms` is now strictly required under `type: jwks`, an EdDSA-only fleet
+that ships `algorithms: ["Ed25519"]` will fail startup with a clear error rather than silently
+mis-matching at verification time.
 
-Under `reject`, any agent without a valid JWT in `actor.proof` cannot claim items or advance claimed items. Unclaimed items remain accessible to unverified actors (to preserve backward compatibility for mixed fleets during migration).
+**`did_pattern` segment-bounded wildcard.** The `*` in `did_pattern` matches a single
+colon-delimited DID segment — it will not cross a `:` boundary. Example:
+
+| Pattern | Value | Match? |
+|---------|-------|--------|
+| `did:web:agents.example.com:*` | `did:web:agents.example.com:alice` | Yes — one segment |
+| `did:web:agents.example.com:*` | `did:web:agents.example.com:alice:hijacker` | **No** — two segments |
+| `did:web:agents.example.com:*` | `did:web:agents.example.com:` | Yes — empty trailing segment |
+
+If your fleet uses a two-level path (`did:web:host:team:agent`), use two explicit wildcard
+segments (`did:web:host:*:*`) or enumerate teams in `did_allowlist`.
+
+`did:web` identifiers work as `claimedBy` values natively — they are opaque strings and require no
+special handling. Under `reject`, any agent without a valid JWT in `actor.proof` cannot claim items
+or advance claimed items. Unclaimed items remain accessible to unverified actors to preserve backward
+compatibility for mixed fleets during migration.
+
+### DID document resolution under v1
+
+The verifier ships `did:web` support via the `DidResolver` interface, which is designed to be
+method-agnostic. Additional DID methods (e.g., `did:key`, `did:jwk`) can be registered by
+extending `DidResolver` and adding the implementation to the `DidResolverRegistry` — see issue #156
+for the roadmap.
+
+Per-agent DID documents are resolved **on-demand at verification time**, not pre-loaded at startup.
+The first verification attempt for a given issuer triggers a live fetch to the `did:web` URL;
+subsequent attempts within the cache TTL use the cached key set. The cache is LRU-evicted at 256
+entries — for fleets larger than that, monitor logs for LRU eviction warnings and consider tuning
+`cache_ttl_seconds` to spread re-fetches.
+
+### `service` block handling
+
+W3C DID documents may include a `service` block. AgentLair-shape deployments commonly publish a
+`service` entry of type `JsonWebKeySet2020` pointing at a separate JWKS endpoint URL, alongside the
+inline `verificationMethod` keys.
+
+**v1 deliberately ignores `service` blocks.** The verifier extracts signing keys from
+`verificationMethod[]` only and never fetches the `service` endpoint.
+
+**Rationale:** In mixed fleet deployments (issue #156), some accounts have rotated per-agent keys
+while others have not. For un-rotated accounts, the `service`-endpoint URL may point at an
+unreachable or stale endpoint. The inline `verificationMethod` route is the only one that works
+reliably across all accounts. Silently ignoring `service` prevents a broken service endpoint on one
+account from causing verification failures for that agent.
+
+Operators whose deployments treat external JWKS endpoints as the authoritative key source (rather
+than inline `verificationMethod` entries) should follow the tracking issue for future `service`-block
+support, deferred to a future release.
+
+### Loose-kid match policy
+
+The loose-kid match policy addresses the AgentLair deployment shape where agent tooling sets a JWK
+thumbprint as the JWT `kid` header. Thumbprint-based kids do not match the bare-fragment ids
+(`#key-1`, `#signing-key`, etc.) that the DID document extractor derives from
+`verificationMethod[].id`.
+
+Three conditions must ALL be true for loose-kid match to apply:
+
+1. DID trust mode is active (`did_allowlist` or `did_pattern` is configured).
+2. `did_loose_kid_match: true` (default).
+3. The resolved DID document's eligible key set contains **exactly one entry** (single-key guard).
+
+When all three hold, the single eligible key is used for signature verification regardless of kid.
+Multi-key documents always require an exact kid match — the single-key guard prevents "first key
+wins" ambiguity on documents with multiple signing keys.
+
+**When to set `did_loose_kid_match: false`:** Set this when your agents consistently emit correct
+bare-fragment kids, or when you want strict alignment between the JWT kid and the DID document
+fragment ids as an additional assurance layer.
 
 ---
 

@@ -85,24 +85,48 @@ class JwksActorVerifier(
             return rejected("algorithm not allowed: ${alg.name}", "policy")
         }
 
-        // Step 4 — fetch JWKS.
-        val jwkSet =
+        // Determine trust mode once — used in both the JWKS fetch branch and kid-lookup branch.
+        val isDidTrust = config.didAllowlist.isNotEmpty() || config.didPattern != null
+
+        // Step 4 — fetch JWKS (branched on DID-trust mode).
+        val jwksResult =
             try {
-                keySetProvider.getKeySet()
+                if (isDidTrust) {
+                    val iss =
+                        signedJWT.jwtClaimsSet.issuer
+                            ?: return rejected("missing iss claim under DID trust", "claims")
+                    keySetProvider.getKeySetForIssuer(iss)
+                } else {
+                    keySetProvider.getKeySet()
+                }
+            } catch (e: IssuerNotTrustedException) {
+                return rejected(e.message ?: "issuer not in DID trust policy", "policy")
+            } catch (e: DidSecurityViolationException) {
+                return rejected(e.message ?: "DID document security violation", "policy")
             } catch (e: Exception) {
                 return unavailable("failed to fetch JWKS: ${e.message}")
             }
+        val (jwkSet, fetchCacheState) = jwksResult
 
         // Step 5 — select the key matching the JWT's kid.
         val kid = signedJWT.header.keyID
         val matcher = JWKMatcher.Builder().keyID(kid).build()
         val matchingKeys = JWKSelector(matcher).select(jwkSet)
-        if (matchingKeys.isEmpty()) {
-            return rejected("no matching key for kid: $kid", "crypto")
-        }
+        val jwk =
+            when {
+                matchingKeys.isNotEmpty() -> matchingKeys.first()
+                isDidTrust && config.didLooseKidMatch && jwkSet.keys.size == 1 -> {
+                    logger.info(
+                        "JWT kid '{}' not found in DID-resolved JWKS for issuer '{}'; using sole eligible key (loose-kid match)",
+                        kid,
+                        signedJWT.jwtClaimsSet.issuer
+                    )
+                    jwkSet.keys.first()
+                }
+                else -> return rejected("no matching key for kid: $kid", "crypto")
+            }
 
         // Step 6 — build a JWS verifier from the first matching key and verify the signature.
-        val jwk = matchingKeys.first()
         val jwsVerifier =
             try {
                 when (jwk) {
@@ -163,12 +187,13 @@ class JwksActorVerifier(
         }
 
         // Success — inspect cache state for stale-cache metadata.
-        val cacheState = keySetProvider.getCacheState()
+        // Use the cache state returned with the JwksResult (not a separate getCacheState() call)
+        // to avoid races where a concurrent verification's result could clobber a shared field.
         val successMetadata: Map<String, String> =
-            if (cacheState.fromStaleCache) {
+            if (fetchCacheState.fromStaleCache) {
                 buildMap {
                     put("verifiedFromCache", "true")
-                    cacheState.ageSeconds?.let { put("cacheAgeSeconds", it.toString()) }
+                    fetchCacheState.ageSeconds?.let { put("cacheAgeSeconds", it.toString()) }
                 }
             } else {
                 emptyMap()

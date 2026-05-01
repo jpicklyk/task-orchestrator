@@ -99,8 +99,16 @@ sealed class VerifierConfig {
     /**
      * JWKS-backed verifier.
      *
-     * Exactly one of [oidcDiscovery], [jwksUri], or [jwksPath] must be provided;
-     * the service that constructs the verifier enforces this constraint.
+     * Two mutually exclusive trust modes:
+     *
+     * **Static-JWKS mode:** exactly one of [oidcDiscovery], [jwksUri], or [jwksPath] must be
+     * provided; all three DID fields ([didAllowlist], [didPattern]) must be null/empty.
+     *
+     * **DID-trust mode:** triggered when [didAllowlist] is non-empty OR [didPattern] is non-null.
+     * In this mode all of [oidcDiscovery], [jwksUri], and [jwksPath] must be null — the verifier
+     * resolves keys from the actor's DID document instead of a pre-configured JWKS endpoint.
+     *
+     * The service that constructs the verifier enforces the mutual-exclusion constraint at startup.
      *
      * @param oidcDiscovery HTTPS URL of an OIDC Discovery document (`/.well-known/openid-configuration`).
      *   The JWKS URI is fetched from the `jwks_uri` field of the discovery document.
@@ -115,6 +123,19 @@ sealed class VerifierConfig {
      *   the caller (default true).
      * @param staleOnError When true (default), a stale cached key set is served if the JWKS
      *   endpoint is unreachable during a refresh. When false, the fetch exception propagates.
+     * @param didAllowlist Explicit list of DID strings trusted as actor identities in DID-trust mode.
+     *   Non-empty activates DID-trust mode; must be combined with a null [oidcDiscovery]/[jwksUri]/[jwksPath].
+     * @param didPattern Glob or regex pattern for trusted DIDs in DID-trust mode. Non-null activates
+     *   DID-trust mode; must be combined with a null [oidcDiscovery]/[jwksUri]/[jwksPath].
+     *   Content validation (glob vs regex, compilation) is handled by the verifier layer, not this config class.
+     * @param didStrictRelationship When true (default), only verification methods referenced from the
+     *   resolved DID document's `assertionMethod` array are eligible for JWT signature verification.
+     *   Setting false allows any key present in the DID document.
+     * @param didLooseKidMatch When true (default), if the JWT's `kid` header is not found among the
+     *   eligible keys in the resolved DID document AND the eligible-key set contains exactly one entry,
+     *   that single key is used for verification (single-key guard). Multi-key documents still require
+     *   an exact `kid` match regardless of this setting. Set false to require strict `kid` matching
+     *   in all cases.
      */
     data class Jwks(
         val oidcDiscovery: String? = null,
@@ -125,6 +146,10 @@ sealed class VerifierConfig {
         val algorithms: List<String> = emptyList(),
         val cacheTtlSeconds: Long = 300,
         val requireSubMatch: Boolean = true,
-        val staleOnError: Boolean = true
+        val staleOnError: Boolean = true,
+        val didAllowlist: List<String> = emptyList(),
+        val didPattern: String? = null,
+        val didStrictRelationship: Boolean = true,
+        val didLooseKidMatch: Boolean = true
     ) : VerifierConfig()
 }

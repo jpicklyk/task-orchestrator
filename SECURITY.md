@@ -129,6 +129,76 @@ auditing:
     require_sub_match: true   # JWT 'sub' must match actor.id
 ```
 
+### DID-rooted trust (v1 — did:web)
+
+**When to use:** Per-agent DID identities in fleet deployments using AgentLair-style or other
+`did:web` identity providers. Each agent is identified by a DID rather than a shared JWKS endpoint —
+the verifier resolves the agent's DID document on-demand and extracts the signing key inline.
+
+**Configuration:**
+
+```yaml
+auditing:
+  enabled: true
+  degraded_mode_policy: reject       # recommended for cross-org did:web fleets
+  verifier:
+    type: jwks
+    # DID trust mode — mutually exclusive with oidc_discovery / jwks_uri / jwks_path
+    did_allowlist:
+      - "did:web:agent-a.example.com"
+      - "did:web:agent-b.partner.org"
+    # OR use a glob pattern to match any did:web under your domain:
+    # did_pattern: "did:web:agents.example.com:*"
+    algorithms:
+      - EdDSA                        # required — no implicit default; empty or missing causes startup error
+    audience: "mcp-task-orchestrator"
+    require_sub_match: true
+    did_strict_relationship: true    # only assertionMethod-referenced keys are eligible
+    did_loose_kid_match: true        # allow single-key DID docs with mismatched kid header
+```
+
+**Trust policy constraints (enforced at startup):**
+
+- **`algorithms` is required.** Under `type: jwks`, omitting `algorithms` or providing an empty list
+  causes an `IllegalArgumentException` at config load. There is no implicit default — operators must
+  declare the allowlist explicitly. Supported values include `EdDSA`, `ES256`, `ES384`, `ES512`,
+  `RS256`, `RS384`, `RS512`.
+
+- **`did_pattern` `*` is path-segment-bounded.** The wildcard matches a single DID colon-delimited
+  segment (`[^:]*` in regex terms). `did:web:example.com:agents:*` matches
+  `did:web:example.com:agents:alice` but **not** `did:web:example.com:agents:alice:hijacker`. This
+  prevents sub-path hijack where an attacker registers `alice:role:owner` under an operator's fleet
+  prefix and matches a broader wildcard. Operators needing multi-segment coverage must list each
+  fleet explicitly in `did_allowlist`, or restructure the DID hierarchy so the distinguishing
+  segment is the last one. No `**` double-wildcard is available in v1.
+
+- **Exactly one static JWKS source.** Providing more than one of `oidc_discovery`, `jwks_uri`, and
+  `jwks_path` causes a startup error (`IllegalArgumentException`). This matches the existing
+  mutual-exclusion rule for DID-trust + static-JWKS combinations.
+
+For deeper configuration detail see [Fleet Deployment — Cross-Org did:web Deployments](current/docs/fleet-deployment.md#cross-org-didweb-deployments).
+
+**Trust model:** Under DID trust, the JWT's `iss` claim is the resolution key. Only DIDs matching
+`did_allowlist` or `did_pattern` are resolved at all — unrecognised issuers are rejected immediately
+with `failureKind=policy` before any network call is made. This limits the resolver's attack surface
+to explicitly trusted identity spaces.
+
+**Loose-kid policy:** AgentLair and similar tooling sometimes set a thumbprint-based `kid` in the
+JWT header that does not appear as a bare fragment in the DID document's `verificationMethod[].id`.
+When `did_loose_kid_match: true` (the default), a mismatched kid is tolerated **only when the
+resolved DID document contains exactly one eligible key** — the sole key is used without further
+disambiguation. Multi-key documents still require an exact `kid` match regardless of this setting
+(the single-key guard prevents "first key wins" behaviour). Set `did_loose_kid_match: false` to
+require strict `kid` matching in all cases.
+
+**Mutual exclusion:** `did_allowlist` / `did_pattern` are mutually exclusive with
+`oidc_discovery`, `jwks_uri`, and `jwks_path`. Configuring both causes a startup error.
+
+**Cache semantics:** Resolved JWK sets are cached per-issuer DID with an LRU policy
+(up to 256 entries) and the same TTL as `cache_ttl_seconds`. The cache is populated lazily at
+first verification and refreshed after TTL expiry. The global `stale_on_error` behaviour applies
+per-issuer — a JWKS refresh failure falls back to the cached key set when `stale_on_error: true`.
+
 #### Enforcement summary
 
 | Client type | `auditing.enabled: true` | `verifier.type: jwks` |

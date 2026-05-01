@@ -146,6 +146,9 @@ class YamlAuditingConfigService(
                     warnings
                 )
             }
+        } catch (e: IllegalArgumentException) {
+            // Config constraint violations (e.g. mutual-exclusion) are surfaced immediately
+            throw e
         } catch (e: Exception) {
             val msg = "Failed to load auditing config from '$configPath': ${e.message}"
             warnings.add(msg)
@@ -186,13 +189,59 @@ class YamlAuditingConfigService(
                 val jwksUri = verifierMap["jwks_uri"] as? String
                 val jwksPath = verifierMap["jwks_path"] as? String
 
-                if (oidcDiscovery == null && jwksUri == null && jwksPath == null) {
+                val rawDidAllowlist = verifierMap["did_allowlist"]
+                val didAllowlist: List<String> =
+                    when (rawDidAllowlist) {
+                        is List<*> -> rawDidAllowlist.filterIsInstance<String>()
+                        else -> emptyList()
+                    }
+                val didPattern = verifierMap["did_pattern"] as? String
+                val didStrictRelationship = (verifierMap["did_strict_relationship"] as? Boolean) ?: true
+                val didLooseKidMatch = (verifierMap["did_loose_kid_match"] as? Boolean) ?: true
+
+                val isDidTrust = didAllowlist.isNotEmpty() || didPattern != null
+                val isStaticJwks = oidcDiscovery != null || jwksUri != null || jwksPath != null
+
+                // Mutual exclusion: DID-trust and static-JWKS fields cannot coexist
+                if (isDidTrust && isStaticJwks) {
+                    val conflicting =
+                        buildList {
+                            if (oidcDiscovery != null) add("oidc_discovery")
+                            if (jwksUri != null) add("jwks_uri")
+                            if (jwksPath != null) add("jwks_path")
+                        }.joinToString(", ")
+                    throw IllegalArgumentException(
+                        "auditing.verifier: DID-trust mode (did_allowlist/did_pattern) is mutually exclusive " +
+                            "with static JWKS fields; conflicting fields: $conflicting"
+                    )
+                }
+
+                // Neither DID trust nor static JWKS configured — no key source available
+                if (!isDidTrust && !isStaticJwks) {
                     val msg =
                         "auditing.verifier type 'jwks' requires one of: " +
-                            "oidc_discovery, jwks_uri, or jwks_path; falling back to Noop"
+                            "oidc_discovery, jwks_uri, jwks_path (static JWKS mode), " +
+                            "or did_allowlist/did_pattern (DID-trust mode); falling back to Noop"
                     warnings.add(msg)
                     logger.warn(msg)
                     return VerifierConfig.Noop
+                }
+
+                // When static JWKS mode, enforce "exactly one source" hard error
+                if (isStaticJwks) {
+                    val sourcesSet = listOfNotNull(oidcDiscovery, jwksUri, jwksPath)
+                    if (sourcesSet.size > 1) {
+                        val provided =
+                            buildList {
+                                if (oidcDiscovery != null) add("oidc_discovery")
+                                if (jwksUri != null) add("jwks_uri")
+                                if (jwksPath != null) add("jwks_path")
+                            }.joinToString(", ")
+                        throw IllegalArgumentException(
+                            "auditing.verifier type 'jwks' requires exactly one of oidc_discovery, " +
+                                "jwks_uri, or jwks_path; multiple were provided: $provided"
+                        )
+                    }
                 }
 
                 val issuer = verifierMap["issuer"] as? String
@@ -204,6 +253,14 @@ class YamlAuditingConfigService(
                         is List<*> -> rawAlgorithms.filterIsInstance<String>()
                         else -> emptyList()
                     }
+
+                // algorithms is required under type: jwks — no implicit default list
+                if (algorithms.isEmpty()) {
+                    throw IllegalArgumentException(
+                        "auditing.verifier type 'jwks' requires a non-empty 'algorithms' allowlist; " +
+                            "supported values include EdDSA, ES256, ES384, ES512, RS256, RS384, RS512"
+                    )
+                }
 
                 val cacheTtlSeconds =
                     when (val raw = verifierMap["cache_ttl_seconds"]) {
@@ -226,7 +283,11 @@ class YamlAuditingConfigService(
                     algorithms = algorithms,
                     cacheTtlSeconds = cacheTtlSeconds,
                     requireSubMatch = requireSubMatch,
-                    staleOnError = staleOnError
+                    staleOnError = staleOnError,
+                    didAllowlist = didAllowlist,
+                    didPattern = didPattern,
+                    didStrictRelationship = didStrictRelationship,
+                    didLooseKidMatch = didLooseKidMatch
                 )
             }
 

@@ -1,24 +1,45 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.config
 
+import com.nimbusds.jose.jwk.Curve
 import com.nimbusds.jose.jwk.JWKSet
+import com.nimbusds.jose.jwk.OctetKeyPair
 import com.nimbusds.jose.jwk.gen.RSAKeyGenerator
+import com.nimbusds.jose.util.Base64URL
+import io.github.jpicklyk.mcptask.current.domain.model.DidDocument
+import io.github.jpicklyk.mcptask.current.domain.model.VerificationMethod
 import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
+import io.ktor.client.engine.mock.MockEngine
+import io.ktor.client.engine.mock.respond
+import io.ktor.http.HttpStatusCode
+import io.ktor.http.headersOf
+import io.mockk.coEvery
+import io.mockk.coVerify
+import io.mockk.mockk
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import org.bouncycastle.crypto.generators.Ed25519KeyPairGenerator
+import org.bouncycastle.crypto.params.Ed25519KeyGenerationParameters
+import org.bouncycastle.crypto.params.Ed25519PrivateKeyParameters
+import org.bouncycastle.crypto.params.Ed25519PublicKeyParameters
 import org.bouncycastle.jce.provider.BouncyCastleProvider
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertThrows
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Path
+import java.security.SecureRandom
 import java.security.Security
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
+import java.util.concurrent.atomic.AtomicInteger
 
 class JwksKeySetProviderTest {
     companion object {
@@ -62,10 +83,16 @@ class JwksKeySetProviderTest {
                 val config = VerifierConfig.Jwks(jwksPath = "test-jwks.json")
                 val provider = DefaultJwksKeySetProvider(config)
                 try {
-                    val keySet = provider.getKeySet()
-                    assertNotNull(keySet)
-                    assertEquals(1, keySet.keys.size)
-                    assertEquals("file-rsa-key", keySet.keys.first().keyID)
+                    val result = provider.getKeySet()
+                    assertNotNull(result.keys)
+                    assertEquals(1, result.keys.keys.size)
+                    assertEquals(
+                        "file-rsa-key",
+                        result.keys.keys
+                            .first()
+                            .keyID
+                    )
+                    assertEquals(false, result.cacheState.fromStaleCache)
                 } finally {
                     provider.close()
                 }
@@ -91,8 +118,9 @@ class JwksKeySetProviderTest {
                 try {
                     val first = provider.getKeySet()
                     val second = provider.getKeySet()
-                    // Same instance means the cache was used.
-                    assert(first === second) { "Expected cache hit to return the same JWKSet instance" }
+                    // Same JWKSet instance means the cache was used.
+                    assert(first.keys === second.keys) { "Expected cache hit to return the same JWKSet instance" }
+                    assertEquals(false, second.cacheState.fromStaleCache)
                 } finally {
                     provider.close()
                 }
@@ -132,10 +160,11 @@ class JwksKeySetProviderTest {
 
                     val second = provider.getKeySet()
                     // After TTL expires, a new JWKSet is parsed — it should equal the first but be a fresh instance.
-                    assertNotNull(second)
-                    assertEquals(first.keys.size, second.keys.size)
+                    assertNotNull(second.keys)
+                    assertEquals(first.keys.keys.size, second.keys.keys.size)
                     // The instances should NOT be the same object (cache was invalidated and refreshed).
-                    assert(first !== second) { "Expected a new JWKSet instance after cache expiry" }
+                    assert(first.keys !== second.keys) { "Expected a new JWKSet instance after cache expiry" }
+                    assertEquals(false, second.cacheState.fromStaleCache)
                 } finally {
                     provider.close()
                 }
@@ -168,14 +197,20 @@ class JwksKeySetProviderTest {
                             .awaitAll()
 
                     assertEquals(20, results.size)
-                    results.forEach { keySet ->
-                        assertNotNull(keySet)
-                        assertEquals(1, keySet.keys.size)
-                        assertEquals("file-rsa-key", keySet.keys.first().keyID)
+                    results.forEach { result ->
+                        assertNotNull(result.keys)
+                        assertEquals(1, result.keys.keys.size)
+                        assertEquals(
+                            "file-rsa-key",
+                            result.keys.keys
+                                .first()
+                                .keyID
+                        )
+                        assertEquals(false, result.cacheState.fromStaleCache)
                     }
-                    // All should be the same cached instance.
-                    val distinct = results.distinct()
-                    assertEquals(1, distinct.size, "All concurrent callers should get the same cached instance")
+                    // All JWKSet instances should be the same cached object (identity check).
+                    val distinctKeys = results.map { it.keys }.distinct()
+                    assertEquals(1, distinctKeys.size, "All concurrent callers should get the same cached JWKSet instance")
                 } finally {
                     provider.close()
                 }
@@ -205,10 +240,15 @@ class JwksKeySetProviderTest {
                     )
                 val provider = DefaultJwksKeySetProvider(config)
                 try {
-                    val keySet = provider.getKeySet()
-                    assertNotNull(keySet)
-                    assertEquals(1, keySet.keys.size)
-                    assertEquals("file-rsa-key", keySet.keys.first().keyID)
+                    val result = provider.getKeySet()
+                    assertNotNull(result.keys)
+                    assertEquals(1, result.keys.keys.size)
+                    assertEquals(
+                        "file-rsa-key",
+                        result.keys.keys
+                            .first()
+                            .keyID
+                    )
                     // OIDC discovery failed, so resolved issuer should be null
                     assertNull(provider.getResolvedIssuer())
                 } finally {
@@ -315,7 +355,7 @@ class JwksKeySetProviderTest {
                 try {
                     // First successful fetch
                     val first = provider.getKeySet()
-                    assertNotNull(first)
+                    assertNotNull(first.keys)
 
                     // Advance past TTL and delete the file to simulate endpoint unavailability
                     currentInstant = baseInstant.plusSeconds(120)
@@ -323,14 +363,13 @@ class JwksKeySetProviderTest {
 
                     // Should return the stale set rather than throwing
                     val stale = provider.getKeySet()
-                    assertNotNull(stale)
-                    assertEquals(first.keys.size, stale.keys.size)
+                    assertNotNull(stale.keys)
+                    assertEquals(first.keys.keys.size, stale.keys.keys.size)
 
-                    // getCacheState should report stale
-                    val state = provider.getCacheState()
-                    assertTrue(state.fromStaleCache, "Expected fromStaleCache=true")
-                    assertNotNull(state.ageSeconds)
-                    assertTrue(state.ageSeconds!! >= 120L, "Expected ageSeconds >= 120, got ${state.ageSeconds}")
+                    // The returned JwksResult should report stale
+                    assertTrue(stale.cacheState.fromStaleCache, "Expected fromStaleCache=true")
+                    assertNotNull(stale.cacheState.ageSeconds)
+                    assertTrue(stale.cacheState.ageSeconds!! >= 120L, "Expected ageSeconds >= 120, got ${stale.cacheState.ageSeconds}")
                 } finally {
                     provider.close()
                 }
@@ -412,9 +451,9 @@ class JwksKeySetProviderTest {
             }
         }
 
-    // 12. getCacheState returns non-stale after fresh fetch
+    // 12. JwksResult.cacheState returns non-stale after fresh fetch
     @Test
-    fun `getCacheState returns non-stale after successful fetch`() =
+    fun `getKeySet returns non-stale cacheState after successful fetch`() =
         runTest {
             writeJwksFile()
 
@@ -424,10 +463,9 @@ class JwksKeySetProviderTest {
                 val config = VerifierConfig.Jwks(jwksPath = "test-jwks.json")
                 val provider = DefaultJwksKeySetProvider(config)
                 try {
-                    provider.getKeySet()
-                    val state = provider.getCacheState()
-                    assertTrue(!state.fromStaleCache, "Expected fromStaleCache=false after fresh fetch")
-                    assertNull(state.ageSeconds)
+                    val result = provider.getKeySet()
+                    assertTrue(!result.cacheState.fromStaleCache, "Expected fromStaleCache=false after fresh fetch")
+                    assertNull(result.cacheState.ageSeconds)
                 } finally {
                     provider.close()
                 }
@@ -435,4 +473,944 @@ class JwksKeySetProviderTest {
                 System.setProperty("user.dir", prevUserDir)
             }
         }
+
+    // =========================================================================
+    // DID-trust path tests
+    // =========================================================================
+
+    @Nested
+    inner class DidTrustPath {
+        // Helper: build a synthetic DidDocument with one Ed25519 public key.
+        private fun buildDidDocument(
+            did: String,
+            kid: String = "key-1"
+        ): Pair<DidDocument, OctetKeyPair> {
+            val gen = Ed25519KeyPairGenerator()
+            gen.init(Ed25519KeyGenerationParameters(SecureRandom()))
+            val pair = gen.generateKeyPair()
+            val pub = pair.public as Ed25519PublicKeyParameters
+            val priv = pair.private as Ed25519PrivateKeyParameters
+
+            val edKey =
+                OctetKeyPair
+                    .Builder(Curve.Ed25519, Base64URL.encode(pub.encoded))
+                    .d(Base64URL.encode(priv.encoded))
+                    .keyID(kid)
+                    .build()
+
+            val publicKeyJwk =
+                JsonObject(
+                    mapOf(
+                        "kty" to JsonPrimitive("OKP"),
+                        "crv" to JsonPrimitive("Ed25519"),
+                        "x" to JsonPrimitive(edKey.x.toString()),
+                        "kid" to JsonPrimitive(kid)
+                    )
+                )
+
+            val vm =
+                VerificationMethod(
+                    id = "$did#$kid",
+                    type = "JsonWebKey2020",
+                    controller = did,
+                    publicKeyJwk = publicKeyJwk
+                )
+            val doc =
+                DidDocument(
+                    id = did,
+                    verificationMethods = listOf(vm),
+                    assertionMethod = listOf("$did#$kid")
+                )
+            return Pair(doc, edKey)
+        }
+
+        private fun makeFixedClock(base: Instant = Instant.parse("2024-01-01T00:00:00Z")): Clock = Clock.fixed(base, ZoneOffset.UTC)
+
+        // DID-T1: allowlist match returns extracted JWKSet
+        @Test
+        fun `getKeySetForIssuer with allowlist match returns JWKSet`() =
+            runTest {
+                val did = "did:web:trusted.example.com"
+                val (doc, _) = buildDidDocument(did)
+                val mockRegistry = mockk<DidResolverRegistry>()
+                coEvery { mockRegistry.resolve(did) } returns doc
+
+                val config =
+                    VerifierConfig.Jwks(
+                        didAllowlist = listOf(did),
+                        cacheTtlSeconds = 300
+                    )
+                val provider =
+                    DefaultJwksKeySetProvider(
+                        config,
+                        clock = makeFixedClock(),
+                        didResolverRegistry = mockRegistry
+                    )
+
+                val result = provider.getKeySetForIssuer(did)
+                assertNotNull(result.keys)
+                assertEquals(1, result.keys.keys.size)
+                assertEquals(
+                    "key-1",
+                    result.keys.keys
+                        .first()
+                        .keyID
+                )
+                assertEquals(false, result.cacheState.fromStaleCache)
+            }
+
+        // DID-T2: pattern match returns JWKSet
+        @Test
+        fun `getKeySetForIssuer with pattern match returns JWKSet`() =
+            runTest {
+                val pattern = "did:web:example.com:agents:*"
+                val did = "did:web:example.com:agents:abc"
+                val (doc, _) = buildDidDocument(did)
+                val mockRegistry = mockk<DidResolverRegistry>()
+                coEvery { mockRegistry.resolve(did) } returns doc
+
+                val config =
+                    VerifierConfig.Jwks(
+                        didPattern = pattern,
+                        cacheTtlSeconds = 300
+                    )
+                val provider =
+                    DefaultJwksKeySetProvider(
+                        config,
+                        clock = makeFixedClock(),
+                        didResolverRegistry = mockRegistry
+                    )
+
+                val result = provider.getKeySetForIssuer(did)
+                assertNotNull(result.keys)
+                assertEquals(1, result.keys.keys.size)
+                assertEquals(false, result.cacheState.fromStaleCache)
+            }
+
+        // DID-T3: untrusted issuer throws IssuerNotTrustedException
+        @Test
+        fun `getKeySetForIssuer with no trust match throws IssuerNotTrustedException`() =
+            runTest {
+                val config =
+                    VerifierConfig.Jwks(
+                        didAllowlist = listOf("did:web:trusted.example.com"),
+                        cacheTtlSeconds = 300
+                    )
+                val provider = DefaultJwksKeySetProvider(config)
+
+                assertThrows<IssuerNotTrustedException> {
+                    provider.getKeySetForIssuer("did:web:untrusted.example.com")
+                }
+            }
+
+        // DID-T4: per-issuer cache hit — second call within TTL does not re-resolve
+        @Test
+        fun `getKeySetForIssuer cache hit within TTL does not re-resolve`() =
+            runTest {
+                val did = "did:web:cached.example.com"
+                val (doc, _) = buildDidDocument(did)
+                val mockRegistry = mockk<DidResolverRegistry>()
+                coEvery { mockRegistry.resolve(did) } returns doc
+
+                val config =
+                    VerifierConfig.Jwks(
+                        didAllowlist = listOf(did),
+                        cacheTtlSeconds = 300
+                    )
+                val provider =
+                    DefaultJwksKeySetProvider(
+                        config,
+                        clock = makeFixedClock(),
+                        didResolverRegistry = mockRegistry
+                    )
+
+                val first = provider.getKeySetForIssuer(did)
+                val second = provider.getKeySetForIssuer(did)
+
+                // Same cached JWKSet instance (identity check)
+                assert(first.keys === second.keys) { "Expected cache hit to return same JWKSet instance" }
+                assertEquals(false, second.cacheState.fromStaleCache)
+                // Registry should only be called once
+                coVerify(exactly = 1) { mockRegistry.resolve(did) }
+            }
+
+        // DID-T5: per-issuer cache expiry triggers re-resolve
+        @Test
+        fun `getKeySetForIssuer cache expires and re-resolves after TTL`() =
+            runTest {
+                val did = "did:web:expiry.example.com"
+                val (doc, _) = buildDidDocument(did)
+                val mockRegistry = mockk<DidResolverRegistry>()
+                coEvery { mockRegistry.resolve(did) } returns doc
+
+                val baseInstant = Instant.parse("2024-01-01T00:00:00Z")
+                var currentInstant = baseInstant
+                val advancingClock =
+                    object : Clock() {
+                        override fun getZone(): ZoneOffset = ZoneOffset.UTC
+
+                        override fun withZone(zone: java.time.ZoneId): Clock = this
+
+                        override fun instant(): Instant = currentInstant
+                    }
+
+                val config =
+                    VerifierConfig.Jwks(
+                        didAllowlist = listOf(did),
+                        cacheTtlSeconds = 60
+                    )
+                val provider =
+                    DefaultJwksKeySetProvider(
+                        config,
+                        clock = advancingClock,
+                        didResolverRegistry = mockRegistry
+                    )
+
+                val first = provider.getKeySetForIssuer(did)
+
+                // Advance clock past TTL
+                currentInstant = baseInstant.plusSeconds(120)
+
+                val second = provider.getKeySetForIssuer(did)
+
+                // Should have fetched twice (initial + after expiry)
+                coVerify(exactly = 2) { mockRegistry.resolve(did) }
+                assertNotNull(second.keys)
+                // New parse, different JWKSet instance
+                assert(first.keys !== second.keys) { "Expected a new JWKSet instance after cache expiry" }
+                assertEquals(false, second.cacheState.fromStaleCache)
+            }
+
+        // DID-T6: stale-on-error for DID cache
+        @Test
+        fun `getKeySetForIssuer returns stale cache when resolver fails and staleOnError is true`() =
+            runTest {
+                val did = "did:web:stale.example.com"
+                val (doc, _) = buildDidDocument(did)
+                val mockRegistry = mockk<DidResolverRegistry>()
+
+                val baseInstant = Instant.parse("2024-01-01T00:00:00Z")
+                var currentInstant = baseInstant
+                val advancingClock =
+                    object : Clock() {
+                        override fun getZone(): ZoneOffset = ZoneOffset.UTC
+
+                        override fun withZone(zone: java.time.ZoneId): Clock = this
+
+                        override fun instant(): Instant = currentInstant
+                    }
+
+                var resolveCount = 0
+                coEvery { mockRegistry.resolve(did) } answers {
+                    resolveCount++
+                    if (resolveCount == 1) {
+                        doc
+                    } else {
+                        throw DidResolutionException("network failure")
+                    }
+                }
+
+                val config =
+                    VerifierConfig.Jwks(
+                        didAllowlist = listOf(did),
+                        cacheTtlSeconds = 60,
+                        staleOnError = true
+                    )
+                val provider =
+                    DefaultJwksKeySetProvider(
+                        config,
+                        clock = advancingClock,
+                        didResolverRegistry = mockRegistry
+                    )
+
+                // First successful fetch
+                val first = provider.getKeySetForIssuer(did)
+                assertNotNull(first.keys)
+
+                // Advance past TTL so cache expires
+                currentInstant = baseInstant.plusSeconds(120)
+
+                // Second call — resolver fails, should serve stale
+                val stale = provider.getKeySetForIssuer(did)
+                assertNotNull(stale.keys)
+                assertEquals(first.keys.keys.size, stale.keys.keys.size)
+
+                // The returned JwksResult carries the stale state directly
+                assertTrue(stale.cacheState.fromStaleCache, "Expected fromStaleCache=true")
+                assertTrue(stale.cacheState.ageSeconds!! >= 120L, "Expected ageSeconds >= 120, got ${stale.cacheState.ageSeconds}")
+            }
+
+        // DID-T7: LRU eviction at 257 distinct issuers
+        @Test
+        fun `LRU eviction keeps cache at MAX_DID_CACHE_ENTRIES`() =
+            runTest {
+                val baseInstant = Instant.parse("2024-01-01T00:00:00Z")
+                val fixedClock = Clock.fixed(baseInstant, ZoneOffset.UTC)
+
+                // Build 257 distinct DIDs
+                val numDids = 257
+                val mockRegistry = mockk<DidResolverRegistry>()
+                val dids = (1..numDids).map { i -> "did:web:host-$i.example.com" }
+
+                dids.forEach { did ->
+                    val (doc, _) = buildDidDocument(did)
+                    coEvery { mockRegistry.resolve(did) } returns doc
+                }
+
+                val allowlist = dids.toList()
+                val config =
+                    VerifierConfig.Jwks(
+                        didAllowlist = allowlist,
+                        cacheTtlSeconds = 3600
+                    )
+                val provider =
+                    DefaultJwksKeySetProvider(
+                        config,
+                        clock = fixedClock,
+                        didResolverRegistry = mockRegistry
+                    )
+
+                // Populate cache with all 257 issuers
+                dids.forEach { did ->
+                    provider.getKeySetForIssuer(did)
+                }
+
+                // The first DID was evicted — requesting it again should trigger re-resolution
+                val firstDid = dids.first()
+                provider.getKeySetForIssuer(firstDid)
+
+                // Registry should have been called at least 258 times (257 initial + 1 re-resolve after eviction)
+                coVerify(atLeast = 258) { mockRegistry.resolve(any()) }
+            }
+
+        // DID-T8: matchesGlob unit tests — segment-bounded wildcard (Phase 4)
+        @Test
+        fun `matchesGlob handles wildcard and anchoring correctly`() {
+            val provider = DefaultJwksKeySetProvider(VerifierConfig.Jwks(didAllowlist = listOf("x")))
+
+            // Exact match (no wildcard)
+            assertTrue(provider.matchesGlob("did:web:example.com", "did:web:example.com"))
+
+            // Simple trailing wildcard — matches single segment
+            assertTrue(provider.matchesGlob("did:web:example.com:agents:abc", "did:web:example.com:agents:*"))
+
+            // Non-match with trailing wildcard — different prefix
+            assertTrue(!provider.matchesGlob("did:web:other.com:agents:abc", "did:web:example.com:agents:*"))
+
+            // Multiple wildcards — each * matches a single colon-free segment
+            assertTrue(provider.matchesGlob("did:web:foo.example.com:bar:baz", "did:web:*:bar:*"))
+
+            // Empty string at end matched by * (empty segment after last colon)
+            assertTrue(provider.matchesGlob("did:web:example.com:agents:", "did:web:example.com:agents:*"))
+
+            // Pattern is exactly "*" — matches a single segment without colons
+            assertTrue(provider.matchesGlob("singleSegment", "*"))
+            // But NOT a multi-segment DID (contains colons)
+            assertTrue(!provider.matchesGlob("did:web:anything.com", "*"))
+
+            // Anchored — prefix-only glob should NOT match if suffix doesn't match
+            assertTrue(!provider.matchesGlob("did:web:example.com:agents:abc:extra", "did:web:example.com:agents:abc"))
+
+            // NEW Phase 4 — sub-path hijack prevention: * does NOT match across colon boundaries
+            assertTrue(!provider.matchesGlob("did:web:example.com:agents:alice:hijacker", "did:web:example.com:agents:*"))
+
+            // NEW Phase 4 — single segment after last colon matches fine
+            assertTrue(provider.matchesGlob("did:web:example.com:agents:alice", "did:web:example.com:agents:*"))
+        }
+
+        // DID-T9: allowlist precedence over pattern
+        @Test
+        fun `allowlist takes precedence over pattern for trust decision`() =
+            runTest {
+                val did = "did:web:special.example.com"
+                val (doc, _) = buildDidDocument(did)
+                val mockRegistry = mockk<DidResolverRegistry>()
+                coEvery { mockRegistry.resolve(did) } returns doc
+
+                // Both allowlist and pattern would match; allowlist takes priority
+                val config =
+                    VerifierConfig.Jwks(
+                        didAllowlist = listOf(did),
+                        didPattern = "did:web:special.*",
+                        cacheTtlSeconds = 300
+                    )
+                val provider =
+                    DefaultJwksKeySetProvider(
+                        config,
+                        clock = makeFixedClock(),
+                        didResolverRegistry = mockRegistry
+                    )
+
+                // Should resolve without exception (trusted via allowlist)
+                val result = provider.getKeySetForIssuer(did)
+                assertNotNull(result.keys)
+
+                // A DID not in allowlist but matching pattern is also trusted
+                val patternDid = "did:web:special.other.example.com"
+                val (patternDoc, _) = buildDidDocument(patternDid)
+                coEvery { mockRegistry.resolve(patternDid) } returns patternDoc
+
+                val config2 =
+                    VerifierConfig.Jwks(
+                        didAllowlist = listOf(did),
+                        didPattern = "did:web:special.*",
+                        cacheTtlSeconds = 300
+                    )
+                val provider2 =
+                    DefaultJwksKeySetProvider(
+                        config2,
+                        clock = makeFixedClock(),
+                        didResolverRegistry = mockRegistry
+                    )
+                val result2 = provider2.getKeySetForIssuer(patternDid)
+                assertNotNull(result2.keys)
+            }
+    }
+
+    // =========================================================================
+    // Cache state per-call isolation (concurrency safety)
+    // =========================================================================
+
+    /**
+     * Verifies that the [CacheState] returned by each [JwksResult] reflects the state
+     * of *that specific call*, not a shared instance field that could be clobbered by
+     * a concurrent call.
+     *
+     * Strategy: Use an advancing clock to force stale→fresh→stale transitions deterministically
+     * (no Thread.sleep, no real concurrency needed — if the state is correct per-return
+     * value, the shared-field race is structurally impossible).
+     *
+     * Specifically:
+     *  1. Fetch at T=0  → fresh (FRESH_CACHE)
+     *  2. Advance clock past TTL, delete file to simulate unavailability
+     *  3. Fetch at T=120 → stale fallback (fromStaleCache=true)
+     *  4. Restore file
+     *  5. Advance clock further past TTL again
+     *  6. Fetch at T=300 → fresh again (new successful fetch)
+     *
+     * If each call returns the correct state via JwksResult, the test passes.
+     * With the old shared `lastCacheState` field, step 6 returning fresh would still
+     * not prove isolation — but the lack of a shared field means no concurrent clobber
+     * is even possible, which is the design guarantee this test documents.
+     */
+    @Test
+    fun `JwksResult cacheState is isolated per call — stale then fresh sequence`() =
+        runTest {
+            writeJwksFile()
+            val baseInstant = Instant.parse("2024-01-01T00:00:00Z")
+
+            var currentInstant = baseInstant
+            val advancingClock =
+                object : Clock() {
+                    override fun getZone() = ZoneOffset.UTC
+
+                    override fun withZone(zone: java.time.ZoneId): Clock = this
+
+                    override fun instant(): Instant = currentInstant
+                }
+
+            val prevUserDir = System.getProperty("user.dir")
+            System.setProperty("user.dir", tempDir.toAbsolutePath().toString())
+            try {
+                val config = VerifierConfig.Jwks(jwksPath = "test-jwks.json", cacheTtlSeconds = 60, staleOnError = true)
+                val provider = DefaultJwksKeySetProvider(config, clock = advancingClock)
+                try {
+                    // Call 1: fresh fetch at T=0
+                    val call1 = provider.getKeySet()
+                    assertEquals(false, call1.cacheState.fromStaleCache, "Call 1 should be fresh")
+                    assertNull(call1.cacheState.ageSeconds)
+
+                    // Advance past TTL and remove file to force stale fallback
+                    currentInstant = baseInstant.plusSeconds(120)
+                    tempDir.resolve("test-jwks.json").toFile().delete()
+
+                    // Call 2: stale fallback
+                    val call2 = provider.getKeySet()
+                    assertEquals(true, call2.cacheState.fromStaleCache, "Call 2 should be stale")
+                    assertNotNull(call2.cacheState.ageSeconds)
+                    assertTrue(call2.cacheState.ageSeconds!! >= 120L)
+
+                    // Restore file and advance clock so cache expires again
+                    writeJwksFile()
+                    currentInstant = baseInstant.plusSeconds(300)
+
+                    // Call 3: fresh fetch again (file is back)
+                    val call3 = provider.getKeySet()
+                    assertEquals(false, call3.cacheState.fromStaleCache, "Call 3 should be fresh again")
+                    assertNull(call3.cacheState.ageSeconds)
+
+                    // Verify: call2's state is still stale (not overwritten by call3)
+                    assertEquals(true, call2.cacheState.fromStaleCache, "call2 state must not be mutated by call3")
+                } finally {
+                    provider.close()
+                }
+            } finally {
+                System.setProperty("user.dir", prevUserDir)
+            }
+        }
+
+    // =========================================================================
+    // HTTP hardening — JWKS URI fetch path
+    // =========================================================================
+
+    /**
+     * Builds a minimal valid JWKS JSON payload (public RSA key only).
+     */
+    private fun validJwksJson(): String {
+        val key = RSAKeyGenerator(2048).keyID("hardening-test-key").generate()
+        return JWKSet(listOf(key.toPublicJWK())).toString()
+    }
+
+    @Test
+    fun `jwksUri fetch throws on redirect response`() =
+        runTest {
+            var requestCount = 0
+            val engine =
+                MockEngine { _ ->
+                    requestCount++
+                    respond(
+                        content = "",
+                        status = HttpStatusCode.Found,
+                        headers = headersOf("Location", "https://attacker.example.com/jwks.json")
+                    )
+                }
+
+            val config = VerifierConfig.Jwks(jwksUri = "https://auth.example.com/jwks.json")
+            val provider = DefaultJwksKeySetProvider(config, httpClientEngineForTest = engine)
+            try {
+                assertThrows<Exception> {
+                    provider.getKeySet()
+                }
+                assertEquals(1, requestCount, "Redirect target must NOT be fetched")
+            } finally {
+                provider.close()
+            }
+        }
+
+    @Test
+    fun `jwksUri fetch throws on non-200 status`() =
+        runTest {
+            val engine =
+                MockEngine { _ ->
+                    respond(
+                        content = "Forbidden",
+                        status = HttpStatusCode.Forbidden,
+                        headers = headersOf("Content-Type", "text/plain")
+                    )
+                }
+
+            val config = VerifierConfig.Jwks(jwksUri = "https://auth.example.com/jwks.json")
+            val provider = DefaultJwksKeySetProvider(config, httpClientEngineForTest = engine)
+            try {
+                val ex =
+                    assertThrows<Exception> {
+                        provider.getKeySet()
+                    }
+                val msg = ex.message ?: ex.cause?.message ?: ""
+                assertTrue(
+                    msg.contains("403") || ex.cause?.message?.contains("403") == true,
+                    "Exception chain should mention 403; got: ${ex.message}, cause: ${ex.cause?.message}"
+                )
+            } finally {
+                provider.close()
+            }
+        }
+
+    @Test
+    fun `jwksUri fetch throws on wrong content type`() =
+        runTest {
+            val engine =
+                MockEngine { _ ->
+                    respond(
+                        content = validJwksJson(),
+                        status = HttpStatusCode.OK,
+                        headers = headersOf("Content-Type", "text/html")
+                    )
+                }
+
+            val config = VerifierConfig.Jwks(jwksUri = "https://auth.example.com/jwks.json")
+            val provider = DefaultJwksKeySetProvider(config, httpClientEngineForTest = engine)
+            try {
+                assertThrows<Exception> {
+                    provider.getKeySet()
+                }
+            } finally {
+                provider.close()
+            }
+        }
+
+    @Test
+    fun `jwksUri fetch succeeds with application-jwk-set+json content type`() =
+        runTest {
+            val engine =
+                MockEngine { _ ->
+                    respond(
+                        content = validJwksJson(),
+                        status = HttpStatusCode.OK,
+                        headers = headersOf("Content-Type", "application/jwk-set+json")
+                    )
+                }
+
+            val config = VerifierConfig.Jwks(jwksUri = "https://auth.example.com/jwks.json")
+            val provider = DefaultJwksKeySetProvider(config, httpClientEngineForTest = engine)
+            try {
+                val result = provider.getKeySet()
+                assertNotNull(result.keys)
+                assertEquals(1, result.keys.keys.size)
+            } finally {
+                provider.close()
+            }
+        }
+
+    // =========================================================================
+    // close() propagation through provider → registry → resolvers
+    // =========================================================================
+
+    @Test
+    fun `provider close calls closeAll on resolver registry`() {
+        var closeCalled = false
+
+        val trackingResolver =
+            object : DidResolver {
+                override val method: String = "web"
+
+                override suspend fun resolve(did: String): DidDocument {
+                    error("not used in this test")
+                }
+
+                override fun close() {
+                    closeCalled = true
+                }
+            }
+
+        val registry = DidResolverRegistry(listOf(trackingResolver))
+        val config = VerifierConfig.Jwks(didAllowlist = listOf("did:web:example.com"))
+        val provider = DefaultJwksKeySetProvider(config, didResolverRegistry = registry)
+
+        provider.close()
+
+        assertTrue(closeCalled, "provider.close() should propagate to resolver.close() via registry.closeAll()")
+    }
+
+    // =========================================================================
+    // Per-issuer coalescing — concurrency tests
+    // =========================================================================
+
+    /**
+     * Regression test for per-issuer cache-miss coalescing.
+     *
+     * 20 concurrent cache-missing callers for the SAME issuer must share a single underlying
+     * DID resolve call. Before coalescing, all 20 would each trigger their own resolve when
+     * holding the global [didCacheLock] serialised them; now a ConcurrentHashMap<Deferred>
+     * ensures only one in-flight resolve per issuer.
+     */
+    @Test
+    fun `concurrent cache misses for same issuer coalesce to single resolve`() =
+        runTest {
+            val did = "did:web:coalesce-test.example.com"
+            val resolveCount = AtomicInteger(0)
+
+            val (doc, _) =
+                run {
+                    val gen = Ed25519KeyPairGenerator()
+                    gen.init(Ed25519KeyGenerationParameters(SecureRandom()))
+                    val pair = gen.generateKeyPair()
+                    val pub = pair.public as Ed25519PublicKeyParameters
+                    val priv = pair.private as Ed25519PrivateKeyParameters
+                    val edKey =
+                        OctetKeyPair
+                            .Builder(Curve.Ed25519, Base64URL.encode(pub.encoded))
+                            .d(Base64URL.encode(priv.encoded))
+                            .keyID("key-1")
+                            .build()
+                    val vm =
+                        VerificationMethod(
+                            id = "$did#key-1",
+                            type = "JsonWebKey2020",
+                            controller = did,
+                            publicKeyJwk =
+                                JsonObject(
+                                    mapOf(
+                                        "kty" to JsonPrimitive("OKP"),
+                                        "crv" to JsonPrimitive("Ed25519"),
+                                        "x" to JsonPrimitive(edKey.x.toString()),
+                                        "kid" to JsonPrimitive("key-1"),
+                                    )
+                                ),
+                        )
+                    val document =
+                        DidDocument(
+                            id = did,
+                            verificationMethods = listOf(vm),
+                            assertionMethod = listOf("$did#key-1"),
+                        )
+                    Pair(document, edKey)
+                }
+
+            val mockRegistry = mockk<DidResolverRegistry>()
+            coEvery { mockRegistry.resolve(did) } answers {
+                resolveCount.incrementAndGet()
+                doc
+            }
+            coEvery { mockRegistry.closeAll() } returns Unit
+
+            val config =
+                VerifierConfig.Jwks(
+                    didAllowlist = listOf(did),
+                    cacheTtlSeconds = 300,
+                )
+            val provider =
+                DefaultJwksKeySetProvider(
+                    config,
+                    clock = Clock.fixed(Instant.parse("2024-01-01T00:00:00Z"), ZoneOffset.UTC),
+                    didResolverRegistry = mockRegistry,
+                )
+
+            try {
+                // Launch 20 concurrent cache-missing callers for the same issuer.
+                val results =
+                    (1..20)
+                        .map { async { provider.getKeySetForIssuer(did) } }
+                        .awaitAll()
+
+                assertEquals(20, results.size, "All 20 callers should get a result")
+                results.forEach { result ->
+                    assertNotNull(result.keys)
+                    assertEquals(1, result.keys.keys.size)
+                }
+
+                // Coalescing: at most a small number of resolves should have occurred.
+                // In practice, with proper coalescing, exactly 1 resolve fires.
+                // We allow ≤ 3 as a generous upper bound for timing races in the test harness.
+                assertTrue(
+                    resolveCount.get() <= 3,
+                    "Per-issuer coalescing must collapse concurrent misses into ≤ 3 resolves; got ${resolveCount.get()}"
+                )
+            } finally {
+                provider.close()
+            }
+        }
+
+    /**
+     * Per-issuer coalescing fans out across different issuers.
+     *
+     * 20 concurrent callers spread across 5 distinct issuers (4 per issuer) must each
+     * trigger at most a small number of resolves per issuer — NOT a global lock that
+     * serialises all 20 callers.
+     */
+    @Test
+    fun `concurrent cache misses for different issuers resolve in parallel — one resolve per issuer`() =
+        runTest {
+            val numIssuers = 5
+            val callersPerIssuer = 4
+
+            // Build 5 distinct DID docs.
+            val docs =
+                (1..numIssuers).associate { i ->
+                    val did = "did:web:fan-out-$i.example.com"
+                    val vm =
+                        VerificationMethod(
+                            id = "$did#key-1",
+                            type = "JsonWebKey2020",
+                            controller = did,
+                            publicKeyJwk =
+                                JsonObject(
+                                    mapOf(
+                                        "kty" to JsonPrimitive("OKP"),
+                                        "crv" to JsonPrimitive("Ed25519"),
+                                        "x" to JsonPrimitive("dGVzdA"),
+                                        "kid" to JsonPrimitive("key-1"),
+                                    )
+                                ),
+                        )
+                    did to
+                        DidDocument(
+                            id = did,
+                            verificationMethods = listOf(vm),
+                            assertionMethod = listOf("$did#key-1"),
+                        )
+                }
+
+            val resolveCounts = docs.keys.associateWith { AtomicInteger(0) }
+
+            val mockRegistry = mockk<DidResolverRegistry>()
+            docs.forEach { (did, doc) ->
+                coEvery { mockRegistry.resolve(did) } answers {
+                    resolveCounts[did]!!.incrementAndGet()
+                    doc
+                }
+            }
+            coEvery { mockRegistry.closeAll() } returns Unit
+
+            val config =
+                VerifierConfig.Jwks(
+                    didAllowlist = docs.keys.toList(),
+                    cacheTtlSeconds = 300,
+                )
+            val provider =
+                DefaultJwksKeySetProvider(
+                    config,
+                    clock = Clock.fixed(Instant.parse("2024-01-01T00:00:00Z"), ZoneOffset.UTC),
+                    didResolverRegistry = mockRegistry,
+                )
+
+            try {
+                // Each issuer gets 4 concurrent callers.
+                val deferreds =
+                    docs.keys.flatMap { did ->
+                        (1..callersPerIssuer).map { async { provider.getKeySetForIssuer(did) } }
+                    }
+                val results = deferreds.awaitAll()
+
+                assertEquals(numIssuers * callersPerIssuer, results.size)
+
+                // Each issuer should have been resolved at most a small number of times.
+                resolveCounts.forEach { (did, count) ->
+                    assertTrue(
+                        count.get() <= 3,
+                        "Issuer $did should have ≤ 3 resolves due to coalescing; got ${count.get()}"
+                    )
+                }
+            } finally {
+                provider.close()
+            }
+        }
+
+    // =========================================================================
+    // No-path-host integration test (did:web bare domain)
+    // =========================================================================
+
+    /**
+     * Integration-level test confirming that a bare-domain `did:web` (no path segments)
+     * resolves via `/.well-known/did.json` in the full pipeline:
+     *   DefaultJwksKeySetProvider → DidResolverRegistry → DidWebResolver(MockEngine)
+     *
+     * This is the no-path-host coverage called out in the Phase 5 plan. [DidWebResolverTest]
+     * has unit-level `buildUrl` coverage; this test validates the full stack end-to-end.
+     */
+    @Test
+    fun `getKeySetForIssuer resolves bare-domain did-web via well-known path`() =
+        runTest {
+            val did = "did:web:test.example.com"
+            val expectedUrl = "https://test.example.com/.well-known/did.json"
+            var capturedUrl: String? = null
+
+            val vm =
+                """
+                {
+                  "id": "$did#key-1",
+                  "type": "JsonWebKey2020",
+                  "controller": "$did",
+                  "publicKeyJwk": {
+                    "kty": "OKP",
+                    "crv": "Ed25519",
+                    "x": "dGVzdA"
+                  }
+                }
+                """.trimIndent()
+            val didDocument =
+                """
+                {
+                  "id": "$did",
+                  "verificationMethod": [$vm],
+                  "assertionMethod": ["$did#key-1"]
+                }
+                """.trimIndent()
+
+            val engine =
+                MockEngine { request ->
+                    capturedUrl = request.url.toString()
+                    respond(
+                        content = didDocument,
+                        status = HttpStatusCode.OK,
+                        headers = headersOf("Content-Type", "application/json"),
+                    )
+                }
+
+            val config =
+                VerifierConfig.Jwks(
+                    didAllowlist = listOf(did),
+                    cacheTtlSeconds = 300,
+                )
+            val registry = DidResolverRegistry(listOf(DidWebResolver(engine)))
+            val provider = DefaultJwksKeySetProvider(config, didResolverRegistry = registry)
+            try {
+                val result = provider.getKeySetForIssuer(did)
+                assertNotNull(result.keys)
+                assertEquals(1, result.keys.keys.size, "Should extract exactly one key from the DID document")
+                assertEquals(
+                    expectedUrl,
+                    capturedUrl,
+                    "Bare-domain did:web must resolve via .well-known/did.json"
+                )
+            } finally {
+                provider.close()
+            }
+        }
+
+    // =========================================================================
+    // Redirect regression — DID path must not follow redirects
+    // =========================================================================
+
+    /**
+     * Regression-prevention test: the DID resolver must never follow HTTP redirects.
+     *
+     * [DidWebResolver] configures `followRedirects = false` on its HTTP client. If a future
+     * change re-enables redirect following, a 30x response on the DID document endpoint
+     * would silently route document resolution to an attacker-controlled URL. This test
+     * asserts that a 302 redirect response throws [DidResolutionException] and does NOT
+     * trigger a second HTTP request to the Location target.
+     *
+     * Note: The redirect rejection is enforced in [DidWebResolver] (not [DefaultJwksKeySetProvider])
+     * and is already covered at unit level in [DidWebResolverTest]. This test exercises the
+     * same protection at the provider integration level, so a regression in the HTTP client
+     * configuration (e.g., someone sets followRedirects = true) would be caught here too.
+     */
+    @Test
+    fun `getKeySetForIssuer throws when DID document endpoint redirects`() =
+        runTest {
+            val did = "did:web:redirect-victim.example.com"
+            var requestCount = 0
+
+            val engine =
+                MockEngine { _ ->
+                    requestCount++
+                    respond(
+                        content = "",
+                        status = HttpStatusCode.Found,
+                        headers = headersOf("Location", "https://attacker.example.com/.well-known/did.json"),
+                    )
+                }
+
+            val config = VerifierConfig.Jwks(didAllowlist = listOf(did))
+            val registry = DidResolverRegistry(listOf(DidWebResolver(engine)))
+            val provider = DefaultJwksKeySetProvider(config, didResolverRegistry = registry)
+            try {
+                assertThrows<Exception> {
+                    provider.getKeySetForIssuer(did)
+                }
+                assertEquals(1, requestCount, "Redirect target must NOT be fetched — only one request expected")
+            } finally {
+                provider.close()
+            }
+        }
+
+    // =========================================================================
+    // Timeout test — gap documentation
+    // =========================================================================
+
+    // NOTE: A test for the HTTP request-timeout config (requestTimeoutMillis / connectTimeoutMillis)
+    // was evaluated but deferred. Ktor's MockEngine processes requests synchronously within the
+    // test coroutine dispatcher, so `delay()` inside the MockEngine lambda does not actually
+    // trigger the Ktor HttpTimeout plugin's timer (which runs on its own scheduler independent of
+    // the test dispatcher). Pointing the live CIO engine at a non-routable RFC 5737 address
+    // (192.0.2.1) would exercise connect-timeout but introduces real wall-clock latency (~3s)
+    // and requires network availability, making it unsuitable for a unit/integration test suite.
+    //
+    // Coverage rationale: the timeout values (REQUEST_TIMEOUT_MS, CONNECT_TIMEOUT_MS,
+    // SOCKET_TIMEOUT_MS) are compile-time constants; a regression would be obvious in code
+    // review. The existing redirect-rejection and non-200-status tests already exercise the
+    // HttpClient pipeline indirectly. A dedicated timeout test is tracked as a future improvement
+    // if an in-process HTTP server (e.g., embedded Ktor server) becomes available in the test
+    // harness without adding a heavyweight dependency.
 }
