@@ -34,6 +34,26 @@ committing to an approach that has a better option sitting next to it.
 *Anti-pattern: strawman alternatives.* "Alternative: rewrite everything from scratch.
 Rejected: too much work." This doesn't force any real thinking.
 
+### Open Decisions
+
+If the spec lists open decisions, naming alternatives, or "options under consideration,"
+resolve every one before materializing MCP work items or dispatching implementation.
+A spec with unresolved choices left in it is not ready to dispatch.
+
+Mid-implementation pivots cost 5-10× the time of a pre-dispatch user round-trip. Once
+an agent is in a worktree, a naming change or interface change requires unwinding
+partial code, retracting commits, re-spec'ing the work, and re-dispatching. Resolving
+the same question before dispatch is a single short conversation.
+
+The orchestrator should pause for a user round-trip rather than dispatch with ambiguity.
+A short pause now is cheaper than a partial implementation later.
+
+If a decision genuinely cannot be resolved at planning time (e.g., depends on a
+measurement only available post-implementation), it isn't an "open decision" — it's a
+deliberate two-phase approach. Document it as such, scope the first phase explicitly,
+and create a separate work item for the second phase. Don't leave the choice latent
+in the spec.
+
 ### Non-Goals
 
 Name what someone might reasonably expect this work to include but that is deliberately
@@ -93,6 +113,7 @@ them, or confirm they still pass with the new behavior.
 Validate spec completeness before advancing past queue phase:
 
 - [ ] At least 2 real alternatives evaluated (not strawmen)
+- [ ] No "open decisions" or "options under consideration" sections remain in the spec
 - [ ] At least 1 non-goal named (scope boundary explicit)
 - [ ] Downstream consumers of changed interfaces traced
 - [ ] 1-2 concrete risk flags identified
