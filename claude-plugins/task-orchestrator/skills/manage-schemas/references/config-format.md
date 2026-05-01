@@ -276,14 +276,16 @@ actor_authentication:
 
 **Example — Full config (all options):**
 
+> Static-JWKS mode requires exactly one of `oidc_discovery`, `jwks_uri`, or `jwks_path`. The other two source fields are shown commented out below to illustrate the available options.
+
 ```yaml
 actor_authentication:
   enabled: true
   verifier:
     type: jwks
     oidc_discovery: "https://agentlair.dev/.well-known/openid-configuration"
-    jwks_uri: "https://provider.example/.well-known/jwks.json"
-    jwks_path: ".agentlair/jwks.json"
+    # jwks_uri: "https://provider.example/.well-known/jwks.json"   # alternative source
+    # jwks_path: ".agentlair/jwks.json"                            # alternative source
     issuer: "https://provider.example"
     audience: "task-orchestrator"
     algorithms: ["EdDSA", "RS256"]

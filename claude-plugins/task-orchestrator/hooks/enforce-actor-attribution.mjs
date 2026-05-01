@@ -117,7 +117,7 @@ if (!missing) {
 
 process.stdout.write(JSON.stringify({
   decision: 'block',
-  reason: 'Auditing is enabled \u2014 actor attribution required. Include an "actor" object ' +
+  reason: 'Actor authentication is enabled \u2014 actor attribution required. Include an "actor" object ' +
     'with "id" (string) and "kind" (orchestrator|subagent|user|external) on every ' +
     'transition/note element. For subagents, include "parent" with the dispatching agent\'s id.'
 }));
