@@ -8,6 +8,10 @@ import com.nimbusds.jose.util.Base64URL
 import io.github.jpicklyk.mcptask.current.domain.model.DidDocument
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationMethod
 import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
+import io.ktor.client.engine.mock.MockEngine
+import io.ktor.client.engine.mock.respond
+import io.ktor.http.HttpStatusCode
+import io.ktor.http.headersOf
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.mockk
@@ -931,4 +935,147 @@ class JwksKeySetProviderTest {
                 System.setProperty("user.dir", prevUserDir)
             }
         }
+
+    // =========================================================================
+    // HTTP hardening — JWKS URI fetch path
+    // =========================================================================
+
+    /**
+     * Builds a minimal valid JWKS JSON payload (public RSA key only).
+     */
+    private fun validJwksJson(): String {
+        val key = RSAKeyGenerator(2048).keyID("hardening-test-key").generate()
+        return JWKSet(listOf(key.toPublicJWK())).toString()
+    }
+
+    @Test
+    fun `jwksUri fetch throws on redirect response`() =
+        runTest {
+            var requestCount = 0
+            val engine =
+                MockEngine { _ ->
+                    requestCount++
+                    respond(
+                        content = "",
+                        status = HttpStatusCode.Found,
+                        headers = headersOf("Location", "https://attacker.example.com/jwks.json")
+                    )
+                }
+
+            val config = VerifierConfig.Jwks(jwksUri = "https://auth.example.com/jwks.json")
+            val provider = DefaultJwksKeySetProvider(config, httpClientEngineForTest = engine)
+            try {
+                assertThrows<Exception> {
+                    provider.getKeySet()
+                }
+                assertEquals(1, requestCount, "Redirect target must NOT be fetched")
+            } finally {
+                provider.close()
+            }
+        }
+
+    @Test
+    fun `jwksUri fetch throws on non-200 status`() =
+        runTest {
+            val engine =
+                MockEngine { _ ->
+                    respond(
+                        content = "Forbidden",
+                        status = HttpStatusCode.Forbidden,
+                        headers = headersOf("Content-Type", "text/plain")
+                    )
+                }
+
+            val config = VerifierConfig.Jwks(jwksUri = "https://auth.example.com/jwks.json")
+            val provider = DefaultJwksKeySetProvider(config, httpClientEngineForTest = engine)
+            try {
+                val ex =
+                    assertThrows<Exception> {
+                        provider.getKeySet()
+                    }
+                val msg = ex.message ?: ex.cause?.message ?: ""
+                assertTrue(
+                    msg.contains("403") || ex.cause?.message?.contains("403") == true,
+                    "Exception chain should mention 403; got: ${ex.message}, cause: ${ex.cause?.message}"
+                )
+            } finally {
+                provider.close()
+            }
+        }
+
+    @Test
+    fun `jwksUri fetch throws on wrong content type`() =
+        runTest {
+            val engine =
+                MockEngine { _ ->
+                    respond(
+                        content = validJwksJson(),
+                        status = HttpStatusCode.OK,
+                        headers = headersOf("Content-Type", "text/html")
+                    )
+                }
+
+            val config = VerifierConfig.Jwks(jwksUri = "https://auth.example.com/jwks.json")
+            val provider = DefaultJwksKeySetProvider(config, httpClientEngineForTest = engine)
+            try {
+                assertThrows<Exception> {
+                    provider.getKeySet()
+                }
+            } finally {
+                provider.close()
+            }
+        }
+
+    @Test
+    fun `jwksUri fetch succeeds with application-jwk-set+json content type`() =
+        runTest {
+            val engine =
+                MockEngine { _ ->
+                    respond(
+                        content = validJwksJson(),
+                        status = HttpStatusCode.OK,
+                        headers = headersOf("Content-Type", "application/jwk-set+json")
+                    )
+                }
+
+            val config = VerifierConfig.Jwks(jwksUri = "https://auth.example.com/jwks.json")
+            val provider = DefaultJwksKeySetProvider(config, httpClientEngineForTest = engine)
+            try {
+                val result = provider.getKeySet()
+                assertNotNull(result.keys)
+                assertEquals(1, result.keys.keys.size)
+            } finally {
+                provider.close()
+            }
+        }
+
+    // =========================================================================
+    // close() propagation through provider → registry → resolvers
+    // =========================================================================
+
+    @Test
+    fun `provider close calls closeAll on resolver registry`() {
+        var closeCalled = false
+
+        val trackingResolver =
+            object : DidResolver {
+                override val method: String = "web"
+
+                override suspend fun resolve(did: String): DidDocument {
+                    error("not used in this test")
+                }
+
+                override fun close() {
+                    closeCalled = true
+                }
+            }
+
+        val registry = DidResolverRegistry(listOf(trackingResolver))
+        val config = VerifierConfig.Jwks(didAllowlist = listOf("did:web:example.com"))
+        val provider = DefaultJwksKeySetProvider(config, didResolverRegistry = registry)
+
+        provider.close()
+
+        assertTrue(closeCalled, "provider.close() should propagate to resolver.close() via registry.closeAll()")
+    }
 }

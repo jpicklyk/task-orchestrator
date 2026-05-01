@@ -385,4 +385,208 @@ class DidWebResolverTest {
         val resolver = DidWebResolver()
         assertEquals("web", resolver.method)
     }
+
+    // -------------------------------------------------------------------------
+    // HTTP hardening — status code rejection
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun `resolve throws DidResolutionException with HTTP status message on 404`() =
+        runTest {
+            val engine =
+                MockEngine { _ ->
+                    respond(
+                        content = "Not Found",
+                        status = HttpStatusCode.NotFound,
+                        headers = headersOf("Content-Type", "text/plain")
+                    )
+                }
+
+            val resolver = DidWebResolver(engine)
+            val ex =
+                assertThrows<DidResolutionException> {
+                    kotlinx.coroutines.runBlocking { resolver.resolve("did:web:example.com") }
+                }
+            assertTrue(ex.message!!.contains("404"), "Error should mention 404 status code")
+        }
+
+    @Test
+    fun `resolve throws DidResolutionException with HTTP status message on 500`() =
+        runTest {
+            val engine =
+                MockEngine { _ ->
+                    respond(
+                        content = "Internal Server Error",
+                        status = HttpStatusCode.InternalServerError,
+                        headers = headersOf("Content-Type", "text/plain")
+                    )
+                }
+
+            val resolver = DidWebResolver(engine)
+            val ex =
+                assertThrows<DidResolutionException> {
+                    kotlinx.coroutines.runBlocking { resolver.resolve("did:web:example.com") }
+                }
+            assertTrue(ex.message!!.contains("500"), "Error should mention 500 status code")
+        }
+
+    // -------------------------------------------------------------------------
+    // HTTP hardening — redirect rejection
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun `resolve throws DidResolutionException on 301 redirect and does not follow`() =
+        runTest {
+            var requestCount = 0
+            val engine =
+                MockEngine { _ ->
+                    requestCount++
+                    respond(
+                        content = "",
+                        status = HttpStatusCode.MovedPermanently,
+                        headers =
+                            headersOf(
+                                "Location",
+                                "https://attacker.example.com/.well-known/did.json"
+                            )
+                    )
+                }
+
+            val resolver = DidWebResolver(engine)
+            val ex =
+                assertThrows<DidResolutionException> {
+                    kotlinx.coroutines.runBlocking { resolver.resolve("did:web:example.com") }
+                }
+            assertTrue(ex.message!!.contains("301"), "Error should mention 301 status code")
+            assertEquals(1, requestCount, "Redirect target must NOT be fetched — only one request expected")
+        }
+
+    @Test
+    fun `resolve throws DidResolutionException on 302 redirect and does not follow`() =
+        runTest {
+            var requestCount = 0
+            val engine =
+                MockEngine { _ ->
+                    requestCount++
+                    respond(
+                        content = "",
+                        status = HttpStatusCode.Found,
+                        headers =
+                            headersOf(
+                                "Location",
+                                "https://attacker.example.com/.well-known/did.json"
+                            )
+                    )
+                }
+
+            val resolver = DidWebResolver(engine)
+            val ex =
+                assertThrows<DidResolutionException> {
+                    kotlinx.coroutines.runBlocking { resolver.resolve("did:web:example.com") }
+                }
+            assertTrue(ex.message!!.contains("302"), "Error should mention 302 status code")
+            assertEquals(1, requestCount, "Redirect target must NOT be fetched — only one request expected")
+        }
+
+    // -------------------------------------------------------------------------
+    // HTTP hardening — wrong Content-Type rejection
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun `resolve throws DidResolutionException for text-html content type`() =
+        runTest {
+            val validJson =
+                """{"id": "did:web:example.com", "verificationMethod": []}""".trimIndent()
+            val engine =
+                MockEngine { _ ->
+                    respond(
+                        content = validJson,
+                        status = HttpStatusCode.OK,
+                        headers = headersOf("Content-Type", "text/html")
+                    )
+                }
+
+            val resolver = DidWebResolver(engine)
+            val ex =
+                assertThrows<DidResolutionException> {
+                    kotlinx.coroutines.runBlocking { resolver.resolve("did:web:example.com") }
+                }
+            assertTrue(
+                ex.message!!.contains("Content-Type") || ex.message!!.contains("text/html"),
+                "Error should mention content type problem"
+            )
+        }
+
+    @Test
+    fun `resolve accepts application-did-plus-json content type`() =
+        runTest {
+            val did = "did:web:example.com"
+            val didDocument = """{"id": "$did", "verificationMethod": []}"""
+            val engine =
+                MockEngine { _ ->
+                    respond(
+                        content = didDocument,
+                        status = HttpStatusCode.OK,
+                        headers = headersOf("Content-Type", "application/did+json")
+                    )
+                }
+
+            val resolver = DidWebResolver(engine)
+            val doc = resolver.resolve(did)
+            assertEquals(did, doc.id)
+        }
+
+    // -------------------------------------------------------------------------
+    // HTTP hardening — oversized body rejection
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun `resolve throws DidResolutionException for response body exceeding 1 MiB`() =
+        runTest {
+            // Create a body that is just over the 1 MiB cap.
+            val oversizedBody = ByteArray(DidWebResolver.MAX_BODY_BYTES + 1) { 'x'.code.toByte() }
+            val engine =
+                MockEngine { _ ->
+                    respond(
+                        content = oversizedBody,
+                        status = HttpStatusCode.OK,
+                        headers = headersOf("Content-Type", "application/json")
+                    )
+                }
+
+            val resolver = DidWebResolver(engine)
+            val ex =
+                assertThrows<DidResolutionException> {
+                    kotlinx.coroutines.runBlocking { resolver.resolve("did:web:example.com") }
+                }
+            assertTrue(
+                ex.message!!.contains("size") || ex.message!!.contains("exceeds"),
+                "Error should mention body size: ${ex.message}"
+            )
+        }
+
+    // -------------------------------------------------------------------------
+    // close() propagation via DidResolverRegistry
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun `DidResolverRegistry closeAll calls close on registered resolver`() {
+        var closeCalled = false
+        val trackingResolver =
+            object : DidResolver {
+                override val method: String = "test"
+
+                override suspend fun resolve(did: String): io.github.jpicklyk.mcptask.current.domain.model.DidDocument {
+                    error("not used in this test")
+                }
+
+                override fun close() {
+                    closeCalled = true
+                }
+            }
+
+        val registry = DidResolverRegistry(listOf(trackingResolver))
+        registry.closeAll()
+        assertTrue(closeCalled, "closeAll() should have called close() on the resolver")
+    }
 }

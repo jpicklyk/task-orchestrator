@@ -3,11 +3,18 @@ package io.github.jpicklyk.mcptask.current.infrastructure.config
 import com.nimbusds.jose.jwk.JWKSet
 import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
 import io.ktor.client.HttpClient
+import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.engine.cio.CIO
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.request.get
-import io.ktor.client.statement.bodyAsText
+import io.ktor.client.statement.bodyAsChannel
+import io.ktor.http.ContentType
+import io.ktor.http.HttpStatusCode
+import io.ktor.http.contentType
+import io.ktor.utils.io.readRemaining
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.io.readByteArray
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -108,7 +115,12 @@ class DefaultJwksKeySetProvider(
     private val clock: Clock = Clock.systemUTC(),
     private val didResolverRegistry: DidResolverRegistry = DidResolverRegistry(listOf(DidWebResolver())),
     private val didDocumentJwksExtractor: DidDocumentJwksExtractor =
-        DidDocumentJwksExtractor(strictRelationship = config.didStrictRelationship)
+        DidDocumentJwksExtractor(strictRelationship = config.didStrictRelationship),
+    /**
+     * Optional [HttpClientEngine] for testing. When provided, the HTTP client will use this engine
+     * instead of the default CIO engine, allowing tests to mock HTTP responses hermetically.
+     */
+    internal val httpClientEngineForTest: HttpClientEngine? = null
 ) : JwksKeySetProvider {
     private val logger = LoggerFactory.getLogger(DefaultJwksKeySetProvider::class.java)
 
@@ -126,7 +138,22 @@ class DefaultJwksKeySetProvider(
     private var resolvedIssuer: String? = null
 
     /** Thread-safe lazy HTTP client — created only when a remote fetch is needed. */
-    private val httpClientDelegate = lazy { HttpClient(CIO) }
+    private val httpClientDelegate =
+        lazy {
+            val configure: io.ktor.client.HttpClientConfig<*>.() -> Unit = {
+                followRedirects = false
+                install(HttpTimeout) {
+                    requestTimeoutMillis = REQUEST_TIMEOUT_MS
+                    connectTimeoutMillis = CONNECT_TIMEOUT_MS
+                    socketTimeoutMillis = SOCKET_TIMEOUT_MS
+                }
+            }
+            if (httpClientEngineForTest != null) {
+                HttpClient(httpClientEngineForTest, configure)
+            } else {
+                HttpClient(CIO) { configure(this) }
+            }
+        }
     private val httpClient: HttpClient by httpClientDelegate
 
     /** Per-issuer DID cache with LRU eviction at [MAX_DID_CACHE_ENTRIES] entries. */
@@ -266,6 +293,7 @@ class DefaultJwksKeySetProvider(
         if (httpClientDelegate.isInitialized()) {
             httpClient.close()
         }
+        didResolverRegistry.closeAll()
     }
 
     // -------------------------------------------------------------------------
@@ -338,10 +366,46 @@ class DefaultJwksKeySetProvider(
         }
     }
 
-    private suspend fun httpGet(url: String): String = httpClient.get(url).bodyAsText()
+    private suspend fun httpGet(url: String): String {
+        val response = httpClient.get(url)
+
+        // Reject non-200 responses (including 3xx — we never follow redirects).
+        if (response.status != HttpStatusCode.OK) {
+            throw IllegalStateException("HTTP ${response.status.value} fetching JWKS from $url")
+        }
+
+        // Validate Content-Type: accept application/json or application/jwk-set+json.
+        val contentType = response.contentType()
+        if (contentType == null || !isAcceptableJwksContentType(contentType)) {
+            throw IllegalStateException(
+                "unexpected Content-Type '$contentType' from $url; expected application/json or application/jwk-set+json"
+            )
+        }
+
+        // Read body with a hard cap to prevent unbounded memory consumption.
+        val bytes = response.bodyAsChannel().readRemaining(MAX_BODY_BYTES.toLong() + 1).readByteArray()
+        if (bytes.size > MAX_BODY_BYTES) {
+            throw IllegalStateException(
+                "response body from $url exceeds maximum allowed size of ${MAX_BODY_BYTES} bytes"
+            )
+        }
+        return bytes.toString(Charsets.UTF_8)
+    }
+
+    /** Returns true if the given [ContentType] is acceptable for a JWKS endpoint response. */
+    private fun isAcceptableJwksContentType(contentType: ContentType): Boolean =
+        contentType.match(ContentType.Application.Json) ||
+            contentType.match(ContentType("application", "jwk-set+json"))
 
     companion object {
         private val FRESH_CACHE = CacheState(fromStaleCache = false, ageSeconds = null)
         private const val MAX_DID_CACHE_ENTRIES = 256
+
+        /** Maximum response body size accepted from a JWKS or OIDC discovery endpoint (1 MiB). */
+        const val MAX_BODY_BYTES: Int = 1 * 1024 * 1024
+
+        private const val REQUEST_TIMEOUT_MS = 5_000L
+        private const val CONNECT_TIMEOUT_MS = 3_000L
+        private const val SOCKET_TIMEOUT_MS = 5_000L
     }
 }

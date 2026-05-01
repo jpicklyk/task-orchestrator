@@ -3,10 +3,17 @@ package io.github.jpicklyk.mcptask.current.infrastructure.config
 import io.github.jpicklyk.mcptask.current.domain.model.DidDocument
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationMethod
 import io.ktor.client.HttpClient
+import io.ktor.client.HttpClientConfig
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.engine.cio.CIO
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.request.get
-import io.ktor.client.statement.bodyAsText
+import io.ktor.client.statement.bodyAsChannel
+import io.ktor.http.ContentType
+import io.ktor.http.HttpStatusCode
+import io.ktor.http.contentType
+import io.ktor.utils.io.readRemaining
+import kotlinx.io.readByteArray
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -38,8 +45,20 @@ class DidWebResolver(
     private val logger = LoggerFactory.getLogger(DidWebResolver::class.java)
 
     /** Thread-safe lazy HTTP client — created only when a network fetch is needed. */
-    private val httpClientDelegate = lazy { if (engine != null) HttpClient(engine) else HttpClient(CIO) }
+    private val httpClientDelegate = lazy { buildHttpClient(engine) }
     private val httpClient: HttpClient by httpClientDelegate
+
+    private fun buildHttpClient(engine: HttpClientEngine?): HttpClient {
+        val configure: HttpClientConfig<*>.() -> Unit = {
+            followRedirects = false
+            install(HttpTimeout) {
+                requestTimeoutMillis = REQUEST_TIMEOUT_MS
+                connectTimeoutMillis = CONNECT_TIMEOUT_MS
+                socketTimeoutMillis = SOCKET_TIMEOUT_MS
+            }
+        }
+        return if (engine != null) HttpClient(engine, configure) else HttpClient(CIO) { configure(this) }
+    }
 
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -58,7 +77,31 @@ class DidWebResolver(
 
         val responseBody: String =
             try {
-                httpClient.get(url).bodyAsText()
+                val response = httpClient.get(url)
+
+                // Reject non-200 responses (including 3xx redirects — we never follow them).
+                if (response.status != HttpStatusCode.OK) {
+                    throw DidResolutionException("HTTP ${response.status.value} from $url")
+                }
+
+                // Validate Content-Type: accept application/did+json or application/json.
+                val contentType = response.contentType()
+                if (contentType == null || !isAcceptableDidContentType(contentType)) {
+                    throw DidResolutionException(
+                        "unexpected Content-Type '$contentType' from $url; expected application/did+json or application/json"
+                    )
+                }
+
+                // Read body with a hard cap to prevent unbounded memory consumption.
+                val bytes = response.bodyAsChannel().readRemaining(MAX_BODY_BYTES.toLong() + 1).readByteArray()
+                if (bytes.size > MAX_BODY_BYTES) {
+                    throw DidResolutionException(
+                        "response body from $url exceeds maximum allowed size of ${MAX_BODY_BYTES} bytes"
+                    )
+                }
+                bytes.toString(Charsets.UTF_8)
+            } catch (e: DidResolutionException) {
+                throw e
             } catch (e: Exception) {
                 throw DidResolutionException("network error resolving $did: ${e.message}", e)
             }
@@ -190,10 +233,24 @@ class DidWebResolver(
                 }
         }
 
+    /** Returns true if the given ContentType is an acceptable DID document media type. */
+    private fun isAcceptableDidContentType(contentType: ContentType): Boolean =
+        contentType.match(ContentType.Application.Json) ||
+            contentType.match(ContentType("application", "did+json"))
+
     /** Releases the underlying HTTP client if it was initialized. */
-    fun close() {
+    override fun close() {
         if (httpClientDelegate.isInitialized()) {
             httpClient.close()
         }
+    }
+
+    companion object {
+        /** Maximum response body size accepted from a DID endpoint (1 MiB). */
+        const val MAX_BODY_BYTES: Int = 1 * 1024 * 1024
+
+        private const val REQUEST_TIMEOUT_MS = 5_000L
+        private const val CONNECT_TIMEOUT_MS = 3_000L
+        private const val SOCKET_TIMEOUT_MS = 5_000L
     }
 }

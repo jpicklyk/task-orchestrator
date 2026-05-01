@@ -13,6 +13,11 @@ class DidResolverRegistry(
         return resolver.resolve(did)
     }
 
+    /** Calls [DidResolver.close] on every registered resolver. */
+    fun closeAll() {
+        byMethod.values.forEach { it.close() }
+    }
+
     internal fun parseMethod(did: String): String? {
         if (!did.startsWith("did:")) return null
         val afterPrefix = did.substring(4)

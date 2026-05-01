@@ -8,6 +8,9 @@ interface DidResolver {
 
     /** Resolve the DID and return its document. */
     suspend fun resolve(did: String): DidDocument
+
+    /** Releases any resources held by this resolver (e.g., HTTP client connections). No-op by default. */
+    fun close() {}
 }
 
 open class DidResolutionException(
