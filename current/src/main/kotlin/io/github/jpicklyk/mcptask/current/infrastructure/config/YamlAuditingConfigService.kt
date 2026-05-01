@@ -227,15 +227,20 @@ class YamlAuditingConfigService(
                     return VerifierConfig.Noop
                 }
 
-                // When static JWKS mode, enforce "exactly one source" rule
+                // When static JWKS mode, enforce "exactly one source" hard error
                 if (isStaticJwks) {
                     val sourcesSet = listOfNotNull(oidcDiscovery, jwksUri, jwksPath)
                     if (sourcesSet.size > 1) {
-                        val msg =
-                            "auditing.verifier type 'jwks' expects exactly one of oidc_discovery, " +
-                                "jwks_uri, or jwks_path; multiple were provided — using all as-is"
-                        warnings.add(msg)
-                        logger.warn(msg)
+                        val provided =
+                            buildList {
+                                if (oidcDiscovery != null) add("oidc_discovery")
+                                if (jwksUri != null) add("jwks_uri")
+                                if (jwksPath != null) add("jwks_path")
+                            }.joinToString(", ")
+                        throw IllegalArgumentException(
+                            "auditing.verifier type 'jwks' requires exactly one of oidc_discovery, " +
+                                "jwks_uri, or jwks_path; multiple were provided: $provided"
+                        )
                     }
                 }
 
@@ -248,6 +253,14 @@ class YamlAuditingConfigService(
                         is List<*> -> rawAlgorithms.filterIsInstance<String>()
                         else -> emptyList()
                     }
+
+                // algorithms is required under type: jwks — no implicit default list
+                if (algorithms.isEmpty()) {
+                    throw IllegalArgumentException(
+                        "auditing.verifier type 'jwks' requires a non-empty 'algorithms' allowlist; " +
+                            "supported values include EdDSA, ES256, ES384, ES512, RS256, RS384, RS512"
+                    )
+                }
 
                 val cacheTtlSeconds =
                     when (val raw = verifierMap["cache_ttl_seconds"]) {

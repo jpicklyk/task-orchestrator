@@ -70,12 +70,26 @@ auditing:
     did_allowlist:
       - "did:web:agent.org-a.example"
       - "did:web:agent.org-b.example"
-    # OR match an entire domain's agent fleet:
+    # OR match an entire domain's agent fleet — note: * is segment-bounded (see below)
     # did_pattern: "did:web:agents.example.com:*"
+    algorithms:
+      - EdDSA                         # required — empty or missing causes startup error
     audience: "mcp-task-orchestrator"
     require_sub_match: true
     did_loose_kid_match: true         # accommodates AgentLair-style thumbprint kid headers
 ```
+
+**`did_pattern` segment-bounded wildcard.** The `*` in `did_pattern` matches a single
+colon-delimited DID segment — it will not cross a `:` boundary. Example:
+
+| Pattern | Value | Match? |
+|---------|-------|--------|
+| `did:web:agents.example.com:*` | `did:web:agents.example.com:alice` | Yes — one segment |
+| `did:web:agents.example.com:*` | `did:web:agents.example.com:alice:hijacker` | **No** — two segments |
+| `did:web:agents.example.com:*` | `did:web:agents.example.com:` | Yes — empty trailing segment |
+
+If your fleet uses a two-level path (`did:web:host:team:agent`), use two explicit wildcard
+segments (`did:web:host:*:*`) or enumerate teams in `did_allowlist`.
 
 `did:web` identifiers work as `claimedBy` values natively — they are opaque strings and require no
 special handling. Under `reject`, any agent without a valid JWT in `actor.proof` cannot claim items

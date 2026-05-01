@@ -148,12 +148,33 @@ auditing:
       - "did:web:agent-a.example.com"
       - "did:web:agent-b.partner.org"
     # OR use a glob pattern to match any did:web under your domain:
-    # did_pattern: "did:web:*.example.com"
+    # did_pattern: "did:web:agents.example.com:*"
+    algorithms:
+      - EdDSA                        # required — no implicit default; empty or missing causes startup error
     audience: "mcp-task-orchestrator"
     require_sub_match: true
     did_strict_relationship: true    # only assertionMethod-referenced keys are eligible
     did_loose_kid_match: true        # allow single-key DID docs with mismatched kid header
 ```
+
+**Trust policy constraints (enforced at startup):**
+
+- **`algorithms` is required.** Under `type: jwks`, omitting `algorithms` or providing an empty list
+  causes an `IllegalArgumentException` at config load. There is no implicit default — operators must
+  declare the allowlist explicitly. Supported values include `EdDSA`, `ES256`, `ES384`, `ES512`,
+  `RS256`, `RS384`, `RS512`.
+
+- **`did_pattern` `*` is path-segment-bounded.** The wildcard matches a single DID colon-delimited
+  segment (`[^:]*` in regex terms). `did:web:example.com:agents:*` matches
+  `did:web:example.com:agents:alice` but **not** `did:web:example.com:agents:alice:hijacker`. This
+  prevents sub-path hijack where an attacker registers `alice:role:owner` under an operator's fleet
+  prefix and matches a broader wildcard. Operators needing multi-segment coverage must list each
+  fleet explicitly in `did_allowlist`, or restructure the DID hierarchy so the distinguishing
+  segment is the last one. No `**` double-wildcard is available in v1.
+
+- **Exactly one static JWKS source.** Providing more than one of `oidc_discovery`, `jwks_uri`, and
+  `jwks_path` causes a startup error (`IllegalArgumentException`). This matches the existing
+  mutual-exclusion rule for DID-trust + static-JWKS combinations.
 
 For deeper configuration detail see [Fleet Deployment — Cross-Org did:web Deployments](current/docs/fleet-deployment.md#cross-org-didweb-deployments).
 

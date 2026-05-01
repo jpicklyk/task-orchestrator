@@ -91,7 +91,7 @@ class YamlAuditingConfigServiceTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `verifier type jwks with all fields returns fully populated Jwks`() {
+    fun `verifier type jwks with multiple static sources throws startup exception`() {
         val configFile =
             createConfigFile(
                 """
@@ -113,19 +113,44 @@ class YamlAuditingConfigServiceTest {
             )
         val service = YamlAuditingConfigService(configFile)
 
+        val ex = assertThrows(IllegalArgumentException::class.java) { service.getConfig() }
+        assertTrue(ex.message!!.contains("exactly one"), "Expected 'exactly one' in: ${ex.message}")
+        assertTrue(ex.message!!.contains("multiple were provided"), "Expected 'multiple were provided' in: ${ex.message}")
+    }
+
+    @Test
+    fun `verifier type jwks with single source and all other fields returns fully populated Jwks`() {
+        val configFile =
+            createConfigFile(
+                """
+                auditing:
+                  enabled: true
+                  verifier:
+                    type: jwks
+                    jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
+                    issuer: "https://accounts.example.com"
+                    audience: "mcp-task-orchestrator"
+                    algorithms:
+                      - RS256
+                      - ES256
+                    cache_ttl_seconds: 600
+                    require_sub_match: false
+                """.trimIndent()
+            )
+        val service = YamlAuditingConfigService(configFile)
+
         val verifier = service.getConfig().verifier
         assertInstanceOf(VerifierConfig.Jwks::class.java, verifier)
         verifier as VerifierConfig.Jwks
-        assertEquals("https://accounts.example.com/.well-known/openid-configuration", verifier.oidcDiscovery)
+        assertNull(verifier.oidcDiscovery)
         assertEquals("https://accounts.example.com/.well-known/jwks.json", verifier.jwksUri)
-        assertEquals("/etc/keys/jwks.json", verifier.jwksPath)
+        assertNull(verifier.jwksPath)
         assertEquals("https://accounts.example.com", verifier.issuer)
         assertEquals("mcp-task-orchestrator", verifier.audience)
         assertEquals(listOf("RS256", "ES256"), verifier.algorithms)
         assertEquals(600L, verifier.cacheTtlSeconds)
         assertFalse(verifier.requireSubMatch)
-        // Multiple static-JWKS sources produce a warning (exactly-one-source enforcement)
-        assertTrue(service.getWarnings().any { it.contains("exactly one") })
+        assertTrue(service.getWarnings().isEmpty())
     }
 
     // -------------------------------------------------------------------------
@@ -141,6 +166,8 @@ class YamlAuditingConfigServiceTest {
                   verifier:
                     type: jwks
                     jwks_path: "/etc/keys/jwks.json"
+                    algorithms:
+                      - EdDSA
                 """.trimIndent()
             )
         val service = YamlAuditingConfigService(configFile)
@@ -163,6 +190,8 @@ class YamlAuditingConfigServiceTest {
                   verifier:
                     type: jwks
                     oidc_discovery: "https://accounts.example.com/.well-known/openid-configuration"
+                    algorithms:
+                      - EdDSA
                 """.trimIndent()
             )
         val service = YamlAuditingConfigService(configFile)
@@ -185,6 +214,8 @@ class YamlAuditingConfigServiceTest {
                   verifier:
                     type: jwks
                     jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
+                    algorithms:
+                      - EdDSA
                 """.trimIndent()
             )
         val service = YamlAuditingConfigService(configFile)
@@ -271,6 +302,8 @@ class YamlAuditingConfigServiceTest {
                   verifier:
                     type: jwks
                     jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
+                    algorithms:
+                      - EdDSA
                 """.trimIndent()
             )
         val service = YamlAuditingConfigService(configFile)
@@ -288,6 +321,8 @@ class YamlAuditingConfigServiceTest {
                   verifier:
                     type: jwks
                     jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
+                    algorithms:
+                      - EdDSA
                 """.trimIndent()
             )
         val service = YamlAuditingConfigService(configFile)
@@ -297,7 +332,7 @@ class YamlAuditingConfigServiceTest {
     }
 
     @Test
-    fun `algorithms defaults to empty list when absent`() {
+    fun `algorithms missing from type jwks throws IllegalArgumentException`() {
         val configFile =
             createConfigFile(
                 """
@@ -309,8 +344,26 @@ class YamlAuditingConfigServiceTest {
             )
         val service = YamlAuditingConfigService(configFile)
 
-        val verifier = service.getConfig().verifier as VerifierConfig.Jwks
-        assertEquals(emptyList<String>(), verifier.algorithms)
+        val ex = assertThrows(IllegalArgumentException::class.java) { service.getConfig() }
+        assertTrue(ex.message!!.contains("non-empty 'algorithms'"), "Expected algorithms error in: ${ex.message}")
+    }
+
+    @Test
+    fun `empty algorithms list under type jwks throws IllegalArgumentException`() {
+        val configFile =
+            createConfigFile(
+                """
+                auditing:
+                  verifier:
+                    type: jwks
+                    jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
+                    algorithms: []
+                """.trimIndent()
+            )
+        val service = YamlAuditingConfigService(configFile)
+
+        val ex = assertThrows(IllegalArgumentException::class.java) { service.getConfig() }
+        assertTrue(ex.message!!.contains("non-empty 'algorithms'"), "Expected algorithms error in: ${ex.message}")
     }
 
     @Test
@@ -322,6 +375,8 @@ class YamlAuditingConfigServiceTest {
                   verifier:
                     type: jwks
                     jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
+                    algorithms:
+                      - EdDSA
                 """.trimIndent()
             )
         val service = YamlAuditingConfigService(configFile)
@@ -339,6 +394,8 @@ class YamlAuditingConfigServiceTest {
                   verifier:
                     type: jwks
                     jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
+                    algorithms:
+                      - EdDSA
                     stale_on_error: false
                 """.trimIndent()
             )
@@ -357,6 +414,8 @@ class YamlAuditingConfigServiceTest {
                   verifier:
                     type: jwks
                     jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
+                    algorithms:
+                      - EdDSA
                     stale_on_error: true
                 """.trimIndent()
             )
@@ -617,6 +676,8 @@ class YamlAuditingConfigServiceTest {
                     did_allowlist:
                       - "did:web:example.com"
                       - "did:web:trusted.org"
+                    algorithms:
+                      - EdDSA
                 """.trimIndent()
             )
         val service = YamlAuditingConfigService(configFile)
@@ -643,6 +704,8 @@ class YamlAuditingConfigServiceTest {
                   verifier:
                     type: jwks
                     did_pattern: "did:web:*.example.com"
+                    algorithms:
+                      - EdDSA
                 """.trimIndent()
             )
         val service = YamlAuditingConfigService(configFile)
@@ -666,6 +729,8 @@ class YamlAuditingConfigServiceTest {
                     did_allowlist:
                       - "did:web:explicit.example.com"
                     did_pattern: "did:web:*.trusted.org"
+                    algorithms:
+                      - EdDSA
                 """.trimIndent()
             )
         val service = YamlAuditingConfigService(configFile)
@@ -687,6 +752,8 @@ class YamlAuditingConfigServiceTest {
                     did_allowlist:
                       - "did:web:example.com"
                     did_strict_relationship: false
+                    algorithms:
+                      - EdDSA
                 """.trimIndent()
             )
         val service = YamlAuditingConfigService(configFile)
@@ -707,6 +774,8 @@ class YamlAuditingConfigServiceTest {
                     did_allowlist:
                       - "did:web:example.com"
                     did_loose_kid_match: false
+                    algorithms:
+                      - EdDSA
                 """.trimIndent()
             )
         val service = YamlAuditingConfigService(configFile)
@@ -831,6 +900,8 @@ class YamlAuditingConfigServiceTest {
                   verifier:
                     type: jwks
                     jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
+                    algorithms:
+                      - EdDSA
                 """.trimIndent()
             )
         val service = YamlAuditingConfigService(configFile)
@@ -841,6 +912,93 @@ class YamlAuditingConfigServiceTest {
         assertTrue(verifier.didStrictRelationship)
         assertTrue(verifier.didLooseKidMatch)
         assertTrue(service.getWarnings().isEmpty())
+    }
+
+    // -------------------------------------------------------------------------
+    // Phase 4 — Multiple static JWKS sources hard error
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun `jwks_uri and jwks_path together throws startup exception`() {
+        val configFile =
+            createConfigFile(
+                """
+                auditing:
+                  verifier:
+                    type: jwks
+                    jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
+                    jwks_path: "/etc/keys/jwks.json"
+                    algorithms:
+                      - EdDSA
+                """.trimIndent()
+            )
+        val service = YamlAuditingConfigService(configFile)
+
+        val ex = assertThrows(IllegalArgumentException::class.java) { service.getConfig() }
+        assertTrue(ex.message!!.contains("multiple were provided"), "Expected 'multiple were provided' in: ${ex.message}")
+        assertTrue(ex.message!!.contains("jwks_uri"), "Expected 'jwks_uri' in: ${ex.message}")
+        assertTrue(ex.message!!.contains("jwks_path"), "Expected 'jwks_path' in: ${ex.message}")
+    }
+
+    @Test
+    fun `oidc_discovery and jwks_uri together throws startup exception`() {
+        val configFile =
+            createConfigFile(
+                """
+                auditing:
+                  verifier:
+                    type: jwks
+                    oidc_discovery: "https://accounts.example.com/.well-known/openid-configuration"
+                    jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
+                    algorithms:
+                      - EdDSA
+                """.trimIndent()
+            )
+        val service = YamlAuditingConfigService(configFile)
+
+        val ex = assertThrows(IllegalArgumentException::class.java) { service.getConfig() }
+        assertTrue(ex.message!!.contains("multiple were provided"), "Expected 'multiple were provided' in: ${ex.message}")
+        assertTrue(ex.message!!.contains("oidc_discovery"), "Expected 'oidc_discovery' in: ${ex.message}")
+        assertTrue(ex.message!!.contains("jwks_uri"), "Expected 'jwks_uri' in: ${ex.message}")
+    }
+
+    // -------------------------------------------------------------------------
+    // Phase 4 — algorithms required for DID-trust mode
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun `did_allowlist without algorithms throws startup exception`() {
+        val configFile =
+            createConfigFile(
+                """
+                auditing:
+                  verifier:
+                    type: jwks
+                    did_allowlist:
+                      - "did:web:example.com"
+                """.trimIndent()
+            )
+        val service = YamlAuditingConfigService(configFile)
+
+        val ex = assertThrows(IllegalArgumentException::class.java) { service.getConfig() }
+        assertTrue(ex.message!!.contains("non-empty 'algorithms'"), "Expected algorithms error in: ${ex.message}")
+    }
+
+    @Test
+    fun `did_pattern without algorithms throws startup exception`() {
+        val configFile =
+            createConfigFile(
+                """
+                auditing:
+                  verifier:
+                    type: jwks
+                    did_pattern: "did:web:*.example.com"
+                """.trimIndent()
+            )
+        val service = YamlAuditingConfigService(configFile)
+
+        val ex = assertThrows(IllegalArgumentException::class.java) { service.getConfig() }
+        assertTrue(ex.message!!.contains("non-empty 'algorithms'"), "Expected algorithms error in: ${ex.message}")
     }
 
     // -------------------------------------------------------------------------

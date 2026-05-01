@@ -782,7 +782,7 @@ class JwksKeySetProviderTest {
                 coVerify(atLeast = 258) { mockRegistry.resolve(any()) }
             }
 
-        // DID-T8: matchesGlob unit tests
+        // DID-T8: matchesGlob unit tests — segment-bounded wildcard (Phase 4)
         @Test
         fun `matchesGlob handles wildcard and anchoring correctly`() {
             val provider = DefaultJwksKeySetProvider(VerifierConfig.Jwks(didAllowlist = listOf("x")))
@@ -790,23 +790,31 @@ class JwksKeySetProviderTest {
             // Exact match (no wildcard)
             assertTrue(provider.matchesGlob("did:web:example.com", "did:web:example.com"))
 
-            // Simple trailing wildcard
+            // Simple trailing wildcard — matches single segment
             assertTrue(provider.matchesGlob("did:web:example.com:agents:abc", "did:web:example.com:agents:*"))
 
-            // Non-match with trailing wildcard
+            // Non-match with trailing wildcard — different prefix
             assertTrue(!provider.matchesGlob("did:web:other.com:agents:abc", "did:web:example.com:agents:*"))
 
-            // Multiple wildcards
+            // Multiple wildcards — each * matches a single colon-free segment
             assertTrue(provider.matchesGlob("did:web:foo.example.com:bar:baz", "did:web:*:bar:*"))
 
-            // Empty string at end matched by *
+            // Empty string at end matched by * (empty segment after last colon)
             assertTrue(provider.matchesGlob("did:web:example.com:agents:", "did:web:example.com:agents:*"))
 
-            // Pattern is exactly "*" — matches anything
-            assertTrue(provider.matchesGlob("did:web:anything.com", "*"))
+            // Pattern is exactly "*" — matches a single segment without colons
+            assertTrue(provider.matchesGlob("singleSegment", "*"))
+            // But NOT a multi-segment DID (contains colons)
+            assertTrue(!provider.matchesGlob("did:web:anything.com", "*"))
 
             // Anchored — prefix-only glob should NOT match if suffix doesn't match
             assertTrue(!provider.matchesGlob("did:web:example.com:agents:abc:extra", "did:web:example.com:agents:abc"))
+
+            // NEW Phase 4 — sub-path hijack prevention: * does NOT match across colon boundaries
+            assertTrue(!provider.matchesGlob("did:web:example.com:agents:alice:hijacker", "did:web:example.com:agents:*"))
+
+            // NEW Phase 4 — single segment after last colon matches fine
+            assertTrue(provider.matchesGlob("did:web:example.com:agents:alice", "did:web:example.com:agents:*"))
         }
 
         // DID-T9: allowlist precedence over pattern

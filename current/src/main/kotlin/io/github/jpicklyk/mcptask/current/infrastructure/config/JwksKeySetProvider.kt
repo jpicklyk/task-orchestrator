@@ -273,7 +273,10 @@ class DefaultJwksKeySetProvider(
         return false
     }
 
-    // Glob match: "*" matches any sequence (including empty), no other special chars.
+    // Glob match: "*" matches any single DID path segment (i.e., any sequence of characters
+    // that does NOT contain ":"). This prevents sub-path hijack where, for example,
+    // "did:web:host:agents:alice:fake" would wrongly match "did:web:host:agents:*" under an
+    // unrestricted ".*" wildcard. No "**" escape-hatch is provided in v1.
     // Compile pattern to regex once per call (acceptable; patterns are typically short).
     internal fun matchesGlob(
         value: String,
@@ -282,7 +285,7 @@ class DefaultJwksKeySetProvider(
         val regex =
             pattern
                 .split("*")
-                .joinToString(".*") { Regex.escape(it) }
+                .joinToString("[^:]*") { Regex.escape(it) }
                 .let { Regex("^$it$") }
         return regex.matches(value)
     }
