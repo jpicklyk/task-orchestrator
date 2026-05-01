@@ -79,6 +79,13 @@ auditing:
     did_loose_kid_match: true         # accommodates AgentLair-style thumbprint kid headers
 ```
 
+**Algorithm name for Ed25519 tokens.** Use the string `EdDSA`, not `Ed25519`. This matches the
+`alg` claim that Ed25519-signed JWTs carry per [RFC 8037](https://datatracker.ietf.org/doc/html/rfc8037),
+and corresponds to `JWSAlgorithm.Ed25519.name` in the Nimbus JOSE library this verifier uses
+internally. Because `algorithms` is now strictly required under `type: jwks`, an EdDSA-only fleet
+that ships `algorithms: ["Ed25519"]` will fail startup with a clear error rather than silently
+mis-matching at verification time.
+
 **`did_pattern` segment-bounded wildcard.** The `*` in `did_pattern` matches a single
 colon-delimited DID segment — it will not cross a `:` boundary. Example:
 
