@@ -134,7 +134,7 @@ Add to `gradle/libs.versions.toml` (`[versions]` + `[libraries]`), then referenc
 - `MCP_HTTP_PORT` — HTTP port (default: `3001`)
 - `LOG_LEVEL` — DEBUG / INFO / WARN / ERROR (default: `INFO`)
 - `FLYWAY_REPAIR` — run repair and exit (default: `false`)
-- `DEGRADED_MODE_POLICY` — overrides `auditing.degraded_mode_policy` in config; values: `accept-cached` (default) | `accept-self-reported` | `reject`; invalid value = startup failure
+- `DEGRADED_MODE_POLICY` — overrides `actor_authentication.degraded_mode_policy` in config; values: `accept-cached` (default) | `accept-self-reported` | `reject`; invalid value = startup failure
 
 **Migration files:** `current/src/main/resources/db/migration/`
 

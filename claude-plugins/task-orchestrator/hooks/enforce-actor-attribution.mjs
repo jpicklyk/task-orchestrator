@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 // PreToolUse hook — enforces actor attribution on MCP write operations when
-// auditing is enabled in .taskorchestrator/config.yaml.
+// actor_authentication is enabled in .taskorchestrator/config.yaml.
 //
 // Config format:
-//   auditing:
+//   actor_authentication:
 //     enabled: true
 //
 // When enabled, blocks advance_item and manage_notes(upsert) calls that are
@@ -57,35 +57,35 @@ function readConfigContent() {
   return null;
 }
 
-// Returns true only when auditing.enabled is explicitly set to true.
+// Returns true only when actor_authentication.enabled is explicitly set to true.
 // Handles both block YAML and inline forms, strips trailing comments.
-function isAuditingEnabled(configContent) {
+function isActorAuthenticationEnabled(configContent) {
   if (!configContent) return false;
 
-  let inAuditingSection = false;
+  let inActorAuthSection = false;
 
   for (const line of configContent.split('\n')) {
     const trimmed = line.trim();
 
-    // Detect top-level "auditing:" — check for inline form first
-    if (/^auditing\s*:/.test(trimmed)) {
-      // Handle inline: `auditing: { enabled: true }`
-      const inlineMatch = trimmed.match(/^auditing\s*:\s*\{(.+)\}/);
+    // Detect top-level "actor_authentication:" — check for inline form first
+    if (/^actor_authentication\s*:/.test(trimmed)) {
+      // Handle inline: `actor_authentication: { enabled: true }`
+      const inlineMatch = trimmed.match(/^actor_authentication\s*:\s*\{(.+)\}/);
       if (inlineMatch) {
         const inner = inlineMatch[1];
         const enabledMatch = inner.match(/enabled\s*:\s*(\S+)/);
         return enabledMatch ? enabledMatch[1].replace(/#.*$/, '').trim().toLowerCase() === 'true' : false;
       }
-      inAuditingSection = true;
+      inActorAuthSection = true;
       continue;
     }
 
-    // Any other top-level key (non-indented, non-empty) ends the auditing section
-    if (inAuditingSection && /^\S/.test(line)) {
-      inAuditingSection = false;
+    // Any other top-level key (non-indented, non-empty) ends the actor_authentication section
+    if (inActorAuthSection && /^\S/.test(line)) {
+      inActorAuthSection = false;
     }
 
-    if (inAuditingSection) {
+    if (inActorAuthSection) {
       const match = trimmed.match(/^enabled\s*:\s*(.+)/);
       if (match) {
         return match[1].replace(/#.*$/, '').trim().toLowerCase() === 'true';
@@ -97,7 +97,7 @@ function isAuditingEnabled(configContent) {
 }
 
 const configContent = readConfigContent();
-if (!isAuditingEnabled(configContent)) {
+if (!isActorAuthenticationEnabled(configContent)) {
   process.exit(0);
 }
 

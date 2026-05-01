@@ -201,19 +201,19 @@ Items with `type: feature-task` use the `work_item_schemas` entry. Items with ta
 
 ---
 
-## Auditing
+## Actor authentication
 
-The `auditing` section is a top-level key alongside `work_item_schemas` and `traits`. It controls whether actor attribution is enforced on write operations.
+The `actor_authentication` section is a top-level key alongside `work_item_schemas` and `traits`. It controls whether actor attribution is enforced on write operations.
 
 ```yaml
-auditing:
+actor_authentication:
   enabled: true
 
 work_item_schemas:
   # ...
 ```
 
-Default: `false` when absent — auditing is opt-in.
+Default: `false` when absent — actor authentication is opt-in.
 
 ### Fields
 
@@ -223,7 +223,7 @@ Default: `false` when absent — auditing is opt-in.
 
 ### Behavior
 
-When `auditing.enabled` is `true`, the plugin's PreToolUse hook blocks `advance_item` and `manage_notes(upsert)` calls that are missing an `actor` object on any element. The agent must retry with actor attribution included.
+When `actor_authentication.enabled` is `true`, the plugin's PreToolUse hook blocks `advance_item` and `manage_notes(upsert)` calls that are missing an `actor` object on any element. The agent must retry with actor attribution included.
 
 When `false` or absent, actor claims are optional — calls pass through with no enforcement. Actor claims can still be provided voluntarily.
 
@@ -244,13 +244,20 @@ The optional `verifier` sub-key enables server-side JWT validation of actor clai
 | `algorithms` | no | list | `[]` | Allowed signing algorithms; empty = accept any |
 | `cache_ttl_seconds` | no | number | `300` | JWKS cache TTL in seconds |
 | `require_sub_match` | no | boolean | `true` | JWT `sub` must match `actor.id` |
+| `stale_on_error` | no | boolean | `true` | Serve stale cached key set if JWKS endpoint is unreachable during refresh. Set `false` to propagate the fetch exception |
+| `did_allowlist` | no | list | `[]` | List of trusted DID strings (exact match against JWT `iss` claim). Non-empty activates DID-trust mode |
+| `did_pattern` | no | string | — | Glob or regex pattern matching trusted DIDs. Non-null activates DID-trust mode. Mutually exclusive with `did_allowlist` |
+| `did_strict_relationship` | no | boolean | `true` | When true, only verification methods referenced from the resolved DID document's `assertionMethod` array are eligible. Set false to allow any key in the document |
+| `did_loose_kid_match` | no | boolean | `true` | Allow single-key fallback when JWT `kid` not found in the resolved DID document AND the eligible-key set has exactly one entry. Multi-key documents always require exact `kid` match |
 
-When `type: jwks`, at least one of `oidc_discovery`, `jwks_uri`, or `jwks_path` is required. Explicit `jwks_uri` and `issuer` values override OIDC-discovered values when both are present.
+When `type: jwks`, at least one of `oidc_discovery`, `jwks_uri`, or `jwks_path` is required for static-JWKS mode. Explicit `jwks_uri` and `issuer` values override OIDC-discovered values when both are present.
+
+> **DID trust fields** apply only to `type: jwks`. Either `did_allowlist` (non-empty) or `did_pattern` (non-null) activates DID-trust mode — they are mutually exclusive. In DID-trust mode, `oidc_discovery`, `jwks_uri`, and `jwks_path` must all be null. The two trust modes are validated at startup.
 
 **Example — OIDC discovery (simplest):**
 
 ```yaml
-auditing:
+actor_authentication:
   enabled: true
   verifier:
     type: jwks
@@ -260,7 +267,7 @@ auditing:
 **Example — File-based (air-gapped):**
 
 ```yaml
-auditing:
+actor_authentication:
   enabled: true
   verifier:
     type: jwks
@@ -270,7 +277,7 @@ auditing:
 **Example — Full config (all options):**
 
 ```yaml
-auditing:
+actor_authentication:
   enabled: true
   verifier:
     type: jwks
@@ -283,6 +290,23 @@ auditing:
     cache_ttl_seconds: 300
     require_sub_match: true
 ```
+
+**Example — DID-rooted trust (per-agent identities):**
+
+```yaml
+actor_authentication:
+  enabled: true
+  verifier:
+    type: jwks
+    algorithms: ["EdDSA", "RS256"]
+    audience: "task-orchestrator"
+    did_allowlist:
+      - "did:web:agent.example.com"
+      - "did:web:lair.dev"
+    did_loose_kid_match: true
+```
+
+When `did_allowlist` or `did_pattern` is set, the verifier resolves the JWT's `iss` claim as a DID and validates the signing key against the resolved DID document's `verificationMethod` entries (subject to `did_strict_relationship`). See `current/docs/fleet-deployment.md` for the full deployment guide.
 
 > **Note:** `enabled` (client-side enforcement) and `verifier` (server-side validation) are independent concerns. A call can pass enforcement (actor present) but have verification fail (bad JWT).
 

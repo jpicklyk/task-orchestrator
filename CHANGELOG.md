@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Breaking Changes
+
+- **Config section renamed**: `auditing:` → `actor_authentication:`. The section configures actor-claim authentication policy (JWT verifier, JWKS sources, DID trust, degraded-mode policy), which the prior name did not describe. Migration: `sed -i 's/^auditing:/actor_authentication:/' .taskorchestrator/config.yaml`. The MCP server emits a clear startup error pointing to the new key when legacy `auditing:` is encountered. Inner `verifier:` block name is unchanged.
+
 ## [3.4.0] - 2026-04-29 (Plugin v3.1.2)
 
 ### Added

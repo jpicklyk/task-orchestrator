@@ -17,7 +17,7 @@ Multi-agent workflows need infrastructure the model doesn't provide. When an orc
 
 ## A Different Approach
 
-Task Orchestrator is an [MCP server](https://modelcontextprotocol.io) — not a prompt layer. It provides 13 tools that give any MCP-compatible AI agent a persistent work item graph with **server-enforced quality gates**. The enforcement happens at the tool level: if a required design note isn't filled, `advance_item` returns an error. If a dependency isn't satisfied, the transition is blocked. If auditing is enabled and an agent doesn't identify itself, the call is rejected before it reaches the server.
+Task Orchestrator is an [MCP server](https://modelcontextprotocol.io) — not a prompt layer. It provides 13 tools that give any MCP-compatible AI agent a persistent work item graph with **server-enforced quality gates**. The enforcement happens at the tool level: if a required design note isn't filled, `advance_item` returns an error. If a dependency isn't satisfied, the transition is blocked. If actor authentication is enabled and an agent doesn't identify itself, the call is rejected before it reaches the server.
 
 The rules live in the server, not the conversation.
 
@@ -131,10 +131,10 @@ Every `advance_item` transition and `manage_notes` upsert accepts an optional ac
 }
 ```
 
-Enable auditing in config to require it:
+Enable actor authentication in config to require it:
 
 ```yaml
-auditing:
+actor_authentication:
   enabled: true
 ```
 
@@ -164,7 +164,7 @@ Metadata-only queries (`includeBody=false`) let agents check what exists without
 
 ### Design Philosophy
 
-Task Orchestrator enforces workflow structure without imposing methodology. The server owns the guardrails — role transitions, dependency ordering, gate enforcement, and accountability. Agents own everything else. There are no mandatory planning ceremonies, no prescribed development processes, no opinion on how agents approach implementation. Schemas, traits, and auditing are opt-in layers that integrate with your team's development policies through `.taskorchestrator/config.yaml`. As models gain new capabilities, the harness stays out of the way rather than constraining what agents can do.
+Task Orchestrator enforces workflow structure without imposing methodology. The server owns the guardrails — role transitions, dependency ordering, gate enforcement, and accountability. Agents own everything else. There are no mandatory planning ceremonies, no prescribed development processes, no opinion on how agents approach implementation. Schemas, traits, and actor authentication are opt-in layers that integrate with your team's development policies through `.taskorchestrator/config.yaml`. As models gain new capabilities, the harness stays out of the way rather than constraining what agents can do.
 
 ---
 
@@ -253,7 +253,7 @@ The plugin adds workflow automation on top of the MCP server — skills, hooks, 
 | Layer | What it does |
 |-------|-------------|
 | **Skills** | Slash commands for common workflows — `/task-orchestrator:create-item`, `/task-orchestrator:manage-schemas`, `/task-orchestrator:quick-start` |
-| **Hooks** | Automatic context injection at session start, plan mode integration, sub-agent context handoff, auditing enforcement |
+| **Hooks** | Automatic context injection at session start, plan mode integration, sub-agent context handoff, actor attribution enforcement |
 | **Output style** | Workflow Orchestrator mode — Claude plans, delegates to sub-agents, and tracks progress without writing code directly |
 
 The MCP server works without the plugin. The plugin makes it seamless with Claude Code.

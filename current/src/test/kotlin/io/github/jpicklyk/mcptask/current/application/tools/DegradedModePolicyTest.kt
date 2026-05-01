@@ -28,7 +28,7 @@ class DegradedModePolicyTest {
     @Test
     fun `default DegradedModePolicy is ACCEPT_CACHED`() {
         assertEquals(DegradedModePolicy.ACCEPT_CACHED, DegradedModePolicy.ACCEPT_CACHED)
-        // Verify the AuditingConfig default via the enum itself
+        // Verify the ActorAuthenticationConfig default via the enum itself
         val policy = DegradedModePolicy.ACCEPT_CACHED
         assertEquals("accept-cached", policy.toConfigString())
     }

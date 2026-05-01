@@ -696,7 +696,7 @@ Key behaviors:
 - **`get_context` session resume** includes actor/verification on recent transitions
 - **`query_notes`** includes actor/verification on notes that have them
 
-Actor claims are self-reported — the server trusts them as-is in Stage 1. To require actor claims on all write operations, enable auditing in `.taskorchestrator/config.yaml` (set `auditing.enabled: true`). See [Enforcing Actor Attribution](./api-reference.md#enforcing-actor-attribution) in the API reference.
+Actor claims are self-reported — the server trusts them as-is in Stage 1. To require actor claims on all write operations, enable actor authentication in `.taskorchestrator/config.yaml` (set `actor_authentication.enabled: true`). See [Enforcing Actor Attribution](./api-reference.md#enforcing-actor-attribution) in the API reference.
 
 ---
 
