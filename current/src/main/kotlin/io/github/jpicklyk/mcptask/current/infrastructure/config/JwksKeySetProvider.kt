@@ -38,7 +38,22 @@ class IssuerNotTrustedException(
 ) : Exception("issuer not in DID trust policy: $issuer")
 
 /**
- * Provides a [JWKSet] for JWT signature verification.
+ * Bundles a fetched (or cached) [JWKSet] with the [CacheState] that describes how it was served.
+ *
+ * Returning [CacheState] alongside the keys eliminates the need for a separate
+ * `getCacheState()` side-channel and prevents concurrent-call races where one call's
+ * cache state could clobber another's shared instance field.
+ *
+ * @param keys The JWK set to use for verification.
+ * @param cacheState The cache state at the moment this result was produced.
+ */
+data class JwksResult(
+    val keys: JWKSet,
+    val cacheState: CacheState
+)
+
+/**
+ * Provides a [JwksResult] for JWT signature verification.
  *
  * Implementations are responsible for loading keys from a configured source (remote URI,
  * OIDC discovery document, or local file) and caching the result according to the
@@ -46,9 +61,11 @@ class IssuerNotTrustedException(
  */
 interface JwksKeySetProvider {
     /**
-     * Returns the current [JWKSet]. Implementations may cache and refresh transparently.
+     * Returns the current [JwksResult]. Implementations may cache and refresh transparently.
+     * The returned [JwksResult.cacheState] reflects whether this specific call was served
+     * from a stale entry or freshly fetched.
      */
-    suspend fun getKeySet(): JWKSet
+    suspend fun getKeySet(): JwksResult
 
     /**
      * Returns the issuer resolved via OIDC discovery, or null if discovery was not configured
@@ -58,18 +75,12 @@ interface JwksKeySetProvider {
     fun getResolvedIssuer(): String?
 
     /**
-     * Returns the [CacheState] reflecting whether the most recent [getKeySet] call was served
-     * from a stale cache entry and, if so, how old that entry was.
-     */
-    fun getCacheState(): CacheState
-
-    /**
      * Releases any underlying resources (e.g., HTTP client connections).
      */
     fun close()
 
     /**
-     * Returns the JWKSet for a specific issuer DID. Used under DID-rooted trust.
+     * Returns the [JwksResult] for a specific issuer DID. Used under DID-rooted trust.
      * Resolves the issuer via the configured DidResolverRegistry, projects the resulting
      * DID document into a JWKSet via DidDocumentJwksExtractor, and caches the result
      * per-issuer with TTL semantics matching getKeySet().
@@ -77,7 +88,7 @@ interface JwksKeySetProvider {
      * @throws IssuerNotTrustedException if the issuer does not match the configured
      *   didAllowlist or didPattern.
      */
-    suspend fun getKeySetForIssuer(issuer: String): JWKSet
+    suspend fun getKeySetForIssuer(issuer: String): JwksResult
 }
 
 /**
@@ -114,10 +125,6 @@ class DefaultJwksKeySetProvider(
     @Volatile
     private var resolvedIssuer: String? = null
 
-    /** Cache state reflecting the most recent [getKeySet] outcome. */
-    @Volatile
-    private var lastCacheState: CacheState = FRESH_CACHE
-
     /** Thread-safe lazy HTTP client — created only when a remote fetch is needed. */
     private val httpClientDelegate = lazy { HttpClient(CIO) }
     private val httpClient: HttpClient by httpClientDelegate
@@ -138,14 +145,13 @@ class DefaultJwksKeySetProvider(
         }
     private val didCacheLock = Mutex()
 
-    override suspend fun getKeySet(): JWKSet {
+    override suspend fun getKeySet(): JwksResult {
         val now = clock.instant()
 
         // Fast path: return cached value if still valid.
         cached?.let { (set, fetchedAt) ->
             if (now.isBefore(fetchedAt.plusSeconds(config.cacheTtlSeconds))) {
-                lastCacheState = FRESH_CACHE
-                return set
+                return JwksResult(set, FRESH_CACHE)
             }
         }
 
@@ -155,8 +161,7 @@ class DefaultJwksKeySetProvider(
             // Double-check after acquiring the lock.
             cached?.let { (set, fetchedAt) ->
                 if (nowInLock.isBefore(fetchedAt.plusSeconds(config.cacheTtlSeconds))) {
-                    lastCacheState = FRESH_CACHE
-                    return@withLock set
+                    return@withLock JwksResult(set, FRESH_CACHE)
                 }
             }
 
@@ -166,8 +171,7 @@ class DefaultJwksKeySetProvider(
             try {
                 val fresh = fetchKeySet()
                 cached = Pair(fresh, nowInLock)
-                lastCacheState = FRESH_CACHE
-                fresh
+                JwksResult(fresh, FRESH_CACHE)
             } catch (e: Exception) {
                 if (config.staleOnError && previousCached != null) {
                     val (staleSet, fetchedAt) = previousCached
@@ -177,8 +181,7 @@ class DefaultJwksKeySetProvider(
                         e.message,
                         ageSeconds
                     )
-                    lastCacheState = CacheState(fromStaleCache = true, ageSeconds = ageSeconds)
-                    staleSet
+                    JwksResult(staleSet, CacheState(fromStaleCache = true, ageSeconds = ageSeconds))
                 } else {
                     throw e
                 }
@@ -186,7 +189,7 @@ class DefaultJwksKeySetProvider(
         }
     }
 
-    override suspend fun getKeySetForIssuer(issuer: String): JWKSet {
+    override suspend fun getKeySetForIssuer(issuer: String): JwksResult {
         if (!isIssuerTrusted(issuer)) {
             throw IssuerNotTrustedException(issuer)
         }
@@ -196,8 +199,7 @@ class DefaultJwksKeySetProvider(
         didCacheLock.withLock {
             didCache[issuer]?.let { (set, fetchedAt) ->
                 if (now.isBefore(fetchedAt.plusSeconds(config.cacheTtlSeconds))) {
-                    lastCacheState = FRESH_CACHE
-                    return set
+                    return JwksResult(set, FRESH_CACHE)
                 }
             }
         }
@@ -208,8 +210,7 @@ class DefaultJwksKeySetProvider(
             // Double-check inside lock.
             didCache[issuer]?.let { (set, fetchedAt) ->
                 if (nowInLock.isBefore(fetchedAt.plusSeconds(config.cacheTtlSeconds))) {
-                    lastCacheState = FRESH_CACHE
-                    return@withLock set
+                    return@withLock JwksResult(set, FRESH_CACHE)
                 }
             }
 
@@ -218,8 +219,7 @@ class DefaultJwksKeySetProvider(
                 val doc = didResolverRegistry.resolve(issuer)
                 val jwks = didDocumentJwksExtractor.extract(doc)
                 didCache[issuer] = Pair(jwks, nowInLock)
-                lastCacheState = FRESH_CACHE
-                jwks
+                JwksResult(jwks, FRESH_CACHE)
             } catch (e: Exception) {
                 if (config.staleOnError && previousCached != null) {
                     val (staleSet, fetchedAt) = previousCached
@@ -230,8 +230,7 @@ class DefaultJwksKeySetProvider(
                         e.message,
                         ageSeconds
                     )
-                    lastCacheState = CacheState(fromStaleCache = true, ageSeconds = ageSeconds)
-                    staleSet
+                    JwksResult(staleSet, CacheState(fromStaleCache = true, ageSeconds = ageSeconds))
                 } else {
                     throw e
                 }
@@ -262,8 +261,6 @@ class DefaultJwksKeySetProvider(
     }
 
     override fun getResolvedIssuer(): String? = resolvedIssuer
-
-    override fun getCacheState(): CacheState = lastCacheState
 
     override fun close() {
         if (httpClientDelegate.isInitialized()) {

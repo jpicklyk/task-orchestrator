@@ -76,10 +76,16 @@ class JwksKeySetProviderTest {
                 val config = VerifierConfig.Jwks(jwksPath = "test-jwks.json")
                 val provider = DefaultJwksKeySetProvider(config)
                 try {
-                    val keySet = provider.getKeySet()
-                    assertNotNull(keySet)
-                    assertEquals(1, keySet.keys.size)
-                    assertEquals("file-rsa-key", keySet.keys.first().keyID)
+                    val result = provider.getKeySet()
+                    assertNotNull(result.keys)
+                    assertEquals(1, result.keys.keys.size)
+                    assertEquals(
+                        "file-rsa-key",
+                        result.keys.keys
+                            .first()
+                            .keyID
+                    )
+                    assertEquals(false, result.cacheState.fromStaleCache)
                 } finally {
                     provider.close()
                 }
@@ -105,8 +111,9 @@ class JwksKeySetProviderTest {
                 try {
                     val first = provider.getKeySet()
                     val second = provider.getKeySet()
-                    // Same instance means the cache was used.
-                    assert(first === second) { "Expected cache hit to return the same JWKSet instance" }
+                    // Same JWKSet instance means the cache was used.
+                    assert(first.keys === second.keys) { "Expected cache hit to return the same JWKSet instance" }
+                    assertEquals(false, second.cacheState.fromStaleCache)
                 } finally {
                     provider.close()
                 }
@@ -146,10 +153,11 @@ class JwksKeySetProviderTest {
 
                     val second = provider.getKeySet()
                     // After TTL expires, a new JWKSet is parsed — it should equal the first but be a fresh instance.
-                    assertNotNull(second)
-                    assertEquals(first.keys.size, second.keys.size)
+                    assertNotNull(second.keys)
+                    assertEquals(first.keys.keys.size, second.keys.keys.size)
                     // The instances should NOT be the same object (cache was invalidated and refreshed).
-                    assert(first !== second) { "Expected a new JWKSet instance after cache expiry" }
+                    assert(first.keys !== second.keys) { "Expected a new JWKSet instance after cache expiry" }
+                    assertEquals(false, second.cacheState.fromStaleCache)
                 } finally {
                     provider.close()
                 }
@@ -182,14 +190,20 @@ class JwksKeySetProviderTest {
                             .awaitAll()
 
                     assertEquals(20, results.size)
-                    results.forEach { keySet ->
-                        assertNotNull(keySet)
-                        assertEquals(1, keySet.keys.size)
-                        assertEquals("file-rsa-key", keySet.keys.first().keyID)
+                    results.forEach { result ->
+                        assertNotNull(result.keys)
+                        assertEquals(1, result.keys.keys.size)
+                        assertEquals(
+                            "file-rsa-key",
+                            result.keys.keys
+                                .first()
+                                .keyID
+                        )
+                        assertEquals(false, result.cacheState.fromStaleCache)
                     }
-                    // All should be the same cached instance.
-                    val distinct = results.distinct()
-                    assertEquals(1, distinct.size, "All concurrent callers should get the same cached instance")
+                    // All JWKSet instances should be the same cached object (identity check).
+                    val distinctKeys = results.map { it.keys }.distinct()
+                    assertEquals(1, distinctKeys.size, "All concurrent callers should get the same cached JWKSet instance")
                 } finally {
                     provider.close()
                 }
@@ -219,10 +233,15 @@ class JwksKeySetProviderTest {
                     )
                 val provider = DefaultJwksKeySetProvider(config)
                 try {
-                    val keySet = provider.getKeySet()
-                    assertNotNull(keySet)
-                    assertEquals(1, keySet.keys.size)
-                    assertEquals("file-rsa-key", keySet.keys.first().keyID)
+                    val result = provider.getKeySet()
+                    assertNotNull(result.keys)
+                    assertEquals(1, result.keys.keys.size)
+                    assertEquals(
+                        "file-rsa-key",
+                        result.keys.keys
+                            .first()
+                            .keyID
+                    )
                     // OIDC discovery failed, so resolved issuer should be null
                     assertNull(provider.getResolvedIssuer())
                 } finally {
@@ -329,7 +348,7 @@ class JwksKeySetProviderTest {
                 try {
                     // First successful fetch
                     val first = provider.getKeySet()
-                    assertNotNull(first)
+                    assertNotNull(first.keys)
 
                     // Advance past TTL and delete the file to simulate endpoint unavailability
                     currentInstant = baseInstant.plusSeconds(120)
@@ -337,14 +356,13 @@ class JwksKeySetProviderTest {
 
                     // Should return the stale set rather than throwing
                     val stale = provider.getKeySet()
-                    assertNotNull(stale)
-                    assertEquals(first.keys.size, stale.keys.size)
+                    assertNotNull(stale.keys)
+                    assertEquals(first.keys.keys.size, stale.keys.keys.size)
 
-                    // getCacheState should report stale
-                    val state = provider.getCacheState()
-                    assertTrue(state.fromStaleCache, "Expected fromStaleCache=true")
-                    assertNotNull(state.ageSeconds)
-                    assertTrue(state.ageSeconds!! >= 120L, "Expected ageSeconds >= 120, got ${state.ageSeconds}")
+                    // The returned JwksResult should report stale
+                    assertTrue(stale.cacheState.fromStaleCache, "Expected fromStaleCache=true")
+                    assertNotNull(stale.cacheState.ageSeconds)
+                    assertTrue(stale.cacheState.ageSeconds!! >= 120L, "Expected ageSeconds >= 120, got ${stale.cacheState.ageSeconds}")
                 } finally {
                     provider.close()
                 }
@@ -426,9 +444,9 @@ class JwksKeySetProviderTest {
             }
         }
 
-    // 12. getCacheState returns non-stale after fresh fetch
+    // 12. JwksResult.cacheState returns non-stale after fresh fetch
     @Test
-    fun `getCacheState returns non-stale after successful fetch`() =
+    fun `getKeySet returns non-stale cacheState after successful fetch`() =
         runTest {
             writeJwksFile()
 
@@ -438,10 +456,9 @@ class JwksKeySetProviderTest {
                 val config = VerifierConfig.Jwks(jwksPath = "test-jwks.json")
                 val provider = DefaultJwksKeySetProvider(config)
                 try {
-                    provider.getKeySet()
-                    val state = provider.getCacheState()
-                    assertTrue(!state.fromStaleCache, "Expected fromStaleCache=false after fresh fetch")
-                    assertNull(state.ageSeconds)
+                    val result = provider.getKeySet()
+                    assertTrue(!result.cacheState.fromStaleCache, "Expected fromStaleCache=false after fresh fetch")
+                    assertNull(result.cacheState.ageSeconds)
                 } finally {
                     provider.close()
                 }
@@ -521,10 +538,16 @@ class JwksKeySetProviderTest {
                         didResolverRegistry = mockRegistry
                     )
 
-                val jwks = provider.getKeySetForIssuer(did)
-                assertNotNull(jwks)
-                assertEquals(1, jwks.keys.size)
-                assertEquals("key-1", jwks.keys.first().keyID)
+                val result = provider.getKeySetForIssuer(did)
+                assertNotNull(result.keys)
+                assertEquals(1, result.keys.keys.size)
+                assertEquals(
+                    "key-1",
+                    result.keys.keys
+                        .first()
+                        .keyID
+                )
+                assertEquals(false, result.cacheState.fromStaleCache)
             }
 
         // DID-T2: pattern match returns JWKSet
@@ -549,9 +572,10 @@ class JwksKeySetProviderTest {
                         didResolverRegistry = mockRegistry
                     )
 
-                val jwks = provider.getKeySetForIssuer(did)
-                assertNotNull(jwks)
-                assertEquals(1, jwks.keys.size)
+                val result = provider.getKeySetForIssuer(did)
+                assertNotNull(result.keys)
+                assertEquals(1, result.keys.keys.size)
+                assertEquals(false, result.cacheState.fromStaleCache)
             }
 
         // DID-T3: untrusted issuer throws IssuerNotTrustedException
@@ -594,8 +618,9 @@ class JwksKeySetProviderTest {
                 val first = provider.getKeySetForIssuer(did)
                 val second = provider.getKeySetForIssuer(did)
 
-                // Same cached instance
-                assert(first === second) { "Expected cache hit to return same JWKSet instance" }
+                // Same cached JWKSet instance (identity check)
+                assert(first.keys === second.keys) { "Expected cache hit to return same JWKSet instance" }
+                assertEquals(false, second.cacheState.fromStaleCache)
                 // Registry should only be called once
                 coVerify(exactly = 1) { mockRegistry.resolve(did) }
             }
@@ -641,9 +666,10 @@ class JwksKeySetProviderTest {
 
                 // Should have fetched twice (initial + after expiry)
                 coVerify(exactly = 2) { mockRegistry.resolve(did) }
-                assertNotNull(second)
-                // New parse, different instance
-                assert(first !== second) { "Expected a new JWKSet instance after cache expiry" }
+                assertNotNull(second.keys)
+                // New parse, different JWKSet instance
+                assert(first.keys !== second.keys) { "Expected a new JWKSet instance after cache expiry" }
+                assertEquals(false, second.cacheState.fromStaleCache)
             }
 
         // DID-T6: stale-on-error for DID cache
@@ -690,19 +716,19 @@ class JwksKeySetProviderTest {
 
                 // First successful fetch
                 val first = provider.getKeySetForIssuer(did)
-                assertNotNull(first)
+                assertNotNull(first.keys)
 
                 // Advance past TTL so cache expires
                 currentInstant = baseInstant.plusSeconds(120)
 
                 // Second call — resolver fails, should serve stale
                 val stale = provider.getKeySetForIssuer(did)
-                assertNotNull(stale)
-                assertEquals(first.keys.size, stale.keys.size)
+                assertNotNull(stale.keys)
+                assertEquals(first.keys.keys.size, stale.keys.keys.size)
 
-                val state = provider.getCacheState()
-                assertTrue(state.fromStaleCache, "Expected fromStaleCache=true")
-                assertTrue(state.ageSeconds!! >= 120L, "Expected ageSeconds >= 120, got ${state.ageSeconds}")
+                // The returned JwksResult carries the stale state directly
+                assertTrue(stale.cacheState.fromStaleCache, "Expected fromStaleCache=true")
+                assertTrue(stale.cacheState.ageSeconds!! >= 120L, "Expected ageSeconds >= 120, got ${stale.cacheState.ageSeconds}")
             }
 
         // DID-T7: LRU eviction at 257 distinct issuers
@@ -799,8 +825,8 @@ class JwksKeySetProviderTest {
                     )
 
                 // Should resolve without exception (trusted via allowlist)
-                val jwks = provider.getKeySetForIssuer(did)
-                assertNotNull(jwks)
+                val result = provider.getKeySetForIssuer(did)
+                assertNotNull(result.keys)
 
                 // A DID not in allowlist but matching pattern is also trusted
                 val patternDid = "did:web:special.other.example.com"
@@ -819,8 +845,90 @@ class JwksKeySetProviderTest {
                         clock = makeFixedClock(),
                         didResolverRegistry = mockRegistry
                     )
-                val jwks2 = provider2.getKeySetForIssuer(patternDid)
-                assertNotNull(jwks2)
+                val result2 = provider2.getKeySetForIssuer(patternDid)
+                assertNotNull(result2.keys)
             }
     }
+
+    // =========================================================================
+    // Cache state per-call isolation (concurrency safety)
+    // =========================================================================
+
+    /**
+     * Verifies that the [CacheState] returned by each [JwksResult] reflects the state
+     * of *that specific call*, not a shared instance field that could be clobbered by
+     * a concurrent call.
+     *
+     * Strategy: Use an advancing clock to force stale→fresh→stale transitions deterministically
+     * (no Thread.sleep, no real concurrency needed — if the state is correct per-return
+     * value, the shared-field race is structurally impossible).
+     *
+     * Specifically:
+     *  1. Fetch at T=0  → fresh (FRESH_CACHE)
+     *  2. Advance clock past TTL, delete file to simulate unavailability
+     *  3. Fetch at T=120 → stale fallback (fromStaleCache=true)
+     *  4. Restore file
+     *  5. Advance clock further past TTL again
+     *  6. Fetch at T=300 → fresh again (new successful fetch)
+     *
+     * If each call returns the correct state via JwksResult, the test passes.
+     * With the old shared `lastCacheState` field, step 6 returning fresh would still
+     * not prove isolation — but the lack of a shared field means no concurrent clobber
+     * is even possible, which is the design guarantee this test documents.
+     */
+    @Test
+    fun `JwksResult cacheState is isolated per call — stale then fresh sequence`() =
+        runTest {
+            writeJwksFile()
+            val baseInstant = Instant.parse("2024-01-01T00:00:00Z")
+
+            var currentInstant = baseInstant
+            val advancingClock =
+                object : Clock() {
+                    override fun getZone() = ZoneOffset.UTC
+
+                    override fun withZone(zone: java.time.ZoneId): Clock = this
+
+                    override fun instant(): Instant = currentInstant
+                }
+
+            val prevUserDir = System.getProperty("user.dir")
+            System.setProperty("user.dir", tempDir.toAbsolutePath().toString())
+            try {
+                val config = VerifierConfig.Jwks(jwksPath = "test-jwks.json", cacheTtlSeconds = 60, staleOnError = true)
+                val provider = DefaultJwksKeySetProvider(config, clock = advancingClock)
+                try {
+                    // Call 1: fresh fetch at T=0
+                    val call1 = provider.getKeySet()
+                    assertEquals(false, call1.cacheState.fromStaleCache, "Call 1 should be fresh")
+                    assertNull(call1.cacheState.ageSeconds)
+
+                    // Advance past TTL and remove file to force stale fallback
+                    currentInstant = baseInstant.plusSeconds(120)
+                    tempDir.resolve("test-jwks.json").toFile().delete()
+
+                    // Call 2: stale fallback
+                    val call2 = provider.getKeySet()
+                    assertEquals(true, call2.cacheState.fromStaleCache, "Call 2 should be stale")
+                    assertNotNull(call2.cacheState.ageSeconds)
+                    assertTrue(call2.cacheState.ageSeconds!! >= 120L)
+
+                    // Restore file and advance clock so cache expires again
+                    writeJwksFile()
+                    currentInstant = baseInstant.plusSeconds(300)
+
+                    // Call 3: fresh fetch again (file is back)
+                    val call3 = provider.getKeySet()
+                    assertEquals(false, call3.cacheState.fromStaleCache, "Call 3 should be fresh again")
+                    assertNull(call3.cacheState.ageSeconds)
+
+                    // Verify: call2's state is still stale (not overwritten by call3)
+                    assertEquals(true, call2.cacheState.fromStaleCache, "call2 state must not be mutated by call3")
+                } finally {
+                    provider.close()
+                }
+            } finally {
+                System.setProperty("user.dir", prevUserDir)
+            }
+        }
 }

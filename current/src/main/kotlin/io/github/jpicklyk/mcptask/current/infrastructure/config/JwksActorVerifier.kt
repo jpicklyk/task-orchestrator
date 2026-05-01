@@ -89,7 +89,7 @@ class JwksActorVerifier(
         val isDidTrust = config.didAllowlist.isNotEmpty() || config.didPattern != null
 
         // Step 4 — fetch JWKS (branched on DID-trust mode).
-        val jwkSet =
+        val jwksResult =
             try {
                 if (isDidTrust) {
                     val iss =
@@ -101,9 +101,12 @@ class JwksActorVerifier(
                 }
             } catch (e: IssuerNotTrustedException) {
                 return rejected(e.message ?: "issuer not in DID trust policy", "policy")
+            } catch (e: DidSecurityViolationException) {
+                return rejected(e.message ?: "DID document security violation", "policy")
             } catch (e: Exception) {
                 return unavailable("failed to fetch JWKS: ${e.message}")
             }
+        val (jwkSet, fetchCacheState) = jwksResult
 
         // Step 5 — select the key matching the JWT's kid.
         val kid = signedJWT.header.keyID
@@ -184,12 +187,13 @@ class JwksActorVerifier(
         }
 
         // Success — inspect cache state for stale-cache metadata.
-        val cacheState = keySetProvider.getCacheState()
+        // Use the cache state returned with the JwksResult (not a separate getCacheState() call)
+        // to avoid races where a concurrent verification's result could clobber a shared field.
         val successMetadata: Map<String, String> =
-            if (cacheState.fromStaleCache) {
+            if (fetchCacheState.fromStaleCache) {
                 buildMap {
                     put("verifiedFromCache", "true")
-                    cacheState.ageSeconds?.let { put("cacheAgeSeconds", it.toString()) }
+                    fetchCacheState.ageSeconds?.let { put("cacheAgeSeconds", it.toString()) }
                 }
             } else {
                 emptyMap()

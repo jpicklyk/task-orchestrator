@@ -66,7 +66,7 @@ class DidWebResolver(
         val document = parseDidDocument(responseBody, did)
 
         if (document.id != did) {
-            throw DidResolutionException(
+            throw DidSecurityViolationException(
                 "document id mismatch: requested '$did' but received '${document.id}'"
             )
         }
@@ -113,7 +113,7 @@ class DidWebResolver(
 
         val id =
             root["id"]?.jsonPrimitive?.content
-                ?: throw DidResolutionException("DID document missing 'id' field for $requestedDid")
+                ?: throw DidSecurityViolationException("DID document missing 'id' field for $requestedDid")
 
         val verificationMethods = parseVerificationMethods(root)
         val assertionMethod = parseReferences(root, "assertionMethod")

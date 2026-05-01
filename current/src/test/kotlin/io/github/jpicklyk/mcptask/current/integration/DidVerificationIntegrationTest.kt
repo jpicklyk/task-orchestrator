@@ -509,16 +509,14 @@ class DidVerificationIntegrationTest {
         }
 
     /**
-     * Case 8 — DID document id mismatch results in UNAVAILABLE.
+     * Case 8 — DID document id mismatch results in REJECTED+policy.
      *
      * The mocked HTTP returns a document whose `id` field is `did:web:wrong.example.com`
      * instead of the requested [TEST_DID]. [DidWebResolver] detects this document substitution
-     * and throws [DidResolutionException], which [DefaultJwksKeySetProvider.getKeySetForIssuer]
-     * catches and maps to the `unavailable()` path in [JwksActorVerifier].
-     *
-     * Result: UNAVAILABLE (the resolution failed before any key material was available).
-     * This is appropriate — the verifier cannot distinguish a network fault from a spoofed
-     * document at this level, so UNAVAILABLE is the correct conservative status.
+     * and throws [DidSecurityViolationException] (a subtype of [DidResolutionException]).
+     * [JwksActorVerifier] catches [DidSecurityViolationException] *before* the generic
+     * Exception handler and maps it to REJECTED+policy — a substitution attack is a
+     * policy violation, not a transient network error.
      */
     @Test
     fun `verify_didTrust_documentIdMismatch_rejects`() =
@@ -536,15 +534,67 @@ class DidVerificationIntegrationTest {
             val verifier = verifierWithMockHttp(engine)
             val result = verifier.verify(actor(signJwt(kid = "key-1")))
 
-            // The DidWebResolver throws DidResolutionException for id mismatch.
-            // DefaultJwksKeySetProvider.getKeySetForIssuer catches it via the outer Exception
-            // catch block and maps it to unavailable("failed to fetch JWKS: ...").
-            // JwksActorVerifier.verifyInternal returns unavailable() → UNAVAILABLE status.
+            // DidWebResolver throws DidSecurityViolationException for id mismatch.
+            // JwksActorVerifier catches it before the generic Exception handler and maps it
+            // to REJECTED+policy — a document substitution is a security violation, not a
+            // transient network error.
             assertEquals(
-                VerificationStatus.UNAVAILABLE,
+                VerificationStatus.REJECTED,
                 result.status,
-                "Expected UNAVAILABLE: document id mismatch treated as resolution failure"
+                "Expected REJECTED: document id mismatch is a security violation, not a transient error"
             )
+            assertEquals("policy", result.metadata["failureKind"])
+        }
+
+    /**
+     * Case 11 — DID document missing 'id' field results in REJECTED+policy.
+     *
+     * The mocked HTTP returns a DID document JSON that omits the required `id` field.
+     * [DidWebResolver.parseDidDocument] throws [DidSecurityViolationException] (not a plain
+     * [DidResolutionException]), which [JwksActorVerifier] maps to REJECTED+policy.
+     *
+     * A document without an `id` cannot be verified for substitution — it is treated as
+     * a structural security violation rather than a transient parse error.
+     */
+    @Test
+    fun `verify_didTrust_missingIdField_rejects`() =
+        runTest {
+            val engine =
+                MockEngine { _ ->
+                    // DID document without an 'id' field
+                    respond(
+                        content =
+                            """
+                            {
+                              "verificationMethod": [
+                                {
+                                  "id": "$TEST_DID#key-1",
+                                  "type": "JsonWebKey2020",
+                                  "controller": "$TEST_DID",
+                                  "publicKeyJwk": {
+                                    "kty": "OKP",
+                                    "crv": "Ed25519",
+                                    "x": "dGVzdA"
+                                  }
+                                }
+                              ],
+                              "assertionMethod": ["$TEST_DID#key-1"]
+                            }
+                            """.trimIndent(),
+                        status = HttpStatusCode.OK,
+                        headers = headersOf("Content-Type", "application/json")
+                    )
+                }
+
+            val verifier = verifierWithMockHttp(engine)
+            val result = verifier.verify(actor(signJwt(kid = "key-1")))
+
+            assertEquals(
+                VerificationStatus.REJECTED,
+                result.status,
+                "Expected REJECTED: DID document missing 'id' field is a security violation"
+            )
+            assertEquals("policy", result.metadata["failureKind"])
         }
 
     /**

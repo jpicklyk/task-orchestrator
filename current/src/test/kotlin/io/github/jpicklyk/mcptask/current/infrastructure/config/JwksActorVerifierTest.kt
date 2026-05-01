@@ -139,9 +139,8 @@ class JwksActorVerifierTest {
         cacheState: CacheState = freshCacheState
     ): JwksKeySetProvider {
         val provider = mockk<JwksKeySetProvider>()
-        coEvery { provider.getKeySet() } returns JWKSet(listOf(rsaKey.toPublicJWK()))
+        coEvery { provider.getKeySet() } returns JwksResult(JWKSet(listOf(rsaKey.toPublicJWK())), cacheState)
         every { provider.getResolvedIssuer() } returns resolvedIssuer
-        every { provider.getCacheState() } returns cacheState
         every { provider.close() } just Runs
         return provider
     }
@@ -152,9 +151,8 @@ class JwksActorVerifierTest {
         cacheState: CacheState = freshCacheState
     ): JwksKeySetProvider {
         val provider = mockk<JwksKeySetProvider>()
-        coEvery { provider.getKeySet() } returns JWKSet(listOf(edKey.toPublicJWK()))
+        coEvery { provider.getKeySet() } returns JwksResult(JWKSet(listOf(edKey.toPublicJWK())), cacheState)
         every { provider.getResolvedIssuer() } returns resolvedIssuer
-        every { provider.getCacheState() } returns cacheState
         every { provider.close() } just Runs
         return provider
     }
@@ -165,9 +163,8 @@ class JwksActorVerifierTest {
         cacheState: CacheState = freshCacheState
     ): JwksKeySetProvider {
         val provider = mockk<JwksKeySetProvider>()
-        coEvery { provider.getKeySet() } returns JWKSet(listOf(ecKey.toPublicJWK()))
+        coEvery { provider.getKeySet() } returns JwksResult(JWKSet(listOf(ecKey.toPublicJWK())), cacheState)
         every { provider.getResolvedIssuer() } returns resolvedIssuer
-        every { provider.getCacheState() } returns cacheState
         every { provider.close() } just Runs
         return provider
     }
@@ -318,7 +315,6 @@ class JwksActorVerifierTest {
             val brokenProvider = mockk<JwksKeySetProvider>()
             coEvery { brokenProvider.getKeySet() } throws RuntimeException("network unreachable")
             every { brokenProvider.getResolvedIssuer() } returns null
-            every { brokenProvider.getCacheState() } returns freshCacheState
             every { brokenProvider.close() } just Runs
 
             val result = verifier(provider = brokenProvider).verify(actor(proof = signRsa()))
@@ -480,16 +476,17 @@ class JwksActorVerifierTest {
     @Test
     fun `verify returns REJECTED with failureKind=internal on unexpected exception`() =
         runTest {
-            // getCacheState() is called after all inner try/catch blocks in the success path.
-            // Throwing here bypasses every inner catch and reaches the outer catch in verify(),
+            // getResolvedIssuer() is called in the issuer-validation step when config.issuer is null.
+            // Throwing here bypasses every inner try/catch block and reaches the outer catch in verify(),
             // which maps any unexpected exception to REJECTED + failureKind="internal".
             val throwingProvider = mockk<JwksKeySetProvider>()
-            coEvery { throwingProvider.getKeySet() } returns JWKSet(listOf(rsaKey.toPublicJWK()))
-            every { throwingProvider.getResolvedIssuer() } returns null
-            every { throwingProvider.getCacheState() } throws RuntimeException("simulated internal failure")
+            coEvery { throwingProvider.getKeySet() } returns JwksResult(JWKSet(listOf(rsaKey.toPublicJWK())), freshCacheState)
+            every { throwingProvider.getResolvedIssuer() } throws RuntimeException("simulated internal failure")
             every { throwingProvider.close() } just Runs
 
-            val result = verifier(provider = throwingProvider).verify(actor(proof = signRsa()))
+            // Use issuer=null so getResolvedIssuer() is actually called in the verification flow
+            val config = baseConfig(issuer = null)
+            val result = verifier(config = config, provider = throwingProvider).verify(actor(proof = signRsa()))
             assertEquals(VerificationStatus.REJECTED, result.status)
             assertEquals("internal", result.metadata["failureKind"])
             assertNotNull(result.reason)
@@ -555,10 +552,9 @@ class JwksActorVerifierTest {
         ): JwksKeySetProvider {
             val provider = mockk<JwksKeySetProvider>()
             issuerToJwks.forEach { (iss, jwks) ->
-                coEvery { provider.getKeySetForIssuer(iss) } returns jwks
+                coEvery { provider.getKeySetForIssuer(iss) } returns JwksResult(jwks, cacheState)
             }
             every { provider.getResolvedIssuer() } returns null
-            every { provider.getCacheState() } returns cacheState
             every { provider.close() } just Runs
             return provider
         }
@@ -631,7 +627,6 @@ class JwksActorVerifierTest {
                 val provider = mockk<JwksKeySetProvider>()
                 coEvery { provider.getKeySetForIssuer(untrustedIss) } throws IssuerNotTrustedException(untrustedIss)
                 every { provider.getResolvedIssuer() } returns null
-                every { provider.getCacheState() } returns CacheState(fromStaleCache = false, ageSeconds = null)
                 every { provider.close() } just Runs
 
                 val result =
