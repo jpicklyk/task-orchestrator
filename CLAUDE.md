@@ -60,6 +60,13 @@ interfaces/mcp/
 
 **Entry point:** `current/src/main/kotlin/io/github/jpicklyk/mcptask/current/CurrentMain.kt`
 
+## Modes of Operation
+
+- **Orchestration** (default) — orchestrator pushes items through phases via `advance_item`
+- **Claim** (opt-in) — consumers pull work via `claim_item`, holding TTL-based ownership before advancing
+
+The optional `actor_authentication` config block adds JWKS-based identity verification — independent of claim mode (claim works without it). See [`current/docs/fleet-deployment.md`](current/docs/fleet-deployment.md).
+
 ## Trait System (Orchestration Signals)
 
 Traits are **composable orchestration signals** declared in `.taskorchestrator/config.yaml` under the `traits:` key. They are NOT merely note requirements. Each trait carries three dimensions:
@@ -177,7 +184,7 @@ Two skill systems — do not confuse them:
 
 ## Documentation
 
-- `current/docs/` — quick-start, api-reference, workflow-guide
+- `current/docs/` — quick-start, api-reference, workflow-guide, fleet-deployment
 
 ## Git Workflow
 
