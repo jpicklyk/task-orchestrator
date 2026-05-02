@@ -301,9 +301,10 @@ when calling `manage_items`, `manage_dependencies`, and `manage_notes` separatel
 | `parentId` | string (UUID) | No | Existing parent; root depth = parent.depth + 1 |
 | `children` | array | No | Child item specs: `[{ ref, title, priority?, tags?, type?, traits?, summary?, description?, requiresVerification? }]`. `ref` is a local name used in `deps`. |
 | `deps` | array | No | Dependency specs: `[{ from: ref, to: ref, type?: BLOCKS\|IS_BLOCKED_BY\|RELATES_TO, unblockAt?: queue\|work\|review\|terminal }]`. Use `"root"` to reference the root item. |
-| `createNotes` | boolean | No | Auto-create blank notes for each item from its tag schema (default: false) |
+| `createNotes` | boolean | No | Auto-create blank notes for each item from its resolved schema (looked up by `type` first, then by `tags`). Default: false. |
 | `notes` | array | No | Notes to create with bodies: `[{ itemRef (required, "root" or child ref), key (required), role (required: queue\|work\|review), body? (defaults to empty string) }]`. Explicit notes win over `createNotes=true` blanks per `(itemRef, key)`. **Strict role enforcement:** when an explicit note's `key` is declared in the resolved schema for the target item, the note's `role` must equal the schema role; mismatch returns `VALIDATION_ERROR`. Off-schema keys and items without a schema are unconstrained. |
-| `requestId` | string (UUID) | No | Client-generated UUID for idempotency. See [Idempotency](#idempotency). |
+| `actor` | object | No | Actor claim `{ id, kind: orchestrator\|subagent\|user\|external, parent?, proof? }`. Used for idempotency keying AND propagated as the actor attribution on every persisted note (both explicit and `createNotes=true` blanks). |
+| `requestId` | string (UUID) | No | Client-generated UUID for idempotency. See [Idempotency](#idempotency). Requires `actor` to function. |
 
 Depth cap: root must be at depth < 3 (i.e., root can be at depth 0, 1, or 2). Children are always root.depth + 1, so children can reach depth 3 (when root is at depth 2).
 
@@ -329,19 +330,22 @@ Depth cap: root must be at depth < 3 (i.e., root can be at depth 0, 1, or 2). Ch
 
 ```json
 {
-  "root": { "id": "uuid", "title": "Authentication Feature", "role": "queue", "depth": 0, "tags": "feature" },
+  "root": {
+    "id": "uuid", "title": "Authentication Feature", "role": "queue", "depth": 0, "tags": "feature",
+    "schemaMatch": true, "expectedNotes": [{ "key": "acceptance-criteria", "role": "queue", "required": true, "exists": false }]
+  },
   "children": [
-    { "ref": "t1", "id": "uuid", "title": "Design login flow", "role": "queue", "depth": 1, "tags": null },
-    { "ref": "t2", "id": "uuid", "title": "Implement JWT handler", "role": "queue", "depth": 1, "tags": null }
+    { "ref": "t1", "id": "uuid", "title": "Design login flow", "role": "queue", "depth": 1, "schemaMatch": false, "expectedNotes": [] },
+    { "ref": "t2", "id": "uuid", "title": "Implement JWT handler", "role": "queue", "depth": 1, "schemaMatch": false, "expectedNotes": [] }
   ],
   "dependencies": [
-    { "id": "uuid", "fromRef": "t1", "toRef": "t2", "type": "BLOCKS" }
+    { "id": "uuid", "fromRef": "t1", "toRef": "t2", "type": "BLOCKS", "unblockAt": "work" }
   ],
   "notes": []
 }
 ```
 
-`tags` is included on both `root` and each child when it was set; when not set, the field is omitted (not null). When `createNotes=true` and items have tags matching a schema, the `notes` array is populated with created note entries:
+`tags` on items and `unblockAt` on dependencies are included when set; when not set, the field is omitted (not null). `schemaMatch` and `expectedNotes` are always present; `expectedNotes` is `[]` when no schema matches. When `createNotes=true` and an item's resolved schema (matched by `type` first, then `tags`) declares notes, the `notes` array is populated with created note entries:
 
 ```json
 "notes": [
