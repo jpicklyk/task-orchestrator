@@ -46,6 +46,7 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
 - `children` (optional): Array of child item specs `[{ ref (required), title (required), priority?, tags?, summary?, description?, requiresVerification?, type? }]`. `ref` is a local name used in `deps` to wire dependencies.
 - `deps` (optional): Array of dependency specs `[{ from: ref, to: ref, type?: BLOCKS|IS_BLOCKED_BY|RELATES_TO, unblockAt?: queue|work|review|terminal }]`. Use `"root"` to reference the root item.
 - `createNotes` (optional, default false): Auto-create blank notes for each item based on its tag schema.
+- `notes` (optional): Notes to create with bodies: `[{ itemRef (required, "root" or child ref), key (required), role (required: queue|work|review), body (optional, defaults to empty string) }]`. Explicit notes win over `createNotes=true` blanks per `(itemRef, key)`.
 
 **Depth cap:** Root item depth must be < $MAX_DEPTH. Children are always root.depth + 1, also < $MAX_DEPTH.
 
@@ -129,6 +130,20 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
                             put(
                                 "description",
                                 JsonPrimitive("Auto-create blank notes from schema for each item based on its tags (default: false)")
+                            )
+                        }
+                    )
+                    put(
+                        "notes",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("array"))
+                            put(
+                                "description",
+                                JsonPrimitive(
+                                    "Notes to create with bodies: [{ itemRef (required, \"root\" or child ref), key (required), " +
+                                        "role (required: queue|work|review), body (optional, defaults to empty string) }]. " +
+                                        "Explicit notes win over createNotes=true blanks per (itemRef, key)."
+                                )
                             )
                         }
                     )
@@ -222,6 +237,39 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
                 val to = (depObj["to"] as? JsonPrimitive)?.takeIf { it.isString }?.content
                 if (to.isNullOrBlank()) {
                     throw ToolValidationException("deps[$index]: 'to' is required")
+                }
+            }
+        }
+
+        // Validate notes if provided
+        val notesElement = paramsObj["notes"]
+        if (notesElement != null && notesElement !is JsonNull) {
+            val notes =
+                notesElement as? JsonArray
+                    ?: throw ToolValidationException("'notes' must be a JSON array")
+            val validRoles = setOf("queue", "work", "review")
+            for ((index, noteElement) in notes.withIndex()) {
+                val noteObj =
+                    noteElement as? JsonObject
+                        ?: throw ToolValidationException("notes[$index] must be a JSON object")
+                val itemRef = (noteObj["itemRef"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+                if (itemRef.isNullOrBlank()) {
+                    throw ToolValidationException("notes[$index]: 'itemRef' is required and must be a non-blank string")
+                }
+                val key = (noteObj["key"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+                if (key.isNullOrBlank()) {
+                    throw ToolValidationException("notes[$index]: 'key' is required and must be a non-blank string")
+                }
+                val role = (noteObj["role"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+                if (role.isNullOrBlank()) {
+                    throw ToolValidationException("notes[$index]: 'role' is required and must be a non-blank string")
+                }
+                if (role !in validRoles) {
+                    throw ToolValidationException("notes[$index]: invalid role '$role'. Valid: queue, work, review")
+                }
+                val bodyElement = noteObj["body"]
+                if (bodyElement != null && bodyElement !is JsonNull && bodyElement !is JsonPrimitive) {
+                    throw ToolValidationException("notes[$index]: 'body' must be a string")
                 }
             }
         }
@@ -393,14 +441,45 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
             depSpecs.add(TreeDepSpec(fromRef = fromRef, toRef = toRef, type = depType, unblockAt = unblockAt))
         }
 
-        // ── 6. Build notes if createNotes=true ─────────────────────────────────
+        // ── 6. Build notes: merge explicit notes + createNotes blanks ─────────
         val createNotes = optionalBoolean(params, "createNotes", defaultValue = false)
+        val explicitNotesArray = paramsObj["notes"] as? JsonArray ?: JsonArray(emptyList())
         val notesList = mutableListOf<Note>()
 
+        // Parse explicit notes; track (itemRef, key) -> index in notesList for last-wins dedup
+        val explicitByRefKey = mutableMapOf<Pair<String, String>, Int>()
+        for ((index, noteElement) in explicitNotesArray.withIndex()) {
+            val noteObj = noteElement as JsonObject
+            val itemRef = (noteObj["itemRef"] as JsonPrimitive).content
+            val key = (noteObj["key"] as JsonPrimitive).content
+            val role = (noteObj["role"] as JsonPrimitive).content
+            val body = (noteObj["body"] as? JsonPrimitive)?.content ?: ""
+
+            // Validate ref exists in refToItem (resolved after step 4)
+            val targetItem = refToItem[itemRef]
+                ?: return errorResponse(
+                    "notes[$index]: 'itemRef' '$itemRef' is not defined. Valid refs: ${refToItem.keys.joinToString()}",
+                    ErrorCodes.VALIDATION_ERROR
+                )
+
+            val note = Note(itemId = targetItem.id, key = key, role = role, body = body)
+            val refKey = itemRef to key
+            val existingIndex = explicitByRefKey[refKey]
+            if (existingIndex != null) {
+                // Last wins: replace the earlier note in notesList
+                notesList[existingIndex] = note
+            } else {
+                explicitByRefKey[refKey] = notesList.size
+                notesList.add(note)
+            }
+        }
+
+        // If createNotes=true, fill schema-required notes that aren't already explicit (with empty bodies)
         if (createNotes) {
-            for ((_, item) in refToItem) {
+            for ((ref, item) in refToItem) {
                 val resolvedSchema = context.resolveSchema(item) ?: continue
                 for (entry in resolvedSchema.notes) {
+                    if (explicitByRefKey.containsKey(ref to entry.key)) continue
                     notesList.add(
                         Note(
                             itemId = item.id,

@@ -7,6 +7,7 @@ import io.github.jpicklyk.mcptask.current.application.service.WorkTreeResult
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
+import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
@@ -57,7 +58,8 @@ class CreateWorkTreeToolTest {
         parentId: String? = null,
         children: JsonArray? = null,
         deps: JsonArray? = null,
-        createNotes: Boolean? = null
+        createNotes: Boolean? = null,
+        notes: JsonArray? = null
     ): JsonObject =
         buildJsonObject {
             put("root", root)
@@ -65,6 +67,7 @@ class CreateWorkTreeToolTest {
             if (children != null) put("children", children)
             if (deps != null) put("deps", deps)
             if (createNotes != null) put("createNotes", JsonPrimitive(createNotes))
+            if (notes != null) put("notes", notes)
         }
 
     private fun extractData(result: JsonElement): JsonObject {
@@ -1182,5 +1185,405 @@ class CreateWorkTreeToolTest {
                 io.github.jpicklyk.mcptask.current.application.tools.PropertiesHelper
                     .extractTraits(childItem.properties)
             assertEquals(listOf("needs-perf-review"), traits)
+        }
+
+    // ──────────────────────────────────────────────
+    // Notes parameter: explicit notes persist with bodies
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `explicit notes persist with bodies`(): Unit =
+        runBlocking {
+            var capturedInput: WorkTreeInput? = null
+            coEvery { mockExecutor.execute(any()) } answers {
+                val input = firstArg<WorkTreeInput>()
+                capturedInput = input
+                echoResult(input)
+            }
+
+            val noteEntry =
+                buildJsonObject {
+                    put("itemRef", JsonPrimitive("root"))
+                    put("key", JsonPrimitive("foo"))
+                    put("role", JsonPrimitive("queue"))
+                    put("body", JsonPrimitive("hello"))
+                }
+            val params = buildParams(notes = JsonArray(listOf(noteEntry)))
+            val result = tool.execute(params, context)
+
+            val data = extractData(result)
+            val notesArr = data["notes"]!!.jsonArray
+            assertEquals(1, notesArr.size)
+            val noteJson = notesArr[0].jsonObject
+            assertEquals("root", noteJson["itemRef"]!!.jsonPrimitive.content)
+            assertEquals("foo", noteJson["key"]!!.jsonPrimitive.content)
+            assertEquals("queue", noteJson["role"]!!.jsonPrimitive.content)
+
+            // Verify the captured input has the Note with correct body
+            val capturedNote = capturedInput!!.notes.first()
+            assertEquals("hello", capturedNote.body, "Note body should persist verbatim")
+        }
+
+    // ──────────────────────────────────────────────
+    // Notes parameter: multiple items with notes targeting each
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `multiple items with notes targeting each have correct itemId binding`(): Unit =
+        runBlocking {
+            var capturedInput: WorkTreeInput? = null
+            coEvery { mockExecutor.execute(any()) } answers {
+                val input = firstArg<WorkTreeInput>()
+                capturedInput = input
+                echoResult(input)
+            }
+
+            val children =
+                buildJsonArray {
+                    add(makeChildSpec("c1", "Child One"))
+                    add(makeChildSpec("c2", "Child Two"))
+                }
+            val notesArr =
+                buildJsonArray {
+                    add(
+                        buildJsonObject {
+                            put("itemRef", JsonPrimitive("root"))
+                            put("key", JsonPrimitive("root-note"))
+                            put("role", JsonPrimitive("queue"))
+                            put("body", JsonPrimitive("root body"))
+                        }
+                    )
+                    add(
+                        buildJsonObject {
+                            put("itemRef", JsonPrimitive("c1"))
+                            put("key", JsonPrimitive("c1-note"))
+                            put("role", JsonPrimitive("work"))
+                            put("body", JsonPrimitive("c1 body"))
+                        }
+                    )
+                    add(
+                        buildJsonObject {
+                            put("itemRef", JsonPrimitive("c2"))
+                            put("key", JsonPrimitive("c2-note"))
+                            put("role", JsonPrimitive("review"))
+                            put("body", JsonPrimitive("c2 body"))
+                        }
+                    )
+                }
+            val params = buildParams(children = children, notes = notesArr)
+            val result = tool.execute(params, context)
+
+            extractData(result)
+
+            val input = capturedInput!!
+            assertEquals(3, input.notes.size, "Expected 3 notes in captured input")
+
+            val rootItem = input.items.first()
+            val c1Item = input.items[1]
+            val c2Item = input.items[2]
+
+            val rootNote = input.notes.find { it.key == "root-note" }!!
+            val c1Note = input.notes.find { it.key == "c1-note" }!!
+            val c2Note = input.notes.find { it.key == "c2-note" }!!
+
+            assertEquals(rootItem.id, rootNote.itemId, "root-note should be bound to root item")
+            assertEquals(c1Item.id, c1Note.itemId, "c1-note should be bound to c1 item")
+            assertEquals(c2Item.id, c2Note.itemId, "c2-note should be bound to c2 item")
+
+            assertEquals("root body", rootNote.body)
+            assertEquals("c1 body", c1Note.body)
+            assertEquals("c2 body", c2Note.body)
+        }
+
+    // ──────────────────────────────────────────────
+    // Notes parameter: merge with createNotes=true
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `merge with createNotes=true - explicit notes keep bodies, schema gaps get blank, off-schema explicit kept`(): Unit =
+        runBlocking {
+            val schemaEntries =
+                listOf(
+                    NoteSchemaEntry(key = "acceptance-criteria", role = Role.QUEUE, required = true),
+                    NoteSchemaEntry(key = "implementation-notes", role = Role.WORK, required = false)
+                )
+            val noteSchemaService =
+                object : NoteSchemaService {
+                    override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
+                        if (tags.contains("feature-task")) schemaEntries else null
+                }
+            val provider2 = mockk<RepositoryProvider>()
+            val mockExecutor2 = mockk<WorkTreeExecutor>()
+            every { provider2.workItemRepository() } returns workItemRepo
+            every { provider2.dependencyRepository() } returns mockk()
+            every { provider2.noteRepository() } returns mockk()
+            every { provider2.roleTransitionRepository() } returns mockk()
+            every { provider2.database() } returns null
+            every { provider2.workTreeExecutor() } returns mockExecutor2
+            val contextWithSchema = ToolExecutionContext(provider2, noteSchemaService)
+
+            var capturedInput: WorkTreeInput? = null
+            coEvery { mockExecutor2.execute(any()) } answers {
+                val input = firstArg<WorkTreeInput>()
+                capturedInput = input
+                echoResult(input)
+            }
+
+            val rootSpec =
+                buildJsonObject {
+                    put("title", JsonPrimitive("Feature Root"))
+                    put("tags", JsonPrimitive("feature-task"))
+                }
+            // Provide explicit note for "acceptance-criteria" (schema key) with a non-empty body,
+            // and an off-schema key "custom-note". "implementation-notes" is NOT provided explicitly.
+            val notesArr =
+                buildJsonArray {
+                    add(
+                        buildJsonObject {
+                            put("itemRef", JsonPrimitive("root"))
+                            put("key", JsonPrimitive("acceptance-criteria"))
+                            put("role", JsonPrimitive("queue"))
+                            put("body", JsonPrimitive("AC: must pass all tests"))
+                        }
+                    )
+                    add(
+                        buildJsonObject {
+                            put("itemRef", JsonPrimitive("root"))
+                            put("key", JsonPrimitive("custom-note"))
+                            put("role", JsonPrimitive("queue"))
+                            put("body", JsonPrimitive("off-schema body"))
+                        }
+                    )
+                }
+            val params = buildParams(root = rootSpec, createNotes = true, notes = notesArr)
+            val result = tool.execute(params, contextWithSchema)
+
+            extractData(result)
+
+            val input = capturedInput!!
+            // Should have: acceptance-criteria (explicit), custom-note (off-schema explicit), implementation-notes (blank from schema)
+            assertEquals(3, input.notes.size, "Expected 3 notes total")
+
+            val acNote = input.notes.find { it.key == "acceptance-criteria" }!!
+            assertEquals("AC: must pass all tests", acNote.body, "Explicit note body should be preserved")
+
+            val customNote = input.notes.find { it.key == "custom-note" }!!
+            assertEquals("off-schema body", customNote.body, "Off-schema explicit note should be kept with its body")
+
+            val implNote = input.notes.find { it.key == "implementation-notes" }!!
+            assertEquals("", implNote.body, "Schema gap note added by createNotes should have empty body")
+        }
+
+    // ──────────────────────────────────────────────
+    // Notes parameter: invalid itemRef → validation error
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `invalid itemRef in notes returns validation error listing valid refs`(): Unit =
+        runBlocking {
+            val notesArr =
+                buildJsonArray {
+                    add(
+                        buildJsonObject {
+                            put("itemRef", JsonPrimitive("nonexistent"))
+                            put("key", JsonPrimitive("k"))
+                            put("role", JsonPrimitive("queue"))
+                        }
+                    )
+                }
+            val params = buildParams(notes = notesArr)
+            val result = tool.execute(params, context)
+
+            val obj = result as JsonObject
+            assertFalse(obj["success"]!!.jsonPrimitive.boolean, "Expected failure for invalid itemRef")
+            val errorMsg = obj["error"]!!.jsonObject["message"]!!.jsonPrimitive.content
+            assertTrue(
+                errorMsg.contains("nonexistent"),
+                "Error message should mention invalid ref: $errorMsg"
+            )
+            assertTrue(
+                errorMsg.contains("root"),
+                "Error message should list valid refs: $errorMsg"
+            )
+        }
+
+    // ──────────────────────────────────────────────
+    // Notes parameter: invalid role → validateParams exception
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `invalid role in notes throws ToolValidationException at validateParams`() {
+        assertFailsWith<ToolValidationException> {
+            tool.validateParams(
+                buildJsonObject {
+                    put("root", buildJsonObject { put("title", JsonPrimitive("Root")) })
+                    put(
+                        "notes",
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("itemRef", JsonPrimitive("root"))
+                                    put("key", JsonPrimitive("k"))
+                                    put("role", JsonPrimitive("terminal"))
+                                }
+                            )
+                        }
+                    )
+                }
+            )
+        }
+    }
+
+    // ──────────────────────────────────────────────
+    // Notes parameter: missing key → validateParams exception
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `missing key in notes throws ToolValidationException at validateParams`() {
+        assertFailsWith<ToolValidationException> {
+            tool.validateParams(
+                buildJsonObject {
+                    put("root", buildJsonObject { put("title", JsonPrimitive("Root")) })
+                    put(
+                        "notes",
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("itemRef", JsonPrimitive("root"))
+                                    put("role", JsonPrimitive("queue"))
+                                    // key is missing
+                                }
+                            )
+                        }
+                    )
+                }
+            )
+        }
+    }
+
+    // ──────────────────────────────────────────────
+    // Notes parameter: missing itemRef → validateParams exception
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `missing itemRef in notes throws ToolValidationException at validateParams`() {
+        assertFailsWith<ToolValidationException> {
+            tool.validateParams(
+                buildJsonObject {
+                    put("root", buildJsonObject { put("title", JsonPrimitive("Root")) })
+                    put(
+                        "notes",
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("key", JsonPrimitive("k"))
+                                    put("role", JsonPrimitive("queue"))
+                                    // itemRef is missing
+                                }
+                            )
+                        }
+                    )
+                }
+            )
+        }
+    }
+
+    // ──────────────────────────────────────────────
+    // Notes parameter: body omitted defaults to empty string
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `body omitted in notes defaults to empty string`(): Unit =
+        runBlocking {
+            var capturedInput: WorkTreeInput? = null
+            coEvery { mockExecutor.execute(any()) } answers {
+                val input = firstArg<WorkTreeInput>()
+                capturedInput = input
+                echoResult(input)
+            }
+
+            val notesArr =
+                buildJsonArray {
+                    add(
+                        buildJsonObject {
+                            put("itemRef", JsonPrimitive("root"))
+                            put("key", JsonPrimitive("no-body-key"))
+                            put("role", JsonPrimitive("queue"))
+                            // body is intentionally omitted
+                        }
+                    )
+                }
+            val params = buildParams(notes = notesArr)
+            val result = tool.execute(params, context)
+
+            extractData(result)
+
+            val note = capturedInput!!.notes.first()
+            assertEquals("", note.body, "Omitted body should default to empty string")
+        }
+
+    // ──────────────────────────────────────────────
+    // Notes parameter: duplicate (itemRef, key) — last wins
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `duplicate itemRef-key pair - last note wins`(): Unit =
+        runBlocking {
+            var capturedInput: WorkTreeInput? = null
+            coEvery { mockExecutor.execute(any()) } answers {
+                val input = firstArg<WorkTreeInput>()
+                capturedInput = input
+                echoResult(input)
+            }
+
+            val notesArr =
+                buildJsonArray {
+                    add(
+                        buildJsonObject {
+                            put("itemRef", JsonPrimitive("root"))
+                            put("key", JsonPrimitive("dup-key"))
+                            put("role", JsonPrimitive("queue"))
+                            put("body", JsonPrimitive("first body"))
+                        }
+                    )
+                    add(
+                        buildJsonObject {
+                            put("itemRef", JsonPrimitive("root"))
+                            put("key", JsonPrimitive("dup-key"))
+                            put("role", JsonPrimitive("queue"))
+                            put("body", JsonPrimitive("last body"))
+                        }
+                    )
+                }
+            val params = buildParams(notes = notesArr)
+            val result = tool.execute(params, context)
+
+            extractData(result)
+
+            val notes = capturedInput!!.notes
+            assertEquals(1, notes.size, "Duplicate (itemRef, key) should collapse to one note")
+            assertEquals("last body", notes[0].body, "Last entry should win")
+        }
+
+    // ──────────────────────────────────────────────
+    // Notes parameter: empty notes array == omitted
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `empty notes array results in no notes created`(): Unit =
+        runBlocking {
+            var capturedInput: WorkTreeInput? = null
+            coEvery { mockExecutor.execute(any()) } answers {
+                val input = firstArg<WorkTreeInput>()
+                capturedInput = input
+                echoResult(input)
+            }
+
+            val params = buildParams(notes = JsonArray(emptyList()))
+            val result = tool.execute(params, context)
+
+            extractData(result)
+
+            assertEquals(0, capturedInput!!.notes.size, "Empty notes array should result in no notes")
         }
 }

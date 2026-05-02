@@ -302,6 +302,7 @@ when calling `manage_items`, `manage_dependencies`, and `manage_notes` separatel
 | `children` | array | No | Child item specs: `[{ ref, title, priority?, tags?, type?, traits?, summary?, description?, requiresVerification? }]`. `ref` is a local name used in `deps`. |
 | `deps` | array | No | Dependency specs: `[{ from: ref, to: ref, type?: BLOCKS\|IS_BLOCKED_BY\|RELATES_TO, unblockAt?: queue\|work\|review\|terminal }]`. Use `"root"` to reference the root item. |
 | `createNotes` | boolean | No | Auto-create blank notes for each item from its tag schema (default: false) |
+| `notes` | array | No | Notes to create with bodies: `[{ itemRef (required, "root" or child ref), key (required), role (required: queue\|work\|review), body? (defaults to empty string) }]`. Explicit notes win over `createNotes=true` blanks per `(itemRef, key)`. |
 | `requestId` | string (UUID) | No | Client-generated UUID for idempotency. See [Idempotency](#idempotency). |
 
 Depth cap: root must be at depth < 3 (i.e., root can be at depth 0, 1, or 2). Children are always root.depth + 1, so children can reach depth 3 (when root is at depth 2).
@@ -350,6 +351,21 @@ Depth cap: root must be at depth < 3 (i.e., root can be at depth 0, 1, or 2). Ch
 ```
 
 When `createNotes=false` (default) or no items match a schema, `notes` is `[]`.
+
+**Inline notes example.** Use the `notes` parameter to materialize a fully-populated graph in one call:
+
+```json
+{
+  "root": {"title": "Feature X"},
+  "children": [{"ref": "t1", "title": "Task 1"}],
+  "notes": [
+    {"itemRef": "root", "key": "specification", "role": "queue", "body": "Full plan..."},
+    {"itemRef": "t1", "key": "task-scope", "role": "queue", "body": "Build the thing"}
+  ]
+}
+```
+
+When both `notes` and `createNotes: true` are provided, explicit `notes` entries win per `(itemRef, key)` — schema-required keys not covered by `notes` are added with empty bodies by `createNotes`, while explicit off-schema keys are persisted as-is.
 
 ---
 
