@@ -40,6 +40,8 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
 
 **Idempotency:** Pass `requestId` (client-generated UUID) together with a top-level `actor.id` to enable idempotent retries. Repeated calls with the same (actor, requestId) within ~10 minutes return the cached response without re-executing.
 
+**Actor attribution:** A single top-level `actor` is applied to **every** persisted note in the tree (both explicit `notes` entries and `createNotes=true` schema blanks). This differs from `manage_notes`, which accepts a per-note `actor` block. If the top-level `actor` is malformed (e.g., missing `kind`), idempotency is disabled and attribution is dropped to `null` on each note — the call still proceeds and items/notes are created without an audit identity.
+
 **Parameters:**
 - `root` (required): Root item spec `{ title (required), priority?, tags?, summary?, description?, requiresVerification?, type? }`
 - `parentId` (optional): UUID of existing parent item. If provided, root depth = parent.depth + 1; otherwise depth = 0.
@@ -168,8 +170,13 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Top-level actor for idempotency key resolution: " +
-                                        "{ id (required string), kind (required: orchestrator|subagent|user|external), " +
+                                    "Top-level actor used for two purposes: (1) idempotency key resolution and " +
+                                        "(2) audit attribution on every persisted note in the tree (both explicit " +
+                                        "and createNotes=true schema blanks). A single actor applies to the whole " +
+                                        "tree — unlike manage_notes, this tool does NOT accept a per-note actor. " +
+                                        "If the actor is malformed (e.g., missing kind), idempotency is disabled " +
+                                        "and attribution silently drops to null; the call still succeeds. " +
+                                        "Shape: { id (required string), kind (required: orchestrator|subagent|user|external), " +
                                         "parent? (optional string), proof? (optional string) }"
                                 )
                             )
@@ -343,8 +350,8 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
         paramsObj: JsonObject,
         params: JsonElement,
         context: ToolExecutionContext,
-        noteActorClaim: ActorClaim? = null,
-        noteVerification: VerificationResult? = null
+        noteActorClaim: ActorClaim?,
+        noteVerification: VerificationResult?
     ): JsonElement {
         // ── 1. Parse parentId (optional) ──────────────────────────────────────
         val (parentId, parentIdError) = resolveItemId(params, "parentId", context, required = false)
