@@ -43,24 +43,34 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
 **Actor attribution:** A single top-level `actor` is applied to **every** persisted note in the tree (both explicit `notes` entries and `createNotes=true` schema blanks). This differs from `manage_notes`, which accepts a per-note `actor` block. If the top-level `actor` is malformed (e.g., missing `kind`), idempotency is disabled and attribution is dropped to `null` on each note — the call still proceeds and items/notes are created without an audit identity.
 
 **Parameters:**
-- `root` (required): Root item spec `{ title (required), priority?, tags?, summary?, description?, requiresVerification?, type? }`
+- `root` (required): Root item spec `{ title (required), priority?, tags?, traits?, summary?, description?, requiresVerification?, type? }`. `traits` is a comma-separated string of trait keys merged into properties.
 - `parentId` (optional): UUID of existing parent item. If provided, root depth = parent.depth + 1; otherwise depth = 0.
-- `children` (optional): Array of child item specs `[{ ref (required), title (required), priority?, tags?, summary?, description?, requiresVerification?, type? }]`. `ref` is a local name used in `deps` to wire dependencies.
+- `children` (optional): Array of child item specs `[{ ref (required), title (required), priority?, tags?, traits?, summary?, description?, requiresVerification?, type? }]`. `ref` is a local name used in `deps` to wire dependencies.
 - `deps` (optional): Array of dependency specs `[{ from: ref, to: ref, type?: BLOCKS|IS_BLOCKED_BY|RELATES_TO, unblockAt?: queue|work|review|terminal }]`. Use `"root"` to reference the root item.
-- `createNotes` (optional, default false): Auto-create blank notes for each item based on its tag schema.
+- `createNotes` (optional, default false): Auto-create blank notes for each item based on its resolved schema (looked up by `type` first, then by `tags`).
 - `notes` (optional): Notes to create with bodies: `[{ itemRef (required, "root" or child ref), key (required), role (required: queue|work|review), body (optional, defaults to empty string) }]`. Explicit notes win over `createNotes=true` blanks per `(itemRef, key)`. **Strict role enforcement:** when an explicit note's `key` is declared in the resolved schema for the target item, the note's `role` must equal the schema role; mismatch is rejected with `VALIDATION_ERROR`. Off-schema keys and items without a schema are unconstrained.
+- `actor` (optional): Actor claim `{ id (required), kind (required: orchestrator|subagent|user|external), parent?, proof? }`. See **Idempotency** and **Actor attribution** above for the two effects.
+- `requestId` (optional): Client-generated UUID. With `actor`, enables idempotent retries (see Idempotency above).
 
 **Depth cap:** Root item depth must be < $MAX_DEPTH. Children are always root.depth + 1, also < $MAX_DEPTH.
 
 **Response:**
 ```json
 {
-  "root": { "id": "uuid", "title": "...", "role": "queue", "depth": 0, "tags": "..." },
-  "children": [{ "ref": "t1", "id": "uuid", "title": "...", "role": "queue", "depth": 1 }],
-  "dependencies": [{ "id": "uuid", "fromRef": "t1", "toRef": "t2", "type": "BLOCKS" }],
+  "root": {
+    "id": "uuid", "title": "...", "role": "queue", "depth": 0, "tags": "...",
+    "schemaMatch": true, "expectedNotes": [{ "key": "...", "role": "queue", "required": true, "exists": false }]
+  },
+  "children": [{
+    "ref": "t1", "id": "uuid", "title": "...", "role": "queue", "depth": 1,
+    "schemaMatch": false, "expectedNotes": []
+  }],
+  "dependencies": [{ "id": "uuid", "fromRef": "t1", "toRef": "t2", "type": "BLOCKS", "unblockAt": "work" }],
   "notes": [{ "itemRef": "t1", "key": "acceptance-criteria", "role": "queue", "id": "uuid" }]
 }
 ```
+
+`tags` on items and `unblockAt` on dependencies are omitted (not null) when not set. `schemaMatch` and `expectedNotes` are always present; `expectedNotes` is `[]` when no schema matches.
         """.trimIndent()
 
     override val category = ToolCategory.ITEM_MANAGEMENT
@@ -84,7 +94,9 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Root item spec: { title (required), priority?, tags?, summary?, description?, requiresVerification?, type? }"
+                                    "Root item spec: { title (required), priority?, tags?, traits?, summary?, " +
+                                        "description?, requiresVerification?, type? }. " +
+                                        "traits is a comma-separated string of trait keys merged into properties."
                                 )
                             )
                         }
@@ -108,7 +120,9 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Child item specs: [{ ref (required local name), title (required), priority?, tags?, summary?, description?, requiresVerification?, type? }]"
+                                    "Child item specs: [{ ref (required local name), title (required), priority?, " +
+                                        "tags?, traits?, summary?, description?, requiresVerification?, type? }]. " +
+                                        "traits is a comma-separated string of trait keys merged into properties."
                                 )
                             )
                         }
@@ -131,7 +145,10 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
                             put("type", JsonPrimitive("boolean"))
                             put(
                                 "description",
-                                JsonPrimitive("Auto-create blank notes from schema for each item based on its tags (default: false)")
+                                JsonPrimitive(
+                                    "Auto-create blank notes from each item's resolved schema (looked up by type first, " +
+                                        "then by tags). Default: false."
+                                )
                             )
                         }
                     )
