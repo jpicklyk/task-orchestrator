@@ -1679,20 +1679,79 @@ class CreateWorkTreeToolTest {
         }
 
     // ──────────────────────────────────────────────
-    // Notes parameter: explicit note with same key but different role
-    // suppresses the schema-required entry
+    // Strict role enforcement: explicit note with same key but different role
+    // from a schema entry is REJECTED with VALIDATION_ERROR
     //
-    // Documents the dedup-by-(ref, key) contract: explicit notes always win,
-    // even if their role differs from the schema declaration. This matches the
-    // database unique constraint on (itemId, key) — only one note per key can
-    // exist for an item, regardless of role. Callers are responsible for
-    // matching schema roles when they intend to satisfy a gate; otherwise the
-    // gate-required note will be unfilled at the expected role and gate
-    // enforcement will reject the transition later.
+    // The DB enforces UNIQUE(itemId, key), so silently accepting a role mismatch
+    // would leave the gate-required role unfilled — gate enforcement would later
+    // reject the transition. Strict-by-default fails fast at create time so the
+    // caller fixes the role at the source.
     // ──────────────────────────────────────────────
 
     @Test
-    fun `explicit note with same key but different role overrides schema entry`(): Unit =
+    fun `explicit note with role mismatching schema is rejected with VALIDATION_ERROR`(): Unit =
+        runBlocking {
+            val schemaEntries =
+                listOf(
+                    NoteSchemaEntry(key = "acceptance-criteria", role = Role.QUEUE, required = true)
+                )
+            val noteSchemaService =
+                object : NoteSchemaService {
+                    override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
+                        if (tags.contains("feature-task")) schemaEntries else null
+                }
+            val provider2 = mockk<RepositoryProvider>()
+            val mockExecutor2 = mockk<WorkTreeExecutor>()
+            every { provider2.workItemRepository() } returns workItemRepo
+            every { provider2.dependencyRepository() } returns mockk()
+            every { provider2.noteRepository() } returns mockk()
+            every { provider2.roleTransitionRepository() } returns mockk()
+            every { provider2.database() } returns null
+            every { provider2.workTreeExecutor() } returns mockExecutor2
+            val contextWithSchema = ToolExecutionContext(provider2, noteSchemaService)
+
+            // Executor must NOT be invoked when validation rejects the request
+            coEvery { mockExecutor2.execute(any()) } answers {
+                throw IllegalStateException("Executor should not have been called for invalid role")
+            }
+
+            val rootSpec =
+                buildJsonObject {
+                    put("title", JsonPrimitive("Feature Root"))
+                    put("tags", JsonPrimitive("feature-task"))
+                }
+            val notesArr =
+                buildJsonArray {
+                    add(
+                        buildJsonObject {
+                            put("itemRef", JsonPrimitive("root"))
+                            put("key", JsonPrimitive("acceptance-criteria"))
+                            put("role", JsonPrimitive("work")) // schema says queue
+                            put("body", JsonPrimitive("body"))
+                        }
+                    )
+                }
+            val params = buildParams(root = rootSpec, notes = notesArr)
+            val result = tool.execute(params, contextWithSchema)
+
+            val obj = result as JsonObject
+            assertFalse(
+                obj["success"]!!.jsonPrimitive.boolean,
+                "Expected failure for role mismatch with schema; got: $result"
+            )
+            val errMsg = obj["error"]!!.jsonObject["message"]!!.jsonPrimitive.content
+            assertTrue(errMsg.contains("acceptance-criteria"), "Error must name the key: $errMsg")
+            assertTrue(errMsg.contains("queue"), "Error must name the expected role: $errMsg")
+            assertTrue(errMsg.contains("work"), "Error must name the submitted role: $errMsg")
+        }
+
+    // ──────────────────────────────────────────────
+    // Strict mode: explicit note with role MATCHING the schema is accepted
+    // (sanity check that the matched-role happy path still works)
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `explicit note with role matching schema is accepted`(): Unit =
         runBlocking {
             val schemaEntries =
                 listOf(
@@ -1725,39 +1784,132 @@ class CreateWorkTreeToolTest {
                     put("title", JsonPrimitive("Feature Root"))
                     put("tags", JsonPrimitive("feature-task"))
                 }
-            // Schema declares acceptance-criteria at role=queue, but caller submits
-            // it at role=work. Dedup-by-(ref, key) suppresses the schema entry.
             val notesArr =
                 buildJsonArray {
                     add(
                         buildJsonObject {
                             put("itemRef", JsonPrimitive("root"))
                             put("key", JsonPrimitive("acceptance-criteria"))
-                            put("role", JsonPrimitive("work"))
-                            put("body", JsonPrimitive("explicit body at wrong role"))
+                            put("role", JsonPrimitive("queue")) // matches schema
+                            put("body", JsonPrimitive("AC body"))
                         }
                     )
                 }
-            val params = buildParams(root = rootSpec, createNotes = true, notes = notesArr)
+            val params = buildParams(root = rootSpec, notes = notesArr)
             val result = tool.execute(params, contextWithSchema)
 
             extractData(result)
 
-            val input = capturedInput!!
-            assertEquals(
-                1,
-                input.notes.size,
-                "Schema entry should be suppressed by explicit (ref, key) match — only the explicit note remains"
-            )
+            val note = capturedInput!!.notes.first()
+            assertEquals("acceptance-criteria", note.key)
+            assertEquals("queue", note.role)
+            assertEquals("AC body", note.body)
+        }
 
-            val note = input.notes.first()
+    // ──────────────────────────────────────────────
+    // Strict mode: off-schema explicit note may use any valid role
+    //
+    // Only schema-DECLARED keys are role-constrained. Off-schema keys remain
+    // unconstrained — callers may add arbitrary auxiliary notes.
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `off-schema explicit note with arbitrary role is accepted`(): Unit =
+        runBlocking {
+            val schemaEntries =
+                listOf(
+                    NoteSchemaEntry(key = "acceptance-criteria", role = Role.QUEUE, required = true)
+                )
+            val noteSchemaService =
+                object : NoteSchemaService {
+                    override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
+                        if (tags.contains("feature-task")) schemaEntries else null
+                }
+            val provider2 = mockk<RepositoryProvider>()
+            val mockExecutor2 = mockk<WorkTreeExecutor>()
+            every { provider2.workItemRepository() } returns workItemRepo
+            every { provider2.dependencyRepository() } returns mockk()
+            every { provider2.noteRepository() } returns mockk()
+            every { provider2.roleTransitionRepository() } returns mockk()
+            every { provider2.database() } returns null
+            every { provider2.workTreeExecutor() } returns mockExecutor2
+            val contextWithSchema = ToolExecutionContext(provider2, noteSchemaService)
+
+            var capturedInput: WorkTreeInput? = null
+            coEvery { mockExecutor2.execute(any()) } answers {
+                val input = firstArg<WorkTreeInput>()
+                capturedInput = input
+                echoResult(input)
+            }
+
+            val rootSpec =
+                buildJsonObject {
+                    put("title", JsonPrimitive("Feature Root"))
+                    put("tags", JsonPrimitive("feature-task"))
+                }
+            // "ad-hoc-note" is NOT in the schema — role is unconstrained.
+            val notesArr =
+                buildJsonArray {
+                    add(
+                        buildJsonObject {
+                            put("itemRef", JsonPrimitive("root"))
+                            put("key", JsonPrimitive("ad-hoc-note"))
+                            put("role", JsonPrimitive("review"))
+                            put("body", JsonPrimitive("custom auxiliary note"))
+                        }
+                    )
+                }
+            val params = buildParams(root = rootSpec, notes = notesArr)
+            val result = tool.execute(params, contextWithSchema)
+
+            extractData(result)
+
+            val note = capturedInput!!.notes.first()
+            assertEquals("ad-hoc-note", note.key)
+            assertEquals("review", note.role, "Off-schema keys may use any role")
+            assertEquals("custom auxiliary note", note.body)
+        }
+
+    // ──────────────────────────────────────────────
+    // Strict mode: items with NO schema match — role is unconstrained
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `explicit note for item with no matching schema is unconstrained`(): Unit =
+        runBlocking {
+            // The default test context uses NoOpNoteSchemaService → no schemas exist
+            var capturedInput: WorkTreeInput? = null
+            coEvery { mockExecutor.execute(any()) } answers {
+                val input = firstArg<WorkTreeInput>()
+                capturedInput = input
+                echoResult(input)
+            }
+
+            val notesArr =
+                buildJsonArray {
+                    add(
+                        buildJsonObject {
+                            put("itemRef", JsonPrimitive("root"))
+                            // Use a key string that COULD be a schema key in some other config —
+                            // here it has no schema match, so any role is accepted.
+                            put("key", JsonPrimitive("acceptance-criteria"))
+                            put("role", JsonPrimitive("work"))
+                            put("body", JsonPrimitive("no-schema body"))
+                        }
+                    )
+                }
+            val params = buildParams(notes = notesArr)
+            val result = tool.execute(params, context)
+
+            extractData(result)
+
+            val note = capturedInput!!.notes.first()
             assertEquals("acceptance-criteria", note.key)
             assertEquals(
                 "work",
                 note.role,
-                "Caller-supplied role wins over schema role on (ref, key) collision"
+                "Without a resolved schema, no role constraint applies"
             )
-            assertEquals("explicit body at wrong role", note.body)
         }
 
     // ──────────────────────────────────────────────

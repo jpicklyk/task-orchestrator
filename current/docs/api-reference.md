@@ -302,7 +302,7 @@ when calling `manage_items`, `manage_dependencies`, and `manage_notes` separatel
 | `children` | array | No | Child item specs: `[{ ref, title, priority?, tags?, type?, traits?, summary?, description?, requiresVerification? }]`. `ref` is a local name used in `deps`. |
 | `deps` | array | No | Dependency specs: `[{ from: ref, to: ref, type?: BLOCKS\|IS_BLOCKED_BY\|RELATES_TO, unblockAt?: queue\|work\|review\|terminal }]`. Use `"root"` to reference the root item. |
 | `createNotes` | boolean | No | Auto-create blank notes for each item from its tag schema (default: false) |
-| `notes` | array | No | Notes to create with bodies: `[{ itemRef (required, "root" or child ref), key (required), role (required: queue\|work\|review), body? (defaults to empty string) }]`. Explicit notes win over `createNotes=true` blanks per `(itemRef, key)`. |
+| `notes` | array | No | Notes to create with bodies: `[{ itemRef (required, "root" or child ref), key (required), role (required: queue\|work\|review), body? (defaults to empty string) }]`. Explicit notes win over `createNotes=true` blanks per `(itemRef, key)`. **Strict role enforcement:** when an explicit note's `key` is declared in the resolved schema for the target item, the note's `role` must equal the schema role; mismatch returns `VALIDATION_ERROR`. Off-schema keys and items without a schema are unconstrained. |
 | `requestId` | string (UUID) | No | Client-generated UUID for idempotency. See [Idempotency](#idempotency). |
 
 Depth cap: root must be at depth < 3 (i.e., root can be at depth 0, 1, or 2). Children are always root.depth + 1, so children can reach depth 3 (when root is at depth 2).
@@ -366,6 +366,8 @@ When `createNotes=false` (default) or no items match a schema, `notes` is `[]`.
 ```
 
 When both `notes` and `createNotes: true` are provided, explicit `notes` entries win per `(itemRef, key)` — schema-required keys not covered by `notes` are added with empty bodies by `createNotes`, while explicit off-schema keys are persisted as-is.
+
+**Strict role enforcement.** If an explicit note's `key` matches a key declared in the resolved schema for its target item, the note's `role` MUST equal the schema's role. Mismatch returns `VALIDATION_ERROR` with a message naming the index, key, expected role, and submitted role. The DB enforces `UNIQUE(itemId, key)`, so allowing a role mismatch would silently leave the gate-required role unfilled and break later `advance_item` transitions. Off-schema keys (not declared by the schema) and items with no schema match remain unconstrained — they may use any valid role.
 
 ---
 
