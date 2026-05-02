@@ -48,7 +48,7 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
 - `children` (optional): Array of child item specs `[{ ref (required), title (required), priority?, tags?, summary?, description?, requiresVerification?, type? }]`. `ref` is a local name used in `deps` to wire dependencies.
 - `deps` (optional): Array of dependency specs `[{ from: ref, to: ref, type?: BLOCKS|IS_BLOCKED_BY|RELATES_TO, unblockAt?: queue|work|review|terminal }]`. Use `"root"` to reference the root item.
 - `createNotes` (optional, default false): Auto-create blank notes for each item based on its tag schema.
-- `notes` (optional): Notes to create with bodies: `[{ itemRef (required, "root" or child ref), key (required), role (required: queue|work|review), body (optional, defaults to empty string) }]`. Explicit notes win over `createNotes=true` blanks per `(itemRef, key)`.
+- `notes` (optional): Notes to create with bodies: `[{ itemRef (required, "root" or child ref), key (required), role (required: queue|work|review), body (optional, defaults to empty string) }]`. Explicit notes win over `createNotes=true` blanks per `(itemRef, key)`. **Strict role enforcement:** when an explicit note's `key` is declared in the resolved schema for the target item, the note's `role` must equal the schema role; mismatch is rejected with `VALIDATION_ERROR`. Off-schema keys and items without a schema are unconstrained.
 
 **Depth cap:** Root item depth must be < $MAX_DEPTH. Children are always root.depth + 1, also < $MAX_DEPTH.
 
@@ -144,7 +144,10 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
                                 JsonPrimitive(
                                     "Notes to create with bodies: [{ itemRef (required, \"root\" or child ref), key (required), " +
                                         "role (required: queue|work|review), body (optional, defaults to empty string) }]. " +
-                                        "Explicit notes win over createNotes=true blanks per (itemRef, key)."
+                                        "Explicit notes win over createNotes=true blanks per (itemRef, key). " +
+                                        "Strict role enforcement: when an explicit key is declared in the resolved schema " +
+                                        "for the target item, the role must match the schema role; mismatch is rejected. " +
+                                        "Off-schema keys and items without a schema are unconstrained."
                                 )
                             )
                         }
@@ -463,6 +466,11 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
         val explicitNotesArray = paramsObj["notes"] as? JsonArray ?: JsonArray(emptyList())
         val notesList = mutableListOf<Note>()
 
+        // Resolve schemas once per item; reused for strict role enforcement on
+        // explicit notes AND for createNotes=true schema-blank fill.
+        val itemSchemas: Map<String, WorkItemSchema?> =
+            refToItem.mapValues { (_, item) -> context.resolveSchema(item) }
+
         // Parse explicit notes; track (itemRef, key) -> index in notesList for last-wins dedup
         val explicitByRefKey = mutableMapOf<Pair<String, String>, Int>()
         for ((index, noteElement) in explicitNotesArray.withIndex()) {
@@ -481,6 +489,29 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
                         "notes[$index]: 'itemRef' '$itemRef' is not defined. Valid refs: ${refToItem.keys.joinToString()}",
                         ErrorCodes.VALIDATION_ERROR
                     )
+
+            // Strict role enforcement: when the resolved schema for this item declares the
+            // same key, the explicit note's role must match the schema role. The DB has a
+            // UNIQUE(itemId, key) constraint, so only one note per key can exist; allowing
+            // a role mismatch would silently leave the gate-required role unfilled.
+            // Off-schema keys are unconstrained — callers may add arbitrary auxiliary notes.
+            // Items with no schema match are also unconstrained.
+            val schema = itemSchemas[itemRef]
+            if (schema != null) {
+                val schemaEntry = schema.notes.firstOrNull { it.key == key }
+                if (schemaEntry != null) {
+                    val expectedRole = schemaEntry.role.toJsonString()
+                    if (role != expectedRole) {
+                        return errorResponse(
+                            "notes[$index]: key '$key' is declared in the schema for itemRef " +
+                                "'$itemRef' with role '$expectedRole', but the explicit note has " +
+                                "role '$role'. Schema-declared keys must use the schema role; " +
+                                "off-schema keys may use any valid role.",
+                            ErrorCodes.VALIDATION_ERROR
+                        )
+                    }
+                }
+            }
 
             val note =
                 Note(
@@ -505,7 +536,7 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
         // If createNotes=true, fill schema-required notes that aren't already explicit (with empty bodies)
         if (createNotes) {
             for ((ref, item) in refToItem) {
-                val resolvedSchema = context.resolveSchema(item) ?: continue
+                val resolvedSchema = itemSchemas[ref] ?: continue
                 for (entry in resolvedSchema.notes) {
                     if (explicitByRefKey.containsKey(ref to entry.key)) continue
                     notesList.add(
