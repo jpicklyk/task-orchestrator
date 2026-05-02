@@ -268,8 +268,11 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
                     throw ToolValidationException("notes[$index]: invalid role '$role'. Valid: queue, work, review")
                 }
                 val bodyElement = noteObj["body"]
-                if (bodyElement != null && bodyElement !is JsonNull && bodyElement !is JsonPrimitive) {
-                    throw ToolValidationException("notes[$index]: 'body' must be a string")
+                if (bodyElement != null && bodyElement !is JsonNull) {
+                    val isStringPrim = (bodyElement as? JsonPrimitive)?.isString == true
+                    if (!isStringPrim) {
+                        throw ToolValidationException("notes[$index]: 'body' must be a string")
+                    }
                 }
             }
         }
@@ -294,28 +297,31 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
         // Resolve trusted actor identity from the top-level actor for the idempotency key.
         // Must be done BEFORE the cache lookup so the cache is keyed on the verified identity,
         // not the self-reported actor.id (bug 3a fix).
+        // Capture the parsed claim and verification so they can be propagated as
+        // attribution metadata on every persisted Note (matches ManageNotesTool semantics).
         val actorObj = paramsObj["actor"] as? JsonObject
+        val parsedActor: ActorParseResult =
+            if (actorObj != null) parseActorClaim(actorObj, context) else ActorParseResult.Absent
+        val noteActorClaim: ActorClaim? =
+            (parsedActor as? ActorParseResult.Success)?.claim
+        val noteVerification: VerificationResult? =
+            (parsedActor as? ActorParseResult.Success)?.verification
         val trustedActorId: String? =
-            if (actorObj != null) {
-                val actorResult = parseActorClaim(actorObj, context)
-                when (actorResult) {
-                    is ActorParseResult.Success -> {
-                        when (
-                            val r =
-                                ActorAware.resolveTrustedActorId(
-                                    actorResult.claim,
-                                    actorResult.verification,
-                                    context.degradedModePolicy
-                                )
-                        ) {
-                            is PolicyResolution.Trusted -> r.trustedId
-                            is PolicyResolution.Rejected -> null
-                        }
+            when (parsedActor) {
+                is ActorParseResult.Success -> {
+                    when (
+                        val r =
+                            ActorAware.resolveTrustedActorId(
+                                parsedActor.claim,
+                                parsedActor.verification,
+                                context.degradedModePolicy
+                            )
+                    ) {
+                        is PolicyResolution.Trusted -> r.trustedId
+                        is PolicyResolution.Rejected -> null
                     }
-                    else -> null
                 }
-            } else {
-                null
+                else -> null
             }
 
         // Atomic getOrCompute: check-compute-store under a single lock to prevent TOCTOU races.
@@ -324,17 +330,21 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
         // re-acquires the IdempotencyCache lock.
         if (requestId != null && trustedActorId != null) {
             return context.idempotencyCache.getOrCompute(trustedActorId, requestId) {
-                runBlocking { executeCreateWorkTree(paramsObj, params, context) }
+                runBlocking {
+                    executeCreateWorkTree(paramsObj, params, context, noteActorClaim, noteVerification)
+                }
             }
         }
 
-        return executeCreateWorkTree(paramsObj, params, context)
+        return executeCreateWorkTree(paramsObj, params, context, noteActorClaim, noteVerification)
     }
 
     private suspend fun executeCreateWorkTree(
         paramsObj: JsonObject,
         params: JsonElement,
-        context: ToolExecutionContext
+        context: ToolExecutionContext,
+        noteActorClaim: ActorClaim? = null,
+        noteVerification: VerificationResult? = null
     ): JsonElement {
         // ── 1. Parse parentId (optional) ──────────────────────────────────────
         val (parentId, parentIdError) = resolveItemId(params, "parentId", context, required = false)
@@ -453,7 +463,9 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
             val itemRef = (noteObj["itemRef"] as JsonPrimitive).content
             val key = (noteObj["key"] as JsonPrimitive).content
             val role = (noteObj["role"] as JsonPrimitive).content
-            val body = (noteObj["body"] as? JsonPrimitive)?.content ?: ""
+            // Only string primitives are accepted as body; JsonNull and omitted both default to "".
+            // (validateParams already rejects non-string non-null primitives.)
+            val body = (noteObj["body"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: ""
 
             // Validate ref exists in refToItem (resolved after step 4)
             val targetItem =
@@ -463,7 +475,15 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
                         ErrorCodes.VALIDATION_ERROR
                     )
 
-            val note = Note(itemId = targetItem.id, key = key, role = role, body = body)
+            val note =
+                Note(
+                    itemId = targetItem.id,
+                    key = key,
+                    role = role,
+                    body = body,
+                    actorClaim = noteActorClaim,
+                    verification = noteVerification
+                )
             val refKey = itemRef to key
             val existingIndex = explicitByRefKey[refKey]
             if (existingIndex != null) {
@@ -486,7 +506,9 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
                             itemId = item.id,
                             key = entry.key,
                             role = entry.role.toJsonString(),
-                            body = ""
+                            body = "",
+                            actorClaim = noteActorClaim,
+                            verification = noteVerification
                         )
                     )
                 }

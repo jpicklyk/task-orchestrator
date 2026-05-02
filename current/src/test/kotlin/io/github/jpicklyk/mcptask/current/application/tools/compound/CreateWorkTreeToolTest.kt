@@ -1585,4 +1585,408 @@ class CreateWorkTreeToolTest {
 
             assertEquals(0, capturedInput!!.notes.size, "Empty notes array should result in no notes")
         }
+
+    // ──────────────────────────────────────────────
+    // Notes parameter: numeric body primitive rejected
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `numeric body primitive throws ToolValidationException at validateParams`() {
+        assertFailsWith<ToolValidationException> {
+            tool.validateParams(
+                buildJsonObject {
+                    put("root", buildJsonObject { put("title", JsonPrimitive("Root")) })
+                    put(
+                        "notes",
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("itemRef", JsonPrimitive("root"))
+                                    put("key", JsonPrimitive("k"))
+                                    put("role", JsonPrimitive("queue"))
+                                    put("body", JsonPrimitive(42))
+                                }
+                            )
+                        }
+                    )
+                }
+            )
+        }
+    }
+
+    // ──────────────────────────────────────────────
+    // Notes parameter: boolean body primitive rejected
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `boolean body primitive throws ToolValidationException at validateParams`() {
+        assertFailsWith<ToolValidationException> {
+            tool.validateParams(
+                buildJsonObject {
+                    put("root", buildJsonObject { put("title", JsonPrimitive("Root")) })
+                    put(
+                        "notes",
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("itemRef", JsonPrimitive("root"))
+                                    put("key", JsonPrimitive("k"))
+                                    put("role", JsonPrimitive("queue"))
+                                    put("body", JsonPrimitive(true))
+                                }
+                            )
+                        }
+                    )
+                }
+            )
+        }
+    }
+
+    // ──────────────────────────────────────────────
+    // Notes parameter: explicit JsonNull body accepted (treated as empty)
+    //
+    // The validator allows null body (alongside omitted body); both default to "".
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `explicit null body in notes is accepted and treated as empty`(): Unit =
+        runBlocking {
+            var capturedInput: WorkTreeInput? = null
+            coEvery { mockExecutor.execute(any()) } answers {
+                val input = firstArg<WorkTreeInput>()
+                capturedInput = input
+                echoResult(input)
+            }
+
+            val notesArr =
+                buildJsonArray {
+                    add(
+                        buildJsonObject {
+                            put("itemRef", JsonPrimitive("root"))
+                            put("key", JsonPrimitive("null-body-key"))
+                            put("role", JsonPrimitive("queue"))
+                            put("body", JsonNull)
+                        }
+                    )
+                }
+            val params = buildParams(notes = notesArr)
+            val result = tool.execute(params, context)
+
+            extractData(result)
+
+            val note = capturedInput!!.notes.first()
+            assertEquals("", note.body, "Explicit null body should default to empty string")
+        }
+
+    // ──────────────────────────────────────────────
+    // Notes parameter: explicit note with same key but different role
+    // suppresses the schema-required entry
+    //
+    // Documents the dedup-by-(ref, key) contract: explicit notes always win,
+    // even if their role differs from the schema declaration. This matches the
+    // database unique constraint on (itemId, key) — only one note per key can
+    // exist for an item, regardless of role. Callers are responsible for
+    // matching schema roles when they intend to satisfy a gate; otherwise the
+    // gate-required note will be unfilled at the expected role and gate
+    // enforcement will reject the transition later.
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `explicit note with same key but different role overrides schema entry`(): Unit =
+        runBlocking {
+            val schemaEntries =
+                listOf(
+                    NoteSchemaEntry(key = "acceptance-criteria", role = Role.QUEUE, required = true)
+                )
+            val noteSchemaService =
+                object : NoteSchemaService {
+                    override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
+                        if (tags.contains("feature-task")) schemaEntries else null
+                }
+            val provider2 = mockk<RepositoryProvider>()
+            val mockExecutor2 = mockk<WorkTreeExecutor>()
+            every { provider2.workItemRepository() } returns workItemRepo
+            every { provider2.dependencyRepository() } returns mockk()
+            every { provider2.noteRepository() } returns mockk()
+            every { provider2.roleTransitionRepository() } returns mockk()
+            every { provider2.database() } returns null
+            every { provider2.workTreeExecutor() } returns mockExecutor2
+            val contextWithSchema = ToolExecutionContext(provider2, noteSchemaService)
+
+            var capturedInput: WorkTreeInput? = null
+            coEvery { mockExecutor2.execute(any()) } answers {
+                val input = firstArg<WorkTreeInput>()
+                capturedInput = input
+                echoResult(input)
+            }
+
+            val rootSpec =
+                buildJsonObject {
+                    put("title", JsonPrimitive("Feature Root"))
+                    put("tags", JsonPrimitive("feature-task"))
+                }
+            // Schema declares acceptance-criteria at role=queue, but caller submits
+            // it at role=work. Dedup-by-(ref, key) suppresses the schema entry.
+            val notesArr =
+                buildJsonArray {
+                    add(
+                        buildJsonObject {
+                            put("itemRef", JsonPrimitive("root"))
+                            put("key", JsonPrimitive("acceptance-criteria"))
+                            put("role", JsonPrimitive("work"))
+                            put("body", JsonPrimitive("explicit body at wrong role"))
+                        }
+                    )
+                }
+            val params = buildParams(root = rootSpec, createNotes = true, notes = notesArr)
+            val result = tool.execute(params, contextWithSchema)
+
+            extractData(result)
+
+            val input = capturedInput!!
+            assertEquals(
+                1,
+                input.notes.size,
+                "Schema entry should be suppressed by explicit (ref, key) match — only the explicit note remains"
+            )
+
+            val note = input.notes.first()
+            assertEquals("acceptance-criteria", note.key)
+            assertEquals(
+                "work",
+                note.role,
+                "Caller-supplied role wins over schema role on (ref, key) collision"
+            )
+            assertEquals("explicit body at wrong role", note.body)
+        }
+
+    // ──────────────────────────────────────────────
+    // Actor attribution: top-level actor propagates to every explicit note
+    //
+    // The tool already parses `actor` for idempotency. Those parsed credentials
+    // (claim + verification) MUST also flow through to the actorClaim/verification
+    // fields on every persisted Note so the audit trail records who wrote each note.
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `top-level actor propagates to explicit notes as actorClaim and verification`(): Unit =
+        runBlocking {
+            var capturedInput: WorkTreeInput? = null
+            coEvery { mockExecutor.execute(any()) } answers {
+                val input = firstArg<WorkTreeInput>()
+                capturedInput = input
+                echoResult(input)
+            }
+
+            val actorObj =
+                buildJsonObject {
+                    put("id", JsonPrimitive("orchestrator-test"))
+                    put("kind", JsonPrimitive("orchestrator"))
+                }
+            val notesArr =
+                buildJsonArray {
+                    add(
+                        buildJsonObject {
+                            put("itemRef", JsonPrimitive("root"))
+                            put("key", JsonPrimitive("k1"))
+                            put("role", JsonPrimitive("queue"))
+                            put("body", JsonPrimitive("body1"))
+                        }
+                    )
+                    add(
+                        buildJsonObject {
+                            put("itemRef", JsonPrimitive("root"))
+                            put("key", JsonPrimitive("k2"))
+                            put("role", JsonPrimitive("work"))
+                            put("body", JsonPrimitive("body2"))
+                        }
+                    )
+                }
+
+            val params =
+                buildJsonObject {
+                    put("root", buildJsonObject { put("title", JsonPrimitive("Root")) })
+                    put("notes", notesArr)
+                    put("actor", actorObj)
+                }
+            val result = tool.execute(params, context)
+
+            val obj = result as JsonObject
+            assertTrue(obj["success"]!!.jsonPrimitive.boolean, "Expected success; got: $result")
+
+            val input = capturedInput!!
+            assertEquals(2, input.notes.size, "Expected both notes captured")
+            for (note in input.notes) {
+                assertNotNull(note.actorClaim, "Note '${note.key}' should have actorClaim attached")
+                assertEquals("orchestrator-test", note.actorClaim!!.id)
+                assertEquals(
+                    io.github.jpicklyk.mcptask.current.domain.model.ActorKind.ORCHESTRATOR,
+                    note.actorClaim!!.kind
+                )
+                assertNotNull(note.verification, "Note '${note.key}' should have verification attached")
+                // NoOpActorVerifier returns status=UNCHECKED, verifier="noop"
+                assertEquals("noop", note.verification!!.verifier)
+            }
+        }
+
+    // ──────────────────────────────────────────────
+    // Actor attribution: createNotes=true blanks also receive attribution
+    //
+    // Schema-required notes filled by createNotes=true are written by the same
+    // caller as the explicit notes — they should carry the same actor metadata.
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `actor propagates to createNotes=true schema blanks`(): Unit =
+        runBlocking {
+            val schemaEntries =
+                listOf(
+                    NoteSchemaEntry(key = "auto-blank-note", role = Role.QUEUE, required = true)
+                )
+            val noteSchemaService =
+                object : NoteSchemaService {
+                    override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
+                        if (tags.contains("feature-task")) schemaEntries else null
+                }
+            val provider2 = mockk<RepositoryProvider>()
+            val mockExecutor2 = mockk<WorkTreeExecutor>()
+            every { provider2.workItemRepository() } returns workItemRepo
+            every { provider2.dependencyRepository() } returns mockk()
+            every { provider2.noteRepository() } returns mockk()
+            every { provider2.roleTransitionRepository() } returns mockk()
+            every { provider2.database() } returns null
+            every { provider2.workTreeExecutor() } returns mockExecutor2
+            val contextWithSchema = ToolExecutionContext(provider2, noteSchemaService)
+
+            var capturedInput: WorkTreeInput? = null
+            coEvery { mockExecutor2.execute(any()) } answers {
+                val input = firstArg<WorkTreeInput>()
+                capturedInput = input
+                echoResult(input)
+            }
+
+            val params =
+                buildJsonObject {
+                    put(
+                        "root",
+                        buildJsonObject {
+                            put("title", JsonPrimitive("Feature Root"))
+                            put("tags", JsonPrimitive("feature-task"))
+                        }
+                    )
+                    put("createNotes", JsonPrimitive(true))
+                    put(
+                        "actor",
+                        buildJsonObject {
+                            put("id", JsonPrimitive("subagent-42"))
+                            put("kind", JsonPrimitive("subagent"))
+                        }
+                    )
+                }
+            val result = tool.execute(params, contextWithSchema)
+
+            val obj = result as JsonObject
+            assertTrue(obj["success"]!!.jsonPrimitive.boolean, "Expected success; got: $result")
+
+            val input = capturedInput!!
+            assertEquals(1, input.notes.size, "Expected exactly one schema-blank note")
+            val note = input.notes.first()
+            assertEquals("auto-blank-note", note.key)
+            assertEquals("", note.body, "Schema blank should have empty body")
+            assertNotNull(note.actorClaim, "Schema blank must also carry actor attribution")
+            assertEquals("subagent-42", note.actorClaim!!.id)
+            assertEquals(
+                io.github.jpicklyk.mcptask.current.domain.model.ActorKind.SUBAGENT,
+                note.actorClaim!!.kind
+            )
+        }
+
+    // ──────────────────────────────────────────────
+    // Actor attribution: no actor object → notes have null actorClaim/verification
+    // (preserves backward compatibility for callers that don't pass actor)
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `notes without top-level actor have null actorClaim and verification`(): Unit =
+        runBlocking {
+            var capturedInput: WorkTreeInput? = null
+            coEvery { mockExecutor.execute(any()) } answers {
+                val input = firstArg<WorkTreeInput>()
+                capturedInput = input
+                echoResult(input)
+            }
+
+            val notesArr =
+                buildJsonArray {
+                    add(
+                        buildJsonObject {
+                            put("itemRef", JsonPrimitive("root"))
+                            put("key", JsonPrimitive("k"))
+                            put("role", JsonPrimitive("queue"))
+                            put("body", JsonPrimitive("body"))
+                        }
+                    )
+                }
+            val params = buildParams(notes = notesArr) // no actor
+            val result = tool.execute(params, context)
+
+            val obj = result as JsonObject
+            assertTrue(obj["success"]!!.jsonPrimitive.boolean)
+
+            val note = capturedInput!!.notes.first()
+            assertNull(note.actorClaim, "Without an actor block, actorClaim must remain null")
+            assertNull(note.verification, "Without an actor block, verification must remain null")
+        }
+
+    // ──────────────────────────────────────────────
+    // Actor attribution: invalid actor block → notes have null actorClaim
+    // (matches existing behavior where invalid actor disables idempotency without
+    // failing the call — attribution is silently dropped, the call still proceeds)
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `notes with invalid actor block have null actorClaim and call still succeeds`(): Unit =
+        runBlocking {
+            var capturedInput: WorkTreeInput? = null
+            coEvery { mockExecutor.execute(any()) } answers {
+                val input = firstArg<WorkTreeInput>()
+                capturedInput = input
+                echoResult(input)
+            }
+
+            val notesArr =
+                buildJsonArray {
+                    add(
+                        buildJsonObject {
+                            put("itemRef", JsonPrimitive("root"))
+                            put("key", JsonPrimitive("k"))
+                            put("role", JsonPrimitive("queue"))
+                            put("body", JsonPrimitive("body"))
+                        }
+                    )
+                }
+            // Invalid actor: missing 'kind' field
+            val invalidActor =
+                buildJsonObject {
+                    put("id", JsonPrimitive("some-id"))
+                    // kind intentionally omitted → ActorParseResult.Invalid
+                }
+            val params =
+                buildJsonObject {
+                    put("root", buildJsonObject { put("title", JsonPrimitive("Root")) })
+                    put("notes", notesArr)
+                    put("actor", invalidActor)
+                }
+            val result = tool.execute(params, context)
+
+            val obj = result as JsonObject
+            assertTrue(
+                obj["success"]!!.jsonPrimitive.boolean,
+                "Invalid actor must not block the call; got: $result"
+            )
+
+            val note = capturedInput!!.notes.first()
+            assertNull(note.actorClaim, "Invalid actor must not produce a partial actorClaim")
+            assertNull(note.verification, "Invalid actor must not produce a partial verification")
+        }
 }
