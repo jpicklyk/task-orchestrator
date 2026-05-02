@@ -456,11 +456,12 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
             val body = (noteObj["body"] as? JsonPrimitive)?.content ?: ""
 
             // Validate ref exists in refToItem (resolved after step 4)
-            val targetItem = refToItem[itemRef]
-                ?: return errorResponse(
-                    "notes[$index]: 'itemRef' '$itemRef' is not defined. Valid refs: ${refToItem.keys.joinToString()}",
-                    ErrorCodes.VALIDATION_ERROR
-                )
+            val targetItem =
+                refToItem[itemRef]
+                    ?: return errorResponse(
+                        "notes[$index]: 'itemRef' '$itemRef' is not defined. Valid refs: ${refToItem.keys.joinToString()}",
+                        ErrorCodes.VALIDATION_ERROR
+                    )
 
             val note = Note(itemId = targetItem.id, key = key, role = role, body = body)
             val refKey = itemRef to key
