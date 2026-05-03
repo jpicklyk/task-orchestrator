@@ -119,6 +119,13 @@ while (stats.iterations < cfg.max) {
         `--worktree=${worktreeName}`,
         "--settings",
         JSON.stringify({ outputStyle: "task-orchestrator:ralph-iteration" }),
+        // Ralph runs autonomously; in -p mode there's no interactive prompt for MCP/tool
+        // permissions, so unpermitted tools auto-deny and the iteration aborts. Bypass
+        // permission prompts so the iteration agent can complete its work. Risk surface is
+        // bounded by: the worktree boundary (file edits stay inside), the MCP server's own
+        // ACL, the --max-budget-usd cap, and the schema-driven scope of the iteration.
+        "--permission-mode",
+        "bypassPermissions",
         "--max-budget-usd",
         String(cfg.budget),
         "--output-format",
@@ -390,6 +397,11 @@ Each iteration runs under the 'task-orchestrator:ralph-iteration' output style
 (passed via 'claude --settings'). That style suppresses orchestrator-mode chrome
 (tier classification, workflow-analyst footer, plan mode) and encodes iteration
 discipline (schema is contract, no auto-memory, no further dispatch).
+
+Iterations run with --permission-mode bypassPermissions because there is no
+interactive prompt in 'claude -p' mode; unpermitted MCP/tool calls would
+auto-deny and the iteration would abort. Risk is bounded by the worktree, the
+MCP ACL, the --max-budget-usd cap, and the schema-scoped iteration prompt.
 
 Outcomes (signaled by RALPH_OUTCOME marker in iteration agent stdout):
   terminal       Item reached terminal role per its schema
