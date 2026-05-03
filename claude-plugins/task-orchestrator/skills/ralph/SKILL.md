@@ -56,7 +56,7 @@ Set sensible loop bounds. Show defaults and let the user adjust.
   Per-iteration USD cap:    $5
   Claim TTL per iteration:  1800s (30 min)
   Model:                    sonnet
-  Cleanup on terminal:      no (worktrees preserved for review)
+  Cleanup on terminal:      smart (remove if no commits/changes; preserve otherwise)
 
   Adjust any?  Reply "ok" to use defaults.
 ```
@@ -65,7 +65,7 @@ If the user adjusts, capture the overrides. Common patterns:
 - High-volume drain: `--max 30`
 - Low-confidence run: `--gate-budget 1 --error-budget 1`
 - Architecture-heavy items: `--model opus --budget 15`
-- Ephemeral runs: `--cleanup-on-terminal`
+- Preserve every worktree (debugging-heavy session): `--no-cleanup`
 
 ---
 
@@ -246,11 +246,10 @@ User: "ralph everything in tech debt"
 ```
 node claude-plugins/task-orchestrator/scripts/ralph-loop.mjs \
   --filter "parentId=89d02e32" \
-  --max 20 \
-  --cleanup-on-terminal
+  --max 20
 ```
 
-The `--cleanup-on-terminal` flag is offered because the user wants a clean container with no leftover worktrees.
+Smart cleanup is on by default — worktrees with no commits or uncommitted changes (e.g., from items whose schema only required note-fills) get auto-removed; worktrees with real diffs are preserved for review/push.
 
 ---
 
@@ -297,6 +296,8 @@ Solution: Subagent dispatch within an iteration is allowed and sometimes useful 
 **Why a dedicated `ralph-iteration` output style.** Iterations run under their own output style (`task-orchestrator:ralph-iteration`), passed via `claude --settings`. The default `workflow-orchestrator` output style is shaped for interactive orchestration — tier classification, delegation tables, plan-mode discipline, the workflow-analyst footer — all of which are wrong for a single-item per-iteration agent. The Ralph output style suppresses that chrome and authoritatively encodes per-iteration rules (schema is contract, no auto-memory, no further dispatch, RALPH_OUTCOME marker as final message). Iteration agents get the right system prompt instead of one designed for a different mode.
 
 **Why `--permission-mode bypassPermissions` on each iteration.** In `claude -p` (non-interactive) mode there is no UI prompt to approve MCP or tool calls — unpermitted calls auto-deny and the iteration aborts. Ralph cannot operate autonomously without bypassing the permission gate. The risk surface is bounded by four things working together: (1) the `--worktree` flag confines file edits to a single isolated tree; (2) the MCP server's own ACL still controls what TO operations are valid; (3) `--max-budget-usd` caps API spend per iteration; (4) the iteration prompt is tightly schema-scoped — it can't dispatch subagents, can't enter plan mode, and must emit `RALPH_OUTCOME` as its final message. If a deployment needs stricter permission control, swap the `--permission-mode` flag in the script for `--allowed-tools` with an explicit allowlist.
+
+**Why smart cleanup is the default.** Each iteration's `--worktree` creates a fresh git worktree under `.claude/worktrees/ralph-...`. Without active cleanup, long-running deployments (especially scheduled Ralph via `/loop`) accumulate worktrees indefinitely — both on disk and in `git worktree list`. The cleanup heuristic checks two things after each `terminal` (or `no-item`) outcome: (1) does the worktree have uncommitted changes? (2) does it have commits ahead of `origin/main`? If neither: remove. If either: preserve, since there's something worth inspecting or pushing. `gate-blocked`, `error`, and `skip` outcomes always preserve regardless — debugging context matters. Pass `--no-cleanup` to opt out entirely (debugging-heavy sessions, audit-trail needs, etc.). The heuristic intentionally errs toward preservation: if `origin/main` can't be compared (e.g., upstream missing), the worktree is preserved rather than removed.
 
 **Why no PR creation in the script.** The end state of an iteration is determined by the item's schema, not by Ralph. A `bug-fix` schema's review or terminal phase might prescribe pushing and opening a PR; an `agent-observation` schema's "done" might be just filling a single note. The script doesn't assume a code-change workflow — it just runs iterations and captures outcomes. Workflow logic lives in the schema, where users can configure it per their project.
 

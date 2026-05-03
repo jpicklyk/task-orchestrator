@@ -9,11 +9,13 @@
 //
 // Stdlib-only. Node 18+.
 
-import { parseArgs } from "node:util";
-import { spawn } from "node:child_process";
+import { parseArgs, promisify } from "node:util";
+import { spawn, exec } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+
+const execAsync = promisify(exec);
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PROMPT_PATH = path.resolve(HERE, "../skills/ralph/iteration-prompt.md");
@@ -38,7 +40,8 @@ const { values } = parseArgs({
         ttl: { type: "string", default: String(DEFAULTS.ttl) },
         actor: { type: "string", default: "" },
         model: { type: "string", default: DEFAULTS.model },
-        "cleanup-on-terminal": { type: "boolean", default: false },
+        "cleanup-on-terminal": { type: "boolean", default: true },
+        "no-cleanup": { type: "boolean", default: false },
         "dry-run": { type: "boolean", default: false },
         help: { type: "boolean", default: false, short: "h" },
     },
@@ -58,7 +61,8 @@ const cfg = {
     ttl: parseIntStrict(values.ttl, "ttl"),
     actor: values.actor || `ralph-${process.pid}-${Date.now()}`,
     model: values.model,
-    cleanupOnTerminal: values["cleanup-on-terminal"],
+    // --no-cleanup overrides --cleanup-on-terminal (compatibility with both forms)
+    cleanupOnTerminal: values["no-cleanup"] ? false : values["cleanup-on-terminal"],
     dryRun: values["dry-run"],
 };
 
@@ -175,6 +179,18 @@ while (stats.iterations < cfg.max) {
     }
 
     console.log(formatIterEnd(iterIndex, outcome));
+
+    // Cleanup decision: only act on terminal/no-item outcomes; preserve worktrees
+    // for gate-blocked/error/skip so the user can inspect/debug. Within terminal,
+    // preserve if the worktree has uncommitted changes or unpushed commits — those
+    // are the cases where the iteration produced something worth pushing or reviewing.
+    if (cfg.cleanupOnTerminal && (outcome.status === "terminal" || outcome.status === "no-item")) {
+        const cleanupResult = await maybeCleanupWorktree(worktreeName);
+        const formatted = formatCleanupResult(worktreeName, cleanupResult);
+        if (formatted) console.log(formatted);
+        // Annotate the outcome record so the final summary reflects what happened
+        stats.outcomes[stats.outcomes.length - 1].cleanup = cleanupResult;
+    }
 
     if (stats.exitReason) break;
     if (stats.consecutiveGateFailures >= cfg.gateBudget) {
@@ -305,6 +321,9 @@ function parseOutcome(stdout, exitCode) {
 // ── Output formatting ──────────────────────────────────────────────────────
 
 function formatPreflight(cfg) {
+    const cleanupDesc = cfg.cleanupOnTerminal
+        ? "smart (remove worktrees with no uncommitted changes / no commits ahead of origin/main; preserve all others)"
+        : "off (--no-cleanup)";
     return `\n◆ Ralph Loop — Pre-flight
   Filter:        ${cfg.filter || "(any claimable queue item)"}
   Actor:         ${cfg.actor}
@@ -312,8 +331,84 @@ function formatPreflight(cfg) {
   Max iter:      ${cfg.max}
   Budgets:       ${cfg.gateBudget} consecutive gate failures | ${cfg.errorBudget} consecutive errors
   Per iter:      $${cfg.budget} USD cap | ${cfg.ttl}s claim TTL
-  Cleanup:       ${cfg.cleanupOnTerminal ? "auto-remove worktree on terminal" : "leave worktree for review"}
+  Cleanup:       ${cleanupDesc}
 `;
+}
+
+/**
+ * Smart-cleanup decision for a finished iteration's worktree.
+ * Returns one of:
+ *   { action: "removed" }
+ *   { action: "preserved", reason: <string> }
+ *   { action: "absent" }    — worktree never existed (e.g., no-item iteration didn't reach spawn)
+ *   { action: "failed", reason: <string> }
+ *
+ * Preserves the worktree if it has uncommitted changes OR commits ahead of
+ * origin/main. Removes it otherwise. This way, smoke-test-style runs that
+ * produce no diffs get cleaned up automatically, while real-work iterations
+ * with commits to push are preserved for review.
+ */
+async function maybeCleanupWorktree(worktreeName) {
+    const worktreePath = path.posix.join(".claude", "worktrees", worktreeName);
+
+    // Check that the worktree actually exists in git's registry
+    try {
+        const { stdout: listOut } = await execAsync("git worktree list --porcelain");
+        if (!listOut.includes(worktreePath) && !listOut.includes(worktreePath.replace(/\//g, path.sep))) {
+            return { action: "absent" };
+        }
+    } catch (err) {
+        return { action: "failed", reason: `git worktree list failed: ${err.message}` };
+    }
+
+    // Check for uncommitted changes (any porcelain output = dirty)
+    try {
+        const { stdout: statusOut } = await execAsync(`git -C "${worktreePath}" status --porcelain`);
+        if (statusOut.trim().length > 0) {
+            return { action: "preserved", reason: "uncommitted changes present" };
+        }
+    } catch (err) {
+        return { action: "failed", reason: `git status failed: ${err.message}` };
+    }
+
+    // Check for commits ahead of origin/main. Use rev-list with a fall-back if
+    // origin/main isn't present (rare but possible in unusual setups).
+    try {
+        const { stdout: aheadOut } = await execAsync(
+            `git -C "${worktreePath}" rev-list --count origin/main..HEAD`
+        );
+        const ahead = parseInt(aheadOut.trim(), 10);
+        if (Number.isFinite(ahead) && ahead > 0) {
+            return { action: "preserved", reason: `${ahead} commit(s) ahead of origin/main` };
+        }
+    } catch {
+        // If origin/main isn't a known ref, fall through to remove. Worst case
+        // is we keep a worktree we shouldn't have, which is the safer error.
+        return { action: "preserved", reason: "could not compare against origin/main" };
+    }
+
+    // Clean — remove the worktree
+    try {
+        await execAsync(`git worktree remove "${worktreePath}"`);
+        return { action: "removed" };
+    } catch (err) {
+        return { action: "failed", reason: `git worktree remove failed: ${err.message}` };
+    }
+}
+
+function formatCleanupResult(worktreeName, result) {
+    switch (result.action) {
+        case "removed":
+            return `  ↳ worktree ${worktreeName} removed (no commits to keep)`;
+        case "preserved":
+            return `  ↳ worktree ${worktreeName} preserved — ${result.reason}`;
+        case "absent":
+            return null; // nothing to report
+        case "failed":
+            return `  ↳ worktree ${worktreeName} cleanup failed — ${result.reason}`;
+        default:
+            return null;
+    }
 }
 
 function formatIterStart(i, max, worktree) {
@@ -388,8 +483,14 @@ Options:
                              (default: ralph-<pid>-<timestamp>)
   --model <name>             Model for the iteration agent
                              (default: ${DEFAULTS.model}; e.g., sonnet, opus)
-  --cleanup-on-terminal      Auto-remove worktree after terminal outcome
-                             (default: leave for inspection)
+  --cleanup-on-terminal      Smart-cleanup worktrees after terminal/no-item
+                             outcomes (default: true). Removes worktrees with
+                             no uncommitted changes AND no commits ahead of
+                             origin/main; preserves all others. gate-blocked
+                             and error outcomes always preserve their worktrees.
+  --no-cleanup               Disable smart cleanup; preserve all worktrees
+                             regardless of state. Equivalent to passing
+                             --cleanup-on-terminal=false.
   --dry-run                  Print iteration command and exit
   -h, --help                 Show this message
 
