@@ -40,6 +40,7 @@ const { values } = parseArgs({
         ttl: { type: "string", default: String(DEFAULTS.ttl) },
         actor: { type: "string", default: "" },
         model: { type: "string", default: DEFAULTS.model },
+        "base-ref": { type: "string", default: "origin/main" },
         "cleanup-on-terminal": { type: "boolean", default: true },
         "no-cleanup": { type: "boolean", default: false },
         "dry-run": { type: "boolean", default: false },
@@ -61,6 +62,7 @@ const cfg = {
     ttl: parseIntStrict(values.ttl, "ttl"),
     actor: values.actor || `ralph-${process.pid}-${Date.now()}`,
     model: values.model,
+    baseRef: values["base-ref"],
     // --no-cleanup overrides --cleanup-on-terminal (compatibility with both forms)
     cleanupOnTerminal: values["no-cleanup"] ? false : values["cleanup-on-terminal"],
     dryRun: values["dry-run"],
@@ -85,6 +87,34 @@ try {
     process.exit(70);
 }
 
+// ── Signal forwarding ──────────────────────────────────────────────────────
+// Forward SIGINT/SIGTERM to the currently running iteration child so a Ctrl+C
+// at the loop driver doesn't leave an orphaned `claude -p` process running
+// to budget cap. Track the active child in a module-level handle that
+// runIteration() updates.
+let currentChild = null;
+let shuttingDown = false;
+function installSignalHandler(sig, exitCode) {
+    process.on(sig, () => {
+        if (shuttingDown) return;
+        shuttingDown = true;
+        process.stderr.write(`\n[ralph-loop] received ${sig}; forwarding to iteration child...\n`);
+        if (currentChild && !currentChild.killed) {
+            try {
+                currentChild.kill(sig);
+            } catch {
+                // best-effort
+            }
+        }
+        // Give the child a moment to flush before exiting; if it lingers, the
+        // 'close' handler in runIteration will trigger first and we'll fall
+        // through to a normal summary. This timer is the hard backstop.
+        setTimeout(() => process.exit(exitCode), 3000).unref();
+    });
+}
+installSignalHandler("SIGINT", 130);
+installSignalHandler("SIGTERM", 143);
+
 // ── Loop state ─────────────────────────────────────────────────────────────
 const stats = {
     startedAt: new Date(),
@@ -107,9 +137,13 @@ while (stats.iterations < cfg.max) {
     stats.iterations++;
     const iterIndex = stats.iterations;
 
-    // Worktree name uses iteration index — the iteration agent will know its own
-    // claimed item ID after step 2, but the worktree is created up-front by claude.
-    const worktreeName = `ralph-${cfg.actor.split("-").slice(-1)[0].slice(0, 8)}-${iterIndex}`;
+    // The worktree is created up-front by `claude --worktree=<name>`, before
+    // the iteration agent has claimed an item. Use a fully unique temp name
+    // (pid + full timestamp + iter) here to avoid collisions under concurrent
+    // ralph-loops; we'll rename it to `ralph-<short-uuid>-<iter>` after the
+    // iteration completes and we know the claimed UUID from the outcome.
+    const tempWorktreeName = `ralph-${process.pid}-${Date.now()}-${iterIndex}`;
+    let worktreeName = tempWorktreeName;
 
     const prompt = renderPrompt(promptTemplate, {
         filter: cfg.filter,
@@ -120,7 +154,7 @@ while (stats.iterations < cfg.max) {
 
     const args = [
         "-p",
-        `--worktree=${worktreeName}`,
+        `--worktree=${tempWorktreeName}`,
         "--settings",
         JSON.stringify({ outputStyle: "task-orchestrator:ralph-iteration" }),
         // Ralph runs autonomously; in -p mode there's no interactive prompt for MCP/tool
@@ -146,10 +180,31 @@ while (stats.iterations < cfg.max) {
         process.exit(0);
     }
 
-    console.log(formatIterStart(iterIndex, cfg.max, worktreeName));
+    console.log(formatIterStart(iterIndex, cfg.max, tempWorktreeName));
 
     const { exitCode, outcome, error } = await runIteration(args);
     stats.outcomes.push({ iter: iterIndex, exitCode, outcome, error });
+
+    // Post-iteration: if the iteration claimed an item, rename the worktree to
+    // `ralph-<short-uuid>-<iter>` so preserved worktrees are traceable to the
+    // item they were working on. The iteration's claude process has exited by
+    // now, so file locks aren't a concern (incl. on Windows). On rename
+    // failure, we keep the temp name and continue — purely cosmetic.
+    if (outcome.itemId) {
+        const uuidWorktreeName = `ralph-${outcome.itemId.slice(0, 8)}-${iterIndex}`;
+        if (uuidWorktreeName !== tempWorktreeName) {
+            const renameResult = await renameWorktree(tempWorktreeName, uuidWorktreeName);
+            if (renameResult.ok) {
+                worktreeName = uuidWorktreeName;
+                console.log(`  ↳ worktree renamed: ${tempWorktreeName} → ${uuidWorktreeName}`);
+            } else {
+                console.log(`  ↳ worktree rename failed (${renameResult.reason}); kept ${tempWorktreeName}`);
+            }
+        }
+    }
+    // Annotate the outcome record so the final summary can reference the
+    // effective name even when no rename happened.
+    stats.outcomes[stats.outcomes.length - 1].worktree = worktreeName;
 
     // Update counters based on outcome
     switch (outcome.status) {
@@ -185,7 +240,7 @@ while (stats.iterations < cfg.max) {
     // preserve if the worktree has uncommitted changes or unpushed commits — those
     // are the cases where the iteration produced something worth pushing or reviewing.
     if (cfg.cleanupOnTerminal && (outcome.status === "terminal" || outcome.status === "no-item")) {
-        const cleanupResult = await maybeCleanupWorktree(worktreeName);
+        const cleanupResult = await maybeCleanupWorktree(worktreeName, cfg.baseRef);
         const formatted = formatCleanupResult(worktreeName, cleanupResult);
         if (formatted) console.log(formatted);
         // Annotate the outcome record so the final summary reflects what happened
@@ -208,7 +263,13 @@ if (!stats.exitReason && stats.iterations >= cfg.max) {
 }
 
 console.log(formatSummary(stats));
-process.exit(stats.errored > 0 || stats.consecutiveErrors > 0 ? 2 : 0);
+// Exit 2 only when the loop itself was aborted by exhausting the consecutive
+// error budget. Individual errored iterations during an otherwise healthy
+// drain (queue-empty / iteration-cap / gate-budget exit) do not flip the
+// loop-level exit code — the per-iteration outcomes are already in the
+// summary and individual error counts are visible to callers via stdout.
+const abortedOnErrorBudget = stats.exitReason && stats.exitReason.startsWith("error budget");
+process.exit(abortedOnErrorBudget ? 2 : 0);
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -250,6 +311,8 @@ function runIteration(args) {
             stdio: ["ignore", "pipe", "pipe"],
             shell: false,
         });
+        // Expose for SIGINT/SIGTERM forwarding from the loop driver.
+        currentChild = child;
 
         child.stdout.on("data", (chunk) => {
             stdoutChunks.push(chunk);
@@ -262,6 +325,7 @@ function runIteration(args) {
         });
 
         child.on("error", (err) => {
+            currentChild = null;
             resolve({
                 exitCode: -1,
                 outcome: { status: "error", reason: `spawn error: ${err.message}` },
@@ -270,6 +334,7 @@ function runIteration(args) {
         });
 
         child.on("close", (code) => {
+            currentChild = null;
             const stdout = Buffer.concat(stdoutChunks).toString("utf8");
             const outcome = parseOutcome(stdout, code);
             resolve({ exitCode: code, outcome, error: null });
@@ -279,23 +344,17 @@ function runIteration(args) {
 
 /**
  * Parse the iteration agent's outcome from claude's JSON output.
- * Expected: a `RALPH_OUTCOME: {...}` marker line in the agent's final message.
+ * Expected: a `RALPH_OUTCOME: {...}` marker in the agent's final message.
  * Falls back to inferring outcome from claude's exit code / stop_reason.
  */
 function parseOutcome(stdout, exitCode) {
-    // claude --output-format json returns a single JSON object on stdout.
-    let claudeResult;
-    try {
-        claudeResult = JSON.parse(stdout.trim().split("\n").filter(Boolean).pop() || "{}");
-    } catch {
-        claudeResult = {};
-    }
+    const claudeResult = parseClaudeJson(stdout);
 
     const finalText = claudeResult.result || "";
-    const markerMatch = finalText.match(/RALPH_OUTCOME:\s*(\{[^\n]*\})/);
-    if (markerMatch) {
+    const markerJson = extractOutcomeMarker(finalText);
+    if (markerJson) {
         try {
-            return JSON.parse(markerMatch[1]);
+            return JSON.parse(markerJson);
         } catch {
             // fall through to inference
         }
@@ -318,11 +377,115 @@ function parseOutcome(stdout, exitCode) {
     };
 }
 
+/**
+ * Parse claude's stdout (--output-format json) into the result envelope.
+ * Tries a direct parse first (handles both compact and pretty-printed JSON),
+ * then falls back to extracting the last balanced top-level object — which
+ * tolerates streamed log lines preceding the JSON envelope.
+ */
+function parseClaudeJson(stdout) {
+    const trimmed = stdout.trim();
+    if (!trimmed) return {};
+    try {
+        return JSON.parse(trimmed);
+    } catch {
+        // fall through
+    }
+    const lastObj = extractLastBalancedJson(trimmed);
+    if (lastObj) {
+        try {
+            return JSON.parse(lastObj);
+        } catch {
+            // fall through
+        }
+    }
+    return {};
+}
+
+/**
+ * Find the last top-level balanced JSON object in `text`.
+ * Walks forward from each `{`, tracking depth + string state, and returns the
+ * substring of the latest fully-closed object. Returns null if none.
+ */
+function extractLastBalancedJson(text) {
+    let lastStart = -1;
+    let lastEnd = -1;
+    let i = 0;
+    while (i < text.length) {
+        if (text[i] !== "{") {
+            i++;
+            continue;
+        }
+        const closeIdx = scanBalancedObject(text, i);
+        if (closeIdx >= 0) {
+            lastStart = i;
+            lastEnd = closeIdx;
+            i = closeIdx + 1;
+        } else {
+            i++;
+        }
+    }
+    return lastStart >= 0 ? text.slice(lastStart, lastEnd + 1) : null;
+}
+
+/**
+ * Locate the `RALPH_OUTCOME:` marker in `text` and return the JSON substring
+ * that follows. Uses balanced-brace scanning so the JSON body may contain
+ * newlines, nested objects, or escaped quotes — all of which broke the
+ * original single-line regex. Returns null if no valid marker is found.
+ *
+ * Uses lastIndexOf so a stray "RALPH_OUTCOME:" appearing earlier in the
+ * agent's reasoning text doesn't shadow the real final-message marker.
+ */
+function extractOutcomeMarker(text) {
+    const markerIdx = text.lastIndexOf("RALPH_OUTCOME:");
+    if (markerIdx === -1) return null;
+    const startBrace = text.indexOf("{", markerIdx);
+    if (startBrace === -1) return null;
+    const closeIdx = scanBalancedObject(text, startBrace);
+    if (closeIdx < 0) return null;
+    return text.slice(startBrace, closeIdx + 1);
+}
+
+/**
+ * Scan forward from `start` (must point at `{`), tracking string state and
+ * brace depth, and return the index of the matching closing `}` — or -1 if
+ * the object isn't balanced before end-of-string.
+ */
+function scanBalancedObject(text, start) {
+    if (text[start] !== "{") return -1;
+    let depth = 0;
+    let inString = false;
+    let escape = false;
+    for (let j = start; j < text.length; j++) {
+        const c = text[j];
+        if (escape) {
+            escape = false;
+            continue;
+        }
+        if (c === "\\") {
+            escape = true;
+            continue;
+        }
+        if (c === '"') {
+            inString = !inString;
+            continue;
+        }
+        if (inString) continue;
+        if (c === "{") depth++;
+        else if (c === "}") {
+            depth--;
+            if (depth === 0) return j;
+        }
+    }
+    return -1;
+}
+
 // ── Output formatting ──────────────────────────────────────────────────────
 
 function formatPreflight(cfg) {
     const cleanupDesc = cfg.cleanupOnTerminal
-        ? "smart (remove worktrees with no uncommitted changes / no commits ahead of origin/main; preserve all others)"
+        ? `smart (remove worktrees with no uncommitted changes / no commits ahead of ${cfg.baseRef}; preserve all others)`
         : "off (--no-cleanup)";
     return `\n◆ Ralph Loop — Pre-flight
   Filter:        ${cfg.filter || "(any claimable queue item)"}
@@ -331,8 +494,33 @@ function formatPreflight(cfg) {
   Max iter:      ${cfg.max}
   Budgets:       ${cfg.gateBudget} consecutive gate failures | ${cfg.errorBudget} consecutive errors
   Per iter:      $${cfg.budget} USD cap | ${cfg.ttl}s claim TTL
+  Base ref:      ${cfg.baseRef}
   Cleanup:       ${cleanupDesc}
 `;
+}
+
+/**
+ * Rename an existing worktree directory via `git worktree move`. Used after
+ * an iteration completes so preserved worktrees carry the claimed item's
+ * UUID prefix in their name (e.g., `ralph-44abe365-1`) instead of the
+ * pid+timestamp temp name. Returns { ok: true } on success or
+ * { ok: false, reason } on failure (e.g., destination exists, ref mismatch).
+ */
+async function renameWorktree(oldName, newName) {
+    if (oldName === newName) return { ok: true };
+    const oldPath = path.posix.join(".claude", "worktrees", oldName);
+    const newPath = path.posix.join(".claude", "worktrees", newName);
+    try {
+        await execAsync(`git worktree move "${oldPath}" "${newPath}"`);
+        return { ok: true };
+    } catch (err) {
+        // Surface a single-line reason; git's stderr is multi-line.
+        const reason = (err.stderr || err.message || "")
+            .split("\n")
+            .map((s) => s.trim())
+            .filter(Boolean)[0] || "unknown error";
+        return { ok: false, reason };
+    }
 }
 
 /**
@@ -344,11 +532,12 @@ function formatPreflight(cfg) {
  *   { action: "failed", reason: <string> }
  *
  * Preserves the worktree if it has uncommitted changes OR commits ahead of
- * origin/main. Removes it otherwise. This way, smoke-test-style runs that
- * produce no diffs get cleaned up automatically, while real-work iterations
- * with commits to push are preserved for review.
+ * the configured base ref (default `origin/main`, override with --base-ref).
+ * Removes it otherwise. This way, smoke-test-style runs that produce no diffs
+ * get cleaned up automatically, while real-work iterations with commits to
+ * push are preserved for review.
  */
-async function maybeCleanupWorktree(worktreeName) {
+async function maybeCleanupWorktree(worktreeName, baseRef) {
     const worktreePath = path.posix.join(".claude", "worktrees", worktreeName);
 
     // Check that the worktree actually exists in git's registry
@@ -371,20 +560,19 @@ async function maybeCleanupWorktree(worktreeName) {
         return { action: "failed", reason: `git status failed: ${err.message}` };
     }
 
-    // Check for commits ahead of origin/main. Use rev-list with a fall-back if
-    // origin/main isn't present (rare but possible in unusual setups).
+    // Check for commits ahead of the configured base ref. If the ref isn't
+    // resolvable, preserve the worktree — that's the safer error than
+    // accidentally removing one with real commits.
     try {
         const { stdout: aheadOut } = await execAsync(
-            `git -C "${worktreePath}" rev-list --count origin/main..HEAD`
+            `git -C "${worktreePath}" rev-list --count ${baseRef}..HEAD`
         );
         const ahead = parseInt(aheadOut.trim(), 10);
         if (Number.isFinite(ahead) && ahead > 0) {
-            return { action: "preserved", reason: `${ahead} commit(s) ahead of origin/main` };
+            return { action: "preserved", reason: `${ahead} commit(s) ahead of ${baseRef}` };
         }
     } catch {
-        // If origin/main isn't a known ref, fall through to remove. Worst case
-        // is we keep a worktree we shouldn't have, which is the safer error.
-        return { action: "preserved", reason: "could not compare against origin/main" };
+        return { action: "preserved", reason: `could not compare against ${baseRef}` };
     }
 
     // Clean — remove the worktree
@@ -452,8 +640,9 @@ function formatSummary(stats) {
         lines.push("  Worktrees preserved for inspection:");
         for (const o of stats.outcomes) {
             if (o.outcome.status === "gate-blocked" || o.outcome.status === "error") {
+                const wt = o.worktree ? ` [${o.worktree}]` : "";
                 const ref = o.outcome.itemId ? ` (item ${o.outcome.itemId.slice(0, 8)})` : "";
-                lines.push(`    iter ${o.iter}${ref}: ${o.outcome.reason || "see iteration log"}`);
+                lines.push(`    iter ${o.iter}${wt}${ref}: ${o.outcome.reason || "see iteration log"}`);
             }
         }
     }
@@ -483,10 +672,15 @@ Options:
                              (default: ralph-<pid>-<timestamp>)
   --model <name>             Model for the iteration agent
                              (default: ${DEFAULTS.model}; e.g., sonnet, opus)
+  --base-ref <ref>           Upstream ref to compare against for cleanup
+                             "ahead of base" detection (default: origin/main).
+                             Set to e.g. origin/master, origin/develop, or
+                             upstream/main for projects whose default
+                             branch is not main on origin.
   --cleanup-on-terminal      Smart-cleanup worktrees after terminal/no-item
                              outcomes (default: true). Removes worktrees with
                              no uncommitted changes AND no commits ahead of
-                             origin/main; preserves all others. gate-blocked
+                             --base-ref; preserves all others. gate-blocked
                              and error outcomes always preserve their worktrees.
   --no-cleanup               Disable smart cleanup; preserve all worktrees
                              regardless of state. Equivalent to passing
@@ -515,9 +709,14 @@ Compose with /loop for autonomous cadence:
   /loop 30m node claude-plugins/task-orchestrator/scripts/ralph-loop.mjs --filter "tag=bug-fix"
 
 Exit codes:
-  0    Loop completed normally (queue empty or iteration cap reached)
-  2    Loop stopped due to consecutive errors
+  0    Loop completed normally (queue empty, iteration cap, or
+       gate-failure budget exhausted). Individual errored iterations
+       during an otherwise healthy drain do NOT change the loop
+       exit code -- they are visible in the summary instead.
+  2    Loop aborted because the consecutive-error budget was exhausted.
   64   CLI argument error
   70   Could not read iteration prompt
+  130  Interrupted (SIGINT received and forwarded to iteration)
+  143  Terminated (SIGTERM received and forwarded to iteration)
 `);
 }
