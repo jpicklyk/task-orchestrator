@@ -10,7 +10,7 @@ removing and re-adding the marketplace in Claude Code. No version bump is needed
 
 | Plugin | Directory | Current Version |
 |--------|-----------|-----------------|
-| `task-orchestrator` | `claude-plugins/task-orchestrator/` | `3.1.3` |
+| `task-orchestrator` | `claude-plugins/task-orchestrator/` | `3.2.0` |
 
 > Updated automatically by `/prepare-release`. Do not bump manually.
 

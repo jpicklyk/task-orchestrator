@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.6.0] - 2026-05-04 (Plugin v3.2.0)
+
+### Added
+- Added inline `notes` parameter to `create_work_tree` — materialize fully-populated work trees in one call, attaching note bodies to root and child items as part of atomic creation (#164)
+- Added `actor` parameter to `create_work_tree` — propagates actor attribution onto every persisted note (both explicit notes and `createNotes=true` blanks) and keys idempotency together with `requestId` (#166)
+- Added Ralph-style queue drain skill and `ralph-loop.mjs` script to the plugin — an autonomous worker that repeatedly invokes `claude -p` with worktree isolation to drain queue items one per iteration, with configurable filters and bounds (#169)
+
+### Changed
+- `create_work_tree` now enforces strict role matching for inline notes — when an explicit note's key is declared in the resolved schema, its role must equal the schema role; mismatch returns `VALIDATION_ERROR` to prevent silently leaving gate-required roles unfilled (#167)
+- `create_work_tree` response now always includes `schemaMatch` and `expectedNotes` on root and each child, plus `unblockAt` on dependencies when set — gives callers immediate visibility into gate requirements without a follow-up `get_context` call (#164)
+- Bumped plugin version to 3.2.0 — adds the `ralph` skill, `ralph-iteration` output style, and `ralph-loop.mjs` script for autonomous queue-drain workflows (#169)
+
+### Documentation
+- Aligned `create_work_tree` API reference with actual tool description and behavior (#168)
+- Documented orchestration vs claim mode in `CLAUDE.md` (#165)
+
+---
+
 ## [3.5.0] - 2026-05-01 (Plugin v3.1.3)
 
 ### Breaking Changes
