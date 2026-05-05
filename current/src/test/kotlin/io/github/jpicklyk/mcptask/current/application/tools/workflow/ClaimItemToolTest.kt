@@ -1078,10 +1078,11 @@ class ClaimItemToolTest {
             coEvery { workItemRepo.claim(itemId1, agentId, 900) } returns ClaimResult.Success(makeSuccessItem())
 
             val selectorFields = buildJsonObject { put("tags", "my-tag") }
-            val result = tool.execute(
-                params(claims = listOf(selectorEntry(selectorFields))),
-                defaultContext(nextItemRecommender = recommender)
-            )
+            val result =
+                tool.execute(
+                    params(claims = listOf(selectorEntry(selectorFields))),
+                    defaultContext(nextItemRecommender = recommender)
+                )
 
             val data = (result as JsonObject)["data"] as JsonObject
             val first = (data["claimResults"] as JsonArray)[0] as JsonObject
@@ -1167,10 +1168,11 @@ class ClaimItemToolTest {
         runBlocking {
             val recommender = mockRecommender(emptyList())
 
-            val result = tool.execute(
-                params(claims = listOf(selectorEntry())),
-                defaultContext(nextItemRecommender = recommender)
-            )
+            val result =
+                tool.execute(
+                    params(claims = listOf(selectorEntry())),
+                    defaultContext(nextItemRecommender = recommender)
+                )
 
             val data = (result as JsonObject)["data"] as JsonObject
             val first = (data["claimResults"] as JsonArray)[0] as JsonObject
@@ -1195,10 +1197,11 @@ class ClaimItemToolTest {
             coEvery { workItemRepo.claim(itemId1, agentId, 900) } returns
                 ClaimResult.AlreadyClaimed(itemId1, retryAfterMs = 5000L)
 
-            val result = tool.execute(
-                params(claims = listOf(selectorEntry())),
-                defaultContext(nextItemRecommender = recommender)
-            )
+            val result =
+                tool.execute(
+                    params(claims = listOf(selectorEntry())),
+                    defaultContext(nextItemRecommender = recommender)
+                )
 
             val data = (result as JsonObject)["data"] as JsonObject
             val first = (data["claimResults"] as JsonArray)[0] as JsonObject
@@ -1214,10 +1217,11 @@ class ClaimItemToolTest {
             val recommender = mockk<NextItemRecommender>()
             val differentItem = WorkItem(id = itemId2, title = "Different Item", role = Role.QUEUE)
             // First call returns matchedItem; second call returns a different item (simulates queue state change)
-            coEvery { recommender.recommend(any(), 1) } returnsMany listOf(
-                Result.Success(listOf(matchedItem)),
-                Result.Success(listOf(differentItem))
-            )
+            coEvery { recommender.recommend(any(), 1) } returnsMany
+                listOf(
+                    Result.Success(listOf(matchedItem)),
+                    Result.Success(listOf(differentItem))
+                )
             coEvery { workItemRepo.claim(itemId1, agentId, 900) } returns ClaimResult.Success(makeSuccessItem(itemId1))
 
             val requestId = UUID.randomUUID().toString()
@@ -1228,17 +1232,19 @@ class ClaimItemToolTest {
 
             // First call — resolves and claims itemId1
             val result1 = tool.execute(p, sharedContext)
-            val first1 = ((result1 as JsonObject)["data"] as JsonObject)["claimResults"].let {
-                (it as JsonArray)[0] as JsonObject
-            }
+            val first1 =
+                ((result1 as JsonObject)["data"] as JsonObject)["claimResults"].let {
+                    (it as JsonArray)[0] as JsonObject
+                }
             assertEquals("success", first1["outcome"]?.jsonPrimitive?.content)
             assertEquals(itemId1.toString(), first1["itemId"]?.jsonPrimitive?.content)
 
             // Second call with same requestId on the same context — must replay the cache, NOT call recommender again
             val result2 = tool.execute(p, sharedContext)
-            val first2 = ((result2 as JsonObject)["data"] as JsonObject)["claimResults"].let {
-                (it as JsonArray)[0] as JsonObject
-            }
+            val first2 =
+                ((result2 as JsonObject)["data"] as JsonObject)["claimResults"].let {
+                    (it as JsonArray)[0] as JsonObject
+                }
             // Replayed from cache — same itemId1, not itemId2
             assertEquals(itemId1.toString(), first2["itemId"]?.jsonPrimitive?.content)
         }
@@ -1248,10 +1254,11 @@ class ClaimItemToolTest {
         runBlocking {
             coEvery { workItemRepo.claim(itemId1, agentId, 900) } returns ClaimResult.Success(makeSuccessItem())
 
-            val result = tool.execute(
-                params(claims = listOf(claimEntryWithRef(itemId1, "task-abc-123"))),
-                defaultContext()
-            )
+            val result =
+                tool.execute(
+                    params(claims = listOf(claimEntryWithRef(itemId1, "task-abc-123"))),
+                    defaultContext()
+                )
 
             val data = (result as JsonObject)["data"] as JsonObject
             val first = (data["claimResults"] as JsonArray)[0] as JsonObject
@@ -1264,10 +1271,11 @@ class ClaimItemToolTest {
         runBlocking {
             val recommender = mockRecommender(emptyList())
 
-            val result = tool.execute(
-                params(claims = listOf(selectorEntry(claimRef = "my-ref-42"))),
-                defaultContext(nextItemRecommender = recommender)
-            )
+            val result =
+                tool.execute(
+                    params(claims = listOf(selectorEntry(claimRef = "my-ref-42"))),
+                    defaultContext(nextItemRecommender = recommender)
+                )
 
             val data = (result as JsonObject)["data"] as JsonObject
             val first = (data["claimResults"] as JsonArray)[0] as JsonObject
@@ -1283,10 +1291,11 @@ class ClaimItemToolTest {
             coEvery { workItemRepo.claim(itemId1, agentId, 900) } returns
                 ClaimResult.AlreadyClaimed(itemId1, retryAfterMs = 1000L)
 
-            val result = tool.execute(
-                params(claims = listOf(selectorEntry(claimRef = "my-ref"))),
-                defaultContext(nextItemRecommender = recommender)
-            )
+            val result =
+                tool.execute(
+                    params(claims = listOf(selectorEntry(claimRef = "my-ref"))),
+                    defaultContext(nextItemRecommender = recommender)
+                )
 
             val data = (result as JsonObject)["data"] as JsonObject
             val first = (data["claimResults"] as JsonArray)[0] as JsonObject

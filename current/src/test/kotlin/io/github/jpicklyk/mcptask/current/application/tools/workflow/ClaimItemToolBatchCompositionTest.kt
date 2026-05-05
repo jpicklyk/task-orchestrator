@@ -60,7 +60,10 @@ class ClaimItemToolBatchCompositionTest : SQLiteRepositoryTestBase() {
             put("kind", "orchestrator")
         }
 
-    private suspend fun createItem(title: String, role: Role = Role.QUEUE): WorkItem {
+    private suspend fun createItem(
+        title: String,
+        role: Role = Role.QUEUE
+    ): WorkItem {
         val result = repository.create(WorkItem(title = title, role = role))
         assertIs<Result.Success<WorkItem>>(result)
         return result.data
@@ -152,15 +155,20 @@ class ClaimItemToolBatchCompositionTest : SQLiteRepositoryTestBase() {
         }
 
     /**
-     * Selector + multi-release composition: agent holds two items (ITEM_A and ITEM_B),
-     * issues a selector claim (finds ITEM_C from the queue) plus explicit releases for ITEM_A and ITEM_B.
+     * Selector + multi-release composition: ITEM_A is held by agent-other (a different agent),
+     * ITEM_B is held by agent-alpha. The batch from agent-alpha issues a selector claim plus
+     * explicit releases for ITEM_A and ITEM_B.
+     *
+     * Per `findClaimable`'s active-claim exclusion, only ITEM_C is eligible for the selector,
+     * so the resolution is deterministic. The 2-agent setup is required by the
+     * one-claim-per-agent rule: agent-alpha cannot hold both ITEM_A and ITEM_B simultaneously.
      *
      * Expected outcomes:
-     * - claimResults[0]: success for ITEM_C (resolved by selector), selectorResolved=true.
-     * - The claim() call atomically auto-releases ITEM_A (or ITEM_B) for the agent.
-     * - releaseResults: both ITEM_A and ITEM_B release calls — at least one succeeds, one may
-     *   be not_claimed_by_you if it was auto-released by the claim step.
-     * - End-state: only ITEM_C is held by agent-alpha.
+     * - claimResults[0]: success for ITEM_C, selectorResolved=true.
+     * - The claim(ITEM_C) Step 2 atomically auto-releases ITEM_B (agent-alpha's prior claim).
+     * - releaseResults[0] (ITEM_A): not_claimed_by_you (held by agent-other, never by alpha).
+     * - releaseResults[1] (ITEM_B): not_claimed_by_you (auto-released by Step 2 above).
+     * - End-state: ITEM_C held by agent-alpha, ITEM_A still held by agent-other, ITEM_B unclaimed.
      *
      * This test exercises the selector path through the REAL SQLite repository (no mocks)
      * to verify the full chain: selector → findClaimable → blocking-walk → claim().
@@ -168,13 +176,15 @@ class ClaimItemToolBatchCompositionTest : SQLiteRepositoryTestBase() {
     @Test
     fun `selector claim with multi-release resolves queue item and releases held items`(): Unit =
         runBlocking {
+            val agentOther = "agent-other"
             val itemA = createItem("Item A")
             val itemB = createItem("Item B")
             val itemC = createItem("Item C")
 
-            // Pre-state: agent-alpha holds ITEM_A.
-            assertIs<ClaimResult.Success>(repository.claim(itemA.id, agentAlpha, 900))
-            // Also claim ITEM_B in a second call — the claim for ITEM_B auto-releases ITEM_A
+            // Pre-state: ITEM_A held by agent-other, ITEM_B held by agent-alpha.
+            // Two-agent setup ensures ITEM_C is the only unclaimed candidate — selector resolution
+            // is deterministic without depending on tie-breaking.
+            assertIs<ClaimResult.Success>(repository.claim(itemA.id, agentOther, 900))
             assertIs<ClaimResult.Success>(repository.claim(itemB.id, agentAlpha, 900))
 
             val params =
@@ -204,24 +214,50 @@ class ClaimItemToolBatchCompositionTest : SQLiteRepositoryTestBase() {
             val response = tool.execute(params, context()) as JsonObject
             val data = response["data"] as JsonObject
 
-            // --- claimResults: selector resolved ITEM_C and claimed it ---
+            // --- claimResults: selector deterministically resolved ITEM_C ---
             val claimResults = data["claimResults"] as JsonArray
             assertEquals(1, claimResults.size)
             val claimEntry = claimResults[0] as JsonObject
             assertEquals("success", claimEntry["outcome"]!!.jsonPrimitive.content)
-            // selectorResolved flag must be present and true
             assertEquals(true, claimEntry["selectorResolved"]?.jsonPrimitive?.booleanOrNull)
-            // The itemId that was resolved must be ITEM_C (only unclaimed item in queue)
             assertEquals(itemC.id.toString(), claimEntry["itemId"]!!.jsonPrimitive.content)
             assertEquals(agentAlpha, claimEntry["claimedBy"]!!.jsonPrimitive.content)
 
-            // --- summary: 1 claim succeeded ---
+            // --- releaseResults: both A and B return not_claimed_by_you for agent-alpha ---
+            val releaseResults = data["releaseResults"] as JsonArray
+            assertEquals(2, releaseResults.size)
+            val releaseA = releaseResults[0] as JsonObject
+            assertEquals(itemA.id.toString(), releaseA["itemId"]!!.jsonPrimitive.content)
+            assertEquals(
+                "not_claimed_by_you",
+                releaseA["outcome"]!!.jsonPrimitive.content,
+                "ITEM_A is held by agent-other, not agent-alpha — release must report not_claimed_by_you"
+            )
+            val releaseB = releaseResults[1] as JsonObject
+            assertEquals(itemB.id.toString(), releaseB["itemId"]!!.jsonPrimitive.content)
+            assertEquals(
+                "not_claimed_by_you",
+                releaseB["outcome"]!!.jsonPrimitive.content,
+                "ITEM_B was auto-released by claim(ITEM_C) Step 2 — explicit release must report not_claimed_by_you"
+            )
+
+            // --- summary: 1 claim succeeded, 0 releases succeeded ---
             val summary = data["summary"] as JsonObject
             assertEquals(1, summary["claimsSucceeded"]!!.jsonPrimitive.intOrNull)
+            assertEquals(0, summary["releasesSucceeded"]!!.jsonPrimitive.intOrNull)
+            assertEquals(2, summary["releasesFailed"]!!.jsonPrimitive.intOrNull)
 
-            // --- End-state: ITEM_C is claimed by agent-alpha ---
+            // --- End-state: ITEM_C held by agent-alpha, ITEM_A still by agent-other, ITEM_B unclaimed ---
             val itemCAfter = repository.getById(itemC.id)
             assertIs<Result.Success<WorkItem>>(itemCAfter)
             assertEquals(agentAlpha, itemCAfter.data.claimedBy, "ITEM_C must be claimed by agent-alpha")
+
+            val itemAAfter = repository.getById(itemA.id)
+            assertIs<Result.Success<WorkItem>>(itemAAfter)
+            assertEquals(agentOther, itemAAfter.data.claimedBy, "ITEM_A must remain claimed by agent-other")
+
+            val itemBAfter = repository.getById(itemB.id)
+            assertIs<Result.Success<WorkItem>>(itemBAfter)
+            assertNull(itemBAfter.data.claimedBy, "ITEM_B must be unclaimed (auto-released by Step 2)")
         }
 }

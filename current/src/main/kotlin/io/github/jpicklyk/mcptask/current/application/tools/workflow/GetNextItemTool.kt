@@ -185,14 +185,20 @@ Filter parameters (all optional, any-match semantics where applicable):
                         "roleChangedAfter",
                         buildJsonObject {
                             put("type", JsonPrimitive("string"))
-                            put("description", JsonPrimitive("ISO 8601 timestamp — return only items whose role last changed after this point"))
+                            put(
+                                "description",
+                                JsonPrimitive("ISO 8601 timestamp — return only items whose role last changed after this point")
+                            )
                         }
                     )
                     put(
                         "roleChangedBefore",
                         buildJsonObject {
                             put("type", JsonPrimitive("string"))
-                            put("description", JsonPrimitive("ISO 8601 timestamp — return only items whose role last changed before this point"))
+                            put(
+                                "description",
+                                JsonPrimitive("ISO 8601 timestamp — return only items whose role last changed before this point")
+                            )
                         }
                     )
                     put(
@@ -243,8 +249,10 @@ Filter parameters (all optional, any-match semantics where applicable):
             )
         }
 
-        val tagsStr = optionalString(params, "tags")
-        if (tagsStr != null && tagsStr.isBlank()) {
+        // Read the raw JsonPrimitive for tags so we can detect blank-string explicitly.
+        // optionalString() collapses blank strings to null, which would silently bypass this check.
+        val tagsRaw = (params as? JsonObject)?.get("tags") as? JsonPrimitive
+        if (tagsRaw != null && tagsRaw.isString && tagsRaw.content.isBlank()) {
             throw ToolValidationException("validation_error: tags must be a non-blank string when provided")
         }
 
@@ -297,23 +305,25 @@ Filter parameters (all optional, any-match semantics where applicable):
         val parsedCreatedBefore = optionalString(params, "createdBefore")?.let { Instant.parse(it) }
         val parsedRoleChangedAfter = optionalString(params, "roleChangedAfter")?.let { Instant.parse(it) }
         val parsedRoleChangedBefore = optionalString(params, "roleChangedBefore")?.let { Instant.parse(it) }
-        val parsedOrderBy = NextItemOrder.fromString(optionalString(params, "orderBy"))
-            ?: NextItemOrder.PRIORITY_THEN_COMPLEXITY
+        val parsedOrderBy =
+            NextItemOrder.fromString(optionalString(params, "orderBy"))
+                ?: NextItemOrder.PRIORITY_THEN_COMPLEXITY
 
         // Build criteria and delegate to NextItemRecommender (standard path: active claims excluded)
-        val criteria = NextItemRecommender.Criteria(
-            role = targetRole,
-            parentId = parentId,
-            tags = tags?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() },
-            priority = parsedPriority,
-            type = type,
-            complexityMax = complexityMax,
-            createdAfter = parsedCreatedAfter,
-            createdBefore = parsedCreatedBefore,
-            roleChangedAfter = parsedRoleChangedAfter,
-            roleChangedBefore = parsedRoleChangedBefore,
-            orderBy = parsedOrderBy,
-        )
+        val criteria =
+            NextItemRecommender.Criteria(
+                role = targetRole,
+                parentId = parentId,
+                tags = tags?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() },
+                priority = parsedPriority,
+                type = type,
+                complexityMax = complexityMax,
+                createdAfter = parsedCreatedAfter,
+                createdBefore = parsedCreatedBefore,
+                roleChangedAfter = parsedRoleChangedAfter,
+                roleChangedBefore = parsedRoleChangedBefore,
+                orderBy = parsedOrderBy,
+            )
 
         val workItemRepo = context.workItemRepository()
 
@@ -322,54 +332,57 @@ Filter parameters (all optional, any-match semantics where applicable):
         // findForNextItem(excludeActiveClaims=false), then apply new filters in-memory and run
         // the same dependency-blocking walk. The new filters do NOT change the includeClaimed
         // disclosure contract — claimedBy/claimedAt are never exposed in either path.
-        val recommendations: List<WorkItem> = if (!includeClaimed) {
-            when (val result = context.nextItemRecommender.recommend(criteria, limit)) {
-                is Result.Success -> result.data
-                is Result.Error -> return errorResponse(result.error.message, ErrorCodes.DATABASE_ERROR)
-            }
-        } else {
-            val dependencyRepo = context.dependencyRepository()
-            val candidatesResult =
-                workItemRepo.findForNextItem(
-                    role = targetRole,
-                    parentId = parentId,
-                    excludeActiveClaims = false,
-                    limit = 200
-                )
-
-            val candidates =
-                when (candidatesResult) {
-                    is Result.Success -> candidatesResult.data
-                    is Result.Error -> return errorResponse(candidatesResult.error.message, ErrorCodes.DATABASE_ERROR)
+        val recommendations: List<WorkItem> =
+            if (!includeClaimed) {
+                when (val result = context.nextItemRecommender.recommend(criteria, limit)) {
+                    is Result.Success -> result.data
+                    is Result.Error -> return errorResponse(result.error.message, ErrorCodes.DATABASE_ERROR)
                 }
-
-            // Apply new filters in-memory for the includeClaimed=true path
-            val filtered = candidates.filter { item ->
-                (criteria.tags == null || item.tags?.let { t -> criteria.tags.any { tag -> t.contains(tag) } } == true) &&
-                    (criteria.priority == null || item.priority == criteria.priority) &&
-                    (criteria.type == null || item.type == criteria.type) &&
-                    (criteria.complexityMax == null || (item.complexity != null && item.complexity <= criteria.complexityMax)) &&
-                    (criteria.createdAfter == null || !item.createdAt.isBefore(criteria.createdAfter)) &&
-                    (criteria.createdBefore == null || !item.createdAt.isAfter(criteria.createdBefore)) &&
-                    (criteria.roleChangedAfter == null || !item.roleChangedAt.isBefore(criteria.roleChangedAfter)) &&
-                    (criteria.roleChangedBefore == null || !item.roleChangedAt.isAfter(criteria.roleChangedBefore))
-            }
-
-            // Apply ordering
-            val priorityOrder = mapOf(Priority.HIGH to 0, Priority.MEDIUM to 1, Priority.LOW to 2)
-            val sorted = when (parsedOrderBy) {
-                NextItemOrder.PRIORITY_THEN_COMPLEXITY ->
-                    filtered.sortedWith(
-                        compareBy<WorkItem> { priorityOrder[it.priority] ?: 99 }.thenBy { it.complexity }
+            } else {
+                val dependencyRepo = context.dependencyRepository()
+                val candidatesResult =
+                    workItemRepo.findForNextItem(
+                        role = targetRole,
+                        parentId = parentId,
+                        excludeActiveClaims = false,
+                        limit = 200
                     )
-                NextItemOrder.OLDEST_FIRST -> filtered.sortedBy { it.createdAt }
-                NextItemOrder.NEWEST_FIRST -> filtered.sortedByDescending { it.createdAt }
-            }
 
-            // Filter dependency-blocked items
-            val unblocked = sorted.filter { item -> !isBlockedInline(item, workItemRepo, dependencyRepo) }
-            unblocked.take(limit)
-        }
+                val candidates =
+                    when (candidatesResult) {
+                        is Result.Success -> candidatesResult.data
+                        is Result.Error -> return errorResponse(candidatesResult.error.message, ErrorCodes.DATABASE_ERROR)
+                    }
+
+                // Apply new filters in-memory for the includeClaimed=true path
+                val filtered =
+                    candidates.filter { item ->
+                        (criteria.tags == null || item.tags?.let { t -> criteria.tags.any { tag -> t.contains(tag) } } == true) &&
+                            (criteria.priority == null || item.priority == criteria.priority) &&
+                            (criteria.type == null || item.type == criteria.type) &&
+                            (criteria.complexityMax == null || (item.complexity != null && item.complexity <= criteria.complexityMax)) &&
+                            (criteria.createdAfter == null || !item.createdAt.isBefore(criteria.createdAfter)) &&
+                            (criteria.createdBefore == null || !item.createdAt.isAfter(criteria.createdBefore)) &&
+                            (criteria.roleChangedAfter == null || !item.roleChangedAt.isBefore(criteria.roleChangedAfter)) &&
+                            (criteria.roleChangedBefore == null || !item.roleChangedAt.isAfter(criteria.roleChangedBefore))
+                    }
+
+                // Apply ordering
+                val priorityOrder = mapOf(Priority.HIGH to 0, Priority.MEDIUM to 1, Priority.LOW to 2)
+                val sorted =
+                    when (parsedOrderBy) {
+                        NextItemOrder.PRIORITY_THEN_COMPLEXITY ->
+                            filtered.sortedWith(
+                                compareBy<WorkItem> { priorityOrder[it.priority] ?: 99 }.thenBy { it.complexity }
+                            )
+                        NextItemOrder.OLDEST_FIRST -> filtered.sortedBy { it.createdAt }
+                        NextItemOrder.NEWEST_FIRST -> filtered.sortedByDescending { it.createdAt }
+                    }
+
+                // Filter dependency-blocked items
+                val unblocked = sorted.filter { item -> !isBlockedInline(item, workItemRepo, dependencyRepo) }
+                unblocked.take(limit)
+            }
 
         // Resolve ancestor chains once for all recommendations if requested
         val ancestorChains: Map<java.util.UUID, List<WorkItem>> =

@@ -160,9 +160,11 @@ in a future major version (tracked separately).
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Array of claim requests. Each entry uses either ID mode: { itemId (required UUID or hex prefix), " +
+                                    "Array of claim requests. Each entry uses either ID mode: " +
+                                        "{ itemId (required UUID or hex prefix), " +
                                         "ttlSeconds? (optional int, default 900, min 1, max 86400 — 24 h cap), " +
-                                        "agentId? (optional string, overridden by verified actor), claimRef? (optional string, max 64 chars) } " +
+                                        "agentId? (optional string, overridden by verified actor), " +
+                                        "claimRef? (optional string, max 64 chars) } " +
                                         "or Selector mode: { selector (required object with filter fields), " +
                                         "ttlSeconds? (optional int), claimRef? (optional string, max 64 chars) }. " +
                                         "Exactly one of itemId or selector must be present per entry. " +
@@ -252,10 +254,11 @@ in a future major version (tracked separately).
 
         // Validate claims entries — check for selector mode rules
         if (!claims.isNullOrEmpty()) {
-            val hasAnySelector = claims.any { element ->
-                val obj = element as? JsonObject ?: return@any false
-                obj.containsKey("selector")
-            }
+            val hasAnySelector =
+                claims.any { element ->
+                    val obj = element as? JsonObject ?: return@any false
+                    obj.containsKey("selector")
+                }
 
             // Single-selector-per-call rule: if any entry has selector, claims.size must == 1
             if (hasAnySelector && claims.size > 1) {
@@ -321,8 +324,9 @@ in a future major version (tracked separately).
                     // complexityMax (1..10)
                     val complexityMaxPrim = selectorObj["complexityMax"] as? JsonPrimitive
                     if (complexityMaxPrim != null) {
-                        val v = complexityMaxPrim.content.toIntOrNull()
-                            ?: throw ToolValidationException("claims[$index].selector.complexityMax must be an integer")
+                        val v =
+                            complexityMaxPrim.content.toIntOrNull()
+                                ?: throw ToolValidationException("claims[$index].selector.complexityMax must be an integer")
                         if (v < 1 || v > 10) {
                             throw ToolValidationException(
                                 "claims[$index].selector.complexityMax must be between 1 and 10, got $v"
