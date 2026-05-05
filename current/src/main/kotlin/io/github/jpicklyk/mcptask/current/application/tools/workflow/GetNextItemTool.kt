@@ -181,10 +181,45 @@ Parameters:
                 )
             }
 
-        // Step 2: Filter out blocked items (dependency-blocked, not role-BLOCKED)
+        // Step 2: Filter out blocked items (dependency-blocked, not role-BLOCKED).
+        // isBlocked logic lives in NextItemRecommender; replicated inline here so Phase 3 can
+        // cut execute() over to the recommender in a single focused change (no behaviour change
+        // needed in Phase 2 — findForNextItem / in-memory sort path is preserved as-is).
+        suspend fun isBlockedInline(item: WorkItem): Boolean {
+            val incomingDeps = dependencyRepo.findByToItemId(item.id)
+            for (dep in incomingDeps) {
+                if (dep.type == DependencyType.BLOCKS) {
+                    val threshold = dep.effectiveUnblockRole() ?: continue
+                    val thresholdRole = Role.fromString(threshold) ?: continue
+                    val blockerResult = workItemRepo.getById(dep.fromItemId)
+                    val blocker =
+                        when (blockerResult) {
+                            is Result.Success -> blockerResult.data
+                            is Result.Error -> continue
+                        }
+                    if (!Role.isAtOrBeyond(blocker.role, thresholdRole)) return true
+                }
+            }
+            val outgoingDeps = dependencyRepo.findByFromItemId(item.id)
+            for (dep in outgoingDeps) {
+                if (dep.type == DependencyType.IS_BLOCKED_BY) {
+                    val threshold = dep.effectiveUnblockRole() ?: continue
+                    val thresholdRole = Role.fromString(threshold) ?: continue
+                    val blockerResult = workItemRepo.getById(dep.toItemId)
+                    val blocker =
+                        when (blockerResult) {
+                            is Result.Success -> blockerResult.data
+                            is Result.Error -> continue
+                        }
+                    if (!Role.isAtOrBeyond(blocker.role, thresholdRole)) return true
+                }
+            }
+            return false
+        }
+
         val unblockedItems =
             candidates.filter { item ->
-                !isBlocked(item, workItemRepo, dependencyRepo)
+                !isBlockedInline(item)
             }
 
         // Step 3: Sort by priority (HIGH > MEDIUM > LOW), then complexity ascending
@@ -283,62 +318,4 @@ Parameters:
         return if (total == 1) "Next: $title" else "Next: $title (+${total - 1} more)"
     }
 
-    // ──────────────────────────────────────────────
-    // Blocking detection
-    // ──────────────────────────────────────────────
-
-    /**
-     * Checks whether a WorkItem is blocked by any unsatisfied dependency.
-     *
-     * An item is blocked if:
-     * - It has incoming BLOCKS deps (findByToItemId where type=BLOCKS) with unsatisfied blocker
-     * - It has outgoing IS_BLOCKED_BY deps (findByFromItemId where type=IS_BLOCKED_BY) with unsatisfied blocker
-     *
-     * RELATES_TO dependencies are ignored (no blocking semantics).
-     */
-    private suspend fun isBlocked(
-        item: WorkItem,
-        workItemRepo: io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository,
-        dependencyRepo: io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
-    ): Boolean {
-        // Check BLOCKS deps where this item is the target (dep.toItemId = item.id)
-        val incomingDeps = dependencyRepo.findByToItemId(item.id)
-        for (dep in incomingDeps) {
-            if (dep.type == DependencyType.BLOCKS) {
-                val threshold = dep.effectiveUnblockRole() ?: continue
-                val thresholdRole = Role.fromString(threshold) ?: continue
-                // Blocker is dep.fromItemId
-                val blockerResult = workItemRepo.getById(dep.fromItemId)
-                val blocker =
-                    when (blockerResult) {
-                        is Result.Success -> blockerResult.data
-                        is Result.Error -> continue // If we can't fetch, skip this dep
-                    }
-                if (!Role.isAtOrBeyond(blocker.role, thresholdRole)) {
-                    return true // Unsatisfied dependency
-                }
-            }
-        }
-
-        // Check IS_BLOCKED_BY deps where this item is the source (dep.fromItemId = item.id)
-        val outgoingDeps = dependencyRepo.findByFromItemId(item.id)
-        for (dep in outgoingDeps) {
-            if (dep.type == DependencyType.IS_BLOCKED_BY) {
-                val threshold = dep.effectiveUnblockRole() ?: continue
-                val thresholdRole = Role.fromString(threshold) ?: continue
-                // Blocker is dep.toItemId
-                val blockerResult = workItemRepo.getById(dep.toItemId)
-                val blocker =
-                    when (blockerResult) {
-                        is Result.Success -> blockerResult.data
-                        is Result.Error -> continue
-                    }
-                if (!Role.isAtOrBeyond(blocker.role, thresholdRole)) {
-                    return true
-                }
-            }
-        }
-
-        return false
-    }
 }

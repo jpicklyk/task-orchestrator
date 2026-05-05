@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.application.tools
 import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
 import io.github.jpicklyk.mcptask.current.application.service.McpLoggingService
+import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommender
 import io.github.jpicklyk.mcptask.current.application.service.NoOpActorVerifier
 import io.github.jpicklyk.mcptask.current.application.service.NoOpMcpLoggingService
 import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
@@ -36,7 +37,12 @@ class ToolExecutionContext(
     private val mcpLoggingService: McpLoggingService = NoOpMcpLoggingService,
     private val actorVerifier: ActorVerifier = NoOpActorVerifier,
     val degradedModePolicy: DegradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
-    val idempotencyCache: IdempotencyCache = IdempotencyCache()
+    val idempotencyCache: IdempotencyCache = IdempotencyCache(),
+    val nextItemRecommender: NextItemRecommender =
+        NextItemRecommender(
+            repositoryProvider.workItemRepository(),
+            repositoryProvider.dependencyRepository()
+        ),
 ) {
     /** Access to WorkItem CRUD and query operations. */
     fun workItemRepository(): WorkItemRepository = repositoryProvider.workItemRepository()
