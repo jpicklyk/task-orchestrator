@@ -1195,7 +1195,7 @@ The selector filter shape is identical to the `get_next_item` filter parameters 
 | Outcome | Meaning |
 |---|---|
 | `success` | Claim placed or TTL refreshed. Response includes own claim metadata. Selector claims also include `selectorResolved: true`. |
-| `no_match` | Selector found no eligible items; `kind=permanent`. No claim attempted, no `retryAfterMs`, no `itemId`. |
+| `no_match` | Selector found no eligible items; `kind=permanent`, `code="no_match"`. No claim attempted, no `retryAfterMs`, no `itemId`. |
 | `already_claimed` | Another agent holds a live claim. Response includes `retryAfterMs` (no competing agent identity). |
 | `not_found` | No item with that ID. |
 | `terminal_item` | Item is in TERMINAL role; cannot be claimed. |
@@ -1272,6 +1272,7 @@ Selector mode atomically resolves a filter+rank query and claims the top match i
     {
       "outcome": "no_match",
       "kind": "permanent",
+      "code": "no_match",
       "claimRef": "worker-7-round-42"
     }
   ],
