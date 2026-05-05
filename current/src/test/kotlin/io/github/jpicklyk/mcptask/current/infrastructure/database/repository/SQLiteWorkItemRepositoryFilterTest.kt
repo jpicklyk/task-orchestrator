@@ -612,7 +612,9 @@ class SQLiteWorkItemRepositoryFilterTest {
             val t2 = Instant.parse("2025-12-01T00:00:00Z")
 
             repository.create(WorkItem(title = "Old role change", createdAt = t1, modifiedAt = t1, roleChangedAt = t1, role = Role.QUEUE))
-            repository.create(WorkItem(title = "Recent role change", createdAt = t1, modifiedAt = t1, roleChangedAt = t2, role = Role.QUEUE))
+            repository.create(
+                WorkItem(title = "Recent role change", createdAt = t1, modifiedAt = t1, roleChangedAt = t2, role = Role.QUEUE)
+            )
 
             val result = repository.findClaimable(role = Role.QUEUE, roleChangedAfter = Instant.parse("2025-06-01T00:00:00Z"))
             assertIs<Result.Success<List<WorkItem>>>(result)
@@ -627,7 +629,9 @@ class SQLiteWorkItemRepositoryFilterTest {
             val t2 = Instant.parse("2025-12-01T00:00:00Z")
 
             repository.create(WorkItem(title = "Old role change", createdAt = t1, modifiedAt = t1, roleChangedAt = t1, role = Role.QUEUE))
-            repository.create(WorkItem(title = "Recent role change", createdAt = t1, modifiedAt = t1, roleChangedAt = t2, role = Role.QUEUE))
+            repository.create(
+                WorkItem(title = "Recent role change", createdAt = t1, modifiedAt = t1, roleChangedAt = t2, role = Role.QUEUE)
+            )
 
             val result = repository.findClaimable(role = Role.QUEUE, roleChangedBefore = Instant.parse("2025-06-01T00:00:00Z"))
             assertIs<Result.Success<List<WorkItem>>>(result)
