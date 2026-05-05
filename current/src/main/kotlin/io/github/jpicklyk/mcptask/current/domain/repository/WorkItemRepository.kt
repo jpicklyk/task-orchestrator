@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.domain.repository
 
+import io.github.jpicklyk.mcptask.current.domain.model.NextItemOrder
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
@@ -267,6 +268,44 @@ interface WorkItemRepository {
         parentId: UUID? = null,
         excludeActiveClaims: Boolean = true,
         limit: Int = 200
+    ): Result<List<WorkItem>>
+
+    /**
+     * Find work items that are eligible to be claimed, combining the filter flexibility of
+     * [findByFilters] with the active-claim exclusion logic of [findForNextItem].
+     *
+     * Active-claim exclusion (`claimed_by IS NULL OR claim_expires_at <= now`) is **always** applied —
+     * it is not a parameter because claim-eligibility by definition means the item is unclaimed or
+     * its claim has expired. All filters are combined with AND logic; tags use OR logic within the list.
+     *
+     * @param role              The role to query (required — e.g. QUEUE, WORK, REVIEW).
+     * @param parentId          Optional parent UUID to scope results to direct children only.
+     * @param tags              Optional list of tags; items matching ANY tag are included.
+     * @param priority          Optional priority filter.
+     * @param type              Optional type string filter (exact match).
+     * @param complexityMax     Optional upper bound (inclusive) on item complexity.
+     * @param createdAfter      Optional lower bound (inclusive) on [WorkItem.createdAt].
+     * @param createdBefore     Optional upper bound (inclusive) on [WorkItem.createdAt].
+     * @param roleChangedAfter  Optional lower bound (inclusive) on [WorkItem.roleChangedAt].
+     * @param roleChangedBefore Optional upper bound (inclusive) on [WorkItem.roleChangedAt].
+     * @param orderBy           Ordering strategy for the result set (default: priority then complexity).
+     * @param limit             Maximum number of rows to return (default: 200).
+     * @return [Result.Success] with the list of matching, claimable items (may be empty), or
+     *         [Result.Error] on a database failure.
+     */
+    suspend fun findClaimable(
+        role: Role,
+        parentId: UUID? = null,
+        tags: List<String>? = null,
+        priority: Priority? = null,
+        type: String? = null,
+        complexityMax: Int? = null,
+        createdAfter: Instant? = null,
+        createdBefore: Instant? = null,
+        roleChangedAfter: Instant? = null,
+        roleChangedBefore: Instant? = null,
+        orderBy: NextItemOrder = NextItemOrder.PRIORITY_THEN_COMPLEXITY,
+        limit: Int = 200,
     ): Result<List<WorkItem>>
 
     /**
