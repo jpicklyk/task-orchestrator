@@ -302,6 +302,34 @@ class NextItemRecommenderTest {
             assertEquals(1, result.data.size, "Dep with unblockAt=work satisfied when blocker is WORK")
         }
 
+    @Test
+    fun `blocker item that cannot be fetched (deleted or repo error) is skipped conservatively`(): Unit =
+        runBlocking {
+            // The recommender's isBlocked walk has a "skip conservatively" branch when
+            // workItemRepo.getById(blockerId) returns Result.Error (e.g., the blocker was
+            // deleted, or a transient repo failure). The dep is treated as not-blocking
+            // rather than blocking, so the candidate item remains eligible.
+            val missingBlockerId = UUID.randomUUID()
+            val item = workItem(title = "Item with phantom blocker")
+
+            stubFindClaimable(listOf(item))
+            every { dependencyRepo.findByToItemId(item.id) } returns
+                listOf(blocksDep(fromItemId = missingBlockerId, toItemId = item.id))
+            every { dependencyRepo.findByFromItemId(item.id) } returns emptyList()
+            coEvery { workItemRepo.getById(missingBlockerId) } returns
+                Result.Error(RepositoryError.NotFound(missingBlockerId, "WorkItem not found"))
+
+            val result = recommender.recommend(NextItemRecommender.Criteria(), limit = 10)
+
+            assertIs<Result.Success<List<WorkItem>>>(result)
+            assertEquals(
+                1,
+                result.data.size,
+                "Item must remain eligible when its blocker cannot be fetched — the dep is skipped conservatively"
+            )
+            assertEquals(item.id, result.data[0].id)
+        }
+
     // -----------------------------------------------------------------------
     // Limit applied AFTER blocking filter (over-fetch scenario)
     // -----------------------------------------------------------------------

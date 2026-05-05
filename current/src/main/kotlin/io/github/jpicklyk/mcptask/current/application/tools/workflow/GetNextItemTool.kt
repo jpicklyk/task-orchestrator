@@ -354,10 +354,19 @@ Filter parameters (all optional, any-match semantics where applicable):
                         is Result.Error -> return errorResponse(candidatesResult.error.message, ErrorCodes.DATABASE_ERROR)
                     }
 
-                // Apply new filters in-memory for the includeClaimed=true path
+                // Apply new filters in-memory for the includeClaimed=true path.
+                // Tag matching mirrors the DB-side semantics in SQLiteWorkItemRepository.buildTagFilter:
+                // exact-token match against comma-separated tags (NOT substring match).
                 val filtered =
                     candidates.filter { item ->
-                        (criteria.tags == null || item.tags?.let { t -> criteria.tags.any { tag -> t.contains(tag) } } == true) &&
+                        (
+                            criteria.tags == null ||
+                                item.tags?.let { t ->
+                                    val itemTokens =
+                                        t.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                                    criteria.tags.any { tag -> tag in itemTokens }
+                                } == true
+                        ) &&
                             (criteria.priority == null || item.priority == criteria.priority) &&
                             (criteria.type == null || item.type == criteria.type) &&
                             (criteria.complexityMax == null || (item.complexity != null && item.complexity <= criteria.complexityMax)) &&
@@ -379,8 +388,9 @@ Filter parameters (all optional, any-match semantics where applicable):
                         NextItemOrder.NEWEST_FIRST -> filtered.sortedByDescending { it.createdAt }
                     }
 
-                // Filter dependency-blocked items
-                val unblocked = sorted.filter { item -> !isBlockedInline(item, workItemRepo, dependencyRepo) }
+                // Filter dependency-blocked items — reuse the recommender's internal isBlocked
+                // so this path and the default path can never diverge on dependency-walk semantics.
+                val unblocked = sorted.filter { item -> !context.nextItemRecommender.isBlocked(item) }
                 unblocked.take(limit)
             }
 
@@ -440,46 +450,6 @@ Filter parameters (all optional, any-match semantics where applicable):
             }
 
         return successResponse(data)
-    }
-
-    /**
-     * Dependency-blocked check for the includeClaimed=true code path (where the recommender
-     * is bypassed). Mirrors [NextItemRecommender]'s internal isBlocked exactly.
-     */
-    private suspend fun isBlockedInline(
-        item: WorkItem,
-        workItemRepo: io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository,
-        dependencyRepo: io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository,
-    ): Boolean {
-        val incomingDeps = dependencyRepo.findByToItemId(item.id)
-        for (dep in incomingDeps) {
-            if (dep.type == DependencyType.BLOCKS) {
-                val threshold = dep.effectiveUnblockRole() ?: continue
-                val thresholdRole = Role.fromString(threshold) ?: continue
-                val blockerResult = workItemRepo.getById(dep.fromItemId)
-                val blocker =
-                    when (blockerResult) {
-                        is Result.Success -> blockerResult.data
-                        is Result.Error -> continue
-                    }
-                if (!Role.isAtOrBeyond(blocker.role, thresholdRole)) return true
-            }
-        }
-        val outgoingDeps = dependencyRepo.findByFromItemId(item.id)
-        for (dep in outgoingDeps) {
-            if (dep.type == DependencyType.IS_BLOCKED_BY) {
-                val threshold = dep.effectiveUnblockRole() ?: continue
-                val thresholdRole = Role.fromString(threshold) ?: continue
-                val blockerResult = workItemRepo.getById(dep.toItemId)
-                val blocker =
-                    when (blockerResult) {
-                        is Result.Success -> blockerResult.data
-                        is Result.Error -> continue
-                    }
-                if (!Role.isAtOrBeyond(blocker.role, thresholdRole)) return true
-            }
-        }
-        return false
     }
 
     override fun userSummary(

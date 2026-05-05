@@ -44,8 +44,8 @@ class NextItemRecommender(
      * Returns the top [limit] unblocked, claimable work items that match [criteria].
      *
      * Algorithm:
-     * 1. Over-fetch up to 200 candidates from [WorkItemRepository.findClaimable] (active-claim
-     *    exclusion is always applied by the repository).
+     * 1. Over-fetch up to [OVER_FETCH_LIMIT] candidates from [WorkItemRepository.findClaimable]
+     *    (active-claim exclusion is always applied by the repository).
      * 2. Propagate repository errors immediately.
      * 3. Walk each candidate through [isBlocked] and discard blocked items.
      * 4. Take the top [limit] unblocked items and return them as [Result.Success].
@@ -67,7 +67,7 @@ class NextItemRecommender(
                 roleChangedAfter = criteria.roleChangedAfter,
                 roleChangedBefore = criteria.roleChangedBefore,
                 orderBy = criteria.orderBy,
-                limit = 200,
+                limit = OVER_FETCH_LIMIT,
             )
 
         if (candidatesResult is Result.Error) {
@@ -90,8 +90,11 @@ class NextItemRecommender(
      *
      * RELATES_TO dependencies carry no blocking semantics and are ignored.
      * If a blocker item cannot be fetched (e.g. deleted), the dependency is skipped conservatively.
+     *
+     * Visibility: `internal` so [GetNextItemTool]'s includeClaimed=true path can reuse this
+     * method directly instead of duplicating the dependency-walk logic.
      */
-    private suspend fun isBlocked(item: WorkItem): Boolean {
+    internal suspend fun isBlocked(item: WorkItem): Boolean {
         // Check BLOCKS deps where this item is the target (dep.toItemId = item.id)
         val incomingDeps = dependencyRepo.findByToItemId(item.id)
         for (dep in incomingDeps) {
@@ -131,5 +134,14 @@ class NextItemRecommender(
         }
 
         return false
+    }
+
+    private companion object {
+        /**
+         * Pre-fetch budget for [recommend]. Sized to leave room for the dependency-blocking
+         * filter to drop candidates without starving the caller's `limit` (default 1, max 20
+         * for `get_next_item`). Increase if blocking-filter drop rates are observed to climb.
+         */
+        const val OVER_FETCH_LIMIT = 200
     }
 }
