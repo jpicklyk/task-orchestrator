@@ -1223,16 +1223,19 @@ class ClaimItemToolTest {
             val requestId = UUID.randomUUID().toString()
             val p = params(claims = listOf(selectorEntry()), requestId = requestId)
 
+            // Use the SAME context object for both calls so the IdempotencyCache is shared.
+            val sharedContext = defaultContext(nextItemRecommender = recommender)
+
             // First call — resolves and claims itemId1
-            val result1 = tool.execute(p, defaultContext(nextItemRecommender = recommender))
+            val result1 = tool.execute(p, sharedContext)
             val first1 = ((result1 as JsonObject)["data"] as JsonObject)["claimResults"].let {
                 (it as JsonArray)[0] as JsonObject
             }
             assertEquals("success", first1["outcome"]?.jsonPrimitive?.content)
             assertEquals(itemId1.toString(), first1["itemId"]?.jsonPrimitive?.content)
 
-            // Second call with same requestId — must replay the cache, NOT call recommender again
-            val result2 = tool.execute(p, defaultContext(nextItemRecommender = recommender))
+            // Second call with same requestId on the same context — must replay the cache, NOT call recommender again
+            val result2 = tool.execute(p, sharedContext)
             val first2 = ((result2 as JsonObject)["data"] as JsonObject)["claimResults"].let {
                 (it as JsonArray)[0] as JsonObject
             }
