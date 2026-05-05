@@ -227,7 +227,6 @@ Filter parameters (all optional, any-match semantics where applicable):
             )
         }
 
-        // Legacy parameters
         validateIdOrPrefix(params, "parentId", required = false)
         val limit = optionalInt(params, "limit")
         if (limit != null && (limit < 1 || limit > 20)) {
@@ -314,7 +313,7 @@ Filter parameters (all optional, any-match semantics where applicable):
             NextItemRecommender.Criteria(
                 role = targetRole,
                 parentId = parentId,
-                tags = tags?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() },
+                tags = tags?.split(",")?.map { it.trim() }?.filter { it.isNotBlank() },
                 priority = parsedPriority,
                 type = type,
                 complexityMax = complexityMax,
@@ -345,7 +344,7 @@ Filter parameters (all optional, any-match semantics where applicable):
                         role = targetRole,
                         parentId = parentId,
                         excludeActiveClaims = false,
-                        limit = 200
+                        limit = NextItemRecommender.OVER_FETCH_LIMIT
                     )
 
                 val candidates =
@@ -357,13 +356,14 @@ Filter parameters (all optional, any-match semantics where applicable):
                 // Apply new filters in-memory for the includeClaimed=true path.
                 // Tag matching mirrors the DB-side semantics in SQLiteWorkItemRepository.buildTagFilter:
                 // exact-token match against comma-separated tags (NOT substring match).
+                // Uses isNotBlank to reject whitespace-only tokens (consistent with ClaimItemTool's selector path).
                 val filtered =
                     candidates.filter { item ->
                         (
                             criteria.tags == null ||
                                 item.tags?.let { t ->
                                     val itemTokens =
-                                        t.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                                        t.split(",").map { it.trim() }.filter { it.isNotBlank() }
                                     criteria.tags.any { tag -> tag in itemTokens }
                                 } == true
                         ) &&
@@ -377,12 +377,11 @@ Filter parameters (all optional, any-match semantics where applicable):
                     }
 
                 // Apply ordering
-                val priorityOrder = mapOf(Priority.HIGH to 0, Priority.MEDIUM to 1, Priority.LOW to 2)
                 val sorted =
                     when (parsedOrderBy) {
                         NextItemOrder.PRIORITY_THEN_COMPLEXITY ->
                             filtered.sortedWith(
-                                compareBy<WorkItem> { priorityOrder[it.priority] ?: 99 }.thenBy { it.complexity }
+                                compareBy<WorkItem> { PRIORITY_ORDER[it.priority] ?: 99 }.thenBy { it.complexity }
                             )
                         NextItemOrder.OLDEST_FIRST -> filtered.sortedBy { it.createdAt }
                         NextItemOrder.NEWEST_FIRST -> filtered.sortedByDescending { it.createdAt }
@@ -390,8 +389,16 @@ Filter parameters (all optional, any-match semantics where applicable):
 
                 // Filter dependency-blocked items — reuse the recommender's internal isBlocked
                 // so this path and the default path can never diverge on dependency-walk semantics.
-                val unblocked = sorted.filter { item -> !context.nextItemRecommender.isBlocked(item) }
-                unblocked.take(limit)
+                // Early-exit walk: stop once we have `limit` unblocked items (Sequences cannot
+                // call suspending isBlocked, so a manual loop with break is the simplest form).
+                val unblocked = mutableListOf<WorkItem>()
+                for (item in sorted) {
+                    if (!context.nextItemRecommender.isBlocked(item)) {
+                        unblocked.add(item)
+                        if (unblocked.size >= limit) break
+                    }
+                }
+                unblocked
             }
 
         // Resolve ancestor chains once for all recommendations if requested
@@ -477,5 +484,10 @@ Filter parameters (all optional, any-match semantics where applicable):
             } ?: "unknown"
 
         return if (total == 1) "Next: $title" else "Next: $title (+${total - 1} more)"
+    }
+
+    private companion object {
+        /** In-memory priority ordering for the includeClaimed=true path (mirrors the DB CASE expression). */
+        val PRIORITY_ORDER = mapOf(Priority.HIGH to 0, Priority.MEDIUM to 1, Priority.LOW to 2)
     }
 }

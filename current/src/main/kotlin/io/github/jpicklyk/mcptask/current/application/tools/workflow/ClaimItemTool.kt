@@ -284,7 +284,7 @@ in a future major version (tracked separately).
                 }
                 if (!hasItemId && !hasSelector) {
                     throw ToolValidationException(
-                        "claims[$index] must specify either itemId or selector, not neither"
+                        "claims[$index] must specify either itemId or selector — neither was provided"
                     )
                 }
 

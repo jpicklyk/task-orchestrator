@@ -13,10 +13,9 @@ import java.util.UUID
 
 /**
  * Service that wraps `findClaimable` + dependency-blocking walk into a single
- * "what's eligible next" recommendation query.
- *
- * Phase 3 (GetNextItemTool) and Phase 4 (ClaimItemTool selector) share this service
- * so there is one authoritative source of truth for "what item should an agent pick up next."
+ * "what's eligible next" recommendation query. Both `GetNextItemTool` and the
+ * selector path of `ClaimItemTool` call into this service so there is one
+ * authoritative source of truth for "what item should an agent pick up next."
  */
 class NextItemRecommender(
     private val workItemRepo: WorkItemRepository,
@@ -76,9 +75,19 @@ class NextItemRecommender(
 
         val candidates = (candidatesResult as Result.Success).data
 
-        val unblocked = candidates.filter { item -> !isBlocked(item) }
+        // Early-exit walk: stop once we have `limit` unblocked items. Sequences cannot
+        // call suspending isBlocked, so this is a manual loop. Each isBlocked() call costs
+        // 2 DB queries; for the dominant selector limit=1 case this caps the walk at the
+        // first unblocked candidate instead of all 200 over-fetched.
+        val unblocked = mutableListOf<WorkItem>()
+        for (item in candidates) {
+            if (!isBlocked(item)) {
+                unblocked.add(item)
+                if (unblocked.size >= limit) break
+            }
+        }
 
-        return Result.Success(unblocked.take(limit))
+        return Result.Success(unblocked)
     }
 
     /**
@@ -136,12 +145,16 @@ class NextItemRecommender(
         return false
     }
 
-    private companion object {
+    companion object {
         /**
          * Pre-fetch budget for [recommend]. Sized to leave room for the dependency-blocking
          * filter to drop candidates without starving the caller's `limit` (default 1, max 20
          * for `get_next_item`). Increase if blocking-filter drop rates are observed to climb.
+         *
+         * `internal` so [GetNextItemTool]'s includeClaimed=true path can reference the same
+         * value when it invokes `findForNextItem` directly (the recommender is bypassed
+         * because findClaimable always excludes active claims).
          */
-        const val OVER_FETCH_LIMIT = 200
+        internal const val OVER_FETCH_LIMIT = 200
     }
 }
