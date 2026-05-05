@@ -317,5 +317,4 @@ Parameters:
 
         return if (total == 1) "Next: $title" else "Next: $title (+${total - 1} more)"
     }
-
 }

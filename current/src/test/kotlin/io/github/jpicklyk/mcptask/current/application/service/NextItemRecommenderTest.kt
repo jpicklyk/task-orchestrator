@@ -48,14 +48,22 @@ class NextItemRecommenderTest {
         parentId: UUID? = null,
     ) = WorkItem(id = id, title = title, role = role, priority = priority, complexity = complexity, parentId = parentId)
 
-    private fun blocksDep(fromItemId: UUID, toItemId: UUID, unblockAt: String? = null) =
-        Dependency(fromItemId = fromItemId, toItemId = toItemId, type = DependencyType.BLOCKS, unblockAt = unblockAt)
+    private fun blocksDep(
+        fromItemId: UUID,
+        toItemId: UUID,
+        unblockAt: String? = null
+    ) = Dependency(fromItemId = fromItemId, toItemId = toItemId, type = DependencyType.BLOCKS, unblockAt = unblockAt)
 
-    private fun isBlockedByDep(fromItemId: UUID, toItemId: UUID, unblockAt: String? = null) =
-        Dependency(fromItemId = fromItemId, toItemId = toItemId, type = DependencyType.IS_BLOCKED_BY, unblockAt = unblockAt)
+    private fun isBlockedByDep(
+        fromItemId: UUID,
+        toItemId: UUID,
+        unblockAt: String? = null
+    ) = Dependency(fromItemId = fromItemId, toItemId = toItemId, type = DependencyType.IS_BLOCKED_BY, unblockAt = unblockAt)
 
-    private fun relatesToDep(fromItemId: UUID, toItemId: UUID) =
-        Dependency(fromItemId = fromItemId, toItemId = toItemId, type = DependencyType.RELATES_TO)
+    private fun relatesToDep(
+        fromItemId: UUID,
+        toItemId: UUID
+    ) = Dependency(fromItemId = fromItemId, toItemId = toItemId, type = DependencyType.RELATES_TO)
 
     /** Stub findClaimable to return a fixed list with no dependency activity. */
     private fun stubFindClaimable(
@@ -109,19 +117,20 @@ class NextItemRecommenderTest {
             val roleAfter = Instant.parse("2024-02-01T00:00:00Z")
             val roleBefore = Instant.parse("2024-05-01T00:00:00Z")
 
-            val criteria = NextItemRecommender.Criteria(
-                role = Role.WORK,
-                parentId = parentId,
-                tags = listOf("backend", "api"),
-                priority = Priority.HIGH,
-                type = "feature-task",
-                complexityMax = 3,
-                createdAfter = after,
-                createdBefore = before,
-                roleChangedAfter = roleAfter,
-                roleChangedBefore = roleBefore,
-                orderBy = NextItemOrder.OLDEST_FIRST,
-            )
+            val criteria =
+                NextItemRecommender.Criteria(
+                    role = Role.WORK,
+                    parentId = parentId,
+                    tags = listOf("backend", "api"),
+                    priority = Priority.HIGH,
+                    type = "feature-task",
+                    complexityMax = 3,
+                    createdAfter = after,
+                    createdBefore = before,
+                    roleChangedAfter = roleAfter,
+                    roleChangedBefore = roleBefore,
+                    orderBy = NextItemOrder.OLDEST_FIRST,
+                )
 
             val item = workItem(role = Role.WORK, priority = Priority.HIGH)
             coEvery {
@@ -205,7 +214,7 @@ class NextItemRecommenderTest {
     @Test
     fun `item blocked by BLOCKS dep with unsatisfied blocker is excluded`(): Unit =
         runBlocking {
-            val blocker = workItem(role = Role.QUEUE)  // not yet terminal
+            val blocker = workItem(role = Role.QUEUE) // not yet terminal
             val blocked = workItem()
 
             stubFindClaimable(listOf(blocked))

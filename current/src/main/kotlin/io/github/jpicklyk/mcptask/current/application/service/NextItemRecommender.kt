@@ -50,21 +50,25 @@ class NextItemRecommender(
      * 3. Walk each candidate through [isBlocked] and discard blocked items.
      * 4. Take the top [limit] unblocked items and return them as [Result.Success].
      */
-    suspend fun recommend(criteria: Criteria, limit: Int): Result<List<WorkItem>> {
-        val candidatesResult = workItemRepo.findClaimable(
-            role = criteria.role,
-            parentId = criteria.parentId,
-            tags = criteria.tags,
-            priority = criteria.priority,
-            type = criteria.type,
-            complexityMax = criteria.complexityMax,
-            createdAfter = criteria.createdAfter,
-            createdBefore = criteria.createdBefore,
-            roleChangedAfter = criteria.roleChangedAfter,
-            roleChangedBefore = criteria.roleChangedBefore,
-            orderBy = criteria.orderBy,
-            limit = 200,
-        )
+    suspend fun recommend(
+        criteria: Criteria,
+        limit: Int
+    ): Result<List<WorkItem>> {
+        val candidatesResult =
+            workItemRepo.findClaimable(
+                role = criteria.role,
+                parentId = criteria.parentId,
+                tags = criteria.tags,
+                priority = criteria.priority,
+                type = criteria.type,
+                complexityMax = criteria.complexityMax,
+                createdAfter = criteria.createdAfter,
+                createdBefore = criteria.createdBefore,
+                roleChangedAfter = criteria.roleChangedAfter,
+                roleChangedBefore = criteria.roleChangedBefore,
+                orderBy = criteria.orderBy,
+                limit = 200,
+            )
 
         if (candidatesResult is Result.Error) {
             return candidatesResult
