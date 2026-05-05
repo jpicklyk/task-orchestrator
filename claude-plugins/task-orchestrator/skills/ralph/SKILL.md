@@ -215,7 +215,7 @@ node claude-plugins/task-orchestrator/scripts/ralph-loop.mjs \
   --max 10
 ```
 
-User runs it. Each iteration spawns a fresh `claude -p --worktree=ralph-<id>` with the iteration prompt. The agent claims one item, invokes `/schema-workflow` to drive it through whatever phases its schema declares, commits changes, and exits with the outcome marker.
+User runs it. Each iteration spawns a fresh `claude -p --worktree=ralph-<id>` with the iteration prompt. The agent uses `claim_item` selector mode to atomically find and claim one item (a single MCP call — no race window), invokes `/schema-workflow` to drive it through whatever phases its schema declares, commits changes, and exits with the outcome marker.
 
 5 iterations later: 3 terminal, 1 gate-blocked (a required note couldn't be filled — e.g., needed external context the iteration didn't have), 1 errored (test failure unrelated to the fix). Loop exits when consecutive gate failures hit the budget (3) or queue empties — whichever comes first.
 
@@ -271,9 +271,11 @@ Solution: Run with `--dry-run` and inspect the prompt that would be sent. If the
 
 ---
 
-**Problem: claim contention — every iteration gets `skip` with "all candidates already claimed"**
+**Problem: claim contention — every iteration gets `skip` or `no_match` because all candidates are already claimed**
 
 Cause: Stale claims from a crashed previous run, or another worker is already draining. TTL is the recovery mechanism.
+
+Note: With selector mode, `claim_item` returns `no_match` (kind=permanent) when all queue items matching the filter are already claimed, rather than returning an `already_claimed` error. The iteration treats this as a `no-item` exit.
 
 Solution: Check `query_items(operation="search", claimStatus="claimed")` to see who holds claims. If they're all from a crashed `ralph-<pid>-<ts>` actor, wait for TTL expiry (default 30 min per the loop's settings) or release them via `claim_item(releases=[...])` if you know they're stale.
 

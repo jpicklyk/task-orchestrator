@@ -5,7 +5,7 @@ const output = {
     hookEventName: "SessionStart",
     additionalContext: `## Current (v3) Task Orchestrator — Session Context
 
-**Tool surface (13 tools):** manage_items, query_items, manage_notes, query_notes, manage_dependencies, query_dependencies, advance_item, get_next_item, get_blocked_items, get_next_status, create_work_tree, complete_tree, get_context
+**Tool surface (14 tools):** manage_items, query_items, manage_notes, query_notes, manage_dependencies, query_dependencies, advance_item, claim_item, get_next_item, get_blocked_items, get_next_status, create_work_tree, complete_tree, get_context
 
 **Workflow:**
 - Items progress through roles: queue → work → review → terminal
