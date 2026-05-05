@@ -12,6 +12,7 @@ import io.github.jpicklyk.mcptask.current.test.SQLiteRepositoryTestBase
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.intOrNull
@@ -59,8 +60,8 @@ class ClaimItemToolBatchCompositionTest : SQLiteRepositoryTestBase() {
             put("kind", "orchestrator")
         }
 
-    private suspend fun createItem(title: String): WorkItem {
-        val result = repository.create(WorkItem(title = title, role = Role.QUEUE))
+    private suspend fun createItem(title: String, role: Role = Role.QUEUE): WorkItem {
+        val result = repository.create(WorkItem(title = title, role = role))
         assertIs<Result.Success<WorkItem>>(result)
         return result.data
     }
@@ -148,5 +149,79 @@ class ClaimItemToolBatchCompositionTest : SQLiteRepositoryTestBase() {
             assertIs<Result.Success<WorkItem>>(itemMixedAfter)
             assertEquals(agentAlpha, itemMixedAfter.data.claimedBy)
             assertNotNull(itemMixedAfter.data.claimExpiresAt)
+        }
+
+    /**
+     * Selector + multi-release composition: agent holds two items (ITEM_A and ITEM_B),
+     * issues a selector claim (finds ITEM_C from the queue) plus explicit releases for ITEM_A and ITEM_B.
+     *
+     * Expected outcomes:
+     * - claimResults[0]: success for ITEM_C (resolved by selector), selectorResolved=true.
+     * - The claim() call atomically auto-releases ITEM_A (or ITEM_B) for the agent.
+     * - releaseResults: both ITEM_A and ITEM_B release calls — at least one succeeds, one may
+     *   be not_claimed_by_you if it was auto-released by the claim step.
+     * - End-state: only ITEM_C is held by agent-alpha.
+     *
+     * This test exercises the selector path through the REAL SQLite repository (no mocks)
+     * to verify the full chain: selector → findClaimable → blocking-walk → claim().
+     */
+    @Test
+    fun `selector claim with multi-release resolves queue item and releases held items`(): Unit =
+        runBlocking {
+            val itemA = createItem("Item A")
+            val itemB = createItem("Item B")
+            val itemC = createItem("Item C")
+
+            // Pre-state: agent-alpha holds ITEM_A.
+            assertIs<ClaimResult.Success>(repository.claim(itemA.id, agentAlpha, 900))
+            // Also claim ITEM_B in a second call — the claim for ITEM_B auto-releases ITEM_A
+            assertIs<ClaimResult.Success>(repository.claim(itemB.id, agentAlpha, 900))
+
+            val params =
+                buildJsonObject {
+                    put(
+                        "claims",
+                        buildJsonArray {
+                            // Selector entry — no itemId, uses selector to find from queue
+                            add(
+                                buildJsonObject {
+                                    put("selector", buildJsonObject {})
+                                }
+                            )
+                        }
+                    )
+                    put(
+                        "releases",
+                        buildJsonArray {
+                            add(buildJsonObject { put("itemId", itemA.id.toString()) })
+                            add(buildJsonObject { put("itemId", itemB.id.toString()) })
+                        }
+                    )
+                    put("actor", actor(agentAlpha))
+                    put("requestId", UUID.randomUUID().toString())
+                }
+
+            val response = tool.execute(params, context()) as JsonObject
+            val data = response["data"] as JsonObject
+
+            // --- claimResults: selector resolved ITEM_C and claimed it ---
+            val claimResults = data["claimResults"] as JsonArray
+            assertEquals(1, claimResults.size)
+            val claimEntry = claimResults[0] as JsonObject
+            assertEquals("success", claimEntry["outcome"]!!.jsonPrimitive.content)
+            // selectorResolved flag must be present and true
+            assertEquals(true, claimEntry["selectorResolved"]?.jsonPrimitive?.booleanOrNull)
+            // The itemId that was resolved must be ITEM_C (only unclaimed item in queue)
+            assertEquals(itemC.id.toString(), claimEntry["itemId"]!!.jsonPrimitive.content)
+            assertEquals(agentAlpha, claimEntry["claimedBy"]!!.jsonPrimitive.content)
+
+            // --- summary: 1 claim succeeded ---
+            val summary = data["summary"] as JsonObject
+            assertEquals(1, summary["claimsSucceeded"]!!.jsonPrimitive.intOrNull)
+
+            // --- End-state: ITEM_C is claimed by agent-alpha ---
+            val itemCAfter = repository.getById(itemC.id)
+            assertIs<Result.Success<WorkItem>>(itemCAfter)
+            assertEquals(agentAlpha, itemCAfter.data.claimedBy, "ITEM_C must be claimed by agent-alpha")
         }
 }
