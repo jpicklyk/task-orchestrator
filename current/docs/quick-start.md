@@ -225,8 +225,11 @@ create_work_tree(
   ]
 )
 
-# Find the next thing to work on
+# Find the next thing to work on (highest-priority, dependency-unblocked)
 get_next_item()
+
+# Find the next high-priority quick win (complexity ≤ 3)
+get_next_item(priority="high", complexityMax=3)
 
 # Transition an item through its lifecycle
 advance_item(transitions=[{itemId: "<uuid>", trigger: "start"}])

@@ -450,6 +450,25 @@ Metrics and observability infrastructure are explicitly deferred to a future rel
 
 Lifecycle and edge-case behaviors that operators encounter once a claim-mode fleet is running.
 
+### Atomic Claim Acquisition (Selector Mode)
+
+Fleet agents can eliminate the race window inherent in the two-call `get_next_item → claim_item(itemId=...)` pattern by using selector mode instead. The selector resolves a filter+rank query and claims the top match atomically in one call.
+
+```json
+{
+  "claims": [{
+    "selector": { "orderBy": "oldest", "priority": "high" },
+    "ttlSeconds": 900
+  }],
+  "actor": { "id": "worker-pod-12", "kind": "subagent" },
+  "requestId": "<fresh UUID per iteration>"
+}
+```
+
+`orderBy: "oldest"` (createdAt ascending) provides **fair-share queue draining**: agents process items in FIFO order rather than competing for the same high-priority items simultaneously. When all eligible items are claimed, agents receive `outcome: "no_match"` with `kind: "permanent"` — signal to idle or poll after a delay.
+
+The filter shape accepted by `claim_item.selector` is identical to the `get_next_item` filter parameters — both tools share the same underlying eligibility logic.
+
 ### Graceful Drain
 
 There is no built-in drain command. The intended sequence to stop a TO instance with active claims:

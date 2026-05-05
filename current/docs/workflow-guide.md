@@ -877,6 +877,8 @@ The claim mechanism prevents race conditions between independent agents competin
 
 ### Claim Lifecycle
 
+The standard two-call pattern — discover then claim:
+
 ```
 get_next_item()                     → find an unclaimed item
 claim_item(claims=[{itemId, ttl}])  → claim it (auto-releases any prior claim by this agent)
@@ -887,6 +889,49 @@ advance_item(trigger="start")       → ownership enforced: actor must match cla
 claim_item(claims=[{itemId}])       → heartbeat: refresh TTL (if work > TTL/2 = 450s)
 advance_item(trigger="complete")    → ownership enforced at completion too
 ```
+
+> **Deprecation note:** `claim_item` with multiple `itemId` entries in a single `claims` array is a deprecated path. Each successive successful claim auto-releases its predecessors, so only the last claim survives — a `claims: [A, B, C]` call ends with only C held. Issue one claim per call. ID-based multi-claim is preserved for backward compatibility but will be rejected in a future major version (tracked as MCP item `b8ac68a4`). Selector mode (`selector` field) is single-claim-only by validation and is the recommended migration path.
+
+### Atomic Find-and-Claim (Selector Mode)
+
+The two-call pattern above has an inherent race: between `get_next_item` returning an item ID and `claim_item(itemId=...)` locking it, another agent can claim the same item. For high-concurrency fleets, selector mode eliminates this window by resolving the filter and claiming the top match atomically in one call.
+
+`get_next_item` and `claim_item.selector` accept **identical filter shapes** — the same `tags`, `priority`, `type`, `complexityMax`, `createdAfter/Before`, `roleChangedAfter/Before`, and `orderBy` parameters apply in both tools, backed by the same shared eligibility logic (`NextItemRecommender`).
+
+**Selector mode lifecycle:**
+
+```
+claim_item(claims=[{ selector: { priority: "high", complexityMax: 4, orderBy: "oldest" }, ttlSeconds: 900 }],
+           actor={...}, requestId=<uuid>)
+  outcome=success, selectorResolved=true → proceed with advance_item + work (itemId is in the result)
+  outcome=no_match, kind=permanent       → queue is empty for these filters; back off or wait
+  outcome=already_claimed                → TOCTOU race (rare); retry immediately with a fresh requestId
+advance_item(trigger="start")       → ownership enforced: actor must match claimedBy
+  ... do work ...
+claim_item(claims=[{itemId}])       → heartbeat: refresh TTL (use the itemId from the selector result)
+advance_item(trigger="complete")    → ownership enforced at completion too
+```
+
+**Fleet drain pattern using selector mode:**
+
+```json
+// Each agent calls this loop independently — no coordination needed
+{
+  "claims": [{
+    "selector": { "orderBy": "oldest" },
+    "ttlSeconds": 900,
+    "claimRef": "worker-7-drain-loop"
+  }],
+  "actor": { "id": "worker-agent-7", "kind": "subagent" },
+  "requestId": "<fresh UUID per iteration>"
+}
+```
+
+`orderBy: "oldest"` provides fair-share FIFO draining: agents process items in creation order rather than racing to the same high-priority items. When `no_match` is returned, the queue is drained — the agent can idle, exit, or poll after a delay.
+
+`claimRef` (up to 64 chars) is echoed verbatim in every result and is useful for correlating claim results back to your agent's internal loop state without parsing `itemId` values.
+
+**Idempotency with selector mode.** A `(actor, requestId)` cache hit replays the resolved response verbatim — the same `itemId` is returned, and the selector is **not** re-evaluated against fresh queue state. Use a fresh `requestId` per claim iteration, not per retry of the same iteration.
 
 ### Heartbeat Pattern
 
@@ -960,8 +1005,11 @@ get_context(itemId="uuid")
 | Cancel an item                    | `advance_item(transitions=[{itemId, trigger:"cancel"}])`        |
 | Reopen a terminal item           | `advance_item(transitions=[{itemId, trigger:"reopen"}])`        |
 | Filter by phase                   | `query_items(operation="search", role="work")`                  |
-| Claim an item (fleet)             | `claim_item(claims=[{itemId, ttlSeconds:900}], actor={id, kind})` |
-| Release a claim                   | `claim_item(releases=[{itemId}], actor={id, kind})` |
-| Heartbeat (refresh TTL)           | `claim_item(claims=[{itemId}], actor={id, kind})` — same as claim, TTL refreshed |
+| Claim an item (fleet, ID mode)    | `claim_item(claims=[{itemId, ttlSeconds:900}], actor={id, kind}, requestId=<uuid>)` |
+| Claim next eligible (selector)    | `claim_item(claims=[{selector:{orderBy:"oldest"}}], actor={id, kind}, requestId=<uuid>)` |
+| Release a claim                   | `claim_item(releases=[{itemId}], actor={id, kind}, requestId=<uuid>)` |
+| Heartbeat (refresh TTL)           | `claim_item(claims=[{itemId}], actor={id, kind}, requestId=<uuid>)` — same as claim, TTL refreshed |
 | Find expired claims               | `query_items(operation="search", claimStatus="expired")` |
 | Diagnose stalled claim            | `get_context(itemId="uuid")` — returns `claimDetail` with `claimedBy` |
+| Filter next item by tag           | `get_next_item(tags="task-implementation", priority="high")` |
+| FIFO queue drain                  | `get_next_item(orderBy="oldest")` |

@@ -1013,7 +1013,7 @@ Each entry in the `schema` array includes: `key`, `role`, `required`, `descripti
 **Purpose.** Priority-ranked recommendation of the next WorkItem(s) to work on. Finds items in the
 requested role (default: `queue`), filters out those with unsatisfied blocking dependencies and those
 with active claims (unless `includeClaimed=true`), and ranks by priority descending then complexity
-ascending (quick wins first).
+ascending (quick wins first) by default.
 
 #### Key Parameters
 
@@ -1026,16 +1026,65 @@ ascending (quick wins first).
 | `includeAncestors` | boolean | No | Include `ancestors` array on each recommendation (default: false) |
 | `includeClaimed` | boolean | No | When `false` (default), items with an active claim are filtered out. When `true`, claimed items are included but only a boolean `isClaimed` field is added — the claiming agent's identity is never exposed. |
 
+#### Filter Parameters (all optional)
+
+| Parameter | Type | Description |
+|---|---|---|
+| `tags` | string (comma-separated) | Return only items whose tags contain any of the listed values (any-match) |
+| `priority` | string (`high`\|`medium`\|`low`) | Return only items with this exact priority |
+| `type` | string | Return only items of this type (exact match) |
+| `complexityMax` | integer (1–10) | Return only items with complexity ≤ this value |
+| `createdAfter` | string (ISO 8601) | Return only items created after this timestamp |
+| `createdBefore` | string (ISO 8601) | Return only items created before this timestamp |
+| `roleChangedAfter` | string (ISO 8601) | Return only items whose role last changed after this timestamp |
+| `roleChangedBefore` | string (ISO 8601) | Return only items whose role last changed before this timestamp |
+| `orderBy` | string (`priority`\|`oldest`\|`newest`) | Ordering strategy: `priority` (default — HIGH first then complexity ascending / quick wins), `oldest` (createdAt ascending / FIFO drain), `newest` (createdAt descending / recency-biased) |
+
+The tiered claim disclosure contract applies under all filter combinations: `claimedBy` identity is never exposed by this tool, regardless of which filters are active.
+
 **Discovery patterns for multi-role fleets:**
 - Work-group agents: `get_next_item()` (default `role=queue`)
 - Review-group agents: `get_next_item(role="review")`
 - Triage-group agents: `get_next_item(role="blocked")`
 - Fleet health debugging: `get_next_item(includeClaimed=true)` to see claimed items without identity disclosure
+- Fair-share FIFO drain: `get_next_item(orderBy="oldest")` — processes items in creation order
 
 **Example.**
 
 ```json
 { "parentId": "550e8400-e29b-41d4-a716-446655440000", "limit": 3, "includeDetails": true }
+```
+
+#### Filtered Queries
+
+Filter by tag (any-match):
+
+```json
+{ "tags": "task-implementation,feature-task", "limit": 5 }
+```
+
+Filter by priority:
+
+```json
+{ "priority": "high", "role": "queue" }
+```
+
+Filter by maximum complexity (quick wins only):
+
+```json
+{ "complexityMax": 3, "orderBy": "priority" }
+```
+
+Time-window filter — items added to the queue in the last hour:
+
+```json
+{ "createdAfter": "2026-01-01T11:00:00Z", "createdBefore": "2026-01-01T12:00:00Z" }
+```
+
+FIFO queue drain — oldest unclaimed item first:
+
+```json
+{ "orderBy": "oldest" }
 ```
 
 **Response (default — unclaimed items only).**
@@ -1102,9 +1151,34 @@ changing the claim holder.
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `actor` | object | Yes | Actor identity — `{ id, kind, parent?, proof? }`. Verified identity overrides any `agentId` field on individual claim entries. |
-| `claims` | array | No | Items to claim: `[{ itemId (UUID or hex prefix), ttlSeconds? (default 900), agentId? (optional — overridden by verified actor when present) }]`. At least one of `claims` or `releases` must be non-empty. |
+| `claims` | array | No | Items to claim. Each entry uses **ID mode** or **selector mode** (see below). At least one of `claims` or `releases` must be non-empty. |
 | `releases` | array | No | Items to release: `[{ itemId (UUID or hex prefix) }]`. |
 | `requestId` | string (UUID) | **Yes** | Client-generated UUID for idempotency. Required — `claim_item` is a fleet-mode tool and idempotency is a hard contract. Single-orchestrator deployments do not use `claim_item`; fleet callers are in a multi-agent context where network retries are a real concern. Repeated calls with the same (`actor.id`, `requestId`) within ~10 minutes return the cached response without re-executing. |
+
+**`claims[]` entry schema — two mutually exclusive modes:**
+
+- **ID mode:** `{ itemId (required UUID or hex prefix), ttlSeconds? (optional int, default 900, max 86400), agentId? (optional — overridden by verified actor), claimRef? (optional string, max 64 chars — echoed verbatim in the result for caller correlation) }`
+- **Selector mode:** `{ selector (required object — see below), ttlSeconds? (optional int, default 900, max 86400), claimRef? (optional string, max 64 chars — echoed verbatim in the result) }`
+
+Each entry must have exactly one of `itemId` or `selector`. When any entry uses `selector`, the `claims` array must contain exactly 1 entry (see multi-claim batch warning below).
+
+**`selector` object fields** (all optional within the object; the object itself is required in selector mode):
+
+| Field | Type | Description |
+|---|---|---|
+| `role` | string | Role to search in: `queue`\|`work`\|`review`\|`blocked` (default: `queue`) |
+| `parentId` | string (UUID) | Filter to items under this parent |
+| `tags` | string (comma-separated) | Filter by tags (any-match) |
+| `priority` | string | `high`\|`medium`\|`low` |
+| `type` | string | Item type (exact match) |
+| `complexityMax` | integer (1–10) | Maximum complexity |
+| `createdAfter` | string (ISO 8601) | Items created after this timestamp |
+| `createdBefore` | string (ISO 8601) | Items created before this timestamp |
+| `roleChangedAfter` | string (ISO 8601) | Items whose role changed after this timestamp |
+| `roleChangedBefore` | string (ISO 8601) | Items whose role changed before this timestamp |
+| `orderBy` | string | `priority`\|`oldest`\|`newest` (default: `priority`) |
+
+The selector filter shape is identical to the `get_next_item` filter parameters — the two tools share the same underlying eligibility logic (`NextItemRecommender`), so the same filter expression produces the same item ranking in both tools.
 
 **Claim semantics:**
 
@@ -1120,7 +1194,8 @@ changing the claim holder.
 
 | Outcome | Meaning |
 |---|---|
-| `success` | Claim placed or TTL refreshed. Response includes own claim metadata. |
+| `success` | Claim placed or TTL refreshed. Response includes own claim metadata. Selector claims also include `selectorResolved: true`. |
+| `no_match` | Selector found no eligible items; `kind=permanent`. No claim attempted, no `retryAfterMs`, no `itemId`. |
 | `already_claimed` | Another agent holds a live claim. Response includes `retryAfterMs` (no competing agent identity). |
 | `not_found` | No item with that ID. |
 | `terminal_item` | Item is in TERMINAL role; cannot be claimed. |
@@ -1136,12 +1211,87 @@ changing the claim holder.
 
 **Tiered disclosure rule.** On `already_claimed`, the response includes only `retryAfterMs`. The competing agent's identity is never disclosed — this prevents claim sniping and jealousy patterns.
 
-**Example.**
+**Idempotency replay.** A `(actor, requestId)` cache hit replays the resolved response verbatim — including the same `itemId` for selector calls. The selector is **not** re-evaluated against fresh queue state on retry; the first-resolution result is what you get.
+
+> **⚠ Multi-claim batch warning (ID-based claims, deprecated path):**
+> Each successful claim auto-releases all other claims this agent currently holds. In a multi-claim batch, each successive `success` releases its predecessors. A call with `claims: [A, B, C]` ends with **only C held** — A and B are released even though the response reports all three as `success`. **Issue one claim per call.**
+>
+> Selector mode (`selector` field on a claim entry) is single-claim-only by validation: `claims.size > 1` with any selector present returns a `validation_error` immediately.
+>
+> ID-based multi-claim (`claims.size > 1` using `itemId` entries) is preserved for backwards compatibility but is a **deprecated path** — it will be rejected in a future major version. Tracked as MCP item `b8ac68a4`. Migrate to issuing one `claim_item` call per item.
+
+#### Atomic Find-and-Claim (Selector Mode)
+
+Selector mode atomically resolves a filter+rank query and claims the top match in a single call. This eliminates the inherent race window in the two-call pattern (`get_next_item` → `claim_item(itemId=...)`), where another agent can claim the recommended item between your two calls.
+
+**Request:**
+
+```json
+{
+  "claims": [{
+    "selector": {
+      "priority": "high",
+      "complexityMax": 4,
+      "orderBy": "oldest"
+    },
+    "ttlSeconds": 900,
+    "claimRef": "worker-7-round-42"
+  }],
+  "actor": { "id": "worker-agent-7", "kind": "subagent", "parent": "orchestrator-1" },
+  "requestId": "550e8400-e29b-41d4-a716-446655440099"
+}
+```
+
+**Response (item found and claimed):**
+
+```json
+{
+  "claimResults": [
+    {
+      "itemId": "550e8400-e29b-41d4-a716-446655440001",
+      "outcome": "success",
+      "selectorResolved": true,
+      "claimRef": "worker-7-round-42",
+      "claimedBy": "worker-agent-7",
+      "claimedAt": "2026-01-01T12:00:00Z",
+      "claimExpiresAt": "2026-01-01T12:15:00Z",
+      "originalClaimedAt": "2026-01-01T12:00:00Z"
+    }
+  ],
+  "releaseResults": [],
+  "summary": { "claimsTotal": 1, "claimsSucceeded": 1, "claimsFailed": 0,
+               "releasesTotal": 0, "releasesSucceeded": 0, "releasesFailed": 0 }
+}
+```
+
+**Response (no eligible items match the selector):**
+
+```json
+{
+  "claimResults": [
+    {
+      "outcome": "no_match",
+      "kind": "permanent",
+      "claimRef": "worker-7-round-42"
+    }
+  ],
+  "releaseResults": [],
+  "summary": { "claimsTotal": 1, "claimsSucceeded": 0, "claimsFailed": 1,
+               "releasesTotal": 0, "releasesSucceeded": 0, "releasesFailed": 0 }
+}
+```
+
+`no_match` means the queue is genuinely empty for the given filters at this moment. `kind=permanent` signals there is no point retrying with the same filters immediately — the condition will only change when new items enter the queue.
+
+`selectorResolved: true` on success confirms the `itemId` in the result was resolved from the selector, not supplied directly by the caller.
+
+#### Example (ID Mode)
 
 ```json
 {
   "claims": [{ "itemId": "550e8400-e29b-41d4-a716-446655440001", "ttlSeconds": 900 }],
-  "actor": { "id": "worker-agent-7", "kind": "subagent", "parent": "orchestrator-1" }
+  "actor": { "id": "worker-agent-7", "kind": "subagent", "parent": "orchestrator-1" },
+  "requestId": "550e8400-e29b-41d4-a716-000000000001"
 }
 ```
 
