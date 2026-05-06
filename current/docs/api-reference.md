@@ -1167,7 +1167,7 @@ Each entry must have exactly one of `itemId` or `selector`. When any entry uses 
 | Field | Type | Description |
 |---|---|---|
 | `role` | string | Role to search in: `queue`\|`work`\|`review`\|`blocked` (default: `queue`) |
-| `parentId` | string (UUID) | Filter to items under this parent |
+| `parentId` | string (UUID or hex prefix) | Filter to items under this parent (accepts full UUID or 4+ char hex prefix, like other `parentId` fields on the surface) |
 | `tags` | string (comma-separated) | Filter by tags (any-match) |
 | `priority` | string | `high`\|`medium`\|`low` |
 | `type` | string | Item type (exact match) |
@@ -1222,7 +1222,7 @@ The selector filter shape is identical to the `get_next_item` filter parameters 
 
 #### Atomic Find-and-Claim (Selector Mode)
 
-Selector mode atomically resolves a filter+rank query and claims the top match in a single call. This eliminates the inherent race window in the two-call pattern (`get_next_item` → `claim_item(itemId=...)`), where another agent can claim the recommended item between your two calls.
+Selector mode resolves a filter+rank query and claims the top match in a single MCP call. This eliminates the **user-facing** race window of the two-call pattern (`get_next_item` → `claim_item(itemId=...)`), where another agent can claim the recommended item between your two calls. A much smaller server-side window between recommend and claim still exists and surfaces as `already_claimed` — typically rare in practice.
 
 **Request:**
 

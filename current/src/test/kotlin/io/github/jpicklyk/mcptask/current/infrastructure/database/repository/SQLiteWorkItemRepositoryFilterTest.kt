@@ -764,16 +764,19 @@ class SQLiteWorkItemRepositoryFilterTest {
             // Unclaimed item — should be included
             repository.create(WorkItem(title = "Unclaimed", role = Role.QUEUE))
 
-            // Actively claimed item — claimExpiresAt in the future → must be excluded
-            val futureExpiry = Instant.now().plusSeconds(900)
+            // Actively claimed item — claimExpiresAt in the future → must be excluded.
+            // Capture `now` once so claimedAt and originalClaimedAt are equal — separate
+            // Instant.now() calls drift by microseconds on Linux CI's high-resolution clock
+            // and trip WorkItem.validate()'s originalClaimedAt <= claimedAt invariant.
+            val now = Instant.now()
             repository.create(
                 WorkItem(
                     title = "Claimed",
                     role = Role.QUEUE,
                     claimedBy = "agent-x",
-                    claimedAt = Instant.now(),
-                    claimExpiresAt = futureExpiry,
-                    originalClaimedAt = Instant.now(),
+                    claimedAt = now,
+                    claimExpiresAt = now.plusSeconds(900),
+                    originalClaimedAt = now,
                 )
             )
 
@@ -789,16 +792,19 @@ class SQLiteWorkItemRepositoryFilterTest {
             // Unclaimed — included
             repository.create(WorkItem(title = "Unclaimed", role = Role.QUEUE))
 
-            // Expired claim — claimExpiresAt in the past → should be included
-            val pastExpiry = Instant.now().minusSeconds(60)
+            // Expired claim — claimExpiresAt in the past → should be included.
+            // Capture `now` once so claimedAt and originalClaimedAt are equal — separate
+            // Instant.now() calls drift by microseconds on Linux CI's high-resolution clock
+            // and trip WorkItem.validate()'s originalClaimedAt <= claimedAt invariant.
+            val now = Instant.now()
             repository.create(
                 WorkItem(
                     title = "Expired claim",
                     role = Role.QUEUE,
                     claimedBy = "agent-y",
-                    claimedAt = Instant.now().minusSeconds(120),
-                    claimExpiresAt = pastExpiry,
-                    originalClaimedAt = Instant.now().minusSeconds(120),
+                    claimedAt = now.minusSeconds(120),
+                    claimExpiresAt = now.minusSeconds(60),
+                    originalClaimedAt = now.minusSeconds(120),
                 )
             )
 

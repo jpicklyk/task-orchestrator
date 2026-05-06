@@ -452,7 +452,7 @@ Lifecycle and edge-case behaviors that operators encounter once a claim-mode fle
 
 ### Atomic Claim Acquisition (Selector Mode)
 
-Fleet agents can eliminate the race window inherent in the two-call `get_next_item → claim_item(itemId=...)` pattern by using selector mode instead. The selector resolves a filter+rank query and claims the top match atomically in one call.
+Fleet agents can eliminate the **user-facing** race window inherent in the two-call `get_next_item → claim_item(itemId=...)` pattern by using selector mode instead. The selector resolves a filter+rank query and claims the top match in a single MCP call. (A much smaller server-side window between recommend and claim remains and surfaces as `already_claimed` — typically rare in practice.)
 
 ```json
 {

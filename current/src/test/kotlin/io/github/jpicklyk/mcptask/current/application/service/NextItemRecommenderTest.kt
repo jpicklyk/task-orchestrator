@@ -382,6 +382,39 @@ class NextItemRecommenderTest {
         }
 
     // -----------------------------------------------------------------------
+    // OVER_FETCH_LIMIT exhaustion — every candidate is blocked
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun `all candidates blocked returns empty success without crash (OVER_FETCH_LIMIT exhaustion)`(): Unit =
+        runBlocking {
+            // Simulates the silent-starvation edge case noted in OVER_FETCH_LIMIT KDoc:
+            // every over-fetched candidate fails the dependency-blocking walk. The
+            // recommender must return Result.Success(emptyList()) — not an error, not a
+            // crash. Callers may legitimately receive 0 items even when the underlying
+            // queue has many candidates, if blocking-filter drop rates are high.
+            val blocker = workItem(role = Role.QUEUE, title = "Blocker (not yet at terminal)")
+            val blockedItems = (1..10).map { i -> workItem(title = "Blocked #$i") }
+
+            stubFindClaimable(blockedItems)
+
+            blockedItems.forEach { item ->
+                every { dependencyRepo.findByToItemId(item.id) } returns
+                    listOf(blocksDep(fromItemId = blocker.id, toItemId = item.id))
+                every { dependencyRepo.findByFromItemId(item.id) } returns emptyList()
+            }
+            coEvery { workItemRepo.getById(blocker.id) } returns Result.Success(blocker)
+
+            val result = recommender.recommend(NextItemRecommender.Criteria(), limit = 5)
+
+            assertIs<Result.Success<List<WorkItem>>>(result)
+            assertTrue(
+                result.data.isEmpty(),
+                "All candidates blocked must yield empty Success — not error, not partial"
+            )
+        }
+
+    // -----------------------------------------------------------------------
     // Empty result
     // -----------------------------------------------------------------------
 

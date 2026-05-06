@@ -317,7 +317,7 @@ in a future major version (tracked separately).
                     if (priorityPrim != null) {
                         Priority.fromString(priorityPrim.content)
                             ?: throw ToolValidationException(
-                                "claims[$index].selector.priority must be HIGH, MEDIUM, or LOW, got '${priorityPrim.content}'"
+                                "claims[$index].selector.priority must be high, medium, or low, got '${priorityPrim.content}'"
                             )
                     }
 
@@ -357,16 +357,18 @@ in a future major version (tracked separately).
                             )
                     }
 
-                    // parentId
+                    // parentId — accepts full UUID or hex prefix (4+ chars), matching itemId
+                    // resolution and every other parentId field on the surface (get_next_item,
+                    // manage_items, create_work_tree). Format check only — actual prefix
+                    // resolution happens in execute() before buildCriteria.
                     val parentIdPrim = selectorObj["parentId"] as? JsonPrimitive
                     if (parentIdPrim != null) {
-                        try {
-                            UUID.fromString(parentIdPrim.content)
-                        } catch (_: IllegalArgumentException) {
+                        if (!parentIdPrim.isString || parentIdPrim.content.isBlank()) {
                             throw ToolValidationException(
-                                "claims[$index].selector.parentId must be a valid UUID, got '${parentIdPrim.content}'"
+                                "claims[$index].selector.parentId must be a non-empty string"
                             )
                         }
+                        validateIdStringOrPrefix(parentIdPrim.content, "claims[$index].selector.parentId")
                     }
 
                     // tags — non-blank string
@@ -491,7 +493,33 @@ in a future major version (tracked separately).
                 // --- Selector path ---
                 val selectorObj = claimObj["selector"] as? JsonObject ?: continue
 
-                val criteria = buildCriteria(selectorObj)
+                // Resolve parentId (may be a hex prefix) before building criteria. Format was
+                // already checked in validateParams; resolution here looks up the full UUID
+                // for prefixes via the repository. A failed lookup surfaces as not_found.
+                val selectorParentIdStr = (selectorObj["parentId"] as? JsonPrimitive)?.content
+                var resolvedSelectorParentId: UUID? = null
+                if (selectorParentIdStr != null) {
+                    val (resolvedUuid, idError) = resolveIdString(selectorParentIdStr, context)
+                    if (idError != null) {
+                        claimsFailed++
+                        claimResultsList.add(
+                            buildJsonObject {
+                                put("outcome", JsonPrimitive("not_found"))
+                                put(
+                                    "error",
+                                    JsonPrimitive(
+                                        "Failed to resolve selector.parentId: $selectorParentIdStr"
+                                    )
+                                )
+                                claimRef?.let { put("claimRef", JsonPrimitive(it)) }
+                            }
+                        )
+                        continue
+                    }
+                    resolvedSelectorParentId = resolvedUuid
+                }
+
+                val criteria = buildCriteria(selectorObj, resolvedSelectorParentId)
 
                 when (val recommendResult = context.nextItemRecommender.recommend(criteria, limit = 1)) {
                     is Result.Success -> {
@@ -840,13 +868,18 @@ in a future major version (tracked separately).
 
     /**
      * Builds a [NextItemRecommender.Criteria] from a selector JSON object.
+     *
+     * `parentId` is resolved by the caller via [resolveIdString] (because resolution
+     * of a hex prefix is suspending and may fail with a not_found error) and passed in
+     * here as an already-resolved UUID. Pass null when the selector did not specify a
+     * parentId.
      */
-    private fun buildCriteria(selectorObj: JsonObject): NextItemRecommender.Criteria {
+    private fun buildCriteria(
+        selectorObj: JsonObject,
+        resolvedParentId: UUID?
+    ): NextItemRecommender.Criteria {
         val roleStr = (selectorObj["role"] as? JsonPrimitive)?.content
         val role = roleStr?.let { Role.fromString(it) } ?: Role.QUEUE
-
-        val parentIdStr = (selectorObj["parentId"] as? JsonPrimitive)?.content
-        val parentId = parentIdStr?.let { runCatching { UUID.fromString(it) }.getOrNull() }
 
         val tagsStr = (selectorObj["tags"] as? JsonPrimitive)?.content
         val tags = tagsStr?.split(",")?.map { it.trim() }?.filter { it.isNotBlank() }
@@ -876,7 +909,7 @@ in a future major version (tracked separately).
 
         return NextItemRecommender.Criteria(
             role = role,
-            parentId = parentId,
+            parentId = resolvedParentId,
             tags = tags,
             priority = priority,
             type = type,

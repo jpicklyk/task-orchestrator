@@ -1032,6 +1032,59 @@ class ClaimItemToolTest {
     }
 
     @Test
+    fun `validateParams accepts selector parentId as 4-char hex prefix`() {
+        // Selector parentId now accepts UUID or hex prefix (4+ chars), matching every
+        // other parentId field on the surface (get_next_item, manage_items, create_work_tree).
+        val p =
+            buildJsonObject {
+                put(
+                    "claims",
+                    buildJsonArray {
+                        add(
+                            buildJsonObject {
+                                put(
+                                    "selector",
+                                    buildJsonObject { put("parentId", "abcd1234") }
+                                )
+                            }
+                        )
+                    }
+                )
+                put("actor", actorJson())
+                put("requestId", UUID.randomUUID().toString())
+            }
+        // Must not throw — 8-char hex prefix is valid
+        tool.validateParams(p)
+    }
+
+    @Test
+    fun `validateParams rejects selector parentId hex prefix shorter than 4 chars`() {
+        val p =
+            buildJsonObject {
+                put(
+                    "claims",
+                    buildJsonArray {
+                        add(
+                            buildJsonObject {
+                                put(
+                                    "selector",
+                                    buildJsonObject { put("parentId", "abc") }
+                                )
+                            }
+                        )
+                    }
+                )
+                put("actor", actorJson())
+                put("requestId", UUID.randomUUID().toString())
+            }
+        val ex = assertFailsWith<ToolValidationException> { tool.validateParams(p) }
+        assertTrue(
+            ex.message!!.contains("parentId") && ex.message!!.contains("prefix"),
+            "Error must mention parentId and prefix length. Got: ${ex.message}"
+        )
+    }
+
+    @Test
     fun `validateParams throws when claimRef exceeds 64 chars`() {
         val longRef = "a".repeat(65)
         val p =

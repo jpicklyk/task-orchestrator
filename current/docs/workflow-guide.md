@@ -894,7 +894,7 @@ advance_item(trigger="complete")    → ownership enforced at completion too
 
 ### Atomic Find-and-Claim (Selector Mode)
 
-The two-call pattern above has an inherent race: between `get_next_item` returning an item ID and `claim_item(itemId=...)` locking it, another agent can claim the same item. For high-concurrency fleets, selector mode eliminates this window by resolving the filter and claiming the top match atomically in one call.
+The two-call pattern above has an inherent race: between `get_next_item` returning an item ID and `claim_item(itemId=...)` locking it, another agent can claim the same item. For high-concurrency fleets, selector mode eliminates the **user-facing** race window by resolving the filter and claiming the top match in a single MCP call. A much smaller server-side window between recommend and claim still exists and surfaces as `already_claimed` — typically rare in practice.
 
 `get_next_item` and `claim_item.selector` accept **identical filter shapes** — the same `tags`, `priority`, `type`, `complexityMax`, `createdAfter/Before`, `roleChangedAfter/Before`, and `orderBy` parameters apply in both tools, backed by the same shared eligibility logic (`NextItemRecommender`).
 
