@@ -42,7 +42,7 @@ import java.util.UUID
  * **Selector mode:**
  * - Each claim entry may use `selector` (instead of `itemId`) for atomic find-and-claim.
  * - Selector resolves a filter+rank query and claims the top match in one call.
- * - Single-claim-per-call by validation when any selector is present.
+ * - Single-claim-per-call enforced by validation for all claim modes (`claims.size > 1` rejected).
  * - `no_match` outcome (kind=permanent) when the queue is empty for the given filters.
  * - `claimRef` (optional, ≤64 chars) is echoed in every result for caller correlation.
  *
@@ -74,7 +74,7 @@ any prior claim held by the same agent.
   - ID mode: `{ itemId (required UUID or short hex), ttlSeconds? (optional int, default 900, max 86400), agentId? (optional string, overridden by verified actor), claimRef? (optional string, max 64 chars — echoed in result) }`
   - Selector mode: `{ selector (required object — see below), ttlSeconds? (optional int, default 900, max 86400), claimRef? (optional string, max 64 chars — echoed in result) }`
   - Each entry must have exactly one of `itemId` or `selector`.
-  - When any entry uses `selector`, claims array must contain exactly 1 entry (see batch warning below).
+  - **Single-claim-per-call:** `claims` array must contain at most 1 entry. Use one call per item.
 - `releases` (optional array): Items to release. Each element: `{ itemId (required UUID or short hex) }`
 - `actor` (required): `{ id (required string), kind (required: orchestrator|subagent|user|external), parent? (optional string), proof? (optional string) }` — identity used as the claim holder. Verified identity overrides self-reported agentId.
 - `requestId` (required UUID): Client-generated UUID for idempotency. Required — `claim_item` is a fleet-mode tool and idempotency is a hard contract. Repeated calls with the same (actor, requestId) within ~10 minutes return the cached response without re-executing.
@@ -94,14 +94,10 @@ any prior claim held by the same agent.
 
 At least one of `claims` or `releases` must be non-empty.
 
-**⚠ Multi-claim batch semantics (ID-based claims, deprecated path):**
-Each successful claim auto-releases all other claims this agent currently holds.
-In a multi-claim batch, each successive `success` releases its predecessors.
-A call with `claims: [A, B, C]` ends with only C held — A and B are released even
-though the response reports all three as `success`. **Issue one claim per call.**
-Selector mode (`selector` field on a claim entry) is single-claim-only by validation.
-ID-based multi-claim is preserved for backwards compatibility but will be rejected
-in a future major version (tracked separately).
+**Single-claim-per-call:** `claims` array must contain at most 1 entry. Use one call per item.
+The cap derives from the heartbeat write-budget assumption (one TTL refresh per agent per cycle).
+A future `claim_heartbeats` table mitigation could remove the constraint.
+Releases array (`releases`) continues to support N entries — only `claims` is restricted.
 
 **Claim outcomes per item:**
 - `success` — claim placed or TTL refreshed (same agent re-claim). Response includes own claim metadata. Selector claims also include `selectorResolved: true`.
@@ -160,15 +156,15 @@ in a future major version (tracked separately).
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Array of claim requests. Each entry uses either ID mode: " +
+                                    "Array of claim requests. Max 1 entry per call — use one call per item. " +
+                                        "Each entry uses either ID mode: " +
                                         "{ itemId (required UUID or hex prefix), " +
                                         "ttlSeconds? (optional int, default 900, min 1, max 86400 — 24 h cap), " +
                                         "agentId? (optional string, overridden by verified actor), " +
                                         "claimRef? (optional string, max 64 chars) } " +
                                         "or Selector mode: { selector (required object with filter fields), " +
                                         "ttlSeconds? (optional int), claimRef? (optional string, max 64 chars) }. " +
-                                        "Exactly one of itemId or selector must be present per entry. " +
-                                        "When any entry uses selector, claims array must contain exactly 1 entry."
+                                        "Exactly one of itemId or selector must be present per entry."
                                 )
                             )
                         }
@@ -252,19 +248,19 @@ in a future major version (tracked separately).
             }
         }
 
-        // Validate claims entries — check for selector mode rules
+        // Validate claims entries — check for single-claim-per-call rule
         if (!claims.isNullOrEmpty()) {
-            val hasAnySelector =
-                claims.any { element ->
-                    val obj = element as? JsonObject ?: return@any false
-                    obj.containsKey("selector")
-                }
-
-            // Single-selector-per-call rule: if any entry has selector, claims.size must == 1
-            if (hasAnySelector && claims.size > 1) {
+            // Universal single-claim-per-call rule: claims array must contain at most 1 entry.
+            // The cap derives from the heartbeat write-budget assumption (one TTL refresh per agent
+            // per cycle). Multi-claim was previously silently broken for ID-based calls (the
+            // repository auto-released all but the last claim while reporting all as success).
+            if (claims.size > 1) {
                 throw ToolValidationException(
-                    "Selector mode supports a single claim per call. Multi-claim batches conflict " +
-                        "with the one-claim-per-agent rule. To claim multiple items, issue separate calls."
+                    "multi_claim_not_supported: claim_item currently supports one claim per call. " +
+                        "Issue separate calls per item. " +
+                        "(Multi-claim previously silently released all but the last claim — " +
+                        "that footgun is now closed; the cap may be re-evaluated in a future major " +
+                        "version if a use case emerges.)"
                 )
             }
 

@@ -7,15 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking Changes
+- **`claim_item` now rejects `claims.size > 1`** with error code `multi_claim_not_supported`. Multi-claim was previously silently broken — the repository auto-released all but the last claim while the response reported all as `success`. The behavior is now rejected explicitly at the validation layer. Migration: issue one `claim_item` call per item. The cap derives from the heartbeat write-budget assumption (one TTL refresh per agent per cycle); a future `claim_heartbeats` table mitigation could re-evaluate the constraint. Only `claims` is restricted — the `releases` array remains batchable.
+
 ### Added
-- `claim_item` selector mode — atomic find-and-claim in a single call. Each claim entry may now use a `selector` object (instead of `itemId`) to resolve a filter+rank query and claim the top match without the race window of the two-call `get_next_item → claim_item` pattern. New outcomes: `no_match` (`kind=permanent`, no `retryAfterMs`, no `itemId`) when the queue is empty for the given filters; `selectorResolved: true` on success. New `claimRef` field (up to 64 chars) echoed verbatim in every claim result for caller-side correlation. Single-claim-per-call enforced by validation when any selector is present — `claims.size > 1` with a selector returns `validation_error`.
+- `claim_item` selector mode — atomic find-and-claim in a single call. Each claim entry may now use a `selector` object (instead of `itemId`) to resolve a filter+rank query and claim the top match without the race window of the two-call `get_next_item → claim_item` pattern. New outcomes: `no_match` (`kind=permanent`, no `retryAfterMs`, no `itemId`) when the queue is empty for the given filters; `selectorResolved: true` on success. New `claimRef` field (up to 64 chars) echoed verbatim in every claim result for caller-side correlation. Single-claim-per-call enforced by validation for all claim modes.
 - `get_next_item` filter parameters: `tags` (comma-separated, any-match), `priority` (`high`|`medium`|`low`), `type` (exact match), `complexityMax` (1–10), `createdAfter` (ISO 8601), `createdBefore` (ISO 8601), `roleChangedAfter` (ISO 8601), `roleChangedBefore` (ISO 8601), `orderBy` (`priority` default | `oldest` FIFO | `newest` recency). Filter shape is identical to `claim_item.selector` — both tools share the same underlying eligibility logic (`NextItemRecommender`).
 - `findClaimable` repository method composing the rich filter surface with active-claim exclusion — single source of truth for "what's eligible next" across both tools.
 - `NextItemRecommender` shared service — encapsulates the recommend+dependency-block logic so `get_next_item` and `claim_item` selector path can never diverge on eligibility semantics.
 - `NextItemOrder` enum — `PRIORITY_THEN_COMPLEXITY`, `OLDEST_FIRST`, `NEWEST_FIRST`.
-
-### Deprecated
-- ID-based multi-claim batches — `claim_item` with `claims.size > 1` using `itemId` entries. Each successive successful claim auto-releases predecessors; a `claims: [A, B, C]` call ends with only C held, even though all three report `success`. **Issue one claim per call.** This path is preserved for backward compatibility and will be rejected in a future major version. Tracked as MCP item `b8ac68a4`. Migration path: switch to selector mode or issue one `claim_item` call per item.
 
 ---
 

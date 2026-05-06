@@ -41,7 +41,7 @@ claim_item(
 
 `orderBy: "oldest"` drains the queue in FIFO order (oldest items first), ensuring fair processing across all queue items.
 
-> **Note:** When `selector` is present, the `claims` array must contain exactly one entry. Multi-selector batches are rejected with `validation_error`.
+> **Note:** The `claims` array must contain exactly one entry. `claims.size > 1` is rejected with error code `multi_claim_not_supported` regardless of mode.
 
 | Result | Action |
 |---|---|
