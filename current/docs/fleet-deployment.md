@@ -37,6 +37,88 @@ Anything else (specific skill instructions, hook behavior, output-style conventi
 
 ---
 
+## Fleet Topology Patterns
+
+Choose the topology that fits your workload. The four canonical patterns are listed from simplest to most powerful. The **hybrid pattern (Scenario D) is the recommended default for feature-based development work**.
+
+### Scenario A — Pure Orchestration (no claim_item)
+
+A single orchestrator agent owns all dispatch decisions. It calls `advance_item` to move children through the pipeline. No `claim_item` is used.
+
+**Characteristics:**
+- Simple. No identity configuration required.
+- Sequential — one orchestrator dispatches in topological order.
+- Chain continuity is implicit: the orchestrator transitions A→terminal then immediately dispatches B. No inter-agent race possible.
+- Works for single-dev or low-concurrency setups.
+
+**Ancestor-claim behavior:** Not applicable — `claim_item` is never called.
+
+### Scenario B — Pure Claim, Flat Items (no parent→child relationships)
+
+Independent items with no hierarchical relationship. Fleet agents each call `claim_item(selector=...)` and work items from a shared queue.
+
+**Characteristics:**
+- Horizontally scalable. Many agents drain the queue independently.
+- Items are genuinely independent: no shared context, no chain continuity concern.
+- Selector hygiene: use `parentId: null` or specific tag filters to restrict to top-level items.
+
+**Ancestor-claim behavior:** Inert. All items are root-level (depth=0); no ancestor chain to walk. The filter is a no-op.
+
+### Scenario C — Pure Claim, Chains (anti-pattern)
+
+Dependent items (A→B→C) where each item is independently claimed from the queue by competing fleet agents.
+
+**Anti-pattern warning:** This topology has a fundamental limitation — the **post-completion race**. When A completes and its dependency on B is cleared, B becomes claimable by every fleet agent simultaneously. Whichever agent calls `claim_item(selector=...)` first wins B, regardless of which agent has the most context from working A. The system architecture's answer to context continuity is notes as the handoff contract, but notes cannot capture an agent's working mental model.
+
+**Ancestor-claim behavior:** While A is in progress and claimed, B (a child of A) is protected from other agents' broad selectors. However, once A reaches terminal, A's claim is a stale record — the protection expires. B then becomes immediately available to all fleet agents (post-completion race). For tightly-coupled chains, use Scenario D instead.
+
+**When this is acceptable:** If your chain items are genuinely independent (notes provide sufficient handoff), and post-completion races are tolerable or managed by fine-grained selectors, Scenario C may work. Document the tradeoff explicitly.
+
+### Scenario D — Hybrid (RECOMMENDED): Claim at Parent, Orchestrate Sub-tree
+
+Fleet agents claim at the **feature level** (top-level items). Each claiming agent then orchestrates its own sub-tree using `advance_item` — not `claim_item` — for children.
+
+```
+Fleet agent work loop:
+  claim_item(selector={tags:"feature", role:"queue"})  → claim a feature
+    → advance_item(trigger="start") on the feature
+    → advance_item(trigger="start") on child A      [orchestrate, no claim_item]
+    → ... wait for A to complete ...
+    → advance_item(trigger="start") on child B      [orchestrate, no claim_item]
+    → advance_item(trigger="complete") on feature
+  claim_item(releases=[featureId])                    → release
+```
+
+**Why this is the recommended topology:**
+
+1. **No post-completion race.** Sub-items are never exposed to the claim-eligibility pool. The orchestrating agent transitions A→terminal then advances B immediately; no other agent ever sees B in a claimable state.
+2. **Full chain-context continuity.** One agent owns the entire feature sub-tree. Notes from A are in its context when it starts B. No inter-agent handoff required.
+3. **Sub-tree protection.** The ancestor-claim filter ensures other fleet agents (e.g., broad-selector drain workers) cannot accidentally claim sub-items of in-progress features. `claim_item(selector={role:"queue"})` on a competing agent will simply skip children whose ancestor is claimed.
+4. **TTL-as-recovery-vector.** If the orchestrating agent crashes, the feature's claim TTL expires. Recovery agents can then claim the feature and read `session-tracking` notes to resume orchestration. No manual intervention needed.
+
+**Recommended TTL guidance for hybrid pattern:**
+
+| Work unit size | Recommended TTL | Heartbeat cadence |
+|---|---|---|
+| Small feature (1–3 sub-tasks, < 1 hour) | 900s (default) | TTL/2 = 450s |
+| Medium feature (4–10 sub-tasks, 1–4 hours) | 3600s (1 hour) | 1800s (30 min) |
+| Large feature (10+ sub-tasks, multi-hour) | 7200s–14400s | TTL/4 |
+
+Heartbeat: re-call `claim_item(claims=[{itemId: featureId}])` at the recommended cadence while orchestration is in progress. Each heartbeat refreshes `claimExpiresAt` without changing `originalClaimedAt`.
+
+**Selector hygiene for hybrid pattern:** Use `parentId: null` or `tags: "feature"` in your selector to target top-level features. Avoid broad selectors like `role: queue` without a parent filter — these work correctly (the ancestor-claim filter protects sub-items), but they waste eligibility-query bandwidth evaluating candidates that will be filtered.
+
+### Summary Table
+
+| Topology | Claim used? | Ancestor filter impact | Chain continuity | Recommended for |
+|---|---|---|---|---|
+| A — Pure orchestration | No | Not applicable | Implicit (single orchestrator) | Single-dev, sequential pipelines |
+| B — Pure claim, flat | Yes, all items | Inert (all root) | N/A (items independent) | Truly independent parallel work |
+| C — Pure claim, chains | Yes, all items | Protects during A's work, not after | Post-completion race (anti-pattern) | Simple chains with sufficient note handoff |
+| **D — Hybrid (RECOMMENDED)** | **Feature level only** | **Full protection** | **Full (single orchestrator per feature)** | **Feature-based development work** |
+
+---
+
 ## Identity Configuration — `auth.degradedModePolicy`
 
 The `degradedModePolicy` field under `actor_authentication:` in `.taskorchestrator/config.yaml` controls how the server resolves actor identity when JWKS verification cannot produce a fully verified result.

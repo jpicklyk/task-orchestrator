@@ -826,4 +826,289 @@ class SQLiteWorkItemRepositoryFilterTest {
             assertIs<Result.Success<List<WorkItem>>>(result)
             assertTrue(result.data.isEmpty())
         }
+
+    // =====================================================================
+    // findClaimable ancestor-claim filter tests
+    // =====================================================================
+
+    @Test
+    fun `findClaimable root items unaffected by ancestor filter regardless of requestingAgentId`() =
+        runBlocking {
+            // Root item (no parent) — the ancestor-claim filter never applies.
+            repository.create(WorkItem(title = "Root item", role = Role.QUEUE, depth = 0))
+
+            // requestingAgentId=null (strict mode) — root item still claimable
+            val resultStrict = repository.findClaimable(role = Role.QUEUE, requestingAgentId = null)
+            assertIs<Result.Success<List<WorkItem>>>(resultStrict)
+            assertEquals(1, resultStrict.data.size)
+            assertEquals("Root item", resultStrict.data[0].title)
+
+            // requestingAgentId="agent-x" — root item still claimable
+            val resultAgent = repository.findClaimable(role = Role.QUEUE, requestingAgentId = "agent-x")
+            assertIs<Result.Success<List<WorkItem>>>(resultAgent)
+            assertEquals(1, resultAgent.data.size)
+        }
+
+    @Test
+    fun `findClaimable same-agent re-claim eligibility — child included when parent claimed by same agent`() =
+        runBlocking {
+            val now = Instant.now()
+            val parent =
+                WorkItem(
+                    title = "Parent (claimed by agent-x)",
+                    depth = 0,
+                    claimedBy = "agent-x",
+                    claimedAt = now,
+                    claimExpiresAt = now.plusSeconds(900),
+                    originalClaimedAt = now,
+                )
+            val savedParent = (repository.create(parent) as Result.Success).data
+
+            val child =
+                WorkItem(
+                    title = "Child",
+                    parentId = savedParent.id,
+                    depth = 1,
+                    role = Role.QUEUE,
+                )
+            repository.create(child)
+
+            // Same agent — child should be INCLUDED
+            val result = repository.findClaimable(role = Role.QUEUE, requestingAgentId = "agent-x")
+            assertIs<Result.Success<List<WorkItem>>>(result)
+            assertEquals(1, result.data.size, "Child under same-agent claimed parent should be claimable")
+            assertEquals("Child", result.data[0].title)
+        }
+
+    @Test
+    fun `findClaimable cross-agent exclusion — child excluded when parent claimed by different agent`() =
+        runBlocking {
+            val now = Instant.now()
+            val parent =
+                WorkItem(
+                    title = "Parent (claimed by agent-x)",
+                    depth = 0,
+                    claimedBy = "agent-x",
+                    claimedAt = now,
+                    claimExpiresAt = now.plusSeconds(900),
+                    originalClaimedAt = now,
+                )
+            val savedParent = (repository.create(parent) as Result.Success).data
+
+            val child =
+                WorkItem(
+                    title = "Child",
+                    parentId = savedParent.id,
+                    depth = 1,
+                    role = Role.QUEUE,
+                )
+            repository.create(child)
+
+            // Different agent — child should be EXCLUDED
+            val result = repository.findClaimable(role = Role.QUEUE, requestingAgentId = "agent-y")
+            assertIs<Result.Success<List<WorkItem>>>(result)
+            assertTrue(result.data.isEmpty(), "Child under different-agent claimed parent should be excluded")
+        }
+
+    @Test
+    fun `findClaimable null requestingAgentId strict mode — child excluded when parent claimed by anyone`() =
+        runBlocking {
+            val now = Instant.now()
+            val parent =
+                WorkItem(
+                    title = "Parent (claimed)",
+                    depth = 0,
+                    claimedBy = "any-agent",
+                    claimedAt = now,
+                    claimExpiresAt = now.plusSeconds(900),
+                    originalClaimedAt = now,
+                )
+            val savedParent = (repository.create(parent) as Result.Success).data
+
+            val child =
+                WorkItem(
+                    title = "Child",
+                    parentId = savedParent.id,
+                    depth = 1,
+                    role = Role.QUEUE,
+                )
+            repository.create(child)
+
+            // Null requestingAgentId — strict mode: any live ancestor claim excludes the child
+            val result = repository.findClaimable(role = Role.QUEUE, requestingAgentId = null)
+            assertIs<Result.Success<List<WorkItem>>>(result)
+            assertTrue(result.data.isEmpty(), "Strict mode: child under any claimed parent should be excluded")
+        }
+
+    @Test
+    fun `findClaimable multi-level ancestry — claim on grandparent excludes grandchild`() =
+        runBlocking {
+            val now = Instant.now()
+            val grandparent =
+                WorkItem(
+                    title = "Grandparent (claimed by agent-x)",
+                    depth = 0,
+                    claimedBy = "agent-x",
+                    claimedAt = now,
+                    claimExpiresAt = now.plusSeconds(900),
+                    originalClaimedAt = now,
+                )
+            val savedGrandparent = (repository.create(grandparent) as Result.Success).data
+
+            val parent =
+                WorkItem(
+                    title = "Parent (unclaimed)",
+                    parentId = savedGrandparent.id,
+                    depth = 1,
+                    role = Role.WORK,
+                )
+            val savedParent = (repository.create(parent) as Result.Success).data
+
+            val child =
+                WorkItem(
+                    title = "Grandchild",
+                    parentId = savedParent.id,
+                    depth = 2,
+                    role = Role.QUEUE,
+                )
+            repository.create(child)
+
+            // agent-y requesting — grandparent claimed by agent-x — grandchild EXCLUDED
+            val result = repository.findClaimable(role = Role.QUEUE, requestingAgentId = "agent-y")
+            assertIs<Result.Success<List<WorkItem>>>(result)
+            assertTrue(result.data.isEmpty(), "Grandchild under claimed grandparent should be excluded from cross-agent perspective")
+        }
+
+    @Test
+    fun `findClaimable expired parent claim — child is included after TTL expiry`() =
+        runBlocking {
+            val now = Instant.now()
+            val parent =
+                WorkItem(
+                    title = "Parent (expired claim)",
+                    depth = 0,
+                    claimedBy = "agent-x",
+                    claimedAt = now.minusSeconds(120),
+                    claimExpiresAt = now.minusSeconds(60), // expired
+                    originalClaimedAt = now.minusSeconds(120),
+                )
+            val savedParent = (repository.create(parent) as Result.Success).data
+
+            val child =
+                WorkItem(
+                    title = "Child",
+                    parentId = savedParent.id,
+                    depth = 1,
+                    role = Role.QUEUE,
+                )
+            repository.create(child)
+
+            // Expired parent claim — TTL recovery: child becomes claimable
+            val result = repository.findClaimable(role = Role.QUEUE, requestingAgentId = "agent-y")
+            assertIs<Result.Success<List<WorkItem>>>(result)
+            assertEquals(1, result.data.size, "Child should be claimable after parent's TTL expires")
+            assertEquals("Child", result.data[0].title)
+        }
+
+    @Test
+    fun `findClaimable mixed ancestry — grandparent claimed excludes child even if direct parent is unclaimed`() =
+        runBlocking {
+            val now = Instant.now()
+            val grandparent =
+                WorkItem(
+                    title = "Grandparent (claimed by agent-x)",
+                    depth = 0,
+                    claimedBy = "agent-x",
+                    claimedAt = now,
+                    claimExpiresAt = now.plusSeconds(900),
+                    originalClaimedAt = now,
+                )
+            val savedGrandparent = (repository.create(grandparent) as Result.Success).data
+
+            val parent =
+                WorkItem(
+                    title = "Parent (unclaimed)",
+                    parentId = savedGrandparent.id,
+                    depth = 1,
+                )
+            val savedParent = (repository.create(parent) as Result.Success).data
+
+            val child =
+                WorkItem(
+                    title = "Child",
+                    parentId = savedParent.id,
+                    depth = 2,
+                    role = Role.QUEUE,
+                )
+            repository.create(child)
+
+            // Mixed ancestry: grandparent claimed by agent-x, parent unclaimed, agent-y requests
+            // → child EXCLUDED because a live ancestor claim by a different agent exists
+            val result = repository.findClaimable(role = Role.QUEUE, requestingAgentId = "agent-y")
+            assertIs<Result.Success<List<WorkItem>>>(result)
+            assertTrue(result.data.isEmpty(), "Child should be excluded when any ancestor has a live cross-agent claim")
+        }
+
+    @Test
+    fun `findClaimable multiple candidates — only children under cross-agent claims are excluded`() =
+        runBlocking {
+            val now = Instant.now()
+
+            // Feature A claimed by agent-x (agent-y requesting — this child should be excluded)
+            val featureA =
+                WorkItem(
+                    title = "Feature A (claimed by agent-x)",
+                    depth = 0,
+                    claimedBy = "agent-x",
+                    claimedAt = now,
+                    claimExpiresAt = now.plusSeconds(900),
+                    originalClaimedAt = now,
+                )
+            val savedFeatureA = (repository.create(featureA) as Result.Success).data
+
+            val taskA =
+                WorkItem(
+                    title = "Task A (child of Feature A)",
+                    parentId = savedFeatureA.id,
+                    depth = 1,
+                    role = Role.QUEUE,
+                )
+            repository.create(taskA)
+
+            // Feature B claimed by agent-y (same agent requesting — this child should be included)
+            val featureB =
+                WorkItem(
+                    title = "Feature B (claimed by agent-y)",
+                    depth = 0,
+                    claimedBy = "agent-y",
+                    claimedAt = now,
+                    claimExpiresAt = now.plusSeconds(900),
+                    originalClaimedAt = now,
+                )
+            val savedFeatureB = (repository.create(featureB) as Result.Success).data
+
+            val taskB =
+                WorkItem(
+                    title = "Task B (child of Feature B)",
+                    parentId = savedFeatureB.id,
+                    depth = 1,
+                    role = Role.QUEUE,
+                )
+            repository.create(taskB)
+
+            // Root item (no parent) — always included
+            repository.create(WorkItem(title = "Root task", depth = 0, role = Role.QUEUE))
+
+            // agent-y requesting:
+            // - Task A: excluded (Feature A claimed by agent-x, different agent)
+            // - Task B: included (Feature B claimed by agent-y, same agent)
+            // - Root task: included (no ancestor)
+            val result = repository.findClaimable(role = Role.QUEUE, requestingAgentId = "agent-y")
+            assertIs<Result.Success<List<WorkItem>>>(result)
+            assertEquals(2, result.data.size, "Only Task B (same-agent) and Root task should be returned")
+            val titles = result.data.map { it.title }.toSet()
+            assertTrue("Task B (child of Feature B)" in titles, "Task B should be included")
+            assertTrue("Root task" in titles, "Root task should be included")
+            assertTrue("Task A (child of Feature A)" !in titles, "Task A should be excluded")
+        }
 }

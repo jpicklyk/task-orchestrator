@@ -929,6 +929,8 @@ advance_item(trigger="complete")    → ownership enforced at completion too
 
 `orderBy: "oldest"` provides fair-share FIFO draining: agents process items in creation order rather than racing to the same high-priority items. When `no_match` is returned, the queue is drained — the agent can idle, exit, or poll after a delay.
 
+**Selector hygiene and ancestor-claim filtering.** In selector mode, items whose ancestor chain contains a live claim held by a *different* agent are automatically excluded from the eligible set. This sub-tree isolation protects in-progress feature orchestration from fleet drain workers picking up child items. Use specific selectors (`parentId: null` to restrict to top-level items, or tag filters such as `tags: "feature"`) when your fleet operates at the top level; broader selectors like `role: queue` will naturally skip sub-items of in-progress features without returning errors. Items excluded by ancestor-claim filtering appear as `no_match` rather than surfacing information about the competing agent's identity. See [Fleet Deployment Guide — Fleet Topology Patterns](./fleet-deployment.md#fleet-topology-patterns) for recommended patterns.
+
 `claimRef` (up to 64 chars) is echoed verbatim in every result and is useful for correlating claim results back to your agent's internal loop state without parsing `itemId` values.
 
 **Idempotency with selector mode.** A `(actor, requestId)` cache hit replays the resolved response verbatim — the same `itemId` is returned, and the selector is **not** re-evaluated against fresh queue state. Use a fresh `requestId` per claim iteration, not per retry of the same iteration.

@@ -714,6 +714,7 @@ class SQLiteWorkItemRepository(
         roleChangedBefore: Instant?,
         orderBy: NextItemOrder,
         limit: Int,
+        requestingAgentId: String?,
     ): Result<List<WorkItem>> =
         databaseManager.suspendedTransaction("Failed to find claimable items") {
             val conditions = mutableListOf<Op<Boolean>>()
@@ -782,9 +783,84 @@ class SQLiteWorkItemRepository(
                         baseQuery.orderBy(WorkItemsTable.createdAt, SortOrder.DESC)
                 }
 
-            val items = orderedQuery.limit(limit).mapNotNull { toWorkItemOrNull(it) }
+            val candidates = orderedQuery.limit(limit).mapNotNull { toWorkItemOrNull(it) }
 
-            Result.Success(items)
+            // -----------------------------------------------------------------------
+            // Ancestor-claim filter (strict-by-default sub-tree isolation)
+            //
+            // For each candidate with a parentId, walk the ancestor chain and disqualify
+            // any candidate whose ancestor has a live claim held by a disqualifying agent.
+            //
+            // Disqualifying ancestor claim condition:
+            //   claimed_by IS NOT NULL
+            //   AND claim_expires_at > dbNow()
+            //   AND (requestingAgentId == null OR claimed_by != requestingAgentId)
+            //
+            // Batched BFS pattern modeled on findAncestorChains (line 843), inlined within
+            // the same suspendedTransaction block to avoid an extra transaction open/close.
+            // -----------------------------------------------------------------------
+            val candidatesWithParents = candidates.filter { it.parentId != null }
+            if (candidatesWithParents.isEmpty()) {
+                // No candidates have ancestors — skip the BFS entirely.
+                return@suspendedTransaction Result.Success(candidates)
+            }
+
+            // BFS: batch-fetch all ancestors for all candidates in minimal round-trips.
+            val ancestorCache = mutableMapOf<String, WorkItem>()
+            val inputEntityIds = candidatesWithParents.map { EntityID(it.id, WorkItemsTable) }
+            val inputItems =
+                WorkItemsTable
+                    .selectAll()
+                    .where { WorkItemsTable.id inList inputEntityIds }
+                    .mapNotNull { toWorkItemOrNull(it) }
+            inputItems.forEach { ancestorCache[it.id.toString()] = it }
+
+            var toFetch =
+                inputItems.mapNotNull { it.parentId }.map { it.toString() }.toSet() - ancestorCache.keys
+            while (toFetch.isNotEmpty()) {
+                val fetchEntityIds = toFetch.map { EntityID(UUID.fromString(it), WorkItemsTable) }
+                val fetched =
+                    WorkItemsTable
+                        .selectAll()
+                        .where { WorkItemsTable.id inList fetchEntityIds }
+                        .mapNotNull { toWorkItemOrNull(it) }
+                fetched.forEach { ancestorCache[it.id.toString()] = it }
+                toFetch = fetched.mapNotNull { it.parentId }.map { it.toString() }.toSet() - ancestorCache.keys
+            }
+
+            // Filter candidates: exclude those with a disqualifying live ancestor claim.
+            val filtered =
+                candidates.filter { candidate ->
+                    if (candidate.parentId == null) {
+                        // Root item — no ancestors to check
+                        true
+                    } else {
+                        // Walk the ancestor chain; disqualify on first violating ancestor.
+                        var parentIdStr = candidate.parentId?.toString()
+                        val visited = mutableSetOf<String>()
+                        var disqualified = false
+                        while (parentIdStr != null && !disqualified) {
+                            if (parentIdStr in visited) break // Cycle guard
+                            visited.add(parentIdStr)
+                            val ancestor = ancestorCache[parentIdStr] ?: break
+                            val ancestorClaimBy = ancestor.claimedBy
+                            val ancestorClaimExpiry = ancestor.claimExpiresAt
+                            if (ancestorClaimBy != null &&
+                                ancestorClaimExpiry != null &&
+                                ancestorClaimExpiry > dbNowInstant
+                            ) {
+                                // Ancestor has a live claim — check if it disqualifies this candidate.
+                                if (requestingAgentId == null || ancestorClaimBy != requestingAgentId) {
+                                    disqualified = true
+                                }
+                            }
+                            parentIdStr = ancestor.parentId?.toString()
+                        }
+                        !disqualified
+                    }
+                }
+
+            Result.Success(filtered)
         }
 
     override suspend fun countByClaimStatus(parentId: UUID?): Result<ClaimStatusCounts> =

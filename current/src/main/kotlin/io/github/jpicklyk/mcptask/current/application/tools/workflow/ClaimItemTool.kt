@@ -515,7 +515,9 @@ Releases array (`releases`) continues to support N entries — only `claims` is 
                     resolvedSelectorParentId = resolvedUuid
                 }
 
-                val criteria = buildCriteria(selectorObj, resolvedSelectorParentId)
+                val criteria =
+                    buildCriteria(selectorObj, resolvedSelectorParentId)
+                        .copy(requestingAgentId = trustedAgentId)
 
                 when (val recommendResult = context.nextItemRecommender.recommend(criteria, limit = 1)) {
                     is Result.Success -> {

@@ -278,6 +278,25 @@ interface WorkItemRepository {
      * it is not a parameter because claim-eligibility by definition means the item is unclaimed or
      * its claim has expired. All filters are combined with AND logic; tags use OR logic within the list.
      *
+     * **Ancestor-claim filtering (strict-by-default sub-tree isolation):**
+     *
+     * After the initial candidate query, each candidate's ancestor chain is walked to enforce
+     * fleet isolation:
+     *
+     * - When `requestingAgentId` is **non-null**: any candidate whose ancestor chain contains
+     *   a live claim (`claimed_by IS NOT NULL AND claim_expires_at > now`) held by a *different*
+     *   agent is excluded. Candidates whose ancestor is claimed by the *same* agent are retained
+     *   (supporting the hybrid pattern: claim at parent feature, orchestrate sub-tree below).
+     * - When `requestingAgentId` is **null** (default): any candidate whose ancestor chain
+     *   contains a live claim by *any* agent is excluded. This is the strict exclusion mode used
+     *   by read-only callers such as `get_next_item` that do not have actor context.
+     *
+     * Ancestor-claim freshness is evaluated using [dbNow] — the DB-side clock — consistent with
+     * the existing item-level claim exclusion contract. The walk is a batched BFS bounded by
+     * the maximum depth of 3, so the total extra query cost is at most 3 additional round-trips.
+     *
+     * Items with no parent (root items, depth=0) are unaffected by this filter.
+     *
      * @param role              The role to query (required — e.g. QUEUE, WORK, REVIEW).
      * @param parentId          Optional parent UUID to scope results to direct children only.
      * @param tags              Optional list of tags; items matching ANY tag are included.
@@ -290,6 +309,10 @@ interface WorkItemRepository {
      * @param roleChangedBefore Optional upper bound (inclusive) on [WorkItem.roleChangedAt].
      * @param orderBy           Ordering strategy for the result set (default: priority then complexity).
      * @param limit             Maximum number of rows to return (default: 200).
+     * @param requestingAgentId Optional agent identifier for sub-tree isolation. When non-null,
+     *                          only ancestor claims held by a *different* agent disqualify a
+     *                          candidate. When null, any live ancestor claim disqualifies the
+     *                          candidate (strict exclusion for callers without actor context).
      * @return [Result.Success] with the list of matching, claimable items (may be empty), or
      *         [Result.Error] on a database failure.
      */
@@ -306,6 +329,7 @@ interface WorkItemRepository {
         roleChangedBefore: Instant? = null,
         orderBy: NextItemOrder = NextItemOrder.PRIORITY_THEN_COMPLEXITY,
         limit: Int = 200,
+        requestingAgentId: String? = null,
     ): Result<List<WorkItem>>
 
     /**
