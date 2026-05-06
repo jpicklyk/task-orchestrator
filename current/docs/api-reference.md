@@ -1160,7 +1160,7 @@ changing the claim holder.
 - **ID mode:** `{ itemId (required UUID or hex prefix), ttlSeconds? (optional int, default 900, max 86400), agentId? (optional — overridden by verified actor), claimRef? (optional string, max 64 chars — echoed verbatim in the result for caller correlation) }`
 - **Selector mode:** `{ selector (required object — see below), ttlSeconds? (optional int, default 900, max 86400), claimRef? (optional string, max 64 chars — echoed verbatim in the result) }`
 
-Each entry must have exactly one of `itemId` or `selector`. When any entry uses `selector`, the `claims` array must contain exactly 1 entry (see multi-claim batch warning below).
+Each entry must have exactly one of `itemId` or `selector`. The `claims` array must contain at most 1 entry (see single-claim-per-call note below).
 
 **`selector` object fields** (all optional within the object; the object itself is required in selector mode):
 
@@ -1213,12 +1213,11 @@ The selector filter shape is identical to the `get_next_item` filter parameters 
 
 **Idempotency replay.** A `(actor, requestId)` cache hit replays the resolved response verbatim — including the same `itemId` for selector calls. The selector is **not** re-evaluated against fresh queue state on retry; the first-resolution result is what you get.
 
-> **⚠ Multi-claim batch warning (ID-based claims, deprecated path):**
-> Each successful claim auto-releases all other claims this agent currently holds. In a multi-claim batch, each successive `success` releases its predecessors. A call with `claims: [A, B, C]` ends with **only C held** — A and B are released even though the response reports all three as `success`. **Issue one claim per call.**
+> **Single-claim-per-call:** The `claims` array must contain at most 1 entry. `claims.size > 1` returns a `validation_error` with code `multi_claim_not_supported` immediately, regardless of whether entries use `itemId` or `selector` mode.
 >
-> Selector mode (`selector` field on a claim entry) is single-claim-only by validation: `claims.size > 1` with any selector present returns a `validation_error` immediately.
+> The cap derives from the heartbeat write-budget assumption (one TTL refresh per agent per cycle). A future `claim_heartbeats` table mitigation could remove the constraint.
 >
-> ID-based multi-claim (`claims.size > 1` using `itemId` entries) is preserved for backwards compatibility but is a **deprecated path** — it will be rejected in a future major version. Tracked as MCP item `b8ac68a4`. Migrate to issuing one `claim_item` call per item.
+> Releases array (`releases`) continues to support N entries — only `claims` is restricted. Issue one `claim_item` call per item you want to claim.
 
 #### Atomic Find-and-Claim (Selector Mode)
 

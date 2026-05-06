@@ -371,16 +371,15 @@ class ClaimItemToolTest {
     // -----------------------------------------------------------------------
 
     @Test
-    fun `execute summary reflects correct counts for mixed outcomes`(): Unit =
+    fun `execute summary reflects correct counts for claim success and release`(): Unit =
         runBlocking {
             coEvery { workItemRepo.claim(itemId1, agentId, 900) } returns ClaimResult.Success(makeSuccessItem())
-            coEvery { workItemRepo.claim(itemId2, agentId, 900) } returns ClaimResult.AlreadyClaimed(itemId2, null)
             coEvery { workItemRepo.release(itemId1, agentId) } returns ReleaseResult.Success(WorkItem(id = itemId1, title = "R"))
 
             val result =
                 tool.execute(
                     params(
-                        claims = listOf(claimEntry(itemId1), claimEntry(itemId2)),
+                        claims = listOf(claimEntry(itemId1)),
                         releases = listOf(releaseEntry(itemId1))
                     ),
                     defaultContext()
@@ -388,13 +387,64 @@ class ClaimItemToolTest {
 
             val data = (result as JsonObject)["data"] as JsonObject
             val summary = data["summary"] as JsonObject
-            assertEquals(2, summary["claimsTotal"]?.jsonPrimitive?.intOrNull)
+            assertEquals(1, summary["claimsTotal"]?.jsonPrimitive?.intOrNull)
             assertEquals(1, summary["claimsSucceeded"]?.jsonPrimitive?.intOrNull)
-            assertEquals(1, summary["claimsFailed"]?.jsonPrimitive?.intOrNull)
+            assertEquals(0, summary["claimsFailed"]?.jsonPrimitive?.intOrNull)
             assertEquals(1, summary["releasesTotal"]?.jsonPrimitive?.intOrNull)
             assertEquals(1, summary["releasesSucceeded"]?.jsonPrimitive?.intOrNull)
             assertEquals(0, summary["releasesFailed"]?.jsonPrimitive?.intOrNull)
         }
+
+    @Test
+    fun `validateParams throws multi_claim_not_supported when claims has two ID entries`() {
+        val p =
+            buildJsonObject {
+                put(
+                    "claims",
+                    buildJsonArray {
+                        add(buildJsonObject { put("itemId", itemId1.toString()) })
+                        add(buildJsonObject { put("itemId", itemId2.toString()) })
+                    }
+                )
+                put("actor", actorJson())
+                put("requestId", UUID.randomUUID().toString())
+            }
+        val ex = assertFailsWith<ToolValidationException> { tool.validateParams(p) }
+        assertTrue(
+            ex.message!!.contains("multi_claim_not_supported"),
+            "Error must contain multi_claim_not_supported. Got: ${ex.message}"
+        )
+        assertTrue(
+            ex.message!!.contains("one claim per call"),
+            "Error must mention one claim per call. Got: ${ex.message}"
+        )
+    }
+
+    @Test
+    fun `validateParams accepts single ID claim — size 1 succeeds`() {
+        val p = params(claims = listOf(claimEntry(itemId1)))
+        // Must not throw
+        tool.validateParams(p)
+    }
+
+    @Test
+    fun `validateParams accepts mixed claims size 1 with multiple releases`() {
+        val p =
+            buildJsonObject {
+                put("claims", buildJsonArray { add(buildJsonObject { put("itemId", itemId1.toString()) }) })
+                put(
+                    "releases",
+                    buildJsonArray {
+                        add(buildJsonObject { put("itemId", itemId1.toString()) })
+                        add(buildJsonObject { put("itemId", itemId2.toString()) })
+                    }
+                )
+                put("actor", actorJson())
+                put("requestId", UUID.randomUUID().toString())
+            }
+        // releases.size > 1 is fine; only claims is capped at 1
+        tool.validateParams(p)
+    }
 
     // -----------------------------------------------------------------------
     // Execute — actor required
@@ -897,8 +947,8 @@ class ClaimItemToolTest {
             }
         val ex = assertFailsWith<ToolValidationException> { tool.validateParams(p) }
         assertTrue(
-            ex.message!!.contains("single claim per call") || ex.message!!.contains("Selector mode"),
-            "Error must mention selector mode constraint. Got: ${ex.message}"
+            ex.message!!.contains("multi_claim_not_supported"),
+            "Error must contain multi_claim_not_supported. Got: ${ex.message}"
         )
     }
 
@@ -918,8 +968,8 @@ class ClaimItemToolTest {
             }
         val ex = assertFailsWith<ToolValidationException> { tool.validateParams(p) }
         assertTrue(
-            ex.message!!.contains("single claim per call") || ex.message!!.contains("Selector mode"),
-            "Error must mention selector mode constraint. Got: ${ex.message}"
+            ex.message!!.contains("multi_claim_not_supported"),
+            "Error must contain multi_claim_not_supported. Got: ${ex.message}"
         )
     }
 

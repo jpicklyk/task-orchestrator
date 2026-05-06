@@ -890,7 +890,7 @@ claim_item(claims=[{itemId}])       → heartbeat: refresh TTL (if work > TTL/2 
 advance_item(trigger="complete")    → ownership enforced at completion too
 ```
 
-> **Deprecation note:** `claim_item` with multiple `itemId` entries in a single `claims` array is a deprecated path. Each successive successful claim auto-releases its predecessors, so only the last claim survives — a `claims: [A, B, C]` call ends with only C held. Issue one claim per call. ID-based multi-claim is preserved for backward compatibility but will be rejected in a future major version (tracked as MCP item `b8ac68a4`). Selector mode (`selector` field) is single-claim-only by validation and is the recommended migration path.
+> **Single-claim-per-call:** `claim_item` enforces `claims.size ≤ 1`. Calls with `claims.size > 1` are rejected immediately with error code `multi_claim_not_supported`, regardless of whether entries use `itemId` or `selector` mode. Issue one `claim_item` call per item. The cap derives from the heartbeat write-budget assumption (one TTL refresh per agent per cycle); a future `claim_heartbeats` table mitigation could re-evaluate the constraint. The `releases` array remains batchable.
 
 ### Atomic Find-and-Claim (Selector Mode)
 
