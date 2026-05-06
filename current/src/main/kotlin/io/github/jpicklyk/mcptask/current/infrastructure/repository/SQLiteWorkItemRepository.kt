@@ -806,17 +806,13 @@ class SQLiteWorkItemRepository(
             }
 
             // BFS: batch-fetch all ancestors for all candidates in minimal round-trips.
+            // Seed the cache directly from the in-memory candidate rows — no need to re-fetch
+            // them from the DB just to read their parentId fields.
             val ancestorCache = mutableMapOf<String, WorkItem>()
-            val inputEntityIds = candidatesWithParents.map { EntityID(it.id, WorkItemsTable) }
-            val inputItems =
-                WorkItemsTable
-                    .selectAll()
-                    .where { WorkItemsTable.id inList inputEntityIds }
-                    .mapNotNull { toWorkItemOrNull(it) }
-            inputItems.forEach { ancestorCache[it.id.toString()] = it }
+            candidatesWithParents.forEach { ancestorCache[it.id.toString()] = it }
 
             var toFetch =
-                inputItems.mapNotNull { it.parentId }.map { it.toString() }.toSet() - ancestorCache.keys
+                candidatesWithParents.mapNotNull { it.parentId }.map { it.toString() }.toSet() - ancestorCache.keys
             while (toFetch.isNotEmpty()) {
                 val fetchEntityIds = toFetch.map { EntityID(UUID.fromString(it), WorkItemsTable) }
                 val fetched =
