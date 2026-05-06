@@ -983,10 +983,15 @@ class SQLiteWorkItemRepositoryFilterTest {
     fun `findClaimable expired parent claim — child is included after TTL expiry`() =
         runBlocking {
             val now = Instant.now()
+            // Parent is in WORK role (was being orchestrated when the holding agent crashed).
+            // TTL expired without a heartbeat — recovery agent should now see the child as claimable.
+            // Parent itself is in WORK so it's filtered out by the role=QUEUE query, isolating the
+            // assertion to the ancestor-claim filter behavior on the child alone.
             val parent =
                 WorkItem(
-                    title = "Parent (expired claim)",
+                    title = "Parent (expired claim, was in WORK)",
                     depth = 0,
+                    role = Role.WORK,
                     claimedBy = "agent-x",
                     claimedAt = now.minusSeconds(120),
                     claimExpiresAt = now.minusSeconds(60), // expired

@@ -1705,18 +1705,34 @@ class GetNextItemToolTest {
             val ids = recs.map { it.jsonObject["itemId"]!!.jsonPrimitive.content }.toSet()
 
             // Sub-task should be excluded (parent has active claim — strict mode, no agent context)
-            assertTrue(ids.none { id ->
-                val title = recs.find { it.jsonObject["itemId"]!!.jsonPrimitive.content == id }
-                    ?.jsonObject?.get("title")?.jsonPrimitive?.content
-                title == "Sub-task"
-            }, "Sub-task under claimed parent should be excluded from get_next_item results")
+            assertTrue(
+                ids.none { id ->
+                    val title =
+                        recs
+                            .find { it.jsonObject["itemId"]!!.jsonPrimitive.content == id }
+                            ?.jsonObject
+                            ?.get("title")
+                            ?.jsonPrimitive
+                            ?.content
+                    title == "Sub-task"
+                },
+                "Sub-task under claimed parent should be excluded from get_next_item results"
+            )
 
             // Root task should be included (no ancestor)
-            assertTrue(ids.any { id ->
-                val title = recs.find { it.jsonObject["itemId"]!!.jsonPrimitive.content == id }
-                    ?.jsonObject?.get("title")?.jsonPrimitive?.content
-                title == "Root task (unclaimed, no parent)"
-            }, "Root task with no parent should be included")
+            assertTrue(
+                ids.any { id ->
+                    val title =
+                        recs
+                            .find { it.jsonObject["itemId"]!!.jsonPrimitive.content == id }
+                            ?.jsonObject
+                            ?.get("title")
+                            ?.jsonPrimitive
+                            ?.content
+                    title == "Root task (unclaimed, no parent)"
+                },
+                "Root task with no parent should be included"
+            )
         }
 
     @Test
@@ -1763,8 +1779,10 @@ class GetNextItemToolTest {
                     originalClaimedAt = now.minusSeconds(1800)
                 )
             val savedExpiredParent =
-                (context.workItemRepository().create(expiredParent)
-                        as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success).data
+                (
+                    context.workItemRepository().create(expiredParent)
+                        as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success
+                ).data
 
             val subTask = createItem("Sub-task (recovery eligible)", parentId = savedExpiredParent.id, depth = 1, role = Role.QUEUE)
 

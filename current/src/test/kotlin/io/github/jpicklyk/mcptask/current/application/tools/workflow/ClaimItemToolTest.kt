@@ -1483,7 +1483,11 @@ class ClaimItemToolTest {
 
             val data = (result as JsonObject)["data"] as JsonObject
             val first = (data["claimResults"] as JsonArray)[0] as JsonObject
-            assertEquals("no_match", first["outcome"]?.jsonPrimitive?.content, "Selector must return no_match when ancestor-claim filter excludes all candidates")
+            assertEquals(
+                "no_match",
+                first["outcome"]?.jsonPrimitive?.content,
+                "Selector must return no_match when ancestor-claim filter excludes all candidates"
+            )
             assertEquals("permanent", first["kind"]?.jsonPrimitive?.content)
         }
 
