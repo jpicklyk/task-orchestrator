@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
 import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
+import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommender
 import io.github.jpicklyk.mcptask.current.application.service.NoOpActorVerifier
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeTool
@@ -91,6 +92,11 @@ class CurrentMcpServer(
             val mcpLoggingService = DefaultMcpLoggingService()
             val (actorVerifier, degradedModePolicy) = createActorVerifierAndPolicy()
             val idempotencyCache = IdempotencyCache()
+            val nextItemRecommender =
+                NextItemRecommender(
+                    repositoryProvider.workItemRepository(),
+                    repositoryProvider.dependencyRepository()
+                )
             val toolContext =
                 ToolExecutionContext(
                     repositoryProvider,
@@ -99,7 +105,8 @@ class CurrentMcpServer(
                     mcpLoggingService,
                     actorVerifier,
                     degradedModePolicy,
-                    idempotencyCache
+                    idempotencyCache,
+                    nextItemRecommender
                 )
             logger.info("Repository provider and tool context initialized")
 

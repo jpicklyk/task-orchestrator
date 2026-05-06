@@ -10,42 +10,44 @@ This prompt is the per-iteration workflow. Operating principles, output discipli
 
 ---
 
-## Step 1 — Find and claim a candidate
+## Step 1 — Atomically find and claim a candidate
 
-Query for unclaimed queue items matching the filter:
+Use `claim_item` selector mode — a single atomic MCP call that finds and claims in one operation, eliminating the race window of a two-call query-then-claim pattern.
 
-```
-query_items(operation="search", role="queue", claimStatus="unclaimed", limit=10, ...)
-```
+Translate the filter expression into selector fields:
 
-Filter key → search arg mapping:
-
-| Filter key | Mapped argument |
+| Filter key | Selector field |
 |---|---|
-| `tag=X` | `tags="X"` (substring match) |
-| `type=X` | `type="X"` |
-| `priority=X` | `priority="X"` |
-| `parentId=X` | `parentId="X"` (full UUID or 4+ char hex prefix) |
-
-If the filter is empty, omit those arguments.
-
-**If zero candidates:** emit `RALPH_OUTCOME: {"status": "no-item"}` and exit.
-
-Order candidates by priority (high → medium → low). For each candidate in order, attempt:
+| `tag=X` | `tags: "X"` (any-match, comma-separated for multiple) |
+| `type=X` | `type: "X"` |
+| `priority=X` | `priority: "X"` |
+| `parentId=X` | `parentId: "X"` (full UUID or 4+ char hex prefix) |
 
 ```
 claim_item(
-  claims=[{ itemId: "<uuid>", ttlSeconds: ${ttl} }],
+  claims=[{
+    selector: {
+      role: "queue",
+      orderBy: "oldest",
+      <...filter fields from expression...>
+    },
+    ttlSeconds: ${ttl},
+    claimRef: "${actor_id}"
+  }],
   requestId: "<fresh-uuid>",
   actor: { id: "${actor_id}", kind: "${actor_kind}" }
 )
 ```
 
+`orderBy: "oldest"` drains the queue in FIFO order (oldest items first), ensuring fair processing across all queue items.
+
+> **Note:** When `selector` is present, the `claims` array must contain exactly one entry. Multi-selector batches are rejected with `validation_error`.
+
 | Result | Action |
 |---|---|
-| `success` | Proceed to Step 2 with the claimed UUID |
-| `already_claimed` | Drop and try the next candidate |
-| All candidates already claimed | Emit `RALPH_OUTCOME: {"status": "skip", "reason": "all candidates already claimed"}` and exit |
+| `success` with `selectorResolved: true` | Proceed to Step 2 with the resolved `itemId` |
+| `no_match` (kind=permanent) | No items match the filter — emit `RALPH_OUTCOME: {"status": "no-item"}` and exit |
+| `already_claimed` | TOCTOU race (rare) — emit `RALPH_OUTCOME: {"status": "skip", "reason": "TOCTOU race on selector resolve"}` and exit |
 | Other error | Emit `RALPH_OUTCOME: {"status": "error", "reason": "claim failed: <message>"}` and exit |
 
 ---

@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.tools.workflow
 
+import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommender
 import io.github.jpicklyk.mcptask.current.application.tools.ActorAware
 import io.github.jpicklyk.mcptask.current.application.tools.ActorParseResult
 import io.github.jpicklyk.mcptask.current.application.tools.BaseToolDefinition
@@ -9,13 +10,18 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolCategory
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.domain.model.ErrorKind
+import io.github.jpicklyk.mcptask.current.domain.model.NextItemOrder
+import io.github.jpicklyk.mcptask.current.domain.model.Priority
+import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.ToolError
 import io.github.jpicklyk.mcptask.current.domain.repository.ClaimResult
 import io.github.jpicklyk.mcptask.current.domain.repository.ReleaseResult
+import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
+import java.time.Instant
 import java.util.UUID
 
 /**
@@ -33,6 +39,13 @@ import java.util.UUID
  * - `already_claimed`: returns `retryAfterMs` based on existing claim TTL. Does NOT leak
  *   the competing agent's identity.
  *
+ * **Selector mode:**
+ * - Each claim entry may use `selector` (instead of `itemId`) for atomic find-and-claim.
+ * - Selector resolves a filter+rank query and claims the top match in one call.
+ * - Single-claim-per-call by validation when any selector is present.
+ * - `no_match` outcome (kind=permanent) when the queue is empty for the given filters.
+ * - `claimRef` (optional, ≤64 chars) is echoed in every result for caller correlation.
+ *
  * **Release semantics:**
  * - Only the current claim holder can release; other agents receive `not_claimed_by_you`.
  *
@@ -41,6 +54,10 @@ import java.util.UUID
  * multi-agent context where network retries are a real concern, so idempotency is a hard contract.
  * Repeated calls with the same (actor, requestId) within ~10 minutes return the cached response
  * without re-executing the claim/release operations.
+ *
+ * Idempotency: a (actor, requestId) cache hit replays the resolved response verbatim —
+ * including the same itemId for selector calls. Selector is NOT re-evaluated against fresh
+ * queue state on retry.
  */
 class ClaimItemTool :
     BaseToolDefinition(),
@@ -53,15 +70,42 @@ Atomically claim or release work items. One claim per agent: claiming a new item
 any prior claim held by the same agent.
 
 **Parameters:**
-- `claims` (optional array): Items to claim. Each element: `{ itemId (required UUID or short hex), ttlSeconds? (optional int, default 900, max 86400), agentId? (optional string, overridden by verified actor) }`. The TTL must be between 1 and 86400 seconds (24 hours); values outside this range are rejected.
+- `claims` (optional array): Items to claim. Each element supports two mutually exclusive modes:
+  - ID mode: `{ itemId (required UUID or short hex), ttlSeconds? (optional int, default 900, max 86400), agentId? (optional string, overridden by verified actor), claimRef? (optional string, max 64 chars — echoed in result) }`
+  - Selector mode: `{ selector (required object — see below), ttlSeconds? (optional int, default 900, max 86400), claimRef? (optional string, max 64 chars — echoed in result) }`
+  - Each entry must have exactly one of `itemId` or `selector`.
+  - When any entry uses `selector`, claims array must contain exactly 1 entry (see batch warning below).
 - `releases` (optional array): Items to release. Each element: `{ itemId (required UUID or short hex) }`
 - `actor` (required): `{ id (required string), kind (required: orchestrator|subagent|user|external), parent? (optional string), proof? (optional string) }` — identity used as the claim holder. Verified identity overrides self-reported agentId.
 - `requestId` (required UUID): Client-generated UUID for idempotency. Required — `claim_item` is a fleet-mode tool and idempotency is a hard contract. Repeated calls with the same (actor, requestId) within ~10 minutes return the cached response without re-executing.
 
+**Selector object fields** (all optional except the parent `selector` key itself):
+- `role` (string, default "queue"): role to search in — queue|work|review|blocked
+- `parentId` (string UUID): filter to items under this parent
+- `tags` (string, comma-separated): filter by tags
+- `priority` (string): HIGH|MEDIUM|LOW
+- `type` (string): item type
+- `complexityMax` (int, 1–10): maximum complexity
+- `createdAfter` (string, ISO 8601): items created after this timestamp
+- `createdBefore` (string, ISO 8601): items created before this timestamp
+- `roleChangedAfter` (string, ISO 8601): items whose role changed after this timestamp
+- `roleChangedBefore` (string, ISO 8601): items whose role changed before this timestamp
+- `orderBy` (string): priority|oldest|newest (default: priority)
+
 At least one of `claims` or `releases` must be non-empty.
 
+**⚠ Multi-claim batch semantics (ID-based claims, deprecated path):**
+Each successful claim auto-releases all other claims this agent currently holds.
+In a multi-claim batch, each successive `success` releases its predecessors.
+A call with `claims: [A, B, C]` ends with only C held — A and B are released even
+though the response reports all three as `success`. **Issue one claim per call.**
+Selector mode (`selector` field on a claim entry) is single-claim-only by validation.
+ID-based multi-claim is preserved for backwards compatibility but will be rejected
+in a future major version (tracked separately).
+
 **Claim outcomes per item:**
-- `success` — claim placed or TTL refreshed (same agent re-claim). Response includes own claim metadata.
+- `success` — claim placed or TTL refreshed (same agent re-claim). Response includes own claim metadata. Selector claims also include `selectorResolved: true`.
+- `no_match` — selector found no eligible items; kind=permanent. No claim attempted, no retryAfterMs.
 - `already_claimed` — another agent holds a live claim. Response includes `retryAfterMs` (no competing agent identity).
 - `not_found` — no item with that ID.
 - `terminal_item` — item is in TERMINAL role; cannot be claimed.
@@ -79,6 +123,8 @@ At least one of `claims` or `releases` must be non-empty.
     {
       "itemId": "uuid",
       "outcome": "success",
+      "selectorResolved": true,
+      "claimRef": "my-ref",
       "claimedBy": "agent-id",
       "claimedAt": "2026-01-01T00:00:00Z",
       "claimExpiresAt": "2026-01-01T00:15:00Z",
@@ -114,9 +160,15 @@ At least one of `claims` or `releases` must be non-empty.
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Array of claim requests: { itemId (required UUID or hex prefix), " +
+                                    "Array of claim requests. Each entry uses either ID mode: " +
+                                        "{ itemId (required UUID or hex prefix), " +
                                         "ttlSeconds? (optional int, default 900, min 1, max 86400 — 24 h cap), " +
-                                        "agentId? (optional string, overridden by verified actor) }"
+                                        "agentId? (optional string, overridden by verified actor), " +
+                                        "claimRef? (optional string, max 64 chars) } " +
+                                        "or Selector mode: { selector (required object with filter fields), " +
+                                        "ttlSeconds? (optional int), claimRef? (optional string, max 64 chars) }. " +
+                                        "Exactly one of itemId or selector must be present per entry. " +
+                                        "When any entry uses selector, claims array must contain exactly 1 entry."
                                 )
                             )
                         }
@@ -200,25 +252,160 @@ At least one of `claims` or `releases` must be non-empty.
             }
         }
 
-        claims?.forEachIndexed { index, element ->
-            val obj =
-                element as? JsonObject
-                    ?: throw ToolValidationException("claims[$index] must be a JSON object")
-            val itemIdPrim =
-                obj["itemId"] as? JsonPrimitive
-                    ?: throw ToolValidationException("claims[$index] missing required field: itemId")
-            if (!itemIdPrim.isString || itemIdPrim.content.isBlank()) {
-                throw ToolValidationException("claims[$index].itemId must be a non-empty string")
-            }
-            validateIdStringOrPrefix(itemIdPrim.content, "claims[$index].itemId")
+        // Validate claims entries — check for selector mode rules
+        if (!claims.isNullOrEmpty()) {
+            val hasAnySelector =
+                claims.any { element ->
+                    val obj = element as? JsonObject ?: return@any false
+                    obj.containsKey("selector")
+                }
 
-            val ttlPrim = obj["ttlSeconds"] as? JsonPrimitive
-            if (ttlPrim != null) {
-                val ttl =
-                    ttlPrim.content.toIntOrNull()
-                        ?: throw ToolValidationException("claims[$index].ttlSeconds must be a positive integer")
-                if (ttl <= 0) throw ToolValidationException("claims[$index].ttlSeconds must be positive, got $ttl")
-                if (ttl > 86400) throw ToolValidationException("claims[$index].ttlSeconds must not exceed 86400 (24 hours), got $ttl")
+            // Single-selector-per-call rule: if any entry has selector, claims.size must == 1
+            if (hasAnySelector && claims.size > 1) {
+                throw ToolValidationException(
+                    "Selector mode supports a single claim per call. Multi-claim batches conflict " +
+                        "with the one-claim-per-agent rule. To claim multiple items, issue separate calls."
+                )
+            }
+
+            claims.forEachIndexed { index, element ->
+                val obj =
+                    element as? JsonObject
+                        ?: throw ToolValidationException("claims[$index] must be a JSON object")
+
+                val hasItemId = obj.containsKey("itemId")
+                val hasSelector = obj.containsKey("selector")
+
+                // Exactly one of itemId or selector must be present
+                if (hasItemId && hasSelector) {
+                    throw ToolValidationException(
+                        "claims[$index] must specify either itemId or selector, not both"
+                    )
+                }
+                if (!hasItemId && !hasSelector) {
+                    throw ToolValidationException(
+                        "claims[$index] must specify either itemId or selector — neither was provided"
+                    )
+                }
+
+                if (hasItemId) {
+                    // ID-mode validation
+                    val itemIdPrim =
+                        obj["itemId"] as? JsonPrimitive
+                            ?: throw ToolValidationException("claims[$index].itemId must be a string")
+                    if (!itemIdPrim.isString || itemIdPrim.content.isBlank()) {
+                        throw ToolValidationException("claims[$index].itemId must be a non-empty string")
+                    }
+                    validateIdStringOrPrefix(itemIdPrim.content, "claims[$index].itemId")
+                } else {
+                    // Selector-mode validation
+                    val selectorObj =
+                        obj["selector"] as? JsonObject
+                            ?: throw ToolValidationException("claims[$index].selector must be a JSON object")
+
+                    // role
+                    val rolePrim = selectorObj["role"] as? JsonPrimitive
+                    if (rolePrim != null) {
+                        Role.fromString(rolePrim.content)
+                            ?: throw ToolValidationException(
+                                "claims[$index].selector.role must be one of: ${Role.VALID_NAMES.joinToString()}, got '${rolePrim.content}'"
+                            )
+                    }
+
+                    // priority
+                    val priorityPrim = selectorObj["priority"] as? JsonPrimitive
+                    if (priorityPrim != null) {
+                        Priority.fromString(priorityPrim.content)
+                            ?: throw ToolValidationException(
+                                "claims[$index].selector.priority must be high, medium, or low, got '${priorityPrim.content}'"
+                            )
+                    }
+
+                    // complexityMax (1..10)
+                    val complexityMaxPrim = selectorObj["complexityMax"] as? JsonPrimitive
+                    if (complexityMaxPrim != null) {
+                        val v =
+                            complexityMaxPrim.content.toIntOrNull()
+                                ?: throw ToolValidationException("claims[$index].selector.complexityMax must be an integer")
+                        if (v < 1 || v > 10) {
+                            throw ToolValidationException(
+                                "claims[$index].selector.complexityMax must be between 1 and 10, got $v"
+                            )
+                        }
+                    }
+
+                    // createdAfter / createdBefore / roleChangedAfter / roleChangedBefore — ISO 8601
+                    listOf("createdAfter", "createdBefore", "roleChangedAfter", "roleChangedBefore").forEach { field ->
+                        val prim = selectorObj[field] as? JsonPrimitive
+                        if (prim != null) {
+                            try {
+                                Instant.parse(prim.content)
+                            } catch (_: Exception) {
+                                throw ToolValidationException(
+                                    "claims[$index].selector.$field must be an ISO 8601 timestamp, got '${prim.content}'"
+                                )
+                            }
+                        }
+                    }
+
+                    // orderBy
+                    val orderByPrim = selectorObj["orderBy"] as? JsonPrimitive
+                    if (orderByPrim != null) {
+                        NextItemOrder.fromString(orderByPrim.content)
+                            ?: throw ToolValidationException(
+                                "claims[$index].selector.orderBy must be priority, oldest, or newest, got '${orderByPrim.content}'"
+                            )
+                    }
+
+                    // parentId — accepts full UUID or hex prefix (4+ chars), matching itemId
+                    // resolution and every other parentId field on the surface (get_next_item,
+                    // manage_items, create_work_tree). Format check only — actual prefix
+                    // resolution happens in execute() before buildCriteria.
+                    val parentIdPrim = selectorObj["parentId"] as? JsonPrimitive
+                    if (parentIdPrim != null) {
+                        if (!parentIdPrim.isString || parentIdPrim.content.isBlank()) {
+                            throw ToolValidationException(
+                                "claims[$index].selector.parentId must be a non-empty string"
+                            )
+                        }
+                        validateIdStringOrPrefix(parentIdPrim.content, "claims[$index].selector.parentId")
+                    }
+
+                    // tags — non-blank string
+                    val tagsPrim = selectorObj["tags"] as? JsonPrimitive
+                    if (tagsPrim != null && tagsPrim.content.isBlank()) {
+                        throw ToolValidationException("claims[$index].selector.tags must be a non-blank string")
+                    }
+
+                    // type — non-blank string
+                    val typePrim = selectorObj["type"] as? JsonPrimitive
+                    if (typePrim != null && typePrim.content.isBlank()) {
+                        throw ToolValidationException("claims[$index].selector.type must be a non-blank string")
+                    }
+                }
+
+                // claimRef — max 64 chars, non-blank when present
+                val claimRefPrim = obj["claimRef"] as? JsonPrimitive
+                if (claimRefPrim != null) {
+                    if (claimRefPrim.content.isBlank()) {
+                        throw ToolValidationException("claims[$index].claimRef must be a non-blank string when present")
+                    }
+                    if (claimRefPrim.content.length > 64) {
+                        throw ToolValidationException(
+                            "claims[$index].claimRef must not exceed 64 characters, got ${claimRefPrim.content.length}"
+                        )
+                    }
+                }
+
+                // ttlSeconds
+                val ttlPrim = obj["ttlSeconds"] as? JsonPrimitive
+                if (ttlPrim != null) {
+                    val ttl =
+                        ttlPrim.content.toIntOrNull()
+                            ?: throw ToolValidationException("claims[$index].ttlSeconds must be a positive integer")
+                    if (ttl <= 0) throw ToolValidationException("claims[$index].ttlSeconds must be positive, got $ttl")
+                    if (ttl > 86400) throw ToolValidationException("claims[$index].ttlSeconds must not exceed 86400 (24 hours), got $ttl")
+                }
             }
         }
 
@@ -297,114 +484,292 @@ At least one of `claims` or `releases` must be non-empty.
         // --- Process claims ---
         for (element in claimsArray) {
             val claimObj = element as? JsonObject ?: continue
-            val itemIdStr = (claimObj["itemId"] as? JsonPrimitive)?.content ?: continue
             val ttlSeconds = (claimObj["ttlSeconds"] as? JsonPrimitive)?.content?.toIntOrNull() ?: 900
+            val claimRef = (claimObj["claimRef"] as? JsonPrimitive)?.content
 
-            // Resolve ID (full UUID or prefix)
-            val (itemId, idError) = resolveIdString(itemIdStr, context)
-            if (idError != null) {
-                claimsFailed++
-                claimResultsList.add(
-                    buildJsonObject {
-                        put("itemId", JsonPrimitive(itemIdStr))
-                        put("outcome", JsonPrimitive("not_found"))
-                        put("error", JsonPrimitive("Failed to resolve item ID: $itemIdStr"))
+            val hasSelector = claimObj.containsKey("selector")
+
+            if (hasSelector) {
+                // --- Selector path ---
+                val selectorObj = claimObj["selector"] as? JsonObject ?: continue
+
+                // Resolve parentId (may be a hex prefix) before building criteria. Format was
+                // already checked in validateParams; resolution here looks up the full UUID
+                // for prefixes via the repository. A failed lookup surfaces as not_found.
+                val selectorParentIdStr = (selectorObj["parentId"] as? JsonPrimitive)?.content
+                var resolvedSelectorParentId: UUID? = null
+                if (selectorParentIdStr != null) {
+                    val (resolvedUuid, idError) = resolveIdString(selectorParentIdStr, context)
+                    if (idError != null) {
+                        claimsFailed++
+                        claimResultsList.add(
+                            buildJsonObject {
+                                put("outcome", JsonPrimitive("not_found"))
+                                put(
+                                    "error",
+                                    JsonPrimitive(
+                                        "Failed to resolve selector.parentId: $selectorParentIdStr"
+                                    )
+                                )
+                                claimRef?.let { put("claimRef", JsonPrimitive(it)) }
+                            }
+                        )
+                        continue
                     }
-                )
-                continue
-            }
+                    resolvedSelectorParentId = resolvedUuid
+                }
 
-            // Log if caller-supplied agentId differs from verified id.
-            val callerAgentId = (claimObj["agentId"] as? JsonPrimitive)?.content
-            if (callerAgentId != null && callerAgentId != trustedAgentId) {
-                logger.debug(
-                    "claim_item: caller-supplied agentId='{}' overridden by verified trustedAgentId='{}'",
-                    callerAgentId,
-                    trustedAgentId
-                )
-            }
+                val criteria = buildCriteria(selectorObj, resolvedSelectorParentId)
 
-            when (val result = context.workItemRepository().claim(itemId!!, trustedAgentId, ttlSeconds)) {
-                is ClaimResult.Success -> {
-                    claimsSucceeded++
-                    val item = result.item
-                    claimResultsList.add(
-                        buildJsonObject {
-                            put("itemId", JsonPrimitive(item.id.toString()))
-                            put("outcome", JsonPrimitive("success"))
-                            put("claimedBy", JsonPrimitive(item.claimedBy ?: trustedAgentId))
-                            item.claimedAt?.let { put("claimedAt", JsonPrimitive(it.toString())) }
-                            item.claimExpiresAt?.let { put("claimExpiresAt", JsonPrimitive(it.toString())) }
-                            item.originalClaimedAt?.let {
-                                put("originalClaimedAt", JsonPrimitive(it.toString()))
+                when (val recommendResult = context.nextItemRecommender.recommend(criteria, limit = 1)) {
+                    is Result.Success -> {
+                        val items = recommendResult.data
+                        if (items.isEmpty()) {
+                            // no_match: queue is empty for this filter — permanent outcome
+                            claimsFailed++
+                            claimResultsList.add(
+                                buildJsonObject {
+                                    put("outcome", JsonPrimitive("no_match"))
+                                    put("kind", JsonPrimitive(ErrorKind.PERMANENT.toJsonString()))
+                                    put("code", JsonPrimitive("no_match"))
+                                    claimRef?.let { put("claimRef", JsonPrimitive(it)) }
+                                }
+                            )
+                            continue
+                        }
+
+                        // Resolved: take the top item and claim it
+                        val resolvedItem = items.first()
+                        val resolvedItemId = resolvedItem.id
+
+                        // Log if caller-supplied agentId differs from verified id.
+                        val callerAgentId = (claimObj["agentId"] as? JsonPrimitive)?.content
+                        if (callerAgentId != null && callerAgentId != trustedAgentId) {
+                            logger.debug(
+                                "claim_item: caller-supplied agentId='{}' overridden by verified trustedAgentId='{}'",
+                                callerAgentId,
+                                trustedAgentId
+                            )
+                        }
+
+                        when (val claimResult = context.workItemRepository().claim(resolvedItemId, trustedAgentId, ttlSeconds)) {
+                            is ClaimResult.Success -> {
+                                claimsSucceeded++
+                                val item = claimResult.item
+                                claimResultsList.add(
+                                    buildJsonObject {
+                                        put("itemId", JsonPrimitive(item.id.toString()))
+                                        put("outcome", JsonPrimitive("success"))
+                                        put("selectorResolved", JsonPrimitive(true))
+                                        claimRef?.let { put("claimRef", JsonPrimitive(it)) }
+                                        put("claimedBy", JsonPrimitive(item.claimedBy ?: trustedAgentId))
+                                        item.claimedAt?.let { put("claimedAt", JsonPrimitive(it.toString())) }
+                                        item.claimExpiresAt?.let { put("claimExpiresAt", JsonPrimitive(it.toString())) }
+                                        item.originalClaimedAt?.let {
+                                            put("originalClaimedAt", JsonPrimitive(it.toString()))
+                                        }
+                                    }
+                                )
+                            }
+
+                            is ClaimResult.AlreadyClaimed -> {
+                                // TOCTOU: item was claimed between recommend() and claim()
+                                claimsFailed++
+                                val alreadyClaimedError =
+                                    ToolError(
+                                        kind = ErrorKind.TRANSIENT,
+                                        code = "already_claimed",
+                                        message = "Item ${claimResult.itemId} is already claimed by another agent",
+                                        retryAfterMs = claimResult.retryAfterMs,
+                                        contendedItemId = claimResult.itemId
+                                    )
+                                claimResultsList.add(
+                                    buildJsonObject {
+                                        put("itemId", JsonPrimitive(claimResult.itemId.toString()))
+                                        put("outcome", JsonPrimitive("already_claimed"))
+                                        put("kind", JsonPrimitive(alreadyClaimedError.kind.toJsonString()))
+                                        put("contendedItemId", JsonPrimitive(alreadyClaimedError.contendedItemId!!.toString()))
+                                        alreadyClaimedError.retryAfterMs?.let { put("retryAfterMs", JsonPrimitive(it)) }
+                                        claimRef?.let { put("claimRef", JsonPrimitive(it)) }
+                                    }
+                                )
+                            }
+
+                            is ClaimResult.NotFound -> {
+                                claimsFailed++
+                                claimResultsList.add(
+                                    buildJsonObject {
+                                        put("itemId", JsonPrimitive(claimResult.itemId.toString()))
+                                        put("outcome", JsonPrimitive("not_found"))
+                                        claimRef?.let { put("claimRef", JsonPrimitive(it)) }
+                                    }
+                                )
+                            }
+
+                            is ClaimResult.TerminalItem -> {
+                                claimsFailed++
+                                claimResultsList.add(
+                                    buildJsonObject {
+                                        put("itemId", JsonPrimitive(claimResult.itemId.toString()))
+                                        put("outcome", JsonPrimitive("terminal_item"))
+                                        claimRef?.let { put("claimRef", JsonPrimitive(it)) }
+                                    }
+                                )
+                            }
+
+                            is ClaimResult.DBError -> {
+                                claimsFailed++
+                                val dbError =
+                                    ToolError(
+                                        kind = ErrorKind.TRANSIENT,
+                                        code = "db_error",
+                                        message = "Database error during claim operation",
+                                        contendedItemId = claimResult.itemId
+                                    )
+                                claimResultsList.add(
+                                    buildJsonObject {
+                                        put("itemId", JsonPrimitive(claimResult.itemId.toString()))
+                                        put("outcome", JsonPrimitive("db_error"))
+                                        put("kind", JsonPrimitive(dbError.kind.toJsonString()))
+                                        put("code", JsonPrimitive(dbError.code))
+                                        put("message", JsonPrimitive(dbError.message))
+                                        put("contendedItemId", JsonPrimitive(dbError.contendedItemId!!.toString()))
+                                        claimRef?.let { put("claimRef", JsonPrimitive(it)) }
+                                    }
+                                )
                             }
                         }
-                    )
-                }
+                    }
 
-                is ClaimResult.AlreadyClaimed -> {
-                    claimsFailed++
-                    // Emit ToolError fields (kind, retryAfterMs, contendedItemId) so agents can make
-                    // retry decisions without string-parsing. Tiered disclosure: no competing agent identity.
-                    val alreadyClaimedError =
-                        ToolError(
-                            kind = ErrorKind.TRANSIENT,
-                            code = "already_claimed",
-                            message = "Item ${result.itemId} is already claimed by another agent",
-                            retryAfterMs = result.retryAfterMs,
-                            contendedItemId = result.itemId
+                    is Result.Error -> {
+                        claimsFailed++
+                        claimResultsList.add(
+                            buildJsonObject {
+                                put("outcome", JsonPrimitive("db_error"))
+                                put("kind", JsonPrimitive(ErrorKind.TRANSIENT.toJsonString()))
+                                put("code", JsonPrimitive("db_error"))
+                                put("message", JsonPrimitive("Database error during selector recommendation"))
+                                claimRef?.let { put("claimRef", JsonPrimitive(it)) }
+                            }
                         )
-                    claimResultsList.add(
-                        buildJsonObject {
-                            put("itemId", JsonPrimitive(result.itemId.toString()))
-                            put("outcome", JsonPrimitive("already_claimed"))
-                            put("kind", JsonPrimitive(alreadyClaimedError.kind.toJsonString()))
-                            put("contendedItemId", JsonPrimitive(alreadyClaimedError.contendedItemId!!.toString()))
-                            // Tiered disclosure: retryAfterMs only — no competing agent identity.
-                            alreadyClaimedError.retryAfterMs?.let { put("retryAfterMs", JsonPrimitive(it)) }
-                        }
-                    )
+                    }
                 }
+            } else {
+                // --- ID-based path (existing logic) ---
+                val itemIdStr = (claimObj["itemId"] as? JsonPrimitive)?.content ?: continue
 
-                is ClaimResult.NotFound -> {
+                // Resolve ID (full UUID or prefix)
+                val (itemId, idError) = resolveIdString(itemIdStr, context)
+                if (idError != null) {
                     claimsFailed++
                     claimResultsList.add(
                         buildJsonObject {
-                            put("itemId", JsonPrimitive(result.itemId.toString()))
+                            put("itemId", JsonPrimitive(itemIdStr))
                             put("outcome", JsonPrimitive("not_found"))
+                            put("error", JsonPrimitive("Failed to resolve item ID: $itemIdStr"))
+                            claimRef?.let { put("claimRef", JsonPrimitive(it)) }
                         }
+                    )
+                    continue
+                }
+
+                // Log if caller-supplied agentId differs from verified id.
+                val callerAgentId = (claimObj["agentId"] as? JsonPrimitive)?.content
+                if (callerAgentId != null && callerAgentId != trustedAgentId) {
+                    logger.debug(
+                        "claim_item: caller-supplied agentId='{}' overridden by verified trustedAgentId='{}'",
+                        callerAgentId,
+                        trustedAgentId
                     )
                 }
 
-                is ClaimResult.TerminalItem -> {
-                    claimsFailed++
-                    claimResultsList.add(
-                        buildJsonObject {
-                            put("itemId", JsonPrimitive(result.itemId.toString()))
-                            put("outcome", JsonPrimitive("terminal_item"))
-                        }
-                    )
-                }
-
-                is ClaimResult.DBError -> {
-                    claimsFailed++
-                    val dbError =
-                        ToolError(
-                            kind = ErrorKind.TRANSIENT,
-                            code = "db_error",
-                            message = "Database error during claim operation",
-                            contendedItemId = result.itemId
+                when (val result = context.workItemRepository().claim(itemId!!, trustedAgentId, ttlSeconds)) {
+                    is ClaimResult.Success -> {
+                        claimsSucceeded++
+                        val item = result.item
+                        claimResultsList.add(
+                            buildJsonObject {
+                                put("itemId", JsonPrimitive(item.id.toString()))
+                                put("outcome", JsonPrimitive("success"))
+                                claimRef?.let { put("claimRef", JsonPrimitive(it)) }
+                                put("claimedBy", JsonPrimitive(item.claimedBy ?: trustedAgentId))
+                                item.claimedAt?.let { put("claimedAt", JsonPrimitive(it.toString())) }
+                                item.claimExpiresAt?.let { put("claimExpiresAt", JsonPrimitive(it.toString())) }
+                                item.originalClaimedAt?.let {
+                                    put("originalClaimedAt", JsonPrimitive(it.toString()))
+                                }
+                            }
                         )
-                    claimResultsList.add(
-                        buildJsonObject {
-                            put("itemId", JsonPrimitive(result.itemId.toString()))
-                            put("outcome", JsonPrimitive("db_error"))
-                            put("kind", JsonPrimitive(dbError.kind.toJsonString()))
-                            put("code", JsonPrimitive(dbError.code))
-                            put("message", JsonPrimitive(dbError.message))
-                            put("contendedItemId", JsonPrimitive(dbError.contendedItemId!!.toString()))
-                        }
-                    )
+                    }
+
+                    is ClaimResult.AlreadyClaimed -> {
+                        claimsFailed++
+                        // Emit ToolError fields (kind, retryAfterMs, contendedItemId) so agents can make
+                        // retry decisions without string-parsing. Tiered disclosure: no competing agent identity.
+                        val alreadyClaimedError =
+                            ToolError(
+                                kind = ErrorKind.TRANSIENT,
+                                code = "already_claimed",
+                                message = "Item ${result.itemId} is already claimed by another agent",
+                                retryAfterMs = result.retryAfterMs,
+                                contendedItemId = result.itemId
+                            )
+                        claimResultsList.add(
+                            buildJsonObject {
+                                put("itemId", JsonPrimitive(result.itemId.toString()))
+                                put("outcome", JsonPrimitive("already_claimed"))
+                                put("kind", JsonPrimitive(alreadyClaimedError.kind.toJsonString()))
+                                put("contendedItemId", JsonPrimitive(alreadyClaimedError.contendedItemId!!.toString()))
+                                // Tiered disclosure: retryAfterMs only — no competing agent identity.
+                                alreadyClaimedError.retryAfterMs?.let { put("retryAfterMs", JsonPrimitive(it)) }
+                                claimRef?.let { put("claimRef", JsonPrimitive(it)) }
+                            }
+                        )
+                    }
+
+                    is ClaimResult.NotFound -> {
+                        claimsFailed++
+                        claimResultsList.add(
+                            buildJsonObject {
+                                put("itemId", JsonPrimitive(result.itemId.toString()))
+                                put("outcome", JsonPrimitive("not_found"))
+                                claimRef?.let { put("claimRef", JsonPrimitive(it)) }
+                            }
+                        )
+                    }
+
+                    is ClaimResult.TerminalItem -> {
+                        claimsFailed++
+                        claimResultsList.add(
+                            buildJsonObject {
+                                put("itemId", JsonPrimitive(result.itemId.toString()))
+                                put("outcome", JsonPrimitive("terminal_item"))
+                                claimRef?.let { put("claimRef", JsonPrimitive(it)) }
+                            }
+                        )
+                    }
+
+                    is ClaimResult.DBError -> {
+                        claimsFailed++
+                        val dbError =
+                            ToolError(
+                                kind = ErrorKind.TRANSIENT,
+                                code = "db_error",
+                                message = "Database error during claim operation",
+                                contendedItemId = result.itemId
+                            )
+                        claimResultsList.add(
+                            buildJsonObject {
+                                put("itemId", JsonPrimitive(result.itemId.toString()))
+                                put("outcome", JsonPrimitive("db_error"))
+                                put("kind", JsonPrimitive(dbError.kind.toJsonString()))
+                                put("code", JsonPrimitive(dbError.code))
+                                put("message", JsonPrimitive(dbError.message))
+                                put("contendedItemId", JsonPrimitive(dbError.contendedItemId!!.toString()))
+                                claimRef?.let { put("claimRef", JsonPrimitive(it)) }
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -499,6 +864,62 @@ At least one of `claims` or `releases` must be non-empty.
             }
 
         return successResponse(data)
+    }
+
+    /**
+     * Builds a [NextItemRecommender.Criteria] from a selector JSON object.
+     *
+     * `parentId` is resolved by the caller via [resolveIdString] (because resolution
+     * of a hex prefix is suspending and may fail with a not_found error) and passed in
+     * here as an already-resolved UUID. Pass null when the selector did not specify a
+     * parentId.
+     */
+    private fun buildCriteria(
+        selectorObj: JsonObject,
+        resolvedParentId: UUID?
+    ): NextItemRecommender.Criteria {
+        val roleStr = (selectorObj["role"] as? JsonPrimitive)?.content
+        val role = roleStr?.let { Role.fromString(it) } ?: Role.QUEUE
+
+        val tagsStr = (selectorObj["tags"] as? JsonPrimitive)?.content
+        val tags = tagsStr?.split(",")?.map { it.trim() }?.filter { it.isNotBlank() }
+
+        val priorityStr = (selectorObj["priority"] as? JsonPrimitive)?.content
+        val priority = priorityStr?.let { Priority.fromString(it) }
+
+        val type = (selectorObj["type"] as? JsonPrimitive)?.content
+
+        val complexityMaxStr = (selectorObj["complexityMax"] as? JsonPrimitive)?.content
+        val complexityMax = complexityMaxStr?.toIntOrNull()
+
+        val createdAfterStr = (selectorObj["createdAfter"] as? JsonPrimitive)?.content
+        val createdAfter = createdAfterStr?.let { runCatching { Instant.parse(it) }.getOrNull() }
+
+        val createdBeforeStr = (selectorObj["createdBefore"] as? JsonPrimitive)?.content
+        val createdBefore = createdBeforeStr?.let { runCatching { Instant.parse(it) }.getOrNull() }
+
+        val roleChangedAfterStr = (selectorObj["roleChangedAfter"] as? JsonPrimitive)?.content
+        val roleChangedAfter = roleChangedAfterStr?.let { runCatching { Instant.parse(it) }.getOrNull() }
+
+        val roleChangedBeforeStr = (selectorObj["roleChangedBefore"] as? JsonPrimitive)?.content
+        val roleChangedBefore = roleChangedBeforeStr?.let { runCatching { Instant.parse(it) }.getOrNull() }
+
+        val orderByStr = (selectorObj["orderBy"] as? JsonPrimitive)?.content
+        val orderBy = orderByStr?.let { NextItemOrder.fromString(it) } ?: NextItemOrder.PRIORITY_THEN_COMPLEXITY
+
+        return NextItemRecommender.Criteria(
+            role = role,
+            parentId = resolvedParentId,
+            tags = tags,
+            priority = priority,
+            type = type,
+            complexityMax = complexityMax,
+            createdAfter = createdAfter,
+            createdBefore = createdBefore,
+            roleChangedAfter = roleChangedAfter,
+            roleChangedBefore = roleChangedBefore,
+            orderBy = orderBy,
+        )
     }
 
     override fun userSummary(

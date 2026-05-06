@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.repository
 
+import io.github.jpicklyk.mcptask.current.domain.model.NextItemOrder
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
@@ -11,7 +12,10 @@ import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.WorkItemsTable
+import org.jetbrains.exposed.v1.core.Case
 import org.jetbrains.exposed.v1.core.CustomFunction
+import org.jetbrains.exposed.v1.core.IntegerColumnType
+import org.jetbrains.exposed.v1.core.LiteralOp
 import org.jetbrains.exposed.v1.core.LowerCase
 import org.jetbrains.exposed.v1.core.Op
 import org.jetbrains.exposed.v1.core.ResultRow
@@ -693,6 +697,92 @@ class SQLiteWorkItemRepository(
                     .where { combined }
                     .limit(limit)
                     .mapNotNull { toWorkItemOrNull(it) }
+
+            Result.Success(items)
+        }
+
+    override suspend fun findClaimable(
+        role: Role,
+        parentId: UUID?,
+        tags: List<String>?,
+        priority: Priority?,
+        type: String?,
+        complexityMax: Int?,
+        createdAfter: Instant?,
+        createdBefore: Instant?,
+        roleChangedAfter: Instant?,
+        roleChangedBefore: Instant?,
+        orderBy: NextItemOrder,
+        limit: Int,
+    ): Result<List<WorkItem>> =
+        databaseManager.suspendedTransaction("Failed to find claimable items") {
+            val conditions = mutableListOf<Op<Boolean>>()
+
+            // Role filter — always required
+            conditions.add(WorkItemsTable.role eq role.name.lowercase())
+
+            // Optional parent scope
+            parentId?.let { conditions.add(WorkItemsTable.parentId eq it) }
+
+            // Tag any-match — reuse buildTagFilter (OR logic within list)
+            tags?.takeIf { it.isNotEmpty() }?.let { conditions.add(buildTagFilter(it)) }
+
+            // Priority exact match
+            priority?.let { conditions.add(WorkItemsTable.priority eq it.name.lowercase()) }
+
+            // Type exact match
+            type?.let { conditions.add(WorkItemsTable.type eq it) }
+
+            // Complexity upper bound (inclusive)
+            complexityMax?.let { conditions.add(WorkItemsTable.complexity lessEq it) }
+
+            // Created-at time window
+            createdAfter?.let { conditions.add(WorkItemsTable.createdAt greaterEq it) }
+            createdBefore?.let { conditions.add(WorkItemsTable.createdAt lessEq it) }
+
+            // Role-changed-at time window
+            roleChangedAfter?.let { conditions.add(WorkItemsTable.roleChangedAt greaterEq it) }
+            roleChangedBefore?.let { conditions.add(WorkItemsTable.roleChangedAt lessEq it) }
+
+            // Active-claim exclusion — always applied; claim-eligibility by definition requires this.
+            // Include items where: claimed_by IS NULL  OR  claim_expires_at <= now.
+            // DB-side now avoids JVM/SQLite clock skew.
+            val dbNowInstant = dbNow()
+            conditions.add(WorkItemsTable.claimedBy.isNull() or (WorkItemsTable.claimExpiresAt lessEq dbNowInstant))
+
+            val combined = conditions.reduce { acc, op -> acc and op }
+
+            val baseQuery = WorkItemsTable.selectAll().where { combined }
+
+            // Apply ordering strategy
+            val orderedQuery =
+                when (orderBy) {
+                    NextItemOrder.PRIORITY_THEN_COMPLEXITY -> {
+                        // Sort priority HIGH > MEDIUM > LOW via CASE expression, then complexity ASC.
+                        // Items with null complexity sort last (NULL sorts last in ASC for SQLite/H2).
+                        val priorityOrder =
+                            Case()
+                                .When(
+                                    WorkItemsTable.priority eq Priority.HIGH.name.lowercase(),
+                                    LiteralOp(IntegerColumnType(), 0),
+                                ).When(
+                                    WorkItemsTable.priority eq Priority.MEDIUM.name.lowercase(),
+                                    LiteralOp(IntegerColumnType(), 1),
+                                ).When(
+                                    WorkItemsTable.priority eq Priority.LOW.name.lowercase(),
+                                    LiteralOp(IntegerColumnType(), 2),
+                                ).Else(LiteralOp(IntegerColumnType(), 99))
+                        baseQuery
+                            .orderBy(priorityOrder, SortOrder.ASC)
+                            .orderBy(WorkItemsTable.complexity, SortOrder.ASC_NULLS_LAST)
+                    }
+                    NextItemOrder.OLDEST_FIRST ->
+                        baseQuery.orderBy(WorkItemsTable.createdAt, SortOrder.ASC)
+                    NextItemOrder.NEWEST_FIRST ->
+                        baseQuery.orderBy(WorkItemsTable.createdAt, SortOrder.DESC)
+                }
+
+            val items = orderedQuery.limit(limit).mapNotNull { toWorkItemOrNull(it) }
 
             Result.Success(items)
         }

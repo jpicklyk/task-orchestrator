@@ -267,7 +267,7 @@ The MCP server works without the plugin. The plugin makes it seamless with Claud
 | **Graph** | `manage_items`, `query_items`, `create_work_tree`, `complete_tree` | Build and query the work item hierarchy |
 | **Notes** | `manage_notes`, `query_notes` | Persistent phase-scoped documentation |
 | **Dependencies** | `manage_dependencies`, `query_dependencies` | Typed edges with pattern shortcuts (linear, fan-out, fan-in) |
-| **Workflow** | `advance_item`, `get_next_status`, `get_context`, `get_next_item`, `get_blocked_items` | Trigger-based transitions with gate enforcement and dependency validation |
+| **Workflow** | `advance_item`, `get_next_status`, `get_context`, `get_next_item`, `get_blocked_items`, `claim_item` | Trigger-based transitions with gate enforcement, dependency validation, and atomic find-and-claim (selector mode) for multi-agent fleets |
 
 Every tool supports short hex ID prefixes — `advance_item(itemId="a3f2")` instead of full UUIDs.
 

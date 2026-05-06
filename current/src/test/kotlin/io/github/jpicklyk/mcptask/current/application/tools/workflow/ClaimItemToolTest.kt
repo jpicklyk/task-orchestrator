@@ -1,20 +1,25 @@
 package io.github.jpicklyk.mcptask.current.application.tools.workflow
 
 import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
+import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommender
 import io.github.jpicklyk.mcptask.current.application.service.NoOpActorVerifier
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
+import io.github.jpicklyk.mcptask.current.domain.model.Priority
+import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.ClaimResult
 import io.github.jpicklyk.mcptask.current.domain.repository.ReleaseResult
+import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.test.MockRepositoryProvider
 import io.mockk.coEvery
 import io.mockk.coVerify
+import io.mockk.mockk
 import io.mockk.slot
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
@@ -41,7 +46,7 @@ import kotlin.test.assertTrue
  * Unit tests for [ClaimItemTool] — uses mocked repository, not a real DB.
  *
  * Covers: actor resolution, claim outcomes, release outcomes, tiered disclosure,
- * DegradedModePolicy.REJECT blocking, validation errors.
+ * DegradedModePolicy.REJECT blocking, validation errors, selector mode.
  */
 class ClaimItemToolTest {
     private lateinit var tool: ClaimItemTool
@@ -59,13 +64,37 @@ class ClaimItemToolTest {
             put("kind", "subagent")
         }
 
-    /** Build a claim request object. */
+    /** Build a claim request object (ID mode). */
     private fun claimEntry(
         itemId: UUID,
         ttlSeconds: Int? = null
     ): JsonObject =
         buildJsonObject {
             put("itemId", itemId.toString())
+            ttlSeconds?.let { put("ttlSeconds", it) }
+        }
+
+    /** Build a claim request object with claimRef (ID mode). */
+    private fun claimEntryWithRef(
+        itemId: UUID,
+        claimRef: String,
+        ttlSeconds: Int? = null
+    ): JsonObject =
+        buildJsonObject {
+            put("itemId", itemId.toString())
+            put("claimRef", claimRef)
+            ttlSeconds?.let { put("ttlSeconds", it) }
+        }
+
+    /** Build a selector claim entry. */
+    private fun selectorEntry(
+        selectorFields: JsonObject = buildJsonObject {},
+        claimRef: String? = null,
+        ttlSeconds: Int? = null
+    ): JsonObject =
+        buildJsonObject {
+            put("selector", selectorFields)
+            claimRef?.let { put("claimRef", it) }
             ttlSeconds?.let { put("ttlSeconds", it) }
         }
 
@@ -115,12 +144,24 @@ class ClaimItemToolTest {
         workItemRepo = mockRepo.workItemRepo
     }
 
-    private fun defaultContext(degradedModePolicy: DegradedModePolicy = DegradedModePolicy.ACCEPT_CACHED): ToolExecutionContext =
-        ToolExecutionContext(
-            repositoryProvider = mockRepo.provider,
-            actorVerifier = NoOpActorVerifier,
-            degradedModePolicy = degradedModePolicy
-        )
+    private fun defaultContext(
+        degradedModePolicy: DegradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
+        nextItemRecommender: NextItemRecommender? = null
+    ): ToolExecutionContext =
+        if (nextItemRecommender != null) {
+            ToolExecutionContext(
+                repositoryProvider = mockRepo.provider,
+                actorVerifier = NoOpActorVerifier,
+                degradedModePolicy = degradedModePolicy,
+                nextItemRecommender = nextItemRecommender,
+            )
+        } else {
+            ToolExecutionContext(
+                repositoryProvider = mockRepo.provider,
+                actorVerifier = NoOpActorVerifier,
+                degradedModePolicy = degradedModePolicy,
+            )
+        }
 
     // -----------------------------------------------------------------------
     // validateParams — error cases
@@ -788,5 +829,576 @@ class ClaimItemToolTest {
 
             // Repository must NOT have been called (policy rejection is a pre-DB guard)
             coVerify(exactly = 0) { workItemRepo.claim(any(), any(), any()) }
+        }
+
+    // -----------------------------------------------------------------------
+    // Selector validation tests
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun `validateParams throws when claim entry has both itemId and selector`() {
+        val p =
+            buildJsonObject {
+                put(
+                    "claims",
+                    buildJsonArray {
+                        add(
+                            buildJsonObject {
+                                put("itemId", itemId1.toString())
+                                put("selector", buildJsonObject {})
+                            }
+                        )
+                    }
+                )
+                put("actor", actorJson())
+                put("requestId", UUID.randomUUID().toString())
+            }
+        val ex = assertFailsWith<ToolValidationException> { tool.validateParams(p) }
+        assertTrue(
+            ex.message!!.contains("not both"),
+            "Error must mention 'not both'. Got: ${ex.message}"
+        )
+    }
+
+    @Test
+    fun `validateParams throws when claim entry has neither itemId nor selector`() {
+        val p =
+            buildJsonObject {
+                put(
+                    "claims",
+                    buildJsonArray {
+                        add(buildJsonObject { put("ttlSeconds", 900) })
+                    }
+                )
+                put("actor", actorJson())
+                put("requestId", UUID.randomUUID().toString())
+            }
+        val ex = assertFailsWith<ToolValidationException> { tool.validateParams(p) }
+        assertTrue(
+            ex.message!!.contains("not neither") || ex.message!!.contains("neither"),
+            "Error must mention 'neither'. Got: ${ex.message}"
+        )
+    }
+
+    @Test
+    fun `validateParams throws when claims has two selector entries`() {
+        val selector = buildJsonObject {}
+        val p =
+            buildJsonObject {
+                put(
+                    "claims",
+                    buildJsonArray {
+                        add(buildJsonObject { put("selector", selector) })
+                        add(buildJsonObject { put("selector", selector) })
+                    }
+                )
+                put("actor", actorJson())
+                put("requestId", UUID.randomUUID().toString())
+            }
+        val ex = assertFailsWith<ToolValidationException> { tool.validateParams(p) }
+        assertTrue(
+            ex.message!!.contains("single claim per call") || ex.message!!.contains("Selector mode"),
+            "Error must mention selector mode constraint. Got: ${ex.message}"
+        )
+    }
+
+    @Test
+    fun `validateParams throws when claims has one selector and one itemId entry`() {
+        val p =
+            buildJsonObject {
+                put(
+                    "claims",
+                    buildJsonArray {
+                        add(buildJsonObject { put("selector", buildJsonObject {}) })
+                        add(buildJsonObject { put("itemId", itemId1.toString()) })
+                    }
+                )
+                put("actor", actorJson())
+                put("requestId", UUID.randomUUID().toString())
+            }
+        val ex = assertFailsWith<ToolValidationException> { tool.validateParams(p) }
+        assertTrue(
+            ex.message!!.contains("single claim per call") || ex.message!!.contains("Selector mode"),
+            "Error must mention selector mode constraint. Got: ${ex.message}"
+        )
+    }
+
+    @Test
+    fun `validateParams accepts valid selector entry with empty selector object`() {
+        val p =
+            buildJsonObject {
+                put("claims", buildJsonArray { add(selectorEntry()) })
+                put("actor", actorJson())
+                put("requestId", UUID.randomUUID().toString())
+            }
+        // Must not throw
+        tool.validateParams(p)
+    }
+
+    @Test
+    fun `validateParams throws for selector with invalid priority`() {
+        val p =
+            buildJsonObject {
+                put(
+                    "claims",
+                    buildJsonArray {
+                        add(
+                            buildJsonObject {
+                                put(
+                                    "selector",
+                                    buildJsonObject { put("priority", "CRITICAL") }
+                                )
+                            }
+                        )
+                    }
+                )
+                put("actor", actorJson())
+                put("requestId", UUID.randomUUID().toString())
+            }
+        val ex = assertFailsWith<ToolValidationException> { tool.validateParams(p) }
+        assertTrue(ex.message!!.contains("priority"), "Error must mention priority. Got: ${ex.message}")
+    }
+
+    @Test
+    fun `validateParams throws for selector with complexityMax out of range`() {
+        val p =
+            buildJsonObject {
+                put(
+                    "claims",
+                    buildJsonArray {
+                        add(
+                            buildJsonObject {
+                                put(
+                                    "selector",
+                                    buildJsonObject { put("complexityMax", 11) }
+                                )
+                            }
+                        )
+                    }
+                )
+                put("actor", actorJson())
+                put("requestId", UUID.randomUUID().toString())
+            }
+        val ex = assertFailsWith<ToolValidationException> { tool.validateParams(p) }
+        assertTrue(ex.message!!.contains("complexityMax"), "Error must mention complexityMax. Got: ${ex.message}")
+    }
+
+    @Test
+    fun `validateParams throws for selector with invalid ISO 8601 timestamp`() {
+        val p =
+            buildJsonObject {
+                put(
+                    "claims",
+                    buildJsonArray {
+                        add(
+                            buildJsonObject {
+                                put(
+                                    "selector",
+                                    buildJsonObject { put("createdAfter", "not-a-timestamp") }
+                                )
+                            }
+                        )
+                    }
+                )
+                put("actor", actorJson())
+                put("requestId", UUID.randomUUID().toString())
+            }
+        val ex = assertFailsWith<ToolValidationException> { tool.validateParams(p) }
+        assertTrue(ex.message!!.contains("createdAfter"), "Error must mention createdAfter. Got: ${ex.message}")
+    }
+
+    @Test
+    fun `validateParams throws for selector with invalid orderBy value`() {
+        val p =
+            buildJsonObject {
+                put(
+                    "claims",
+                    buildJsonArray {
+                        add(
+                            buildJsonObject {
+                                put(
+                                    "selector",
+                                    buildJsonObject { put("orderBy", "random") }
+                                )
+                            }
+                        )
+                    }
+                )
+                put("actor", actorJson())
+                put("requestId", UUID.randomUUID().toString())
+            }
+        val ex = assertFailsWith<ToolValidationException> { tool.validateParams(p) }
+        assertTrue(ex.message!!.contains("orderBy"), "Error must mention orderBy. Got: ${ex.message}")
+    }
+
+    @Test
+    fun `validateParams accepts selector parentId as 4-char hex prefix`() {
+        // Selector parentId now accepts UUID or hex prefix (4+ chars), matching every
+        // other parentId field on the surface (get_next_item, manage_items, create_work_tree).
+        val p =
+            buildJsonObject {
+                put(
+                    "claims",
+                    buildJsonArray {
+                        add(
+                            buildJsonObject {
+                                put(
+                                    "selector",
+                                    buildJsonObject { put("parentId", "abcd1234") }
+                                )
+                            }
+                        )
+                    }
+                )
+                put("actor", actorJson())
+                put("requestId", UUID.randomUUID().toString())
+            }
+        // Must not throw — 8-char hex prefix is valid
+        tool.validateParams(p)
+    }
+
+    @Test
+    fun `validateParams rejects selector parentId hex prefix shorter than 4 chars`() {
+        val p =
+            buildJsonObject {
+                put(
+                    "claims",
+                    buildJsonArray {
+                        add(
+                            buildJsonObject {
+                                put(
+                                    "selector",
+                                    buildJsonObject { put("parentId", "abc") }
+                                )
+                            }
+                        )
+                    }
+                )
+                put("actor", actorJson())
+                put("requestId", UUID.randomUUID().toString())
+            }
+        val ex = assertFailsWith<ToolValidationException> { tool.validateParams(p) }
+        assertTrue(
+            ex.message!!.contains("parentId") && ex.message!!.contains("prefix"),
+            "Error must mention parentId and prefix length. Got: ${ex.message}"
+        )
+    }
+
+    @Test
+    fun `validateParams throws when claimRef exceeds 64 chars`() {
+        val longRef = "a".repeat(65)
+        val p =
+            buildJsonObject {
+                put(
+                    "claims",
+                    buildJsonArray {
+                        add(
+                            buildJsonObject {
+                                put("itemId", itemId1.toString())
+                                put("claimRef", longRef)
+                            }
+                        )
+                    }
+                )
+                put("actor", actorJson())
+                put("requestId", UUID.randomUUID().toString())
+            }
+        val ex = assertFailsWith<ToolValidationException> { tool.validateParams(p) }
+        assertTrue(ex.message!!.contains("claimRef"), "Error must mention claimRef. Got: ${ex.message}")
+    }
+
+    // -----------------------------------------------------------------------
+    // Selector execute tests
+    // -----------------------------------------------------------------------
+
+    private fun mockRecommender(items: List<WorkItem>): NextItemRecommender {
+        val recommender = mockk<NextItemRecommender>()
+        coEvery { recommender.recommend(any(), any()) } returns Result.Success(items)
+        return recommender
+    }
+
+    @Test
+    fun `selector with tags filter claims item when recommender returns match`(): Unit =
+        runBlocking {
+            val matchedItem = WorkItem(id = itemId1, title = "Tagged Item", role = Role.QUEUE)
+            val recommender = mockk<NextItemRecommender>()
+            coEvery {
+                recommender.recommend(
+                    match { it.tags == listOf("my-tag") },
+                    1
+                )
+            } returns Result.Success(listOf(matchedItem))
+            coEvery { workItemRepo.claim(itemId1, agentId, 900) } returns ClaimResult.Success(makeSuccessItem())
+
+            val selectorFields = buildJsonObject { put("tags", "my-tag") }
+            val result =
+                tool.execute(
+                    params(claims = listOf(selectorEntry(selectorFields))),
+                    defaultContext(nextItemRecommender = recommender)
+                )
+
+            val data = (result as JsonObject)["data"] as JsonObject
+            val first = (data["claimResults"] as JsonArray)[0] as JsonObject
+            assertEquals("success", first["outcome"]?.jsonPrimitive?.content)
+            assertEquals(itemId1.toString(), first["itemId"]?.jsonPrimitive?.content)
+            assertEquals(true, first["selectorResolved"]?.jsonPrimitive?.booleanOrNull)
+        }
+
+    @Test
+    fun `selector with priority filter passes correct criteria to recommender`(): Unit =
+        runBlocking {
+            val matchedItem = WorkItem(id = itemId1, title = "High Priority Item", role = Role.QUEUE)
+            val recommender = mockk<NextItemRecommender>()
+            val criteriaSlot = slot<NextItemRecommender.Criteria>()
+            coEvery { recommender.recommend(capture(criteriaSlot), 1) } returns Result.Success(listOf(matchedItem))
+            coEvery { workItemRepo.claim(itemId1, agentId, 900) } returns ClaimResult.Success(makeSuccessItem())
+
+            val selectorFields = buildJsonObject { put("priority", "HIGH") }
+            tool.execute(
+                params(claims = listOf(selectorEntry(selectorFields))),
+                defaultContext(nextItemRecommender = recommender)
+            )
+
+            assertEquals(Priority.HIGH, criteriaSlot.captured.priority)
+        }
+
+    @Test
+    fun `selector with type filter passes correct type to recommender`(): Unit =
+        runBlocking {
+            val matchedItem = WorkItem(id = itemId1, title = "Typed Item", role = Role.QUEUE)
+            val recommender = mockk<NextItemRecommender>()
+            val criteriaSlot = slot<NextItemRecommender.Criteria>()
+            coEvery { recommender.recommend(capture(criteriaSlot), 1) } returns Result.Success(listOf(matchedItem))
+            coEvery { workItemRepo.claim(itemId1, agentId, 900) } returns ClaimResult.Success(makeSuccessItem())
+
+            val selectorFields = buildJsonObject { put("type", "feature-task") }
+            tool.execute(
+                params(claims = listOf(selectorEntry(selectorFields))),
+                defaultContext(nextItemRecommender = recommender)
+            )
+
+            assertEquals("feature-task", criteriaSlot.captured.type)
+        }
+
+    @Test
+    fun `selector with complexityMax filter passes correct value to recommender`(): Unit =
+        runBlocking {
+            val matchedItem = WorkItem(id = itemId1, title = "Simple Item", role = Role.QUEUE)
+            val recommender = mockk<NextItemRecommender>()
+            val criteriaSlot = slot<NextItemRecommender.Criteria>()
+            coEvery { recommender.recommend(capture(criteriaSlot), 1) } returns Result.Success(listOf(matchedItem))
+            coEvery { workItemRepo.claim(itemId1, agentId, 900) } returns ClaimResult.Success(makeSuccessItem())
+
+            val selectorFields = buildJsonObject { put("complexityMax", 3) }
+            tool.execute(
+                params(claims = listOf(selectorEntry(selectorFields))),
+                defaultContext(nextItemRecommender = recommender)
+            )
+
+            assertEquals(3, criteriaSlot.captured.complexityMax)
+        }
+
+    @Test
+    fun `selector with orderBy oldest passes OLDEST_FIRST order to recommender`(): Unit =
+        runBlocking {
+            val matchedItem = WorkItem(id = itemId1, title = "Oldest Item", role = Role.QUEUE)
+            val recommender = mockk<NextItemRecommender>()
+            val criteriaSlot = slot<NextItemRecommender.Criteria>()
+            coEvery { recommender.recommend(capture(criteriaSlot), 1) } returns Result.Success(listOf(matchedItem))
+            coEvery { workItemRepo.claim(itemId1, agentId, 900) } returns ClaimResult.Success(makeSuccessItem())
+
+            val selectorFields = buildJsonObject { put("orderBy", "oldest") }
+            tool.execute(
+                params(claims = listOf(selectorEntry(selectorFields))),
+                defaultContext(nextItemRecommender = recommender)
+            )
+
+            assertEquals(io.github.jpicklyk.mcptask.current.domain.model.NextItemOrder.OLDEST_FIRST, criteriaSlot.captured.orderBy)
+        }
+
+    @Test
+    fun `selector with no matches returns no_match outcome with kind permanent`(): Unit =
+        runBlocking {
+            val recommender = mockRecommender(emptyList())
+
+            val result =
+                tool.execute(
+                    params(claims = listOf(selectorEntry())),
+                    defaultContext(nextItemRecommender = recommender)
+                )
+
+            val data = (result as JsonObject)["data"] as JsonObject
+            val first = (data["claimResults"] as JsonArray)[0] as JsonObject
+            assertEquals("no_match", first["outcome"]?.jsonPrimitive?.content)
+            assertEquals("permanent", first["kind"]?.jsonPrimitive?.content)
+            assertEquals("no_match", first["code"]?.jsonPrimitive?.content)
+            // no retryAfterMs for no_match
+            assertNull(first["retryAfterMs"], "no_match must not have retryAfterMs")
+            // no itemId for no_match (nothing was resolved)
+            assertNull(first["itemId"], "no_match must not have itemId")
+            // claimsSucceeded should be 0
+            val summary = data["summary"] as JsonObject
+            assertEquals(0, summary["claimsSucceeded"]?.jsonPrimitive?.intOrNull)
+            assertEquals(1, summary["claimsFailed"]?.jsonPrimitive?.intOrNull)
+        }
+
+    @Test
+    fun `selector TOCTOU — recommender returns item but claim returns AlreadyClaimed`(): Unit =
+        runBlocking {
+            val matchedItem = WorkItem(id = itemId1, title = "Contested Item", role = Role.QUEUE)
+            val recommender = mockRecommender(listOf(matchedItem))
+            coEvery { workItemRepo.claim(itemId1, agentId, 900) } returns
+                ClaimResult.AlreadyClaimed(itemId1, retryAfterMs = 5000L)
+
+            val result =
+                tool.execute(
+                    params(claims = listOf(selectorEntry())),
+                    defaultContext(nextItemRecommender = recommender)
+                )
+
+            val data = (result as JsonObject)["data"] as JsonObject
+            val first = (data["claimResults"] as JsonArray)[0] as JsonObject
+            assertEquals("already_claimed", first["outcome"]?.jsonPrimitive?.content)
+            // The resolved itemId must be echoed even on TOCTOU failure
+            assertEquals(itemId1.toString(), first["itemId"]?.jsonPrimitive?.content)
+        }
+
+    @Test
+    fun `selector idempotency replay returns same itemId from cache`(): Unit =
+        runBlocking {
+            val matchedItem = WorkItem(id = itemId1, title = "First Queued Item", role = Role.QUEUE)
+            val recommender = mockk<NextItemRecommender>()
+            val differentItem = WorkItem(id = itemId2, title = "Different Item", role = Role.QUEUE)
+            // First call returns matchedItem; second call returns a different item (simulates queue state change)
+            coEvery { recommender.recommend(any(), 1) } returnsMany
+                listOf(
+                    Result.Success(listOf(matchedItem)),
+                    Result.Success(listOf(differentItem))
+                )
+            coEvery { workItemRepo.claim(itemId1, agentId, 900) } returns ClaimResult.Success(makeSuccessItem(itemId1))
+
+            val requestId = UUID.randomUUID().toString()
+            val p = params(claims = listOf(selectorEntry()), requestId = requestId)
+
+            // Use the SAME context object for both calls so the IdempotencyCache is shared.
+            val sharedContext = defaultContext(nextItemRecommender = recommender)
+
+            // First call — resolves and claims itemId1
+            val result1 = tool.execute(p, sharedContext)
+            val first1 =
+                ((result1 as JsonObject)["data"] as JsonObject)["claimResults"].let {
+                    (it as JsonArray)[0] as JsonObject
+                }
+            assertEquals("success", first1["outcome"]?.jsonPrimitive?.content)
+            assertEquals(itemId1.toString(), first1["itemId"]?.jsonPrimitive?.content)
+
+            // Second call with same requestId on the same context — must replay the cache, NOT call recommender again
+            val result2 = tool.execute(p, sharedContext)
+            val first2 =
+                ((result2 as JsonObject)["data"] as JsonObject)["claimResults"].let {
+                    (it as JsonArray)[0] as JsonObject
+                }
+            // Replayed from cache — same itemId1, not itemId2
+            assertEquals(itemId1.toString(), first2["itemId"]?.jsonPrimitive?.content)
+        }
+
+    @Test
+    fun `claimRef is echoed on success outcome`(): Unit =
+        runBlocking {
+            coEvery { workItemRepo.claim(itemId1, agentId, 900) } returns ClaimResult.Success(makeSuccessItem())
+
+            val result =
+                tool.execute(
+                    params(claims = listOf(claimEntryWithRef(itemId1, "task-abc-123"))),
+                    defaultContext()
+                )
+
+            val data = (result as JsonObject)["data"] as JsonObject
+            val first = (data["claimResults"] as JsonArray)[0] as JsonObject
+            assertEquals("success", first["outcome"]?.jsonPrimitive?.content)
+            assertEquals("task-abc-123", first["claimRef"]?.jsonPrimitive?.content)
+        }
+
+    @Test
+    fun `claimRef is echoed on no_match outcome from selector`(): Unit =
+        runBlocking {
+            val recommender = mockRecommender(emptyList())
+
+            val result =
+                tool.execute(
+                    params(claims = listOf(selectorEntry(claimRef = "my-ref-42"))),
+                    defaultContext(nextItemRecommender = recommender)
+                )
+
+            val data = (result as JsonObject)["data"] as JsonObject
+            val first = (data["claimResults"] as JsonArray)[0] as JsonObject
+            assertEquals("no_match", first["outcome"]?.jsonPrimitive?.content)
+            assertEquals("my-ref-42", first["claimRef"]?.jsonPrimitive?.content)
+        }
+
+    @Test
+    fun `claimRef is echoed on already_claimed outcome from selector`(): Unit =
+        runBlocking {
+            val matchedItem = WorkItem(id = itemId1, title = "Contested", role = Role.QUEUE)
+            val recommender = mockRecommender(listOf(matchedItem))
+            coEvery { workItemRepo.claim(itemId1, agentId, 900) } returns
+                ClaimResult.AlreadyClaimed(itemId1, retryAfterMs = 1000L)
+
+            val result =
+                tool.execute(
+                    params(claims = listOf(selectorEntry(claimRef = "my-ref"))),
+                    defaultContext(nextItemRecommender = recommender)
+                )
+
+            val data = (result as JsonObject)["data"] as JsonObject
+            val first = (data["claimResults"] as JsonArray)[0] as JsonObject
+            assertEquals("already_claimed", first["outcome"]?.jsonPrimitive?.content)
+            assertEquals("my-ref", first["claimRef"]?.jsonPrimitive?.content)
+        }
+
+    @Test
+    fun `selector with multi-release in same call — selector resolves and both releases succeed`(): Unit =
+        runBlocking {
+            val matchedItem = WorkItem(id = itemId1, title = "Selector Resolved", role = Role.QUEUE)
+            val recommender = mockRecommender(listOf(matchedItem))
+            coEvery { workItemRepo.claim(itemId1, agentId, 900) } returns ClaimResult.Success(makeSuccessItem())
+            coEvery { workItemRepo.release(itemId2, agentId) } returns
+                ReleaseResult.Success(WorkItem(id = itemId2, title = "Released2"))
+            val extraReleaseId = UUID.randomUUID()
+            coEvery { workItemRepo.release(extraReleaseId, agentId) } returns
+                ReleaseResult.Success(WorkItem(id = extraReleaseId, title = "Released3"))
+
+            val p =
+                buildJsonObject {
+                    put("claims", buildJsonArray { add(selectorEntry()) })
+                    put(
+                        "releases",
+                        buildJsonArray {
+                            add(releaseEntry(itemId2))
+                            add(releaseEntry(extraReleaseId))
+                        }
+                    )
+                    put("actor", actorJson())
+                    put("requestId", UUID.randomUUID().toString())
+                }
+
+            val result = tool.execute(p, defaultContext(nextItemRecommender = recommender))
+            val data = (result as JsonObject)["data"] as JsonObject
+
+            val claimResults = data["claimResults"] as JsonArray
+            assertEquals(1, claimResults.size)
+            val claimFirst = claimResults[0] as JsonObject
+            assertEquals("success", claimFirst["outcome"]?.jsonPrimitive?.content)
+            assertEquals(true, claimFirst["selectorResolved"]?.jsonPrimitive?.booleanOrNull)
+
+            val releaseResults = data["releaseResults"] as JsonArray
+            assertEquals(2, releaseResults.size)
+            releaseResults.forEach { r ->
+                assertEquals("success", (r as JsonObject)["outcome"]?.jsonPrimitive?.content)
+            }
+
+            val summary = data["summary"] as JsonObject
+            assertEquals(1, summary["claimsSucceeded"]?.jsonPrimitive?.intOrNull)
+            assertEquals(2, summary["releasesSucceeded"]?.jsonPrimitive?.intOrNull)
         }
 }

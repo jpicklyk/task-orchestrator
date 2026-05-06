@@ -1098,4 +1098,571 @@ class GetNextItemToolTest {
                     "Got: $serialized"
             )
         }
+
+    // ──────────────────────────────────────────────
+    // Filter parameter tests — Phase 3
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `tags filter returns only items matching any given tag`(): Unit =
+        runBlocking {
+            val backendItem = createItem("Backend Task", tags = "backend,api")
+            val frontendItem = createItem("Frontend Task", tags = "frontend,ui")
+            createItem("Untagged Task")
+
+            val result =
+                tool.execute(
+                    params(
+                        "tags" to JsonPrimitive("backend"),
+                        "limit" to JsonPrimitive(10)
+                    ),
+                    context
+                )
+
+            assertTrue(isSuccess(result))
+            val recs = extractRecommendations(result)
+            val recIds = recs.map { it.jsonObject["itemId"]!!.jsonPrimitive.content }
+            assertTrue(recIds.contains(backendItem.id.toString()), "backend-tagged item should be returned")
+            assertFalse(recIds.contains(frontendItem.id.toString()), "frontend-only item should not be returned")
+        }
+
+    @Test
+    fun `priority filter returns only items with matching priority`(): Unit =
+        runBlocking {
+            val highItem = createItem("High Priority Task", priority = Priority.HIGH)
+            val lowItem = createItem("Low Priority Task", priority = Priority.LOW)
+            createItem("Medium Priority Task", priority = Priority.MEDIUM)
+
+            val result =
+                tool.execute(
+                    params(
+                        "priority" to JsonPrimitive("high"),
+                        "limit" to JsonPrimitive(10)
+                    ),
+                    context
+                )
+
+            assertTrue(isSuccess(result))
+            val recs = extractRecommendations(result)
+            val recIds = recs.map { it.jsonObject["itemId"]!!.jsonPrimitive.content }
+            assertTrue(recIds.contains(highItem.id.toString()), "HIGH priority item should be returned")
+            assertFalse(recIds.contains(lowItem.id.toString()), "LOW priority item should not be returned")
+            assertEquals(1, recIds.size, "Only one HIGH priority item should be returned")
+        }
+
+    @Test
+    fun `type filter returns only items with matching type`(): Unit =
+        runBlocking {
+            val featureTask = createItem("Feature task")
+            // We need to set the type field — create items with different types via DB directly
+            // WorkItem.type defaults to null; filter for null-type items is tested via absence
+            // Create via repository with a non-null type string:
+            val typedItem =
+                io.github.jpicklyk.mcptask.current.domain.model.WorkItem(
+                    title = "Bug Fix",
+                    role = Role.QUEUE,
+                    priority = Priority.HIGH,
+                    type = "bug"
+                )
+            val createdTyped =
+                (
+                    context.workItemRepository().create(typedItem)
+                        as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success
+                ).data
+
+            val result =
+                tool.execute(
+                    params(
+                        "type" to JsonPrimitive("bug"),
+                        "limit" to JsonPrimitive(10)
+                    ),
+                    context
+                )
+
+            assertTrue(isSuccess(result))
+            val recs = extractRecommendations(result)
+            val recIds = recs.map { it.jsonObject["itemId"]!!.jsonPrimitive.content }
+            assertTrue(recIds.contains(createdTyped.id.toString()), "type-matched item should be returned")
+            assertFalse(recIds.contains(featureTask.id.toString()), "null-type item should not be returned for type filter")
+        }
+
+    @Test
+    fun `complexityMax filter excludes items above the threshold`(): Unit =
+        runBlocking {
+            val simpleItem = createItem("Simple Task", complexity = 3)
+            val complexItem = createItem("Complex Task", complexity = 8)
+
+            val result =
+                tool.execute(
+                    params(
+                        "complexityMax" to JsonPrimitive(5),
+                        "limit" to JsonPrimitive(10)
+                    ),
+                    context
+                )
+
+            assertTrue(isSuccess(result))
+            val recs = extractRecommendations(result)
+            val recIds = recs.map { it.jsonObject["itemId"]!!.jsonPrimitive.content }
+            assertTrue(recIds.contains(simpleItem.id.toString()), "complexity-3 item should be returned with complexityMax=5")
+            assertFalse(recIds.contains(complexItem.id.toString()), "complexity-8 item should be excluded with complexityMax=5")
+        }
+
+    @Test
+    fun `createdAfter filter excludes items created before the threshold`(): Unit =
+        runBlocking {
+            val now = java.time.Instant.now()
+
+            // Create an item with a past createdAt (simulate via repository directly)
+            val pastItem =
+                io.github.jpicklyk.mcptask.current.domain.model.WorkItem(
+                    title = "Old Task",
+                    role = Role.QUEUE,
+                    createdAt = now.minusSeconds(7200) // 2 hours ago
+                )
+            val createdPast =
+                (
+                    context.workItemRepository().create(pastItem)
+                        as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success
+                ).data
+
+            val recentItem =
+                io.github.jpicklyk.mcptask.current.domain.model.WorkItem(
+                    title = "Recent Task",
+                    role = Role.QUEUE,
+                    createdAt = now.minusSeconds(60) // 1 minute ago
+                )
+            val createdRecent =
+                (
+                    context.workItemRepository().create(recentItem)
+                        as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success
+                ).data
+
+            val threshold = now.minusSeconds(3600).toString() // 1 hour ago
+
+            val result =
+                tool.execute(
+                    params(
+                        "createdAfter" to JsonPrimitive(threshold),
+                        "limit" to JsonPrimitive(10)
+                    ),
+                    context
+                )
+
+            assertTrue(isSuccess(result))
+            val recs = extractRecommendations(result)
+            val recIds = recs.map { it.jsonObject["itemId"]!!.jsonPrimitive.content }
+            assertTrue(recIds.contains(createdRecent.id.toString()), "recent item should be returned after createdAfter threshold")
+            assertFalse(recIds.contains(createdPast.id.toString()), "old item should be excluded by createdAfter filter")
+        }
+
+    @Test
+    fun `createdBefore filter excludes items created after the threshold`(): Unit =
+        runBlocking {
+            val now = java.time.Instant.now()
+
+            val pastItem =
+                io.github.jpicklyk.mcptask.current.domain.model.WorkItem(
+                    title = "Old Task",
+                    role = Role.QUEUE,
+                    createdAt = now.minusSeconds(7200)
+                )
+            val createdPast =
+                (
+                    context.workItemRepository().create(pastItem)
+                        as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success
+                ).data
+
+            val recentItem =
+                io.github.jpicklyk.mcptask.current.domain.model.WorkItem(
+                    title = "Recent Task",
+                    role = Role.QUEUE,
+                    createdAt = now.minusSeconds(60)
+                )
+            val createdRecent =
+                (
+                    context.workItemRepository().create(recentItem)
+                        as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success
+                ).data
+
+            val threshold = now.minusSeconds(1800).toString() // 30 minutes ago
+
+            val result =
+                tool.execute(
+                    params(
+                        "createdBefore" to JsonPrimitive(threshold),
+                        "limit" to JsonPrimitive(10)
+                    ),
+                    context
+                )
+
+            assertTrue(isSuccess(result))
+            val recs = extractRecommendations(result)
+            val recIds = recs.map { it.jsonObject["itemId"]!!.jsonPrimitive.content }
+            assertTrue(recIds.contains(createdPast.id.toString()), "old item should be returned before createdBefore threshold")
+            assertFalse(recIds.contains(createdRecent.id.toString()), "recent item should be excluded by createdBefore filter")
+        }
+
+    @Test
+    fun `roleChangedAfter filter excludes items whose role changed before the threshold`(): Unit =
+        runBlocking {
+            val now = java.time.Instant.now()
+
+            val oldRoleItem =
+                io.github.jpicklyk.mcptask.current.domain.model.WorkItem(
+                    title = "Old Role Change",
+                    role = Role.QUEUE,
+                    roleChangedAt = now.minusSeconds(7200)
+                )
+            val createdOld =
+                (
+                    context.workItemRepository().create(oldRoleItem)
+                        as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success
+                ).data
+
+            val recentRoleItem =
+                io.github.jpicklyk.mcptask.current.domain.model.WorkItem(
+                    title = "Recent Role Change",
+                    role = Role.QUEUE,
+                    roleChangedAt = now.minusSeconds(60)
+                )
+            val createdRecent =
+                (
+                    context.workItemRepository().create(recentRoleItem)
+                        as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success
+                ).data
+
+            val threshold = now.minusSeconds(3600).toString()
+
+            val result =
+                tool.execute(
+                    params(
+                        "roleChangedAfter" to JsonPrimitive(threshold),
+                        "limit" to JsonPrimitive(10)
+                    ),
+                    context
+                )
+
+            assertTrue(isSuccess(result))
+            val recs = extractRecommendations(result)
+            val recIds = recs.map { it.jsonObject["itemId"]!!.jsonPrimitive.content }
+            assertTrue(recIds.contains(createdRecent.id.toString()), "recently role-changed item should be returned")
+            assertFalse(recIds.contains(createdOld.id.toString()), "old role-changed item should be excluded")
+        }
+
+    @Test
+    fun `roleChangedBefore filter excludes items whose role changed after the threshold`(): Unit =
+        runBlocking {
+            val now = java.time.Instant.now()
+
+            val oldRoleItem =
+                io.github.jpicklyk.mcptask.current.domain.model.WorkItem(
+                    title = "Old Role Change",
+                    role = Role.QUEUE,
+                    roleChangedAt = now.minusSeconds(7200)
+                )
+            val createdOld =
+                (
+                    context.workItemRepository().create(oldRoleItem)
+                        as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success
+                ).data
+
+            val recentRoleItem =
+                io.github.jpicklyk.mcptask.current.domain.model.WorkItem(
+                    title = "Recent Role Change",
+                    role = Role.QUEUE,
+                    roleChangedAt = now.minusSeconds(60)
+                )
+            val createdRecent =
+                (
+                    context.workItemRepository().create(recentRoleItem)
+                        as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success
+                ).data
+
+            val threshold = now.minusSeconds(1800).toString()
+
+            val result =
+                tool.execute(
+                    params(
+                        "roleChangedBefore" to JsonPrimitive(threshold),
+                        "limit" to JsonPrimitive(10)
+                    ),
+                    context
+                )
+
+            assertTrue(isSuccess(result))
+            val recs = extractRecommendations(result)
+            val recIds = recs.map { it.jsonObject["itemId"]!!.jsonPrimitive.content }
+            assertTrue(recIds.contains(createdOld.id.toString()), "old role-changed item should be returned")
+            assertFalse(recIds.contains(createdRecent.id.toString()), "recently role-changed item should be excluded")
+        }
+
+    // ──────────────────────────────────────────────
+    // orderBy tests
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `orderBy=priority returns items HIGH first then by complexity ascending`(): Unit =
+        runBlocking {
+            val now = java.time.Instant.now()
+            val lowItem =
+                io.github.jpicklyk.mcptask.current.domain.model.WorkItem(
+                    title = "Low Priority",
+                    role = Role.QUEUE,
+                    priority = Priority.LOW,
+                    complexity = 2,
+                    createdAt = now.minusSeconds(100)
+                )
+            val highComplexItem =
+                io.github.jpicklyk.mcptask.current.domain.model.WorkItem(
+                    title = "High Priority Complex",
+                    role = Role.QUEUE,
+                    priority = Priority.HIGH,
+                    complexity = 8,
+                    createdAt = now.minusSeconds(200)
+                )
+            val highSimpleItem =
+                io.github.jpicklyk.mcptask.current.domain.model.WorkItem(
+                    title = "High Priority Simple",
+                    role = Role.QUEUE,
+                    priority = Priority.HIGH,
+                    complexity = 2,
+                    createdAt = now.minusSeconds(300)
+                )
+            val medItem =
+                io.github.jpicklyk.mcptask.current.domain.model.WorkItem(
+                    title = "Medium Priority",
+                    role = Role.QUEUE,
+                    priority = Priority.MEDIUM,
+                    complexity = 5,
+                    createdAt = now.minusSeconds(50)
+                )
+
+            val repo = context.workItemRepository()
+            val createdLow = (repo.create(lowItem) as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success).data
+            val createdHighComplex =
+                (
+                    repo.create(
+                        highComplexItem
+                    ) as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success
+                ).data
+            val createdHighSimple =
+                (
+                    repo.create(
+                        highSimpleItem
+                    ) as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success
+                ).data
+            val createdMed = (repo.create(medItem) as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success).data
+
+            val result =
+                tool.execute(
+                    params(
+                        "orderBy" to JsonPrimitive("priority"),
+                        "limit" to JsonPrimitive(10)
+                    ),
+                    context
+                )
+
+            assertTrue(isSuccess(result))
+            val recs = extractRecommendations(result)
+            val recIds = recs.map { it.jsonObject["itemId"]!!.jsonPrimitive.content }
+
+            assertEquals(4, recIds.size)
+            assertEquals(createdHighSimple.id.toString(), recIds[0], "HIGH/complexity2 should be first")
+            assertEquals(createdHighComplex.id.toString(), recIds[1], "HIGH/complexity8 should be second")
+            assertEquals(createdMed.id.toString(), recIds[2], "MEDIUM should be third")
+            assertEquals(createdLow.id.toString(), recIds[3], "LOW should be last")
+        }
+
+    @Test
+    fun `orderBy=oldest returns items by createdAt ascending (FIFO)`(): Unit =
+        runBlocking {
+            val now = java.time.Instant.now()
+            val repo = context.workItemRepository()
+
+            val oldestItem =
+                io.github.jpicklyk.mcptask.current.domain.model.WorkItem(
+                    title = "Oldest",
+                    role = Role.QUEUE,
+                    priority = Priority.LOW,
+                    createdAt = now.minusSeconds(3000)
+                )
+            val middleItem =
+                io.github.jpicklyk.mcptask.current.domain.model.WorkItem(
+                    title = "Middle",
+                    role = Role.QUEUE,
+                    priority = Priority.HIGH, // high priority but newer
+                    createdAt = now.minusSeconds(2000)
+                )
+            val newestItem =
+                io.github.jpicklyk.mcptask.current.domain.model.WorkItem(
+                    title = "Newest",
+                    role = Role.QUEUE,
+                    priority = Priority.HIGH,
+                    createdAt = now.minusSeconds(1000)
+                )
+
+            val createdOldest = (repo.create(oldestItem) as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success).data
+            val createdMiddle = (repo.create(middleItem) as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success).data
+            val createdNewest = (repo.create(newestItem) as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success).data
+
+            val result =
+                tool.execute(
+                    params(
+                        "orderBy" to JsonPrimitive("oldest"),
+                        "limit" to JsonPrimitive(10)
+                    ),
+                    context
+                )
+
+            assertTrue(isSuccess(result))
+            val recs = extractRecommendations(result)
+            val recIds = recs.map { it.jsonObject["itemId"]!!.jsonPrimitive.content }
+
+            assertEquals(3, recIds.size)
+            assertEquals(createdOldest.id.toString(), recIds[0], "oldest item should be first with orderBy=oldest")
+            assertEquals(createdMiddle.id.toString(), recIds[1])
+            assertEquals(createdNewest.id.toString(), recIds[2], "newest item should be last with orderBy=oldest")
+        }
+
+    @Test
+    fun `orderBy=newest returns items by createdAt descending`(): Unit =
+        runBlocking {
+            val now = java.time.Instant.now()
+            val repo = context.workItemRepository()
+
+            val oldestItem =
+                io.github.jpicklyk.mcptask.current.domain.model.WorkItem(
+                    title = "Oldest",
+                    role = Role.QUEUE,
+                    priority = Priority.HIGH, // high priority but oldest
+                    createdAt = now.minusSeconds(3000)
+                )
+            val middleItem =
+                io.github.jpicklyk.mcptask.current.domain.model.WorkItem(
+                    title = "Middle",
+                    role = Role.QUEUE,
+                    priority = Priority.LOW,
+                    createdAt = now.minusSeconds(2000)
+                )
+            val newestItem =
+                io.github.jpicklyk.mcptask.current.domain.model.WorkItem(
+                    title = "Newest",
+                    role = Role.QUEUE,
+                    priority = Priority.LOW,
+                    createdAt = now.minusSeconds(1000)
+                )
+
+            val createdOldest = (repo.create(oldestItem) as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success).data
+            val createdMiddle = (repo.create(middleItem) as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success).data
+            val createdNewest = (repo.create(newestItem) as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success).data
+
+            val result =
+                tool.execute(
+                    params(
+                        "orderBy" to JsonPrimitive("newest"),
+                        "limit" to JsonPrimitive(10)
+                    ),
+                    context
+                )
+
+            assertTrue(isSuccess(result))
+            val recs = extractRecommendations(result)
+            val recIds = recs.map { it.jsonObject["itemId"]!!.jsonPrimitive.content }
+
+            assertEquals(3, recIds.size)
+            assertEquals(createdNewest.id.toString(), recIds[0], "newest item should be first with orderBy=newest")
+            assertEquals(createdMiddle.id.toString(), recIds[1])
+            assertEquals(createdOldest.id.toString(), recIds[2], "oldest item should be last with orderBy=newest")
+        }
+
+    // ──────────────────────────────────────────────
+    // Validation tests — new parameters
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `invalid priority value fails validation`() {
+        assertFailsWith<ToolValidationException> {
+            tool.validateParams(params("priority" to JsonPrimitive("bogus")))
+        }
+    }
+
+    @Test
+    fun `complexityMax below 1 fails validation`() {
+        assertFailsWith<ToolValidationException> {
+            tool.validateParams(params("complexityMax" to JsonPrimitive(0)))
+        }
+    }
+
+    @Test
+    fun `complexityMax above 10 fails validation`() {
+        assertFailsWith<ToolValidationException> {
+            tool.validateParams(params("complexityMax" to JsonPrimitive(11)))
+        }
+    }
+
+    @Test
+    fun `invalid orderBy value fails validation`() {
+        assertFailsWith<ToolValidationException> {
+            tool.validateParams(params("orderBy" to JsonPrimitive("invalid")))
+        }
+    }
+
+    @Test
+    fun `malformed createdAfter ISO 8601 fails validation`() {
+        assertFailsWith<ToolValidationException> {
+            tool.validateParams(params("createdAfter" to JsonPrimitive("not-a-date")))
+        }
+    }
+
+    @Test
+    fun `malformed createdBefore ISO 8601 fails validation`() {
+        assertFailsWith<ToolValidationException> {
+            tool.validateParams(params("createdBefore" to JsonPrimitive("2024-13-45")))
+        }
+    }
+
+    @Test
+    fun `malformed roleChangedAfter ISO 8601 fails validation`() {
+        assertFailsWith<ToolValidationException> {
+            tool.validateParams(params("roleChangedAfter" to JsonPrimitive("not-a-timestamp")))
+        }
+    }
+
+    @Test
+    fun `malformed roleChangedBefore ISO 8601 fails validation`() {
+        assertFailsWith<ToolValidationException> {
+            tool.validateParams(params("roleChangedBefore" to JsonPrimitive("yesterday")))
+        }
+    }
+
+    @Test
+    fun `blank tags value fails validation`() {
+        assertFailsWith<ToolValidationException> {
+            tool.validateParams(params("tags" to JsonPrimitive("   ")))
+        }
+    }
+
+    @Test
+    fun `valid orderBy=priority passes validation`() {
+        // Should not throw
+        tool.validateParams(params("orderBy" to JsonPrimitive("priority")))
+    }
+
+    @Test
+    fun `valid orderBy=oldest passes validation`() {
+        tool.validateParams(params("orderBy" to JsonPrimitive("oldest")))
+    }
+
+    @Test
+    fun `valid orderBy=newest passes validation`() {
+        tool.validateParams(params("orderBy" to JsonPrimitive("newest")))
+    }
+
+    @Test
+    fun `valid complexityMax boundary values pass validation`() {
+        // Should not throw
+        tool.validateParams(params("complexityMax" to JsonPrimitive(1)))
+        tool.validateParams(params("complexityMax" to JsonPrimitive(10)))
+    }
 }
