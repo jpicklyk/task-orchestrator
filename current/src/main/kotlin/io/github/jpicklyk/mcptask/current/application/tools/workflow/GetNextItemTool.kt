@@ -44,8 +44,11 @@ Parameters:
 - includeAncestors (optional boolean, default false): when true, each recommended item includes an
   `ancestors` array ordered root-first (direct parent last). Root items (depth=0) get `"ancestors": []`.
 - includeClaimed (optional boolean, default false): When false (default), items with an active
-  (non-expired) claim are filtered out. When true, claimed items are included but only a boolean
-  `isClaimed` field is exposed — the claiming agent's identity is never disclosed.
+  (non-expired) claim are filtered out, AND ancestor-claim sub-tree isolation applies (children
+  of items claimed by another agent are excluded). When true, claimed items are included AND the
+  ancestor-claim filter is NOT applied — admin/inspection callers see the full set, and only a
+  boolean `isClaimed` field is exposed (the claiming agent's identity is never disclosed). Fleet
+  callers should leave this `false` so sub-tree isolation continues to protect in-progress features.
 
 Filter parameters (all optional, any-match semantics where applicable):
 - tags (string, comma-separated): Return only items whose tags contain any of the given values

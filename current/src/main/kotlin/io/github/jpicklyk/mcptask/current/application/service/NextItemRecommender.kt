@@ -37,6 +37,17 @@ class NextItemRecommender(
         val roleChangedAfter: Instant? = null,
         val roleChangedBefore: Instant? = null,
         val orderBy: NextItemOrder = NextItemOrder.PRIORITY_THEN_COMPLEXITY,
+        /**
+         * Optional agent identifier forwarded to [WorkItemRepository.findClaimable] for
+         * ancestor-claim sub-tree isolation.
+         *
+         * When non-null, candidates whose ancestor chain contains a live claim held by a
+         * *different* agent are excluded; candidates under the same agent's claimed ancestor
+         * are retained (enabling the hybrid fleet pattern: claim at parent feature, orchestrate
+         * sub-tree below). When null, any live ancestor claim disqualifies the candidate (strict
+         * exclusion for callers without actor context, such as [GetNextItemTool]).
+         */
+        val requestingAgentId: String? = null,
     )
 
     /**
@@ -67,6 +78,7 @@ class NextItemRecommender(
                 roleChangedBefore = criteria.roleChangedBefore,
                 orderBy = criteria.orderBy,
                 limit = OVER_FETCH_LIMIT,
+                requestingAgentId = criteria.requestingAgentId,
             )
 
         if (candidatesResult is Result.Error) {

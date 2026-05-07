@@ -281,6 +281,12 @@ Solution: Check `query_items(operation="search", claimStatus="claimed")` to see 
 
 ---
 
+**Note: Ralph workers skip sub-items of in-progress features (ancestor-claim filtering)**
+
+When a fleet agent claims a feature using the hybrid topology (Scenario D in the [Fleet Deployment Guide](../../../../../../current/docs/fleet-deployment.md)), the feature's child tasks are automatically protected from Ralph workers with broad selectors. A Ralph drain using `role=queue` will see `no_match` for any candidate whose ancestor is currently claimed by a different agent — this is the correct and desired behavior, not a bug. Ralph workers naturally focus on top-level claimable work; items inside an in-progress orchestration session are shielded. Use `parentId: null` in the filter to explicitly restrict to top-level items and avoid even evaluating sub-items.
+
+---
+
 **Problem: the iteration agent dispatches subagents (Agent tool) and that's confusing the loop**
 
 Cause: The iteration prompt doesn't forbid subagents, but they add complexity (the iteration agent's worktree is the dispatched subagent's working directory too).

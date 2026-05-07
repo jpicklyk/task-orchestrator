@@ -79,6 +79,7 @@ class NextItemRecommenderTest {
         roleChangedAfter: Instant? = null,
         roleChangedBefore: Instant? = null,
         orderBy: NextItemOrder = NextItemOrder.PRIORITY_THEN_COMPLEXITY,
+        requestingAgentId: String? = null,
     ) {
         coEvery {
             workItemRepo.findClaimable(
@@ -94,6 +95,7 @@ class NextItemRecommenderTest {
                 roleChangedBefore = roleChangedBefore,
                 orderBy = orderBy,
                 limit = 200,
+                requestingAgentId = requestingAgentId,
             )
         } returns Result.Success(items)
     }
@@ -147,6 +149,7 @@ class NextItemRecommenderTest {
                     roleChangedBefore = roleBefore,
                     orderBy = NextItemOrder.OLDEST_FIRST,
                     limit = 200,
+                    requestingAgentId = null,
                 )
             } returns Result.Success(listOf(item))
             every { dependencyRepo.findByToItemId(item.id) } returns emptyList()
@@ -172,6 +175,7 @@ class NextItemRecommenderTest {
                     roleChangedBefore = roleBefore,
                     orderBy = NextItemOrder.OLDEST_FIRST,
                     limit = 200,
+                    requestingAgentId = null,
                 )
             }
         }
@@ -203,6 +207,7 @@ class NextItemRecommenderTest {
                     roleChangedBefore = null,
                     orderBy = NextItemOrder.PRIORITY_THEN_COMPLEXITY,
                     limit = 200,
+                    requestingAgentId = null,
                 )
             }
         }
@@ -451,6 +456,7 @@ class NextItemRecommenderTest {
                     roleChangedBefore = any(),
                     orderBy = any(),
                     limit = any(),
+                    requestingAgentId = any(),
                 )
             } returns Result.Error(repoError)
 
@@ -458,5 +464,113 @@ class NextItemRecommenderTest {
 
             assertIs<Result.Error>(result)
             assertEquals(repoError, result.error)
+        }
+
+    // -----------------------------------------------------------------------
+    // requestingAgentId round-trips through recommend()
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun `requestingAgentId in Criteria is forwarded to findClaimable`(): Unit =
+        runBlocking {
+            val item = workItem()
+            val agentId = "agent-fleet-worker-1"
+
+            // Stub findClaimable specifically for this agentId
+            coEvery {
+                workItemRepo.findClaimable(
+                    role = Role.QUEUE,
+                    parentId = null,
+                    tags = null,
+                    priority = null,
+                    type = null,
+                    complexityMax = null,
+                    createdAfter = null,
+                    createdBefore = null,
+                    roleChangedAfter = null,
+                    roleChangedBefore = null,
+                    orderBy = NextItemOrder.PRIORITY_THEN_COMPLEXITY,
+                    limit = 200,
+                    requestingAgentId = agentId,
+                )
+            } returns Result.Success(listOf(item))
+            every { dependencyRepo.findByToItemId(item.id) } returns emptyList()
+            every { dependencyRepo.findByFromItemId(item.id) } returns emptyList()
+
+            val criteria = NextItemRecommender.Criteria(requestingAgentId = agentId)
+            val result = recommender.recommend(criteria, limit = 1)
+
+            assertIs<Result.Success<List<WorkItem>>>(result)
+            assertEquals(1, result.data.size)
+
+            // Verify the agent ID was forwarded to the repository
+            coVerify(exactly = 1) {
+                workItemRepo.findClaimable(
+                    role = Role.QUEUE,
+                    parentId = null,
+                    tags = null,
+                    priority = null,
+                    type = null,
+                    complexityMax = null,
+                    createdAfter = null,
+                    createdBefore = null,
+                    roleChangedAfter = null,
+                    roleChangedBefore = null,
+                    orderBy = NextItemOrder.PRIORITY_THEN_COMPLEXITY,
+                    limit = 200,
+                    requestingAgentId = agentId,
+                )
+            }
+        }
+
+    @Test
+    fun `null requestingAgentId in Criteria forwards null to findClaimable (strict exclusion mode)`(): Unit =
+        runBlocking {
+            val item = workItem()
+
+            coEvery {
+                workItemRepo.findClaimable(
+                    role = Role.QUEUE,
+                    parentId = null,
+                    tags = null,
+                    priority = null,
+                    type = null,
+                    complexityMax = null,
+                    createdAfter = null,
+                    createdBefore = null,
+                    roleChangedAfter = null,
+                    roleChangedBefore = null,
+                    orderBy = NextItemOrder.PRIORITY_THEN_COMPLEXITY,
+                    limit = 200,
+                    requestingAgentId = null,
+                )
+            } returns Result.Success(listOf(item))
+            every { dependencyRepo.findByToItemId(item.id) } returns emptyList()
+            every { dependencyRepo.findByFromItemId(item.id) } returns emptyList()
+
+            // Default Criteria has requestingAgentId = null
+            val criteria = NextItemRecommender.Criteria()
+            val result = recommender.recommend(criteria, limit = 1)
+
+            assertIs<Result.Success<List<WorkItem>>>(result)
+            assertEquals(1, result.data.size)
+
+            coVerify(exactly = 1) {
+                workItemRepo.findClaimable(
+                    role = any(),
+                    parentId = any(),
+                    tags = any(),
+                    priority = any(),
+                    type = any(),
+                    complexityMax = any(),
+                    createdAfter = any(),
+                    createdBefore = any(),
+                    roleChangedAfter = any(),
+                    roleChangedBefore = any(),
+                    orderBy = any(),
+                    limit = any(),
+                    requestingAgentId = null,
+                )
+            }
         }
 }

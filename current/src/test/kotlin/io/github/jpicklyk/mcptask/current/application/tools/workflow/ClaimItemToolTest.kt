@@ -1451,4 +1451,144 @@ class ClaimItemToolTest {
             assertEquals(1, summary["claimsSucceeded"]?.jsonPrimitive?.intOrNull)
             assertEquals(2, summary["releasesSucceeded"]?.jsonPrimitive?.intOrNull)
         }
+
+    // -----------------------------------------------------------------------
+    // Ancestor-claim protection — selector mode
+    // -----------------------------------------------------------------------
+
+    /**
+     * Verifies that the selector path passes the resolved trustedAgentId to the criteria
+     * as requestingAgentId, enabling the repository's ancestor-claim filter to perform
+     * same-agent vs. cross-agent distinction.
+     *
+     * When the recommender returns empty (simulating that the ancestor-claim filter excluded
+     * the only candidate), the outcome must be no_match.
+     */
+    @Test
+    fun `selector mode returns no_match when all candidates excluded by ancestor-claim filter (cross-agent)`(): Unit =
+        runBlocking {
+            // Recommender returns empty — simulates the repository's ancestor-claim filter
+            // having excluded the only candidate because its parent is claimed by a different agent.
+            val recommender = mockk<NextItemRecommender>()
+            coEvery { recommender.recommend(any(), 1) } returns Result.Success(emptyList())
+
+            val result =
+                tool.execute(
+                    params(
+                        claims = listOf(selectorEntry()),
+                        actorId = "agent-y"
+                    ),
+                    defaultContext(nextItemRecommender = recommender)
+                )
+
+            val data = (result as JsonObject)["data"] as JsonObject
+            val first = (data["claimResults"] as JsonArray)[0] as JsonObject
+            assertEquals(
+                "no_match",
+                first["outcome"]?.jsonPrimitive?.content,
+                "Selector must return no_match when ancestor-claim filter excludes all candidates"
+            )
+            assertEquals("permanent", first["kind"]?.jsonPrimitive?.content)
+        }
+
+    @Test
+    fun `selector mode passes trustedAgentId as requestingAgentId in criteria`(): Unit =
+        runBlocking {
+            val matchedItem = WorkItem(id = itemId1, title = "Eligible Item", role = Role.QUEUE)
+            val recommender = mockk<NextItemRecommender>()
+            val criteriaSlot = slot<NextItemRecommender.Criteria>()
+            coEvery { recommender.recommend(capture(criteriaSlot), 1) } returns Result.Success(listOf(matchedItem))
+            coEvery { workItemRepo.claim(itemId1, "agent-x", 900) } returns ClaimResult.Success(makeSuccessItem(claimedBy = "agent-x"))
+
+            // actor is agent-x — the criteria.requestingAgentId must be set to "agent-x"
+            val result =
+                tool.execute(
+                    params(
+                        claims = listOf(selectorEntry()),
+                        actorId = "agent-x"
+                    ),
+                    defaultContext(nextItemRecommender = recommender)
+                )
+
+            val data = (result as JsonObject)["data"] as JsonObject
+            val first = (data["claimResults"] as JsonArray)[0] as JsonObject
+            assertEquals("success", first["outcome"]?.jsonPrimitive?.content)
+
+            // Verify the criteria had requestingAgentId set to the actor's ID
+            assertEquals(
+                "agent-x",
+                criteriaSlot.captured.requestingAgentId,
+                "Selector path must forward trustedAgentId as requestingAgentId to enable same-agent sub-tree access"
+            )
+        }
+
+    @Test
+    fun `selector mode with same-agent ancestor claim succeeds (agent claims own sub-tree)`(): Unit =
+        runBlocking {
+            // Recommender returns the candidate — simulates repository's same-agent ancestor
+            // exclusion NOT filtering it out (parent claimed by same agent-x)
+            val matchedItem = WorkItem(id = itemId1, title = "Sub-item", role = Role.QUEUE)
+            val recommender = mockk<NextItemRecommender>()
+            coEvery {
+                recommender.recommend(
+                    match { it.requestingAgentId == "agent-x" },
+                    1
+                )
+            } returns Result.Success(listOf(matchedItem))
+            coEvery { workItemRepo.claim(itemId1, "agent-x", 900) } returns ClaimResult.Success(makeSuccessItem(claimedBy = "agent-x"))
+
+            val result =
+                tool.execute(
+                    params(
+                        claims = listOf(selectorEntry()),
+                        actorId = "agent-x"
+                    ),
+                    defaultContext(nextItemRecommender = recommender)
+                )
+
+            val data = (result as JsonObject)["data"] as JsonObject
+            val first = (data["claimResults"] as JsonArray)[0] as JsonObject
+            assertEquals("success", first["outcome"]?.jsonPrimitive?.content, "Same-agent sub-tree claim must succeed")
+        }
+
+    /**
+     * ID-mode claim is NOT affected by the ancestor-claim filter — the per-item `claim()` path
+     * goes directly to the repository, bypassing `findClaimable` entirely. This test documents
+     * that contract: an ID-mode claim on a child item succeeds regardless of who holds the parent.
+     */
+    @Test
+    fun `ID-mode claim is not filtered by ancestor-claim protection (direct path bypasses findClaimable)`(): Unit =
+        runBlocking {
+            // ID-mode claim on itemId1 — repository.claim is called directly.
+            // The ancestor-claim filter in findClaimable is irrelevant for this path.
+            coEvery { workItemRepo.claim(itemId1, agentId, 900) } returns ClaimResult.Success(makeSuccessItem())
+
+            val result = tool.execute(params(claims = listOf(claimEntry(itemId1))), defaultContext())
+
+            val data = (result as JsonObject)["data"] as JsonObject
+            val first = (data["claimResults"] as JsonArray)[0] as JsonObject
+            assertEquals(
+                "success",
+                first["outcome"]?.jsonPrimitive?.content,
+                "ID-mode claim must succeed regardless of ancestor claim state — it uses claim() not findClaimable()"
+            )
+            // Verify findClaimable was NOT called (selector not used)
+            coVerify(exactly = 0) {
+                workItemRepo.findClaimable(
+                    role = any(),
+                    parentId = any(),
+                    tags = any(),
+                    priority = any(),
+                    type = any(),
+                    complexityMax = any(),
+                    createdAfter = any(),
+                    createdBefore = any(),
+                    roleChangedAfter = any(),
+                    roleChangedBefore = any(),
+                    orderBy = any(),
+                    limit = any(),
+                    requestingAgentId = any(),
+                )
+            }
+        }
 }

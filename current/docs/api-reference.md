@@ -1015,6 +1015,13 @@ requested role (default: `queue`), filters out those with unsatisfied blocking d
 with active claims (unless `includeClaimed=true`), and ranks by priority descending then complexity
 ascending (quick wins first) by default.
 
+**Ancestor-claim filtering (strict mode).** When `includeClaimed=false` (the default), items whose
+ancestor chain contains any live claim are excluded from results — even if the item itself is unclaimed.
+This prevents `get_next_item` from surfacing sub-items of in-progress features to agents that would
+be competing with the feature's orchestrator. Root items (no parent) are unaffected. When
+`includeClaimed=true`, ancestor-claim filtering is NOT applied — that path uses `findForNextItem`
+and is intentionally inclusive.
+
 #### Key Parameters
 
 | Parameter | Type | Required | Description |
@@ -1189,6 +1196,7 @@ The selector filter shape is identical to the `get_next_item` filter parameters 
 - **Passive expiry.** There is no background reaper. Expired claims are filtered at read time. Crash recovery happens automatically via TTL.
 - **DB-side time.** All timestamps (`claimedAt`, `claimExpiresAt`) are set via SQLite `datetime('now', ...)` — they are UTC. Operators inspecting raw rows must not assume host-local time.
 - **Per-entry `agentId` vs verified `actor.id`.** When the configured verifier resolves a trusted identity from `actor.proof`, that verified id becomes the claim holder and any `agentId` on the individual claim entry is ignored. The server logs a warning when the two disagree. Callers without a verifier configured may still supply `agentId`; it has no special status beyond providing a self-reported identity.
+- **Ancestor-claim filtering in selector mode.** When using selector mode, items whose ancestor chain contains a live claim held by a *different* agent are excluded from the eligible set. Items under an ancestor claimed by the *same* agent (the requesting `actor.id`) are retained — enabling the hybrid fleet pattern: claim a feature at the top level, then orchestrate its child sub-tree. Root items (no parent) are unaffected. This filter is applied *before* dependency-blocking and ordering. Items excluded by this filter appear as absent from selector results; the competing agent's identity is never disclosed. **ID-mode claims bypass this filter entirely** — the per-item `claim()` path goes directly to the item, regardless of ancestor claim state.
 
 **Claim outcome codes per item:**
 

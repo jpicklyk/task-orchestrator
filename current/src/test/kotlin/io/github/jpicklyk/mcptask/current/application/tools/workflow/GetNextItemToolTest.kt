@@ -1665,4 +1665,137 @@ class GetNextItemToolTest {
         tool.validateParams(params("complexityMax" to JsonPrimitive(1)))
         tool.validateParams(params("complexityMax" to JsonPrimitive(10)))
     }
+
+    // ──────────────────────────────────────────────
+    // Ancestor-claim filter tests (GetNextItemTool uses strict mode — no actor context)
+    // ──────────────────────────────────────────────
+
+    /**
+     * Create a parent work item with an active claim, to set up ancestor-claim filter scenarios.
+     */
+    private suspend fun createClaimedParent(
+        title: String,
+        claimedBy: String = "test-agent-x"
+    ): WorkItem {
+        val now = java.time.Instant.now()
+        val parent =
+            WorkItem(
+                title = title,
+                depth = 0,
+                claimedBy = claimedBy,
+                claimedAt = now.minusSeconds(60),
+                claimExpiresAt = now.plusSeconds(3600),
+                originalClaimedAt = now.minusSeconds(60)
+            )
+        val result = context.workItemRepository().create(parent)
+        return (result as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success).data
+    }
+
+    @Test
+    fun `get_next_item excludes child when parent has active claim (strict ancestor exclusion)`(): Unit =
+        runBlocking {
+            val claimedParent = createClaimedParent("Feature (claimed)")
+            createItem("Sub-task", parentId = claimedParent.id, depth = 1, role = Role.QUEUE)
+            createItem("Root task (unclaimed, no parent)", role = Role.QUEUE)
+
+            val result = tool.execute(params("limit" to JsonPrimitive(10)), context)
+
+            assertTrue(isSuccess(result))
+            val recs = extractRecommendations(result)
+            val ids = recs.map { it.jsonObject["itemId"]!!.jsonPrimitive.content }.toSet()
+
+            // Sub-task should be excluded (parent has active claim — strict mode, no agent context)
+            assertTrue(
+                ids.none { id ->
+                    val title =
+                        recs
+                            .find { it.jsonObject["itemId"]!!.jsonPrimitive.content == id }
+                            ?.jsonObject
+                            ?.get("title")
+                            ?.jsonPrimitive
+                            ?.content
+                    title == "Sub-task"
+                },
+                "Sub-task under claimed parent should be excluded from get_next_item results"
+            )
+
+            // Root task should be included (no ancestor)
+            assertTrue(
+                ids.any { id ->
+                    val title =
+                        recs
+                            .find { it.jsonObject["itemId"]!!.jsonPrimitive.content == id }
+                            ?.jsonObject
+                            ?.get("title")
+                            ?.jsonPrimitive
+                            ?.content
+                    title == "Root task (unclaimed, no parent)"
+                },
+                "Root task with no parent should be included"
+            )
+        }
+
+    @Test
+    fun `get_next_item with includeClaimed=true does NOT apply ancestor-claim filter`(): Unit =
+        runBlocking {
+            val claimedParent = createClaimedParent("Feature (claimed by agent-x)")
+            val subTask = createItem("Sub-task", parentId = claimedParent.id, depth = 1, role = Role.QUEUE)
+
+            // includeClaimed=true uses findForNextItem, not findClaimable — no ancestor filter
+            val result =
+                tool.execute(
+                    params(
+                        "limit" to JsonPrimitive(10),
+                        "includeClaimed" to JsonPrimitive(true),
+                        "includeDetails" to JsonPrimitive(true),
+                    ),
+                    context
+                )
+
+            assertTrue(isSuccess(result))
+            val recs = extractRecommendations(result)
+            val ids = recs.map { it.jsonObject["itemId"]!!.jsonPrimitive.content }.toSet()
+
+            // Sub-task should be INCLUDED because includeClaimed=true path uses findForNextItem
+            // which does NOT apply ancestor-claim filtering
+            assertTrue(
+                subTask.id.toString() in ids,
+                "Sub-task should be visible via includeClaimed=true path — ancestor-claim filter not applied there"
+            )
+        }
+
+    @Test
+    fun `get_next_item includes child when parent claim has expired (TTL recovery)`(): Unit =
+        runBlocking {
+            // Parent with EXPIRED claim — TTL has passed
+            val now = java.time.Instant.now()
+            val expiredParent =
+                WorkItem(
+                    title = "Feature (expired claim)",
+                    depth = 0,
+                    claimedBy = "agent-x",
+                    claimedAt = now.minusSeconds(1800),
+                    claimExpiresAt = now.minusSeconds(900), // expired
+                    originalClaimedAt = now.minusSeconds(1800)
+                )
+            val savedExpiredParent =
+                (
+                    context.workItemRepository().create(expiredParent)
+                        as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success
+                ).data
+
+            val subTask = createItem("Sub-task (recovery eligible)", parentId = savedExpiredParent.id, depth = 1, role = Role.QUEUE)
+
+            val result = tool.execute(params("limit" to JsonPrimitive(10), "includeDetails" to JsonPrimitive(true)), context)
+
+            assertTrue(isSuccess(result))
+            val recs = extractRecommendations(result)
+            val ids = recs.map { it.jsonObject["itemId"]!!.jsonPrimitive.content }.toSet()
+
+            // Sub-task should be INCLUDED because parent's claim has expired (TTL recovery)
+            assertTrue(
+                subTask.id.toString() in ids,
+                "Sub-task should be claimable after parent's TTL expires"
+            )
+        }
 }
