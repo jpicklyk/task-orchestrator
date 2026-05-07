@@ -297,6 +297,12 @@ interface WorkItemRepository {
      *
      * Items with no parent (root items, depth=0) are unaffected by this filter.
      *
+     * **Filter ordering vs. limit:** [limit] is applied to the candidate query *before* the
+     * ancestor-claim filter runs. The returned list size is therefore at most [limit], and may
+     * be smaller — even when more matching items exist in the DB — if some candidates are
+     * excluded by the ancestor walk. Callers that need a guaranteed minimum result size should
+     * over-fetch (e.g. `NextItemRecommender` uses `OVER_FETCH_LIMIT` for this reason).
+     *
      * @param role              The role to query (required — e.g. QUEUE, WORK, REVIEW).
      * @param parentId          Optional parent UUID to scope results to direct children only.
      * @param tags              Optional list of tags; items matching ANY tag are included.

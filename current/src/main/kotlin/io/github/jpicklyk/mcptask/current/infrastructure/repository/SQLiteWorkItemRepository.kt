@@ -796,8 +796,8 @@ class SQLiteWorkItemRepository(
             //   AND claim_expires_at > dbNow()
             //   AND (requestingAgentId == null OR claimed_by != requestingAgentId)
             //
-            // Batched BFS pattern modeled on findAncestorChains (line 843), inlined within
-            // the same suspendedTransaction block to avoid an extra transaction open/close.
+            // Batched BFS pattern modeled on findAncestorChains, inlined within the same
+            // suspendedTransaction block to avoid an extra transaction open/close.
             // -----------------------------------------------------------------------
             val candidatesWithParents = candidates.filter { it.parentId != null }
             if (candidatesWithParents.isEmpty()) {
@@ -811,8 +811,9 @@ class SQLiteWorkItemRepository(
             val ancestorCache = mutableMapOf<String, WorkItem>()
             candidatesWithParents.forEach { ancestorCache[it.id.toString()] = it }
 
+            // candidatesWithParents was filtered to parentId != null above, so !! is safe.
             var toFetch =
-                candidatesWithParents.mapNotNull { it.parentId }.map { it.toString() }.toSet() - ancestorCache.keys
+                candidatesWithParents.map { it.parentId!!.toString() }.toSet() - ancestorCache.keys
             while (toFetch.isNotEmpty()) {
                 val fetchEntityIds = toFetch.map { EntityID(UUID.fromString(it), WorkItemsTable) }
                 val fetched =
