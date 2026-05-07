@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.7.0] - 2026-05-07 (Plugin v3.2.1)
 
 ### Breaking Changes
 - **`claim_item` now rejects `claims.size > 1`** with error code `multi_claim_not_supported`. Multi-claim was previously silently broken — the repository auto-released all but the last claim while the response reported all as `success`. The behavior is now rejected explicitly at the validation layer. Migration: issue one `claim_item` call per item. The cap derives from the heartbeat write-budget assumption (one TTL refresh per agent per cycle); a future `claim_heartbeats` table mitigation could re-evaluate the constraint. Only `claims` is restricted — the `releases` array remains batchable.
@@ -16,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `findClaimable` repository method composing the rich filter surface with active-claim exclusion — single source of truth for "what's eligible next" across both tools.
 - `NextItemRecommender` shared service — encapsulates the recommend+dependency-block logic so `get_next_item` and `claim_item` selector path can never diverge on eligibility semantics.
 - `NextItemOrder` enum — `PRIORITY_THEN_COMPLEXITY`, `OLDEST_FIRST`, `NEWEST_FIRST`.
+
+### Changed
+- Bumped plugin to 3.2.1 — updated Ralph queue-drain skill and session-start hook for single-claim behavior.
 
 ---
 
