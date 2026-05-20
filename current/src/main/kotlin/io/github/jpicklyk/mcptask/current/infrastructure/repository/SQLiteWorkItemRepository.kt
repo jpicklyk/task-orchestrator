@@ -553,7 +553,8 @@ class SQLiteWorkItemRepository(
                     // Collect matching IDs via recursive CTE, then load full rows via Exposed
                     // so that WorkItem mapping stays in one place (toWorkItemOrNull).
                     val descendantIds = mutableListOf<UUID>()
-                    val sql = """
+                    val sql =
+                        """
                         WITH RECURSIVE descendants(id) AS (
                             SELECT id FROM work_items WHERE parent_id = ?
                             UNION ALL
@@ -561,7 +562,7 @@ class SQLiteWorkItemRepository(
                             JOIN descendants d ON wi.parent_id = d.id
                         )
                         SELECT id FROM descendants
-                    """.trimIndent()
+                        """.trimIndent()
 
                     // Use ExposedConnection.prepareStatement() to get a JdbcPreparedStatementApi,
                     // then call executeQuery() on it — bypassing Exposed's exec() routing issue.
@@ -572,6 +573,7 @@ class SQLiteWorkItemRepository(
                         val rs = ps.executeQuery()
                         while (rs.next()) {
                             val rawId = rs.getObject("id")
+
                             @Suppress("UNCHECKED_CAST")
                             val uuid = (uuidType.valueFromDB(rawId!!)) as UUID
                             descendantIds.add(uuid)
