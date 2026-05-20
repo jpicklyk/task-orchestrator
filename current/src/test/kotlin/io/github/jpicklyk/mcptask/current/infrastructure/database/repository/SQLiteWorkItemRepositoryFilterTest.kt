@@ -196,20 +196,10 @@ class SQLiteWorkItemRepositoryFilterTest {
             assertEquals("New mod", result.data[0].title)
         }
 
-    @Test
-    fun `findByFilters with text query`() =
-        runBlocking {
-            repository.create(WorkItem(title = "Authentication module"))
-            repository.create(WorkItem(title = "Database layer", summary = "Auth integration"))
-            repository.create(WorkItem(title = "Unrelated stuff"))
-
-            val result = repository.findByFilters(query = "Auth")
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            assertEquals(2, result.data.size)
-            val titles = result.data.map { it.title }.toSet()
-            assertTrue("Authentication module" in titles)
-            assertTrue("Database layer" in titles)
-        }
+    // The LIKE-based `query` filter on findByFilters was removed in T4 of the
+    // FTS5 + Graph-Aware Search feature. Text search now goes through
+    // SQLiteWorkItemRepository.ftsSearch() backed by FTS5 virtual tables
+    // (SQLite-only). Integration coverage lives in T8's FTS test suite.
 
     @Test
     fun `findByFilters with sortBy created asc`() =

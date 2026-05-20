@@ -265,26 +265,9 @@ class QueryItemsToolTest {
             assertEquals(1, data["total"]!!.jsonPrimitive.int)
         }
 
-    @Test
-    fun `search with text query matches title`() =
-        runBlocking {
-            createItem("Authentication module")
-            createItem("Database layer")
-            createItem("Auth helper")
-
-            val result =
-                tool.execute(
-                    params(
-                        "operation" to JsonPrimitive("search"),
-                        "query" to JsonPrimitive("Auth")
-                    ),
-                    context
-                ) as JsonObject
-
-            assertTrue(result["success"]!!.jsonPrimitive.boolean)
-            val data = result["data"] as JsonObject
-            assertEquals(2, data["total"]!!.jsonPrimitive.int)
-        }
+    // search-by-text-query tests live in T8 integration suite (FTS5 is SQLite-only;
+    // H2 test env returns empty for FTS search by design). The old LIKE-based `query`
+    // parameter on list-mode search was removed in T4.
 
     @Test
     fun `search respects limit`() =
@@ -633,7 +616,7 @@ class QueryItemsToolTest {
                 tool.execute(
                     params(
                         "operation" to JsonPrimitive("search"),
-                        "query" to JsonPrimitive("Child"),
+                        "parentId" to JsonPrimitive(parentId),
                         "includeAncestors" to JsonPrimitive(true)
                     ),
                     context
@@ -663,7 +646,7 @@ class QueryItemsToolTest {
                 tool.execute(
                     params(
                         "operation" to JsonPrimitive("search"),
-                        "query" to JsonPrimitive("Child")
+                        "parentId" to JsonPrimitive(rootId)
                     ),
                     context
                 ) as JsonObject
@@ -823,7 +806,7 @@ class QueryItemsToolTest {
                 tool.execute(
                     params(
                         "operation" to JsonPrimitive("search"),
-                        "query" to JsonPrimitive("Child Under"),
+                        "parentId" to JsonPrimitive(parentId),
                         "includeAncestors" to JsonPrimitive(true)
                     ),
                     context
