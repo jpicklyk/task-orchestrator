@@ -26,11 +26,9 @@ class SQLiteNoteRepositoryFtsTest : BaseFts5RepositoryTest() {
     // Helpers
     // ────────────────────────────────────────────────────────────────────────
 
-    private fun itemRepo(): SQLiteWorkItemRepository =
-        repositoryProvider.workItemRepository() as SQLiteWorkItemRepository
+    private fun itemRepo(): SQLiteWorkItemRepository = repositoryProvider.workItemRepository() as SQLiteWorkItemRepository
 
-    private fun noteRepo(): SQLiteNoteRepository =
-        repositoryProvider.noteRepository() as SQLiteNoteRepository
+    private fun noteRepo(): SQLiteNoteRepository = repositoryProvider.noteRepository() as SQLiteNoteRepository
 
     private suspend fun createItem(title: String = "Test item"): WorkItem {
         val item = WorkItem(title = title)
@@ -65,11 +63,12 @@ class SQLiteNoteRepositoryFtsTest : BaseFts5RepositoryTest() {
             createNote(item1.id, key = "design", body = "Implement the OAuth flow using bearer tokens")
             createNote(item2.id, key = "notes", body = "This note has nothing matching at all")
 
-            val result = noteRepo().ftsSearch(
-                sanitizedFtsQuery = "\"auth\"",
-                matchMode = SearchMatchMode.SUBSTRING,
-                limit = 10,
-            )
+            val result =
+                noteRepo().ftsSearch(
+                    sanitizedFtsQuery = "\"auth\"",
+                    matchMode = SearchMatchMode.SUBSTRING,
+                    limit = 10,
+                )
 
             assertTrue(result.hits.isNotEmpty(), "Expected at least one note hit for 'auth'")
             val hitItemIds = result.hits.map { it.itemId }.toSet()
@@ -102,11 +101,12 @@ class SQLiteNoteRepositoryFtsTest : BaseFts5RepositoryTest() {
                 body = "completely different topic about payment processing",
             )
 
-            val result = noteRepo().ftsSearch(
-                sanitizedFtsQuery = "\"authentication\"",
-                matchMode = SearchMatchMode.TEXT,
-                limit = 10,
-            )
+            val result =
+                noteRepo().ftsSearch(
+                    sanitizedFtsQuery = "\"authentication\"",
+                    matchMode = SearchMatchMode.TEXT,
+                    limit = 10,
+                )
 
             assertTrue(
                 result.hits.isNotEmpty(),
@@ -134,12 +134,13 @@ class SQLiteNoteRepositoryFtsTest : BaseFts5RepositoryTest() {
             createNote(otherItem.id, key = "note-b", body = "OAuth authentication flow for mobile")
 
             val scope = SearchScope(itemId = targetItem.id)
-            val result = noteRepo().ftsSearch(
-                sanitizedFtsQuery = "\"auth\"",
-                matchMode = SearchMatchMode.AUTO,
-                scope = scope,
-                limit = 10,
-            )
+            val result =
+                noteRepo().ftsSearch(
+                    sanitizedFtsQuery = "\"auth\"",
+                    matchMode = SearchMatchMode.AUTO,
+                    scope = scope,
+                    limit = 10,
+                )
 
             val hitItemIds = result.hits.map { it.itemId }.toSet()
             assertTrue(targetItem.id in hitItemIds, "Expected note scoped to targetItem to appear in results")
@@ -162,9 +163,10 @@ class SQLiteNoteRepositoryFtsTest : BaseFts5RepositoryTest() {
             assertIs<Result.Success<WorkItem>>(childResult)
             val childItem = childResult.data
 
-            val grandchildResult = itemRepo().create(
-                WorkItem(title = "Grandchild task", parentId = childItem.id, depth = 2)
-            )
+            val grandchildResult =
+                itemRepo().create(
+                    WorkItem(title = "Grandchild task", parentId = childItem.id, depth = 2)
+                )
             assertIs<Result.Success<WorkItem>>(grandchildResult)
             val grandchildItem = grandchildResult.data
 
@@ -176,12 +178,13 @@ class SQLiteNoteRepositoryFtsTest : BaseFts5RepositoryTest() {
             createNote(outsideItem.id, key = "outside-note", body = "authentication module in separate tree")
 
             val scope = SearchScope(ancestorId = root.id)
-            val result = noteRepo().ftsSearch(
-                sanitizedFtsQuery = "\"auth\"",
-                matchMode = SearchMatchMode.AUTO,
-                scope = scope,
-                limit = 20,
-            )
+            val result =
+                noteRepo().ftsSearch(
+                    sanitizedFtsQuery = "\"auth\"",
+                    matchMode = SearchMatchMode.AUTO,
+                    scope = scope,
+                    limit = 20,
+                )
 
             val hitItemIds = result.hits.map { it.itemId }.toSet()
 
@@ -205,11 +208,12 @@ class SQLiteNoteRepositoryFtsTest : BaseFts5RepositoryTest() {
             val item = createItem("Task with note")
             createNote(item.id, key = "design-doc", body = "OAuth authentication design document")
 
-            val result = noteRepo().ftsSearch(
-                sanitizedFtsQuery = "\"auth\"",
-                matchMode = SearchMatchMode.AUTO,
-                limit = 10,
-            )
+            val result =
+                noteRepo().ftsSearch(
+                    sanitizedFtsQuery = "\"auth\"",
+                    matchMode = SearchMatchMode.AUTO,
+                    limit = 10,
+                )
 
             assertTrue(result.hits.isNotEmpty(), "Expected at least one hit")
             val hit = result.hits.first()

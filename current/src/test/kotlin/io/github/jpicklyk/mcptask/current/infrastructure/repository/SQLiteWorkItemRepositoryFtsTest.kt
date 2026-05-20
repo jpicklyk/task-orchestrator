@@ -20,9 +20,9 @@ import kotlin.test.assertTrue
  * 3. Calls [org.junit.jupiter.api.Assumptions.assumeTrue] to skip tests gracefully
  *    when FTS5 is not functional in the bundled xerial/sqlite-jdbc environment
  *
- * **Production compatibility note:** The V7 migration uses `trigram case_sensitive=0`
- * which may fail in bundled SQLite. These tests use just `trigram` for compatibility.
- * The production Docker environment (system SQLite ≥ 3.45) exercises the full path.
+ * **Production compatibility note:** The V7 migration uses plain `tokenize='trigram'` (the
+ * SQLite default). The `case_sensitive=0` option is NOT used because xerial/sqlite-jdbc 3.49.1.0
+ * rejects it with a parse error. These tests match the production tokenizer configuration.
  *
  * Test names follow plan §16.5 — communicating agent-visible behaviour.
  */
@@ -44,8 +44,7 @@ class SQLiteWorkItemRepositoryFtsTest : BaseFts5RepositoryTest() {
         return result.data
     }
 
-    private fun repo(): SQLiteWorkItemRepository =
-        repositoryProvider.workItemRepository() as SQLiteWorkItemRepository
+    private fun repo(): SQLiteWorkItemRepository = repositoryProvider.workItemRepository() as SQLiteWorkItemRepository
 
     // ────────────────────────────────────────────────────────────────────────
     // Trigram substring matching
@@ -55,17 +54,19 @@ class SQLiteWorkItemRepositoryFtsTest : BaseFts5RepositoryTest() {
     fun `searches by trigram for substrings under 4 characters`(): Unit =
         runBlocking {
             // "auth" is a 4-char substring of "OAuth" — trigram table handles this.
-            val target = createItem(
-                title = "OAuth integration task",
-                summary = "Implement OAuth flow",
-            )
+            val target =
+                createItem(
+                    title = "OAuth integration task",
+                    summary = "Implement OAuth flow",
+                )
             createItem(title = "Unrelated database migration")
 
-            val result = repo().ftsSearch(
-                sanitizedFtsQuery = "\"auth\"",
-                matchMode = SearchMatchMode.SUBSTRING,
-                limit = 10,
-            )
+            val result =
+                repo().ftsSearch(
+                    sanitizedFtsQuery = "\"auth\"",
+                    matchMode = SearchMatchMode.SUBSTRING,
+                    limit = 10,
+                )
 
             assertTrue(result.hits.isNotEmpty(), "Expected at least one trigram hit for 'auth'")
             val hitIds = result.hits.map { it.itemId }.toSet()
@@ -84,17 +85,19 @@ class SQLiteWorkItemRepositoryFtsTest : BaseFts5RepositoryTest() {
     fun `searches by porter tokenizer for stem matches`(): Unit =
         runBlocking {
             // "authenticated" stems to "authent" via porter — should match query "authentication"
-            val target = createItem(
-                title = "User session handling",
-                summary = "authenticated user management",
-            )
+            val target =
+                createItem(
+                    title = "User session handling",
+                    summary = "authenticated user management",
+                )
             createItem(title = "Payment processing module")
 
-            val result = repo().ftsSearch(
-                sanitizedFtsQuery = "\"authentication\"",
-                matchMode = SearchMatchMode.TEXT,
-                limit = 10,
-            )
+            val result =
+                repo().ftsSearch(
+                    sanitizedFtsQuery = "\"authentication\"",
+                    matchMode = SearchMatchMode.TEXT,
+                    limit = 10,
+                )
 
             assertTrue(
                 result.hits.isNotEmpty(),
@@ -116,20 +119,22 @@ class SQLiteWorkItemRepositoryFtsTest : BaseFts5RepositoryTest() {
     fun `fuses results across tokenizer tables via RRF`(): Unit =
         runBlocking {
             // This item matches both the trigram and text tables.
-            val fusedItem = createItem(
-                title = "authentication service",
-                summary = "OAuth authenticated flow",
-            )
+            val fusedItem =
+                createItem(
+                    title = "authentication service",
+                    summary = "OAuth authenticated flow",
+                )
             createItem(
                 title = "identity verification module",
                 summary = "authentication middleware layer",
             )
 
-            val result = repo().ftsSearch(
-                sanitizedFtsQuery = "\"authentication\"",
-                matchMode = SearchMatchMode.AUTO,
-                limit = 20,
-            )
+            val result =
+                repo().ftsSearch(
+                    sanitizedFtsQuery = "\"authentication\"",
+                    matchMode = SearchMatchMode.AUTO,
+                    limit = 20,
+                )
 
             assertTrue(result.hits.isNotEmpty(), "Expected hits in AUTO/RRF mode")
 
@@ -160,29 +165,35 @@ class SQLiteWorkItemRepositoryFtsTest : BaseFts5RepositoryTest() {
     fun `respects scope ancestorId to bound search to subtree`(): Unit =
         runBlocking {
             val root = createItem(title = "Feature root node", summary = "authentication system")
-            val child = createItem(
-                title = "Child task authentication",
-                summary = "OAuth token handling",
-                parentId = root.id, depth = 1,
-            )
-            val grandchild = createItem(
-                title = "Grandchild OAuth implementation",
-                summary = "authenticated API calls",
-                parentId = child.id, depth = 2,
-            )
+            val child =
+                createItem(
+                    title = "Child task authentication",
+                    summary = "OAuth token handling",
+                    parentId = root.id,
+                    depth = 1,
+                )
+            val grandchild =
+                createItem(
+                    title = "Grandchild OAuth implementation",
+                    summary = "authenticated API calls",
+                    parentId = child.id,
+                    depth = 2,
+                )
             // Sibling item in a different tree — must NOT appear in scoped results.
-            val outsideItem = createItem(
-                title = "Unrelated authentication module",
-                summary = "OAuth flow outside the subtree",
-            )
+            val outsideItem =
+                createItem(
+                    title = "Unrelated authentication module",
+                    summary = "OAuth flow outside the subtree",
+                )
 
             val scope = SearchScope(ancestorId = root.id)
-            val result = repo().ftsSearch(
-                sanitizedFtsQuery = "\"auth\"",
-                matchMode = SearchMatchMode.AUTO,
-                scope = scope,
-                limit = 20,
-            )
+            val result =
+                repo().ftsSearch(
+                    sanitizedFtsQuery = "\"auth\"",
+                    matchMode = SearchMatchMode.AUTO,
+                    scope = scope,
+                    limit = 20,
+                )
 
             val hitIds = result.hits.map { it.itemId }.toSet()
             assertTrue(
@@ -202,22 +213,25 @@ class SQLiteWorkItemRepositoryFtsTest : BaseFts5RepositoryTest() {
     @Test
     fun `respects scope itemId to bound search to a single item`(): Unit =
         runBlocking {
-            val targetItem = createItem(
-                title = "Target OAuth service",
-                summary = "authentication and authorization",
-            )
-            val otherItem = createItem(
-                title = "Other authentication service",
-                summary = "OAuth flow",
-            )
+            val targetItem =
+                createItem(
+                    title = "Target OAuth service",
+                    summary = "authentication and authorization",
+                )
+            val otherItem =
+                createItem(
+                    title = "Other authentication service",
+                    summary = "OAuth flow",
+                )
 
             val scope = SearchScope(itemId = targetItem.id)
-            val result = repo().ftsSearch(
-                sanitizedFtsQuery = "\"auth\"",
-                matchMode = SearchMatchMode.AUTO,
-                scope = scope,
-                limit = 10,
-            )
+            val result =
+                repo().ftsSearch(
+                    sanitizedFtsQuery = "\"auth\"",
+                    matchMode = SearchMatchMode.AUTO,
+                    scope = scope,
+                    limit = 10,
+                )
 
             val hitIds = result.hits.map { it.itemId }.toSet()
             assertTrue(targetItem.id in hitIds, "Expected scoped-by-itemId search to include the target item")
@@ -237,11 +251,12 @@ class SQLiteWorkItemRepositoryFtsTest : BaseFts5RepositoryTest() {
             createItem(title = "Database design task")
             createItem(title = "API specification document")
 
-            val result = repo().ftsSearch(
-                sanitizedFtsQuery = "\"xyzunmatchableterm\"",
-                matchMode = SearchMatchMode.AUTO,
-                limit = 10,
-            )
+            val result =
+                repo().ftsSearch(
+                    sanitizedFtsQuery = "\"xyzunmatchableterm\"",
+                    matchMode = SearchMatchMode.AUTO,
+                    limit = 10,
+                )
 
             assertEquals(0, result.totalHits, "Expected zero hits for a query matching nothing")
             assertTrue(result.hits.isEmpty())

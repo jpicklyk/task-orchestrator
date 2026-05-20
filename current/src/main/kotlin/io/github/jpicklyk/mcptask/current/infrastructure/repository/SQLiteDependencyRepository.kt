@@ -8,6 +8,7 @@ import io.github.jpicklyk.mcptask.current.domain.validation.ValidationException
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.DependenciesTable
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.WorkItemsTable
+import org.jetbrains.exposed.v1.core.JoinType
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
@@ -297,15 +298,18 @@ class SQLiteDependencyRepository(
             val uuidType = UUIDColumnType()
 
             // Build the query using Exposed DSL, joining to work_items for fromTitle.
-            // DependenciesTable has an index on to_item_id; the JOIN is a PK lookup on work_items.
+            // DependenciesTable has TWO foreign key references to WorkItemsTable (from_item_id
+            // and to_item_id). An unqualified innerJoin would throw IllegalStateException due to
+            // the ambiguous FK. Use an explicit join with onColumn/otherColumn to specify that
+            // we are joining dependencies.from_item_id = work_items.id (to fetch the source title).
             val baseQuery =
-                (
-                    DependenciesTable innerJoin
-                        WorkItemsTable.also {
-                            // Join condition: dependencies.from_item_id = work_items.id
-                            // We use the Exposed join overload that matches on referenced FK column.
-                        }
-                ).selectAll()
+                DependenciesTable
+                    .join(
+                        WorkItemsTable,
+                        JoinType.INNER,
+                        onColumn = DependenciesTable.fromItemId,
+                        otherColumn = WorkItemsTable.id,
+                    ).selectAll()
                     .where {
                         (DependenciesTable.toItemId eq itemId).let { cond ->
                             if (type != null) {

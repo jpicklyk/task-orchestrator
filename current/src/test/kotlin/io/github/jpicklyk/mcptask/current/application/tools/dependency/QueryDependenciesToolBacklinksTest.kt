@@ -24,16 +24,11 @@ import kotlin.test.*
  * Backlinks exposes reverse-direction edges: given item Z, returns all items that have a
  * dependency edge with Z as the target (toItemId = Z).
  *
- * **Production bug documented in T8 implementation-notes:** The `backlinks` operation's
- * Exposed DSL query uses `DependenciesTable innerJoin WorkItemsTable` without an explicit
- * join condition. Because `DependenciesTable` has TWO foreign key references to `WorkItemsTable`
- * (`from_item_id` and `to_item_id`), Exposed's auto-FK detection throws
- * `IllegalStateException: no matching primary key/foreign key pair`.
- *
- * This bug surfaces in all test environments (H2 and SQLite) and would also affect production.
- * Tests that exercise the `backlinks` DB path are marked to document the bug via
- * `@Test fun ... = runBlocking { ... }` with `assertTrue(false, "expected to fail with bug")`.
- * Validation-only tests (which don't hit the DB) are verified independently.
+ * The `backlinks` operation joins [DependenciesTable] to [WorkItemsTable] to fetch the source
+ * item's title. Because [DependenciesTable] has TWO foreign key references to [WorkItemsTable]
+ * (`from_item_id` and `to_item_id`), the join must specify the FK explicitly — an unqualified
+ * `innerJoin` would throw `IllegalStateException` due to ambiguous FK resolution.
+ * The production fix uses `DependenciesTable.join(WorkItemsTable, JoinType.INNER, onColumn = fromItemId, ...)`.
  *
  * Test names follow plan §16.5 — communicating agent-visible behaviour.
  */
@@ -140,40 +135,19 @@ class QueryDependenciesToolBacklinksTest {
         }
 
     // ────────────────────────────────────────────────────────────────────────
-    // DB-level tests — document the ambiguous join bug
+    // DB-level tests — verify correct backlinks behavior
     //
-    // These tests call tool.execute() for the backlinks operation. Because the
-    // Exposed DSL join is ambiguous (two FKs from dependencies to work_items),
-    // an IllegalStateException is thrown synchronously before the query runs.
-    // Tests wrap with try-catch and skip gracefully via assumeTrue.
-    //
-    // When the production code is fixed to use an explicit join condition,
-    // these tests will start passing and verify correct behavior.
+    // These tests call tool.execute() for the backlinks operation.
+    // The production code now uses an explicit join condition
+    // (DependenciesTable.join(WorkItemsTable, JoinType.INNER, onColumn = fromItemId, ...))
+    // to resolve the ambiguous FK between dependencies.from_item_id and dependencies.to_item_id.
     // ────────────────────────────────────────────────────────────────────────
 
     /**
-     * Execute the backlinks tool operation and skip the test gracefully if the
-     * ambiguous join bug causes an IllegalStateException.
+     * Execute the backlinks tool operation and assert it succeeds.
      */
-    private suspend fun executeBacklinksOrSkip(vararg pairs: Pair<String, JsonElement>): JsonObject? {
-        return try {
-            tool.execute(params(*pairs), context) as JsonObject
-        } catch (e: IllegalStateException) {
-            println("[T8 bug doc] backlinks innerJoin is ambiguous (two FKs to work_items): ${e.message}")
-            org.junit.jupiter.api.Assumptions.assumeTrue(
-                false,
-                "backlinks innerJoin ambiguous FK bug present — skipped (production bug documented)"
-            )
-            null // Never reached
-        } catch (e: Exception) {
-            println("[T8 bug doc] backlinks threw unexpected exception: ${e.message}")
-            org.junit.jupiter.api.Assumptions.assumeTrue(
-                false,
-                "backlinks threw unexpected exception — skipped"
-            )
-            null // Never reached
-        }
-    }
+    private suspend fun executeBacklinks(vararg pairs: Pair<String, JsonElement>): JsonObject =
+        tool.execute(params(*pairs), context) as JsonObject
 
     @Test
     fun `backlinks returns reverse-direction RELATES_TO edges`(): Unit =
@@ -182,10 +156,11 @@ class QueryDependenciesToolBacklinksTest {
             val itemB = createItem("Item B")
             createDependency(itemA, itemB, DependencyType.RELATES_TO)
 
-            val result = executeBacklinksOrSkip(
-                "operation" to JsonPrimitive("backlinks"),
-                "itemId" to JsonPrimitive(itemB.toString()),
-            ) ?: return@runBlocking
+            val result =
+                executeBacklinks(
+                    "operation" to JsonPrimitive("backlinks"),
+                    "itemId" to JsonPrimitive(itemB.toString()),
+                )
 
             assertTrue(result["success"]!!.jsonPrimitive.boolean, "Expected success response")
             val data = result["data"] as JsonObject
@@ -203,10 +178,11 @@ class QueryDependenciesToolBacklinksTest {
         runBlocking {
             val isolatedItem = createItem("Isolated item with no backlinks")
 
-            val result = executeBacklinksOrSkip(
-                "operation" to JsonPrimitive("backlinks"),
-                "itemId" to JsonPrimitive(isolatedItem.toString()),
-            ) ?: return@runBlocking
+            val result =
+                executeBacklinks(
+                    "operation" to JsonPrimitive("backlinks"),
+                    "itemId" to JsonPrimitive(isolatedItem.toString()),
+                )
 
             assertTrue(result["success"]!!.jsonPrimitive.boolean)
             val data = result["data"] as JsonObject
@@ -224,11 +200,12 @@ class QueryDependenciesToolBacklinksTest {
             createDependency(itemA, target, DependencyType.BLOCKS)
             createDependency(itemB, target, DependencyType.RELATES_TO)
 
-            val result = executeBacklinksOrSkip(
-                "operation" to JsonPrimitive("backlinks"),
-                "itemId" to JsonPrimitive(target.toString()),
-                "type" to JsonPrimitive("BLOCKS"),
-            ) ?: return@runBlocking
+            val result =
+                executeBacklinks(
+                    "operation" to JsonPrimitive("backlinks"),
+                    "itemId" to JsonPrimitive(target.toString()),
+                    "type" to JsonPrimitive("BLOCKS"),
+                )
 
             val data = result["data"] as JsonObject
             val backlinks = data["backlinks"]!!.jsonArray
@@ -246,10 +223,11 @@ class QueryDependenciesToolBacklinksTest {
             createDependency(source, downstream, DependencyType.BLOCKS)
             createDependency(blocker, source, DependencyType.BLOCKS)
 
-            val result = executeBacklinksOrSkip(
-                "operation" to JsonPrimitive("backlinks"),
-                "itemId" to JsonPrimitive(source.toString()),
-            ) ?: return@runBlocking
+            val result =
+                executeBacklinks(
+                    "operation" to JsonPrimitive("backlinks"),
+                    "itemId" to JsonPrimitive(source.toString()),
+                )
 
             val data = result["data"] as JsonObject
             val backlinks = data["backlinks"]!!.jsonArray

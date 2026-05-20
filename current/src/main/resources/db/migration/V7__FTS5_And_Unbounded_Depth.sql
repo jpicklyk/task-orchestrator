@@ -146,7 +146,7 @@ CREATE VIRTUAL TABLE work_items_fts_trigram USING fts5(
     summary,
     content='work_items',
     content_rowid='rowid',
-    tokenize='trigram case_sensitive=0',
+    tokenize='trigram',
     prefix='2 3'
 );
 
@@ -165,7 +165,7 @@ CREATE VIRTUAL TABLE notes_fts_trigram USING fts5(
     body,
     content='notes',
     content_rowid='rowid',
-    tokenize='trigram case_sensitive=0',
+    tokenize='trigram',
     prefix='2 3'
 );
 

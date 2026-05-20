@@ -21,8 +21,10 @@ import kotlin.test.assertTrue
  * Integration tests verifying unbounded hierarchy depth after the depth-cap removal in V7.
  *
  * Uses an in-memory SQLite database with base schema + cycle-detection triggers.
- * FTS5 virtual tables are NOT created (avoiding the `case_sensitive=0` compatibility issue
- * in bundled xerial/sqlite-jdbc on Windows) since hierarchy tests don't require FTS5.
+ * FTS5 virtual tables are NOT created since hierarchy tests don't require FTS5.
+ * The `findDescendants` function uses ExposedConnection.prepareStatement() + executeQuery()
+ * for the WITH RECURSIVE CTE to avoid the xerial/sqlite-jdbc driver rejecting exec()
+ * calls on SELECT-returning CTEs with "Query returns results".
  *
  * Test names follow plan §16.5 — communicating agent-visible behaviour.
  */
@@ -51,8 +53,7 @@ class DeepHierarchyTest {
      * - notes, dependencies, role_transitions (required by repository provider)
      * - Cycle-detection triggers on parent_id
      *
-     * FTS5 virtual tables are intentionally omitted to avoid the `case_sensitive=0`
-     * compatibility issue in bundled xerial/sqlite-jdbc.
+     * FTS5 virtual tables are intentionally omitted — hierarchy tests don't require them.
      */
     private fun createSchema() {
         transaction(db = database) {
@@ -191,8 +192,14 @@ class DeepHierarchyTest {
 
     @AfterEach
     fun tearDown() {
-        try { TransactionManager.closeAndUnregister(database) } catch (_: Exception) {}
-        try { keepAliveConnection.close() } catch (_: Exception) {}
+        try {
+            TransactionManager.closeAndUnregister(database)
+        } catch (_: Exception) {
+        }
+        try {
+            keepAliveConnection.close()
+        } catch (_: Exception) {
+        }
     }
 
     // ────────────────────────────────────────────────────────────────────────
@@ -206,11 +213,12 @@ class DeepHierarchyTest {
             var currentDepth = 0
 
             repeat(7) { level ->
-                val item = WorkItem(
-                    title = "Depth-$level item",
-                    parentId = currentParentId,
-                    depth = currentDepth,
-                )
+                val item =
+                    WorkItem(
+                        title = "Depth-$level item",
+                        parentId = currentParentId,
+                        depth = currentDepth,
+                    )
                 val result = repository.create(item)
                 assertIs<Result.Success<WorkItem>>(result, "Expected depth-$level item to be created without error")
                 currentParentId = result.data.id
@@ -242,11 +250,9 @@ class DeepHierarchyTest {
     // ────────────────────────────────────────────────────────────────────────
     // findDescendants — recursive CTE
     //
-    // NOTE: findDescendants uses a raw SQL exec() with a WITH RECURSIVE CTE.
-    // In some versions of xerial/sqlite-jdbc on Windows, Exposed's exec() with
-    // a lambda calls executeUpdate() on the CTE SELECT, causing SQLException.
-    // These tests document the expected behavior; they succeed on Linux/Docker
-    // (system SQLite, no executeUpdate quirk). Skipped gracefully when the bug present.
+    // Uses ExposedConnection.prepareStatement() + executeQuery() to run the
+    // WITH RECURSIVE CTE, bypassing Exposed's exec() routing through executeUpdate()
+    // which the xerial/sqlite-jdbc JDBC driver rejects for SELECT-returning CTEs.
     // ────────────────────────────────────────────────────────────────────────
 
     @Test
@@ -259,9 +265,10 @@ class DeepHierarchyTest {
             val expectedDescendantIds = mutableSetOf<UUID>()
 
             for (level in 1..5) {
-                val item = repository.create(
-                    WorkItem(title = "Level $level", parentId = parentId, depth = level)
-                )
+                val item =
+                    repository.create(
+                        WorkItem(title = "Level $level", parentId = parentId, depth = level)
+                    )
                 assertIs<Result.Success<WorkItem>>(item)
                 expectedDescendantIds.add(item.data.id)
                 parentId = item.data.id
@@ -269,21 +276,12 @@ class DeepHierarchyTest {
 
             // findDescendants should return all 5 descendants in a single recursive CTE.
             val result = repository.findDescendants(root.data.id)
-            if (result is Result.Error) {
-                // Bug: Exposed exec() calls executeUpdate() on WITH RECURSIVE SELECT on some
-                // xerial/sqlite-jdbc builds. Document and skip gracefully.
-                println("[T8 bug doc] findDescendants CTE fails on this SQLite build: ${result.error}")
-                org.junit.jupiter.api.Assumptions.assumeTrue(
-                    false,
-                    "findDescendants WITH RECURSIVE not functional on this SQLite build — skipped"
-                )
-                return@runBlocking
-            }
             assertIs<Result.Success<List<WorkItem>>>(result)
 
             val foundIds = result.data.map { it.id }.toSet()
             assertEquals(
-                expectedDescendantIds, foundIds,
+                expectedDescendantIds,
+                foundIds,
                 "findDescendants should return all 5 descendants of the root item"
             )
         }
@@ -295,14 +293,6 @@ class DeepHierarchyTest {
             assertIs<Result.Success<WorkItem>>(leaf)
 
             val result = repository.findDescendants(leaf.data.id)
-            if (result is Result.Error) {
-                println("[T8 bug doc] findDescendants CTE fails on this SQLite build: ${result.error}")
-                org.junit.jupiter.api.Assumptions.assumeTrue(
-                    false,
-                    "findDescendants WITH RECURSIVE not functional on this SQLite build — skipped"
-                )
-                return@runBlocking
-            }
             assertIs<Result.Success<List<WorkItem>>>(result)
             assertTrue(result.data.isEmpty(), "Leaf item should have no descendants")
         }
@@ -316,9 +306,10 @@ class DeepHierarchyTest {
         runBlocking {
             val root = repository.create(WorkItem(title = "Root item", depth = 0))
             assertIs<Result.Success<WorkItem>>(root)
-            val child = repository.create(
-                WorkItem(title = "Child item", parentId = root.data.id, depth = 1)
-            )
+            val child =
+                repository.create(
+                    WorkItem(title = "Child item", parentId = root.data.id, depth = 1)
+                )
             assertIs<Result.Success<WorkItem>>(child)
 
             // Attempt to set root.parentId = child (root -> child -> root = cycle).
@@ -326,13 +317,14 @@ class DeepHierarchyTest {
             var triggerFired = false
             var errorMessage = ""
             try {
-                keepAliveConnection.prepareStatement(
-                    "UPDATE work_items SET parent_id = ? WHERE id = ?"
-                ).use { stmt ->
-                    stmt.setBytes(1, uuidToBytes(child.data.id))
-                    stmt.setBytes(2, uuidToBytes(root.data.id))
-                    stmt.executeUpdate()
-                }
+                keepAliveConnection
+                    .prepareStatement(
+                        "UPDATE work_items SET parent_id = ? WHERE id = ?"
+                    ).use { stmt ->
+                        stmt.setBytes(1, uuidToBytes(child.data.id))
+                        stmt.setBytes(2, uuidToBytes(root.data.id))
+                        stmt.executeUpdate()
+                    }
             } catch (e: Exception) {
                 triggerFired = true
                 errorMessage = e.message ?: ""
@@ -351,9 +343,10 @@ class DeepHierarchyTest {
             var parentId: UUID? = null
             var depth = 0
             for (i in 0 until 10) {
-                val item = repository.create(
-                    WorkItem(title = "Chain item $i", parentId = parentId, depth = depth)
-                )
+                val item =
+                    repository.create(
+                        WorkItem(title = "Chain item $i", parentId = parentId, depth = depth)
+                    )
                 assertIs<Result.Success<WorkItem>>(item, "Expected chain item $i to be created without cycle error")
                 parentId = item.data.id
                 depth++

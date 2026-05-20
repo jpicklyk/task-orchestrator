@@ -6,8 +6,8 @@ import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
 import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import org.junit.jupiter.api.AfterEach
-import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Assumptions
+import org.junit.jupiter.api.BeforeEach
 import java.sql.Connection
 import java.sql.DriverManager
 
@@ -18,11 +18,12 @@ import java.sql.DriverManager
  * with the base schema AND the four FTS5 virtual tables using the tokenizer syntax
  * that is compatible with xerial/sqlite-jdbc 3.49.1.0.
  *
- * **Production note on `trigram case_sensitive=0`:** The V7 Flyway migration uses
- * `tokenize='trigram case_sensitive=0'`. This syntax works in the production Docker
- * container (system SQLite ≥ 3.45) but fails with the bundled xerial/sqlite-jdbc binary
- * on some platforms. This base class uses `tokenize='trigram'` for compatibility.
- * Case-insensitive trigram behaviour is tested separately in Docker-based integration tests.
+ * **Production note on `trigram case_sensitive=0`:** The xerial/sqlite-jdbc 3.49.1.0 bundled
+ * binary does NOT support the `case_sensitive=0` option for the trigram tokenizer — it fails with
+ * "parse error in tokenize directive". The V7 Flyway migration therefore uses plain
+ * `tokenize='trigram'` (the SQLite default for trigram). This base class matches that syntax.
+ * The trigram tokenizer is case-sensitive by default; true case-insensitive substring search
+ * would require case_sensitive=0 which is deferred to a future migration on a newer SQLite baseline.
  *
  * Set [requireFts5] = true in test subclasses to call [Assumptions.assumeTrue] when FTS5
  * is not available (the test is then skipped rather than failing).
@@ -149,8 +150,9 @@ abstract class BaseFts5RepositoryTest {
             )
         }
 
-        // Attempt to create FTS5 virtual tables. Uses 'trigram' (without case_sensitive=0)
-        // for compatibility with bundled xerial/sqlite-jdbc on Windows.
+        // Attempt to create FTS5 virtual tables. Uses 'trigram' without case_sensitive=0
+        // (matching the V7 Flyway migration) because bundled xerial/sqlite-jdbc 3.49.1.0
+        // does not support the case_sensitive parameter in the trigram tokenizer directive.
         try {
             transaction(db = database) {
                 exec(
@@ -195,20 +197,44 @@ abstract class BaseFts5RepositoryTest {
                 )
 
                 // Sync triggers — work_items
-                exec("CREATE TRIGGER IF NOT EXISTS work_items_fts_trigram_ai AFTER INSERT ON work_items BEGIN INSERT INTO work_items_fts_trigram(rowid, title, summary) VALUES (new.rowid, new.title, new.summary); END")
-                exec("CREATE TRIGGER IF NOT EXISTS work_items_fts_trigram_ad AFTER DELETE ON work_items BEGIN INSERT INTO work_items_fts_trigram(work_items_fts_trigram, rowid, title, summary) VALUES ('delete', old.rowid, old.title, old.summary); END")
-                exec("CREATE TRIGGER IF NOT EXISTS work_items_fts_trigram_au AFTER UPDATE ON work_items BEGIN INSERT INTO work_items_fts_trigram(work_items_fts_trigram, rowid, title, summary) VALUES ('delete', old.rowid, old.title, old.summary); INSERT INTO work_items_fts_trigram(rowid, title, summary) VALUES (new.rowid, new.title, new.summary); END")
-                exec("CREATE TRIGGER IF NOT EXISTS work_items_fts_text_ai AFTER INSERT ON work_items BEGIN INSERT INTO work_items_fts_text(rowid, title, summary) VALUES (new.rowid, new.title, new.summary); END")
-                exec("CREATE TRIGGER IF NOT EXISTS work_items_fts_text_ad AFTER DELETE ON work_items BEGIN INSERT INTO work_items_fts_text(work_items_fts_text, rowid, title, summary) VALUES ('delete', old.rowid, old.title, old.summary); END")
-                exec("CREATE TRIGGER IF NOT EXISTS work_items_fts_text_au AFTER UPDATE ON work_items BEGIN INSERT INTO work_items_fts_text(work_items_fts_text, rowid, title, summary) VALUES ('delete', old.rowid, old.title, old.summary); INSERT INTO work_items_fts_text(rowid, title, summary) VALUES (new.rowid, new.title, new.summary); END")
+                exec(
+                    "CREATE TRIGGER IF NOT EXISTS work_items_fts_trigram_ai AFTER INSERT ON work_items BEGIN INSERT INTO work_items_fts_trigram(rowid, title, summary) VALUES (new.rowid, new.title, new.summary); END"
+                )
+                exec(
+                    "CREATE TRIGGER IF NOT EXISTS work_items_fts_trigram_ad AFTER DELETE ON work_items BEGIN INSERT INTO work_items_fts_trigram(work_items_fts_trigram, rowid, title, summary) VALUES ('delete', old.rowid, old.title, old.summary); END"
+                )
+                exec(
+                    "CREATE TRIGGER IF NOT EXISTS work_items_fts_trigram_au AFTER UPDATE ON work_items BEGIN INSERT INTO work_items_fts_trigram(work_items_fts_trigram, rowid, title, summary) VALUES ('delete', old.rowid, old.title, old.summary); INSERT INTO work_items_fts_trigram(rowid, title, summary) VALUES (new.rowid, new.title, new.summary); END"
+                )
+                exec(
+                    "CREATE TRIGGER IF NOT EXISTS work_items_fts_text_ai AFTER INSERT ON work_items BEGIN INSERT INTO work_items_fts_text(rowid, title, summary) VALUES (new.rowid, new.title, new.summary); END"
+                )
+                exec(
+                    "CREATE TRIGGER IF NOT EXISTS work_items_fts_text_ad AFTER DELETE ON work_items BEGIN INSERT INTO work_items_fts_text(work_items_fts_text, rowid, title, summary) VALUES ('delete', old.rowid, old.title, old.summary); END"
+                )
+                exec(
+                    "CREATE TRIGGER IF NOT EXISTS work_items_fts_text_au AFTER UPDATE ON work_items BEGIN INSERT INTO work_items_fts_text(work_items_fts_text, rowid, title, summary) VALUES ('delete', old.rowid, old.title, old.summary); INSERT INTO work_items_fts_text(rowid, title, summary) VALUES (new.rowid, new.title, new.summary); END"
+                )
 
                 // Sync triggers — notes
-                exec("CREATE TRIGGER IF NOT EXISTS notes_fts_trigram_ai AFTER INSERT ON notes BEGIN INSERT INTO notes_fts_trigram(rowid, body) VALUES (new.rowid, new.body); END")
-                exec("CREATE TRIGGER IF NOT EXISTS notes_fts_trigram_ad AFTER DELETE ON notes BEGIN INSERT INTO notes_fts_trigram(notes_fts_trigram, rowid, body) VALUES ('delete', old.rowid, old.body); END")
-                exec("CREATE TRIGGER IF NOT EXISTS notes_fts_trigram_au AFTER UPDATE ON notes BEGIN INSERT INTO notes_fts_trigram(notes_fts_trigram, rowid, body) VALUES ('delete', old.rowid, old.body); INSERT INTO notes_fts_trigram(rowid, body) VALUES (new.rowid, new.body); END")
-                exec("CREATE TRIGGER IF NOT EXISTS notes_fts_text_ai AFTER INSERT ON notes BEGIN INSERT INTO notes_fts_text(rowid, body) VALUES (new.rowid, new.body); END")
-                exec("CREATE TRIGGER IF NOT EXISTS notes_fts_text_ad AFTER DELETE ON notes BEGIN INSERT INTO notes_fts_text(notes_fts_text, rowid, body) VALUES ('delete', old.rowid, old.body); END")
-                exec("CREATE TRIGGER IF NOT EXISTS notes_fts_text_au AFTER UPDATE ON notes BEGIN INSERT INTO notes_fts_text(notes_fts_text, rowid, body) VALUES ('delete', old.rowid, old.body); INSERT INTO notes_fts_text(rowid, body) VALUES (new.rowid, new.body); END")
+                exec(
+                    "CREATE TRIGGER IF NOT EXISTS notes_fts_trigram_ai AFTER INSERT ON notes BEGIN INSERT INTO notes_fts_trigram(rowid, body) VALUES (new.rowid, new.body); END"
+                )
+                exec(
+                    "CREATE TRIGGER IF NOT EXISTS notes_fts_trigram_ad AFTER DELETE ON notes BEGIN INSERT INTO notes_fts_trigram(notes_fts_trigram, rowid, body) VALUES ('delete', old.rowid, old.body); END"
+                )
+                exec(
+                    "CREATE TRIGGER IF NOT EXISTS notes_fts_trigram_au AFTER UPDATE ON notes BEGIN INSERT INTO notes_fts_trigram(notes_fts_trigram, rowid, body) VALUES ('delete', old.rowid, old.body); INSERT INTO notes_fts_trigram(rowid, body) VALUES (new.rowid, new.body); END"
+                )
+                exec(
+                    "CREATE TRIGGER IF NOT EXISTS notes_fts_text_ai AFTER INSERT ON notes BEGIN INSERT INTO notes_fts_text(rowid, body) VALUES (new.rowid, new.body); END"
+                )
+                exec(
+                    "CREATE TRIGGER IF NOT EXISTS notes_fts_text_ad AFTER DELETE ON notes BEGIN INSERT INTO notes_fts_text(notes_fts_text, rowid, body) VALUES ('delete', old.rowid, old.body); END"
+                )
+                exec(
+                    "CREATE TRIGGER IF NOT EXISTS notes_fts_text_au AFTER UPDATE ON notes BEGIN INSERT INTO notes_fts_text(notes_fts_text, rowid, body) VALUES ('delete', old.rowid, old.body); INSERT INTO notes_fts_text(rowid, body) VALUES (new.rowid, new.body); END"
+                )
 
                 // Backfill
                 exec("INSERT INTO work_items_fts_trigram(work_items_fts_trigram) VALUES ('rebuild')")
@@ -247,8 +273,8 @@ abstract class BaseFts5RepositoryTest {
      *
      * @return true if FTS5 MATCH queries work correctly in the current SQLite build.
      */
-    private fun checkFts5MatchQueryWorks(): Boolean {
-        return try {
+    private fun checkFts5MatchQueryWorks(): Boolean =
+        try {
             // Test the exact query pattern the repositories use:
             // - alias MATCH expr (the production pattern)
             // - snippet(fts_table_name, ...) (the production snippet call)
@@ -262,7 +288,11 @@ abstract class BaseFts5RepositoryTest {
                     WHERE ft MATCH ?
                     LIMIT 1
                     """.trimIndent(),
-                    args = listOf(org.jetbrains.exposed.v1.core.VarCharColumnType(256) to "\"test\"")
+                    args =
+                        listOf(
+                            org.jetbrains.exposed.v1.core
+                                .VarCharColumnType(256) to "\"test\""
+                        )
                 ) { _ ->
                     works = true
                 }
@@ -272,11 +302,16 @@ abstract class BaseFts5RepositoryTest {
             println("[BaseFts5RepositoryTest] FTS5 MATCH query not functional: ${e.message}")
             false
         }
-    }
 
     @AfterEach
     fun tearDownFts5Database() {
-        try { TransactionManager.closeAndUnregister(database) } catch (_: Exception) {}
-        try { keepAliveConnection.close() } catch (_: Exception) {}
+        try {
+            TransactionManager.closeAndUnregister(database)
+        } catch (_: Exception) {
+        }
+        try {
+            keepAliveConnection.close()
+        } catch (_: Exception) {
+        }
     }
 }

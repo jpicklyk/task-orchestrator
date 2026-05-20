@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.repository
 
 import io.github.jpicklyk.mcptask.current.application.service.search.RrfFusion
-import io.github.jpicklyk.mcptask.current.domain.model.BacklinkRow
 import io.github.jpicklyk.mcptask.current.domain.model.NextItemOrder
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
@@ -545,15 +544,16 @@ class SQLiteWorkItemRepository(
                     // Single-query recursive CTE — the production SQLite path.
                     //
                     // The root item itself is excluded (the CTE seeds with children of :id).
-                    // UUIDs are stored as BLOBs in SQLite; Exposed's UUIDColumnType serialises them
-                    // as byte arrays for parameterised binding, which is what `exec(args=...)` expects.
+                    // UUIDs are stored as BLOBs in SQLite. We use connection.prepareStatement()
+                    // + executeQuery() on the Exposed ExposedConnection instead of exec(sql, args, transform)
+                    // because Exposed's exec() routes through executeUpdate() on the xerial/sqlite-jdbc
+                    // JDBC driver, which rejects SELECT-returning CTEs with "Query returns results".
                     val uuidType = UUIDColumnType()
 
                     // Collect matching IDs via recursive CTE, then load full rows via Exposed
                     // so that WorkItem mapping stays in one place (toWorkItemOrNull).
                     val descendantIds = mutableListOf<UUID>()
-                    exec(
-                        """
+                    val sql = """
                         WITH RECURSIVE descendants(id) AS (
                             SELECT id FROM work_items WHERE parent_id = ?
                             UNION ALL
@@ -561,16 +561,23 @@ class SQLiteWorkItemRepository(
                             JOIN descendants d ON wi.parent_id = d.id
                         )
                         SELECT id FROM descendants
-                        """.trimIndent(),
-                        args = listOf(uuidType to id),
-                    ) { rs: java.sql.ResultSet ->
+                    """.trimIndent()
+
+                    // Use ExposedConnection.prepareStatement() to get a JdbcPreparedStatementApi,
+                    // then call executeQuery() on it — bypassing Exposed's exec() routing issue.
+                    val ps = this.connection.prepareStatement(sql, false)
+                    try {
+                        // fillParameters binds the UUID arg using UUIDColumnType (→ ByteArray for SQLite).
+                        ps.fillParameters(listOf(uuidType to id))
+                        val rs = ps.executeQuery()
                         while (rs.next()) {
-                            // UUIDColumnType.valueFromDB handles both byte[] (SQLite) and String representations.
-                            @Suppress("UNCHECKED_CAST")
                             val rawId = rs.getObject("id")
+                            @Suppress("UNCHECKED_CAST")
                             val uuid = (uuidType.valueFromDB(rawId!!)) as UUID
                             descendantIds.add(uuid)
                         }
+                    } finally {
+                        ps.closeIfPossible()
                     }
 
                     if (descendantIds.isEmpty()) {

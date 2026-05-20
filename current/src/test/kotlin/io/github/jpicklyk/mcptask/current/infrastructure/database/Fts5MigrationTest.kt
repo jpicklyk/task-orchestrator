@@ -23,11 +23,9 @@ import kotlin.test.assertTrue
  * Integration tests that verify the V7 FTS5 migration infrastructure applies correctly to
  * a SQLite database.
  *
- * **SQLite version note:** The `trigram case_sensitive=0` tokenizer option was introduced in
- * SQLite 3.44 but has a known interaction with the xerial/sqlite-jdbc bundled binary on some
- * platforms. These tests use `tokenize='trigram'` (without `case_sensitive=0`) for compatibility.
- * The production Docker container uses the system SQLite (≥ 3.45) where `case_sensitive=0`
- * works correctly.
+ * **SQLite tokenizer note:** The V7 Flyway migration uses plain `tokenize='trigram'` (the default).
+ * The `case_sensitive=0` option is NOT used because xerial/sqlite-jdbc 3.49.1.0 rejects it with
+ * "parse error in tokenize directive". These tests match the production tokenizer configuration exactly.
  *
  * What these tests verify:
  * - FTS5 virtual tables can be created (the V7 migration mechanism works)
@@ -73,8 +71,8 @@ class Fts5MigrationTest {
      *
      * @return true when FTS5 virtual tables were created successfully.
      */
-    private fun applySchema(): Boolean {
-        return try {
+    private fun applySchema(): Boolean =
+        try {
             transaction(db = database) {
                 // Base tables
                 exec(
@@ -209,10 +207,8 @@ class Fts5MigrationTest {
             }
 
             // FTS5 virtual tables in a separate transaction — we detect availability here.
-            // Note: uses `tokenize='trigram'` instead of `tokenize='trigram case_sensitive=0'`
-            // because the xerial/sqlite-jdbc 3.49.1.0 bundled binary does not support the
-            // case_sensitive parameter on Windows. The V7 migration file uses case_sensitive=0
-            // which works correctly in the production Docker container (system SQLite ≥ 3.45).
+            // Uses plain `tokenize='trigram'` matching the V7 Flyway migration exactly.
+            // The `case_sensitive=0` option is not supported by the bundled xerial/sqlite-jdbc binary.
             var fts5Created = false
             try {
                 transaction(db = database) {
@@ -258,24 +254,48 @@ class Fts5MigrationTest {
                     )
 
                     // Sync triggers for work_items_fts_trigram
-                    exec("CREATE TRIGGER IF NOT EXISTS work_items_fts_trigram_ai AFTER INSERT ON work_items BEGIN INSERT INTO work_items_fts_trigram(rowid, title, summary) VALUES (new.rowid, new.title, new.summary); END")
-                    exec("CREATE TRIGGER IF NOT EXISTS work_items_fts_trigram_ad AFTER DELETE ON work_items BEGIN INSERT INTO work_items_fts_trigram(work_items_fts_trigram, rowid, title, summary) VALUES ('delete', old.rowid, old.title, old.summary); END")
-                    exec("CREATE TRIGGER IF NOT EXISTS work_items_fts_trigram_au AFTER UPDATE ON work_items BEGIN INSERT INTO work_items_fts_trigram(work_items_fts_trigram, rowid, title, summary) VALUES ('delete', old.rowid, old.title, old.summary); INSERT INTO work_items_fts_trigram(rowid, title, summary) VALUES (new.rowid, new.title, new.summary); END")
+                    exec(
+                        "CREATE TRIGGER IF NOT EXISTS work_items_fts_trigram_ai AFTER INSERT ON work_items BEGIN INSERT INTO work_items_fts_trigram(rowid, title, summary) VALUES (new.rowid, new.title, new.summary); END"
+                    )
+                    exec(
+                        "CREATE TRIGGER IF NOT EXISTS work_items_fts_trigram_ad AFTER DELETE ON work_items BEGIN INSERT INTO work_items_fts_trigram(work_items_fts_trigram, rowid, title, summary) VALUES ('delete', old.rowid, old.title, old.summary); END"
+                    )
+                    exec(
+                        "CREATE TRIGGER IF NOT EXISTS work_items_fts_trigram_au AFTER UPDATE ON work_items BEGIN INSERT INTO work_items_fts_trigram(work_items_fts_trigram, rowid, title, summary) VALUES ('delete', old.rowid, old.title, old.summary); INSERT INTO work_items_fts_trigram(rowid, title, summary) VALUES (new.rowid, new.title, new.summary); END"
+                    )
 
                     // Sync triggers for work_items_fts_text
-                    exec("CREATE TRIGGER IF NOT EXISTS work_items_fts_text_ai AFTER INSERT ON work_items BEGIN INSERT INTO work_items_fts_text(rowid, title, summary) VALUES (new.rowid, new.title, new.summary); END")
-                    exec("CREATE TRIGGER IF NOT EXISTS work_items_fts_text_ad AFTER DELETE ON work_items BEGIN INSERT INTO work_items_fts_text(work_items_fts_text, rowid, title, summary) VALUES ('delete', old.rowid, old.title, old.summary); END")
-                    exec("CREATE TRIGGER IF NOT EXISTS work_items_fts_text_au AFTER UPDATE ON work_items BEGIN INSERT INTO work_items_fts_text(work_items_fts_text, rowid, title, summary) VALUES ('delete', old.rowid, old.title, old.summary); INSERT INTO work_items_fts_text(rowid, title, summary) VALUES (new.rowid, new.title, new.summary); END")
+                    exec(
+                        "CREATE TRIGGER IF NOT EXISTS work_items_fts_text_ai AFTER INSERT ON work_items BEGIN INSERT INTO work_items_fts_text(rowid, title, summary) VALUES (new.rowid, new.title, new.summary); END"
+                    )
+                    exec(
+                        "CREATE TRIGGER IF NOT EXISTS work_items_fts_text_ad AFTER DELETE ON work_items BEGIN INSERT INTO work_items_fts_text(work_items_fts_text, rowid, title, summary) VALUES ('delete', old.rowid, old.title, old.summary); END"
+                    )
+                    exec(
+                        "CREATE TRIGGER IF NOT EXISTS work_items_fts_text_au AFTER UPDATE ON work_items BEGIN INSERT INTO work_items_fts_text(work_items_fts_text, rowid, title, summary) VALUES ('delete', old.rowid, old.title, old.summary); INSERT INTO work_items_fts_text(rowid, title, summary) VALUES (new.rowid, new.title, new.summary); END"
+                    )
 
                     // Sync triggers for notes_fts_trigram
-                    exec("CREATE TRIGGER IF NOT EXISTS notes_fts_trigram_ai AFTER INSERT ON notes BEGIN INSERT INTO notes_fts_trigram(rowid, body) VALUES (new.rowid, new.body); END")
-                    exec("CREATE TRIGGER IF NOT EXISTS notes_fts_trigram_ad AFTER DELETE ON notes BEGIN INSERT INTO notes_fts_trigram(notes_fts_trigram, rowid, body) VALUES ('delete', old.rowid, old.body); END")
-                    exec("CREATE TRIGGER IF NOT EXISTS notes_fts_trigram_au AFTER UPDATE ON notes BEGIN INSERT INTO notes_fts_trigram(notes_fts_trigram, rowid, body) VALUES ('delete', old.rowid, old.body); INSERT INTO notes_fts_trigram(rowid, body) VALUES (new.rowid, new.body); END")
+                    exec(
+                        "CREATE TRIGGER IF NOT EXISTS notes_fts_trigram_ai AFTER INSERT ON notes BEGIN INSERT INTO notes_fts_trigram(rowid, body) VALUES (new.rowid, new.body); END"
+                    )
+                    exec(
+                        "CREATE TRIGGER IF NOT EXISTS notes_fts_trigram_ad AFTER DELETE ON notes BEGIN INSERT INTO notes_fts_trigram(notes_fts_trigram, rowid, body) VALUES ('delete', old.rowid, old.body); END"
+                    )
+                    exec(
+                        "CREATE TRIGGER IF NOT EXISTS notes_fts_trigram_au AFTER UPDATE ON notes BEGIN INSERT INTO notes_fts_trigram(notes_fts_trigram, rowid, body) VALUES ('delete', old.rowid, old.body); INSERT INTO notes_fts_trigram(rowid, body) VALUES (new.rowid, new.body); END"
+                    )
 
                     // Sync triggers for notes_fts_text
-                    exec("CREATE TRIGGER IF NOT EXISTS notes_fts_text_ai AFTER INSERT ON notes BEGIN INSERT INTO notes_fts_text(rowid, body) VALUES (new.rowid, new.body); END")
-                    exec("CREATE TRIGGER IF NOT EXISTS notes_fts_text_ad AFTER DELETE ON notes BEGIN INSERT INTO notes_fts_text(notes_fts_text, rowid, body) VALUES ('delete', old.rowid, old.body); END")
-                    exec("CREATE TRIGGER IF NOT EXISTS notes_fts_text_au AFTER UPDATE ON notes BEGIN INSERT INTO notes_fts_text(notes_fts_text, rowid, body) VALUES ('delete', old.rowid, old.body); INSERT INTO notes_fts_text(rowid, body) VALUES (new.rowid, new.body); END")
+                    exec(
+                        "CREATE TRIGGER IF NOT EXISTS notes_fts_text_ai AFTER INSERT ON notes BEGIN INSERT INTO notes_fts_text(rowid, body) VALUES (new.rowid, new.body); END"
+                    )
+                    exec(
+                        "CREATE TRIGGER IF NOT EXISTS notes_fts_text_ad AFTER DELETE ON notes BEGIN INSERT INTO notes_fts_text(notes_fts_text, rowid, body) VALUES ('delete', old.rowid, old.body); END"
+                    )
+                    exec(
+                        "CREATE TRIGGER IF NOT EXISTS notes_fts_text_au AFTER UPDATE ON notes BEGIN INSERT INTO notes_fts_text(notes_fts_text, rowid, body) VALUES ('delete', old.rowid, old.body); INSERT INTO notes_fts_text(rowid, body) VALUES (new.rowid, new.body); END"
+                    )
 
                     // Backfill
                     exec("INSERT INTO work_items_fts_trigram(work_items_fts_trigram) VALUES ('rebuild')")
@@ -294,12 +314,17 @@ class Fts5MigrationTest {
             println("Schema setup failed: ${e.message}")
             false
         }
-    }
 
     @AfterEach
     fun tearDown() {
-        try { TransactionManager.closeAndUnregister(database) } catch (_: Exception) {}
-        try { keepAliveConnection.close() } catch (_: Exception) {}
+        try {
+            TransactionManager.closeAndUnregister(database)
+        } catch (_: Exception) {
+        }
+        try {
+            keepAliveConnection.close()
+        } catch (_: Exception) {
+        }
     }
 
     // ────────────────────────────────────────────────────────────────────────
@@ -314,12 +339,13 @@ class Fts5MigrationTest {
                 return@runBlocking
             }
 
-            val expectedTables = listOf(
-                "work_items_fts_trigram",
-                "work_items_fts_text",
-                "notes_fts_trigram",
-                "notes_fts_text",
-            )
+            val expectedTables =
+                listOf(
+                    "work_items_fts_trigram",
+                    "work_items_fts_text",
+                    "notes_fts_trigram",
+                    "notes_fts_text",
+                )
             val foundTables = mutableSetOf<String>()
 
             transaction(db = database) {
@@ -374,12 +400,14 @@ class Fts5MigrationTest {
             )
             // Items 1 and 2 contain "auth" — both should be indexed
             assertEquals(
-                2, ftsWorkItemCount,
+                2,
+                ftsWorkItemCount,
                 "Expected 2 work_items_fts_trigram matches for 'auth', got $ftsWorkItemCount"
             )
             // Both notes contain "auth"
             assertEquals(
-                2, ftsNoteCount,
+                2,
+                ftsNoteCount,
                 "Expected 2 notes_fts_trigram matches for 'auth', got $ftsNoteCount"
             )
         }
@@ -400,13 +428,14 @@ class Fts5MigrationTest {
             var triggerFired = false
             var caughtMessage = ""
             try {
-                keepAliveConnection.prepareStatement(
-                    "UPDATE work_items SET parent_id = ? WHERE id = ?"
-                ).use { stmt ->
-                    stmt.setBytes(1, uuidToBytes(child.id))
-                    stmt.setBytes(2, uuidToBytes(parent.id))
-                    stmt.executeUpdate()
-                }
+                keepAliveConnection
+                    .prepareStatement(
+                        "UPDATE work_items SET parent_id = ? WHERE id = ?"
+                    ).use { stmt ->
+                        stmt.setBytes(1, uuidToBytes(child.id))
+                        stmt.setBytes(2, uuidToBytes(parent.id))
+                        stmt.executeUpdate()
+                    }
             } catch (e: Exception) {
                 caughtMessage = e.message ?: ""
                 triggerFired = true
@@ -458,12 +487,19 @@ class Fts5MigrationTest {
         return count
     }
 
-    private fun countFtsRows(ftsTable: String, matchTerm: String): Int {
+    private fun countFtsRows(
+        ftsTable: String,
+        matchTerm: String
+    ): Int {
         var count = 0
         transaction(db = database) {
             exec(
                 "SELECT COUNT(*) AS cnt FROM $ftsTable WHERE $ftsTable MATCH ?",
-                args = listOf(org.jetbrains.exposed.v1.core.VarCharColumnType(256) to matchTerm)
+                args =
+                    listOf(
+                        org.jetbrains.exposed.v1.core
+                            .VarCharColumnType(256) to matchTerm
+                    )
             ) { rs ->
                 if (rs.next()) count = rs.getInt("cnt")
             }
