@@ -3,9 +3,9 @@
 A Kotlin-based MCP server providing hierarchical work item management with dependency tracking, note schemas, and role-based workflow automation.
 
 **Key Technologies:**
-- Kotlin 2.2.0 with Coroutines
-- Exposed ORM 1.0.0-beta-2 for SQLite
-- MCP SDK 0.9.0 (with Ktor Streamable HTTP transport)
+- Kotlin 2.3.21 with Coroutines
+- Exposed ORM 1.2.0 for SQLite
+- MCP SDK 0.12.0 (with Ktor Streamable HTTP transport)
 - Flyway for database migrations
 - Gradle with Kotlin DSL / Docker
 
@@ -44,7 +44,7 @@ application/
   tools/items/      — ManageItemsTool, QueryItemsTool
   tools/notes/      — ManageNotesTool, QueryNotesTool
   tools/dependency/ — ManageDependenciesTool, QueryDependenciesTool
-  tools/workflow/   — AdvanceItemTool, GetNextStatusTool, GetNextItemTool, GetBlockedItemsTool, GetContextTool
+  tools/workflow/   — AdvanceItemTool, ClaimItemTool, GetNextStatusTool, GetNextItemTool, GetBlockedItemsTool, GetContextTool
   tools/compound/   — CreateWorkTreeTool, CompleteTreeTool
   service/          — RoleTransitionHandler, NoteSchemaService, CascadeDetector, WorkTreeExecutor
 

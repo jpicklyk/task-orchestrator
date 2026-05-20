@@ -2,18 +2,20 @@
 
 Stop losing context. Start building faster.
 
-MCP Task Orchestrator is an open-source MCP server that gives AI agents persistent, structured task tracking across sessions. Built around a unified WorkItem graph with Note attachments and Dependency edges, it keeps context lean while making complex project work visible. v3 is a ground-up rewrite with 13 tools, role-based workflow, and note schema gating.
+MCP Task Orchestrator is an open-source MCP server that gives AI agents persistent, structured task tracking across sessions. Built around a unified WorkItem graph with Note attachments and Dependency edges, it keeps context lean while making complex project work visible. v3 is a ground-up rewrite with 14 tools, role-based workflow, and note schema gating.
 
 ---
 
 ## What's New in v3
 
 - Unified WorkItem model — one entity type at flexible depth (0-3), replacing separate Project/Feature/Task distinctions
-- 13 tools with graph-aware queries (`includeAncestors`, `includeChildren`) that eliminate sequential parent-walk calls
+- 14 tools with graph-aware queries (`includeAncestors`, `includeChildren`) that eliminate sequential parent-walk calls
 - Role-based workflow: `queue` -> `work` -> `review` -> `terminal` with named triggers (`start`, `complete`, `block`, `hold`, `resume`)
 - Note schemas — per-tag documentation requirements that gate phase transitions before an item can advance
+- Composable traits — orchestration signals that layer note requirements, guidance, and skill routing onto base schemas
 - Dependency patterns: `linear`, `fan-out`, `fan-in` with `BLOCKS`, `IS_BLOCKED_BY`, and `RELATES_TO` edge types
 - `create_work_tree` for atomic hierarchy creation; `complete_tree` for batch topological completion
+- Multi-agent claim mechanism (`claim_item`) with TTL-based ownership, selector mode for atomic find-and-claim, and ancestor-claim sub-tree protection — see [Fleet Deployment](fleet-deployment.md) for topology patterns
 
 ---
 
@@ -32,7 +34,7 @@ claude mcp add-json mcp-task-orchestrator '{
 }'
 ```
 
-After running, restart Claude Code and run `/mcp` to verify the connection. You should see `mcp-task-orchestrator` listed as connected with all 13 tools available.
+After running, restart Claude Code and run `/mcp` to verify the connection. You should see `mcp-task-orchestrator` listed as connected with all 14 tools available.
 
 ---
 
@@ -41,7 +43,7 @@ After running, restart Claude Code and run `/mcp` to verify the connection. You 
 | Guide | Description |
 |-------|-------------|
 | [Quick Start](quick-start.md) | Docker setup, first work item, note schemas, key concepts |
-| [API Reference](api-reference.md) | All 13 MCP tools — parameters, response shapes, and examples |
+| [API Reference](api-reference.md) | All 14 MCP tools — parameters, response shapes, and examples |
 | [Workflow Guide](workflow-guide.md) | Role lifecycle, triggers, note schemas, dependency patterns, cascade behavior |
 | [Fleet Deployment](fleet-deployment.md) | Multi-agent fleet operators: identity policy, SQLite tuning, capacity planning, claim disclosure, observability |
 | [Integration Guides](integration-guides/index.md) | Progressive tiers from bare MCP tools to self-improving orchestration |
