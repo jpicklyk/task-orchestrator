@@ -261,4 +261,86 @@ class SQLiteWorkItemRepositoryFtsTest : BaseFts5RepositoryTest() {
             assertEquals(0, result.totalHits, "Expected zero hits for a query matching nothing")
             assertTrue(result.hits.isEmpty())
         }
+
+    // ────────────────────────────────────────────────────────────────────────
+    // FTS sync triggers — UPDATE and DELETE invalidate the FTS index
+    // Exercises the V7 work_items_fts_*_au and work_items_fts_*_ad triggers.
+    // ────────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `update to title makes new title searchable and old title no longer matches`(): Unit =
+        runBlocking {
+            val item = createItem(title = "Original payload moniker")
+
+            // Sanity: old title is searchable before the update.
+            val beforeUpdate =
+                repo().ftsSearch(
+                    sanitizedFtsQuery = "\"moniker\"",
+                    matchMode = SearchMatchMode.AUTO,
+                    limit = 10,
+                )
+            assertTrue(
+                item.id in beforeUpdate.hits.map { it.itemId },
+                "Pre-update: item should be searchable by its original title"
+            )
+
+            // Update title; FTS _au trigger must re-index.
+            val updated = repo().update(item.copy(title = "Refreshed contraption identifier"))
+            assertIs<Result.Success<WorkItem>>(updated)
+
+            val newTitleHit =
+                repo().ftsSearch(
+                    sanitizedFtsQuery = "\"contraption\"",
+                    matchMode = SearchMatchMode.AUTO,
+                    limit = 10,
+                )
+            assertTrue(
+                item.id in newTitleHit.hits.map { it.itemId },
+                "Post-update: item should be searchable by its new title"
+            )
+
+            val oldTitleHit =
+                repo().ftsSearch(
+                    sanitizedFtsQuery = "\"moniker\"",
+                    matchMode = SearchMatchMode.AUTO,
+                    limit = 10,
+                )
+            assertTrue(
+                item.id !in oldTitleHit.hits.map { it.itemId },
+                "Post-update: item should no longer be searchable by its old title"
+            )
+        }
+
+    @Test
+    fun `delete removes item from FTS index`(): Unit =
+        runBlocking {
+            val item = createItem(title = "Doomed transient marker")
+
+            // Sanity: item is searchable before delete.
+            val before =
+                repo().ftsSearch(
+                    sanitizedFtsQuery = "\"transient\"",
+                    matchMode = SearchMatchMode.AUTO,
+                    limit = 10,
+                )
+            assertTrue(
+                item.id in before.hits.map { it.itemId },
+                "Pre-delete: item should be searchable by title"
+            )
+
+            val deleted = repo().delete(item.id)
+            assertIs<Result.Success<Boolean>>(deleted)
+            assertTrue(deleted.data, "Expected delete to return true for existing item")
+
+            val after =
+                repo().ftsSearch(
+                    sanitizedFtsQuery = "\"transient\"",
+                    matchMode = SearchMatchMode.AUTO,
+                    limit = 10,
+                )
+            assertTrue(
+                item.id !in after.hits.map { it.itemId },
+                "Post-delete: item should be removed from the FTS index"
+            )
+        }
 }

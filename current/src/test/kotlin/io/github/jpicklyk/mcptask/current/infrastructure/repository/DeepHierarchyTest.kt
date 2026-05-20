@@ -144,12 +144,18 @@ class DeepHierarchyTest {
             )
 
             // Cycle detection — BEFORE INSERT (fires when creating new items with a parent)
+            // Mirrors V7 migration + DirectDatabaseSchemaManager: includes self-reference guard
+            // because the recursive CTE below cannot catch parent_id = id on INSERT (the row
+            // doesn't exist yet, so the ancestor walk seeds empty).
             exec(
                 """
                 CREATE TRIGGER IF NOT EXISTS work_items_cycle_check
                 BEFORE INSERT ON work_items
                 WHEN NEW.parent_id IS NOT NULL
                 BEGIN
+                    SELECT RAISE(ABORT, 'cycle detected: parent_id equals id (self-reference)')
+                    WHERE NEW.parent_id = NEW.id;
+
                     SELECT RAISE(ABORT, 'cycle detected: parent_id references a descendant of this item')
                     WHERE EXISTS (
                         WITH RECURSIVE ancestors(node_id) AS (
@@ -172,6 +178,9 @@ class DeepHierarchyTest {
                 BEFORE UPDATE OF parent_id ON work_items
                 WHEN NEW.parent_id IS NOT NULL
                 BEGIN
+                    SELECT RAISE(ABORT, 'cycle detected: parent_id equals id (self-reference)')
+                    WHERE NEW.parent_id = NEW.id;
+
                     SELECT RAISE(ABORT, 'cycle detected: parent_id references a descendant of this item')
                     WHERE EXISTS (
                         WITH RECURSIVE ancestors(node_id) AS (
@@ -352,6 +361,71 @@ class DeepHierarchyTest {
                 depth++
             }
             assertEquals(9, depth - 1, "Expected 10 items at depths 0..9")
+        }
+
+    @Test
+    fun `INSERT with parent_id equal to id is rejected by self-reference trigger`(): Unit =
+        runBlocking {
+            // The recursive-CTE guard cannot catch this on INSERT because the row being
+            // written doesn't yet exist — the ancestor walk seeds empty. The dedicated
+            // NEW.parent_id = NEW.id check fires instead.
+            val selfId = UUID.randomUUID()
+            var triggerFired = false
+            var errorMessage = ""
+            try {
+                keepAliveConnection
+                    .prepareStatement(
+                        """
+                        INSERT INTO work_items (id, parent_id, title, summary, role, priority, depth,
+                            created_at, modified_at, role_changed_at)
+                        VALUES (?, ?, 'Self-parent', '', 'queue', 'medium', 0,
+                            datetime('now'), datetime('now'), datetime('now'))
+                        """.trimIndent()
+                    ).use { stmt ->
+                        val bytes = uuidToBytes(selfId)
+                        stmt.setBytes(1, bytes)
+                        stmt.setBytes(2, bytes)
+                        stmt.executeUpdate()
+                    }
+            } catch (e: Exception) {
+                triggerFired = true
+                errorMessage = e.message ?: ""
+            }
+
+            assertTrue(triggerFired, "Expected self-reference trigger to reject INSERT where parent_id = id")
+            assertTrue(
+                "self-reference" in errorMessage.lowercase() || "cycle" in errorMessage.lowercase(),
+                "Expected error to mention 'cycle' or 'self-reference', got: '$errorMessage'"
+            )
+        }
+
+    @Test
+    fun `UPDATE setting parent_id equal to id is rejected by self-reference trigger`(): Unit =
+        runBlocking {
+            val item = repository.create(WorkItem(title = "Standalone item", depth = 0))
+            assertIs<Result.Success<WorkItem>>(item)
+
+            var triggerFired = false
+            var errorMessage = ""
+            try {
+                keepAliveConnection
+                    .prepareStatement("UPDATE work_items SET parent_id = ? WHERE id = ?")
+                    .use { stmt ->
+                        val bytes = uuidToBytes(item.data.id)
+                        stmt.setBytes(1, bytes)
+                        stmt.setBytes(2, bytes)
+                        stmt.executeUpdate()
+                    }
+            } catch (e: Exception) {
+                triggerFired = true
+                errorMessage = e.message ?: ""
+            }
+
+            assertTrue(triggerFired, "Expected self-reference trigger to reject UPDATE setting parent_id = id")
+            assertTrue(
+                "self-reference" in errorMessage.lowercase() || "cycle" in errorMessage.lowercase(),
+                "Expected error to mention 'cycle' or 'self-reference', got: '$errorMessage'"
+            )
         }
 
     // ────────────────────────────────────────────────────────────────────────

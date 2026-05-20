@@ -296,6 +296,32 @@ class QueryItemsToolTest {
         }
 
     @Test
+    fun `search caps list-mode limit at 100`() =
+        runBlocking {
+            // List-mode `limit` is coerced into [1, 100] to match FTS-mode behavior and
+            // bound payload size. Passing limit=200 should clamp the echoed limit to 100.
+            createItem("Item A")
+            createItem("Item B")
+
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("search"),
+                        "limit" to JsonPrimitive(200)
+                    ),
+                    context
+                ) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val data = result["data"] as JsonObject
+            assertEquals(
+                100,
+                data["limit"]!!.jsonPrimitive.int,
+                "Expected list-mode limit to be capped at 100 (was: ${data["limit"]})"
+            )
+        }
+
+    @Test
     fun `search pagination with offset returns correct page`() =
         runBlocking {
             for (i in 1..5) {
