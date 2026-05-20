@@ -625,15 +625,15 @@ class SQLiteWorkItemRepository(
         limit: Int = 20,
         offset: Int = 0,
     ): SearchResult {
-        // FTS5 is SQLite-only — return empty for H2 (test environment).
-        if (currentDialect is H2Dialect) {
-            return SearchResult(hits = emptyList(), totalHits = 0, nextOffset = null)
-        }
-
         val effectiveLimit = limit.coerceIn(1, 100)
 
         return try {
             newSuspendedTransaction(db = databaseManager.getDatabase()) {
+                // currentDialect is only accessible within an active transaction.
+                // FTS5 is SQLite-only — return empty for H2 (test environment).
+                if (currentDialect is H2Dialect) {
+                    return@newSuspendedTransaction SearchResult(hits = emptyList(), totalHits = 0, nextOffset = null)
+                }
                 val uuidType = UUIDColumnType()
 
                 // Inline RRF helper — T4 will extract this to RrfFusion.kt and refactor.
@@ -679,7 +679,7 @@ class SQLiteWorkItemRepository(
 
                 // Accumulate positional args shared across trigram / text queries.
                 // Order: subtree anchor (if any), then fts query, then scope filters.
-                fun buildArgs(ftsTableParam: String): List<Pair<org.jetbrains.exposed.v1.core.ColumnType<*>, Any?>> {
+                fun buildArgs(): List<Pair<org.jetbrains.exposed.v1.core.ColumnType<*>, Any?>> {
                     val args = mutableListOf<Pair<org.jetbrains.exposed.v1.core.ColumnType<*>, Any?>>()
                     val varcharType = VarCharColumnType(4000)
                     if (scope?.ancestorId != null) args.add(uuidType to scope.ancestorId)
@@ -732,7 +732,7 @@ class SQLiteWorkItemRepository(
                         LIMIT ${effectiveLimit + offset + 1}
                         """.trimIndent()
 
-                    exec(sql, args = buildArgs(ftsTable)) { rs ->
+                    exec(sql, args = buildArgs()) { rs ->
                         while (rs.next()) {
                             val rowid = rs.getLong("rowid")
                             val rank = rs.getDouble("rank")
@@ -1423,12 +1423,8 @@ class SQLiteWorkItemRepository(
         role?.let { conditions.add(WorkItemsTable.role eq it.name.lowercase()) }
         priority?.let { conditions.add(WorkItemsTable.priority eq it.name.lowercase()) }
         tags?.takeIf { it.isNotEmpty() }?.let { conditions.add(buildTagFilter(it)) }
-        query?.let {
-            val pattern = "%$it%"
-            conditions.add(
-                (WorkItemsTable.title like pattern) or (WorkItemsTable.summary like pattern)
-            )
-        }
+        // NOTE: The old `query` LIKE-filter has been removed (breaking change, FTS5 feature T4).
+        // Full-text search is now routed through ftsSearch() via QueryItemsTool's `search` operation.
         createdAfter?.let { conditions.add(WorkItemsTable.createdAt greaterEq it) }
         createdBefore?.let { conditions.add(WorkItemsTable.createdAt lessEq it) }
         modifiedAfter?.let { conditions.add(WorkItemsTable.modifiedAt greaterEq it) }

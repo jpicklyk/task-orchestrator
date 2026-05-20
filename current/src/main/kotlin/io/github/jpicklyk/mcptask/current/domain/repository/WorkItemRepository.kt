@@ -292,8 +292,8 @@ interface WorkItemRepository {
      *   by read-only callers such as `get_next_item` that do not have actor context.
      *
      * Ancestor-claim freshness is evaluated using [dbNow] — the DB-side clock — consistent with
-     * the existing item-level claim exclusion contract. The walk is a batched BFS bounded by
-     * the maximum depth of 3, so the total extra query cost is at most 3 additional round-trips.
+     * the existing item-level claim exclusion contract. The walk is a batched BFS over the full
+     * ancestor chain (unbounded depth since V7), so the total extra query cost scales with depth.
      *
      * Items with no parent (root items, depth=0) are unaffected by this filter.
      *

@@ -231,15 +231,15 @@ class SQLiteNoteRepository(
         limit: Int = 20,
         offset: Int = 0,
     ): SearchResult {
-        // FTS5 is SQLite-only — return empty for H2 (test environment).
-        if (currentDialect is H2Dialect) {
-            return SearchResult(hits = emptyList(), totalHits = 0, nextOffset = null)
-        }
-
         val effectiveLimit = limit.coerceIn(1, 100)
 
         return try {
             newSuspendedTransaction(db = databaseManager.getDatabase()) {
+                // currentDialect is only accessible within an active transaction.
+                // FTS5 is SQLite-only — return empty for H2 (test environment).
+                if (currentDialect is H2Dialect) {
+                    return@newSuspendedTransaction SearchResult(hits = emptyList(), totalHits = 0, nextOffset = null)
+                }
                 val uuidType = UUIDColumnType()
                 val varcharType = VarCharColumnType(4000)
 
