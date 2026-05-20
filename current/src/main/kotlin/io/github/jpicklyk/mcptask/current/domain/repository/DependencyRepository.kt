@@ -1,6 +1,8 @@
 package io.github.jpicklyk.mcptask.current.domain.repository
 
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
+import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
+import io.github.jpicklyk.mcptask.current.infrastructure.repository.BacklinkRow
 import java.util.UUID
 
 /**
@@ -39,4 +41,21 @@ interface DependencyRepository {
      * A dependency shared between two queried items appears in both entries.
      */
     fun findByItemIds(itemIds: Set<UUID>): Map<UUID, List<Dependency>>
+
+    /**
+     * Returns reverse-direction dependency edges pointing *at* [itemId].
+     *
+     * Each [BacklinkRow] represents another item whose dependency edge has [itemId] as its target
+     * (`dependencies.to_item_id = itemId`). Useful for finding all items that reference a given
+     * item — e.g., "what items block REQ-42?" or "what items relate to FEAT-7?".
+     *
+     * Uses the existing index on `to_item_id` — no full table scan.
+     *
+     * @param itemId UUID of the target item to find backlinks for.
+     * @param type   Optional filter: when non-null, only edges of this [DependencyType] are returned.
+     */
+    suspend fun backlinks(
+        itemId: UUID,
+        type: DependencyType? = null,
+    ): List<BacklinkRow>
 }

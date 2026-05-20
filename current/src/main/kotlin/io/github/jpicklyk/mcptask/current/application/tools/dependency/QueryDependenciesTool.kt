@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
+import io.github.jpicklyk.mcptask.current.infrastructure.repository.BacklinkRow
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.*
@@ -24,6 +25,11 @@ class QueryDependenciesTool : BaseToolDefinition() {
         """
 Read-only dependency queries with filtering support.
 
+## Operations
+
+### get (default)
+Query outgoing/incoming/all dependencies for a WorkItem.
+
 Parameters:
 - itemId (required UUID): WorkItem to query dependencies for
 - direction (optional): "incoming", "outgoing", "all" (default: "all")
@@ -35,6 +41,17 @@ Parameters:
 - neighborsOnly (optional boolean, default true): when false, perform BFS graph traversal
 
 Returns dependencies with counts breakdown and optional graph traversal data.
+
+### backlinks
+Find all items that reference (point at) the given item — i.e., reverse-direction edges.
+Practical use: "find all items that block REQ-42", "what references FEAT-7?".
+A backlink row means another item has an edge with toItemId = your itemId.
+
+Parameters:
+- itemId (required UUID): target item to find backlinks for
+- type (optional): narrow to one dependency type — "BLOCKS", "IS_BLOCKED_BY", "RELATES_TO"
+
+Returns: { backlinks: [{ fromItemId, type, fromTitle }], total: N }
         """.trimIndent()
 
     override val category = ToolCategory.DEPENDENCY_MANAGEMENT
@@ -52,6 +69,20 @@ Returns dependencies with counts breakdown and optional graph traversal data.
             properties =
                 buildJsonObject {
                     put(
+                        "operation",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("string"))
+                            put(
+                                "description",
+                                JsonPrimitive(
+                                    "Operation: \"get\" (default, query outgoing/incoming/all deps) or " +
+                                        "\"backlinks\" (find items pointing AT the given item)"
+                                )
+                            )
+                            put("enum", JsonArray(listOf("get", "backlinks").map { JsonPrimitive(it) }))
+                        }
+                    )
+                    put(
                         "itemId",
                         buildJsonObject {
                             put("type", JsonPrimitive("string"))
@@ -62,7 +93,7 @@ Returns dependencies with counts breakdown and optional graph traversal data.
                         "direction",
                         buildJsonObject {
                             put("type", JsonPrimitive("string"))
-                            put("description", JsonPrimitive("Direction filter: incoming, outgoing, all (default: all)"))
+                            put("description", JsonPrimitive("(get only) Direction filter: incoming, outgoing, all (default: all)"))
                             put("enum", JsonArray(listOf("incoming", "outgoing", "all").map { JsonPrimitive(it) }))
                         }
                     )
@@ -80,7 +111,7 @@ Returns dependencies with counts breakdown and optional graph traversal data.
                             put("type", JsonPrimitive("boolean"))
                             put(
                                 "description",
-                                JsonPrimitive("Include WorkItem details (title, role, priority) for related items (default: false)")
+                                JsonPrimitive("(get only) Include WorkItem details (title, role, priority) for related items (default: false)")
                             )
                         }
                     )
@@ -90,7 +121,7 @@ Returns dependencies with counts breakdown and optional graph traversal data.
                             put("type", JsonPrimitive("boolean"))
                             put(
                                 "description",
-                                JsonPrimitive("When false, perform BFS graph traversal returning chain and depth (default: true)")
+                                JsonPrimitive("(get only) When false, perform BFS graph traversal returning chain and depth (default: true)")
                             )
                         }
                     )
@@ -99,21 +130,73 @@ Returns dependencies with counts breakdown and optional graph traversal data.
         )
 
     override fun validateParams(params: JsonElement) {
-        validateIdOrPrefix(params, "itemId", required = true)
-
-        val direction = optionalString(params, "direction")
-        if (direction != null && direction !in listOf("incoming", "outgoing", "all")) {
-            throw ToolValidationException("Invalid direction: $direction. Must be one of: incoming, outgoing, all")
+        val operation = optionalString(params, "operation") ?: "get"
+        if (operation !in listOf("get", "backlinks")) {
+            throw ToolValidationException("Invalid operation: $operation. Must be one of: get, backlinks")
         }
+
+        validateIdOrPrefix(params, "itemId", required = true)
 
         val type = optionalString(params, "type")
         if (type != null) {
             DependencyType.fromString(type)
                 ?: throw ToolValidationException("Invalid type: $type. Must be one of: BLOCKS, IS_BLOCKED_BY, RELATES_TO")
         }
+
+        if (operation == "get") {
+            val direction = optionalString(params, "direction")
+            if (direction != null && direction !in listOf("incoming", "outgoing", "all")) {
+                throw ToolValidationException("Invalid direction: $direction. Must be one of: incoming, outgoing, all")
+            }
+        }
     }
 
     override suspend fun execute(
+        params: JsonElement,
+        context: ToolExecutionContext
+    ): JsonElement {
+        val operation = optionalString(params, "operation") ?: "get"
+
+        return when (operation) {
+            "backlinks" -> executeBacklinks(params, context)
+            else -> executeGet(params, context)
+        }
+    }
+
+    private suspend fun executeBacklinks(
+        params: JsonElement,
+        context: ToolExecutionContext
+    ): JsonElement {
+        val (resolvedItemId, idError) = resolveItemId(params, "itemId", context)
+        if (idError != null) return idError
+        val itemId = resolvedItemId!!
+
+        val typeFilter = optionalString(params, "type")?.let { DependencyType.fromString(it) }
+        val depRepo = context.dependencyRepository()
+
+        val rows: List<BacklinkRow> = depRepo.backlinks(itemId, typeFilter)
+
+        val backlinksArray =
+            JsonArray(
+                rows.map { row ->
+                    buildJsonObject {
+                        put("fromItemId", JsonPrimitive(row.fromItemId.toString()))
+                        put("type", JsonPrimitive(row.type.name))
+                        put("fromTitle", JsonPrimitive(row.fromTitle))
+                    }
+                }
+            )
+
+        val data =
+            buildJsonObject {
+                put("backlinks", backlinksArray)
+                put("total", JsonPrimitive(rows.size))
+            }
+
+        return successResponse(data)
+    }
+
+    private suspend fun executeGet(
         params: JsonElement,
         context: ToolExecutionContext
     ): JsonElement {
@@ -186,11 +269,17 @@ Returns dependencies with counts breakdown and optional graph traversal data.
     ): String {
         if (isError) return "Dependency query failed"
 
+        val operation = optionalString(params, "operation") ?: "get"
         val data = (result as? JsonObject)?.get("data") as? JsonObject
-        val deps = data?.get("dependencies") as? JsonArray
-        val count = deps?.size ?: 0
 
-        return "Found $count dependenc${if (count == 1) "y" else "ies"}"
+        return if (operation == "backlinks") {
+            val count = (data?.get("total") as? JsonPrimitive)?.intOrNull ?: 0
+            "Found $count backlink${if (count == 1) "" else "s"}"
+        } else {
+            val deps = data?.get("dependencies") as? JsonArray
+            val count = deps?.size ?: 0
+            "Found $count dependenc${if (count == 1) "y" else "ies"}"
+        }
     }
 
     // ──────────────────────────────────────────────

@@ -288,9 +288,9 @@ class SQLiteDependencyRepository(
      * @param itemId UUID of the target item to find backlinks for.
      * @param type   Optional filter: when non-null, only edges of this type are returned.
      */
-    suspend fun backlinks(
+    override suspend fun backlinks(
         itemId: UUID,
-        type: DependencyType? = null,
+        type: DependencyType?,
     ): List<BacklinkRow> =
         newSuspendedTransaction(db = databaseManager.getDatabase()) {
             val uuidType = UUIDColumnType()
