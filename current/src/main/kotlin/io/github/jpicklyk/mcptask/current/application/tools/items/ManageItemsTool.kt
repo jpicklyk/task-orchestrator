@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.application.tools.items
 
-import io.github.jpicklyk.mcptask.current.application.service.ItemHierarchyValidator
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
@@ -17,7 +16,8 @@ import java.util.UUID
  * - **delete**: Batch-delete WorkItems by ID array
  *
  * Depth is computed automatically: root items get depth=0, children get parent.depth+1.
- * A maximum depth of [MAX_DEPTH] is enforced to prevent unbounded nesting.
+ * No application-layer depth cap is enforced; cycle protection is delegated to the
+ * DB BEFORE-UPDATE trigger on work_items.parent_id introduced in V7.
  *
  * Each operation is handled by a focused handler class:
  * - [CreateItemHandler] for create operations
@@ -27,10 +27,6 @@ import java.util.UUID
 class ManageItemsTool :
     BaseToolDefinition(),
     ActorAware {
-    companion object {
-        /** Maximum allowed nesting depth for WorkItems. Delegates to [ItemHierarchyValidator]. */
-        const val MAX_DEPTH = ItemHierarchyValidator.MAX_DEPTH
-    }
 
     private val createHandler = CreateItemHandler()
     private val updateHandler = UpdateItemHandler()
@@ -49,7 +45,7 @@ Unified write operations for WorkItems (create, update, delete).
 **create** - Create WorkItems from `items` array.
 - Each item: `{ title (required), description?, summary?, role?, statusLabel?, priority?, complexity?, parentId?, metadata?, tags?, type?, properties? }`
 - Shared `parentId` at top level serves as default for all items (per-item parentId overrides)
-- Depth auto-computed from parent (root=0, child=parent.depth+1, max=$MAX_DEPTH)
+- Depth auto-computed from parent (root=0, child=parent.depth+1, unbounded)
 - Defaults: role=queue, priority=medium, complexity=5
 - Response: `{ items: [{id, title, depth, role, priority, requiresVerification, tags, schemaMatch, expectedNotes}], created: N, failed: N, failures: [{index, error}] }`
 - `tags` is always included (null if not set). `expectedNotes` is always included (empty array when no schema matches). `schemaMatch` indicates whether the item's tags matched a configured note schema.

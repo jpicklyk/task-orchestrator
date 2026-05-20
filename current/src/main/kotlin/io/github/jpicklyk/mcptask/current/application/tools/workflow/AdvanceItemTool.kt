@@ -556,13 +556,16 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
             // Phase 4: Cascade detection (only when reaching TERMINAL)
             // Uses iterative detect-apply pattern: after applying each cascade,
             // re-detect from the cascaded parent with fresh DB state.
-            // Bounded by CascadeDetector.MAX_DEPTH to prevent runaway recursion.
+            // The loop terminates naturally when events are empty, a gate blocks, or
+            // cascade fails to apply. The MAX_CASCADES guard is a safety net against
+            // unexpected cycles that evade the DB trigger (e.g., direct DB edits).
             val schemaResolver: (WorkItem) -> WorkItemSchema? = { context.resolveSchema(it) }
             val cascadeJsonList = mutableListOf<JsonObject>()
+            val MAX_CASCADES = 100
             if (targetRole == Role.TERMINAL) {
                 var cascadeSource: WorkItem = applyResult.item
                 var depth = 0
-                while (depth < CascadeDetector.MAX_DEPTH) {
+                while (depth < MAX_CASCADES) {
                     val events = cascadeDetector.detectCascades(cascadeSource, context.workItemRepository(), schemaResolver)
                     if (events.isEmpty()) break
 

@@ -33,9 +33,9 @@ data class UnblockedItem(
  * Two responsibilities:
  * 1. **Cascade detection** -- when a WorkItem reaches TERMINAL, check whether all siblings
  *    under the same parent are also TERMINAL. If so, the parent should advance too.
- *    Detection recurses up to [MAX_DEPTH] ancestors, but reads current persisted DB
- *    state at each level. For multi-level cascades (parent -> grandparent), callers
- *    should use an iterative detect-apply loop: apply the first cascade event, then
+ *    Detection recurses up through the full ancestor chain (unbounded depth), reading
+ *    current persisted DB state at each level. For multi-level cascades (parent -> grandparent),
+ *    callers should use an iterative detect-apply loop: apply the first cascade event, then
  *    re-detect from the cascaded parent with fresh DB state. See
  *    [AdvanceItemTool] for the canonical usage pattern.
  *
@@ -62,9 +62,6 @@ data class UnblockedItem(
  */
 class CascadeDetector {
     companion object {
-        /** Maximum ancestor depth for recursive cascade detection. */
-        const val MAX_DEPTH = 3
-
         private val logger = LoggerFactory.getLogger(CascadeDetector::class.java)
     }
 
@@ -78,7 +75,7 @@ class CascadeDetector {
      * If [item] has no parent (root item), returns an empty list.
      * Otherwise checks whether all children of the parent are TERMINAL.
      * If so, creates a [CascadeEvent] for that parent and recursively
-     * checks the grandparent, bounded by [MAX_DEPTH].
+     * checks the grandparent up through the full ancestor chain.
      *
      * **Lifecycle-aware:** If [schemaResolver] is provided, the parent's [WorkItemSchema]
      * is checked before creating a cascade event. Parents with [LifecycleMode.MANUAL] or
@@ -88,7 +85,8 @@ class CascadeDetector {
      * multi-level hierarchies, only the first returned event is guaranteed to
      * reflect accurate state. Callers must apply cascades iteratively --
      * apply the first event, persist it, then re-invoke this method on the
-     * cascaded parent to detect the next level.
+     * cascaded parent to detect the next level. The iterative loop in [AdvanceItemTool]
+     * owns the runaway-recursion guard.
      *
      * @param schemaResolver optional function to resolve the [WorkItemSchema] for a parent item.
      *   Used to check [LifecycleMode] and suppress cascades for MANUAL or PERMANENT schemas.
@@ -109,8 +107,6 @@ class CascadeDetector {
         depth: Int,
         schemaResolver: ((WorkItem) -> WorkItemSchema?)? = null
     ): List<CascadeEvent> {
-        if (depth >= MAX_DEPTH) return emptyList()
-
         // Get role counts for all children of the parent
         val countsResult = workItemRepository.countChildrenByRole(parentId)
         val roleCounts =
