@@ -526,54 +526,73 @@ class SQLiteWorkItemRepository(
 
     override suspend fun findDescendants(id: UUID): Result<List<WorkItem>> =
         try {
-            // Single-query recursive CTE — replaces the per-level BFS loop.
-            // Works on SQLite (3.8.3+) and H2 compat mode (H2 also supports WITH RECURSIVE).
-            //
-            // The root item itself is excluded (the CTE seeds with children of :id).
-            // UUIDs are stored as BLOBs in SQLite; Exposed's UUIDColumnType serialises them
-            // as byte arrays for parameterised binding, which is what `exec(args=...)` expects.
-            //
-            // Must use newSuspendedTransaction directly (not databaseManager.suspendedTransaction)
-            // because exec() is an extension on Transaction, not accessible inside the wrapper's
-            // suspend lambda which has no Transaction receiver.
             newSuspendedTransaction(db = databaseManager.getDatabase()) {
-                val uuidType = UUIDColumnType()
-
-                // Collect matching IDs via recursive CTE, then load full rows via Exposed
-                // so that WorkItem mapping stays in one place (toWorkItemOrNull).
-                val descendantIds = mutableListOf<UUID>()
-                exec(
-                    """
-                    WITH RECURSIVE descendants(id) AS (
-                        SELECT id FROM work_items WHERE parent_id = ?
-                        UNION ALL
-                        SELECT wi.id FROM work_items wi
-                        JOIN descendants d ON wi.parent_id = d.id
-                    )
-                    SELECT id FROM descendants
-                    """.trimIndent(),
-                    args = listOf(uuidType to id),
-                ) { rs: java.sql.ResultSet ->
-                    while (rs.next()) {
-                        // UUIDColumnType.valueFromDB handles both byte[] (SQLite) and String representations.
-                        @Suppress("UNCHECKED_CAST")
-                        val rawId = rs.getObject("id")
-                        val uuid = (uuidType.valueFromDB(rawId!!)) as UUID
-                        descendantIds.add(uuid)
+                // currentDialect is only accessible within an active transaction.
+                // H2 (test environment): the recursive CTE exec() path uses parameterised
+                // UUID binding that is incompatible with H2's native UUID type, and H2
+                // interprets the SELECT-returning exec() call as executeUpdate, throwing
+                // "Method is not allowed for a query". Fall back to a dialect-agnostic
+                // BFS loop using Exposed DSL instead.
+                // Production SQLite uses the single-query recursive CTE (faster at depth).
+                if (currentDialect is H2Dialect) {
+                    val results = mutableListOf<WorkItem>()
+                    val queue = ArrayDeque<UUID>()
+                    queue.add(id)
+                    while (queue.isNotEmpty()) {
+                        val current = queue.removeFirst()
+                        val children =
+                            WorkItemsTable
+                                .selectAll()
+                                .where { WorkItemsTable.parentId eq current }
+                                .mapNotNull { toWorkItemOrNull(it) }
+                        results.addAll(children)
+                        queue.addAll(children.map { it.id })
                     }
-                }
+                    Result.Success(results)
+                } else {
+                    // Single-query recursive CTE — the production SQLite path.
+                    //
+                    // The root item itself is excluded (the CTE seeds with children of :id).
+                    // UUIDs are stored as BLOBs in SQLite; Exposed's UUIDColumnType serialises them
+                    // as byte arrays for parameterised binding, which is what `exec(args=...)` expects.
+                    val uuidType = UUIDColumnType()
 
-                if (descendantIds.isEmpty()) {
-                    return@newSuspendedTransaction Result.Success(emptyList())
-                }
+                    // Collect matching IDs via recursive CTE, then load full rows via Exposed
+                    // so that WorkItem mapping stays in one place (toWorkItemOrNull).
+                    val descendantIds = mutableListOf<UUID>()
+                    exec(
+                        """
+                        WITH RECURSIVE descendants(id) AS (
+                            SELECT id FROM work_items WHERE parent_id = ?
+                            UNION ALL
+                            SELECT wi.id FROM work_items wi
+                            JOIN descendants d ON wi.parent_id = d.id
+                        )
+                        SELECT id FROM descendants
+                        """.trimIndent(),
+                        args = listOf(uuidType to id),
+                    ) { rs: java.sql.ResultSet ->
+                        while (rs.next()) {
+                            // UUIDColumnType.valueFromDB handles both byte[] (SQLite) and String representations.
+                            @Suppress("UNCHECKED_CAST")
+                            val rawId = rs.getObject("id")
+                            val uuid = (uuidType.valueFromDB(rawId!!)) as UUID
+                            descendantIds.add(uuid)
+                        }
+                    }
 
-                val entityIds = descendantIds.map { EntityID(it, WorkItemsTable) }
-                Result.Success(
-                    WorkItemsTable
-                        .selectAll()
-                        .where { WorkItemsTable.id inList entityIds }
-                        .mapNotNull { toWorkItemOrNull(it) },
-                )
+                    if (descendantIds.isEmpty()) {
+                        return@newSuspendedTransaction Result.Success(emptyList())
+                    }
+
+                    val entityIds = descendantIds.map { EntityID(it, WorkItemsTable) }
+                    Result.Success(
+                        WorkItemsTable
+                            .selectAll()
+                            .where { WorkItemsTable.id inList entityIds }
+                            .mapNotNull { toWorkItemOrNull(it) },
+                    )
+                }
             }
         } catch (e: Exception) {
             logger.error("Failed to find descendants of $id: ${e.message}", e)

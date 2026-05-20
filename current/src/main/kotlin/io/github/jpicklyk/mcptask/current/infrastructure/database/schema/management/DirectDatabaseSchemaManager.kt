@@ -4,6 +4,8 @@ import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.Depende
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.NotesTable
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.RoleTransitionsTable
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.WorkItemsTable
+import org.jetbrains.exposed.v1.core.vendors.H2Dialect
+import org.jetbrains.exposed.v1.core.vendors.currentDialect
 import org.jetbrains.exposed.v1.jdbc.SchemaUtils
 import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import org.slf4j.LoggerFactory
@@ -145,8 +147,16 @@ class DirectDatabaseSchemaManager : DatabaseSchemaManager {
 
             transaction {
                 SchemaUtils.create(*tables)
-                ftsVirtualTables.forEach { exec(it) }
-                triggers.forEach { exec(it) }
+
+                // H2 (test environment) does not support FTS5 virtual tables or the
+                // SQLite-specific RECURSIVE CTE trigger syntax used for cycle detection.
+                // Production SQLite databases receive these structures via the V7 Flyway
+                // migration. H2 in-memory tests skip these statements and rely on the
+                // base work_items / notes schema only.
+                if (currentDialect !is H2Dialect) {
+                    ftsVirtualTables.forEach { exec(it) }
+                    triggers.forEach { exec(it) }
+                }
             }
 
             logger.info("Database schema created/updated successfully via Direct mode")
