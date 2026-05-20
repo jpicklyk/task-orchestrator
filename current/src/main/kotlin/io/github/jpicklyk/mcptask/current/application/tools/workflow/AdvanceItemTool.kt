@@ -641,6 +641,15 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                     cascadeSource = cascadeApply.item
                     depth++
                 }
+                if (depth >= maxCascades) {
+                    logger.warn(
+                        "Cascade safety net hit: terminal cascade reached maxCascades={} levels " +
+                            "starting from itemId={}. Remaining cascades (if any) are silently " +
+                            "truncated. Investigate ancestor chain for unexpected length or cycles.",
+                        maxCascades,
+                        applyResult.item.id,
+                    )
+                }
             }
 
             // Phase 4b: Start cascade detection (only when reaching WORK)

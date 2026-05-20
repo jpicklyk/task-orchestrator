@@ -773,7 +773,8 @@ Operations: get, search, overview
         val typeFilter = optionalString(params, "type")
         val sortBy = optionalString(params, "sortBy")
         val sortOrder = optionalString(params, "sortOrder")
-        val limit = optionalInt(params, "limit") ?: 50
+        // Cap list-mode limit at 100 to match FTS-mode behavior and bound payload size.
+        val limit = (optionalInt(params, "limit") ?: 50).coerceIn(1, 100)
         val offset = (optionalInt(params, "offset") ?: 0).coerceAtLeast(0)
         val includeAncestors = optionalBoolean(params, "includeAncestors", false)
         // claimStatus filter — validated in validateParams; safe to use directly here

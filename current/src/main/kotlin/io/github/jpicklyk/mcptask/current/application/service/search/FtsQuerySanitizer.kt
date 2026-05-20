@@ -71,9 +71,10 @@ object FtsQuerySanitizer {
 
         val sanitizedTokens =
             tokens.map { token ->
-                // Escape double-quotes inside the token (the only char that can break a
-                // quoted FTS5 phrase — all others are safe inside double-quotes).
-                val escaped = token.replace("\"", "\\\"")
+                // Escape double-quotes inside the token by doubling them. FTS5 phrase syntax
+                // escapes an embedded double-quote with "" (not \") — the SQLite FTS5 docs
+                // state: "Within a phrase, a double-quotation mark may be escaped by doubling it."
+                val escaped = token.replace("\"", "\"\"")
                 // Wrap in double quotes to make it an FTS5 phrase term.
                 // This neutralizes FTS5 operators (*, :, -, (, ), and the FTS5_OPERATOR_WORDS
                 // set: AND, OR, NOT, NEAR) so they are treated as literal search terms.

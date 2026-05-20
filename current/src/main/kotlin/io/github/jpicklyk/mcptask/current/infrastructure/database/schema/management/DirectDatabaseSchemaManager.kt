@@ -50,7 +50,7 @@ class DirectDatabaseSchemaManager : DatabaseSchemaManager {
             CREATE VIRTUAL TABLE IF NOT EXISTS work_items_fts_trigram USING fts5(
                 title, summary,
                 content='work_items', content_rowid='rowid',
-                tokenize='trigram case_sensitive=0',
+                tokenize='trigram',
                 prefix='2 3'
             )
             """.trimIndent(),
@@ -66,7 +66,7 @@ class DirectDatabaseSchemaManager : DatabaseSchemaManager {
             CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts_trigram USING fts5(
                 body,
                 content='notes', content_rowid='rowid',
-                tokenize='trigram case_sensitive=0',
+                tokenize='trigram',
                 prefix='2 3'
             )
             """.trimIndent(),
@@ -89,6 +89,9 @@ class DirectDatabaseSchemaManager : DatabaseSchemaManager {
             BEFORE INSERT ON work_items
             WHEN NEW.parent_id IS NOT NULL
             BEGIN
+                SELECT RAISE(ABORT, 'cycle detected: parent_id equals id (self-reference)')
+                WHERE NEW.parent_id = NEW.id;
+
                 SELECT RAISE(ABORT, 'cycle detected: parent_id references a descendant of this item')
                 WHERE EXISTS (
                     WITH RECURSIVE ancestors(node_id) AS (
@@ -109,6 +112,9 @@ class DirectDatabaseSchemaManager : DatabaseSchemaManager {
             BEFORE UPDATE OF parent_id ON work_items
             WHEN NEW.parent_id IS NOT NULL
             BEGIN
+                SELECT RAISE(ABORT, 'cycle detected: parent_id equals id (self-reference)')
+                WHERE NEW.parent_id = NEW.id;
+
                 SELECT RAISE(ABORT, 'cycle detected: parent_id references a descendant of this item')
                 WHERE EXISTS (
                     WITH RECURSIVE ancestors(node_id) AS (

@@ -71,9 +71,15 @@ class FtsQuerySanitizerTest {
     }
 
     @Test
-    fun `double-quote inside token is escaped`() {
+    fun `double-quote inside token is escaped by doubling`() {
+        // FTS5 phrase syntax: an embedded `"` is escaped as `""` (not `\"`).
+        // Input token (after whitespace split): "hello" — i.e. literal quote + hello + literal quote
+        // Replace each `"` with `""` → ""hello""
+        // Wrap in phrase delimiters " ... " → """hello"""
+        // FTS5 reads """hello""" as: open-phrase, escaped-", h, e, l, l, o, escaped-", close-phrase
+        // which matches the literal token `"hello"`.
         val result = FtsQuerySanitizer.sanitize("say \"hello\"")
-        assertEquals("\"say\" \"\\\"hello\\\"\"", result)
+        assertEquals("\"say\" \"\"\"hello\"\"\"", result)
     }
 
     @Test
