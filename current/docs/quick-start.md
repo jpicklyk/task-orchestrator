@@ -239,7 +239,7 @@ advance_item(transitions=[{itemId: "<uuid>", trigger: "complete"}])
 get_context()
 ```
 
-See [api-reference.md](api-reference.md) for full parameter documentation on all 13 tools.
+See [api-reference.md](api-reference.md) for full parameter documentation on all 14 tools.
 
 ---
 
@@ -358,5 +358,5 @@ After adding or editing this file, reconnect the MCP server:
 ## What's next
 
 - Run `/task-orchestrator:quick-start` for an interactive hands-on tutorial
-- [api-reference.md](api-reference.md) — full reference for all 13 MCP tools, parameters, and response shapes
+- [api-reference.md](api-reference.md) — full reference for all 14 MCP tools, parameters, and response shapes
 - [workflow-guide.md](workflow-guide.md) — note schemas, phase gates, dependency patterns, and lifecycle examples
