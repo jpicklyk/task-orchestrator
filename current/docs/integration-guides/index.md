@@ -6,7 +6,7 @@ MCP Task Orchestrator can be integrated at different levels of sophistication. T
 
 | Tier | Guide | Audience | What You Get |
 |------|-------|----------|--------------|
-| 1 | [Bare MCP](bare-mcp.md) | Any MCP client user | 13 tools, persistent SQLite, role-based workflow |
+| 1 | [Bare MCP](bare-mcp.md) | Any MCP client user | 14 tools, persistent SQLite, role-based workflow |
 | 2 | [CLAUDE.md-Driven](claude-md-driven.md) | Claude Code users | Consistent agent behavior via project instructions |
 | 3 | [Note Schemas](note-schemas.md) | Schema configurers | Phase gate enforcement, required documentation |
 | 4 | [Plugin: Skills and Hooks](plugin-skills-hooks.md) | Claude Code + plugin | Automated workflows, plan-mode pipeline, subagent protocols |
