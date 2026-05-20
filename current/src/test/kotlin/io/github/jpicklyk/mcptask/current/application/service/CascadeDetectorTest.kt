@@ -155,7 +155,7 @@ class CascadeDetectorTest {
             }
 
         @Test
-        fun `max depth bound stops recursion at depth 3`() =
+        fun `cascade walks full ancestor chain without depth bound`() =
             runBlocking {
                 // Build a chain: item -> parent -> grandparent -> great-grandparent -> great-great-grandparent
                 val ids = (0..4).map { UUID.randomUUID() }
@@ -164,7 +164,7 @@ class CascadeDetectorTest {
                 // ids[1] = parent (depth 3)
                 // ids[2] = grandparent (depth 2)
                 // ids[3] = great-grandparent (depth 1)
-                // ids[4] = great-great-grandparent (depth 0)
+                // ids[4] = great-great-grandparent (depth 0, root — no parentId)
 
                 val child = workItem(id = ids[0], parentId = ids[1], role = Role.TERMINAL, depth = 4)
 
@@ -183,12 +183,12 @@ class CascadeDetectorTest {
 
                 val result = detector.detectCascades(child, workItemRepository)
 
-                // MAX_DEPTH = 3, so we get at most 3 cascade events
-                assertEquals(3, result.size)
+                // No depth cap — all 4 non-root ancestors are included
+                assertEquals(4, result.size)
                 assertEquals(ids[1], result[0].itemId)
                 assertEquals(ids[2], result[1].itemId)
                 assertEquals(ids[3], result[2].itemId)
-                // ids[4] (great-great-grandparent) is NOT included due to depth bound
+                assertEquals(ids[4], result[3].itemId)
             }
 
         @Test

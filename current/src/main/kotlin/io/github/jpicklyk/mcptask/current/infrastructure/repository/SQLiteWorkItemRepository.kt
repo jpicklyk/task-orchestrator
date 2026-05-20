@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.repository
 
+import io.github.jpicklyk.mcptask.current.application.service.search.RrfFusion
 import io.github.jpicklyk.mcptask.current.domain.model.NextItemOrder
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
@@ -48,6 +49,83 @@ import java.time.OffsetDateTime
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.util.UUID
+
+// ---------------------------------------------------------------------------
+// FTS5 search types — defined here and imported by SQLiteNoteRepository and
+// SQLiteDependencyRepository. RRF fusion is delegated to RrfFusion (application
+// service layer). BacklinkRow is in domain.model to keep the domain boundary clean.
+// ---------------------------------------------------------------------------
+
+/** Controls which FTS5 virtual table(s) are queried during a search call. */
+enum class SearchMatchMode {
+    /** Query both trigram and text tables; fuse via RRF (k=60). Default. */
+    AUTO,
+
+    /** Query only the trigram table (substring / case-insensitive matching). */
+    SUBSTRING,
+
+    /** Query only the porter+unicode61 text table (stemming / natural language). */
+    TEXT,
+}
+
+/**
+ * Structural scope filters applied on top of the FTS5 full-text match.
+ *
+ * @property itemId    Narrow to a single work item (only content produced by that item).
+ * @property ancestorId Narrow to a subtree rooted at this item (recursive CTE).
+ * @property tags      OR-match any of the supplied tags on the work item.
+ * @property role      Exact role filter on the work item.
+ */
+data class SearchScope(
+    val itemId: UUID? = null,
+    val ancestorId: UUID? = null,
+    val tags: List<String>? = null,
+    val role: Role? = null,
+)
+
+/**
+ * A single ranked match returned by a search call.
+ *
+ * @property kind        "item" for work-item hits, "note" for note body hits.
+ * @property itemId      UUID of the owning work item.
+ * @property noteKey     Note key (only present when [kind] == "note").
+ * @property field       Which field matched ("title", "summary", or "body").
+ * @property snippet     ~32-token excerpt with `<mark>…</mark>` delimiters.
+ * @property score       Descending RRF fused score (higher = more relevant).
+ * @property matchedIn   Which FTS table(s) contributed to this hit.
+ * @property trigramRank Raw BM25 rank from the trigram table (lower is better; null if not matched).
+ * @property textRank    Raw BM25 rank from the text table (lower is better; null if not matched).
+ */
+data class SearchHit(
+    val kind: String,
+    val itemId: UUID,
+    val noteKey: String? = null,
+    val field: String,
+    val snippet: String,
+    val score: Double,
+    val matchedIn: List<String>,
+    val trigramRank: Double? = null,
+    val textRank: Double? = null,
+)
+
+/**
+ * Paginated result container returned by search calls.
+ *
+ * @property hits       Ranked list of matching hits.
+ * @property totalHits  Total hits in the in-memory RRF-fused list for this call.
+ *   The repository fetches up to `effectiveLimit + offset + 1` rows per FTS table,
+ *   so for large result sets the true database total may exceed [totalHits]. This is
+ *   the page-bounded count, not the global match count. When [truncated] is true,
+ *   refine the query or use scope filters to narrow results.
+ * @property nextOffset Offset to pass for the next page, or null when exhausted.
+ * @property truncated  True when totalHits exceeds the hard cap of 100.
+ */
+data class SearchResult(
+    val hits: List<SearchHit>,
+    val totalHits: Int,
+    val nextOffset: Int?,
+    val truncated: Boolean = false,
+)
 
 /**
  * SQLite implementation of WorkItemRepository.
@@ -438,24 +516,367 @@ class SQLiteWorkItemRepository(
         }
 
     override suspend fun findDescendants(id: UUID): Result<List<WorkItem>> =
-        databaseManager.suspendedTransaction("Failed to find descendants") {
-            val results = mutableListOf<WorkItem>()
-            val queue = ArrayDeque<UUID>()
-            queue.add(id)
+        try {
+            newSuspendedTransaction(db = databaseManager.getDatabase()) {
+                // currentDialect is only accessible within an active transaction.
+                // H2 (test environment): the recursive CTE exec() path uses parameterised
+                // UUID binding that is incompatible with H2's native UUID type, and H2
+                // interprets the SELECT-returning exec() call as executeUpdate, throwing
+                // "Method is not allowed for a query". Fall back to a dialect-agnostic
+                // BFS loop using Exposed DSL instead.
+                // Production SQLite uses the single-query recursive CTE (faster at depth).
+                if (currentDialect is H2Dialect) {
+                    val results = mutableListOf<WorkItem>()
+                    val queue = ArrayDeque<UUID>()
+                    queue.add(id)
+                    while (queue.isNotEmpty()) {
+                        val current = queue.removeFirst()
+                        val children =
+                            WorkItemsTable
+                                .selectAll()
+                                .where { WorkItemsTable.parentId eq current }
+                                .mapNotNull { toWorkItemOrNull(it) }
+                        results.addAll(children)
+                        queue.addAll(children.map { it.id })
+                    }
+                    Result.Success(results)
+                } else {
+                    // Single-query recursive CTE — the production SQLite path.
+                    //
+                    // The root item itself is excluded (the CTE seeds with children of :id).
+                    // UUIDs are stored as BLOBs in SQLite. We use connection.prepareStatement()
+                    // + executeQuery() on the Exposed ExposedConnection instead of exec(sql, args, transform)
+                    // because Exposed's exec() routes through executeUpdate() on the xerial/sqlite-jdbc
+                    // JDBC driver, which rejects SELECT-returning CTEs with "Query returns results".
+                    val uuidType = UUIDColumnType()
 
-            while (queue.isNotEmpty()) {
-                val current = queue.removeFirst()
-                val children =
-                    WorkItemsTable
-                        .selectAll()
-                        .where { WorkItemsTable.parentId eq current }
-                        .mapNotNull { toWorkItemOrNull(it) }
-                results.addAll(children)
-                queue.addAll(children.map { it.id })
+                    // Collect matching IDs via recursive CTE, then load full rows via Exposed
+                    // so that WorkItem mapping stays in one place (toWorkItemOrNull).
+                    val descendantIds = mutableListOf<UUID>()
+                    val sql =
+                        """
+                        WITH RECURSIVE descendants(id) AS (
+                            SELECT id FROM work_items WHERE parent_id = ?
+                            UNION ALL
+                            SELECT wi.id FROM work_items wi
+                            JOIN descendants d ON wi.parent_id = d.id
+                        )
+                        SELECT id FROM descendants
+                        """.trimIndent()
+
+                    // Use ExposedConnection.prepareStatement() to get a JdbcPreparedStatementApi,
+                    // then call executeQuery() on it — bypassing Exposed's exec() routing issue.
+                    val ps = this.connection.prepareStatement(sql, false)
+                    try {
+                        // fillParameters binds the UUID arg using UUIDColumnType (→ ByteArray for SQLite).
+                        ps.fillParameters(listOf(uuidType to id))
+                        val rs = ps.executeQuery()
+                        while (rs.next()) {
+                            val rawId = rs.getObject("id")
+
+                            @Suppress("UNCHECKED_CAST")
+                            val uuid = (uuidType.valueFromDB(rawId!!)) as UUID
+                            descendantIds.add(uuid)
+                        }
+                    } finally {
+                        ps.closeIfPossible()
+                    }
+
+                    if (descendantIds.isEmpty()) {
+                        return@newSuspendedTransaction Result.Success(emptyList())
+                    }
+
+                    val entityIds = descendantIds.map { EntityID(it, WorkItemsTable) }
+                    Result.Success(
+                        WorkItemsTable
+                            .selectAll()
+                            .where { WorkItemsTable.id inList entityIds }
+                            .mapNotNull { toWorkItemOrNull(it) },
+                    )
+                }
             }
-
-            Result.Success(results)
+        } catch (e: Exception) {
+            logger.error("Failed to find descendants of $id: ${e.message}", e)
+            Result.Error(RepositoryError.DatabaseError("Failed to find descendants: ${e.message}", e))
         }
+
+    // -----------------------------------------------------------------------
+    // FTS5 full-text search
+    // -----------------------------------------------------------------------
+
+    /**
+     * Full-text search on work items using the V7 FTS5 virtual tables.
+     *
+     * **H2 (test environment):** FTS5 is SQLite-only. When the current dialect is H2,
+     * this method returns an empty [SearchResult] immediately — unit tests that exercise
+     * the search path must use a real SQLite DB (see `Fts5MigrationTest`).
+     *
+     * @param sanitizedFtsQuery FTS5 query string. Callers (T4 — QueryItemsTool / FtsQuerySanitizer)
+     *   are responsible for sanitizing user input before calling this method. Passing raw user input
+     *   may cause FTS5 syntax errors.
+     * @param matchMode Which FTS table(s) to query.
+     * @param scope     Optional structural scope filters (subtree, tags, role).
+     * @param limit     Maximum hits to return (enforced at 100; default 20).
+     * @param offset    Zero-based page offset.
+     */
+    suspend fun ftsSearch(
+        sanitizedFtsQuery: String,
+        matchMode: SearchMatchMode = SearchMatchMode.AUTO,
+        scope: SearchScope? = null,
+        limit: Int = 20,
+        offset: Int = 0,
+    ): SearchResult {
+        val effectiveLimit = limit.coerceIn(1, 100)
+
+        return try {
+            newSuspendedTransaction(db = databaseManager.getDatabase()) {
+                // currentDialect is only accessible within an active transaction.
+                // FTS5 is SQLite-only — return empty for H2 (test environment).
+                if (currentDialect is H2Dialect) {
+                    return@newSuspendedTransaction SearchResult(hits = emptyList(), totalHits = 0, nextOffset = null)
+                }
+                val uuidType = UUIDColumnType()
+
+                // RRF scoring delegated to RrfFusion utility (application.service.search.RrfFusion).
+                // k=60 is the standard Reciprocal Rank Fusion constant.
+
+                // Build optional subtree CTE clause.
+                // When scope.ancestorId is set, the query joins against a recursive CTE
+                // that walks all descendants of ancestorId (inclusive of the root).
+                val subtreeCteClause =
+                    if (scope?.ancestorId != null) {
+                        """
+                        WITH RECURSIVE subtree(id) AS (
+                            SELECT id FROM work_items WHERE id = ?
+                            UNION ALL
+                            SELECT wi.id FROM work_items wi JOIN subtree s ON wi.parent_id = s.id
+                        )
+                        """.trimIndent()
+                    } else {
+                        ""
+                    }
+
+                // Build the WHERE clause additions for work_items column filters.
+                // These are appended as literal fragments (values bound via positional params).
+                val extraWhereParts = mutableListOf<String>()
+                if (scope?.itemId != null) extraWhereParts.add("wi.id = ?")
+                if (scope?.ancestorId != null) extraWhereParts.add("wi.id IN subtree")
+                if (scope?.role != null) extraWhereParts.add("wi.role = ?")
+                if (!scope?.tags.isNullOrEmpty()) {
+                    // Tags are stored as a comma-separated string; OR-match each tag.
+                    val tagConditions =
+                        scope!!.tags!!.map { t ->
+                            val escaped = t.trim().lowercase()
+                            // SQLite LIKE on a TEXT column — safe because value comes from validated input, not FTS query.
+                            "(LOWER(wi.tags) = ? OR LOWER(wi.tags) LIKE ? OR LOWER(wi.tags) LIKE ? OR LOWER(wi.tags) LIKE ?)"
+                        }
+                    extraWhereParts.add("(${tagConditions.joinToString(" OR ")})")
+                }
+                val extraWhere = if (extraWhereParts.isEmpty()) "" else " AND " + extraWhereParts.joinToString(" AND ")
+
+                // Accumulate positional args shared across trigram / text queries.
+                // Order: subtree anchor (if any), then fts query, then scope filters.
+                fun buildArgs(): List<Pair<org.jetbrains.exposed.v1.core.ColumnType<*>, Any?>> {
+                    val args = mutableListOf<Pair<org.jetbrains.exposed.v1.core.ColumnType<*>, Any?>>()
+                    val varcharType = VarCharColumnType(4000)
+                    if (scope?.ancestorId != null) args.add(uuidType to scope.ancestorId)
+                    args.add(varcharType to sanitizedFtsQuery) // FTS MATCH param
+                    if (scope?.itemId != null) args.add(uuidType to scope.itemId)
+                    if (scope?.role != null) args.add(varcharType to scope.role.name.lowercase())
+                    if (!scope?.tags.isNullOrEmpty()) {
+                        for (tag in scope!!.tags!!) {
+                            val t = tag.trim().lowercase()
+                            args.add(varcharType to t)
+                            args.add(varcharType to "$t,%")
+                            args.add(varcharType to "%,$t,%")
+                            args.add(varcharType to "%,$t")
+                        }
+                    }
+                    return args
+                }
+
+                // Collect trigram hits: { rowid, title, summary, rank, snippet_title, snippet_summary }
+                data class FtsHit(
+                    val rowid: Long,
+                    val rank: Double,
+                    val snippetTitle: String,
+                    val snippetSummary: String,
+                    val matchedTable: String,
+                )
+
+                val trigramHits = mutableMapOf<Long, FtsHit>()
+                val textHits = mutableMapOf<Long, FtsHit>()
+
+                // Helper to run one FTS query and populate a hit map.
+                fun runFtsQuery(
+                    ftsTable: String,
+                    hitMap: MutableMap<Long, FtsHit>,
+                    tableName: String,
+                ) {
+                    val sql =
+                        """
+                        ${subtreeCteClause.ifEmpty { "" }}
+                        SELECT
+                            ft.rowid,
+                            ft.rank,
+                            snippet($ftsTable, 0, '<mark>', '</mark>', '…', 32) AS snip_title,
+                            snippet($ftsTable, 1, '<mark>', '</mark>', '…', 32) AS snip_summary,
+                            wi.id AS wi_id
+                        FROM $ftsTable ft
+                        JOIN work_items wi ON wi.rowid = ft.rowid
+                        WHERE ft MATCH ?$extraWhere
+                        ORDER BY ft.rank
+                        LIMIT ${effectiveLimit + offset + 1}
+                        """.trimIndent()
+
+                    exec(sql, args = buildArgs()) { rs ->
+                        while (rs.next()) {
+                            val rowid = rs.getLong("rowid")
+                            val rank = rs.getDouble("rank")
+                            val snippetTitle = rs.getString("snip_title") ?: ""
+                            val snippetSummary = rs.getString("snip_summary") ?: ""
+                            hitMap[rowid] = FtsHit(rowid, rank, snippetTitle, snippetSummary, tableName)
+                        }
+                    }
+                }
+
+                when (matchMode) {
+                    SearchMatchMode.SUBSTRING -> runFtsQuery("work_items_fts_trigram", trigramHits, "trigram")
+                    SearchMatchMode.TEXT -> runFtsQuery("work_items_fts_text", textHits, "text")
+                    SearchMatchMode.AUTO -> {
+                        runFtsQuery("work_items_fts_trigram", trigramHits, "trigram")
+                        runFtsQuery("work_items_fts_text", textHits, "text")
+                    }
+                }
+
+                // Collect all rowids (union of both maps).
+                val allRowIds = (trigramHits.keys + textHits.keys).toSet()
+                if (allRowIds.isEmpty()) {
+                    return@newSuspendedTransaction SearchResult(
+                        hits = emptyList(),
+                        totalHits = 0,
+                        nextOffset = null,
+                    )
+                }
+
+                // Fetch work item UUIDs + metadata for matching rowids.
+                val rowidToItem = mutableMapOf<Long, Pair<UUID, String>>() // rowid -> (uuid, tags)
+                val rowidInClause = allRowIds.joinToString(",") { "?" }
+                val rowidArgs =
+                    allRowIds.map {
+                        @Suppress("UNCHECKED_CAST")
+                        (
+                            org.jetbrains.exposed.v1.core
+                                .LongColumnType() as org.jetbrains.exposed.v1.core.ColumnType<Any?>
+                        ) to (it as Any?)
+                    }
+                exec("SELECT rowid, id FROM work_items WHERE rowid IN ($rowidInClause)", args = rowidArgs) { rs ->
+                    while (rs.next()) {
+                        val rowid = rs.getLong("rowid")
+                        val rawId = rs.getObject("id")
+
+                        @Suppress("UNCHECKED_CAST")
+                        val uuid = uuidType.valueFromDB(rawId!!) as UUID
+                        rowidToItem[rowid] = Pair(uuid, "")
+                    }
+                }
+
+                // RRF fusion: assign row_number rank (1-based, ascending by FTS rank = most relevant first).
+                data class FusedDoc(
+                    val rowid: Long,
+                    val itemId: UUID,
+                    val trigramRank: Double?,
+                    val textRank: Double?,
+                    var trigramRowNum: Int = Int.MAX_VALUE,
+                    var textRowNum: Int = Int.MAX_VALUE,
+                )
+
+                val docs = mutableMapOf<Long, FusedDoc>()
+                for (rowid in allRowIds) {
+                    val itemId = rowidToItem[rowid]?.first ?: continue
+                    docs[rowid] =
+                        FusedDoc(
+                            rowid = rowid,
+                            itemId = itemId,
+                            trigramRank = trigramHits[rowid]?.rank,
+                            textRank = textHits[rowid]?.rank,
+                        )
+                }
+
+                // Assign row numbers based on rank (lower rank = more relevant = lower row number).
+                trigramHits.entries
+                    .sortedBy { it.value.rank }
+                    .forEachIndexed { idx, (rowid, _) -> docs[rowid]?.trigramRowNum = idx + 1 }
+                textHits.entries
+                    .sortedBy { it.value.rank }
+                    .forEachIndexed { idx, (rowid, _) -> docs[rowid]?.textRowNum = idx + 1 }
+
+                // Compute fused RRF score and sort descending.
+                val ranked =
+                    docs.values
+                        .map { doc ->
+                            val score =
+                                (if (doc.trigramRowNum < Int.MAX_VALUE) RrfFusion.score(doc.trigramRowNum) else 0.0) +
+                                    (if (doc.textRowNum < Int.MAX_VALUE) RrfFusion.score(doc.textRowNum) else 0.0)
+                            doc to score
+                        }.sortedByDescending { it.second }
+
+                val totalHits = ranked.size
+                val pageSlice = ranked.drop(offset).take(effectiveLimit)
+
+                val hits =
+                    pageSlice.map { (doc, score) ->
+                        // Pick the best snippet: prefer the table with better rank (lower absolute value).
+                        val trigramHit = trigramHits[doc.rowid]
+                        val textHit = textHits[doc.rowid]
+                        val primaryHit =
+                            when {
+                                trigramHit != null && textHit != null ->
+                                    if ((trigramHit.rank) <= (textHit.rank)) trigramHit else textHit
+                                trigramHit != null -> trigramHit
+                                else -> textHit!!
+                            }
+
+                        // Determine which field the best snippet comes from.
+                        val (field, snippet) =
+                            if (primaryHit.snippetTitle.isNotEmpty()) {
+                                "title" to primaryHit.snippetTitle
+                            } else {
+                                "summary" to primaryHit.snippetSummary
+                            }
+
+                        val matchedIn = mutableListOf<String>()
+                        if (trigramHit != null) matchedIn.add("trigram")
+                        if (textHit != null) matchedIn.add("text")
+
+                        SearchHit(
+                            kind = "item",
+                            itemId = doc.itemId,
+                            noteKey = null,
+                            field = field,
+                            snippet = snippet.ifEmpty { primaryHit.snippetSummary },
+                            score = score,
+                            matchedIn = matchedIn,
+                            trigramRank = doc.trigramRank,
+                            textRank = doc.textRank,
+                        )
+                    }
+
+                val nextOffset =
+                    if (offset + effectiveLimit < totalHits) offset + effectiveLimit else null
+
+                SearchResult(
+                    hits = hits,
+                    totalHits = totalHits,
+                    nextOffset = nextOffset,
+                    truncated = totalHits > 100,
+                )
+            }
+        } catch (e: Exception) {
+            logger.error("FTS5 search failed: ${e.message}", e)
+            SearchResult(hits = emptyList(), totalHits = 0, nextOffset = null)
+        }
+    }
 
     override suspend fun findByIds(ids: Set<UUID>): Result<List<WorkItem>> {
         if (ids.isEmpty()) return Result.Success(emptyList())
@@ -999,12 +1420,8 @@ class SQLiteWorkItemRepository(
         role?.let { conditions.add(WorkItemsTable.role eq it.name.lowercase()) }
         priority?.let { conditions.add(WorkItemsTable.priority eq it.name.lowercase()) }
         tags?.takeIf { it.isNotEmpty() }?.let { conditions.add(buildTagFilter(it)) }
-        query?.let {
-            val pattern = "%$it%"
-            conditions.add(
-                (WorkItemsTable.title like pattern) or (WorkItemsTable.summary like pattern)
-            )
-        }
+        // NOTE: The old `query` LIKE-filter has been removed (breaking change, FTS5 feature T4).
+        // Full-text search is now routed through ftsSearch() via QueryItemsTool's `search` operation.
         createdAfter?.let { conditions.add(WorkItemsTable.createdAt greaterEq it) }
         createdBefore?.let { conditions.add(WorkItemsTable.createdAt lessEq it) }
         modifiedAfter?.let { conditions.add(WorkItemsTable.modifiedAt greaterEq it) }

@@ -269,6 +269,45 @@ This calls `get_context()` and `get_blocked_items()` and presents a structured v
 
 ---
 
+## Step 7a: Searching content
+
+The MCP server includes FTS5 full-text search backed by SQLite's FTS5 extension (requires SQLite ≥ 3.45, bundled automatically).
+
+**Find items by content:**
+
+```
+query_items(operation="search", query="OAuth token")
+```
+
+Returns ranked hits with ~32-token snippets from item titles and summaries. Multiple words are
+treated as implicit AND. Pass plain terms — special characters are automatically escaped.
+
+**Search within a feature's subtree:**
+
+```
+query_items(operation="search", query="migration", scope={ancestorId="<feature-uuid>"})
+```
+
+**Search across all note bodies:**
+
+```
+query_notes(operation="search", query="rate limiting", limit=10)
+```
+
+**Find what references an item (backlinks):**
+
+```
+query_dependencies(operation="backlinks", itemId="<uuid>")
+```
+
+Returns all items that hold a dependency edge pointing at the given item — useful for impact
+analysis and tracing who depends on what.
+
+For the full FTS5 architecture, score interpretation, and `explain=true` usage, see
+[`search-and-discovery.md`](./search-and-discovery.md).
+
+---
+
 ## Step 8: Note schemas
 
 > **Schemas vs notes:** Schemas are user-configured rules in `.taskorchestrator/config.yaml` — they define what documentation agents must provide at each workflow phase. Notes are the actual content agents write as they work on items. Schemas live in your project config; notes live in the MCP database. Schemas define the gates; agents fill the notes to pass them.

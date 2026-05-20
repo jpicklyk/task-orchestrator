@@ -556,13 +556,16 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
             // Phase 4: Cascade detection (only when reaching TERMINAL)
             // Uses iterative detect-apply pattern: after applying each cascade,
             // re-detect from the cascaded parent with fresh DB state.
-            // Bounded by CascadeDetector.MAX_DEPTH to prevent runaway recursion.
+            // The loop terminates naturally when events are empty, a gate blocks, or
+            // cascade fails to apply. The MAX_CASCADES guard is a safety net against
+            // unexpected cycles that evade the DB trigger (e.g., direct DB edits).
             val schemaResolver: (WorkItem) -> WorkItemSchema? = { context.resolveSchema(it) }
             val cascadeJsonList = mutableListOf<JsonObject>()
+            val maxCascades = 100
             if (targetRole == Role.TERMINAL) {
                 var cascadeSource: WorkItem = applyResult.item
                 var depth = 0
-                while (depth < CascadeDetector.MAX_DEPTH) {
+                while (depth < maxCascades) {
                     val events = cascadeDetector.detectCascades(cascadeSource, context.workItemRepository(), schemaResolver)
                     if (events.isEmpty()) break
 
@@ -637,6 +640,15 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                     // Continue up the tree: re-detect from the newly-cascaded parent
                     cascadeSource = cascadeApply.item
                     depth++
+                }
+                if (depth >= maxCascades) {
+                    logger.warn(
+                        "Cascade safety net hit: terminal cascade reached maxCascades={} levels " +
+                            "starting from itemId={}. Remaining cascades (if any) are silently " +
+                            "truncated. Investigate ancestor chain for unexpected length or cycles.",
+                        maxCascades,
+                        applyResult.item.id,
+                    )
                 }
             }
 

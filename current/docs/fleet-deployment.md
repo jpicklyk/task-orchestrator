@@ -356,6 +356,20 @@ The JWKS cache (governed by `cache_ttl_seconds`) is separate from JWT lifetime �
 
 ---
 
+## SQLite Version Requirement
+
+FTS5 trigram tokenizer support requires **SQLite ≥ 3.45**. The Docker image bundles SQLite via
+the `xerial/sqlite-jdbc` driver, so this requirement is automatically satisfied in containerized
+deployments. If you run the JAR directly against a system-installed SQLite, verify:
+
+```bash
+sqlite3 --version  # must be ≥ 3.45
+```
+
+The V7 migration fails at startup if the trigram FTS5 table cannot be created.
+
+---
+
 ## SQLite Tuning — `DATABASE_BUSY_TIMEOUT_MS`
 
 SQLite is a single-writer database. Under concurrent fleet load, write operations may queue and return `SQLITE_BUSY` if the writer lock is held too long. The `DATABASE_BUSY_TIMEOUT_MS` environment variable controls how long SQLite waits for the lock before returning an error.

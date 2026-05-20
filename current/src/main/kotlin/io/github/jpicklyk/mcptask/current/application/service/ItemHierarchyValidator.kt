@@ -10,16 +10,13 @@ import java.util.UUID
  *
  * Consolidates the duplicated validation logic previously in create and update operations:
  * - Self-parent guard
- * - Ancestor cycle detection (walk-up loop)
+ * - Ancestor cycle detection (walk-up loop, unbounded — relies on DB BEFORE-UPDATE trigger for cycle enforcement)
  * - Depth computation from parent
- * - Maximum depth enforcement
+ *
+ * No maximum depth is enforced at the application layer. Cycle protection is delegated to the
+ * DB BEFORE-UPDATE trigger on work_items.parent_id introduced in V7.
  */
 class ItemHierarchyValidator {
-    companion object {
-        /** Maximum allowed nesting depth for WorkItems. */
-        const val MAX_DEPTH = 3
-    }
-
     /**
      * Validates hierarchy constraints and computes the depth for an item given its parent.
      *
@@ -43,11 +40,13 @@ class ItemHierarchyValidator {
             throw ToolValidationException("$errorPrefix: cannot be its own parent")
         }
 
-        // Guard: ancestor cycle check — walk up from parentId, ensure itemId is not an ancestor
-        // Uses a visited set to detect pre-existing cycles in the hierarchy (not just depth-bounded)
+        // Guard: ancestor cycle check — walk up from parentId, ensure itemId is not an ancestor.
+        // Uses a visited set to detect pre-existing cycles in the hierarchy (unbounded walk).
+        // DB BEFORE-UPDATE trigger from V7 is the authoritative cycle guard for persistence;
+        // this app-layer walk is a best-effort fast-fail for reparent operations.
         val visited = mutableSetOf<UUID>()
         var cursor: UUID? = parentId
-        while (cursor != null && visited.size <= MAX_DEPTH) {
+        while (cursor != null) {
             if (!visited.add(cursor)) break // Pre-existing cycle — stop walking
             val ancestor =
                 when (val ancestorResult = repo.getById(cursor)) {
@@ -65,15 +64,7 @@ class ItemHierarchyValidator {
         // Compute depth from parent
         val parentResult = repo.getById(parentId)
         return when (parentResult) {
-            is Result.Success -> {
-                val computedDepth = parentResult.data.depth + 1
-                if (computedDepth > MAX_DEPTH) {
-                    throw ToolValidationException(
-                        "$errorPrefix: depth $computedDepth exceeds maximum depth of $MAX_DEPTH"
-                    )
-                }
-                computedDepth
-            }
+            is Result.Success -> parentResult.data.depth + 1
             is Result.Error -> throw ToolValidationException(
                 "$errorPrefix: parent '$parentId' not found"
             )

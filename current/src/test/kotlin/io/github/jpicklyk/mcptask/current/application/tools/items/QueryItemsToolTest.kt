@@ -265,26 +265,9 @@ class QueryItemsToolTest {
             assertEquals(1, data["total"]!!.jsonPrimitive.int)
         }
 
-    @Test
-    fun `search with text query matches title`() =
-        runBlocking {
-            createItem("Authentication module")
-            createItem("Database layer")
-            createItem("Auth helper")
-
-            val result =
-                tool.execute(
-                    params(
-                        "operation" to JsonPrimitive("search"),
-                        "query" to JsonPrimitive("Auth")
-                    ),
-                    context
-                ) as JsonObject
-
-            assertTrue(result["success"]!!.jsonPrimitive.boolean)
-            val data = result["data"] as JsonObject
-            assertEquals(2, data["total"]!!.jsonPrimitive.int)
-        }
+    // search-by-text-query tests live in T8 integration suite (FTS5 is SQLite-only;
+    // H2 test env returns empty for FTS search by design). The old LIKE-based `query`
+    // parameter on list-mode search was removed in T4.
 
     @Test
     fun `search respects limit`() =
@@ -310,6 +293,81 @@ class QueryItemsToolTest {
             assertEquals(2, data["items"]!!.jsonArray.size)
             assertEquals(2, data["limit"]!!.jsonPrimitive.int)
             assertEquals(0, data["offset"]!!.jsonPrimitive.int)
+        }
+
+    @Test
+    fun `search caps list-mode limit at 100`() =
+        runBlocking {
+            // List-mode `limit` is coerced into [1, 100] to match FTS-mode behavior and
+            // bound payload size. Passing limit=200 should clamp the echoed limit to 100.
+            createItem("Item A")
+            createItem("Item B")
+
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("search"),
+                        "limit" to JsonPrimitive(200)
+                    ),
+                    context
+                ) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val data = result["data"] as JsonObject
+            assertEquals(
+                100,
+                data["limit"]!!.jsonPrimitive.int,
+                "Expected list-mode limit to be capped at 100 (was: ${data["limit"]})"
+            )
+        }
+
+    // ────────────────────────────────────────────────────────────────────────
+    // FTS-mode parameter validation
+    // ────────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `validateParams rejects invalid matchMode`() =
+        runBlocking {
+            val exception =
+                assertFailsWith<ToolValidationException> {
+                    tool.validateParams(
+                        params(
+                            "operation" to JsonPrimitive("search"),
+                            "query" to JsonPrimitive("anything"),
+                            "matchMode" to JsonPrimitive("fuzzy")
+                        )
+                    )
+                }
+            assertTrue(
+                "matchMode" in exception.message.orEmpty() &&
+                    "fuzzy" in exception.message.orEmpty(),
+                "Expected error to mention the invalid value and 'matchMode', got: ${exception.message}"
+            )
+        }
+
+    @Test
+    fun `FTS substring mode rejects all-short tokens with a clear error`() =
+        runBlocking {
+            // matchMode=substring requires ≥3-char tokens for trigram. All-short input throws
+            // IllegalArgumentException from sanitizeForTrigram, which executeFtsSearch maps to
+            // a validation error response.
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("search"),
+                        "query" to JsonPrimitive("ab cd"),
+                        "matchMode" to JsonPrimitive("substring")
+                    ),
+                    context
+                ) as JsonObject
+
+            assertFalse(result["success"]!!.jsonPrimitive.boolean)
+            assertNotNull(result["error"])
+            val msg = (result["error"] as JsonObject)["message"]!!.jsonPrimitive.content.lowercase()
+            assertTrue(
+                "3" in msg || "trigram" in msg,
+                "Expected error to mention the 3-char requirement or trigram, got: $msg"
+            )
         }
 
     @Test
@@ -633,7 +691,7 @@ class QueryItemsToolTest {
                 tool.execute(
                     params(
                         "operation" to JsonPrimitive("search"),
-                        "query" to JsonPrimitive("Child"),
+                        "parentId" to JsonPrimitive(parentId),
                         "includeAncestors" to JsonPrimitive(true)
                     ),
                     context
@@ -663,7 +721,7 @@ class QueryItemsToolTest {
                 tool.execute(
                     params(
                         "operation" to JsonPrimitive("search"),
-                        "query" to JsonPrimitive("Child")
+                        "parentId" to JsonPrimitive(rootId)
                     ),
                     context
                 ) as JsonObject
@@ -823,7 +881,7 @@ class QueryItemsToolTest {
                 tool.execute(
                     params(
                         "operation" to JsonPrimitive("search"),
-                        "query" to JsonPrimitive("Child Under"),
+                        "parentId" to JsonPrimitive(parentId),
                         "includeAncestors" to JsonPrimitive(true)
                     ),
                     context
