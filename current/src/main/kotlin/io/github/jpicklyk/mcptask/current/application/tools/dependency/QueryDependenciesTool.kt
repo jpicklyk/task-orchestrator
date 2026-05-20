@@ -1,11 +1,11 @@
 package io.github.jpicklyk.mcptask.current.application.tools.dependency
 
 import io.github.jpicklyk.mcptask.current.application.tools.*
+import io.github.jpicklyk.mcptask.current.domain.model.BacklinkRow
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.BacklinkRow
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.*
@@ -86,7 +86,15 @@ Returns: { backlinks: [{ fromItemId, type, fromTitle }], total: N }
                         "itemId",
                         buildJsonObject {
                             put("type", JsonPrimitive("string"))
-                            put("description", JsonPrimitive("WorkItem UUID or hex prefix (4+ chars)"))
+                            put(
+                                "description",
+                                JsonPrimitive(
+                                    "WorkItem UUID or hex prefix (4+ chars). " +
+                                        "For 'get': query deps for this item. " +
+                                        "For 'backlinks': the item whose incoming edges you want to find " +
+                                        "(i.e., other items that point AT this item)."
+                                )
+                            )
                         }
                     )
                     put(

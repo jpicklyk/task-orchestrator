@@ -1,8 +1,8 @@
 package io.github.jpicklyk.mcptask.current.domain.repository
 
+import io.github.jpicklyk.mcptask.current.domain.model.BacklinkRow
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.BacklinkRow
 import java.util.UUID
 
 /**

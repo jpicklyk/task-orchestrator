@@ -702,6 +702,88 @@ Actor claims are self-reported — the server trusts them as-is in Stage 1. To r
 
 ## 8. Efficient Queries
 
+### Full-Text Search (FTS5) Recipes
+
+The `query_items(operation="search")` and `query_notes(operation="search")` operations both support
+FTS5 full-text search when a `query` string is provided. Use these over list-mode filtering whenever
+you are looking for items or notes by content rather than metadata.
+
+See [`search-and-discovery.md`](./search-and-discovery.md) for the architecture and score interpretation.
+
+#### Recipe 1 — Find passages mentioning X across all requirements
+
+Find any item whose title or summary mentions "authentication":
+
+```json
+query_items(operation="search", query="authentication token", scope={role="queue"}, limit=20)
+```
+
+Find notes that discuss a specific topic across the entire workspace:
+
+```json
+query_notes(operation="search", query="rate limiting strategy", limit=20)
+```
+
+#### Recipe 2 — Search within a feature's subtree
+
+Scope the search to descendants of a known feature UUID using `scope.ancestorId`:
+
+```json
+query_items(operation="search", query="database migration", scope={ancestorId="550e8400-e29b-41d4-a716-446655440000"})
+```
+
+```json
+query_notes(operation="search", query="rollback plan", scope={ancestorId="550e8400-e29b-41d4-a716-446655440000"})
+```
+
+This uses a recursive CTE under the hood — any descendant at any depth is included.
+
+#### Recipe 3 — Find items that reference REQ-42 (backlinks)
+
+Identify all items that hold a dependency edge pointing AT a specific item — e.g., everything that
+blocks or relates to a requirement:
+
+```json
+query_dependencies(operation="backlinks", itemId="550e8400-e29b-41d4-a716-446655440042")
+```
+
+Narrow to one type — "what blocks REQ-42?":
+
+```json
+query_dependencies(operation="backlinks", itemId="550e8400-e29b-41d4-a716-446655440042", type="BLOCKS")
+```
+
+Each backlink entry returns `{ fromItemId, type, fromTitle }`. Use `query_items(get, id=fromItemId)`
+to load full details on any item of interest.
+
+#### Recipe 4 — Iterative search-then-read
+
+`search` returns references and snippets — NOT full note bodies. For full content, use a two-step
+pattern:
+
+Step 1 — find matching notes with snippet context:
+
+```json
+query_notes(operation="search", query="acceptance criteria OAuth", scope={ancestorId="feature-uuid"}, snippet=true)
+```
+
+Step 2 — fetch full body for any hit by note ID or by (itemId, key):
+
+```json
+query_notes(operation="get", id="<note-uuid-from-hit>")
+```
+
+Or list all notes for the owning item:
+
+```json
+query_notes(operation="list", itemId="<itemId-from-hit>", role="queue")
+```
+
+**Why two steps?** Snippets are ~32 tokens. Full note bodies can be thousands of tokens. Loading
+them selectively avoids token budget exhaustion in multi-note workspaces.
+
+---
+
 ### Role-Based Filtering
 
 `query_items(operation="search")` supports filtering by semantic role across all status names:

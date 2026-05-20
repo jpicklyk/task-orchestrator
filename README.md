@@ -317,12 +317,17 @@ Agent: advance_item(trigger="start", itemId="a3f2",
 ## Technical Stack
 
 - **Kotlin 2.2.0** with Coroutines
-- **SQLite + Exposed ORM** — zero-config persistent storage
+- **SQLite + Exposed ORM** — zero-config persistent storage with FTS5 full-text search (requires SQLite ≥ 3.45, bundled automatically)
 - **Flyway Migrations** — versioned schema management
 - **MCP SDK 0.9.0** — STDIO and HTTP transport
 - **Docker** — one-command deployment
 
 Clean Architecture (Domain > Application > Infrastructure > Interface) with comprehensive test coverage.
+
+Key capabilities added in recent versions:
+- **FTS5 full-text search** — `query_items.search` and `query_notes.search` with RRF fusion of trigram + porter tokenizer tables, scope filters, and ranked snippets
+- **Unbounded hierarchy depth** — item trees are not capped at depth 3; cycle protection is enforced at the database level via a trigger
+- **Backlinks** — `query_dependencies(operation="backlinks")` finds all items that reference a given item (reverse-direction edge lookup)
 
 ---
 

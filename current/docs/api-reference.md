@@ -18,9 +18,9 @@ link items with typed blocking or relational edges.
 | `create_work_tree` | Hierarchy & CRUD | Write | Atomically create root + children + deps + notes |
 | `complete_tree` | Hierarchy & CRUD | Write | Batch-complete descendants in topological order |
 | `manage_notes` | Notes | Write | Upsert or delete Notes on WorkItems |
-| `query_notes` | Notes | Read | Get a single note or list notes for an item |
+| `query_notes` | Notes | Read | Get, list, or FTS5-search notes |
 | `manage_dependencies` | Dependencies | Write | Create or delete dependency edges |
-| `query_dependencies` | Dependencies | Read | Query deps with direction filter and optional BFS traversal |
+| `query_dependencies` | Dependencies | Read | Query deps with direction filter, optional BFS traversal, or backlinks lookup |
 | `advance_item` | Workflow | Write | Trigger-based role transitions with cascade and gate enforcement |
 | `get_next_status` | Workflow | Read | Read-only transition recommendation for a single item |
 | `get_context` | Workflow | Read | Context snapshot: item mode, session resume, or health check |
@@ -35,7 +35,7 @@ link items with typed blocking or relational edges.
 ### manage_items
 
 **Purpose.** Write operations for WorkItems: batch-create, partial-update, or batch-delete. Depth
-is computed automatically from the parent; the maximum nesting depth is 3.
+is computed automatically from the parent; nesting depth is unbounded (cycle protection is enforced at the database level).
 
 **Operations.** `create`, `update`, `delete`
 
@@ -160,38 +160,68 @@ Setting `parentId` to JSON null moves the item to root.
 
 ### query_items
 
-**Purpose.** Read-only queries for WorkItems: full fetch by ID, filtered search with pagination, or
-hierarchical overview.
+**Purpose.** Read-only queries for WorkItems: full fetch by ID, FTS5 full-text search with ranked
+snippets, filtered list search, or hierarchical overview.
 
 **Operations.** `get`, `search`, `overview`
 
-#### Key Parameters
+> **BREAKING change (v3.8+):** The old LIKE-based `query` parameter (top-level on `operation=search`)
+> has been removed. All text search now goes through the FTS5-backed `search` operation with the
+> `query` field. See **FTS5 search mode** below.
+
+#### Key Parameters — get
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `operation` | string | Yes | One of: `get`, `search`, `overview` |
-| `id` | string (UUID) | Yes (get) | Item to fetch |
-| `itemId` | string (UUID) | No (overview) | Scope overview to a specific item; omit for global root overview |
-| `parentId` | string (UUID) | No (search) | Filter by parent |
-| `depth` | integer | No (search) | Filter by depth level |
-| `role` | string | No (search) | Filter by role: `queue`, `work`, `review`, `blocked`, `terminal` |
-| `priority` | string | No (search) | Filter: `high`, `medium`, `low` |
-| `tags` | string | No (search) | Comma-separated tags filter (OR logic) |
-| `type` | string | No (search) | Filter by item type (exact match) |
-| `query` | string | No (search) | Text search in title and summary |
-| `createdAfter` | string (ISO 8601) | No (search) | Timestamp lower bound |
-| `createdBefore` | string (ISO 8601) | No (search) | Timestamp upper bound |
-| `modifiedAfter` | string (ISO 8601) | No (search) | Modification lower bound |
-| `modifiedBefore` | string (ISO 8601) | No (search) | Modification upper bound |
-| `roleChangedAfter` | string (ISO 8601) | No (search) | Items whose role changed after this time |
-| `roleChangedBefore` | string (ISO 8601) | No (search) | Items whose role changed before this time |
-| `sortBy` | string | No (search) | One of: `title`, `priority`, `complexity`, `createdAt`, `modifiedAt` |
-| `sortOrder` | string | No (search) | `asc` or `desc` (default: `desc`) |
-| `limit` | integer | No | Max results (default: 50 for search, 20 for overview) |
-| `offset` | integer | No (search) | Skip N items for pagination (default: 0) |
-| `includeAncestors` | boolean | No (get/search) | Include `ancestors` array on each item (default: false) |
-| `includeChildren` | boolean | No (overview global) | Include direct children on each root item (default: false) |
-| `claimStatus` | string | No (search only) | Filter by claim state: `claimed` (active live claim), `unclaimed` (never claimed), or `expired` (claim placed but TTL elapsed). When provided, a boolean `isClaimed` is added to each result. `claimedBy` identity is never exposed here — use `get_context(itemId)` for full claim details. |
+| `operation` | string | Yes | `"get"` |
+| `id` | string (UUID or 4+ char prefix) | Yes | Item to fetch |
+| `includeAncestors` | boolean | No | When true, each result includes an `ancestors` array (default: false) |
+
+#### Key Parameters — search (FTS5 mode, when `query` is provided)
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `operation` | string | Yes | `"search"` |
+| `query` | string | Yes | FTS5 search terms — multiple words produce implicit AND. Special characters are auto-escaped; pass plain terms. |
+| `scope` | object | No | Structural scope: `ancestorId` (UUID — subtree), `itemId` (UUID — single item), `tags` (string[] — OR-match), `role` (string — exact work-item role: queue/work/review/terminal/blocked) |
+| `matchMode` | string | No | `"auto"` (default — trigram+text tables fused via RRF), `"substring"` (trigram only, requires ≥3-char tokens), `"text"` (porter+unicode61, stemming) |
+| `snippet` | boolean | No | Include ~32-token snippet with `<mark>…</mark>` highlights (default: true) |
+| `explain` | boolean | No | Include raw FTS5 scores per hit for ranking debug (default: false) |
+| `limit` | integer | No | Max hits (default: 20, max: 100) |
+| `offset` | integer | No | Skip N hits for pagination (default: 0) |
+
+#### Key Parameters — search (list mode, when `query` is absent)
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `operation` | string | Yes | `"search"` |
+| `parentId` | string (UUID) | No | Filter by parent |
+| `depth` | integer | No | Filter by depth level |
+| `role` | string | No | Filter by role: `queue`, `work`, `review`, `blocked`, `terminal` |
+| `priority` | string | No | Filter: `high`, `medium`, `low` |
+| `tags` | string | No | Comma-separated tags filter (OR logic) |
+| `type` | string | No | Filter by item type (exact match) |
+| `createdAfter` | string (ISO 8601) | No | Timestamp lower bound |
+| `createdBefore` | string (ISO 8601) | No | Timestamp upper bound |
+| `modifiedAfter` | string (ISO 8601) | No | Modification lower bound |
+| `modifiedBefore` | string (ISO 8601) | No | Modification upper bound |
+| `roleChangedAfter` | string (ISO 8601) | No | Items whose role changed after this time |
+| `roleChangedBefore` | string (ISO 8601) | No | Items whose role changed before this time |
+| `sortBy` | string | No | One of: `title`, `priority`, `complexity`, `createdAt`, `modifiedAt` |
+| `sortOrder` | string | No | `asc` or `desc` (default: `desc`) |
+| `limit` | integer | No | Max results (default: 50) |
+| `offset` | integer | No | Skip N items for pagination (default: 0) |
+| `includeAncestors` | boolean | No | Include `ancestors` array on each item (default: false) |
+| `claimStatus` | string | No | Filter by claim state: `claimed`, `unclaimed`, or `expired`. When provided, a boolean `isClaimed` is added to each result. `claimedBy` identity is never exposed here — use `get_context(itemId)` for full details. |
+
+#### Key Parameters — overview
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `operation` | string | Yes | `"overview"` |
+| `itemId` | string (UUID) | No | Scope overview to a specific item; omit for global root overview |
+| `includeChildren` | boolean | No | Include direct children on each root item (global mode only, default: false) |
+| `limit` | integer | No | Max root items (default: 20) |
 
 **Examples.**
 
@@ -199,19 +229,54 @@ hierarchical overview.
 // Fetch single item with ancestor breadcrumbs
 { "operation": "get", "id": "550e8400-e29b-41d4-a716-446655440001", "includeAncestors": true }
 
-// Search with pagination
+// FTS5 full-text search — find items mentioning "OAuth"
+{ "operation": "search", "query": "OAuth flow", "limit": 10 }
+
+// FTS5 search scoped to a feature subtree
+{ "operation": "search", "query": "database migration", "scope": { "ancestorId": "550e8400-e29b-41d4-a716-446655440000" } }
+
+// List-mode search with role/priority filter (no query)
 { "operation": "search", "role": "work", "priority": "high", "limit": 20, "offset": 0 }
 
 // Scoped overview of a feature's children
 { "operation": "overview", "itemId": "550e8400-e29b-41d4-a716-446655440000" }
 ```
 
-**Response (search).**
+**Response (search — FTS5 mode).**
+
+```json
+{
+  "hits": [
+    {
+      "kind": "item",
+      "itemId": "550e8400-e29b-41d4-a716-446655440001",
+      "field": "title",
+      "snippet": "Implement <mark>OAuth</mark> <mark>flow</mark> for…",
+      "score": 0.0325,
+      "matchedIn": ["trigram", "text"],
+      "explain": { "trigramRank": -8.1, "textRank": -6.4, "rrfK": 60 }
+    }
+  ],
+  "totalHits": 5,
+  "nextOffset": 10,
+  "truncated": false
+}
+```
+
+`score` is the descending RRF fused value (higher = more relevant). `nextOffset` is `null` when the
+last page is reached. `truncated` is `true` when the result was capped at the 100-row hard limit —
+refine the query or use `scope` filters to narrow results.
+
+**Note on `totalHits`:** This is the page-bounded count from the in-memory RRF fusion list, not the
+true database total. For large corpora, the actual match count may exceed `totalHits`. Use
+`truncated=true` as the signal to refine.
+
+**Response (search — list mode, when `query` is absent).**
 
 ```json
 {
   "items": [
-    { "id": "uuid", "parentId": "uuid", "title": "...", "role": "work", "priority": "high", "depth": 1, "tags": null, "type": null }
+    { "id": "uuid", "parentId": "uuid", "title": "...", "role": "work", "priority": "high", "depth": 1 }
   ],
   "total": 42,
   "returned": 20,
@@ -220,7 +285,7 @@ hierarchical overview.
 }
 ```
 
-Search returns minimal fields (`id`, `parentId`, `title`, `role`, `statusLabel`, `priority`, `depth`, `tags`, `type`). Nullable fields (`parentId`, `statusLabel`, `tags`, `type`) are omitted when null — they do not appear as JSON null.
+List mode returns minimal fields (`id`, `parentId`, `title`, `role`, `statusLabel`, `priority`, `depth`, `tags`, `type`). Nullable fields are omitted when null.
 Use `get` for full item JSON including `description`, `summary`, timestamps, and `roleChangedAt`.
 
 When `claimStatus` filter is provided, each result item includes an additional `isClaimed` boolean:
@@ -306,7 +371,7 @@ when calling `manage_items`, `manage_dependencies`, and `manage_notes` separatel
 | `actor` | object | No | Actor claim `{ id, kind: orchestrator\|subagent\|user\|external, parent?, proof? }`. Used for idempotency keying AND propagated as the actor attribution on every persisted note (both explicit and `createNotes=true` blanks). |
 | `requestId` | string (UUID) | No | Client-generated UUID for idempotency. See [Idempotency](#idempotency). Requires `actor` to function. |
 
-Depth cap: root must be at depth < 3 (i.e., root can be at depth 0, 1, or 2). Children are always root.depth + 1, so children can reach depth 3 (when root is at depth 2).
+Nesting depth is unbounded. The root item can be at any depth; children are always root.depth + 1. Cycle protection is enforced at the database level.
 
 **Example.**
 
@@ -514,26 +579,51 @@ This eliminates the need to call `get_context` after each `manage_notes` upsert 
 
 ### query_notes
 
-**Purpose.** Read-only queries for Notes: fetch a single note by UUID, or list all notes for a
-WorkItem with optional role filtering.
+**Purpose.** Read-only queries for Notes: fetch a single note by UUID, list all notes for a
+WorkItem, or FTS5 full-text search across note bodies.
 
-**Operations.** `get`, `list`
+**Operations.** `get`, `list`, `search`
 
-#### Key Parameters
+#### Key Parameters — get
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `operation` | string | Yes | One of: `get`, `list` |
-| `id` | string (UUID) | Yes (get) | Note UUID |
-| `itemId` | string (UUID) | Yes (list) | WorkItem whose notes to list |
-| `role` | string | No (list) | Filter by phase: `queue`, `work`, or `review` |
-| `includeBody` | boolean | No (list) | Include note body in response (default: true); set false for token efficiency |
+| `operation` | string | Yes | `"get"` |
+| `id` | string (UUID) | Yes | Note UUID |
+
+#### Key Parameters — list
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `operation` | string | Yes | `"list"` |
+| `itemId` | string (UUID or 4+ char prefix) | Yes | WorkItem whose notes to list |
+| `role` | string | No | Filter by phase: `queue`, `work`, or `review` |
+| `includeBody` | boolean | No | Include note body in response (default: true); set false for token efficiency |
+
+#### Key Parameters — search (FTS5)
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `operation` | string | Yes | `"search"` |
+| `query` | string | Yes | FTS5 search terms — multiple words produce implicit AND. Pass plain terms; special characters are auto-escaped. |
+| `scope` | object | No | `itemId` (UUID — single item's notes), `ancestorId` (UUID — subtree of items). To filter by note role use `list` instead. |
+| `matchMode` | string | No | `"auto"` (default), `"substring"`, `"text"` — same semantics as `query_items.search` |
+| `snippet` | boolean | No | Include ~32-token snippet with highlights (default: true). Markdown preserved. |
+| `explain` | boolean | No | Include raw FTS5 ranks per hit (default: false) |
+| `limit` | integer | No | Max hits (default: 20, max: 100) |
+| `offset` | integer | No | Skip N hits for pagination (default: 0) |
 
 **Examples.**
 
 ```json
 // List queue-phase notes for an item, bodies omitted
 { "operation": "list", "itemId": "550e8400-e29b-41d4-a716-446655440001", "role": "queue", "includeBody": false }
+
+// FTS5 search across all note bodies for "authentication"
+{ "operation": "search", "query": "authentication token", "limit": 10 }
+
+// FTS5 search scoped to a feature's subtree
+{ "operation": "search", "query": "migration strategy", "scope": { "ancestorId": "550e8400-e29b-41d4-a716-446655440000" } }
 ```
 
 **Response (list).**
@@ -554,6 +644,31 @@ WorkItem with optional role filtering.
   "total": 1
 }
 ```
+
+**Response (search — FTS5 mode).**
+
+```json
+{
+  "hits": [
+    {
+      "kind": "note",
+      "itemId": "550e8400-e29b-41d4-a716-446655440001",
+      "noteKey": "implementation-notes",
+      "field": "body",
+      "snippet": "The <mark>authentication</mark> <mark>token</mark> is stored…",
+      "score": 0.0164,
+      "matchedIn": ["trigram", "text"]
+    }
+  ],
+  "totalHits": 3,
+  "nextOffset": null,
+  "truncated": false
+}
+```
+
+`kind` is always `"note"` for note hits. `noteKey` is the note's key within its item. `field` is
+always `"body"` (notes have a single body field). Score interpretation and `truncated` semantics are
+the same as `query_items.search`.
 
 ---
 
@@ -669,29 +784,46 @@ When `deleteAll=true`, provide either `fromItemId` or `toItemId` (not both requi
 ### query_dependencies
 
 **Purpose.** Read-only dependency queries with direction and type filtering, optional WorkItem
-detail enrichment, and optional BFS graph traversal.
+detail enrichment, BFS graph traversal, and reverse-edge backlink lookup.
 
-#### Key Parameters
+**Operations.** `get` (default), `backlinks`
+
+#### Key Parameters — get (default)
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `itemId` | string (UUID) | Yes | WorkItem to query dependencies for |
+| `operation` | string | No | `"get"` (default when omitted) |
+| `itemId` | string (UUID or 4+ char prefix) | Yes | WorkItem to query dependencies for |
 | `direction` | string | No | `incoming`, `outgoing`, or `all` (default: `all`). Incoming = things that block this item; outgoing = things this item blocks. |
 | `type` | string | No | Filter: `BLOCKS`, `IS_BLOCKED_BY`, `RELATES_TO` |
 | `includeItemInfo` | boolean | No | Include title, role, priority for related items (default: false) |
 | `neighborsOnly` | boolean | No | When false, perform BFS graph traversal returning a topologically-ordered chain and max depth (default: true) |
 
+#### Key Parameters — backlinks
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `operation` | string | Yes | `"backlinks"` |
+| `itemId` | string (UUID or 4+ char prefix) | Yes | The item whose incoming edges you want to find — i.e., other items that point AT this item |
+| `type` | string | No | Narrow to one dependency type: `BLOCKS`, `IS_BLOCKED_BY`, or `RELATES_TO` |
+
 **Examples.**
 
 ```json
-// Incoming blocking dependencies
+// Incoming blocking dependencies (get operation)
 { "itemId": "550e8400-e29b-41d4-a716-446655440001", "direction": "incoming", "includeItemInfo": true }
 
 // Full dependency graph traversal
 { "itemId": "550e8400-e29b-41d4-a716-446655440001", "neighborsOnly": false }
+
+// Find all items that block REQ-42
+{ "operation": "backlinks", "itemId": "550e8400-e29b-41d4-a716-446655440042", "type": "BLOCKS" }
+
+// Find all items that reference FEAT-7
+{ "operation": "backlinks", "itemId": "550e8400-e29b-41d4-a716-446655440007" }
 ```
 
-**Response.**
+**Response (get).**
 
 ```json
 {
@@ -712,6 +844,21 @@ detail enrichment, and optional BFS graph traversal.
 ```
 
 `graph` is only included when `neighborsOnly=false`.
+
+**Response (backlinks).**
+
+```json
+{
+  "backlinks": [
+    { "fromItemId": "uuid-a", "type": "BLOCKS", "fromTitle": "Implement auth service" },
+    { "fromItemId": "uuid-b", "type": "RELATES_TO", "fromTitle": "Auth design doc" }
+  ],
+  "total": 2
+}
+```
+
+Each backlink entry represents another item that holds a dependency edge pointing at your `itemId`.
+`fromTitle` is JOIN-fetched for convenience. Uses the existing `to_item_id` index — no full table scan.
 
 ---
 

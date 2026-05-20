@@ -51,7 +51,8 @@ concept, or identifier across all note bodies.
     - scope.itemId (UUID): Narrow to notes on this single work item only.
     - scope.ancestorId (UUID): Narrow to notes whose owning item is in that subtree (descendants
       at any depth via recursive CTE). Use this to scope a search to a feature or container.
-    - scope.role (string): Only include notes with this role (queue/work/review).
+    - Note: to filter by note role (queue/work/review), use the `list` operation instead — it
+      supports direct role filtering and returns complete note content without needing a query.
 - Optional: `matchMode` (string, default "auto"):
     - "auto" — query both trigram and text tables, fuse via RRF (best coverage, recommended)
     - "substring" — trigram table only (substring/case-insensitive; requires ≥3-char token)
@@ -168,18 +169,6 @@ concept, or identifier across all note bodies.
                                                     "When set, search only notes whose owning item is in this item's subtree " +
                                                         "(descendants at any depth via recursive CTE). Use this to scope a search " +
                                                         "to a feature or container. E.g. scope.ancestorId = UUID of the feature root."
-                                                )
-                                            )
-                                        }
-                                    )
-                                    put(
-                                        "role",
-                                        buildJsonObject {
-                                            put("type", JsonPrimitive("string"))
-                                            put(
-                                                "description",
-                                                JsonPrimitive(
-                                                    "Only include notes with this role: queue, work, review."
                                                 )
                                             )
                                         }

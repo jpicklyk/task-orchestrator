@@ -1,5 +1,7 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.repository
 
+import io.github.jpicklyk.mcptask.current.application.service.search.RrfFusion
+import io.github.jpicklyk.mcptask.current.domain.model.BacklinkRow
 import io.github.jpicklyk.mcptask.current.domain.model.NextItemOrder
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
@@ -50,10 +52,9 @@ import java.time.format.DateTimeFormatter
 import java.util.UUID
 
 // ---------------------------------------------------------------------------
-// FTS5 search types — shared by SQLiteWorkItemRepository and SQLiteNoteRepository.
-// T4 will later extract RRF fusion to a shared RrfFusion.kt utility; for now
-// the inline helper (rrfScore) lives in each repository. T4/T5/T6 import these
-// types from the `infrastructure.repository` package.
+// FTS5 search types — defined here and imported by SQLiteNoteRepository and
+// SQLiteDependencyRepository. RRF fusion is delegated to RrfFusion (application
+// service layer). BacklinkRow is in domain.model to keep the domain boundary clean.
 // ---------------------------------------------------------------------------
 
 /** Controls which FTS5 virtual table(s) are queried during a search call. */
@@ -112,7 +113,11 @@ data class SearchHit(
  * Paginated result container returned by search calls.
  *
  * @property hits       Ranked list of matching hits.
- * @property totalHits  Total matching rows (before [limit] is applied).
+ * @property totalHits  Total hits in the in-memory RRF-fused list for this call.
+ *   The repository fetches up to `effectiveLimit + offset + 1` rows per FTS table,
+ *   so for large result sets the true database total may exceed [totalHits]. This is
+ *   the page-bounded count, not the global match count. When [truncated] is true,
+ *   refine the query or use scope filters to narrow results.
  * @property nextOffset Offset to pass for the next page, or null when exhausted.
  * @property truncated  True when totalHits exceeds the hard cap of 100.
  */
@@ -121,19 +126,6 @@ data class SearchResult(
     val totalHits: Int,
     val nextOffset: Int?,
     val truncated: Boolean = false,
-)
-
-/**
- * A reverse-direction dependency edge: another item points *at* a given item.
- *
- * @property fromItemId UUID of the item that holds the dependency edge.
- * @property type       Dependency type on that edge.
- * @property fromTitle  Title of [fromItemId] (JOIN-fetched for convenience).
- */
-data class BacklinkRow(
-    val fromItemId: UUID,
-    val type: io.github.jpicklyk.mcptask.current.domain.model.DependencyType,
-    val fromTitle: String,
 )
 
 /**
@@ -636,12 +628,8 @@ class SQLiteWorkItemRepository(
                 }
                 val uuidType = UUIDColumnType()
 
-                // Inline RRF helper — T4 will extract this to RrfFusion.kt and refactor.
+                // RRF scoring delegated to RrfFusion utility (application.service.search.RrfFusion).
                 // k=60 is the standard Reciprocal Rank Fusion constant.
-                fun rrfScore(
-                    rank: Double,
-                    k: Double = 60.0
-                ): Double = 1.0 / (k + rank)
 
                 // Build optional subtree CTE clause.
                 // When scope.ancestorId is set, the query joins against a recursive CTE
@@ -819,8 +807,8 @@ class SQLiteWorkItemRepository(
                     docs.values
                         .map { doc ->
                             val score =
-                                (if (doc.trigramRowNum < Int.MAX_VALUE) rrfScore(doc.trigramRowNum.toDouble()) else 0.0) +
-                                    (if (doc.textRowNum < Int.MAX_VALUE) rrfScore(doc.textRowNum.toDouble()) else 0.0)
+                                (if (doc.trigramRowNum < Int.MAX_VALUE) RrfFusion.score(doc.trigramRowNum) else 0.0) +
+                                    (if (doc.textRowNum < Int.MAX_VALUE) RrfFusion.score(doc.textRowNum) else 0.0)
                             doc to score
                         }.sortedByDescending { it.second }
 

@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.repository
 
+import io.github.jpicklyk.mcptask.current.application.service.search.RrfFusion
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.Note
@@ -243,11 +244,7 @@ class SQLiteNoteRepository(
                 val uuidType = UUIDColumnType()
                 val varcharType = VarCharColumnType(4000)
 
-                // Inline RRF helper — T4 will extract this to RrfFusion.kt.
-                fun rrfScore(
-                    rank: Double,
-                    k: Double = 60.0
-                ): Double = 1.0 / (k + rank)
+                // RRF scoring delegated to RrfFusion utility (application.service.search.RrfFusion).
 
                 // Build optional subtree CTE (filters notes to those in the subtree under ancestorId).
                 val subtreeCteClause =
@@ -389,8 +386,8 @@ class SQLiteNoteRepository(
                     docs.values
                         .map { doc ->
                             val score =
-                                (if (doc.trigramRowNum < Int.MAX_VALUE) rrfScore(doc.trigramRowNum.toDouble()) else 0.0) +
-                                    (if (doc.textRowNum < Int.MAX_VALUE) rrfScore(doc.textRowNum.toDouble()) else 0.0)
+                                (if (doc.trigramRowNum < Int.MAX_VALUE) RrfFusion.score(doc.trigramRowNum) else 0.0) +
+                                    (if (doc.textRowNum < Int.MAX_VALUE) RrfFusion.score(doc.textRowNum) else 0.0)
                             doc to score
                         }.sortedByDescending { it.second }
 

@@ -41,8 +41,14 @@ package io.github.jpicklyk.mcptask.current.application.service.search
  */
 object FtsQuerySanitizer {
     /**
-     * FTS5 operator keywords (case-sensitive in FTS5, but we match case-insensitively on the
-     * user's input and wrap them in quotes so FTS5 treats them as literal terms).
+     * FTS5 operator keywords (case-sensitive in FTS5). These words, when typed as bare tokens,
+     * would be parsed as boolean operators by FTS5. The sanitizer neutralizes them by wrapping
+     * every token — including these — in double-quotes, making FTS5 treat them as literal phrase
+     * terms. This set is referenced in the [sanitize] documentation table above and drives the
+     * inline check that confirms each token is quoted before passing to FTS5.
+     *
+     * Example: user input "NOT bad" → each token wrapped → `"NOT" "bad"` → literal match for
+     * the word "NOT" AND the word "bad", not a boolean NOT operation.
      */
     private val FTS5_OPERATOR_WORDS = setOf("AND", "OR", "NOT", "NEAR")
 
@@ -69,7 +75,8 @@ object FtsQuerySanitizer {
                 // quoted FTS5 phrase — all others are safe inside double-quotes).
                 val escaped = token.replace("\"", "\\\"")
                 // Wrap in double quotes to make it an FTS5 phrase term.
-                // This prevents: *, :, -, (, ), AND, OR, NOT, NEAR from being parsed as operators.
+                // This neutralizes FTS5 operators (*, :, -, (, ), and the FTS5_OPERATOR_WORDS
+                // set: AND, OR, NOT, NEAR) so they are treated as literal search terms.
                 "\"$escaped\""
             }
 
