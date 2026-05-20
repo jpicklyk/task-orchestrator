@@ -41,7 +41,7 @@ class RrfFusionTest {
     // ──────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `single source: higher rank yields higher score`() {
+    fun `single source higher rank yields higher score`() {
         val source: Map<Long, Int> = mapOf(10L to 1, 20L to 2, 30L to 3)
         val result = RrfFusion.fuse(source)
         assertEquals(3, result.size)
@@ -51,7 +51,7 @@ class RrfFusionTest {
     }
 
     @Test
-    fun `single source: score values equal the plain RRF formula`() {
+    fun `single source score values equal the plain RRF formula`() {
         val source: Map<Long, Int> = mapOf(5L to 1, 7L to 3)
         val result = RrfFusion.fuse(source)
         assertEquals(1.0 / 61.0, result[5L]!!, tolerance)
