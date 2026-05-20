@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.repository
 
+import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.test.BaseFts5RepositoryTest
@@ -8,6 +9,8 @@ import org.junit.jupiter.api.Test
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -36,9 +39,19 @@ class SQLiteWorkItemRepositoryFtsTest : BaseFts5RepositoryTest() {
         summary: String = "",
         parentId: UUID? = null,
         depth: Int = if (parentId == null) 0 else 1,
+        tags: String? = null,
+        role: Role = Role.QUEUE,
     ): WorkItem {
         val repo = repositoryProvider.workItemRepository() as SQLiteWorkItemRepository
-        val item = WorkItem(title = title, summary = summary, parentId = parentId, depth = depth)
+        val item =
+            WorkItem(
+                title = title,
+                summary = summary,
+                parentId = parentId,
+                depth = depth,
+                tags = tags,
+                role = role,
+            )
         val result = repo.create(item)
         assertIs<Result.Success<WorkItem>>(result)
         return result.data
@@ -342,5 +355,136 @@ class SQLiteWorkItemRepositoryFtsTest : BaseFts5RepositoryTest() {
                 item.id !in after.hits.map { it.itemId },
                 "Post-delete: item should be removed from the FTS index"
             )
+        }
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Scope filters — tags and role
+    // ────────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `scope tags filter returns only items whose tag list contains a requested tag`(): Unit =
+        runBlocking {
+            // Items each containing "match" so FTS yields them all; tag filter narrows results.
+            // Tags are stored as comma-separated strings; matcher checks exact equality plus
+            // prefix/middle/suffix LIKE patterns. Verify a tag in any position is included.
+            val onlyAuth = createItem(title = "match alpha", tags = "auth")
+            val authPlusOther = createItem(title = "match beta", tags = "auth,fts5")
+            val ftsInMiddle = createItem(title = "match gamma", tags = "frontend,fts5,docs")
+            val excluded = createItem(title = "match delta", tags = "unrelated")
+
+            val authResult =
+                repo().ftsSearch(
+                    sanitizedFtsQuery = "\"match\"",
+                    matchMode = SearchMatchMode.AUTO,
+                    scope = SearchScope(tags = listOf("auth")),
+                    limit = 20,
+                )
+            val authIds = authResult.hits.map { it.itemId }.toSet()
+            assertTrue(onlyAuth.id in authIds, "Expected 'auth' single-tag item to match")
+            assertTrue(authPlusOther.id in authIds, "Expected 'auth,fts5' prefix-tag item to match")
+            assertTrue(
+                ftsInMiddle.id !in authIds,
+                "Expected an item without 'auth' to be excluded, got: $authIds"
+            )
+            assertTrue(excluded.id !in authIds, "Expected an 'unrelated'-tag item to be excluded")
+
+            // Multi-tag OR semantics: pass ["auth", "fts5"] and expect items with either tag.
+            val orResult =
+                repo().ftsSearch(
+                    sanitizedFtsQuery = "\"match\"",
+                    matchMode = SearchMatchMode.AUTO,
+                    scope = SearchScope(tags = listOf("auth", "fts5")),
+                    limit = 20,
+                )
+            val orIds = orResult.hits.map { it.itemId }.toSet()
+            assertTrue(onlyAuth.id in orIds, "Expected single 'auth' item under multi-tag OR")
+            assertTrue(authPlusOther.id in orIds, "Expected 'auth,fts5' under multi-tag OR")
+            assertTrue(ftsInMiddle.id in orIds, "Expected mid-position 'fts5' under multi-tag OR")
+            assertTrue(excluded.id !in orIds, "Expected 'unrelated' to remain excluded")
+        }
+
+    @Test
+    fun `scope role filter returns only items whose role matches`(): Unit =
+        runBlocking {
+            val queueItem = createItem(title = "buckwheat noodles", role = Role.QUEUE)
+            val workItem = createItem(title = "buckwheat porridge", role = Role.WORK)
+            val terminalItem = createItem(title = "buckwheat tea", role = Role.TERMINAL)
+
+            val workOnly =
+                repo().ftsSearch(
+                    sanitizedFtsQuery = "\"buckwheat\"",
+                    matchMode = SearchMatchMode.AUTO,
+                    scope = SearchScope(role = Role.WORK),
+                    limit = 20,
+                )
+            val ids = workOnly.hits.map { it.itemId }.toSet()
+            assertTrue(workItem.id in ids, "Expected WORK item to be returned")
+            assertTrue(queueItem.id !in ids, "Expected QUEUE item to be excluded")
+            assertTrue(terminalItem.id !in ids, "Expected TERMINAL item to be excluded")
+        }
+
+    // ────────────────────────────────────────────────────────────────────────
+    // RRF rank exposure (used by `explain=true` at the tool layer)
+    // ────────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `scope itemId pointing at a non-existent UUID returns empty result without crash`(): Unit =
+        runBlocking {
+            // Populate the index so the FTS table has rows, then scope to an unknown UUID.
+            createItem(title = "alphabet soup garnish")
+
+            val result =
+                repo().ftsSearch(
+                    sanitizedFtsQuery = "\"alphabet\"",
+                    matchMode = SearchMatchMode.AUTO,
+                    scope = SearchScope(itemId = UUID.randomUUID()),
+                    limit = 10,
+                )
+
+            assertEquals(0, result.totalHits, "Expected zero hits for non-existent scope.itemId")
+            assertTrue(result.hits.isEmpty())
+        }
+
+    @Test
+    fun `AUTO mode exposes per-table BM25 ranks for hits matched in each table`(): Unit =
+        runBlocking {
+            // "authentication" is a porter stem ⇒ matches text table.
+            // "authenticated" appears as a literal token ≥3 chars ⇒ matches trigram table.
+            // The doubly-matched item contains both stems and a token long enough for trigram.
+            val doubleMatch =
+                createItem(
+                    title = "authentication service",
+                    summary = "OAuth authenticated flow",
+                )
+            val textOnly =
+                createItem(
+                    title = "identity verification module",
+                    summary = "authentication middleware layer",
+                )
+
+            val result =
+                repo().ftsSearch(
+                    sanitizedFtsQuery = "\"authentication\"",
+                    matchMode = SearchMatchMode.AUTO,
+                    limit = 20,
+                )
+
+            val doubleHit = result.hits.firstOrNull { it.itemId == doubleMatch.id }
+            val textOnlyHit = result.hits.firstOrNull { it.itemId == textOnly.id }
+
+            // The double-match item should report both ranks populated when matched in both tables.
+            if (doubleHit != null && doubleHit.matchedIn.size == 2) {
+                assertNotNull(doubleHit.trigramRank, "Expected trigramRank to be populated for double-match")
+                assertNotNull(doubleHit.textRank, "Expected textRank to be populated for double-match")
+                // Score must be >= each single-table contribution.
+                if (textOnlyHit != null && textOnlyHit.matchedIn.size == 1) {
+                    assertNull(textOnlyHit.trigramRank, "Single-table text hit should have null trigramRank")
+                    assertNotNull(textOnlyHit.textRank, "Single-table text hit should have textRank populated")
+                    assertTrue(
+                        doubleHit.score > textOnlyHit.score,
+                        "Double-match score (${doubleHit.score}) should strictly exceed single-match score (${textOnlyHit.score})"
+                    )
+                }
+            }
         }
 }

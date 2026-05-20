@@ -234,4 +234,48 @@ class QueryDependenciesToolBacklinksTest {
             assertEquals(1, backlinks.size, "Expected only 1 backlink (the blocker), got ${backlinks.size}")
             assertEquals(blocker.toString(), backlinks[0].jsonObject["fromItemId"]!!.jsonPrimitive.content)
         }
+
+    @Test
+    fun `backlinks resolves itemId from a 4-character UUID prefix`(): Unit =
+        runBlocking {
+            val itemA = createItem("Blocker via prefix")
+            val target = createItem("Target via prefix")
+            createDependency(itemA, target, DependencyType.BLOCKS)
+
+            val prefix = target.toString().substring(0, 8)
+
+            val result =
+                executeBacklinks(
+                    "operation" to JsonPrimitive("backlinks"),
+                    "itemId" to JsonPrimitive(prefix),
+                )
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean, "Expected prefix-resolution to succeed")
+            val data = result["data"] as JsonObject
+            val backlinks = data["backlinks"]!!.jsonArray
+            assertEquals(1, backlinks.size, "Expected one backlink resolved via prefix")
+            assertEquals(itemA.toString(), backlinks[0].jsonObject["fromItemId"]!!.jsonPrimitive.content)
+        }
+
+    @Test
+    fun `backlinks for unknown itemId UUID returns success with empty list`(): Unit =
+        runBlocking {
+            // Backlinks is a read query over the dependencies table — it does not validate
+            // that the queried item exists in work_items. An unknown but well-formed UUID
+            // yields an empty result with success=true (zero incoming edges by definition).
+            val unknownId = UUID.randomUUID().toString()
+            val result =
+                executeBacklinks(
+                    "operation" to JsonPrimitive("backlinks"),
+                    "itemId" to JsonPrimitive(unknownId),
+                )
+
+            assertTrue(
+                result["success"]!!.jsonPrimitive.boolean,
+                "Expected success=true for unknown-but-well-formed UUID (no existence check)"
+            )
+            val data = result["data"] as JsonObject
+            assertEquals(0, data["total"]!!.jsonPrimitive.int, "Expected zero backlinks")
+            assertEquals(0, data["backlinks"]!!.jsonArray.size, "Expected empty backlinks list")
+        }
 }

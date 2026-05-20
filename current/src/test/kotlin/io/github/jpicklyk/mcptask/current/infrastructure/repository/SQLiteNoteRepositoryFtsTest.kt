@@ -222,4 +222,35 @@ class SQLiteNoteRepositoryFtsTest : BaseFts5RepositoryTest() {
             assertTrue(hit.score > 0.0, "Expected positive RRF score")
             assertTrue(hit.snippet.isNotEmpty(), "Expected non-empty snippet")
         }
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Edge cases — empty body and non-matching searches
+    // ────────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `empty note body is indexed without crash and produces zero hits`(): Unit =
+        runBlocking {
+            val item = createItem("Item with empty note")
+            // Notes default to body="" but explicitly set here for clarity. The FTS
+            // _ai trigger must accept the empty string and the resulting search must
+            // produce no hits, not an exception.
+            createNote(item.id, key = "stub", body = "")
+            // Sibling note with content, to confirm the empty one wasn't accidentally
+            // indexed under arbitrary tokens.
+            val populated = createItem("Item with content")
+            createNote(populated.id, key = "real", body = "lookup-me-find-this-term")
+
+            val result =
+                noteRepo().ftsSearch(
+                    sanitizedFtsQuery = "\"lookup-me-find-this-term\"",
+                    matchMode = SearchMatchMode.AUTO,
+                    limit = 10,
+                )
+
+            val hitItemIds = result.hits.map { it.itemId }.toSet()
+            assertTrue(
+                item.id !in hitItemIds,
+                "Empty-body note must not match any term, got: $hitItemIds"
+            )
+        }
 }

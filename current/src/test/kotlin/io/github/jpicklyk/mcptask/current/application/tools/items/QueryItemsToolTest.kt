@@ -321,6 +321,55 @@ class QueryItemsToolTest {
             )
         }
 
+    // ────────────────────────────────────────────────────────────────────────
+    // FTS-mode parameter validation
+    // ────────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `validateParams rejects invalid matchMode`() =
+        runBlocking {
+            val exception =
+                assertFailsWith<ToolValidationException> {
+                    tool.validateParams(
+                        params(
+                            "operation" to JsonPrimitive("search"),
+                            "query" to JsonPrimitive("anything"),
+                            "matchMode" to JsonPrimitive("fuzzy")
+                        )
+                    )
+                }
+            assertTrue(
+                "matchMode" in exception.message.orEmpty() &&
+                    "fuzzy" in exception.message.orEmpty(),
+                "Expected error to mention the invalid value and 'matchMode', got: ${exception.message}"
+            )
+        }
+
+    @Test
+    fun `FTS substring mode rejects all-short tokens with a clear error`() =
+        runBlocking {
+            // matchMode=substring requires ≥3-char tokens for trigram. All-short input throws
+            // IllegalArgumentException from sanitizeForTrigram, which executeFtsSearch maps to
+            // a validation error response.
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("search"),
+                        "query" to JsonPrimitive("ab cd"),
+                        "matchMode" to JsonPrimitive("substring")
+                    ),
+                    context
+                ) as JsonObject
+
+            assertFalse(result["success"]!!.jsonPrimitive.boolean)
+            assertNotNull(result["error"])
+            val msg = (result["error"] as JsonObject)["message"]!!.jsonPrimitive.content.lowercase()
+            assertTrue(
+                "3" in msg || "trigram" in msg,
+                "Expected error to mention the 3-char requirement or trigram, got: $msg"
+            )
+        }
+
     @Test
     fun `search pagination with offset returns correct page`() =
         runBlocking {
