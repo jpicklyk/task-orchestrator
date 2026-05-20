@@ -175,7 +175,7 @@ class RoleTransitionTest {
         assertEquals(actor, transition.actorClaim)
         assertEquals(verification, transition.verification)
         assertEquals("agent-42", transition.actorClaim!!.id)
-        assertEquals(ActorKind.SUBAGENT, transition.actorClaim!!.kind)
+        assertEquals(ActorKind.SUBAGENT, transition.actorClaim.kind)
         assertEquals(VerificationStatus.UNCHECKED, transition.verification!!.status)
     }
 }

@@ -190,8 +190,8 @@ class SQLiteNoteRepositoryTest {
             val result = noteRepository.findByItemIdAndKey(testItemId, "specific-key")
             assertIs<Result.Success<Note?>>(result)
             assertNotNull(result.data)
-            assertEquals("Found me", result.data!!.body)
-            assertEquals("specific-key", result.data!!.key)
+            assertEquals("Found me", result.data.body)
+            assertEquals("specific-key", result.data.key)
         }
 
     @Test
@@ -285,13 +285,13 @@ class SQLiteNoteRepositoryTest {
             assertEquals(1, result.data.size)
             val found = result.data[0]
             assertNotNull(found.actorClaim)
-            assertEquals("agent-1", found.actorClaim!!.id)
-            assertEquals(ActorKind.SUBAGENT, found.actorClaim!!.kind)
-            assertEquals("orch-1", found.actorClaim!!.parent)
-            assertNull(found.actorClaim!!.proof)
+            assertEquals("agent-1", found.actorClaim.id)
+            assertEquals(ActorKind.SUBAGENT, found.actorClaim.kind)
+            assertEquals("orch-1", found.actorClaim.parent)
+            assertNull(found.actorClaim.proof)
             assertNotNull(found.verification)
-            assertEquals(VerificationStatus.UNCHECKED, found.verification!!.status)
-            assertEquals("noop", found.verification!!.verifier)
+            assertEquals(VerificationStatus.UNCHECKED, found.verification.status)
+            assertEquals("noop", found.verification.verifier)
         }
 
     @Test
@@ -324,13 +324,13 @@ class SQLiteNoteRepositoryTest {
             val result = noteRepository.findByItemIdAndKey(testItemId, "replace-actor-note")
             assertIs<Result.Success<Note?>>(result)
             assertNotNull(result.data)
-            val found = result.data!!
+            val found = result.data
             assertEquals("second version", found.body)
             assertNotNull(found.actorClaim)
-            assertEquals("agent-2", found.actorClaim!!.id)
-            assertEquals(ActorKind.ORCHESTRATOR, found.actorClaim!!.kind)
+            assertEquals("agent-2", found.actorClaim.id)
+            assertEquals(ActorKind.ORCHESTRATOR, found.actorClaim.kind)
             assertNotNull(found.verification)
-            assertEquals(VerificationStatus.VERIFIED, found.verification!!.status)
+            assertEquals(VerificationStatus.VERIFIED, found.verification.status)
         }
 
     @Test
@@ -348,8 +348,8 @@ class SQLiteNoteRepositoryTest {
             val result = noteRepository.findByItemIdAndKey(testItemId, "no-actor-note")
             assertIs<Result.Success<Note?>>(result)
             assertNotNull(result.data)
-            assertNull(result.data!!.actorClaim)
-            assertNull(result.data!!.verification)
+            assertNull(result.data.actorClaim)
+            assertNull(result.data.verification)
         }
 
     @Test

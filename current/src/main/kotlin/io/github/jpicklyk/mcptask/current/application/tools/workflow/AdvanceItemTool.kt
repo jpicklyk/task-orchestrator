@@ -560,7 +560,7 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
             val schemaResolver: (WorkItem) -> WorkItemSchema? = { context.resolveSchema(it) }
             val cascadeJsonList = mutableListOf<JsonObject>()
             if (targetRole == Role.TERMINAL) {
-                var cascadeSource = applyResult.item!!
+                var cascadeSource: WorkItem = applyResult.item
                 var depth = 0
                 while (depth < CascadeDetector.MAX_DEPTH) {
                     val events = cascadeDetector.detectCascades(cascadeSource, context.workItemRepository(), schemaResolver)
@@ -643,7 +643,7 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
             // Phase 4b: Start cascade detection (only when reaching WORK)
             // When the first child starts, auto-advance the parent from QUEUE to WORK.
             if (targetRole == Role.WORK) {
-                val startCascadeEvents = cascadeDetector.detectStartCascades(applyResult.item!!, context.workItemRepository())
+                val startCascadeEvents = cascadeDetector.detectStartCascades(applyResult.item, context.workItemRepository())
                 applyCascadeEvents(
                     startCascadeEvents,
                     "Auto-cascaded from child start",
@@ -658,7 +658,7 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
             if (trigger == "reopen" && targetRole == Role.QUEUE) {
                 val reopenCascadeEvents =
                     cascadeDetector.detectReopenCascades(
-                        applyResult.item!!,
+                        applyResult.item,
                         context.workItemRepository(),
                         schemaResolver
                     )

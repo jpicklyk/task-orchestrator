@@ -739,7 +739,7 @@ class QueryItemsToolTest {
             // childCounts should be present as an object with role keys
             val childCounts = firstChild["childCounts"]
             assertNotNull(childCounts, "Child should include childCounts object")
-            val childCountsObj = childCounts!!.jsonObject
+            val childCountsObj = childCounts.jsonObject
             assertNotNull(childCountsObj["queue"], "childCounts should have a queue key")
             assertNotNull(childCountsObj["work"], "childCounts should have a work key")
         }
@@ -990,7 +990,7 @@ class QueryItemsToolTest {
             // traits array should be present and contain the expected value
             val traits = withTraitsRoot["traits"]
             assertNotNull(traits, "Root item should include traits array when properties has traits")
-            val traitsArray = traits!!.jsonArray
+            val traitsArray = traits.jsonArray
             assertEquals(1, traitsArray.size)
             assertEquals("needs-migration-review", traitsArray[0].jsonPrimitive.content)
 
@@ -1185,7 +1185,7 @@ class QueryItemsToolTest {
             // Middle Child's childCounts should reflect 1 queue + 1 work grandchild
             val childCounts = middleChild["childCounts"]
             assertNotNull(childCounts, "Middle child should have childCounts")
-            val childCountsObj = childCounts!!.jsonObject
+            val childCountsObj = childCounts.jsonObject
             assertEquals(1, childCountsObj["queue"]!!.jsonPrimitive.int, "Should have 1 grandchild in queue role")
             assertEquals(1, childCountsObj["work"]!!.jsonPrimitive.int, "Should have 1 grandchild in work role")
         }
@@ -1242,7 +1242,7 @@ class QueryItemsToolTest {
             // childCounts must be present with correct grandchild role distribution
             val childCounts = child["childCounts"]
             assertNotNull(childCounts, "Scoped overview child should include childCounts")
-            val childCountsObj = childCounts!!.jsonObject
+            val childCountsObj = childCounts.jsonObject
             assertEquals(1, childCountsObj["queue"]!!.jsonPrimitive.int, "Should have 1 grandchild in queue")
             assertEquals(1, childCountsObj["work"]!!.jsonPrimitive.int, "Should have 1 grandchild in work")
         }

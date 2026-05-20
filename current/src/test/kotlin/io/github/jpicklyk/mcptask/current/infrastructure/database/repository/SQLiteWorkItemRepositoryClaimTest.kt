@@ -71,11 +71,11 @@ class SQLiteWorkItemRepositoryClaimTest : SQLiteRepositoryTestBase() {
             assertNotNull(claimed.claimExpiresAt)
             assertNotNull(claimed.originalClaimedAt)
             // claimedAt <= claimExpiresAt
-            assertTrue(claimed.claimedAt!! <= claimed.claimExpiresAt!!)
+            assertTrue(claimed.claimedAt <= claimed.claimExpiresAt)
             // originalClaimedAt == claimedAt on first claim
             assertEquals(
-                claimed.claimedAt!!.toEpochMilli() / 1000L,
-                claimed.originalClaimedAt!!.toEpochMilli() / 1000L,
+                claimed.claimedAt.toEpochMilli() / 1000L,
+                claimed.originalClaimedAt.toEpochMilli() / 1000L,
                 "originalClaimedAt should equal claimedAt on first claim (within 1 second)"
             )
         }
@@ -187,7 +187,7 @@ class SQLiteWorkItemRepositoryClaimTest : SQLiteRepositoryTestBase() {
             assertEquals(item.id, result.itemId)
             // retryAfterMs should be positive (claim is not expired)
             assertNotNull(result.retryAfterMs)
-            assertTrue(result.retryAfterMs!! > 0, "retryAfterMs should be positive for a live claim")
+            assertTrue(result.retryAfterMs > 0, "retryAfterMs should be positive for a live claim")
         }
 
     /**
@@ -766,7 +766,7 @@ class SQLiteWorkItemRepositoryClaimTest : SQLiteRepositoryTestBase() {
             assertNotNull(aAfter.data.originalClaimedAt, "originalClaimedAt must still be set on item-A")
             assertEquals(
                 originalClaimedAt.toEpochMilli() / 1000L,
-                aAfter.data.originalClaimedAt!!.toEpochMilli() / 1000L,
+                aAfter.data.originalClaimedAt.toEpochMilli() / 1000L,
                 "originalClaimedAt on item-A must be unchanged (within 1s)"
             )
             // claimExpiresAt must be unchanged (no re-write happened)

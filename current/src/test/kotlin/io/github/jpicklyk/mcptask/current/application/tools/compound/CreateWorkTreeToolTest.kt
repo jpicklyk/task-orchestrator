@@ -1970,14 +1970,14 @@ class CreateWorkTreeToolTest {
             assertEquals(2, input.notes.size, "Expected both notes captured")
             for (note in input.notes) {
                 assertNotNull(note.actorClaim, "Note '${note.key}' should have actorClaim attached")
-                assertEquals("orchestrator-test", note.actorClaim!!.id)
+                assertEquals("orchestrator-test", note.actorClaim.id)
                 assertEquals(
                     io.github.jpicklyk.mcptask.current.domain.model.ActorKind.ORCHESTRATOR,
-                    note.actorClaim!!.kind
+                    note.actorClaim.kind
                 )
                 assertNotNull(note.verification, "Note '${note.key}' should have verification attached")
                 // NoOpActorVerifier returns status=UNCHECKED, verifier="noop"
-                assertEquals("noop", note.verification!!.verifier)
+                assertEquals("noop", note.verification.verifier)
             }
         }
 
@@ -2046,10 +2046,10 @@ class CreateWorkTreeToolTest {
             assertEquals("auto-blank-note", note.key)
             assertEquals("", note.body, "Schema blank should have empty body")
             assertNotNull(note.actorClaim, "Schema blank must also carry actor attribution")
-            assertEquals("subagent-42", note.actorClaim!!.id)
+            assertEquals("subagent-42", note.actorClaim.id)
             assertEquals(
                 io.github.jpicklyk.mcptask.current.domain.model.ActorKind.SUBAGENT,
-                note.actorClaim!!.kind
+                note.actorClaim.kind
             )
         }
 

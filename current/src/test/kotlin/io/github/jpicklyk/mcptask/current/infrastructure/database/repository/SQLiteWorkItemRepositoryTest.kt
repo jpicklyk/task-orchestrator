@@ -218,7 +218,7 @@ class SQLiteWorkItemRepositoryTest : BaseRepositoryTest() {
             val result = repository.findRoot()
             assertIs<Result.Success<WorkItem?>>(result)
             assertNotNull(result.data)
-            assertEquals("Root", result.data!!.title)
+            assertEquals("Root", result.data.title)
         }
 
     @Test

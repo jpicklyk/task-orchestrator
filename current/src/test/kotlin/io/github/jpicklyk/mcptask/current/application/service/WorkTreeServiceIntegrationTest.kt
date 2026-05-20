@@ -490,13 +490,13 @@ class WorkTreeServiceIntegrationTest {
             assertTrue(fetchedNote1Result is Result.Success, "Note 1 lookup should succeed")
             val fetchedNote1 = (fetchedNote1Result as Result.Success).data
             assertTrue(fetchedNote1 != null, "Note 1 should exist in DB")
-            assertEquals("Root requirements note", fetchedNote1!!.body)
+            assertEquals("Root requirements note", fetchedNote1.body)
 
             val fetchedNote2Result = noteRepository.findByItemIdAndKey(childItem.id, "approach")
             assertTrue(fetchedNote2Result is Result.Success, "Note 2 lookup should succeed")
             val fetchedNote2 = (fetchedNote2Result as Result.Success).data
             assertTrue(fetchedNote2 != null, "Note 2 should exist in DB")
-            assertEquals("Child approach note", fetchedNote2!!.body)
+            assertEquals("Child approach note", fetchedNote2.body)
         }
 
     // ──────────────────────────────────────────────────────────────────────────

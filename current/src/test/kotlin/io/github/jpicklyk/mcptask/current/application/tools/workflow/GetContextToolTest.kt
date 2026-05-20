@@ -731,7 +731,7 @@ class GetContextToolTest {
             val guidancePointer = data["guidancePointer"]
             assertNotNull(guidancePointer)
             assertFalse(guidancePointer is JsonNull)
-            assertEquals("List each criterion as a bullet", guidancePointer!!.jsonPrimitive.content)
+            assertEquals("List each criterion as a bullet", guidancePointer.jsonPrimitive.content)
         }
 
     @Test
@@ -781,7 +781,7 @@ class GetContextToolTest {
             val guidancePointer = data["guidancePointer"]
             assertNotNull(guidancePointer)
             assertFalse(guidancePointer is JsonNull)
-            assertEquals("Use T-shirt sizing: XS/S/M/L/XL", guidancePointer!!.jsonPrimitive.content)
+            assertEquals("Use T-shirt sizing: XS/S/M/L/XL", guidancePointer.jsonPrimitive.content)
         }
 
     @Test
@@ -889,7 +889,7 @@ class GetContextToolTest {
             assertFalse(guidancePointer is JsonNull, "guidancePointer should not be null when work-phase note is missing")
             assertEquals(
                 "Work-phase guidance — this should be the pointer",
-                guidancePointer!!.jsonPrimitive.content,
+                guidancePointer.jsonPrimitive.content,
                 "guidancePointer must return work-phase guidance, not stale queue-phase guidance"
             )
         }
@@ -1055,7 +1055,7 @@ class GetContextToolTest {
             val guidancePointer = stalledItem["guidancePointer"]
             assertNotNull(guidancePointer, "guidancePointer should be present in stalled item")
             assertFalse(guidancePointer is JsonNull, "guidancePointer should not be null when guidance is available")
-            assertEquals("Write the implementation approach here", guidancePointer!!.jsonPrimitive.content)
+            assertEquals("Write the implementation approach here", guidancePointer.jsonPrimitive.content)
         }
 
     @Test
@@ -1135,7 +1135,7 @@ class GetContextToolTest {
             val guidancePointer = stalledItem["guidancePointer"]
             assertNotNull(guidancePointer, "guidancePointer should be present in session-resume stalled item")
             assertFalse(guidancePointer is JsonNull, "guidancePointer should not be null when guidance is available")
-            assertEquals("Describe the implementation", guidancePointer!!.jsonPrimitive.content)
+            assertEquals("Describe the implementation", guidancePointer.jsonPrimitive.content)
         }
 
     // ──────────────────────────────────────────────
@@ -1260,7 +1260,7 @@ class GetContextToolTest {
             assertFalse(guidancePointer is JsonNull)
             assertEquals(
                 "First guidance",
-                guidancePointer!!.jsonPrimitive.content,
+                guidancePointer.jsonPrimitive.content,
                 "guidancePointer should point to the first missing note's guidance"
             )
         }

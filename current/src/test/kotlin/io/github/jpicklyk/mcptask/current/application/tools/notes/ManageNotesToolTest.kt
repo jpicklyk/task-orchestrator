@@ -1097,8 +1097,8 @@ class ManageNotesToolTest {
             val itemUUID = java.util.UUID.fromString(itemId)
             val found = (noteRepo.findByItemIdAndKey(itemUUID, "actor-replace") as Result.Success).data
             assertNotNull(found, "note should exist")
-            assertNotNull(found!!.actorClaim, "actorClaim should be persisted")
-            assertEquals("agent-second", found.actorClaim!!.id)
+            assertNotNull(found.actorClaim, "actorClaim should be persisted")
+            assertEquals("agent-second", found.actorClaim.id)
             assertEquals(io.github.jpicklyk.mcptask.current.domain.model.ActorKind.SUBAGENT, found.actorClaim.kind)
         }
 
