@@ -75,7 +75,7 @@ class RoleTransitionHandlerTest {
             assertFalse(result.success)
             assertNull(result.targetRole)
             assertNotNull(result.error)
-            assertTrue(result.error!!.contains("terminal", ignoreCase = true))
+            assertTrue(result.error.contains("terminal", ignoreCase = true))
         }
 
         @Test
@@ -84,7 +84,7 @@ class RoleTransitionHandlerTest {
             assertFalse(result.success)
             assertNull(result.targetRole)
             assertNotNull(result.error)
-            assertTrue(result.error!!.contains("blocked", ignoreCase = true))
+            assertTrue(result.error.contains("blocked", ignoreCase = true))
         }
 
         // --- complete trigger ---
@@ -115,7 +115,7 @@ class RoleTransitionHandlerTest {
             val result = handler.resolveTransition(Role.TERMINAL, "complete")
             assertFalse(result.success)
             assertNotNull(result.error)
-            assertTrue(result.error!!.contains("terminal", ignoreCase = true))
+            assertTrue(result.error.contains("terminal", ignoreCase = true))
         }
 
         @Test
@@ -123,7 +123,7 @@ class RoleTransitionHandlerTest {
             val result = handler.resolveTransition(Role.BLOCKED, "complete")
             assertFalse(result.success)
             assertNotNull(result.error)
-            assertTrue(result.error!!.contains("blocked", ignoreCase = true))
+            assertTrue(result.error.contains("blocked", ignoreCase = true))
         }
 
         // --- block trigger ---
@@ -147,7 +147,7 @@ class RoleTransitionHandlerTest {
             val result = handler.resolveTransition(Role.TERMINAL, "block")
             assertFalse(result.success)
             assertNotNull(result.error)
-            assertTrue(result.error!!.contains("terminal", ignoreCase = true))
+            assertTrue(result.error.contains("terminal", ignoreCase = true))
         }
 
         @Test
@@ -155,7 +155,7 @@ class RoleTransitionHandlerTest {
             val result = handler.resolveTransition(Role.BLOCKED, "block")
             assertFalse(result.success)
             assertNotNull(result.error)
-            assertTrue(result.error!!.contains("already blocked", ignoreCase = true))
+            assertTrue(result.error.contains("already blocked", ignoreCase = true))
         }
 
         // --- cancel trigger ---
@@ -173,7 +173,7 @@ class RoleTransitionHandlerTest {
             val result = handler.resolveTransition(Role.TERMINAL, "cancel")
             assertFalse(result.success)
             assertNotNull(result.error)
-            assertTrue(result.error!!.contains("terminal", ignoreCase = true))
+            assertTrue(result.error.contains("terminal", ignoreCase = true))
         }
 
         // --- resume trigger (simple overload) ---
@@ -183,7 +183,7 @@ class RoleTransitionHandlerTest {
             val result = handler.resolveTransition(Role.BLOCKED, "resume")
             assertFalse(result.success)
             assertNotNull(result.error)
-            assertTrue(result.error!!.contains("previousRole", ignoreCase = true))
+            assertTrue(result.error.contains("previousRole", ignoreCase = true))
         }
 
         // --- resume trigger (full-item overload) ---
@@ -210,7 +210,7 @@ class RoleTransitionHandlerTest {
             val result = handler.resolveTransition(item, "resume")
             assertFalse(result.success)
             assertNotNull(result.error)
-            assertTrue(result.error!!.contains("previousRole", ignoreCase = true))
+            assertTrue(result.error.contains("previousRole", ignoreCase = true))
         }
 
         @Test
@@ -219,7 +219,7 @@ class RoleTransitionHandlerTest {
             val result = handler.resolveTransition(item, "resume")
             assertFalse(result.success)
             assertNotNull(result.error)
-            assertTrue(result.error!!.contains("not blocked", ignoreCase = true))
+            assertTrue(result.error.contains("not blocked", ignoreCase = true))
         }
 
         // --- unknown trigger ---
@@ -229,7 +229,7 @@ class RoleTransitionHandlerTest {
             val result = handler.resolveTransition(Role.QUEUE, "bogus")
             assertFalse(result.success)
             assertNotNull(result.error)
-            assertTrue(result.error!!.contains("Unknown trigger", ignoreCase = true))
+            assertTrue(result.error.contains("Unknown trigger", ignoreCase = true))
         }
     }
 
@@ -318,7 +318,7 @@ class RoleTransitionHandlerTest {
                 val result = handler.validateTransition(item, Role.WORK, depRepo, workItemRepo)
                 assertFalse(result.valid)
                 assertNotNull(result.error)
-                assertTrue(result.error!!.contains("terminal", ignoreCase = true))
+                assertTrue(result.error.contains("terminal", ignoreCase = true))
             }
 
         @Test
@@ -557,14 +557,14 @@ class RoleTransitionHandlerTest {
 
                 assertTrue(result.success)
                 assertNotNull(result.item)
-                assertEquals(Role.WORK, result.item!!.role)
+                assertEquals(Role.WORK, result.item.role)
                 assertEquals(Role.QUEUE, result.previousRole)
                 assertEquals(Role.WORK, result.newRole)
                 assertNotNull(result.transition)
-                assertEquals("queue", result.transition!!.fromRole)
-                assertEquals("work", result.transition!!.toRole)
-                assertEquals("start", result.transition!!.trigger)
-                assertEquals("Beginning work", result.transition!!.summary)
+                assertEquals("queue", result.transition.fromRole)
+                assertEquals("work", result.transition.toRole)
+                assertEquals("start", result.transition.trigger)
+                assertEquals("Beginning work", result.transition.summary)
 
                 coVerify { workItemRepo.update(match { it.role == Role.WORK }) }
                 coVerify { roleTransitionRepo.create(any()) }
@@ -589,8 +589,9 @@ class RoleTransitionHandlerTest {
                     )
 
                 assertTrue(result.success)
-                assertEquals(Role.BLOCKED, result.item!!.role)
-                assertEquals(Role.WORK, result.item!!.previousRole)
+                val resultItem = assertNotNull(result.item)
+                assertEquals(Role.BLOCKED, resultItem.role)
+                assertEquals(Role.WORK, resultItem.previousRole)
             }
 
         @Test
@@ -612,9 +613,10 @@ class RoleTransitionHandlerTest {
                     )
 
                 assertTrue(result.success)
-                assertEquals(Role.WORK, result.item!!.role)
+                val resultItem = assertNotNull(result.item)
+                assertEquals(Role.WORK, resultItem.role)
                 // previousRole should be cleared when leaving BLOCKED
-                assertNull(result.item!!.previousRole)
+                assertNull(resultItem.previousRole)
             }
 
         @Test
@@ -636,8 +638,9 @@ class RoleTransitionHandlerTest {
                     )
 
                 assertTrue(result.success)
-                assertEquals(Role.TERMINAL, result.item!!.role)
-                assertEquals("cancelled", result.item!!.statusLabel)
+                val resultItem = assertNotNull(result.item)
+                assertEquals(Role.TERMINAL, resultItem.role)
+                assertEquals("cancelled", resultItem.statusLabel)
             }
 
         @Test
@@ -662,7 +665,7 @@ class RoleTransitionHandlerTest {
 
                 assertFalse(result.success)
                 assertNotNull(result.error)
-                assertTrue(result.error!!.contains("Connection lost"))
+                assertTrue(result.error.contains("Connection lost"))
                 assertNull(result.item)
                 assertNull(result.transition)
             }
@@ -694,11 +697,11 @@ class RoleTransitionHandlerTest {
                 assertTrue(result.success)
                 val captured = transitionSlot.captured
                 assertNotNull(captured.actorClaim)
-                assertEquals("orchestrator-1", captured.actorClaim!!.id)
-                assertEquals(ActorKind.ORCHESTRATOR, captured.actorClaim!!.kind)
+                assertEquals("orchestrator-1", captured.actorClaim.id)
+                assertEquals(ActorKind.ORCHESTRATOR, captured.actorClaim.kind)
                 assertNotNull(captured.verification)
-                assertEquals(VerificationStatus.UNCHECKED, captured.verification!!.status)
-                assertEquals("noop", captured.verification!!.verifier)
+                assertEquals(VerificationStatus.UNCHECKED, captured.verification.status)
+                assertEquals("noop", captured.verification.verifier)
             }
 
         @Test

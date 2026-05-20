@@ -303,13 +303,13 @@ class CreateWorkTreeToolIntegrationTest {
             assertNotNull(persisted, "Note must exist in DB")
 
             assertNotNull(persisted.actorClaim, "Persisted note must carry the actor claim")
-            assertEquals("orchestrator-integ", persisted.actorClaim!!.id)
+            assertEquals("orchestrator-integ", persisted.actorClaim.id)
             assertEquals(
                 io.github.jpicklyk.mcptask.current.domain.model.ActorKind.ORCHESTRATOR,
-                persisted.actorClaim!!.kind
+                persisted.actorClaim.kind
             )
             assertNotNull(persisted.verification, "Persisted note must carry the verification result")
             // NoOpActorVerifier wired in DefaultRepositoryProvider's tool context
-            assertEquals("noop", persisted.verification!!.verifier)
+            assertEquals("noop", persisted.verification.verifier)
         }
 }

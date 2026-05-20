@@ -169,7 +169,7 @@ class ManageItemsToolTest {
                                         buildJsonObject {
                                             put("title", JsonPrimitive("Level $i"))
                                             if (currentParentId != null) {
-                                                put("parentId", JsonPrimitive(currentParentId!!))
+                                                put("parentId", JsonPrimitive(currentParentId))
                                             }
                                         }
                                     )

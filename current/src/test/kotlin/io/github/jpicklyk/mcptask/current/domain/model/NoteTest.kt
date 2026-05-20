@@ -146,7 +146,7 @@ class NoteTest {
         assertEquals(actor, note.actorClaim)
         assertEquals(verification, note.verification)
         assertEquals("agent-1", note.actorClaim!!.id)
-        assertEquals(ActorKind.SUBAGENT, note.actorClaim!!.kind)
+        assertEquals(ActorKind.SUBAGENT, note.actorClaim.kind)
         assertEquals(VerificationStatus.UNCHECKED, note.verification!!.status)
     }
 }

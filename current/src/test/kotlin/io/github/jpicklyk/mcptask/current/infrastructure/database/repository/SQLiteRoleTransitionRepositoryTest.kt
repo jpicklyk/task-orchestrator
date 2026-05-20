@@ -362,14 +362,14 @@ class SQLiteRoleTransitionRepositoryTest {
             assertEquals(1, result.data.size)
             val found = result.data[0]
             assertNotNull(found.actorClaim)
-            assertEquals("agent-42", found.actorClaim!!.id)
-            assertEquals(ActorKind.SUBAGENT, found.actorClaim!!.kind)
-            assertEquals("orchestrator-1", found.actorClaim!!.parent)
-            assertEquals("proof-token", found.actorClaim!!.proof)
+            assertEquals("agent-42", found.actorClaim.id)
+            assertEquals(ActorKind.SUBAGENT, found.actorClaim.kind)
+            assertEquals("orchestrator-1", found.actorClaim.parent)
+            assertEquals("proof-token", found.actorClaim.proof)
             assertNotNull(found.verification)
-            assertEquals(VerificationStatus.UNCHECKED, found.verification!!.status)
-            assertEquals("noop", found.verification!!.verifier)
-            assertNull(found.verification!!.reason)
+            assertEquals(VerificationStatus.UNCHECKED, found.verification.status)
+            assertEquals("noop", found.verification.verifier)
+            assertNull(found.verification.reason)
         }
 
     @Test
@@ -432,10 +432,10 @@ class SQLiteRoleTransitionRepositoryTest {
             assertNull(noActorFound.verification)
 
             assertNotNull(actorFound.actorClaim)
-            assertEquals("agent-1", actorFound.actorClaim!!.id)
-            assertEquals(ActorKind.ORCHESTRATOR, actorFound.actorClaim!!.kind)
+            assertEquals("agent-1", actorFound.actorClaim.id)
+            assertEquals(ActorKind.ORCHESTRATOR, actorFound.actorClaim.kind)
             assertNotNull(actorFound.verification)
-            assertEquals(VerificationStatus.VERIFIED, actorFound.verification!!.status)
-            assertEquals("test-verifier", actorFound.verification!!.verifier)
+            assertEquals(VerificationStatus.VERIFIED, actorFound.verification.status)
+            assertEquals("test-verifier", actorFound.verification.verifier)
         }
 }

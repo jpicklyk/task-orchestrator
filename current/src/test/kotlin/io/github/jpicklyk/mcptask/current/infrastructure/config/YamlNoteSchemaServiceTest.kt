@@ -647,8 +647,8 @@ note_schemas:
         assertNotNull(first)
         assertNotNull(second)
         assertNotNull(third)
-        assertEquals(first!!.size, second!!.size)
-        assertEquals(first.size, third!!.size)
+        assertEquals(first.size, second.size)
+        assertEquals(first.size, third.size)
         assertEquals(first[0].key, second[0].key)
         assertEquals(first[0].key, third[0].key)
     }
