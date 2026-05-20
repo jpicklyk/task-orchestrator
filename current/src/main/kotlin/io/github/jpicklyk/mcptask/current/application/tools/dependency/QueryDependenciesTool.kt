@@ -111,7 +111,9 @@ Returns: { backlinks: [{ fromItemId, type, fromTitle }], total: N }
                             put("type", JsonPrimitive("boolean"))
                             put(
                                 "description",
-                                JsonPrimitive("(get only) Include WorkItem details (title, role, priority) for related items (default: false)")
+                                JsonPrimitive(
+                                    "(get only) Include WorkItem details (title, role, priority) for related items (default: false)"
+                                )
                             )
                         }
                     )
@@ -121,7 +123,9 @@ Returns: { backlinks: [{ fromItemId, type, fromTitle }], total: N }
                             put("type", JsonPrimitive("boolean"))
                             put(
                                 "description",
-                                JsonPrimitive("(get only) When false, perform BFS graph traversal returning chain and depth (default: true)")
+                                JsonPrimitive(
+                                    "(get only) When false, perform BFS graph traversal returning chain and depth (default: true)"
+                                )
                             )
                         }
                     )

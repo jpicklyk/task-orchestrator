@@ -12,72 +12,72 @@ class FtsQuerySanitizerTest {
     // ──────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `single word is wrapped in quotes`(): Unit {
+    fun `single word is wrapped in quotes`() {
         assertEquals("\"OAuth\"", FtsQuerySanitizer.sanitize("OAuth"))
     }
 
     @Test
-    fun `two words produce two quoted tokens joined by space`(): Unit {
+    fun `two words produce two quoted tokens joined by space`() {
         assertEquals("\"OAuth\" \"flow\"", FtsQuerySanitizer.sanitize("OAuth flow"))
     }
 
     @Test
-    fun `extra whitespace between words is collapsed`(): Unit {
+    fun `extra whitespace between words is collapsed`() {
         assertEquals("\"hello\" \"world\"", FtsQuerySanitizer.sanitize("hello   world"))
     }
 
     @Test
-    fun `leading and trailing whitespace is ignored`(): Unit {
+    fun `leading and trailing whitespace is ignored`() {
         assertEquals("\"test\"", FtsQuerySanitizer.sanitize("  test  "))
     }
 
     @Test
-    fun `FTS5 operator word AND is treated as literal term`(): Unit {
+    fun `FTS5 operator word AND is treated as literal term`() {
         val result = FtsQuerySanitizer.sanitize("hello AND world")
         assertEquals("\"hello\" \"AND\" \"world\"", result)
     }
 
     @Test
-    fun `FTS5 operator word OR is treated as literal term`(): Unit {
+    fun `FTS5 operator word OR is treated as literal term`() {
         assertEquals("\"foo\" \"OR\" \"bar\"", FtsQuerySanitizer.sanitize("foo OR bar"))
     }
 
     @Test
-    fun `FTS5 operator word NOT is treated as literal term`(): Unit {
+    fun `FTS5 operator word NOT is treated as literal term`() {
         assertEquals("\"NOT\" \"bad\"", FtsQuerySanitizer.sanitize("NOT bad"))
     }
 
     @Test
-    fun `FTS5 operator word NEAR is treated as literal term`(): Unit {
+    fun `FTS5 operator word NEAR is treated as literal term`() {
         assertEquals("\"NEAR\" \"match\"", FtsQuerySanitizer.sanitize("NEAR match"))
     }
 
     @Test
-    fun `parentheses in input are kept inside the quoted token`(): Unit {
+    fun `parentheses in input are kept inside the quoted token`() {
         // The parens end up inside the quoted phrase — FTS5 ignores them inside quotes.
         val result = FtsQuerySanitizer.sanitize("find (this)")
         assertEquals("\"find\" \"(this)\"", result)
     }
 
     @Test
-    fun `hyphen inside a token does not break quoting`(): Unit {
+    fun `hyphen inside a token does not break quoting`() {
         assertEquals("\"auth-check\"", FtsQuerySanitizer.sanitize("auth-check"))
     }
 
     @Test
-    fun `asterisk inside a token is kept inside the quoted token`(): Unit {
+    fun `asterisk inside a token is kept inside the quoted token`() {
         // Inside double-quotes, * is literal in FTS5 (no prefix wildcard behavior).
         assertEquals("\"test*\"", FtsQuerySanitizer.sanitize("test*"))
     }
 
     @Test
-    fun `double-quote inside token is escaped`(): Unit {
+    fun `double-quote inside token is escaped`() {
         val result = FtsQuerySanitizer.sanitize("say \"hello\"")
         assertEquals("\"say\" \"\\\"hello\\\"\"", result)
     }
 
     @Test
-    fun `colon inside token is kept inside the quoted token`(): Unit {
+    fun `colon inside token is kept inside the quoted token`() {
         // Column-filter syntax (e.g. "title:foo") is suppressed by wrapping in quotes.
         assertEquals("\"title:foo\"", FtsQuerySanitizer.sanitize("title:foo"))
     }
@@ -87,17 +87,17 @@ class FtsQuerySanitizerTest {
     // ──────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `empty string returns null`(): Unit {
+    fun `empty string returns null`() {
         assertNull(FtsQuerySanitizer.sanitize(""))
     }
 
     @Test
-    fun `whitespace-only string returns null`(): Unit {
+    fun `whitespace-only string returns null`() {
         assertNull(FtsQuerySanitizer.sanitize("   "))
     }
 
     @Test
-    fun `tab-only string returns null`(): Unit {
+    fun `tab-only string returns null`() {
         assertNull(FtsQuerySanitizer.sanitize("\t\n"))
     }
 
@@ -106,18 +106,18 @@ class FtsQuerySanitizerTest {
     // ──────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `token with exactly 3 chars passes trigram validation`(): Unit {
+    fun `token with exactly 3 chars passes trigram validation`() {
         // Should not throw
         FtsQuerySanitizer.validateForTrigram("abc")
     }
 
     @Test
-    fun `token with more than 3 chars passes trigram validation`(): Unit {
+    fun `token with more than 3 chars passes trigram validation`() {
         FtsQuerySanitizer.validateForTrigram("authentication")
     }
 
     @Test
-    fun `mixed short and long tokens pass trigram validation`(): Unit {
+    fun `mixed short and long tokens pass trigram validation`() {
         // "ab" is short but "foo" is ≥3 — validation should pass
         FtsQuerySanitizer.validateForTrigram("ab foo")
     }
@@ -127,21 +127,21 @@ class FtsQuerySanitizerTest {
     // ──────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `single token with 2 chars throws for trigram`(): Unit {
+    fun `single token with 2 chars throws for trigram`() {
         assertThrows(IllegalArgumentException::class.java) {
             FtsQuerySanitizer.validateForTrigram("ab")
         }
     }
 
     @Test
-    fun `all tokens shorter than 3 chars throws for trigram`(): Unit {
+    fun `all tokens shorter than 3 chars throws for trigram`() {
         assertThrows(IllegalArgumentException::class.java) {
             FtsQuerySanitizer.validateForTrigram("ab cd")
         }
     }
 
     @Test
-    fun `single character token throws for trigram`(): Unit {
+    fun `single character token throws for trigram`() {
         assertThrows(IllegalArgumentException::class.java) {
             FtsQuerySanitizer.validateForTrigram("a")
         }
@@ -152,19 +152,19 @@ class FtsQuerySanitizerTest {
     // ──────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `sanitizeForTrigram returns sanitized string when token is long enough`(): Unit {
+    fun `sanitizeForTrigram returns sanitized string when token is long enough`() {
         val result = FtsQuerySanitizer.sanitizeForTrigram("auth flow")
         assertNotNull(result)
         assertEquals("\"auth\" \"flow\"", result)
     }
 
     @Test
-    fun `sanitizeForTrigram returns null for empty input without throwing`(): Unit {
+    fun `sanitizeForTrigram returns null for empty input without throwing`() {
         assertNull(FtsQuerySanitizer.sanitizeForTrigram(""))
     }
 
     @Test
-    fun `sanitizeForTrigram throws when all tokens are too short for trigram`(): Unit {
+    fun `sanitizeForTrigram throws when all tokens are too short for trigram`() {
         assertThrows(IllegalArgumentException::class.java) {
             FtsQuerySanitizer.sanitizeForTrigram("ab")
         }

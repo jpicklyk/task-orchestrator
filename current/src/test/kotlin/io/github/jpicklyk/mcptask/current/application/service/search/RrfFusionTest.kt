@@ -12,23 +12,23 @@ class RrfFusionTest {
     // ──────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `score at rank 1 with k=60 equals 1 divided by 61`(): Unit {
+    fun `score at rank 1 with k=60 equals 1 divided by 61`() {
         assertEquals(1.0 / 61.0, RrfFusion.score(1), tolerance)
     }
 
     @Test
-    fun `score at rank 2 with k=60 equals 1 divided by 62`(): Unit {
+    fun `score at rank 2 with k=60 equals 1 divided by 62`() {
         assertEquals(1.0 / 62.0, RrfFusion.score(2), tolerance)
     }
 
     @Test
-    fun `score uses provided k value when overridden`(): Unit {
+    fun `score uses provided k value when overridden`() {
         // k=0 → 1/(0+1) = 1.0 for rank 1
         assertEquals(1.0, RrfFusion.score(1, k = 0.0), tolerance)
     }
 
     @Test
-    fun `score decreases as rank increases`(): Unit {
+    fun `score decreases as rank increases`() {
         val rank1 = RrfFusion.score(1)
         val rank2 = RrfFusion.score(2)
         val rank10 = RrfFusion.score(10)
@@ -41,7 +41,7 @@ class RrfFusionTest {
     // ──────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `single source: higher rank yields higher score`(): Unit {
+    fun `single source: higher rank yields higher score`() {
         val source: Map<Long, Int> = mapOf(10L to 1, 20L to 2, 30L to 3)
         val result = RrfFusion.fuse(source)
         assertEquals(3, result.size)
@@ -51,7 +51,7 @@ class RrfFusionTest {
     }
 
     @Test
-    fun `single source: score values equal the plain RRF formula`(): Unit {
+    fun `single source: score values equal the plain RRF formula`() {
         val source: Map<Long, Int> = mapOf(5L to 1, 7L to 3)
         val result = RrfFusion.fuse(source)
         assertEquals(1.0 / 61.0, result[5L]!!, tolerance)
@@ -63,7 +63,7 @@ class RrfFusionTest {
     // ──────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `document in both sources has higher score than document in one source only`(): Unit {
+    fun `document in both sources has higher score than document in one source only`() {
         // docA appears in both (rank 1 each); docB only in source1.
         val source1: Map<Long, Int> = mapOf(100L to 1, 200L to 2)
         val source2: Map<Long, Int> = mapOf(100L to 1)
@@ -72,7 +72,7 @@ class RrfFusionTest {
     }
 
     @Test
-    fun `two sources produce correct additive fused score for shared document`(): Unit {
+    fun `two sources produce correct additive fused score for shared document`() {
         // docId=1 is rank 1 in both sources.
         val source1: Map<String, Int> = mapOf("a" to 1, "b" to 2)
         val source2: Map<String, Int> = mapOf("a" to 1, "c" to 2)
@@ -89,7 +89,7 @@ class RrfFusionTest {
     }
 
     @Test
-    fun `result contains union of all document IDs across sources`(): Unit {
+    fun `result contains union of all document IDs across sources`() {
         val source1: Map<Int, Int> = mapOf(1 to 1, 2 to 2)
         val source2: Map<Int, Int> = mapOf(3 to 1, 4 to 2)
         val result = RrfFusion.fuse(source1, source2)
@@ -97,7 +97,7 @@ class RrfFusionTest {
     }
 
     @Test
-    fun `documents unique to each source do not appear in the other source score`(): Unit {
+    fun `documents unique to each source do not appear in the other source score`() {
         val source1: Map<Long, Int> = mapOf(10L to 1)
         val source2: Map<Long, Int> = mapOf(20L to 1)
         val result = RrfFusion.fuse(source1, source2)
@@ -111,20 +111,20 @@ class RrfFusionTest {
     // ──────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `empty sources produce empty result`(): Unit {
+    fun `empty sources produce empty result`() {
         val result = RrfFusion.fuse(emptyMap<Long, Int>(), emptyMap())
         assertTrue(result.isEmpty())
     }
 
     @Test
-    fun `single source with empty map and one populated produces correct result`(): Unit {
+    fun `single source with empty map and one populated produces correct result`() {
         val result = RrfFusion.fuse(emptyMap<String, Int>(), mapOf("x" to 2))
         assertEquals(1, result.size)
         assertEquals(1.0 / 62.0, result["x"]!!, tolerance)
     }
 
     @Test
-    fun `vararg overload accepts three sources`(): Unit {
+    fun `vararg overload accepts three sources`() {
         val s1: Map<String, Int> = mapOf("a" to 1)
         val s2: Map<String, Int> = mapOf("a" to 1)
         val s3: Map<String, Int> = mapOf("a" to 1)
@@ -138,7 +138,7 @@ class RrfFusionTest {
     // ──────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `K constant is 60`(): Unit {
+    fun `K constant is 60`() {
         assertEquals(60.0, RrfFusion.K, tolerance)
     }
 }
