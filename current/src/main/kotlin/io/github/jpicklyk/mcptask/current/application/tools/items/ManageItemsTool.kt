@@ -27,7 +27,6 @@ import java.util.UUID
 class ManageItemsTool :
     BaseToolDefinition(),
     ActorAware {
-
     private val createHandler = CreateItemHandler()
     private val updateHandler = UpdateItemHandler()
     private val deleteHandler = DeleteItemHandler()

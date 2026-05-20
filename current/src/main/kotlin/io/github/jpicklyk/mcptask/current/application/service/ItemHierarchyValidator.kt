@@ -17,7 +17,6 @@ import java.util.UUID
  * DB BEFORE-UPDATE trigger on work_items.parent_id introduced in V7.
  */
 class ItemHierarchyValidator {
-
     /**
      * Validates hierarchy constraints and computes the depth for an item given its parent.
      *

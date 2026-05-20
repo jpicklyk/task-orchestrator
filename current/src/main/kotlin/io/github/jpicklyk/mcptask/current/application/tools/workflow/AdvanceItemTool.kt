@@ -561,11 +561,11 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
             // unexpected cycles that evade the DB trigger (e.g., direct DB edits).
             val schemaResolver: (WorkItem) -> WorkItemSchema? = { context.resolveSchema(it) }
             val cascadeJsonList = mutableListOf<JsonObject>()
-            val MAX_CASCADES = 100
+            val maxCascades = 100
             if (targetRole == Role.TERMINAL) {
                 var cascadeSource: WorkItem = applyResult.item
                 var depth = 0
-                while (depth < MAX_CASCADES) {
+                while (depth < maxCascades) {
                     val events = cascadeDetector.detectCascades(cascadeSource, context.workItemRepository(), schemaResolver)
                     if (events.isEmpty()) break
 

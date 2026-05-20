@@ -244,7 +244,10 @@ class SQLiteNoteRepository(
                 val varcharType = VarCharColumnType(4000)
 
                 // Inline RRF helper — T4 will extract this to RrfFusion.kt.
-                fun rrfScore(rank: Double, k: Double = 60.0): Double = 1.0 / (k + rank)
+                fun rrfScore(
+                    rank: Double,
+                    k: Double = 60.0
+                ): Double = 1.0 / (k + rank)
 
                 // Build optional subtree CTE (filters notes to those in the subtree under ancestorId).
                 val subtreeCteClause =
@@ -272,7 +275,7 @@ class SQLiteNoteRepository(
                 fun buildArgs(): List<Pair<org.jetbrains.exposed.v1.core.ColumnType<*>, Any?>> {
                     val args = mutableListOf<Pair<org.jetbrains.exposed.v1.core.ColumnType<*>, Any?>>()
                     if (scope?.ancestorId != null) args.add(uuidType to scope.ancestorId)
-                    args.add(varcharType to sanitizedFtsQuery)  // FTS MATCH param
+                    args.add(varcharType to sanitizedFtsQuery) // FTS MATCH param
                     if (scope?.itemId != null) args.add(uuidType to scope.itemId)
                     return args
                 }
@@ -295,7 +298,8 @@ class SQLiteNoteRepository(
                     hitMap: MutableMap<Long, NoteHit>,
                     tableName: String,
                 ) {
-                    val sql = """
+                    val sql =
+                        """
                         ${subtreeCteClause.ifEmpty { "" }}
                         SELECT
                             ft.rowid,
@@ -309,7 +313,7 @@ class SQLiteNoteRepository(
                         WHERE ft MATCH ?$extraWhere
                         ORDER BY ft.rank
                         LIMIT ${effectiveLimit + offset + 1}
-                    """.trimIndent()
+                        """.trimIndent()
 
                     exec(sql, args = buildArgs()) { rs ->
                         while (rs.next()) {
@@ -318,8 +322,10 @@ class SQLiteNoteRepository(
                             val snippet = rs.getString("snip") ?: ""
                             val rawNoteId = rs.getObject("note_id")
                             val rawItemId = rs.getObject("item_id")
+
                             @Suppress("UNCHECKED_CAST")
                             val noteId = uuidType.valueFromDB(rawNoteId!!) as java.util.UUID
+
                             @Suppress("UNCHECKED_CAST")
                             val itemId = uuidType.valueFromDB(rawItemId!!) as java.util.UUID
                             val noteKey = rs.getString("note_key") ?: ""
@@ -361,14 +367,15 @@ class SQLiteNoteRepository(
                 val docs = mutableMapOf<Long, FusedDoc>()
                 for (rowid in allRowIds) {
                     val hit = trigramHits[rowid] ?: textHits[rowid]!!
-                    docs[rowid] = FusedDoc(
-                        rowid = rowid,
-                        noteId = hit.noteId,
-                        itemId = hit.itemId,
-                        noteKey = hit.noteKey,
-                        trigramRank = trigramHits[rowid]?.rank,
-                        textRank = textHits[rowid]?.rank,
-                    )
+                    docs[rowid] =
+                        FusedDoc(
+                            rowid = rowid,
+                            noteId = hit.noteId,
+                            itemId = hit.itemId,
+                            noteKey = hit.noteKey,
+                            trigramRank = trigramHits[rowid]?.rank,
+                            textRank = textHits[rowid]?.rank,
+                        )
                 }
 
                 trigramHits.entries

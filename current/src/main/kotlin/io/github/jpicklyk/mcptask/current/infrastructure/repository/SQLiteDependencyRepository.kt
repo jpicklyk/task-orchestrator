@@ -8,7 +8,6 @@ import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManage
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.DependenciesTable
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.WorkItemsTable
 import org.jetbrains.exposed.v1.core.ResultRow
-import org.jetbrains.exposed.v1.core.VarCharColumnType
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
@@ -299,10 +298,13 @@ class SQLiteDependencyRepository(
             // Build the query using Exposed DSL, joining to work_items for fromTitle.
             // DependenciesTable has an index on to_item_id; the JOIN is a PK lookup on work_items.
             val baseQuery =
-                (DependenciesTable innerJoin WorkItemsTable.also {
-                    // Join condition: dependencies.from_item_id = work_items.id
-                    // We use the Exposed join overload that matches on referenced FK column.
-                }).selectAll()
+                (
+                    DependenciesTable innerJoin
+                        WorkItemsTable.also {
+                            // Join condition: dependencies.from_item_id = work_items.id
+                            // We use the Exposed join overload that matches on referenced FK column.
+                        }
+                ).selectAll()
                     .where {
                         (DependenciesTable.toItemId eq itemId).let { cond ->
                             if (type != null) {

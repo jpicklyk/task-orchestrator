@@ -619,7 +619,10 @@ class SQLiteWorkItemRepository(
 
                 // Inline RRF helper — T4 will extract this to RrfFusion.kt and refactor.
                 // k=60 is the standard Reciprocal Rank Fusion constant.
-                fun rrfScore(rank: Double, k: Double = 60.0): Double = 1.0 / (k + rank)
+                fun rrfScore(
+                    rank: Double,
+                    k: Double = 60.0
+                ): Double = 1.0 / (k + rank)
 
                 // Build optional subtree CTE clause.
                 // When scope.ancestorId is set, the query joins against a recursive CTE
@@ -645,11 +648,12 @@ class SQLiteWorkItemRepository(
                 if (scope?.role != null) extraWhereParts.add("wi.role = ?")
                 if (!scope?.tags.isNullOrEmpty()) {
                     // Tags are stored as a comma-separated string; OR-match each tag.
-                    val tagConditions = scope!!.tags!!.map { t ->
-                        val escaped = t.trim().lowercase()
-                        // SQLite LIKE on a TEXT column — safe because value comes from validated input, not FTS query.
-                        "(LOWER(wi.tags) = ? OR LOWER(wi.tags) LIKE ? OR LOWER(wi.tags) LIKE ? OR LOWER(wi.tags) LIKE ?)"
-                    }
+                    val tagConditions =
+                        scope!!.tags!!.map { t ->
+                            val escaped = t.trim().lowercase()
+                            // SQLite LIKE on a TEXT column — safe because value comes from validated input, not FTS query.
+                            "(LOWER(wi.tags) = ? OR LOWER(wi.tags) LIKE ? OR LOWER(wi.tags) LIKE ? OR LOWER(wi.tags) LIKE ?)"
+                        }
                     extraWhereParts.add("(${tagConditions.joinToString(" OR ")})")
                 }
                 val extraWhere = if (extraWhereParts.isEmpty()) "" else " AND " + extraWhereParts.joinToString(" AND ")
@@ -660,7 +664,7 @@ class SQLiteWorkItemRepository(
                     val args = mutableListOf<Pair<org.jetbrains.exposed.v1.core.ColumnType<*>, Any?>>()
                     val varcharType = VarCharColumnType(4000)
                     if (scope?.ancestorId != null) args.add(uuidType to scope.ancestorId)
-                    args.add(varcharType to sanitizedFtsQuery)  // FTS MATCH param
+                    args.add(varcharType to sanitizedFtsQuery) // FTS MATCH param
                     if (scope?.itemId != null) args.add(uuidType to scope.itemId)
                     if (scope?.role != null) args.add(varcharType to scope.role.name.lowercase())
                     if (!scope?.tags.isNullOrEmpty()) {
@@ -693,7 +697,8 @@ class SQLiteWorkItemRepository(
                     hitMap: MutableMap<Long, FtsHit>,
                     tableName: String,
                 ) {
-                    val sql = """
+                    val sql =
+                        """
                         ${subtreeCteClause.ifEmpty { "" }}
                         SELECT
                             ft.rowid,
@@ -706,7 +711,7 @@ class SQLiteWorkItemRepository(
                         WHERE ft MATCH ?$extraWhere
                         ORDER BY ft.rank
                         LIMIT ${effectiveLimit + offset + 1}
-                    """.trimIndent()
+                        """.trimIndent()
 
                     exec(sql, args = buildArgs(ftsTable)) { rs ->
                         while (rs.next()) {
@@ -741,14 +746,19 @@ class SQLiteWorkItemRepository(
                 // Fetch work item UUIDs + metadata for matching rowids.
                 val rowidToItem = mutableMapOf<Long, Pair<UUID, String>>() // rowid -> (uuid, tags)
                 val rowidInClause = allRowIds.joinToString(",") { "?" }
-                val rowidArgs = allRowIds.map {
-                    @Suppress("UNCHECKED_CAST")
-                    (org.jetbrains.exposed.v1.core.LongColumnType() as org.jetbrains.exposed.v1.core.ColumnType<Any?>) to (it as Any?)
-                }
+                val rowidArgs =
+                    allRowIds.map {
+                        @Suppress("UNCHECKED_CAST")
+                        (
+                            org.jetbrains.exposed.v1.core
+                                .LongColumnType() as org.jetbrains.exposed.v1.core.ColumnType<Any?>
+                        ) to (it as Any?)
+                    }
                 exec("SELECT rowid, id FROM work_items WHERE rowid IN ($rowidInClause)", args = rowidArgs) { rs ->
                     while (rs.next()) {
                         val rowid = rs.getLong("rowid")
                         val rawId = rs.getObject("id")
+
                         @Suppress("UNCHECKED_CAST")
                         val uuid = uuidType.valueFromDB(rawId!!) as UUID
                         rowidToItem[rowid] = Pair(uuid, "")
@@ -768,12 +778,13 @@ class SQLiteWorkItemRepository(
                 val docs = mutableMapOf<Long, FusedDoc>()
                 for (rowid in allRowIds) {
                     val itemId = rowidToItem[rowid]?.first ?: continue
-                    docs[rowid] = FusedDoc(
-                        rowid = rowid,
-                        itemId = itemId,
-                        trigramRank = trigramHits[rowid]?.rank,
-                        textRank = textHits[rowid]?.rank,
-                    )
+                    docs[rowid] =
+                        FusedDoc(
+                            rowid = rowid,
+                            itemId = itemId,
+                            trigramRank = trigramHits[rowid]?.rank,
+                            textRank = textHits[rowid]?.rank,
+                        )
                 }
 
                 // Assign row numbers based on rank (lower rank = more relevant = lower row number).
