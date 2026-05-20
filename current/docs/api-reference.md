@@ -9,6 +9,9 @@ mode + required notes), optional `tags` for categorization, and optional `traits
 additional note requirements. Notes are first-class keyed documents attached to items. Dependencies
 link items with typed blocking or relational edges.
 
+**See also:** [`search-and-discovery.md`](./search-and-discovery.md) for the architecture behind
+FTS5 search (two-tokenizer design, RRF fusion, scope filtering, backlinks, score interpretation).
+
 ## Tool Categories
 
 | Tool | Category | R/W | Description |

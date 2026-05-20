@@ -140,7 +140,8 @@ END;
 -- Sync triggers (below) keep the FTS index in sync with mutations on source tables.
 -- prefix='2 3' enables prefix queries of length 2 and 3.
 
--- work_items: trigram tokenizer (substring search, case-insensitive)
+-- work_items: trigram tokenizer (substring search, case-sensitive — the
+-- case_sensitive=0 option is rejected by bundled xerial/sqlite-jdbc 3.49.1.0)
 CREATE VIRTUAL TABLE work_items_fts_trigram USING fts5(
     title,
     summary,

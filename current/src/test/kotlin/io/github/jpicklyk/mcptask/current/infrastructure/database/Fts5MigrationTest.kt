@@ -334,10 +334,10 @@ class Fts5MigrationTest {
     @Test
     fun `creates the four FTS5 virtual tables from migration V7`(): Unit =
         runBlocking {
-            if (!fts5Available) {
-                println("SKIPPED: FTS5 not available in bundled xerial/sqlite-jdbc on this platform")
-                return@runBlocking
-            }
+            org.junit.jupiter.api.Assumptions.assumeTrue(
+                fts5Available,
+                "FTS5 not available in bundled xerial/sqlite-jdbc on this platform"
+            )
 
             val expectedTables =
                 listOf(
@@ -371,10 +371,10 @@ class Fts5MigrationTest {
     @Test
     fun `populates FTS index after backfill matches source row count`(): Unit =
         runBlocking {
-            if (!fts5Available) {
-                println("SKIPPED: FTS5 not available in bundled xerial/sqlite-jdbc on this platform")
-                return@runBlocking
-            }
+            org.junit.jupiter.api.Assumptions.assumeTrue(
+                fts5Available,
+                "FTS5 not available in bundled xerial/sqlite-jdbc on this platform"
+            )
 
             val item1 = createItem("Authentication service for OAuth flow")
             val item2 = createItem("Authenticated user management module")
