@@ -20,6 +20,7 @@ import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
 import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import java.util.UUID
 import kotlin.test.*
@@ -2149,4 +2150,279 @@ class CreateWorkTreeToolTest {
             assertNull(note.actorClaim, "Invalid actor must not produce a partial actorClaim")
             assertNull(note.verification, "Invalid actor must not produce a partial verification")
         }
+
+    // ──────────────────────────────────────────────
+    // parentRef: nested child tree tests
+    // ──────────────────────────────────────────────
+
+    @Nested
+    inner class ParentRefTests {
+        private fun makeChildSpecWithParentRef(
+            ref: String,
+            title: String,
+            parentRef: String? = null,
+            tags: String? = null
+        ): JsonObject =
+            buildJsonObject {
+                put("ref", JsonPrimitive(ref))
+                put("title", JsonPrimitive(title))
+                if (parentRef != null) put("parentRef", JsonPrimitive(parentRef))
+                if (tags != null) put("tags", JsonPrimitive(tags))
+            }
+
+        @Test
+        fun `explicit parentRef=root is same as default`(): Unit =
+            runBlocking {
+                var capturedInput: WorkTreeInput? = null
+                coEvery { mockExecutor.execute(any()) } answers {
+                    val input = firstArg<WorkTreeInput>()
+                    capturedInput = input
+                    echoResult(input)
+                }
+
+                val children =
+                    buildJsonArray {
+                        add(makeChildSpecWithParentRef("c1", "Child One", parentRef = "root"))
+                    }
+                val params = buildParams(children = children)
+                val result = tool.execute(params, context)
+
+                val data = extractData(result)
+
+                val input = capturedInput!!
+                val rootItem = input.items.first()
+                val c1Item = input.items.find { it.depth == 1 }!!
+
+                // c1 with explicit parentRef="root" should have parentId=root.id and depth=1
+                assertEquals(rootItem.id, c1Item.parentId, "c1 with parentRef=root should have parentId=root.id")
+                assertEquals(1, c1Item.depth, "c1 with parentRef=root should be at depth 1")
+
+                // Check response depth
+                val childrenArr = data["children"]!!.jsonArray
+                assertEquals(1, childrenArr.size)
+                assertEquals(1, childrenArr[0].jsonObject["depth"]!!.jsonPrimitive.int)
+            }
+
+        @Test
+        fun `sibling as parent creates correct depth and parentId`(): Unit =
+            runBlocking {
+                var capturedInput: WorkTreeInput? = null
+                coEvery { mockExecutor.execute(any()) } answers {
+                    val input = firstArg<WorkTreeInput>()
+                    capturedInput = input
+                    echoResult(input)
+                }
+
+                // root (depth=0) → c1 (depth=1, parentRef=root) → c1a (depth=2, parentRef=c1)
+                val children =
+                    buildJsonArray {
+                        add(makeChildSpecWithParentRef("c1", "Child One", parentRef = "root"))
+                        add(makeChildSpecWithParentRef("c1a", "Grandchild", parentRef = "c1"))
+                    }
+                val params = buildParams(children = children)
+                val result = tool.execute(params, context)
+
+                val data = extractData(result)
+
+                val input = capturedInput!!
+                val rootItem = input.items.first()
+                val c1Item = input.items.find { item -> input.refToItem["c1"] == item }!!
+                val c1aItem = input.items.find { item -> input.refToItem["c1a"] == item }!!
+
+                assertEquals(rootItem.id, c1Item.parentId, "c1 should have parentId=root.id")
+                assertEquals(1, c1Item.depth, "c1 should be at depth 1")
+
+                assertEquals(c1Item.id, c1aItem.parentId, "c1a should have parentId=c1.id")
+                assertEquals(2, c1aItem.depth, "c1a should be at depth 2")
+
+                // Check response depths
+                val childrenArr = data["children"]!!.jsonArray
+                assertEquals(2, childrenArr.size)
+                // Find c1a in response
+                val c1aJson = childrenArr.firstOrNull { it.jsonObject["ref"]!!.jsonPrimitive.content == "c1a" }!!
+                assertEquals(2, c1aJson.jsonObject["depth"]!!.jsonPrimitive.int)
+            }
+
+        @Test
+        fun `three-level chain has correct depth and parentIds`(): Unit =
+            runBlocking {
+                var capturedInput: WorkTreeInput? = null
+                coEvery { mockExecutor.execute(any()) } answers {
+                    val input = firstArg<WorkTreeInput>()
+                    capturedInput = input
+                    echoResult(input)
+                }
+
+                // root (depth=0) → c1 (depth=1) → c1a (depth=2)
+                val children =
+                    buildJsonArray {
+                        add(makeChildSpecWithParentRef("c1", "Level 1", parentRef = "root"))
+                        add(makeChildSpecWithParentRef("c1a", "Level 2", parentRef = "c1"))
+                    }
+                val params = buildParams(children = children)
+                val result = tool.execute(params, context)
+
+                extractData(result)
+
+                val input = capturedInput!!
+                val rootItem = input.items.first()
+                val c1Item = input.refToItem["c1"]!!
+                val c1aItem = input.refToItem["c1a"]!!
+
+                assertEquals(0, rootItem.depth)
+                assertEquals(rootItem.id, c1Item.parentId)
+                assertEquals(1, c1Item.depth)
+                assertEquals(c1Item.id, c1aItem.parentId)
+                assertEquals(2, c1aItem.depth)
+            }
+
+        @Test
+        fun `mixed children - some under root, some nested`(): Unit =
+            runBlocking {
+                var capturedInput: WorkTreeInput? = null
+                coEvery { mockExecutor.execute(any()) } answers {
+                    val input = firstArg<WorkTreeInput>()
+                    capturedInput = input
+                    echoResult(input)
+                }
+
+                // root → c1 (depth=1), root → c2 (depth=1), c1 → c1a (depth=2)
+                val children =
+                    buildJsonArray {
+                        add(makeChildSpecWithParentRef("c1", "Child 1", parentRef = "root"))
+                        add(makeChildSpecWithParentRef("c2", "Child 2", parentRef = "root"))
+                        add(makeChildSpecWithParentRef("c1a", "Child 1a", parentRef = "c1"))
+                    }
+                val params = buildParams(children = children)
+                val result = tool.execute(params, context)
+
+                val data = extractData(result)
+
+                val input = capturedInput!!
+                val rootItem = input.items.first()
+                val c1Item = input.refToItem["c1"]!!
+                val c2Item = input.refToItem["c2"]!!
+                val c1aItem = input.refToItem["c1a"]!!
+
+                assertEquals(rootItem.id, c1Item.parentId)
+                assertEquals(1, c1Item.depth)
+
+                assertEquals(rootItem.id, c2Item.parentId)
+                assertEquals(1, c2Item.depth)
+
+                assertEquals(c1Item.id, c1aItem.parentId)
+                assertEquals(2, c1aItem.depth)
+
+                // Response should have 3 children
+                val childrenArr = data["children"]!!.jsonArray
+                assertEquals(3, childrenArr.size)
+            }
+
+        @Test
+        fun `children defined out of order - topological sort produces correct result`(): Unit =
+            runBlocking {
+                var capturedInput: WorkTreeInput? = null
+                coEvery { mockExecutor.execute(any()) } answers {
+                    val input = firstArg<WorkTreeInput>()
+                    capturedInput = input
+                    echoResult(input)
+                }
+
+                // c1a (parentRef=c1) is listed BEFORE c1 in the array
+                val children =
+                    buildJsonArray {
+                        add(makeChildSpecWithParentRef("c1a", "Grandchild first", parentRef = "c1"))
+                        add(makeChildSpecWithParentRef("c1", "Parent second", parentRef = "root"))
+                    }
+                val params = buildParams(children = children)
+                val result = tool.execute(params, context)
+
+                extractData(result) // assert success
+
+                val input = capturedInput!!
+                val rootItem = input.items.first()
+                val c1Item = input.refToItem["c1"]!!
+                val c1aItem = input.refToItem["c1a"]!!
+
+                // Despite out-of-order declaration, c1 should be parent of c1a
+                assertEquals(rootItem.id, c1Item.parentId, "c1 should have parentId=root.id")
+                assertEquals(1, c1Item.depth, "c1 should be at depth 1")
+                assertEquals(c1Item.id, c1aItem.parentId, "c1a should have parentId=c1.id")
+                assertEquals(2, c1aItem.depth, "c1a should be at depth 2")
+
+                // Topological order: c1 must appear before c1a in orderedItems
+                val orderedItems = input.items
+                val c1Index = orderedItems.indexOf(c1Item)
+                val c1aIndex = orderedItems.indexOf(c1aItem)
+                assertTrue(c1Index < c1aIndex, "c1 must appear before c1a in ordered items")
+            }
+
+        @Test
+        fun `invalid parentRef throws ToolValidationException with valid refs listed`() {
+            assertFailsWith<ToolValidationException> {
+                tool.validateParams(
+                    buildJsonObject {
+                        put("root", buildJsonObject { put("title", JsonPrimitive("Root")) })
+                        put(
+                            "children",
+                            buildJsonArray {
+                                add(
+                                    buildJsonObject {
+                                        put("ref", JsonPrimitive("c1"))
+                                        put("title", JsonPrimitive("Child"))
+                                        put("parentRef", JsonPrimitive("nonexistent"))
+                                    }
+                                )
+                            }
+                        )
+                    }
+                )
+            }.also { ex ->
+                assertTrue(
+                    ex.message?.contains("nonexistent") == true,
+                    "Exception should mention the invalid ref: ${ex.message}"
+                )
+                // Should list valid refs
+                assertTrue(
+                    ex.message?.contains("root") == true || ex.message?.contains("Valid refs") == true,
+                    "Exception should list valid refs: ${ex.message}"
+                )
+            }
+        }
+
+        @Test
+        fun `cycle detection throws ToolValidationException mentioning cycle`() {
+            assertFailsWith<ToolValidationException> {
+                tool.validateParams(
+                    buildJsonObject {
+                        put("root", buildJsonObject { put("title", JsonPrimitive("Root")) })
+                        put(
+                            "children",
+                            buildJsonArray {
+                                add(
+                                    buildJsonObject {
+                                        put("ref", JsonPrimitive("c1"))
+                                        put("title", JsonPrimitive("Child 1"))
+                                        put("parentRef", JsonPrimitive("c2"))
+                                    }
+                                )
+                                add(
+                                    buildJsonObject {
+                                        put("ref", JsonPrimitive("c2"))
+                                        put("title", JsonPrimitive("Child 2"))
+                                        put("parentRef", JsonPrimitive("c1"))
+                                    }
+                                )
+                            }
+                        )
+                    }
+                )
+            }.also { ex ->
+                assertTrue(
+                    ex.message?.contains("cycle") == true,
+                    "Exception should mention cycle: ${ex.message}"
+                )
+            }
+        }
+    }
 }
