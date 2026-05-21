@@ -1134,8 +1134,7 @@ class CompleteTreeToolTest {
                     )
                 )
             return object : NoteSchemaService {
-                override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
-                    if (tags.isNotEmpty()) schemaEntries else null
+                override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? = if (tags.isNotEmpty()) schemaEntries else null
             }
         }
 
