@@ -123,8 +123,30 @@ private fun getConfigPath(): Path {
 ### New MCP Tool
 1. Extend `BaseToolDefinition` in `current/src/main/kotlin/.../application/tools/`
 2. Register in `CurrentMcpServer.kt`
-3. Update `current/docs/api-reference.md`
-4. Add tests in `current/src/test/kotlin/application/tools/`
+3. Update all three documentation surfaces (see below)
+4. Add to `ToolDocumentationConsistencyTest` tool list
+5. Add tests in `current/src/test/kotlin/application/tools/`
+
+### Tool Documentation Surfaces — Keep All Three in Sync
+
+Every tool has three independent documentation surfaces that must be updated together:
+
+| Surface | Location | Audience |
+|---------|----------|----------|
+| `description` string | In the tool source file | LLMs — seen via `tools/list` |
+| `parameterSchema` | In the tool source file | MCP clients — drives validation |
+| API reference | `current/docs/api-reference.md` | Humans |
+
+**CI guard:** `ToolDocumentationConsistencyTest` asserts every `parameterSchema` property name
+appears in the `description` string. This catches description↔schema drift automatically.
+The `api-reference.md` surface is not machine-checked — update it manually alongside code changes.
+
+**When changing a tool's parameters:**
+- Add/rename a param → update `parameterSchema`, `description` string, and `api-reference.md`
+- Remove a param → same three places
+- Change required/optional status → update `description` prose and `api-reference.md` table
+- Do NOT use shorthand like `createdAfter/Before` in descriptions — list each param individually
+  so the consistency test can find them
 
 ### New Database Migration
 Create `current/src/main/resources/db/migration/V{N}__{Description}.sql`. SQLite has no `ALTER COLUMN` — schema changes require table recreation. New tables in `DirectDatabaseSchemaManager` must be inserted in foreign-key order.
