@@ -5,6 +5,55 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] — FTS5 + Graph-Aware Search
+
+### Breaking Changes
+
+- **`query_items.search` — LIKE-based `query` parameter removed.** The top-level `query` parameter
+  that performed a `LIKE '%text%'` filter on `operation=search` has been removed from the JSON
+  schema. All text search now uses the FTS5-backed `search` operation where `query` is an FTS5
+  query string (multi-word implicit AND; special characters auto-escaped). The parameter name
+  `query` is preserved but its semantics changed: in `query_items(operation="search", query=...)`
+  the presence of `query` now triggers FTS5 mode instead of LIKE filtering.
+
+### Added
+
+- **`query_items(operation="search", query=...)` — FTS5 full-text search.** Returns ranked hits
+  with ~32-token `<mark>…</mark>` snippets from item titles and summaries. Fusion of trigram
+  (substring) and porter+unicode61 (natural language) FTS5 tables via Reciprocal Rank Fusion
+  (k=60). Parameters: `scope` (ancestorId/itemId/tags/role), `matchMode` (auto/substring/text),
+  `snippet`, `explain`, `limit` (max 100), `offset`.
+
+- **`query_notes(operation="search", query=...)` — FTS5 note body search.** Same RRF fusion
+  architecture applied to note bodies. Returns `kind="note"` hits with `noteKey` and `field="body"`.
+  Scope parameters: `scope.itemId` and `scope.ancestorId`. Use `list` for role-filtered note
+  retrieval.
+
+- **`query_dependencies(operation="backlinks", itemId=...)` — reverse-edge lookup.** Returns all
+  items that hold a dependency edge pointing AT the given item. Each backlink: `{ fromItemId, type,
+  fromTitle }`. Optional `type` filter. Uses the existing `to_item_id` index — no table scan.
+
+- **Unbounded hierarchy depth.** Work item trees are no longer capped at depth 3. Items can nest
+  at any depth. Cycle protection is enforced at the database level by a recursive trigger (V7
+  migration).
+
+- **FTS5 architecture concept doc.** `current/docs/search-and-discovery.md` — explains the
+  two-table FTS5 design, RRF scoring, scope filters, backlinks, score interpretation, and
+  `explain=true` usage.
+
+### Requirements
+
+- **SQLite ≥ 3.45** — required for the FTS5 trigram tokenizer. Bundled automatically via
+  `xerial/sqlite-jdbc` in the Docker image. Direct JAR execution against a system SQLite must
+  be ≥ 3.45 or the V7 migration fails at startup.
+
+### Test Environment Note
+
+FTS5 is SQLite-only. All `search` operations return empty results when running against H2 (unit
+test environment). Integration tests for FTS5 use a real SQLite database.
+
+---
+
 ## [3.7.0] - 2026-05-07 (Plugin v3.2.1)
 
 ### Breaking Changes

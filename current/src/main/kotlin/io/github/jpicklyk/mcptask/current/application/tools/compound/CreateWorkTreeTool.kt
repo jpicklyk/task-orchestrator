@@ -19,15 +19,13 @@ import java.util.UUID
  * dependencies and notes in one atomic call. Eliminates the round-trips required
  * by calling manage_items + manage_dependencies + manage_notes separately.
  *
- * Depth enforcement: root item depth must be < [MAX_DEPTH]; children are depth+1.
+ * No application-layer depth cap is enforced. Cycle protection is delegated to the
+ * DB BEFORE-UPDATE trigger on work_items.parent_id introduced in V7.
  */
 class CreateWorkTreeTool :
     BaseToolDefinition(),
     ActorAware {
     companion object {
-        /** Maximum allowed nesting depth (shared with ManageItemsTool). */
-        const val MAX_DEPTH = 3
-
         /** Logical ref name reserved for the root item in dep specs. */
         const val ROOT_REF = "root"
     }
@@ -52,7 +50,7 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
 - `actor` (optional): Actor claim `{ id (required), kind (required: orchestrator|subagent|user|external), parent?, proof? }`. See **Idempotency** and **Actor attribution** above for the two effects.
 - `requestId` (optional): Client-generated UUID. With `actor`, enables idempotent retries (see Idempotency above).
 
-**Depth cap:** Root item depth must be < $MAX_DEPTH. Children are always root.depth + 1, also < $MAX_DEPTH.
+**Depth:** Root depth = parent.depth + 1 when parentId is provided, otherwise 0. Children are always root.depth + 1. No application-layer depth cap; cycle protection is enforced by the database.
 
 **Response:**
 ```json
@@ -382,16 +380,7 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
             if (parentId != null) {
                 val parentResult = context.workItemRepository().getById(parentId)
                 when (parentResult) {
-                    is Result.Success -> {
-                        val computedDepth = parentResult.data.depth + 1
-                        if (computedDepth > MAX_DEPTH) {
-                            return errorResponse(
-                                "Root item would be at depth $computedDepth which exceeds the maximum depth of $MAX_DEPTH",
-                                ErrorCodes.VALIDATION_ERROR
-                            )
-                        }
-                        computedDepth
-                    }
+                    is Result.Success -> parentResult.data.depth + 1
                     is Result.Error -> return errorResponse(
                         "Parent item '$parentId' not found: ${parentResult.error.message}",
                         ErrorCodes.RESOURCE_NOT_FOUND
@@ -413,16 +402,6 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
 
         // ── 4. Parse children ──────────────────────────────────────────────────
         val childDepth = rootDepth + 1
-        if (childDepth > MAX_DEPTH) {
-            val childrenArray = paramsObj["children"] as? JsonArray
-            if (childrenArray != null && childrenArray.isNotEmpty()) {
-                return errorResponse(
-                    "Children would be at depth $childDepth which exceeds the maximum depth of $MAX_DEPTH",
-                    ErrorCodes.VALIDATION_ERROR
-                )
-            }
-        }
-
         val childrenArray = paramsObj["children"] as? JsonArray ?: JsonArray(emptyList())
         val refToItem = mutableMapOf<String, WorkItem>()
         refToItem[ROOT_REF] = rootItem

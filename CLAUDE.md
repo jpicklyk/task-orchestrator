@@ -41,12 +41,13 @@ domain/
   repository/  — WorkItemRepository, NoteRepository, DependencyRepository, RoleTransitionRepository
 
 application/
-  tools/items/      — ManageItemsTool, QueryItemsTool
-  tools/notes/      — ManageNotesTool, QueryNotesTool
-  tools/dependency/ — ManageDependenciesTool, QueryDependenciesTool
+  tools/items/      — ManageItemsTool, QueryItemsTool (FTS5 search + list-filter)
+  tools/notes/      — ManageNotesTool, QueryNotesTool (FTS5 search + get/list)
+  tools/dependency/ — ManageDependenciesTool, QueryDependenciesTool (backlinks + get)
   tools/workflow/   — AdvanceItemTool, GetNextStatusTool, GetNextItemTool, GetBlockedItemsTool, GetContextTool
   tools/compound/   — CreateWorkTreeTool, CompleteTreeTool
   service/          — RoleTransitionHandler, NoteSchemaService, CascadeDetector, WorkTreeExecutor
+  service/search/   — FtsQuerySanitizer, RrfFusion
 
 infrastructure/
   database/schema/      — WorkItemsTable, NotesTable, DependenciesTable, RoleTransitionsTable
@@ -163,6 +164,9 @@ Add to `gradle/libs.versions.toml` (`[versions]` + `[libraries]`), then referenc
 | Migrations | `current/src/main/resources/db/migration/` |
 | Workflow config | `.taskorchestrator/config.yaml` |
 | Note schema service | `current/.../infrastructure/config/YamlWorkItemSchemaService.kt` (backward-compat typealias `YamlNoteSchemaService`) |
+| FTS5 search utilities | `current/.../application/service/search/` (FtsQuerySanitizer, RrfFusion) |
+| Search types (SearchResult, SearchHit, SearchScope, SearchMatchMode) | `current/.../infrastructure/repository/SQLiteWorkItemRepository.kt` |
+| BacklinkRow (domain model) | `current/.../domain/model/BacklinkRow.kt` |
 | Plugin | `claude-plugins/task-orchestrator/` |
 | Tests | `current/src/test/kotlin/` |
 

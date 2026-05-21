@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.repository
 
+import io.github.jpicklyk.mcptask.current.application.service.search.RrfFusion
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.Note
@@ -11,12 +12,17 @@ import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.NotesTable
 import org.jetbrains.exposed.v1.core.ResultRow
+import org.jetbrains.exposed.v1.core.VarCharColumnType
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
+import org.jetbrains.exposed.v1.core.java.UUIDColumnType
+import org.jetbrains.exposed.v1.core.vendors.H2Dialect
+import org.jetbrains.exposed.v1.core.vendors.currentDialect
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.selectAll
+import org.jetbrains.exposed.v1.jdbc.transactions.experimental.newSuspendedTransaction
 import org.jetbrains.exposed.v1.jdbc.update
 import org.slf4j.LoggerFactory
 import java.time.Instant
@@ -200,6 +206,237 @@ class SQLiteNoteRepository(
             actorClaim = actorClaim,
             verification = verification
         )
+    }
+
+    // -----------------------------------------------------------------------
+    // FTS5 full-text search
+    // -----------------------------------------------------------------------
+
+    /**
+     * Full-text search on note bodies using the V7 FTS5 virtual tables.
+     *
+     * **H2 (test environment):** FTS5 is SQLite-only. When the current dialect is H2,
+     * this method returns an empty [SearchResult] immediately.
+     *
+     * @param sanitizedFtsQuery FTS5 query string, already sanitized by the caller (T5 — QueryNotesTool).
+     * @param matchMode Which FTS table(s) to query.
+     * @param scope     Optional structural scope filters. [SearchScope.itemId] narrows to notes on
+     *   that specific item; [SearchScope.ancestorId] narrows to notes whose item_id is in the subtree.
+     * @param limit     Maximum hits to return (enforced at 100; default 20).
+     * @param offset    Zero-based page offset.
+     */
+    suspend fun ftsSearch(
+        sanitizedFtsQuery: String,
+        matchMode: SearchMatchMode = SearchMatchMode.AUTO,
+        scope: SearchScope? = null,
+        limit: Int = 20,
+        offset: Int = 0,
+    ): SearchResult {
+        val effectiveLimit = limit.coerceIn(1, 100)
+
+        return try {
+            newSuspendedTransaction(db = databaseManager.getDatabase()) {
+                // currentDialect is only accessible within an active transaction.
+                // FTS5 is SQLite-only — return empty for H2 (test environment).
+                if (currentDialect is H2Dialect) {
+                    return@newSuspendedTransaction SearchResult(hits = emptyList(), totalHits = 0, nextOffset = null)
+                }
+                val uuidType = UUIDColumnType()
+                val varcharType = VarCharColumnType(4000)
+
+                // RRF scoring delegated to RrfFusion utility (application.service.search.RrfFusion).
+
+                // Build optional subtree CTE (filters notes to those in the subtree under ancestorId).
+                val subtreeCteClause =
+                    if (scope?.ancestorId != null) {
+                        """
+                        WITH RECURSIVE subtree(id) AS (
+                            SELECT id FROM work_items WHERE id = ?
+                            UNION ALL
+                            SELECT wi.id FROM work_items wi JOIN subtree s ON wi.parent_id = s.id
+                        )
+                        """.trimIndent()
+                    } else {
+                        ""
+                    }
+
+                // Build additional WHERE fragments for scope filters.
+                val extraWhereParts = mutableListOf<String>()
+                if (scope?.itemId != null) extraWhereParts.add("n.work_item_id = ?")
+                if (scope?.ancestorId != null) extraWhereParts.add("n.work_item_id IN subtree")
+                // role filter on notes (not work_items.role — notes themselves have a role column)
+                // scope.role maps to the note's role field.
+                val extraWhere = if (extraWhereParts.isEmpty()) "" else " AND " + extraWhereParts.joinToString(" AND ")
+
+                // Build positional args for one FTS query.
+                fun buildArgs(): List<Pair<org.jetbrains.exposed.v1.core.ColumnType<*>, Any?>> {
+                    val args = mutableListOf<Pair<org.jetbrains.exposed.v1.core.ColumnType<*>, Any?>>()
+                    if (scope?.ancestorId != null) args.add(uuidType to scope.ancestorId)
+                    args.add(varcharType to sanitizedFtsQuery) // FTS MATCH param
+                    if (scope?.itemId != null) args.add(uuidType to scope.itemId)
+                    return args
+                }
+
+                data class NoteHit(
+                    val rowid: Long,
+                    val rank: Double,
+                    val snippet: String,
+                    val matchedTable: String,
+                    val noteId: java.util.UUID,
+                    val itemId: java.util.UUID,
+                    val noteKey: String,
+                )
+
+                val trigramHits = mutableMapOf<Long, NoteHit>()
+                val textHits = mutableMapOf<Long, NoteHit>()
+
+                fun runFtsQuery(
+                    ftsTable: String,
+                    hitMap: MutableMap<Long, NoteHit>,
+                    tableName: String,
+                ) {
+                    val sql =
+                        """
+                        ${subtreeCteClause.ifEmpty { "" }}
+                        SELECT
+                            ft.rowid,
+                            ft.rank,
+                            snippet($ftsTable, 0, '<mark>', '</mark>', '…', 32) AS snip,
+                            n.id AS note_id,
+                            n.work_item_id AS item_id,
+                            n.key AS note_key
+                        FROM $ftsTable ft
+                        JOIN notes n ON n.rowid = ft.rowid
+                        WHERE ft MATCH ?$extraWhere
+                        ORDER BY ft.rank
+                        LIMIT ${effectiveLimit + offset + 1}
+                        """.trimIndent()
+
+                    exec(sql, args = buildArgs()) { rs ->
+                        while (rs.next()) {
+                            val rowid = rs.getLong("rowid")
+                            val rank = rs.getDouble("rank")
+                            val snippet = rs.getString("snip") ?: ""
+                            val rawNoteId = rs.getObject("note_id")
+                            val rawItemId = rs.getObject("item_id")
+
+                            @Suppress("UNCHECKED_CAST")
+                            val noteId = uuidType.valueFromDB(rawNoteId!!) as java.util.UUID
+
+                            @Suppress("UNCHECKED_CAST")
+                            val itemId = uuidType.valueFromDB(rawItemId!!) as java.util.UUID
+                            val noteKey = rs.getString("note_key") ?: ""
+                            hitMap[rowid] = NoteHit(rowid, rank, snippet, tableName, noteId, itemId, noteKey)
+                        }
+                    }
+                }
+
+                when (matchMode) {
+                    SearchMatchMode.SUBSTRING -> runFtsQuery("notes_fts_trigram", trigramHits, "trigram")
+                    SearchMatchMode.TEXT -> runFtsQuery("notes_fts_text", textHits, "text")
+                    SearchMatchMode.AUTO -> {
+                        runFtsQuery("notes_fts_trigram", trigramHits, "trigram")
+                        runFtsQuery("notes_fts_text", textHits, "text")
+                    }
+                }
+
+                val allRowIds = (trigramHits.keys + textHits.keys).toSet()
+                if (allRowIds.isEmpty()) {
+                    return@newSuspendedTransaction SearchResult(
+                        hits = emptyList(),
+                        totalHits = 0,
+                        nextOffset = null,
+                    )
+                }
+
+                // RRF fusion: assign row numbers then compute fused score.
+                data class FusedDoc(
+                    val rowid: Long,
+                    val noteId: java.util.UUID,
+                    val itemId: java.util.UUID,
+                    val noteKey: String,
+                    val trigramRank: Double?,
+                    val textRank: Double?,
+                    var trigramRowNum: Int = Int.MAX_VALUE,
+                    var textRowNum: Int = Int.MAX_VALUE,
+                )
+
+                val docs = mutableMapOf<Long, FusedDoc>()
+                for (rowid in allRowIds) {
+                    val hit = trigramHits[rowid] ?: textHits[rowid]!!
+                    docs[rowid] =
+                        FusedDoc(
+                            rowid = rowid,
+                            noteId = hit.noteId,
+                            itemId = hit.itemId,
+                            noteKey = hit.noteKey,
+                            trigramRank = trigramHits[rowid]?.rank,
+                            textRank = textHits[rowid]?.rank,
+                        )
+                }
+
+                trigramHits.entries
+                    .sortedBy { it.value.rank }
+                    .forEachIndexed { idx, (rowid, _) -> docs[rowid]?.trigramRowNum = idx + 1 }
+                textHits.entries
+                    .sortedBy { it.value.rank }
+                    .forEachIndexed { idx, (rowid, _) -> docs[rowid]?.textRowNum = idx + 1 }
+
+                val ranked =
+                    docs.values
+                        .map { doc ->
+                            val score =
+                                (if (doc.trigramRowNum < Int.MAX_VALUE) RrfFusion.score(doc.trigramRowNum) else 0.0) +
+                                    (if (doc.textRowNum < Int.MAX_VALUE) RrfFusion.score(doc.textRowNum) else 0.0)
+                            doc to score
+                        }.sortedByDescending { it.second }
+
+                val totalHits = ranked.size
+                val pageSlice = ranked.drop(offset).take(effectiveLimit)
+
+                val hits =
+                    pageSlice.map { (doc, score) ->
+                        val trigramHit = trigramHits[doc.rowid]
+                        val textHit = textHits[doc.rowid]
+                        val snippet =
+                            when {
+                                trigramHit != null && textHit != null ->
+                                    if ((trigramHit.rank) <= (textHit.rank)) trigramHit.snippet else textHit.snippet
+                                trigramHit != null -> trigramHit.snippet
+                                else -> textHit!!.snippet
+                            }
+
+                        val matchedIn = mutableListOf<String>()
+                        if (trigramHit != null) matchedIn.add("trigram")
+                        if (textHit != null) matchedIn.add("text")
+
+                        SearchHit(
+                            kind = "note",
+                            itemId = doc.itemId,
+                            noteKey = doc.noteKey,
+                            field = "body",
+                            snippet = snippet,
+                            score = score,
+                            matchedIn = matchedIn,
+                            trigramRank = doc.trigramRank,
+                            textRank = doc.textRank,
+                        )
+                    }
+
+                val nextOffset =
+                    if (offset + effectiveLimit < totalHits) offset + effectiveLimit else null
+
+                SearchResult(
+                    hits = hits,
+                    totalHits = totalHits,
+                    nextOffset = nextOffset,
+                    truncated = totalHits > 100,
+                )
+            }
+        } catch (e: Exception) {
+            logger.error("FTS5 note search failed: ${e.message}", e)
+            SearchResult(hits = emptyList(), totalHits = 0, nextOffset = null)
+        }
     }
 
     companion object {

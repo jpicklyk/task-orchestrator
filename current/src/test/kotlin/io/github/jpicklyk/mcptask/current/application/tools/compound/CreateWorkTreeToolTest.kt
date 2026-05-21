@@ -272,11 +272,11 @@ class CreateWorkTreeToolTest {
         }
 
     // ──────────────────────────────────────────────
-    // 4. Depth cap: parentId at depth 2 → root becomes depth 3 (MAX_DEPTH) → success
+    // 4. Depth: parentId at depth 2 → root becomes depth 3 → success
     // ──────────────────────────────────────────────
 
     @Test
-    fun `root at depth 3 (MAX_DEPTH) succeeds`(): Unit =
+    fun `root at depth 3 succeeds`(): Unit =
         runBlocking {
             val parentItemId = UUID.randomUUID()
             val parentItem =
@@ -298,18 +298,18 @@ class CreateWorkTreeToolTest {
             val obj = result as JsonObject
             assertTrue(
                 obj["success"]!!.jsonPrimitive.boolean,
-                "Expected success for root at depth 3 (MAX_DEPTH), got: $result"
+                "Expected success for root at depth 3, got: $result"
             )
             val data = obj["data"] as JsonObject
             assertEquals(3, data["root"]!!.jsonObject["depth"]!!.jsonPrimitive.int)
         }
 
     // ──────────────────────────────────────────────
-    // 4b. Depth cap violation: parentId at depth 3 → root becomes depth 4 → fail
+    // 4b. Depth: parentId at depth 3 → root becomes depth 4 → success (no app-layer cap)
     // ──────────────────────────────────────────────
 
     @Test
-    fun `root at depth 4 exceeds MAX_DEPTH and fails`(): Unit =
+    fun `root at depth 4 succeeds (no app-layer depth cap)`(): Unit =
         runBlocking {
             val parentItemId = UUID.randomUUID()
             val parentItem =
@@ -320,17 +320,21 @@ class CreateWorkTreeToolTest {
                     parentId = UUID.randomUUID()
                 )
             coEvery { workItemRepo.getById(parentItemId) } returns Result.Success(parentItem)
+            coEvery { mockExecutor.execute(any()) } answers {
+                val input = firstArg<WorkTreeInput>()
+                echoResult(input)
+            }
 
             val params = buildParams(parentId = parentItemId.toString())
             val result = tool.execute(params, context)
 
             val obj = result as JsonObject
-            assertFalse(obj["success"]!!.jsonPrimitive.boolean, "Expected failure due to depth cap exceeded")
-            val errorMsg = obj["error"]!!.jsonObject["message"]!!.jsonPrimitive.content
             assertTrue(
-                errorMsg.contains("depth") || errorMsg.contains("maximum") || errorMsg.contains("exceeds"),
-                "Expected depth-related error but got: $errorMsg"
+                obj["success"]!!.jsonPrimitive.boolean,
+                "Expected success for root at depth 4 (no app-layer cap), got: $result"
             )
+            val data = obj["data"] as JsonObject
+            assertEquals(4, data["root"]!!.jsonObject["depth"]!!.jsonPrimitive.int)
         }
 
     // ──────────────────────────────────────────────
@@ -525,11 +529,11 @@ class CreateWorkTreeToolTest {
         }
 
     // ──────────────────────────────────────────────
-    // 12b. Depth boundary: root at depth 2, children at depth 3 (MAX_DEPTH) → success
+    // 12b. Depth: root at depth 2, children at depth 3 → success
     // ──────────────────────────────────────────────
 
     @Test
-    fun `root at depth 2 with children at depth 3 (MAX_DEPTH) succeeds`(): Unit =
+    fun `root at depth 2 with children at depth 3 succeeds`(): Unit =
         runBlocking {
             val parentItemId = UUID.randomUUID()
             val parentItem =
@@ -560,11 +564,11 @@ class CreateWorkTreeToolTest {
         }
 
     // ──────────────────────────────────────────────
-    // 12c. Depth boundary: root at depth 3 with children → children would be depth 4 → fail
+    // 12c. Depth: root at depth 3 with children → children at depth 4 → success (no cap)
     // ──────────────────────────────────────────────
 
     @Test
-    fun `children at depth 4 exceeds MAX_DEPTH and fails`(): Unit =
+    fun `children at depth 4 succeeds (no app-layer depth cap)`(): Unit =
         runBlocking {
             val parentItemId = UUID.randomUUID()
             val parentItem =
@@ -575,24 +579,28 @@ class CreateWorkTreeToolTest {
                     parentId = UUID.randomUUID()
                 )
             coEvery { workItemRepo.getById(parentItemId) } returns Result.Success(parentItem)
+            coEvery { mockExecutor.execute(any()) } answers {
+                val input = firstArg<WorkTreeInput>()
+                echoResult(input)
+            }
 
             val children =
                 buildJsonArray {
-                    add(makeChildSpec("c1", "Child that would be depth 4"))
+                    add(makeChildSpec("c1", "Child at depth 4"))
                 }
             val params = buildParams(parentId = parentItemId.toString(), children = children)
             val result = tool.execute(params, context)
 
             val obj = result as JsonObject
-            assertFalse(
-                obj["success"]!!.jsonPrimitive.boolean,
-                "Expected failure when children would exceed depth cap"
-            )
-            val errorMsg = obj["error"]!!.jsonObject["message"]!!.jsonPrimitive.content
             assertTrue(
-                errorMsg.contains("depth") || errorMsg.contains("maximum") || errorMsg.contains("exceeds"),
-                "Expected depth-related error but got: $errorMsg"
+                obj["success"]!!.jsonPrimitive.boolean,
+                "Expected success for children at depth 4 (no app-layer cap), got: $result"
             )
+            val data = obj["data"] as JsonObject
+            assertEquals(3, data["root"]!!.jsonObject["depth"]!!.jsonPrimitive.int)
+            val childrenArr = data["children"]!!.jsonArray
+            assertEquals(1, childrenArr.size)
+            assertEquals(4, childrenArr[0].jsonObject["depth"]!!.jsonPrimitive.int)
         }
 
     // ──────────────────────────────────────────────

@@ -40,7 +40,7 @@ Multiple keys combine with AND (space-separated). Examples: `tag=bug-fix priorit
   5. Custom filter — specify
 ```
 
-If the user picks "Tech debt container", search via `query_items(operation="search", query="Tech Debt", depth=0)` and use the resulting UUID.
+If the user picks "Tech debt container", search via FTS: `query_items(operation="search", query="Tech Debt", limit=5)` and use the resulting UUID. (FTS mode triggers when `query` is present; `depth` is a list-mode-only filter and is ignored in FTS mode.)
 
 ---
 

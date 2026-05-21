@@ -154,9 +154,9 @@ class ManageItemsToolTest {
         }
 
     @Test
-    fun `create item rejects depth beyond MAX_DEPTH`() =
+    fun `create item succeeds at depth 4 and beyond`() =
         runBlocking {
-            // Create chain: depth 0 -> 1 -> 2 -> 3 (MAX_DEPTH)
+            // Create chain: depth 0 -> 1 -> 2 -> 3
             var currentParentId: String? = null
             for (i in 0..2) {
                 val result =
@@ -185,7 +185,7 @@ class ManageItemsToolTest {
             }
 
             // At this point we have items at depths 0, 1, 2. Parent is at depth 2.
-            // Try to create at depth 3 (MAX_DEPTH = 3) - should succeed
+            // Create at depth 3 - should succeed
             val depth3Result =
                 tool.execute(
                     params(
@@ -209,7 +209,7 @@ class ManageItemsToolTest {
                     .jsonObject["id"]!!
                     .jsonPrimitive.content
 
-            // Try to create at depth 4 (beyond MAX_DEPTH = 3) - should fail
+            // Create at depth 4 - no depth cap, should also succeed
             val depth4Result =
                 tool.execute(
                     params(
@@ -218,7 +218,7 @@ class ManageItemsToolTest {
                             JsonArray(
                                 listOf(
                                     buildJsonObject {
-                                        put("title", JsonPrimitive("Level 4 - too deep"))
+                                        put("title", JsonPrimitive("Level 4"))
                                         put("parentId", JsonPrimitive(depth3Id))
                                     }
                                 )
@@ -227,12 +227,12 @@ class ManageItemsToolTest {
                     context
                 ) as JsonObject
 
-            assertTrue(depth4Result["success"]!!.jsonPrimitive.boolean) // envelope success - batch partially succeeded
+            assertTrue(depth4Result["success"]!!.jsonPrimitive.boolean)
             val data = depth4Result["data"] as JsonObject
-            assertEquals(0, data["created"]!!.jsonPrimitive.int)
-            assertEquals(1, data["failed"]!!.jsonPrimitive.int)
-            val failure = data["failures"]!!.jsonArray[0] as JsonObject
-            assertTrue(failure["error"]!!.jsonPrimitive.content.contains("exceeds maximum depth"))
+            assertEquals(1, data["created"]!!.jsonPrimitive.int)
+            assertEquals(0, data["failed"]!!.jsonPrimitive.int)
+            val item = data["items"]!!.jsonArray[0] as JsonObject
+            assertEquals(4, item["depth"]!!.jsonPrimitive.int)
         }
 
     @Test

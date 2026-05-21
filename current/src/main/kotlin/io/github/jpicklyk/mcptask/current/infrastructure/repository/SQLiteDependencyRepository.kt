@@ -1,15 +1,19 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.repository
 
+import io.github.jpicklyk.mcptask.current.domain.model.BacklinkRow
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
 import io.github.jpicklyk.mcptask.current.domain.validation.ValidationException
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.DependenciesTable
+import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.WorkItemsTable
+import org.jetbrains.exposed.v1.core.JoinType
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.inList
+import org.jetbrains.exposed.v1.core.java.UUIDColumnType
 import org.jetbrains.exposed.v1.core.or
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insert
@@ -267,4 +271,64 @@ class SQLiteDependencyRepository(
             unblockAt = row[DependenciesTable.unblockAt],
             createdAt = row[DependenciesTable.createdAt]
         )
+
+    // -----------------------------------------------------------------------
+    // Graph-aware backlinks query
+    // -----------------------------------------------------------------------
+
+    /**
+     * Returns reverse-direction dependency edges that point *at* [itemId].
+     *
+     * A backlink row represents another item whose dependency edge has [itemId] as the target:
+     *   `dependencies.to_item_id = itemId`
+     *
+     * The result is a list of [BacklinkRow] values containing the source item's UUID, the
+     * dependency type on that edge, and the source item's title (JOIN-fetched from `work_items`).
+     *
+     * Uses the existing `idx_<tablename>_to_item_id` index on [DependenciesTable] — no full scan.
+     *
+     * @param itemId UUID of the target item to find backlinks for.
+     * @param type   Optional filter: when non-null, only edges of this type are returned.
+     */
+    override suspend fun backlinks(
+        itemId: UUID,
+        type: DependencyType?,
+    ): List<BacklinkRow> =
+        newSuspendedTransaction(db = databaseManager.getDatabase()) {
+            val uuidType = UUIDColumnType()
+
+            // Build the query using Exposed DSL, joining to work_items for fromTitle.
+            // DependenciesTable has TWO foreign key references to WorkItemsTable (from_item_id
+            // and to_item_id). An unqualified innerJoin would throw IllegalStateException due to
+            // the ambiguous FK. Use an explicit join with onColumn/otherColumn to specify that
+            // we are joining dependencies.from_item_id = work_items.id (to fetch the source title).
+            val baseQuery =
+                DependenciesTable
+                    .join(
+                        WorkItemsTable,
+                        JoinType.INNER,
+                        onColumn = DependenciesTable.fromItemId,
+                        otherColumn = WorkItemsTable.id,
+                    ).selectAll()
+                    .where {
+                        (DependenciesTable.toItemId eq itemId).let { cond ->
+                            if (type != null) {
+                                cond and (DependenciesTable.type eq type.name)
+                            } else {
+                                cond
+                            }
+                        }
+                    }
+
+            baseQuery.mapNotNull { row ->
+                val depType = DependencyType.fromString(row[DependenciesTable.type]) ?: return@mapNotNull null
+                val fromItemId = row[DependenciesTable.fromItemId]
+                val fromTitle = row[WorkItemsTable.title]
+                BacklinkRow(
+                    fromItemId = fromItemId,
+                    type = depType,
+                    fromTitle = fromTitle,
+                )
+            }
+        }
 }
