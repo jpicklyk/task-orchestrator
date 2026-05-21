@@ -1954,4 +1954,82 @@ class ManageItemsToolTest {
             assertEquals("value", propsJson["custom"]!!.jsonPrimitive.content)
             assertEquals(listOf("new-trait"), propsJson["traits"]!!.jsonArray.map { it.jsonPrimitive.content })
         }
+
+    // ──────────────────────────────────────────────
+    // userSummary tests
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `userSummary create reports correct item count`(): Unit =
+        runBlocking {
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("create"),
+                        "items" to
+                            JsonArray(
+                                listOf(
+                                    buildJsonObject { put("title", JsonPrimitive("Item One")) },
+                                    buildJsonObject { put("title", JsonPrimitive("Item Two")) }
+                                )
+                            )
+                    ),
+                    context
+                )
+            val summary = tool.userSummary(params("operation" to JsonPrimitive("create")), result, isError = false)
+            assertEquals("Created 2 item(s)", summary)
+        }
+
+    @Test
+    fun `userSummary update reports correct item count`(): Unit =
+        runBlocking {
+            val createResult =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("create"),
+                        "items" to JsonArray(listOf(buildJsonObject { put("title", JsonPrimitive("Item to Update")) }))
+                    ),
+                    context
+                ) as JsonObject
+            val itemId = (createResult["data"] as JsonObject)["items"]!!.jsonArray[0].jsonObject["id"]!!.jsonPrimitive.content
+
+            val updateResult =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("update"),
+                        "items" to
+                            JsonArray(
+                                listOf(buildJsonObject { put("id", JsonPrimitive(itemId)); put("title", JsonPrimitive("Updated")) })
+                            )
+                    ),
+                    context
+                )
+            val summary = tool.userSummary(params("operation" to JsonPrimitive("update")), updateResult, isError = false)
+            assertEquals("Updated 1 item(s)", summary)
+        }
+
+    @Test
+    fun `userSummary delete reports correct item count`(): Unit =
+        runBlocking {
+            val createResult =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("create"),
+                        "items" to JsonArray(listOf(buildJsonObject { put("title", JsonPrimitive("Item to Delete")) }))
+                    ),
+                    context
+                ) as JsonObject
+            val itemId = (createResult["data"] as JsonObject)["items"]!!.jsonArray[0].jsonObject["id"]!!.jsonPrimitive.content
+
+            val deleteResult =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("delete"),
+                        "ids" to JsonArray(listOf(JsonPrimitive(itemId)))
+                    ),
+                    context
+                )
+            val summary = tool.userSummary(params("operation" to JsonPrimitive("delete")), deleteResult, isError = false)
+            assertEquals("Deleted 1 item(s)", summary)
+        }
 }

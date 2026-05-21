@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.application.tools.workflow
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.domain.model.*
+import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
@@ -11,6 +12,7 @@ import kotlinx.serialization.json.*
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import java.time.Instant
 import java.util.UUID
 import kotlin.test.*
 
@@ -56,7 +58,7 @@ class GetNextItemToolTest {
                 depth = depth
             )
         val result = context.workItemRepository().create(item)
-        return (result as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success).data
+        return (result as Result.Success).data
     }
 
     /**
@@ -827,7 +829,7 @@ class GetNextItemToolTest {
         // Capture Instant.now() ONCE: separate calls drift by microseconds on high-resolution
         // clocks (Linux CI), causing originalClaimedAt > claimedAt and tripping H2's
         // `originalClaimedAt <= claimedAt` invariant.
-        val now = java.time.Instant.now()
+        val now = Instant.now()
         val item =
             WorkItem(
                 title = title,
@@ -838,7 +840,7 @@ class GetNextItemToolTest {
                 originalClaimedAt = now.minusSeconds(60)
             )
         val result = context.workItemRepository().create(item)
-        return (result as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success).data
+        return (result as Result.Success).data
     }
 
     /**
@@ -849,7 +851,7 @@ class GetNextItemToolTest {
         role: Role = Role.QUEUE
     ): WorkItem {
         // Capture Instant.now() once — same clock-drift rationale as createClaimedItem.
-        val now = java.time.Instant.now()
+        val now = Instant.now()
         val item =
             WorkItem(
                 title = title,
@@ -860,7 +862,7 @@ class GetNextItemToolTest {
                 originalClaimedAt = now.minusSeconds(7200)
             )
         val result = context.workItemRepository().create(item)
-        return (result as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success).data
+        return (result as Result.Success).data
     }
 
     @Test
@@ -1158,7 +1160,7 @@ class GetNextItemToolTest {
             // WorkItem.type defaults to null; filter for null-type items is tested via absence
             // Create via repository with a non-null type string:
             val typedItem =
-                io.github.jpicklyk.mcptask.current.domain.model.WorkItem(
+                WorkItem(
                     title = "Bug Fix",
                     role = Role.QUEUE,
                     priority = Priority.HIGH,
@@ -1167,7 +1169,7 @@ class GetNextItemToolTest {
             val createdTyped =
                 (
                     context.workItemRepository().create(typedItem)
-                        as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success
+                        as Result.Success
                 ).data
 
             val result =
@@ -1211,11 +1213,11 @@ class GetNextItemToolTest {
     @Test
     fun `createdAfter filter excludes items created before the threshold`(): Unit =
         runBlocking {
-            val now = java.time.Instant.now()
+            val now = Instant.now()
 
             // Create an item with a past createdAt (simulate via repository directly)
             val pastItem =
-                io.github.jpicklyk.mcptask.current.domain.model.WorkItem(
+                WorkItem(
                     title = "Old Task",
                     role = Role.QUEUE,
                     createdAt = now.minusSeconds(7200) // 2 hours ago
@@ -1223,11 +1225,11 @@ class GetNextItemToolTest {
             val createdPast =
                 (
                     context.workItemRepository().create(pastItem)
-                        as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success
+                        as Result.Success
                 ).data
 
             val recentItem =
-                io.github.jpicklyk.mcptask.current.domain.model.WorkItem(
+                WorkItem(
                     title = "Recent Task",
                     role = Role.QUEUE,
                     createdAt = now.minusSeconds(60) // 1 minute ago
@@ -1235,7 +1237,7 @@ class GetNextItemToolTest {
             val createdRecent =
                 (
                     context.workItemRepository().create(recentItem)
-                        as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success
+                        as Result.Success
                 ).data
 
             val threshold = now.minusSeconds(3600).toString() // 1 hour ago
@@ -1259,10 +1261,10 @@ class GetNextItemToolTest {
     @Test
     fun `createdBefore filter excludes items created after the threshold`(): Unit =
         runBlocking {
-            val now = java.time.Instant.now()
+            val now = Instant.now()
 
             val pastItem =
-                io.github.jpicklyk.mcptask.current.domain.model.WorkItem(
+                WorkItem(
                     title = "Old Task",
                     role = Role.QUEUE,
                     createdAt = now.minusSeconds(7200)
@@ -1270,11 +1272,11 @@ class GetNextItemToolTest {
             val createdPast =
                 (
                     context.workItemRepository().create(pastItem)
-                        as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success
+                        as Result.Success
                 ).data
 
             val recentItem =
-                io.github.jpicklyk.mcptask.current.domain.model.WorkItem(
+                WorkItem(
                     title = "Recent Task",
                     role = Role.QUEUE,
                     createdAt = now.minusSeconds(60)
@@ -1282,7 +1284,7 @@ class GetNextItemToolTest {
             val createdRecent =
                 (
                     context.workItemRepository().create(recentItem)
-                        as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success
+                        as Result.Success
                 ).data
 
             val threshold = now.minusSeconds(1800).toString() // 30 minutes ago
@@ -1306,11 +1308,11 @@ class GetNextItemToolTest {
     @Test
     fun `modifiedAfter filter excludes items modified before the threshold`(): Unit =
         runBlocking {
-            val now = java.time.Instant.now()
+            val now = Instant.now()
 
             // Item modified long before the threshold
             val oldItem =
-                io.github.jpicklyk.mcptask.current.domain.model.WorkItem(
+                WorkItem(
                     title = "Old Modified Task",
                     role = Role.QUEUE,
                     modifiedAt = now.minusSeconds(7200) // 2 hours ago
@@ -1318,12 +1320,12 @@ class GetNextItemToolTest {
             val createdOld =
                 (
                     context.workItemRepository().create(oldItem)
-                        as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success
+                        as Result.Success
                 ).data
 
             // Item modified recently (after the threshold)
             val recentItem =
-                io.github.jpicklyk.mcptask.current.domain.model.WorkItem(
+                WorkItem(
                     title = "Recently Modified Task",
                     role = Role.QUEUE,
                     modifiedAt = now.minusSeconds(60) // 1 minute ago
@@ -1331,7 +1333,7 @@ class GetNextItemToolTest {
             val createdRecent =
                 (
                     context.workItemRepository().create(recentItem)
-                        as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success
+                        as Result.Success
                 ).data
 
             val threshold = now.minusSeconds(3600).toString() // 1 hour ago
@@ -1358,11 +1360,11 @@ class GetNextItemToolTest {
     @Test
     fun `modifiedBefore filter excludes items modified after the threshold`(): Unit =
         runBlocking {
-            val now = java.time.Instant.now()
+            val now = Instant.now()
 
             // Item modified long ago (before the threshold)
             val oldItem =
-                io.github.jpicklyk.mcptask.current.domain.model.WorkItem(
+                WorkItem(
                     title = "Old Modified Task",
                     role = Role.QUEUE,
                     modifiedAt = now.minusSeconds(7200) // 2 hours ago
@@ -1370,12 +1372,12 @@ class GetNextItemToolTest {
             val createdOld =
                 (
                     context.workItemRepository().create(oldItem)
-                        as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success
+                        as Result.Success
                 ).data
 
             // Item modified recently (after the threshold)
             val recentItem =
-                io.github.jpicklyk.mcptask.current.domain.model.WorkItem(
+                WorkItem(
                     title = "Recently Modified Task",
                     role = Role.QUEUE,
                     modifiedAt = now.minusSeconds(60) // 1 minute ago
@@ -1383,7 +1385,7 @@ class GetNextItemToolTest {
             val createdRecent =
                 (
                     context.workItemRepository().create(recentItem)
-                        as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success
+                        as Result.Success
                 ).data
 
             val threshold = now.minusSeconds(1800).toString() // 30 minutes ago
@@ -1407,10 +1409,10 @@ class GetNextItemToolTest {
     @Test
     fun `roleChangedAfter filter excludes items whose role changed before the threshold`(): Unit =
         runBlocking {
-            val now = java.time.Instant.now()
+            val now = Instant.now()
 
             val oldRoleItem =
-                io.github.jpicklyk.mcptask.current.domain.model.WorkItem(
+                WorkItem(
                     title = "Old Role Change",
                     role = Role.QUEUE,
                     roleChangedAt = now.minusSeconds(7200)
@@ -1418,11 +1420,11 @@ class GetNextItemToolTest {
             val createdOld =
                 (
                     context.workItemRepository().create(oldRoleItem)
-                        as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success
+                        as Result.Success
                 ).data
 
             val recentRoleItem =
-                io.github.jpicklyk.mcptask.current.domain.model.WorkItem(
+                WorkItem(
                     title = "Recent Role Change",
                     role = Role.QUEUE,
                     roleChangedAt = now.minusSeconds(60)
@@ -1430,7 +1432,7 @@ class GetNextItemToolTest {
             val createdRecent =
                 (
                     context.workItemRepository().create(recentRoleItem)
-                        as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success
+                        as Result.Success
                 ).data
 
             val threshold = now.minusSeconds(3600).toString()
@@ -1454,10 +1456,10 @@ class GetNextItemToolTest {
     @Test
     fun `roleChangedBefore filter excludes items whose role changed after the threshold`(): Unit =
         runBlocking {
-            val now = java.time.Instant.now()
+            val now = Instant.now()
 
             val oldRoleItem =
-                io.github.jpicklyk.mcptask.current.domain.model.WorkItem(
+                WorkItem(
                     title = "Old Role Change",
                     role = Role.QUEUE,
                     roleChangedAt = now.minusSeconds(7200)
@@ -1465,11 +1467,11 @@ class GetNextItemToolTest {
             val createdOld =
                 (
                     context.workItemRepository().create(oldRoleItem)
-                        as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success
+                        as Result.Success
                 ).data
 
             val recentRoleItem =
-                io.github.jpicklyk.mcptask.current.domain.model.WorkItem(
+                WorkItem(
                     title = "Recent Role Change",
                     role = Role.QUEUE,
                     roleChangedAt = now.minusSeconds(60)
@@ -1477,7 +1479,7 @@ class GetNextItemToolTest {
             val createdRecent =
                 (
                     context.workItemRepository().create(recentRoleItem)
-                        as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success
+                        as Result.Success
                 ).data
 
             val threshold = now.minusSeconds(1800).toString()
@@ -1505,9 +1507,9 @@ class GetNextItemToolTest {
     @Test
     fun `orderBy=priority returns items HIGH first then by complexity ascending`(): Unit =
         runBlocking {
-            val now = java.time.Instant.now()
+            val now = Instant.now()
             val lowItem =
-                io.github.jpicklyk.mcptask.current.domain.model.WorkItem(
+                WorkItem(
                     title = "Low Priority",
                     role = Role.QUEUE,
                     priority = Priority.LOW,
@@ -1515,7 +1517,7 @@ class GetNextItemToolTest {
                     createdAt = now.minusSeconds(100)
                 )
             val highComplexItem =
-                io.github.jpicklyk.mcptask.current.domain.model.WorkItem(
+                WorkItem(
                     title = "High Priority Complex",
                     role = Role.QUEUE,
                     priority = Priority.HIGH,
@@ -1523,7 +1525,7 @@ class GetNextItemToolTest {
                     createdAt = now.minusSeconds(200)
                 )
             val highSimpleItem =
-                io.github.jpicklyk.mcptask.current.domain.model.WorkItem(
+                WorkItem(
                     title = "High Priority Simple",
                     role = Role.QUEUE,
                     priority = Priority.HIGH,
@@ -1531,7 +1533,7 @@ class GetNextItemToolTest {
                     createdAt = now.minusSeconds(300)
                 )
             val medItem =
-                io.github.jpicklyk.mcptask.current.domain.model.WorkItem(
+                WorkItem(
                     title = "Medium Priority",
                     role = Role.QUEUE,
                     priority = Priority.MEDIUM,
@@ -1540,20 +1542,20 @@ class GetNextItemToolTest {
                 )
 
             val repo = context.workItemRepository()
-            val createdLow = (repo.create(lowItem) as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success).data
+            val createdLow = (repo.create(lowItem) as Result.Success).data
             val createdHighComplex =
                 (
                     repo.create(
                         highComplexItem
-                    ) as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success
+                    ) as Result.Success
                 ).data
             val createdHighSimple =
                 (
                     repo.create(
                         highSimpleItem
-                    ) as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success
+                    ) as Result.Success
                 ).data
-            val createdMed = (repo.create(medItem) as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success).data
+            val createdMed = (repo.create(medItem) as Result.Success).data
 
             val result =
                 tool.execute(
@@ -1578,34 +1580,34 @@ class GetNextItemToolTest {
     @Test
     fun `orderBy=oldest returns items by createdAt ascending (FIFO)`(): Unit =
         runBlocking {
-            val now = java.time.Instant.now()
+            val now = Instant.now()
             val repo = context.workItemRepository()
 
             val oldestItem =
-                io.github.jpicklyk.mcptask.current.domain.model.WorkItem(
+                WorkItem(
                     title = "Oldest",
                     role = Role.QUEUE,
                     priority = Priority.LOW,
                     createdAt = now.minusSeconds(3000)
                 )
             val middleItem =
-                io.github.jpicklyk.mcptask.current.domain.model.WorkItem(
+                WorkItem(
                     title = "Middle",
                     role = Role.QUEUE,
                     priority = Priority.HIGH, // high priority but newer
                     createdAt = now.minusSeconds(2000)
                 )
             val newestItem =
-                io.github.jpicklyk.mcptask.current.domain.model.WorkItem(
+                WorkItem(
                     title = "Newest",
                     role = Role.QUEUE,
                     priority = Priority.HIGH,
                     createdAt = now.minusSeconds(1000)
                 )
 
-            val createdOldest = (repo.create(oldestItem) as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success).data
-            val createdMiddle = (repo.create(middleItem) as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success).data
-            val createdNewest = (repo.create(newestItem) as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success).data
+            val createdOldest = (repo.create(oldestItem) as Result.Success).data
+            val createdMiddle = (repo.create(middleItem) as Result.Success).data
+            val createdNewest = (repo.create(newestItem) as Result.Success).data
 
             val result =
                 tool.execute(
@@ -1629,34 +1631,34 @@ class GetNextItemToolTest {
     @Test
     fun `orderBy=newest returns items by createdAt descending`(): Unit =
         runBlocking {
-            val now = java.time.Instant.now()
+            val now = Instant.now()
             val repo = context.workItemRepository()
 
             val oldestItem =
-                io.github.jpicklyk.mcptask.current.domain.model.WorkItem(
+                WorkItem(
                     title = "Oldest",
                     role = Role.QUEUE,
                     priority = Priority.HIGH, // high priority but oldest
                     createdAt = now.minusSeconds(3000)
                 )
             val middleItem =
-                io.github.jpicklyk.mcptask.current.domain.model.WorkItem(
+                WorkItem(
                     title = "Middle",
                     role = Role.QUEUE,
                     priority = Priority.LOW,
                     createdAt = now.minusSeconds(2000)
                 )
             val newestItem =
-                io.github.jpicklyk.mcptask.current.domain.model.WorkItem(
+                WorkItem(
                     title = "Newest",
                     role = Role.QUEUE,
                     priority = Priority.LOW,
                     createdAt = now.minusSeconds(1000)
                 )
 
-            val createdOldest = (repo.create(oldestItem) as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success).data
-            val createdMiddle = (repo.create(middleItem) as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success).data
-            val createdNewest = (repo.create(newestItem) as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success).data
+            val createdOldest = (repo.create(oldestItem) as Result.Success).data
+            val createdMiddle = (repo.create(middleItem) as Result.Success).data
+            val createdNewest = (repo.create(newestItem) as Result.Success).data
 
             val result =
                 tool.execute(
@@ -1778,7 +1780,7 @@ class GetNextItemToolTest {
         title: String,
         claimedBy: String = "test-agent-x"
     ): WorkItem {
-        val now = java.time.Instant.now()
+        val now = Instant.now()
         val parent =
             WorkItem(
                 title = title,
@@ -1789,7 +1791,7 @@ class GetNextItemToolTest {
                 originalClaimedAt = now.minusSeconds(60)
             )
         val result = context.workItemRepository().create(parent)
-        return (result as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success).data
+        return (result as Result.Success).data
     }
 
     @Test
@@ -1869,7 +1871,7 @@ class GetNextItemToolTest {
     fun `get_next_item includes child when parent claim has expired (TTL recovery)`(): Unit =
         runBlocking {
             // Parent with EXPIRED claim — TTL has passed
-            val now = java.time.Instant.now()
+            val now = Instant.now()
             val expiredParent =
                 WorkItem(
                     title = "Feature (expired claim)",
@@ -1882,7 +1884,7 @@ class GetNextItemToolTest {
             val savedExpiredParent =
                 (
                     context.workItemRepository().create(expiredParent)
-                        as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success
+                        as Result.Success
                 ).data
 
             val subTask = createItem("Sub-task (recovery eligible)", parentId = savedExpiredParent.id, depth = 1, role = Role.QUEUE)
