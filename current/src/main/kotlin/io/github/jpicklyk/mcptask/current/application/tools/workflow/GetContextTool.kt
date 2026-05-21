@@ -75,17 +75,23 @@ Parameters:
                         "mode",
                         buildJsonObject {
                             put("type", JsonPrimitive("string"))
-                            put("description", JsonPrimitive(
-                                "Explicit mode selection: 'item' (requires itemId), " +
-                                "'session-resume' (requires since), " +
-                                "'health-check' (no other params). " +
-                                "When omitted, mode is inferred from which parameters are provided."
-                            ))
-                            put("enum", buildJsonArray {
-                                add(JsonPrimitive("item"))
-                                add(JsonPrimitive("session-resume"))
-                                add(JsonPrimitive("health-check"))
-                            })
+                            put(
+                                "description",
+                                JsonPrimitive(
+                                    "Explicit mode selection: 'item' (requires itemId), " +
+                                        "'session-resume' (requires since), " +
+                                        "'health-check' (no other params). " +
+                                        "When omitted, mode is inferred from which parameters are provided."
+                                )
+                            )
+                            put(
+                                "enum",
+                                buildJsonArray {
+                                    add(JsonPrimitive("item"))
+                                    add(JsonPrimitive("session-resume"))
+                                    add(JsonPrimitive("health-check"))
+                                }
+                            )
                         }
                     )
                     put(

@@ -221,7 +221,6 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
                 throw ToolValidationException("trigger must be 'complete' or 'cancel', got: $trigger")
             }
         }
-
     }
 
     override suspend fun execute(

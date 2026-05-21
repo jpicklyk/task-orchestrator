@@ -125,7 +125,10 @@ Operations: get, search, overview
                         "itemId",
                         buildJsonObject {
                             put("type", JsonPrimitive("string"))
-                            put("description", JsonPrimitive("Item UUID or hex prefix (minimum 4 characters) for get operation; UUID for scoped overview"))
+                            put(
+                                "description",
+                                JsonPrimitive("Item UUID or hex prefix (minimum 4 characters) for get operation; UUID for scoped overview")
+                            )
                         }
                     )
                     put(

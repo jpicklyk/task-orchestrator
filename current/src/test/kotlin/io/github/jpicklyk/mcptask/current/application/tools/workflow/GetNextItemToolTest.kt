@@ -1348,7 +1348,10 @@ class GetNextItemToolTest {
             assertTrue(isSuccess(result))
             val recs = extractRecommendations(result)
             val recIds = recs.map { it.jsonObject["itemId"]!!.jsonPrimitive.content }
-            assertTrue(recIds.contains(createdRecent.id.toString()), "recently modified item should be returned after modifiedAfter threshold")
+            assertTrue(
+                recIds.contains(createdRecent.id.toString()),
+                "recently modified item should be returned after modifiedAfter threshold"
+            )
             assertFalse(recIds.contains(createdOld.id.toString()), "old item should be excluded by modifiedAfter filter")
         }
 
