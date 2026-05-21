@@ -3235,4 +3235,83 @@ class AdvanceItemToolTest {
             // Should not throw
             tool.validateParams(params)
         }
+
+    // ──────────────────────────────────────────────
+    // Cancel cascade gate bypass tests
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `cancel child cascade to parent bypasses work-phase gate on parent with unfilled notes`(): Unit =
+        runBlocking {
+            val parentId = UUID.randomUUID()
+            val childId = UUID.randomUUID()
+            // Parent in WORK role with tags matching a schema that has required work-phase notes
+            // Use WorkItem directly to set tags (makeItem helper doesn't support tags param)
+            val parentItem = WorkItem(id = parentId, title = "Gated Parent", role = Role.WORK, tags = "feature-task")
+            // Child in WORK role under this parent
+            val childItem = makeItem(id = childId, role = Role.WORK, title = "Child", parentId = parentId)
+
+            // Schema with required work-phase note on parent — matches "feature-task" tag
+            val schemaEntries =
+                listOf(
+                    NoteSchemaEntry(
+                        key = "session-tracking",
+                        role = Role.WORK,
+                        required = true,
+                        description = "Session tracking"
+                    )
+                )
+            val noteSchemaService =
+                object : NoteSchemaService {
+                    override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
+                        if (tags.isNotEmpty()) schemaEntries else null
+                }
+
+            val noteRepo = mockk<NoteRepository>()
+            // Parent has no notes filled — gate would block if trigger were "complete"
+            coEvery { noteRepo.findByItemId(parentId) } returns Result.Success(emptyList())
+            coEvery { noteRepo.findByItemId(parentId, any()) } returns Result.Success(emptyList())
+            // Child notes (not relevant for cascade gate, but needed for the child's own gate check)
+            coEvery { noteRepo.findByItemId(childId) } returns Result.Success(emptyList())
+            coEvery { noteRepo.findByItemId(childId, any()) } returns Result.Success(emptyList())
+
+            val gatedContext =
+                run {
+                    val provider = mockk<RepositoryProvider>()
+                    every { provider.workItemRepository() } returns workItemRepo
+                    every { provider.dependencyRepository() } returns depRepo
+                    every { provider.noteRepository() } returns noteRepo
+                    every { provider.roleTransitionRepository() } returns roleTransitionRepo
+                    ToolExecutionContext(provider, noteSchemaService)
+                }
+
+            coEvery { workItemRepo.getById(childId) } returns Result.Success(childItem)
+            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parentItem)
+            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            every { depRepo.findByToItemId(any()) } returns emptyList()
+            every { depRepo.findByFromItemId(any()) } returns emptyList()
+            // After child cancels, all remaining children of parent are terminal
+            coEvery { workItemRepo.countChildrenByRole(parentId) } returns
+                Result.Success(mapOf(Role.TERMINAL to 1))
+
+            // Cancel the child — this should cascade the parent to TERMINAL without gate check
+            val params = buildParams(transitionObj(childId, "cancel"))
+            val result = tool.execute(params, gatedContext)
+
+            val results = extractResults(result)
+            val r = results[0].jsonObject
+            assertTrue(r["applied"]!!.jsonPrimitive.boolean, "Child cancel should succeed")
+            assertEquals("terminal", r["newRole"]!!.jsonPrimitive.content)
+            assertEquals("cancelled", r["statusLabel"]!!.jsonPrimitive.content)
+
+            // Cascade event for parent should be applied — NOT gate-blocked
+            val cascadeEvents = r["cascadeEvents"]!!.jsonArray
+            assertEquals(1, cascadeEvents.size, "Expected one cascade event for parent")
+            val cascade = cascadeEvents[0].jsonObject
+            assertEquals(parentId.toString(), cascade["itemId"]!!.jsonPrimitive.content)
+            assertEquals("terminal", cascade["targetRole"]!!.jsonPrimitive.content)
+            assertTrue(cascade["applied"]!!.jsonPrimitive.boolean, "Parent cascade should be applied (not gate-blocked)")
+            assertNull(cascade["gateBlocked"], "gateBlocked must not be present on cancel cascade")
+        }
 }

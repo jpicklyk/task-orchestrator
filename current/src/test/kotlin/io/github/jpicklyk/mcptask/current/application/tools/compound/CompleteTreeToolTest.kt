@@ -18,6 +18,7 @@ import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
 import org.junit.jupiter.api.BeforeEach
+import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
 import java.util.UUID
 import kotlin.test.*
@@ -1114,5 +1115,161 @@ class CompleteTreeToolTest {
                 }
             )
         }
+    }
+
+    // ──────────────────────────────────────────────
+    // terminalRole parameter tests
+    // ──────────────────────────────────────────────
+
+    @Nested
+    inner class TerminalRoleTests {
+        private fun makeSchemaServiceWithWorkPhaseNote(): NoteSchemaService {
+            val schemaEntries =
+                listOf(
+                    NoteSchemaEntry(
+                        key = "session-tracking",
+                        role = Role.WORK,
+                        required = true,
+                        description = "Session tracking"
+                    )
+                )
+            return object : NoteSchemaService {
+                override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? = if (tags.isNotEmpty()) schemaEntries else null
+            }
+        }
+
+        private fun contextWithNoteSchema(noteSchemaService: NoteSchemaService): ToolExecutionContext {
+            val provider = mockk<RepositoryProvider>()
+            every { provider.workItemRepository() } returns workItemRepo
+            every { provider.dependencyRepository() } returns depRepo
+            every { provider.noteRepository() } returns noteRepo
+            every { provider.roleTransitionRepository() } returns roleTransitionRepo
+            return ToolExecutionContext(provider, noteSchemaService)
+        }
+
+        @Test
+        fun `terminalRole=cancelled on queue item with unfilled notes succeeds`(): Unit =
+            runBlocking {
+                val itemId = UUID.randomUUID()
+                // Item has tags matching schema, so gate would normally enforce session-tracking
+                val item = makeItem(id = itemId, title = "Queue Item", role = Role.QUEUE, tags = "feature-task")
+
+                val gatedContext = contextWithNoteSchema(makeSchemaServiceWithWorkPhaseNote())
+
+                // No notes filled — normally gate would block "complete" trigger
+                coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+                coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+                coEvery { noteRepo.findByItemId(itemId, any()) } returns Result.Success(emptyList())
+                coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+                coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+                every { depRepo.findByToItemId(itemId) } returns emptyList()
+
+                val params =
+                    buildJsonObject {
+                        put(
+                            "itemIds",
+                            buildJsonArray { add(JsonPrimitive(itemId.toString())) }
+                        )
+                        put("terminalRole", JsonPrimitive("cancelled"))
+                    }
+                val result = tool.execute(params, gatedContext)
+
+                val results = extractResults(result)
+                assertEquals(1, results.size)
+                val r = results[0].jsonObject
+                assertTrue(r["applied"]!!.jsonPrimitive.boolean, "terminalRole=cancelled should bypass gate and succeed")
+                assertNull(r["gateErrors"], "No gate errors expected for terminalRole=cancelled")
+                assertEquals("cancel", r["trigger"]!!.jsonPrimitive.content)
+
+                val summary = extractSummary(result)
+                assertEquals(1, summary["completed"]!!.jsonPrimitive.int)
+                assertEquals(0, summary["gateFailures"]!!.jsonPrimitive.int)
+            }
+
+        @Test
+        fun `terminalRole=done explicit enforces gate same as default`(): Unit =
+            runBlocking {
+                val itemId = UUID.randomUUID()
+                val item = makeItem(id = itemId, title = "Queue Item", role = Role.QUEUE, tags = "feature-task")
+
+                val gatedContext = contextWithNoteSchema(makeSchemaServiceWithWorkPhaseNote())
+
+                // No notes filled — gate should block
+                coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+                coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+                coEvery { noteRepo.findByItemId(itemId, any()) } returns Result.Success(emptyList())
+                every { depRepo.findByToItemId(itemId) } returns emptyList()
+
+                val params =
+                    buildJsonObject {
+                        put(
+                            "itemIds",
+                            buildJsonArray { add(JsonPrimitive(itemId.toString())) }
+                        )
+                        put("terminalRole", JsonPrimitive("done"))
+                    }
+                val result = tool.execute(params, gatedContext)
+
+                val results = extractResults(result)
+                assertEquals(1, results.size)
+                val r = results[0].jsonObject
+                assertFalse(r["applied"]!!.jsonPrimitive.boolean, "terminalRole=done should enforce gate")
+                assertNotNull(r["gateErrors"], "Gate errors expected for terminalRole=done with unfilled notes")
+                val gateErrors = r["gateErrors"]!!.jsonArray
+                assertTrue(gateErrors.any { it.jsonPrimitive.content.contains("session-tracking") })
+
+                val summary = extractSummary(result)
+                assertEquals(0, summary["completed"]!!.jsonPrimitive.int)
+                assertEquals(1, summary["gateFailures"]!!.jsonPrimitive.int)
+            }
+
+        @Test
+        fun `terminalRole invalid value throws ToolValidationException`() {
+            assertFailsWith<ToolValidationException> {
+                tool.validateParams(
+                    buildJsonObject {
+                        put("rootId", JsonPrimitive(UUID.randomUUID().toString()))
+                        put("terminalRole", JsonPrimitive("invalid"))
+                    }
+                )
+            }
+        }
+
+        @Test
+        fun `terminalRole=cancelled with explicit trigger=complete - trigger wins and gate is enforced`(): Unit =
+            runBlocking {
+                val itemId = UUID.randomUUID()
+                val item = makeItem(id = itemId, title = "Queue Item", role = Role.QUEUE, tags = "feature-task")
+
+                val gatedContext = contextWithNoteSchema(makeSchemaServiceWithWorkPhaseNote())
+
+                // No notes filled
+                coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+                coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+                coEvery { noteRepo.findByItemId(itemId, any()) } returns Result.Success(emptyList())
+                every { depRepo.findByToItemId(itemId) } returns emptyList()
+
+                // Both terminalRole=cancelled AND trigger=complete: trigger wins
+                val params =
+                    buildJsonObject {
+                        put(
+                            "itemIds",
+                            buildJsonArray { add(JsonPrimitive(itemId.toString())) }
+                        )
+                        put("terminalRole", JsonPrimitive("cancelled"))
+                        put("trigger", JsonPrimitive("complete"))
+                    }
+                val result = tool.execute(params, gatedContext)
+
+                val results = extractResults(result)
+                assertEquals(1, results.size)
+                val r = results[0].jsonObject
+                // trigger=complete takes precedence → gate is enforced → should fail
+                assertFalse(r["applied"]!!.jsonPrimitive.boolean, "Explicit trigger=complete takes precedence over terminalRole=cancelled")
+                assertNotNull(r["gateErrors"], "Gate errors expected when trigger=complete wins")
+
+                val summary = extractSummary(result)
+                assertEquals(1, summary["gateFailures"]!!.jsonPrimitive.int)
+            }
     }
 }
