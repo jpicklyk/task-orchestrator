@@ -22,7 +22,7 @@ import org.jetbrains.exposed.v1.core.vendors.currentDialect
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.selectAll
-import org.jetbrains.exposed.v1.jdbc.transactions.experimental.newSuspendedTransaction
+import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.jdbc.update
 import org.slf4j.LoggerFactory
 import java.time.Instant
@@ -235,11 +235,11 @@ class SQLiteNoteRepository(
         val effectiveLimit = limit.coerceIn(1, 100)
 
         return try {
-            newSuspendedTransaction(db = databaseManager.getDatabase()) {
+            suspendTransaction(db = databaseManager.getDatabase()) {
                 // currentDialect is only accessible within an active transaction.
                 // FTS5 is SQLite-only — return empty for H2 (test environment).
                 if (currentDialect is H2Dialect) {
-                    return@newSuspendedTransaction SearchResult(hits = emptyList(), totalHits = 0, nextOffset = null)
+                    return@suspendTransaction SearchResult(hits = emptyList(), totalHits = 0, nextOffset = null)
                 }
                 val uuidType = UUIDColumnType()
                 val varcharType = VarCharColumnType(4000)
@@ -356,7 +356,7 @@ class SQLiteNoteRepository(
 
                 val allRowIds = (trigramHits.keys + textHits.keys).toSet()
                 if (allRowIds.isEmpty()) {
-                    return@newSuspendedTransaction SearchResult(
+                    return@suspendTransaction SearchResult(
                         hits = emptyList(),
                         totalHits = 0,
                         nextOffset = null,
