@@ -7,8 +7,8 @@ kotlinSerialization = "1.11.0"
 # MCP SDK
 mcpSdk = "0.12.0"
 
-# Ktor (pinned ahead of MCP SDK's bundled 3.3.3; 3.x is backwards-compatible)
-ktor = "3.4.2"
+# Ktor (pinned to match MCP SDK 0.12.0's bundled version; 3.4.x broke SSE routing API)
+ktor = "3.3.3"
 
 # Database
 sqlite = "3.49.1.0"
