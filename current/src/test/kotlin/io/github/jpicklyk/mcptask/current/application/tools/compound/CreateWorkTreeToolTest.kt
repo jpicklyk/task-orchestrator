@@ -2157,7 +2157,6 @@ class CreateWorkTreeToolTest {
 
     @Nested
     inner class ParentRefTests {
-
         private fun makeChildSpecWithParentRef(
             ref: String,
             title: String,
