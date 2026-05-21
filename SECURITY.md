@@ -72,7 +72,7 @@ MCP Task Orchestrator does **not** implement authentication or authorization at 
 - **STDIO transport**: The MCP client spawns the server process directly. The client is implicitly trusted — it controls the process lifecycle and database path.
 - **HTTP transport**: The server binds to a configurable host and port (default `0.0.0.0:3001`). **There is no built-in TLS, authentication headers, or CORS.** When using HTTP transport, ensure the server is only accessible from trusted clients — deploy behind a reverse proxy with TLS and authentication, or restrict network access to trusted hosts.
 
-All 13 MCP tools are available to any connected client without identification. There is no permission model, no role-based access control, and no per-tool authorization checks. Within a tenant's database, all agents are peers with equal access.
+All 14 MCP tools are available to any connected client without identification. There is no permission model, no role-based access control, and no per-tool authorization checks. Within a tenant's database, all agents are peers with equal access.
 
 **This is intentional.** Within a cooperating fleet, access control between agents adds friction without meaningful security benefit — the agents are working toward the same goals. Tenant isolation is achieved at the infrastructure level (separate databases), not the application level.
 

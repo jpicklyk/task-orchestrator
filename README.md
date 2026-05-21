@@ -17,7 +17,7 @@ Multi-agent workflows need infrastructure the model doesn't provide. When an orc
 
 ## A Different Approach
 
-Task Orchestrator is an [MCP server](https://modelcontextprotocol.io) — not a prompt layer. It provides 13 tools that give any MCP-compatible AI agent a persistent work item graph with **server-enforced quality gates**. The enforcement happens at the tool level: if a required design note isn't filled, `advance_item` returns an error. If a dependency isn't satisfied, the transition is blocked. If actor authentication is enabled and an agent doesn't identify itself, the call is rejected before it reaches the server.
+Task Orchestrator is an [MCP server](https://modelcontextprotocol.io) — not a prompt layer. It provides 14 tools that give any MCP-compatible AI agent a persistent work item graph with **server-enforced quality gates**. The enforcement happens at the tool level: if a required design note isn't filled, `advance_item` returns an error. If a dependency isn't satisfied, the transition is blocked. If actor authentication is enabled and an agent doesn't identify itself, the call is rejected before it reaches the server.
 
 The rules live in the server, not the conversation.
 
@@ -233,7 +233,7 @@ Mount your project's config to activate gate enforcement:
 }
 ```
 
-Without schemas, all 13 tools work in schema-free mode — no gates, no required notes. Add schemas when you want enforcement.
+Without schemas, all 14 tools work in schema-free mode — no gates, no required notes. Add schemas when you want enforcement.
 
 ---
 
@@ -260,7 +260,7 @@ The MCP server works without the plugin. The plugin makes it seamless with Claud
 
 ---
 
-## 13 MCP Tools
+## 14 MCP Tools
 
 | Category | Tools | Purpose |
 |----------|-------|---------|
@@ -305,7 +305,7 @@ Agent: advance_item(trigger="start", itemId="a3f2",
 | Resource | What's there |
 |----------|-------------|
 | **[Quick Start Guide](https://github.com/jpicklyk/task-orchestrator/wiki/quick-start)** | Full setup walkthrough with first work item |
-| **[API Reference](https://github.com/jpicklyk/task-orchestrator/wiki/api-reference)** | All 13 tools — parameters, response shapes, actor attribution |
+| **[API Reference](https://github.com/jpicklyk/task-orchestrator/wiki/api-reference)** | All 14 tools — parameters, response shapes, actor attribution |
 | **[Workflow Guide](https://github.com/jpicklyk/task-orchestrator/wiki/workflow-guide)** | Schemas, phase gates, dependencies, lifecycle modes |
 | **[Fleet Deployment](https://github.com/jpicklyk/task-orchestrator/wiki/fleet-deployment)** | Multi-agent operators: identity policy, SQLite tuning, capacity planning, claim disclosure |
 | **[Wiki](https://github.com/jpicklyk/task-orchestrator/wiki)** | Full documentation hub |
@@ -316,10 +316,10 @@ Agent: advance_item(trigger="start", itemId="a3f2",
 
 ## Technical Stack
 
-- **Kotlin 2.2.0** with Coroutines
+- **Kotlin 2.3.21** with Coroutines
 - **SQLite + Exposed ORM** — zero-config persistent storage with FTS5 full-text search (requires SQLite ≥ 3.45, bundled automatically)
 - **Flyway Migrations** — versioned schema management
-- **MCP SDK 0.9.0** — STDIO and HTTP transport
+- **MCP SDK 0.12.0** — STDIO and HTTP transport
 - **Docker** — one-command deployment
 
 Clean Architecture (Domain > Application > Infrastructure > Interface) with comprehensive test coverage.

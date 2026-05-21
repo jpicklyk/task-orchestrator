@@ -77,7 +77,7 @@ Restart Claude Code (close and reopen), then run:
 /mcp
 ```
 
-You should see `mcp-task-orchestrator` listed as connected, with tools including `manage_items`, `query_items`, `advance_item`, `manage_notes`, `query_notes`, `manage_dependencies`, `query_dependencies`, `get_next_item`, `get_blocked_items`, `get_next_status`, `get_context`, `create_work_tree`, and `complete_tree`.
+You should see `mcp-task-orchestrator` listed as connected, with tools including `manage_items`, `query_items`, `advance_item`, `claim_item`, `manage_notes`, `query_notes`, `manage_dependencies`, `query_dependencies`, `get_next_item`, `get_blocked_items`, `get_next_status`, `get_context`, `create_work_tree`, and `complete_tree`.
 
 If the server shows as disconnected, check that Docker is running and that the image pulled successfully:
 
@@ -239,7 +239,7 @@ advance_item(transitions=[{itemId: "<uuid>", trigger: "complete"}])
 get_context()
 ```
 
-See [api-reference.md](api-reference.md) for full parameter documentation on all 13 tools.
+See [api-reference.md](api-reference.md) for full parameter documentation on all 14 tools.
 
 ---
 
@@ -397,5 +397,5 @@ After adding or editing this file, reconnect the MCP server:
 ## What's next
 
 - Run `/task-orchestrator:quick-start` for an interactive hands-on tutorial
-- [api-reference.md](api-reference.md) — full reference for all 13 MCP tools, parameters, and response shapes
+- [api-reference.md](api-reference.md) — full reference for all 14 MCP tools, parameters, and response shapes
 - [workflow-guide.md](workflow-guide.md) — note schemas, phase gates, dependency patterns, and lifecycle examples
