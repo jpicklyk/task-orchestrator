@@ -34,27 +34,33 @@ class GetContextTool : BaseToolDefinition() {
         """
 Read-only context snapshot. Three modes:
 
-**Item mode** — `itemId` (UUID):
+**Item mode** — pass `mode: "item"` (or provide `itemId`):
 Returns the item's current role, note schema for its tags, existing notes with filled/exists status,
 gate status (canAdvance + missing required notes for current phase), and `noteProgress`
 (`{filled, remaining, total}` counts of required notes for the current role; null for terminal or schema-free items).
 Full claim detail when item is claimed: `claimedBy`, `claimedAt`, `claimExpiresAt` (UTC), `isExpired` (boolean).
 Use this mode to diagnose stalled/expired claims — this is the only mode that exposes claimedBy identity.
 
-**Session resume** — `since` (ISO 8601 timestamp):
+**Session resume** — pass `mode: "session-resume"` (or provide `since`):
 Returns active items (role=work or review), recent role transitions since the timestamp
 (including actor/verification when present), and stalled items (active items with missing required notes).
 No claim summary in this mode — use item mode or health-check mode for claim visibility.
 
-**Health check** — no parameters:
+**Health check** — pass `mode: "health-check"` (or omit all mode-selecting params):
 Returns all active items (work/review), blocked items, stalled items, and
 `claimSummary: { active: N, expired: N }` — lightweight fleet health signal (counts only, no identity).
 
+When `mode` is omitted, the mode is inferred from which parameters are provided (`itemId` → item, `since` → session-resume, neither → health-check).
+
 Parameters:
-- itemId (optional UUID): triggers item context mode
-- since (optional ISO 8601 string): triggers session resume mode
+- mode (optional string: "item", "session-resume", "health-check"): explicit mode selection; takes
+  precedence over implicit detection when provided
+- itemId (optional UUID): item to inspect; required when mode="item"
+- since (optional ISO 8601 string): transition window start; required when mode="session-resume"
 - includeAncestors (optional boolean, default false): when true, each listed item includes an
   `ancestors` array ordered root-first (direct parent last). Root items (depth=0) get `"ancestors": []`.
+- limit (optional integer, default 50, max 200): maximum number of role transitions returned in
+  session-resume mode
         """.trimIndent()
 
     override val category = ToolCategory.WORKFLOW

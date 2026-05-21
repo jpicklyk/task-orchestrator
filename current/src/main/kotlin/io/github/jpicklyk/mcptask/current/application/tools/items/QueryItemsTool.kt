@@ -82,7 +82,7 @@ Operations: get, search, overview
     Markdown formatting in snippets is preserved as-is.
 
   *List mode* (when `query` is omitted): Filter items by structured criteria.
-  - Optional: parentId, depth, role, priority, tags, createdAfter/Before, modifiedAfter/Before,
+  - Optional: parentId, depth, role, priority, tags, type, createdAfter/Before, modifiedAfter/Before,
               roleChangedAfter/Before, sortBy, sortOrder, limit, offset, claimStatus, includeAncestors
   - claimStatus: "claimed" (active live claim), "unclaimed" (never claimed), "expired" (TTL elapsed).
     When provided, a boolean `isClaimed` field is added to each result.
