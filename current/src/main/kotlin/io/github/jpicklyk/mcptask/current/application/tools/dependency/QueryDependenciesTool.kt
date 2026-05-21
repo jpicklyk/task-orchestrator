@@ -138,11 +138,11 @@ Returns: { backlinks: [{ fromItemId, type, fromTitle }], total: N }
                         }
                     )
                 },
-            required = listOf("itemId")
+            required = listOf("operation", "itemId")
         )
 
     override fun validateParams(params: JsonElement) {
-        val operation = optionalString(params, "operation") ?: "get"
+        val operation = requireString(params, "operation")
         if (operation !in listOf("get", "backlinks")) {
             throw ToolValidationException("Invalid operation: $operation. Must be one of: get, backlinks")
         }

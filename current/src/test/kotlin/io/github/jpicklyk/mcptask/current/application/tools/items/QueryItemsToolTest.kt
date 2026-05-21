@@ -88,7 +88,7 @@ class QueryItemsToolTest {
                 tool.execute(
                     params(
                         "operation" to JsonPrimitive("get"),
-                        "id" to JsonPrimitive(itemId)
+                        "itemId" to JsonPrimitive(itemId)
                     ),
                     context
                 ) as JsonObject
@@ -114,7 +114,7 @@ class QueryItemsToolTest {
                 tool.execute(
                     params(
                         "operation" to JsonPrimitive("get"),
-                        "id" to JsonPrimitive(randomId)
+                        "itemId" to JsonPrimitive(randomId)
                     ),
                     context
                 ) as JsonObject
@@ -132,7 +132,7 @@ class QueryItemsToolTest {
                 tool.execute(
                     params(
                         "operation" to JsonPrimitive("get"),
-                        "id" to JsonPrimitive(randomIdStr)
+                        "itemId" to JsonPrimitive(randomIdStr)
                     ),
                     context
                 ) as JsonObject
@@ -153,12 +153,12 @@ class QueryItemsToolTest {
 
             val result1 =
                 tool.execute(
-                    params("operation" to JsonPrimitive("get"), "id" to JsonPrimitive(id1.toString())),
+                    params("operation" to JsonPrimitive("get"), "itemId" to JsonPrimitive(id1.toString())),
                     context
                 ) as JsonObject
             val result2 =
                 tool.execute(
-                    params("operation" to JsonPrimitive("get"), "id" to JsonPrimitive(id2.toString())),
+                    params("operation" to JsonPrimitive("get"), "itemId" to JsonPrimitive(id2.toString())),
                     context
                 ) as JsonObject
 
@@ -607,7 +607,7 @@ class QueryItemsToolTest {
                 tool.execute(
                     params(
                         "operation" to JsonPrimitive("get"),
-                        "id" to JsonPrimitive(childId),
+                        "itemId" to JsonPrimitive(childId),
                         "includeAncestors" to JsonPrimitive(true)
                     ),
                     context
@@ -643,7 +643,7 @@ class QueryItemsToolTest {
                 tool.execute(
                     params(
                         "operation" to JsonPrimitive("get"),
-                        "id" to JsonPrimitive(childId),
+                        "itemId" to JsonPrimitive(childId),
                         "includeAncestors" to JsonPrimitive(false)
                     ),
                     context
@@ -663,7 +663,7 @@ class QueryItemsToolTest {
                 tool.execute(
                     params(
                         "operation" to JsonPrimitive("get"),
-                        "id" to JsonPrimitive(rootId),
+                        "itemId" to JsonPrimitive(rootId),
                         "includeAncestors" to JsonPrimitive(true)
                     ),
                     context
@@ -840,7 +840,7 @@ class QueryItemsToolTest {
                 tool.execute(
                     params(
                         "operation" to JsonPrimitive("get"),
-                        "id" to JsonPrimitive(itemId)
+                        "itemId" to JsonPrimitive(itemId)
                     ),
                     context
                 ) as JsonObject
@@ -860,7 +860,7 @@ class QueryItemsToolTest {
                 tool.execute(
                     params(
                         "operation" to JsonPrimitive("get"),
-                        "id" to JsonPrimitive(itemId)
+                        "itemId" to JsonPrimitive(itemId)
                     ),
                     context
                 ) as JsonObject
@@ -1354,7 +1354,7 @@ class QueryItemsToolTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `get requires id parameter`() {
+    fun `get requires itemId parameter`() {
         assertFailsWith<ToolValidationException> {
             tool.validateParams(
                 params("operation" to JsonPrimitive("get"))

@@ -1145,6 +1145,8 @@ class SQLiteWorkItemRepository(
         complexityMax: Int?,
         createdAfter: Instant?,
         createdBefore: Instant?,
+        modifiedAfter: Instant?,
+        modifiedBefore: Instant?,
         roleChangedAfter: Instant?,
         roleChangedBefore: Instant?,
         orderBy: NextItemOrder,
@@ -1175,6 +1177,10 @@ class SQLiteWorkItemRepository(
             // Created-at time window
             createdAfter?.let { conditions.add(WorkItemsTable.createdAt greaterEq it) }
             createdBefore?.let { conditions.add(WorkItemsTable.createdAt lessEq it) }
+
+            // Modified-at time window
+            modifiedAfter?.let { conditions.add(WorkItemsTable.modifiedAt greaterEq it) }
+            modifiedBefore?.let { conditions.add(WorkItemsTable.modifiedAt lessEq it) }
 
             // Role-changed-at time window
             roleChangedAfter?.let { conditions.add(WorkItemsTable.roleChangedAt greaterEq it) }

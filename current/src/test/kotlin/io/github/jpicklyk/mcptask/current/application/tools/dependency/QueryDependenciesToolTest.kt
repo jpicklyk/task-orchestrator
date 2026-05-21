@@ -529,6 +529,15 @@ class QueryDependenciesToolTest {
     // ──────────────────────────────────────────────
 
     @Test
+    fun `missing operation throws validation error`() {
+        assertFailsWith<ToolValidationException> {
+            tool.validateParams(
+                params("itemId" to JsonPrimitive(UUID.randomUUID().toString()))
+            )
+        }
+    }
+
+    @Test
     fun `missing itemId throws validation error`() {
         assertFailsWith<ToolValidationException> {
             tool.validateParams(params())
@@ -573,6 +582,7 @@ class QueryDependenciesToolTest {
         // Should not throw
         tool.validateParams(
             params(
+                "operation" to JsonPrimitive("get"),
                 "itemId" to JsonPrimitive(UUID.randomUUID().toString()),
                 "direction" to JsonPrimitive("incoming"),
                 "type" to JsonPrimitive("BLOCKS"),

@@ -330,11 +330,11 @@ class GetBlockedItemsToolTest {
         }
 
     // ──────────────────────────────────────────────
-    // Test: includeItemDetails
+    // Test: includeDetails
     // ──────────────────────────────────────────────
 
     @Test
-    fun `includeItemDetails true includes summary and tags`(): Unit =
+    fun `includeDetails true includes summary and tags`(): Unit =
         runBlocking {
             val blockerId = createItem("Blocker", role = "queue")
             val blockedId = createItem("Blocked", role = "queue", summary = "A summary", tags = "backend,api")
@@ -343,7 +343,7 @@ class GetBlockedItemsToolTest {
 
             val result =
                 tool.execute(
-                    params("includeItemDetails" to JsonPrimitive(true)),
+                    params("includeDetails" to JsonPrimitive(true)),
                     context
                 ) as JsonObject
 
@@ -355,7 +355,7 @@ class GetBlockedItemsToolTest {
         }
 
     @Test
-    fun `includeItemDetails false omits summary and tags`(): Unit =
+    fun `includeDetails false omits summary and tags`(): Unit =
         runBlocking {
             val blockerId = createItem("Blocker", role = "queue")
             val blockedId = createItem("Blocked", role = "queue", summary = "A summary", tags = "backend")
@@ -364,7 +364,7 @@ class GetBlockedItemsToolTest {
 
             val result =
                 tool.execute(
-                    params("includeItemDetails" to JsonPrimitive(false)),
+                    params("includeDetails" to JsonPrimitive(false)),
                     context
                 ) as JsonObject
 

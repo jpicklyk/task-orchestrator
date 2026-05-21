@@ -57,6 +57,8 @@ Filter parameters (all optional, any-match semantics where applicable):
 - complexityMax (integer 1..10): Return only items with complexity <= this value
 - createdAfter (string, ISO 8601): Return only items created after this timestamp
 - createdBefore (string, ISO 8601): Return only items created before this timestamp
+- modifiedAfter (string, ISO 8601): Return only items last modified after this timestamp
+- modifiedBefore (string, ISO 8601): Return only items last modified before this timestamp
 - roleChangedAfter (string, ISO 8601): Return only items whose role last changed after this timestamp
 - roleChangedBefore (string, ISO 8601): Return only items whose role last changed before this timestamp
 - orderBy (string: priority|oldest|newest, default "priority"): Ordering strategy —
@@ -185,6 +187,20 @@ Filter parameters (all optional, any-match semantics where applicable):
                         }
                     )
                     put(
+                        "modifiedAfter",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("string"))
+                            put("description", JsonPrimitive("ISO 8601 timestamp — return only items last modified after this point"))
+                        }
+                    )
+                    put(
+                        "modifiedBefore",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("string"))
+                            put("description", JsonPrimitive("ISO 8601 timestamp — return only items last modified before this point"))
+                        }
+                    )
+                    put(
                         "roleChangedAfter",
                         buildJsonObject {
                             put("type", JsonPrimitive("string"))
@@ -259,7 +275,7 @@ Filter parameters (all optional, any-match semantics where applicable):
         }
 
         // ISO 8601 timestamp validations — round-trip via Instant.parse
-        for (field in listOf("createdAfter", "createdBefore", "roleChangedAfter", "roleChangedBefore")) {
+        for (field in listOf("createdAfter", "createdBefore", "modifiedAfter", "modifiedBefore", "roleChangedAfter", "roleChangedBefore")) {
             val raw = optionalString(params, field)
             if (raw != null) {
                 try {
@@ -305,6 +321,8 @@ Filter parameters (all optional, any-match semantics where applicable):
         val complexityMax = optionalInt(params, "complexityMax")
         val parsedCreatedAfter = optionalString(params, "createdAfter")?.let { Instant.parse(it) }
         val parsedCreatedBefore = optionalString(params, "createdBefore")?.let { Instant.parse(it) }
+        val parsedModifiedAfter = optionalString(params, "modifiedAfter")?.let { Instant.parse(it) }
+        val parsedModifiedBefore = optionalString(params, "modifiedBefore")?.let { Instant.parse(it) }
         val parsedRoleChangedAfter = optionalString(params, "roleChangedAfter")?.let { Instant.parse(it) }
         val parsedRoleChangedBefore = optionalString(params, "roleChangedBefore")?.let { Instant.parse(it) }
         val parsedOrderBy =
@@ -322,6 +340,8 @@ Filter parameters (all optional, any-match semantics where applicable):
                 complexityMax = complexityMax,
                 createdAfter = parsedCreatedAfter,
                 createdBefore = parsedCreatedBefore,
+                modifiedAfter = parsedModifiedAfter,
+                modifiedBefore = parsedModifiedBefore,
                 roleChangedAfter = parsedRoleChangedAfter,
                 roleChangedBefore = parsedRoleChangedBefore,
                 orderBy = parsedOrderBy,
@@ -375,6 +395,8 @@ Filter parameters (all optional, any-match semantics where applicable):
                             (criteria.complexityMax == null || (item.complexity != null && item.complexity <= criteria.complexityMax)) &&
                             (criteria.createdAfter == null || !item.createdAt.isBefore(criteria.createdAfter)) &&
                             (criteria.createdBefore == null || !item.createdAt.isAfter(criteria.createdBefore)) &&
+                            (criteria.modifiedAfter == null || !item.modifiedAt.isBefore(criteria.modifiedAfter)) &&
+                            (criteria.modifiedBefore == null || !item.modifiedAt.isAfter(criteria.modifiedBefore)) &&
                             (criteria.roleChangedAfter == null || !item.roleChangedAt.isBefore(criteria.roleChangedAfter)) &&
                             (criteria.roleChangedBefore == null || !item.roleChangedAt.isAfter(criteria.roleChangedBefore))
                     }

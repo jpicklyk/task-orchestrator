@@ -68,7 +68,7 @@ class QueryItemsToolPrefixTest {
                 tool.execute(
                     params(
                         "operation" to JsonPrimitive("get"),
-                        "id" to JsonPrimitive(prefix)
+                        "itemId" to JsonPrimitive(prefix)
                     ),
                     context
                 ) as JsonObject
@@ -89,7 +89,7 @@ class QueryItemsToolPrefixTest {
                 tool.execute(
                     params(
                         "operation" to JsonPrimitive("get"),
-                        "id" to JsonPrimitive(prefix)
+                        "itemId" to JsonPrimitive(prefix)
                     ),
                     context
                 ) as JsonObject
@@ -108,7 +108,7 @@ class QueryItemsToolPrefixTest {
                 tool.execute(
                     params(
                         "operation" to JsonPrimitive("get"),
-                        "id" to JsonPrimitive(itemId)
+                        "itemId" to JsonPrimitive(itemId)
                     ),
                     context
                 ) as JsonObject
@@ -147,7 +147,7 @@ class QueryItemsToolPrefixTest {
                 tool.execute(
                     params(
                         "operation" to JsonPrimitive("get"),
-                        "id" to JsonPrimitive(fourCharPrefix)
+                        "itemId" to JsonPrimitive(fourCharPrefix)
                     ),
                     context
                 ) as JsonObject
@@ -172,7 +172,7 @@ class QueryItemsToolPrefixTest {
                 tool.execute(
                     params(
                         "operation" to JsonPrimitive("get"),
-                        "id" to JsonPrimitive(mixedCase)
+                        "itemId" to JsonPrimitive(mixedCase)
                     ),
                     context
                 ) as JsonObject
@@ -195,7 +195,7 @@ class QueryItemsToolPrefixTest {
                 tool.execute(
                     params(
                         "operation" to JsonPrimitive("get"),
-                        "id" to JsonPrimitive("0000")
+                        "itemId" to JsonPrimitive("0000")
                     ),
                     context
                 ) as JsonObject
@@ -212,7 +212,7 @@ class QueryItemsToolPrefixTest {
                 tool.execute(
                     params(
                         "operation" to JsonPrimitive("get"),
-                        "id" to JsonPrimitive("abc")
+                        "itemId" to JsonPrimitive("abc")
                     ),
                     context
                 ) as JsonObject
@@ -229,7 +229,7 @@ class QueryItemsToolPrefixTest {
                 tool.execute(
                     params(
                         "operation" to JsonPrimitive("get"),
-                        "id" to JsonPrimitive("ghij1234")
+                        "itemId" to JsonPrimitive("ghij1234")
                     ),
                     context
                 ) as JsonObject
@@ -257,7 +257,7 @@ class QueryItemsToolPrefixTest {
                 tool.execute(
                     params(
                         "operation" to JsonPrimitive("get"),
-                        "id" to JsonPrimitive(sharedPrefix.key)
+                        "itemId" to JsonPrimitive(sharedPrefix.key)
                     ),
                     context
                 ) as JsonObject
@@ -280,7 +280,7 @@ class QueryItemsToolPrefixTest {
                 tool.execute(
                     params(
                         "operation" to JsonPrimitive("get"),
-                        "id" to JsonPrimitive("a")
+                        "itemId" to JsonPrimitive("a")
                     ),
                     context
                 ) as JsonObject
@@ -298,7 +298,7 @@ class QueryItemsToolPrefixTest {
                 tool.validateParams(
                     params(
                         "operation" to JsonPrimitive("get"),
-                        "id" to JsonPrimitive("")
+                        "itemId" to JsonPrimitive("")
                     )
                 )
             }

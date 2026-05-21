@@ -72,6 +72,29 @@ Parameters:
             properties =
                 buildJsonObject {
                     put(
+                        "mode",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("string"))
+                            put(
+                                "description",
+                                JsonPrimitive(
+                                    "Explicit mode selection: 'item' (requires itemId), " +
+                                        "'session-resume' (requires since), " +
+                                        "'health-check' (no other params). " +
+                                        "When omitted, mode is inferred from which parameters are provided."
+                                )
+                            )
+                            put(
+                                "enum",
+                                buildJsonArray {
+                                    add(JsonPrimitive("item"))
+                                    add(JsonPrimitive("session-resume"))
+                                    add(JsonPrimitive("health-check"))
+                                }
+                            )
+                        }
+                    )
+                    put(
                         "itemId",
                         buildJsonObject {
                             put("type", JsonPrimitive("string"))
@@ -110,6 +133,10 @@ Parameters:
         )
 
     override fun validateParams(params: JsonElement) {
+        val mode = optionalString(params, "mode")
+        if (mode != null && mode !in listOf("item", "session-resume", "health-check")) {
+            throw ToolValidationException("Invalid mode: $mode. Must be one of: item, session-resume, health-check")
+        }
         // Validate itemId if present — accepts full UUID or short hex prefix
         validateIdOrPrefix(params, "itemId", required = false)
         // Validate since if present
@@ -130,9 +157,17 @@ Parameters:
                 ?.intOrNull
                 ?.coerceIn(1, 200) ?: 50
 
+        val explicitMode = optionalString(params, "mode")
+
         return when {
-            itemId != null -> executeItemMode(itemId, context, includeAncestors)
-            sinceInstant != null -> executeSessionResumeMode(sinceInstant, context, includeAncestors, transitionLimit)
+            explicitMode == "item" || (explicitMode == null && itemId != null) -> {
+                if (itemId == null) return errorResponse("mode=item requires itemId parameter", ErrorCodes.VALIDATION_ERROR)
+                executeItemMode(itemId, context, includeAncestors)
+            }
+            explicitMode == "session-resume" || (explicitMode == null && sinceInstant != null) -> {
+                if (sinceInstant == null) return errorResponse("mode=session-resume requires since parameter", ErrorCodes.VALIDATION_ERROR)
+                executeSessionResumeMode(sinceInstant, context, includeAncestors, transitionLimit)
+            }
             else -> executeHealthCheckMode(context, includeAncestors)
         }
     }

@@ -53,6 +53,7 @@ is computed automatically from the parent; nesting depth is unbounded (cycle pro
 | `recursive` | boolean | No | Delete all descendants before deleting the target items (default: false) |
 | `requiresVerification` | boolean | No | **Top-level `requiresVerification` is ignored.** Set it on individual items in the `items` array instead. |
 | `requestId` | string (UUID) | No | Client-generated UUID for idempotency. Repeated calls with the same `(actor.id, requestId)` within ~10 minutes return the cached response without re-executing. Cache is single-instance and in-memory (not persisted). |
+| `actor` | object | No | Actor for idempotency key resolution: `{ id (required string), kind (required: orchestrator\|subagent\|user\|external), parent? (optional string), proof? (optional string) }`. Required when `requestId` is provided. |
 
 **Item object fields (create):**
 
@@ -230,7 +231,7 @@ snippets, filtered list search, or hierarchical overview.
 
 ```json
 // Fetch single item with ancestor breadcrumbs
-{ "operation": "get", "id": "550e8400-e29b-41d4-a716-446655440001", "includeAncestors": true }
+{ "operation": "get", "itemId": "550e8400-e29b-41d4-a716-446655440001", "includeAncestors": true }
 
 // FTS5 full-text search — find items mentioning "OAuth"
 { "operation": "search", "query": "OAuth flow", "limit": 10 }
@@ -795,7 +796,7 @@ detail enrichment, BFS graph traversal, and reverse-edge backlink lookup.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `operation` | string | No | `"get"` (default when omitted) |
+| `operation` | string | Yes | `"get"` |
 | `itemId` | string (UUID or 4+ char prefix) | Yes | WorkItem to query dependencies for |
 | `direction` | string | No | `incoming`, `outgoing`, or `all` (default: `all`). Incoming = things that block this item; outgoing = things this item blocks. |
 | `type` | string | No | Filter: `BLOCKS`, `IS_BLOCKED_BY`, `RELATES_TO` |
@@ -1069,30 +1070,33 @@ When the item is in BLOCKED role, the response includes a `suggestion` field ins
 supplied. Use for session startup, work-summary dashboards, and pre-advance gate checks.
 
 **Modes:**
-- **Item mode** — `itemId` provided: note schema, existing notes with fill status, and gate status for a specific item.
-- **Session resume** — `since` provided: active items, recent role transitions since the timestamp, and stalled items.
-- **Health check** — no parameters: all active items (work/review), blocked items, and stalled items.
+- **Item mode** — pass `mode: "item"` (or provide `itemId`): note schema, existing notes with fill status, and gate status for a specific item.
+- **Session resume** — pass `mode: "session-resume"` (or provide `since`): active items, recent role transitions since the timestamp, and stalled items.
+- **Health check** — pass `mode: "health-check"` (or omit all mode-selecting params): all active items (work/review), blocked items, and stalled items.
+
+When `mode` is omitted, the mode is inferred from which parameters are present (`itemId` → item, `since` → session-resume, neither → health-check).
 
 #### Key Parameters
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `itemId` | string (UUID) | No | Triggers item mode |
-| `since` | string (ISO 8601) | No | Triggers session-resume mode |
+| `mode` | string | No | Explicit mode: `"item"`, `"session-resume"`, or `"health-check"`. When provided, takes precedence over implicit detection. |
+| `itemId` | string (UUID) | No | Item UUID for item mode. Required when `mode="item"`. |
+| `since` | string (ISO 8601) | No | Timestamp for session-resume mode. Required when `mode="session-resume"`. |
 | `includeAncestors` | boolean | No | Include `ancestors` array on each listed item (default: false) |
 | `limit` | integer (1–200) | No | Max role transitions in session-resume mode (default: 50) |
 
 **Examples.**
 
 ```json
-// Health check (no params)
-{}
+// Health check (explicit mode)
+{ "mode": "health-check" }
 
 // Session resume
-{ "since": "2025-01-01T09:00:00Z", "includeAncestors": true }
+{ "mode": "session-resume", "since": "2025-01-01T09:00:00Z", "includeAncestors": true }
 
 // Item gate check
-{ "itemId": "550e8400-e29b-41d4-a716-446655440001" }
+{ "mode": "item", "itemId": "550e8400-e29b-41d4-a716-446655440001" }
 ```
 
 **Response (item mode).**
@@ -1193,6 +1197,8 @@ and is intentionally inclusive.
 | `complexityMax` | integer (1–10) | Return only items with complexity ≤ this value |
 | `createdAfter` | string (ISO 8601) | Return only items created after this timestamp |
 | `createdBefore` | string (ISO 8601) | Return only items created before this timestamp |
+| `modifiedAfter` | string (ISO 8601) | Return only items last modified after this timestamp |
+| `modifiedBefore` | string (ISO 8601) | Return only items last modified before this timestamp |
 | `roleChangedAfter` | string (ISO 8601) | Return only items whose role last changed after this timestamp |
 | `roleChangedBefore` | string (ISO 8601) | Return only items whose role last changed before this timestamp |
 | `orderBy` | string (`priority`\|`oldest`\|`newest`) | Ordering strategy: `priority` (default — HIGH first then complexity ascending / quick wins), `oldest` (createdAt ascending / FIFO drain), `newest` (createdAt descending / recency-biased) |
@@ -1506,13 +1512,13 @@ dependency edges). Terminal items are never included.
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `parentId` | string (UUID) | No | Scope results to items under this parent |
-| `includeItemDetails` | boolean | No | Include `summary` and `tags` for each blocked item (default: false) |
+| `includeDetails` | boolean | No | Include `summary` and `tags` for each blocked item (default: false) |
 | `includeAncestors` | boolean | No | Include `ancestors` array on each blocked item (default: false) |
 
 **Example.**
 
 ```json
-{ "includeItemDetails": true, "includeAncestors": true }
+{ "includeDetails": true, "includeAncestors": true }
 ```
 
 **Response.**

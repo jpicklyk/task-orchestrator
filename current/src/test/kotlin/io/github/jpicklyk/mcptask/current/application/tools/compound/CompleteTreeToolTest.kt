@@ -1148,7 +1148,7 @@ class CompleteTreeToolTest {
         }
 
         @Test
-        fun `terminalRole=cancelled on queue item with unfilled notes succeeds`(): Unit =
+        fun `trigger=cancel on queue item with unfilled notes succeeds`(): Unit =
             runBlocking {
                 val itemId = UUID.randomUUID()
                 // Item has tags matching schema, so gate would normally enforce session-tracking
@@ -1170,15 +1170,15 @@ class CompleteTreeToolTest {
                             "itemIds",
                             buildJsonArray { add(JsonPrimitive(itemId.toString())) }
                         )
-                        put("terminalRole", JsonPrimitive("cancelled"))
+                        put("trigger", JsonPrimitive("cancel"))
                     }
                 val result = tool.execute(params, gatedContext)
 
                 val results = extractResults(result)
                 assertEquals(1, results.size)
                 val r = results[0].jsonObject
-                assertTrue(r["applied"]!!.jsonPrimitive.boolean, "terminalRole=cancelled should bypass gate and succeed")
-                assertNull(r["gateErrors"], "No gate errors expected for terminalRole=cancelled")
+                assertTrue(r["applied"]!!.jsonPrimitive.boolean, "trigger=cancel should bypass gate and succeed")
+                assertNull(r["gateErrors"], "No gate errors expected for trigger=cancel")
                 assertEquals("cancel", r["trigger"]!!.jsonPrimitive.content)
 
                 val summary = extractSummary(result)
@@ -1187,7 +1187,7 @@ class CompleteTreeToolTest {
             }
 
         @Test
-        fun `terminalRole=done explicit enforces gate same as default`(): Unit =
+        fun `trigger=complete enforces gate when required notes are unfilled`(): Unit =
             runBlocking {
                 val itemId = UUID.randomUUID()
                 val item = makeItem(id = itemId, title = "Queue Item", role = Role.QUEUE, tags = "feature-task")
@@ -1206,15 +1206,15 @@ class CompleteTreeToolTest {
                             "itemIds",
                             buildJsonArray { add(JsonPrimitive(itemId.toString())) }
                         )
-                        put("terminalRole", JsonPrimitive("done"))
+                        put("trigger", JsonPrimitive("complete"))
                     }
                 val result = tool.execute(params, gatedContext)
 
                 val results = extractResults(result)
                 assertEquals(1, results.size)
                 val r = results[0].jsonObject
-                assertFalse(r["applied"]!!.jsonPrimitive.boolean, "terminalRole=done should enforce gate")
-                assertNotNull(r["gateErrors"], "Gate errors expected for terminalRole=done with unfilled notes")
+                assertFalse(r["applied"]!!.jsonPrimitive.boolean, "trigger=complete should enforce gate")
+                assertNotNull(r["gateErrors"], "Gate errors expected for trigger=complete with unfilled notes")
                 val gateErrors = r["gateErrors"]!!.jsonArray
                 assertTrue(gateErrors.any { it.jsonPrimitive.content.contains("session-tracking") })
 
@@ -1222,18 +1222,6 @@ class CompleteTreeToolTest {
                 assertEquals(0, summary["completed"]!!.jsonPrimitive.int)
                 assertEquals(1, summary["gateFailures"]!!.jsonPrimitive.int)
             }
-
-        @Test
-        fun `terminalRole invalid value throws ToolValidationException`() {
-            assertFailsWith<ToolValidationException> {
-                tool.validateParams(
-                    buildJsonObject {
-                        put("rootId", JsonPrimitive(UUID.randomUUID().toString()))
-                        put("terminalRole", JsonPrimitive("invalid"))
-                    }
-                )
-            }
-        }
 
         @Test
         fun `terminalRole=cancelled with explicit trigger=complete - trigger wins and gate is enforced`(): Unit =
