@@ -13,11 +13,10 @@ import kotlin.test.assertTrue
 /**
  * FTS5 full-text search integration tests for [SQLiteNoteRepository].
  *
- * FTS5 is SQLite-only. Extends [BaseFts5RepositoryTest] which:
- * 1. Creates an in-memory SQLite DB with FTS5 tables
- * 2. Verifies FTS5 MATCH queries work with the production alias pattern
- * 3. Skips all tests via [org.junit.jupiter.api.Assumptions.assumeTrue] when FTS5
- *    is not functional in the bundled xerial/sqlite-jdbc environment
+ * FTS5 is SQLite-only. Extends [BaseFts5RepositoryTest] which creates an in-memory SQLite DB
+ * with the base schema + FTS5 tables. If FTS5 setup fails the test run aborts with a loud
+ * error (not a skip). Repositories use `WHERE <table_name> MATCH ?` (not `WHERE alias MATCH ?`)
+ * to avoid the "no such column: ft" error on Linux/Docker.
  *
  * Test names follow plan §16.5 — communicating agent-visible behaviour.
  */

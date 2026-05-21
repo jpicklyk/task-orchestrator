@@ -17,15 +17,14 @@ import kotlin.test.assertTrue
  * FTS5 full-text search integration tests for [SQLiteWorkItemRepository].
  *
  * All tests require a real SQLite connection with FTS5 virtual tables. Extends
- * [BaseFts5RepositoryTest] which:
- * 1. Creates an in-memory SQLite DB with the base schema + FTS5 tables
- * 2. Verifies that FTS5 MATCH queries work with the production alias pattern
- * 3. Calls [org.junit.jupiter.api.Assumptions.assumeTrue] to skip tests gracefully
- *    when FTS5 is not functional in the bundled xerial/sqlite-jdbc environment
+ * [BaseFts5RepositoryTest] which creates an in-memory SQLite DB with the base schema
+ * + FTS5 tables. If FTS5 setup fails the test run aborts with a loud error (not a skip).
  *
  * **Production compatibility note:** The V7 migration uses plain `tokenize='trigram'` (the
  * SQLite default). The `case_sensitive=0` option is NOT used because xerial/sqlite-jdbc 3.49.1.0
  * rejects it with a parse error. These tests match the production tokenizer configuration.
+ * Repositories use `WHERE <table_name> MATCH ?` (not `WHERE alias MATCH ?`) to avoid the
+ * "no such column: ft" error on Linux/Docker.
  *
  * Test names follow plan §16.5 — communicating agent-visible behaviour.
  */
@@ -486,5 +485,43 @@ class SQLiteWorkItemRepositoryFtsTest : BaseFts5RepositoryTest() {
                     )
                 }
             }
+        }
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Regression: alias-based MATCH pattern (WHERE ft MATCH ?) bug
+    // ────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Regression guard for the v3.7.0 production bug where `WHERE ft MATCH ?` (alias-based
+     * pattern) caused [org.sqlite.SQLiteException] "no such column: ft" on xerial/sqlite-jdbc
+     * on both Linux Docker and Windows. The fix replaces alias with the table name:
+     * `WHERE work_items_fts_trigram MATCH ?`.
+     *
+     * This test would have returned 0 hits (silently swallowed exception) in the broken code.
+     * After EDIT 1 (repository fix) + EDIT 4 (remove assumeTrue skip), it must return ≥ 1 hit.
+     */
+    @Test
+    fun `ftsSearch returns hits for exact title word — regression guard for alias-based MATCH bug`(): Unit =
+        runBlocking {
+            val uniqueWord = "xyzFts5RegressionGuard"
+            val inserted = createItem(title = "Task with $uniqueWord in title")
+            createItem(title = "Unrelated item without the magic word")
+
+            val result =
+                repo().ftsSearch(
+                    sanitizedFtsQuery = "\"$uniqueWord\"",
+                    matchMode = SearchMatchMode.AUTO,
+                    limit = 10,
+                )
+
+            assertTrue(
+                result.hits.isNotEmpty(),
+                "Expected at least one FTS5 hit for '$uniqueWord' — 0 hits indicates the alias MATCH bug has returned"
+            )
+            val hitIds = result.hits.map { it.itemId }.toSet()
+            assertTrue(
+                inserted.id in hitIds,
+                "Inserted item ${inserted.id} must appear in FTS5 hits. Got: $hitIds"
+            )
         }
 }

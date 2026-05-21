@@ -24,16 +24,9 @@
 -- and recreates all indexes in their V6-final state.
 --
 -- FK note: notes, dependencies, and role_transitions all declare ON DELETE CASCADE FKs
--- to work_items.id. If the migration connection has PRAGMA foreign_keys=ON, the
--- DROP TABLE work_items below would cascade-delete those child rows. The bundled
--- xerial/sqlite-jdbc driver defaults foreign_keys OFF on a fresh connection, and
--- Flyway opens its own connection separate from DatabaseManager (which sets FKs ON
--- at the application layer). The PRAGMA below makes the requirement explicit; if
--- Flyway runs this migration inside a transaction it is a no-op (PRAGMA
--- foreign_keys cannot change mid-transaction) and the driver-default of OFF still
--- holds. If run outside a transaction it actively enforces the requirement.
-
-PRAGMA foreign_keys = OFF;
+-- to work_items.id. Flyway runs this migration inside a transaction, so PRAGMA
+-- foreign_keys cannot change mid-transaction — the driver default of OFF holds.
+-- No PRAGMA needed: the table recreation below is safe as-is.
 
 CREATE TABLE work_items_new (
     id                   BLOB PRIMARY KEY DEFAULT (randomblob(16)),
@@ -93,11 +86,6 @@ CREATE INDEX idx_work_items_priority      ON work_items(priority);
 CREATE INDEX idx_work_items_role_changed  ON work_items(role, role_changed_at);
 CREATE INDEX idx_work_items_claimed_by    ON work_items(claimed_by);
 CREATE INDEX idx_work_items_claim_expires ON work_items(claim_expires_at);
-
--- Re-enable FK enforcement on this connection for any subsequent DML in the
--- migration. (Connection lifetime is bounded by Flyway; the application's
--- DatabaseManager sets FKs=ON independently on its own connection.)
-PRAGMA foreign_keys = ON;
 
 -- ============================================================
 -- 2. Cycle-detection trigger

@@ -724,19 +724,33 @@ class SQLiteWorkItemRepository(
                             wi.id AS wi_id
                         FROM $ftsTable ft
                         JOIN work_items wi ON wi.rowid = ft.rowid
-                        WHERE ft MATCH ?$extraWhere
+                        WHERE $ftsTable MATCH ?$extraWhere
                         ORDER BY ft.rank
                         LIMIT ${effectiveLimit + offset + 1}
                         """.trimIndent()
 
-                    exec(sql, args = buildArgs()) { rs ->
+                    // Use ExposedConnection.prepareStatement() + executeQuery() rather than
+                    // Exposed's exec() — when the SQL starts with `WITH RECURSIVE` (the
+                    // subtree CTE for scope.ancestorId), exec() routes through executeUpdate()
+                    // on xerial sqlite-jdbc and rejects SELECT-returning queries with
+                    // "Query returns results". Same fix template used in findDescendants().
+                    val ps = this.connection.prepareStatement(sql, false)
+                    try {
+                        ps.fillParameters(buildArgs())
+                        val rs = ps.executeQuery()
                         while (rs.next()) {
-                            val rowid = rs.getLong("rowid")
-                            val rank = rs.getDouble("rank")
-                            val snippetTitle = rs.getString("snip_title") ?: ""
-                            val snippetSummary = rs.getString("snip_summary") ?: ""
+                            // Exposed's JdbcResultSetApi exposes getObject(Int|String) and
+                            // getString(Int), but NOT getLong/getDouble. Use getObject for
+                            // numerics and cast to Number. Select order:
+                            // 1=ft.rowid, 2=ft.rank, 3=snip_title, 4=snip_summary, 5=wi_id.
+                            val rowid = (rs.getObject(1) as Number).toLong()
+                            val rank = (rs.getObject(2) as Number).toDouble()
+                            val snippetTitle = rs.getString(3) ?: ""
+                            val snippetSummary = rs.getString(4) ?: ""
                             hitMap[rowid] = FtsHit(rowid, rank, snippetTitle, snippetSummary, tableName)
                         }
+                    } finally {
+                        ps.closeIfPossible()
                     }
                 }
 
@@ -874,7 +888,7 @@ class SQLiteWorkItemRepository(
             }
         } catch (e: Exception) {
             logger.error("FTS5 search failed: ${e.message}", e)
-            SearchResult(hits = emptyList(), totalHits = 0, nextOffset = null)
+            throw e
         }
     }
 

@@ -307,16 +307,28 @@ class SQLiteNoteRepository(
                             n.key AS note_key
                         FROM $ftsTable ft
                         JOIN notes n ON n.rowid = ft.rowid
-                        WHERE ft MATCH ?$extraWhere
+                        WHERE $ftsTable MATCH ?$extraWhere
                         ORDER BY ft.rank
                         LIMIT ${effectiveLimit + offset + 1}
                         """.trimIndent()
 
-                    exec(sql, args = buildArgs()) { rs ->
+                    // Use ExposedConnection.prepareStatement() + executeQuery() rather than
+                    // Exposed's exec() — when the SQL starts with `WITH RECURSIVE` (the
+                    // subtree CTE for scope.ancestorId), exec() routes through executeUpdate()
+                    // on xerial sqlite-jdbc and rejects SELECT-returning queries with
+                    // "Query returns results". Same fix template as SQLiteWorkItemRepository.findDescendants().
+                    val ps = this.connection.prepareStatement(sql, false)
+                    try {
+                        ps.fillParameters(buildArgs())
+                        val rs = ps.executeQuery()
                         while (rs.next()) {
-                            val rowid = rs.getLong("rowid")
-                            val rank = rs.getDouble("rank")
-                            val snippet = rs.getString("snip") ?: ""
+                            // Exposed's JdbcResultSetApi exposes getObject(Int|String) and
+                            // getString(Int), but NOT getLong/getDouble. Use getObject for
+                            // numerics and cast to Number. Select order:
+                            // 1=ft.rowid, 2=ft.rank, 3=snip, 4=note_id, 5=item_id, 6=note_key.
+                            val rowid = (rs.getObject(1) as Number).toLong()
+                            val rank = (rs.getObject(2) as Number).toDouble()
+                            val snippet = rs.getString(3) ?: ""
                             val rawNoteId = rs.getObject("note_id")
                             val rawItemId = rs.getObject("item_id")
 
@@ -325,9 +337,11 @@ class SQLiteNoteRepository(
 
                             @Suppress("UNCHECKED_CAST")
                             val itemId = uuidType.valueFromDB(rawItemId!!) as java.util.UUID
-                            val noteKey = rs.getString("note_key") ?: ""
+                            val noteKey = rs.getString(6) ?: ""
                             hitMap[rowid] = NoteHit(rowid, rank, snippet, tableName, noteId, itemId, noteKey)
                         }
+                    } finally {
+                        ps.closeIfPossible()
                     }
                 }
 
@@ -435,7 +449,7 @@ class SQLiteNoteRepository(
             }
         } catch (e: Exception) {
             logger.error("FTS5 note search failed: ${e.message}", e)
-            SearchResult(hits = emptyList(), totalHits = 0, nextOffset = null)
+            throw e
         }
     }
 
