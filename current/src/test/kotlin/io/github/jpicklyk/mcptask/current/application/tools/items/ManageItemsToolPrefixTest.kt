@@ -274,7 +274,7 @@ class ManageItemsToolPrefixTest {
                 queryTool.execute(
                     params(
                         "operation" to JsonPrimitive("get"),
-                        "id" to JsonPrimitive(childId)
+                        "itemId" to JsonPrimitive(childId)
                     ),
                     context
                 ) as JsonObject
@@ -611,7 +611,7 @@ class ManageItemsToolPrefixTest {
                 queryTool.execute(
                     params(
                         "operation" to JsonPrimitive("get"),
-                        "id" to JsonPrimitive(secondItemId)
+                        "itemId" to JsonPrimitive(secondItemId)
                     ),
                     context
                 ) as JsonObject

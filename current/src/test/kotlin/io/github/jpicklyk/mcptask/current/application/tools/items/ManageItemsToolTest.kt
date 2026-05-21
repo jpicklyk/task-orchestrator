@@ -727,7 +727,7 @@ class ManageItemsToolTest {
                 queryTool.execute(
                     params(
                         "operation" to JsonPrimitive("get"),
-                        "id" to JsonPrimitive(itemId)
+                        "itemId" to JsonPrimitive(itemId)
                     ),
                     context
                 ) as JsonObject
@@ -828,7 +828,7 @@ class ManageItemsToolTest {
             val queryTool = QueryItemsTool()
             val getResult =
                 queryTool.execute(
-                    params("operation" to JsonPrimitive("get"), "id" to JsonPrimitive(childId)),
+                    params("operation" to JsonPrimitive("get"), "itemId" to JsonPrimitive(childId)),
                     context
                 ) as JsonObject
             val itemData = getResult["data"] as JsonObject
@@ -905,7 +905,7 @@ class ManageItemsToolTest {
             val queryTool = QueryItemsTool()
             val getResult =
                 queryTool.execute(
-                    params("operation" to JsonPrimitive("get"), "id" to JsonPrimitive(childId)),
+                    params("operation" to JsonPrimitive("get"), "itemId" to JsonPrimitive(childId)),
                     context
                 ) as JsonObject
             val itemData = getResult["data"] as JsonObject
@@ -1488,7 +1488,7 @@ class ManageItemsToolTest {
             val queryTool = QueryItemsTool()
             val getResult =
                 queryTool.execute(
-                    params("operation" to JsonPrimitive("get"), "id" to JsonPrimitive(itemId)),
+                    params("operation" to JsonPrimitive("get"), "itemId" to JsonPrimitive(itemId)),
                     context
                 ) as JsonObject
 
@@ -1528,7 +1528,7 @@ class ManageItemsToolTest {
             val queryTool = QueryItemsTool()
             val getResult =
                 queryTool.execute(
-                    params("operation" to JsonPrimitive("get"), "id" to JsonPrimitive(itemId)),
+                    params("operation" to JsonPrimitive("get"), "itemId" to JsonPrimitive(itemId)),
                     context
                 ) as JsonObject
 
@@ -1584,7 +1584,7 @@ class ManageItemsToolTest {
             val queryTool = QueryItemsTool()
             val getResult =
                 queryTool.execute(
-                    params("operation" to JsonPrimitive("get"), "id" to JsonPrimitive(itemId)),
+                    params("operation" to JsonPrimitive("get"), "itemId" to JsonPrimitive(itemId)),
                     context
                 ) as JsonObject
             assertEquals("bug", getResult["data"]!!.jsonObject["type"]!!.jsonPrimitive.content)
@@ -1641,7 +1641,7 @@ class ManageItemsToolTest {
             val queryTool = QueryItemsTool()
             val getResult =
                 queryTool.execute(
-                    params("operation" to JsonPrimitive("get"), "id" to JsonPrimitive(itemId)),
+                    params("operation" to JsonPrimitive("get"), "itemId" to JsonPrimitive(itemId)),
                     context
                 ) as JsonObject
             assertFalse(getResult["data"]!!.jsonObject.containsKey("type"))
@@ -1877,7 +1877,7 @@ class ManageItemsToolTest {
             val queryTool = QueryItemsTool()
             val getResult =
                 queryTool.execute(
-                    params("operation" to JsonPrimitive("get"), "id" to JsonPrimitive(itemId)),
+                    params("operation" to JsonPrimitive("get"), "itemId" to JsonPrimitive(itemId)),
                     context
                 ) as JsonObject
 
@@ -1942,7 +1942,7 @@ class ManageItemsToolTest {
             val queryTool = QueryItemsTool()
             val getResult =
                 queryTool.execute(
-                    params("operation" to JsonPrimitive("get"), "id" to JsonPrimitive(itemId)),
+                    params("operation" to JsonPrimitive("get"), "itemId" to JsonPrimitive(itemId)),
                     context
                 ) as JsonObject
 
