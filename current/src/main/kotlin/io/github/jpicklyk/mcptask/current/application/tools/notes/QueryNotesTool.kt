@@ -496,13 +496,20 @@ concept, or identifier across all note bodies.
         val repo = context.noteRepository()
         val searchResult: SearchResult =
             if (repo is SQLiteNoteRepository) {
-                repo.ftsSearch(
-                    sanitizedFtsQuery = sanitizedQuery,
-                    matchMode = matchMode,
-                    scope = scope,
-                    limit = limit,
-                    offset = offset,
-                )
+                try {
+                    repo.ftsSearch(
+                        sanitizedFtsQuery = sanitizedQuery,
+                        matchMode = matchMode,
+                        scope = scope,
+                        limit = limit,
+                        offset = offset,
+                    )
+                } catch (e: Exception) {
+                    return errorResponse(
+                        "FTS5 note search failed: ${e.message}",
+                        ErrorCodes.INTERNAL_ERROR
+                    )
+                }
             } else {
                 // Non-SQLite environment (H2 tests): FTS5 is SQLite-only — return empty result.
                 SearchResult(hits = emptyList(), totalHits = 0, nextOffset = null)

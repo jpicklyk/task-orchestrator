@@ -724,7 +724,7 @@ class SQLiteWorkItemRepository(
                             wi.id AS wi_id
                         FROM $ftsTable ft
                         JOIN work_items wi ON wi.rowid = ft.rowid
-                        WHERE ft MATCH ?$extraWhere
+                        WHERE $ftsTable MATCH ?$extraWhere
                         ORDER BY ft.rank
                         LIMIT ${effectiveLimit + offset + 1}
                         """.trimIndent()
@@ -874,7 +874,7 @@ class SQLiteWorkItemRepository(
             }
         } catch (e: Exception) {
             logger.error("FTS5 search failed: ${e.message}", e)
-            SearchResult(hits = emptyList(), totalHits = 0, nextOffset = null)
+            throw e
         }
     }
 

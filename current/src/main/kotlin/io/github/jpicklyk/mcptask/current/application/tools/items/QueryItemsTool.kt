@@ -689,13 +689,20 @@ Operations: get, search, overview
         val repo = context.workItemRepository()
         val searchResult =
             if (repo is SQLiteWorkItemRepository) {
-                repo.ftsSearch(
-                    sanitizedFtsQuery = sanitizedQuery,
-                    matchMode = matchMode,
-                    scope = scope,
-                    limit = limit,
-                    offset = offset,
-                )
+                try {
+                    repo.ftsSearch(
+                        sanitizedFtsQuery = sanitizedQuery,
+                        matchMode = matchMode,
+                        scope = scope,
+                        limit = limit,
+                        offset = offset,
+                    )
+                } catch (e: Exception) {
+                    return errorResponse(
+                        "FTS5 search failed: ${e.message}",
+                        ErrorCodes.INTERNAL_ERROR
+                    )
+                }
             } else {
                 // Non-SQLite environment (H2 tests): return empty result
                 io.github.jpicklyk.mcptask.current.infrastructure.repository.SearchResult(

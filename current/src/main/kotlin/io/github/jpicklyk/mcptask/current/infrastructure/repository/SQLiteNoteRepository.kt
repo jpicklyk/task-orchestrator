@@ -307,7 +307,7 @@ class SQLiteNoteRepository(
                             n.key AS note_key
                         FROM $ftsTable ft
                         JOIN notes n ON n.rowid = ft.rowid
-                        WHERE ft MATCH ?$extraWhere
+                        WHERE $ftsTable MATCH ?$extraWhere
                         ORDER BY ft.rank
                         LIMIT ${effectiveLimit + offset + 1}
                         """.trimIndent()
@@ -435,7 +435,7 @@ class SQLiteNoteRepository(
             }
         } catch (e: Exception) {
             logger.error("FTS5 note search failed: ${e.message}", e)
-            SearchResult(hits = emptyList(), totalHits = 0, nextOffset = null)
+            throw e
         }
     }
 

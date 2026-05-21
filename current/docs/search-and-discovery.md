@@ -23,13 +23,6 @@ Note bodies are indexed analogously in `notes_fts_trigram` and `notes_fts_text`.
 FTS5 tables are maintained by SQLite triggers installed by the V7 database migration. All writes
 to `work_items` and `notes` keep the FTS indexes up to date automatically.
 
-> ¹ **Case-sensitivity caveat.** The trigram tokenizer is configured WITHOUT the `case_sensitive=0`
-> option because the bundled xerial/sqlite-jdbc 3.49.1.0 driver rejects that option with a parse
-> error. Substring matches via trigram are therefore case-sensitive: searching for `auth` will not
-> match a document containing `OAuth`. For case-insensitive concept matching, prefer
-> `matchMode="text"` (which uses the porter+unicode61 tokenizer with `remove_diacritics=2` and
-> implicit lowercasing). Restoring case-insensitive trigram search is tracked as a follow-up that
-> requires a newer SQLite binary in the JDBC driver bundle.
 
 ### matchMode
 
@@ -38,7 +31,7 @@ The `matchMode` parameter controls which table(s) are queried:
 | matchMode | Tables queried | When to use |
 |---|---|---|
 | `"auto"` (default) | Both — trigram + text, fused via RRF | Best coverage; recommended for most searches |
-| `"substring"` | Trigram only | Case-sensitive substring; requires ≥3-char token |
+| `"substring"` | Trigram only | Substring match via trigram; requires ≥3-char token |
 | `"text"` | Text (porter+unicode61) only | Natural language / stemming queries |
 
 ### Reciprocal Rank Fusion (RRF)
