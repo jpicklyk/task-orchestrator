@@ -178,7 +178,7 @@ snippets, filtered list search, or hierarchical overview.
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `operation` | string | Yes | `"get"` |
-| `id` | string (UUID or 4+ char prefix) | Yes | Item to fetch |
+| `itemId` | string (UUID or 4+ char prefix) | Yes | Item to fetch |
 | `includeAncestors` | boolean | No | When true, each result includes an `ancestors` array (default: false) |
 
 #### Key Parameters — search (FTS5 mode, when `query` is provided)
@@ -456,9 +456,10 @@ missing, that item fails and its downstream dependents within the set are skippe
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `rootId` | string (UUID) | Conditionally | Complete all **descendants** of this item. The root item itself is NOT completed — only its descendants are processed. Mutually exclusive with `itemIds`. |
+| `rootId` | string (UUID) | Conditionally | Complete the root item and all its descendants (default). Use `includeRoot: false` to process only descendants. Mutually exclusive with `itemIds`. |
 | `itemIds` | array | Conditionally | Explicit list of item UUIDs to complete. Mutually exclusive with `rootId`. |
 | `trigger` | string | No | `complete` (default) or `cancel`. See gate enforcement note below. |
+| `includeRoot` | boolean | No | When using `rootId`, whether to include the root item itself (default: true). Ignored when `itemIds` is used. |
 | `requestId` | string (UUID) | No | Client-generated UUID for idempotency. See [Idempotency](#idempotency). |
 
 Exactly one of `rootId` or `itemIds` must be provided.

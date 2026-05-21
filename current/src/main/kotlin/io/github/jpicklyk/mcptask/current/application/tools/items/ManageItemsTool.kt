@@ -42,8 +42,12 @@ Unified write operations for WorkItems (create, update, delete).
 **Operations:**
 
 **create** - Create WorkItems from `items` array.
-- Each item: `{ title (required), description?, summary?, role?, statusLabel?, priority?, complexity?, parentId?, metadata?, tags?, type?, properties? }`
+- Each item: `{ title (required), description?, summary?, role?, statusLabel?, priority?, complexity?, parentId?, metadata?, tags?, type?, properties?, requiresVerification? }`
 - Shared `parentId` at top level serves as default for all items (per-item parentId overrides)
+- Top-level `traits` (optional string): comma-separated trait names applied to all items in this operation
+  (e.g., `"needs-migration-review,needs-security-review"`). Traits augment each item's note schema with
+  additional required notes.
+- Top-level `requiresVerification` is ignored — set it on individual items in the `items` array instead.
 - Depth auto-computed from parent (root=0, child=parent.depth+1, unbounded)
 - Defaults: role=queue, priority=medium, complexity=5
 - Response: `{ items: [{id, title, depth, role, priority, requiresVerification, tags, schemaMatch, expectedNotes}], created: N, failed: N, failures: [{index, error}] }`

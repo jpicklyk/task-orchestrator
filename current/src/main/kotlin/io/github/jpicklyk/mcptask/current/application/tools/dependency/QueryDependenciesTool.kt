@@ -27,10 +27,11 @@ Read-only dependency queries with filtering support.
 
 ## Operations
 
-### get (default)
+### get
 Query outgoing/incoming/all dependencies for a WorkItem.
 
 Parameters:
+- operation (required string): "get"
 - itemId (required UUID): WorkItem to query dependencies for
 - direction (optional): "incoming", "outgoing", "all" (default: "all")
   - incoming: deps where this item is the toItemId (things that block this item)
@@ -48,6 +49,7 @@ Practical use: "find all items that block REQ-42", "what references FEAT-7?".
 A backlink row means another item has an edge with toItemId = your itemId.
 
 Parameters:
+- operation (required string): "backlinks"
 - itemId (required UUID): target item to find backlinks for
 - type (optional): narrow to one dependency type — "BLOCKS", "IS_BLOCKED_BY", "RELATES_TO"
 
