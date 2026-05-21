@@ -479,9 +479,10 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
 
         // Build children in topological order
         for (ref in sortedChildRefs) {
-            val childObj = childrenArray
-                .map { it as JsonObject }
-                .first { (it["ref"] as JsonPrimitive).content == ref }
+            val childObj =
+                childrenArray
+                    .map { it as JsonObject }
+                    .first { (it["ref"] as JsonPrimitive).content == ref }
             val parentRef = refToParentRef[ref]!!
             val parentItem = refToItem[parentRef]!! // root or already-built sibling
             val depth = parentItem.depth + 1
