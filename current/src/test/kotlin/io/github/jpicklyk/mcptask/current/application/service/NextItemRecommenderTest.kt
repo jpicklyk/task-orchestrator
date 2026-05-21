@@ -76,6 +76,8 @@ class NextItemRecommenderTest {
         complexityMax: Int? = null,
         createdAfter: Instant? = null,
         createdBefore: Instant? = null,
+        modifiedAfter: Instant? = null,
+        modifiedBefore: Instant? = null,
         roleChangedAfter: Instant? = null,
         roleChangedBefore: Instant? = null,
         orderBy: NextItemOrder = NextItemOrder.PRIORITY_THEN_COMPLEXITY,
@@ -91,6 +93,8 @@ class NextItemRecommenderTest {
                 complexityMax = complexityMax,
                 createdAfter = createdAfter,
                 createdBefore = createdBefore,
+                modifiedAfter = modifiedAfter,
+                modifiedBefore = modifiedBefore,
                 roleChangedAfter = roleChangedAfter,
                 roleChangedBefore = roleChangedBefore,
                 orderBy = orderBy,
@@ -118,6 +122,8 @@ class NextItemRecommenderTest {
             val before = Instant.parse("2024-06-01T00:00:00Z")
             val roleAfter = Instant.parse("2024-02-01T00:00:00Z")
             val roleBefore = Instant.parse("2024-05-01T00:00:00Z")
+            val modAfter = Instant.parse("2024-03-01T00:00:00Z")
+            val modBefore = Instant.parse("2024-04-01T00:00:00Z")
 
             val criteria =
                 NextItemRecommender.Criteria(
@@ -129,6 +135,8 @@ class NextItemRecommenderTest {
                     complexityMax = 3,
                     createdAfter = after,
                     createdBefore = before,
+                    modifiedAfter = modAfter,
+                    modifiedBefore = modBefore,
                     roleChangedAfter = roleAfter,
                     roleChangedBefore = roleBefore,
                     orderBy = NextItemOrder.OLDEST_FIRST,
@@ -145,6 +153,8 @@ class NextItemRecommenderTest {
                     complexityMax = 3,
                     createdAfter = after,
                     createdBefore = before,
+                    modifiedAfter = modAfter,
+                    modifiedBefore = modBefore,
                     roleChangedAfter = roleAfter,
                     roleChangedBefore = roleBefore,
                     orderBy = NextItemOrder.OLDEST_FIRST,
@@ -171,6 +181,8 @@ class NextItemRecommenderTest {
                     complexityMax = 3,
                     createdAfter = after,
                     createdBefore = before,
+                    modifiedAfter = modAfter,
+                    modifiedBefore = modBefore,
                     roleChangedAfter = roleAfter,
                     roleChangedBefore = roleBefore,
                     orderBy = NextItemOrder.OLDEST_FIRST,
@@ -203,6 +215,8 @@ class NextItemRecommenderTest {
                     complexityMax = null,
                     createdAfter = null,
                     createdBefore = null,
+                    modifiedAfter = null,
+                    modifiedBefore = null,
                     roleChangedAfter = null,
                     roleChangedBefore = null,
                     orderBy = NextItemOrder.PRIORITY_THEN_COMPLEXITY,

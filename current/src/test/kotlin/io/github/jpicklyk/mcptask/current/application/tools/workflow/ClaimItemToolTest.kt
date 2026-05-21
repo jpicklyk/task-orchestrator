@@ -1583,6 +1583,8 @@ class ClaimItemToolTest {
                     complexityMax = any(),
                     createdAfter = any(),
                     createdBefore = any(),
+                    modifiedAfter = any(),
+                    modifiedBefore = any(),
                     roleChangedAfter = any(),
                     roleChangedBefore = any(),
                     orderBy = any(),

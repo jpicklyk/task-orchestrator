@@ -311,6 +311,8 @@ interface WorkItemRepository {
      * @param complexityMax     Optional upper bound (inclusive) on item complexity.
      * @param createdAfter      Optional lower bound (inclusive) on [WorkItem.createdAt].
      * @param createdBefore     Optional upper bound (inclusive) on [WorkItem.createdAt].
+     * @param modifiedAfter     Optional lower bound (inclusive) on [WorkItem.modifiedAt].
+     * @param modifiedBefore    Optional upper bound (inclusive) on [WorkItem.modifiedAt].
      * @param roleChangedAfter  Optional lower bound (inclusive) on [WorkItem.roleChangedAt].
      * @param roleChangedBefore Optional upper bound (inclusive) on [WorkItem.roleChangedAt].
      * @param orderBy           Ordering strategy for the result set (default: priority then complexity).
@@ -331,6 +333,8 @@ interface WorkItemRepository {
         complexityMax: Int? = null,
         createdAfter: Instant? = null,
         createdBefore: Instant? = null,
+        modifiedAfter: Instant? = null,
+        modifiedBefore: Instant? = null,
         roleChangedAfter: Instant? = null,
         roleChangedBefore: Instant? = null,
         orderBy: NextItemOrder = NextItemOrder.PRIORITY_THEN_COMPLEXITY,

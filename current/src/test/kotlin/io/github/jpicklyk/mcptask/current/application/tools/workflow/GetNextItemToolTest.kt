@@ -1304,6 +1304,104 @@ class GetNextItemToolTest {
         }
 
     @Test
+    fun `modifiedAfter filter excludes items modified before the threshold`(): Unit =
+        runBlocking {
+            val now = java.time.Instant.now()
+
+            // Item modified long before the threshold
+            val oldItem =
+                io.github.jpicklyk.mcptask.current.domain.model.WorkItem(
+                    title = "Old Modified Task",
+                    role = Role.QUEUE,
+                    modifiedAt = now.minusSeconds(7200) // 2 hours ago
+                )
+            val createdOld =
+                (
+                    context.workItemRepository().create(oldItem)
+                        as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success
+                ).data
+
+            // Item modified recently (after the threshold)
+            val recentItem =
+                io.github.jpicklyk.mcptask.current.domain.model.WorkItem(
+                    title = "Recently Modified Task",
+                    role = Role.QUEUE,
+                    modifiedAt = now.minusSeconds(60) // 1 minute ago
+                )
+            val createdRecent =
+                (
+                    context.workItemRepository().create(recentItem)
+                        as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success
+                ).data
+
+            val threshold = now.minusSeconds(3600).toString() // 1 hour ago
+
+            val result =
+                tool.execute(
+                    params(
+                        "modifiedAfter" to JsonPrimitive(threshold),
+                        "limit" to JsonPrimitive(10)
+                    ),
+                    context
+                )
+
+            assertTrue(isSuccess(result))
+            val recs = extractRecommendations(result)
+            val recIds = recs.map { it.jsonObject["itemId"]!!.jsonPrimitive.content }
+            assertTrue(recIds.contains(createdRecent.id.toString()), "recently modified item should be returned after modifiedAfter threshold")
+            assertFalse(recIds.contains(createdOld.id.toString()), "old item should be excluded by modifiedAfter filter")
+        }
+
+    @Test
+    fun `modifiedBefore filter excludes items modified after the threshold`(): Unit =
+        runBlocking {
+            val now = java.time.Instant.now()
+
+            // Item modified long ago (before the threshold)
+            val oldItem =
+                io.github.jpicklyk.mcptask.current.domain.model.WorkItem(
+                    title = "Old Modified Task",
+                    role = Role.QUEUE,
+                    modifiedAt = now.minusSeconds(7200) // 2 hours ago
+                )
+            val createdOld =
+                (
+                    context.workItemRepository().create(oldItem)
+                        as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success
+                ).data
+
+            // Item modified recently (after the threshold)
+            val recentItem =
+                io.github.jpicklyk.mcptask.current.domain.model.WorkItem(
+                    title = "Recently Modified Task",
+                    role = Role.QUEUE,
+                    modifiedAt = now.minusSeconds(60) // 1 minute ago
+                )
+            val createdRecent =
+                (
+                    context.workItemRepository().create(recentItem)
+                        as io.github.jpicklyk.mcptask.current.domain.repository.Result.Success
+                ).data
+
+            val threshold = now.minusSeconds(1800).toString() // 30 minutes ago
+
+            val result =
+                tool.execute(
+                    params(
+                        "modifiedBefore" to JsonPrimitive(threshold),
+                        "limit" to JsonPrimitive(10)
+                    ),
+                    context
+                )
+
+            assertTrue(isSuccess(result))
+            val recs = extractRecommendations(result)
+            val recIds = recs.map { it.jsonObject["itemId"]!!.jsonPrimitive.content }
+            assertTrue(recIds.contains(createdOld.id.toString()), "old item should be returned before modifiedBefore threshold")
+            assertFalse(recIds.contains(createdRecent.id.toString()), "recently modified item should be excluded by modifiedBefore filter")
+        }
+
+    @Test
     fun `roleChangedAfter filter excludes items whose role changed before the threshold`(): Unit =
         runBlocking {
             val now = java.time.Instant.now()
