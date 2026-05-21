@@ -48,7 +48,7 @@ Unified read operations for work items.
 Operations: get, search, overview
 
 **get** - Retrieve a single item by ID or short prefix
-- Required: id (UUID or hex prefix, minimum 4 characters)
+- Required: itemId (UUID or hex prefix, minimum 4 characters)
 - Full 36-char UUID: exact match (existing behavior)
 - Short hex prefix (4-35 chars): resolves to unique item; errors if ambiguous or not found
 - Returns full item JSON
@@ -122,17 +122,10 @@ Operations: get, search, overview
                         }
                     )
                     put(
-                        "id",
-                        buildJsonObject {
-                            put("type", JsonPrimitive("string"))
-                            put("description", JsonPrimitive("Item UUID or hex prefix (minimum 4 characters)"))
-                        }
-                    )
-                    put(
                         "itemId",
                         buildJsonObject {
                             put("type", JsonPrimitive("string"))
-                            put("description", JsonPrimitive("Item UUID or hex prefix (4+ chars) for scoped overview"))
+                            put("description", JsonPrimitive("Item UUID or hex prefix (minimum 4 characters) for get operation; UUID for scoped overview"))
                         }
                     )
                     put(
@@ -415,7 +408,7 @@ Operations: get, search, overview
     override fun validateParams(params: JsonElement) {
         val operation = requireString(params, "operation")
         when (operation) {
-            "get" -> validateIdOrPrefix(params, "id")
+            "get" -> validateIdOrPrefix(params, "itemId")
             "search" -> {
                 val claimStatus = optionalString(params, "claimStatus")
                 if (claimStatus != null && claimStatus !in VALID_CLAIM_STATUSES) {
@@ -547,7 +540,7 @@ Operations: get, search, overview
         params: JsonElement,
         context: ToolExecutionContext
     ): JsonElement {
-        val (resolvedId, idError) = resolveItemId(params, "id", context)
+        val (resolvedId, idError) = resolveItemId(params, "itemId", context)
         if (idError != null) return idError
         val itemId = resolvedId!!
         val includeAncestors = optionalBoolean(params, "includeAncestors", false)
