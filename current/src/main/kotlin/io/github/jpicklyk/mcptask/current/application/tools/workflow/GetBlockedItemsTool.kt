@@ -32,7 +32,7 @@ Identifies WorkItems blocked by dependencies or explicitly in BLOCKED role.
 
 **Parameters:**
 - `parentId` (optional UUID): scope results to items under this parent
-- `includeItemDetails` (optional boolean, default false): include summary and tags for each blocked item
+- `includeDetails` (optional boolean, default false): include summary and tags for each blocked item
 - `includeAncestors` (optional boolean, default false): when true, each blocked item includes an
   `ancestors` array ordered root-first (direct parent last). Root items (depth=0) get `"ancestors": []`.
 
