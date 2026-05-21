@@ -162,6 +162,17 @@ query_notes(itemId="<uuid>", role="work", includeBody=false)
 
 Metadata-only queries (`includeBody=false`) let agents check what exists without paying the token cost of reading every note body.
 
+### Full-Text Search
+
+Search across all work items and notes by keyword. Results are relevance-ranked, so agents surfacing related work or picking up after a long gap get the most relevant matches first — not just a flat list.
+
+```
+query_items(operation="search", query="authentication login")
+query_notes(operation="search", query="password validation")
+```
+
+Search can be scoped to a subtree, filtered by status or tag, or run across the entire workspace. Agents use this to find related work before starting something new, or to locate a specific note without knowing which item it's attached to.
+
 ### Design Philosophy
 
 Task Orchestrator enforces workflow structure without imposing methodology. The server owns the guardrails — role transitions, dependency ordering, gate enforcement, and accountability. Agents own everything else. There are no mandatory planning ceremonies, no prescribed development processes, no opinion on how agents approach implementation. Schemas, traits, and actor authentication are opt-in layers that integrate with your team's development policies through `.taskorchestrator/config.yaml`. As models gain new capabilities, the harness stays out of the way rather than constraining what agents can do.
@@ -317,7 +328,7 @@ Agent: advance_item(trigger="start", itemId="a3f2",
 ## Technical Stack
 
 - **Kotlin 2.3.21** with Coroutines
-- **SQLite + Exposed ORM** — zero-config persistent storage with FTS5 full-text search (requires SQLite ≥ 3.45, bundled automatically)
+- **SQLite + Exposed ORM** — zero-config persistent storage with FTS5 full-text search (bundled automatically)
 - **Flyway Migrations** — versioned schema management
 - **MCP SDK 0.12.0** — STDIO and HTTP transport
 - **Docker** — one-command deployment
@@ -325,7 +336,7 @@ Agent: advance_item(trigger="start", itemId="a3f2",
 Clean Architecture (Domain > Application > Infrastructure > Interface) with comprehensive test coverage.
 
 Key capabilities added in recent versions:
-- **FTS5 full-text search** — `query_items.search` and `query_notes.search` with RRF fusion of trigram + porter tokenizer tables, scope filters, and ranked snippets
+- **Full-text search** — search work items and notes by keyword with ranked results (see [Full-Text Search](#full-text-search) above)
 - **Unbounded hierarchy depth** — item trees are not capped at depth 3; cycle protection is enforced at the database level via a trigger
 - **Backlinks** — `query_dependencies(operation="backlinks")` finds all items that reference a given item (reverse-direction edge lookup)
 
