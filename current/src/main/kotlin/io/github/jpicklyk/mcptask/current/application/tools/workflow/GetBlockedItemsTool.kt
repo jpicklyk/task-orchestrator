@@ -96,7 +96,7 @@ Items in TERMINAL role are never included.
                         }
                     )
                     put(
-                        "includeItemDetails",
+                        "includeDetails",
                         buildJsonObject {
                             put("type", JsonPrimitive("boolean"))
                             put("description", JsonPrimitive("Include summary and tags for each blocked item (default: false)"))
@@ -124,7 +124,7 @@ Items in TERMINAL role are never included.
     ): JsonElement {
         val (parentId, parentIdError) = resolveItemId(params, "parentId", context, required = false)
         if (parentIdError != null) return parentIdError
-        val includeDetails = optionalBoolean(params, "includeItemDetails", false)
+        val includeDetails = optionalBoolean(params, "includeDetails", false)
         val includeAncestors = optionalBoolean(params, "includeAncestors", false)
 
         val workItemRepo = context.workItemRepository()

@@ -138,7 +138,7 @@ Returns: { backlinks: [{ fromItemId, type, fromTitle }], total: N }
                         }
                     )
                 },
-            required = listOf("itemId")
+            required = listOf("operation", "itemId")
         )
 
     override fun validateParams(params: JsonElement) {

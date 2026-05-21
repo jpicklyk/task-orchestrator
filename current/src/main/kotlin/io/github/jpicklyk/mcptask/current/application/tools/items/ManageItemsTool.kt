@@ -178,6 +178,21 @@ Unified write operations for WorkItems (create, update, delete).
                             )
                         }
                     )
+                    put(
+                        "actor",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("object"))
+                            put(
+                                "description",
+                                JsonPrimitive(
+                                    "Actor for idempotency key resolution: { id (required string), " +
+                                        "kind (required: orchestrator|subagent|user|external), " +
+                                        "parent? (optional string), proof? (optional string) }. " +
+                                        "Required when requestId is provided."
+                                )
+                            )
+                        }
+                    )
                 },
             required = listOf("operation")
         )
@@ -302,7 +317,7 @@ Unified write operations for WorkItems (create, update, delete).
             (params as? JsonObject)?.get("operation")?.let {
                 (it as? JsonPrimitive)?.content
             } ?: "unknown"
-        val data = (result as? JsonObject)
+        val data = (result as? JsonObject)?.get("data") as? JsonObject
         return when {
             isError -> "manage_items($op) failed"
             op == "create" -> {
