@@ -12,7 +12,7 @@ import java.util.UUID
 interface DependencyRepository {
     fun create(dependency: Dependency): Dependency
 
-    /** Suspend variant for use within a [newSuspendedTransaction] context — joins the outer transaction. */
+    /** Suspend variant for use within a [suspendTransaction] context — joins the outer transaction. */
     suspend fun createSuspend(dependency: Dependency): Dependency
 
     fun findById(id: UUID): Dependency?

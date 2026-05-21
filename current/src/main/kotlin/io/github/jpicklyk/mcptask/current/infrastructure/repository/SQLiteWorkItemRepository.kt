@@ -40,7 +40,7 @@ import org.jetbrains.exposed.v1.jdbc.Query
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.selectAll
-import org.jetbrains.exposed.v1.jdbc.transactions.experimental.newSuspendedTransaction
+import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.jdbc.update
 import org.slf4j.LoggerFactory
 import java.time.Instant
@@ -153,7 +153,7 @@ class SQLiteWorkItemRepository(
             //   - H2's CURRENT_TIMESTAMP returns "YYYY-MM-DD HH:MM:SS.fffffff-HH" (with a non-
             //     standard offset like "-04" missing the minute portion); we normalize that and
             //     parse via OffsetDateTime.
-            newSuspendedTransaction(db = databaseManager.getDatabase()) {
+            suspendTransaction(db = databaseManager.getDatabase()) {
                 exec("SELECT CURRENT_TIMESTAMP") { rs ->
                     if (rs.next()) {
                         rs.getString(1)?.let { parseDbTimestamp(it) }
@@ -517,7 +517,7 @@ class SQLiteWorkItemRepository(
 
     override suspend fun findDescendants(id: UUID): Result<List<WorkItem>> =
         try {
-            newSuspendedTransaction(db = databaseManager.getDatabase()) {
+            suspendTransaction(db = databaseManager.getDatabase()) {
                 // currentDialect is only accessible within an active transaction.
                 // H2 (test environment): the recursive CTE exec() path uses parameterised
                 // UUID binding that is incompatible with H2's native UUID type, and H2
@@ -583,7 +583,7 @@ class SQLiteWorkItemRepository(
                     }
 
                     if (descendantIds.isEmpty()) {
-                        return@newSuspendedTransaction Result.Success(emptyList())
+                        return@suspendTransaction Result.Success(emptyList())
                     }
 
                     val entityIds = descendantIds.map { EntityID(it, WorkItemsTable) }
@@ -629,11 +629,11 @@ class SQLiteWorkItemRepository(
         val effectiveLimit = limit.coerceIn(1, 100)
 
         return try {
-            newSuspendedTransaction(db = databaseManager.getDatabase()) {
+            suspendTransaction(db = databaseManager.getDatabase()) {
                 // currentDialect is only accessible within an active transaction.
                 // FTS5 is SQLite-only — return empty for H2 (test environment).
                 if (currentDialect is H2Dialect) {
-                    return@newSuspendedTransaction SearchResult(hits = emptyList(), totalHits = 0, nextOffset = null)
+                    return@suspendTransaction SearchResult(hits = emptyList(), totalHits = 0, nextOffset = null)
                 }
                 val uuidType = UUIDColumnType()
 
@@ -766,7 +766,7 @@ class SQLiteWorkItemRepository(
                 // Collect all rowids (union of both maps).
                 val allRowIds = (trigramHits.keys + textHits.keys).toSet()
                 if (allRowIds.isEmpty()) {
-                    return@newSuspendedTransaction SearchResult(
+                    return@suspendTransaction SearchResult(
                         hits = emptyList(),
                         totalHits = 0,
                         nextOffset = null,
@@ -944,7 +944,7 @@ class SQLiteWorkItemRepository(
         ttlSeconds: Int
     ): ClaimResult =
         try {
-            newSuspendedTransaction(db = databaseManager.getDatabase()) {
+            suspendTransaction(db = databaseManager.getDatabase()) {
                 // Both agentId and itemId are bound as typed JDBC parameters — no string interpolation.
                 // itemId binds via UUIDColumnType so the WHERE id = ? predicate uses the primary-key
                 // index directly (the prior HEX(id) = ? form wrapped the column in a function call,
@@ -1049,7 +1049,7 @@ class SQLiteWorkItemRepository(
         agentId: String
     ): ReleaseResult =
         try {
-            newSuspendedTransaction(db = databaseManager.getDatabase()) {
+            suspendTransaction(db = databaseManager.getDatabase()) {
                 // Both agentId and itemId are bound as typed JDBC parameters — no string interpolation.
                 // itemId binds via UUIDColumnType so the WHERE id = ? predicate uses the primary-key
                 // index directly.
@@ -1059,11 +1059,11 @@ class SQLiteWorkItemRepository(
                 // Check existence and current claimant before attempting update.
                 val row =
                     WorkItemsTable.selectAll().where { WorkItemsTable.id eq itemId }.singleOrNull()
-                        ?: return@newSuspendedTransaction ReleaseResult.NotFound(itemId)
+                        ?: return@suspendTransaction ReleaseResult.NotFound(itemId)
 
                 val item = toWorkItem(row)
                 if (item.claimedBy != agentId) {
-                    return@newSuspendedTransaction ReleaseResult.NotClaimedByYou(itemId)
+                    return@suspendTransaction ReleaseResult.NotClaimedByYou(itemId)
                 }
 
                 // Release: clear all four claim fields atomically.
@@ -1088,7 +1088,7 @@ class SQLiteWorkItemRepository(
                 // Read back updated state.
                 val updatedRow =
                     WorkItemsTable.selectAll().where { WorkItemsTable.id eq itemId }.singleOrNull()
-                        ?: return@newSuspendedTransaction ReleaseResult.NotFound(itemId)
+                        ?: return@suspendTransaction ReleaseResult.NotFound(itemId)
 
                 ReleaseResult.Success(toWorkItem(updatedRow))
             }

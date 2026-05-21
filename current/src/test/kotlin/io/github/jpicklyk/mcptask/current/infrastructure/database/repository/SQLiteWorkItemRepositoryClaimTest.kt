@@ -271,7 +271,7 @@ class SQLiteWorkItemRepositoryClaimTest : SQLiteRepositoryTestBase() {
      * NICE-N5: Verifies that concurrent release operations on the same item do not corrupt data.
      *
      * Two real threads both call `repository.release(sameItemId, agentId)` concurrently.
-     * The release implementation uses a `newSuspendedTransaction` with a read-then-update pattern.
+     * The release implementation uses a `suspendTransaction` with a read-then-update pattern.
      *
      * Safety property: regardless of which thread wins the race (or whether both encounter lock
      * contention), the final DB state must be consistent — claim fields are either all null (released)

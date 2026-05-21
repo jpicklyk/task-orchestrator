@@ -28,7 +28,7 @@ import kotlin.test.assertTrue
  * Atomicity guarantee
  * -------------------
  * [SQLiteWorkTreeService] executes all inserts (items, dependencies, notes) inside a
- * single [newSuspendedTransaction] using Exposed table objects directly — no inner
+ * single [suspendTransaction] using Exposed table objects directly — no inner
  * repository transactions are opened.  This means a failure at any step rolls back
  * ALL prior inserts, providing true all-or-nothing semantics.
  *
@@ -129,7 +129,7 @@ class WorkTreeServiceIntegrationTest {
     //
     // "nonexistent_ref" is not present in refToItem. The executor throws
     // IllegalStateException during dep resolution. Because all operations run
-    // inside a single newSuspendedTransaction, the entire transaction is rolled
+    // inside a single suspendTransaction, the entire transaction is rolled
     // back — including the root item insert that occurred before the error.
     // ──────────────────────────────────────────────────────────────────────────
 

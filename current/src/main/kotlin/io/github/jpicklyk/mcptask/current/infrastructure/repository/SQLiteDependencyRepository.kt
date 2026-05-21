@@ -18,7 +18,7 @@ import org.jetbrains.exposed.v1.core.or
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.selectAll
-import org.jetbrains.exposed.v1.jdbc.transactions.experimental.newSuspendedTransaction
+import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import java.util.UUID
 
@@ -33,7 +33,7 @@ class SQLiteDependencyRepository(
         transaction(databaseManager.getDatabase()) { insertDependencyInTransaction(dependency) }
 
     override suspend fun createSuspend(dependency: Dependency): Dependency =
-        newSuspendedTransaction(db = databaseManager.getDatabase()) {
+        suspendTransaction(db = databaseManager.getDatabase()) {
             insertDependencyInTransaction(dependency)
         }
 
@@ -294,7 +294,7 @@ class SQLiteDependencyRepository(
         itemId: UUID,
         type: DependencyType?,
     ): List<BacklinkRow> =
-        newSuspendedTransaction(db = databaseManager.getDatabase()) {
+        suspendTransaction(db = databaseManager.getDatabase()) {
             val uuidType = UUIDColumnType()
 
             // Build the query using Exposed DSL, joining to work_items for fromTitle.
