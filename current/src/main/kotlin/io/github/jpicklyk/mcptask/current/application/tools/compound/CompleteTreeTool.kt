@@ -22,6 +22,9 @@ import java.util.UUID
  * - rootId (optional UUID): complete all descendants of this item
  * - itemIds (optional array of UUID strings): explicit list of items to complete
  * - trigger (optional string, default "complete"): "complete" or "cancel"
+ * - terminalRole (optional string, default "done"): "done" or "cancelled". When "cancelled",
+ *   resolves the effective trigger to "cancel" (bypassing gate checks). Ignored when trigger
+ *   is explicitly provided.
  * - includeRoot (optional boolean, default true): when rootId is used, also include the root item itself
  *
  * One of rootId or itemIds must be provided.
@@ -41,6 +44,7 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
 - `rootId` (optional UUID string): complete all descendants of this item (exclusive with itemIds)
 - `itemIds` (optional array of UUID strings): explicit list of items to complete
 - `trigger` (optional string, default "complete"): "complete" or "cancel"
+- `terminalRole` (optional string, default "done"): "done" (default, enforces all required note gates) or "cancelled" (bypasses work-phase gate enforcement — use when cancelling items that were never in work role). When trigger is also provided, trigger takes precedence.
 - `includeRoot` (optional boolean, default true): when rootId is used, also include the root item itself in the completion scope. Ignored when itemIds is used.
 
 **Validation:** Exactly one of `rootId` or `itemIds` must be provided.
@@ -119,6 +123,27 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
                                 buildJsonArray {
                                     add(JsonPrimitive("complete"))
                                     add(JsonPrimitive("cancel"))
+                                }
+                            )
+                        }
+                    )
+                    put(
+                        "terminalRole",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("string"))
+                            put(
+                                "description",
+                                JsonPrimitive(
+                                    "Terminal status label for completed items: 'done' (default, enforces all required note gates) " +
+                                        "or 'cancelled' (bypasses work-phase gate enforcement — use when cancelling items that were " +
+                                        "never in work role). When trigger is also provided, trigger takes precedence."
+                                )
+                            )
+                            put(
+                                "enum",
+                                buildJsonArray {
+                                    add(JsonPrimitive("done"))
+                                    add(JsonPrimitive("cancelled"))
                                 }
                             )
                         }
@@ -221,6 +246,17 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
                 throw ToolValidationException("trigger must be 'complete' or 'cancel', got: $trigger")
             }
         }
+
+        // Validate terminalRole if provided
+        val terminalRoleElem = paramsObj["terminalRole"]
+        if (terminalRoleElem != null && terminalRoleElem !is JsonNull) {
+            val prim =
+                terminalRoleElem as? JsonPrimitive
+                    ?: throw ToolValidationException("terminalRole must be a string")
+            if (prim.content.lowercase() !in setOf("done", "cancelled")) {
+                throw ToolValidationException("terminalRole must be 'done' or 'cancelled', got: ${prim.content}")
+            }
+        }
     }
 
     override suspend fun execute(
@@ -228,7 +264,13 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
         context: ToolExecutionContext
     ): JsonElement {
         val paramsObj = params as JsonObject
-        val trigger = (paramsObj["trigger"] as? JsonPrimitive)?.content?.lowercase() ?: "complete"
+        val explicitTrigger = (paramsObj["trigger"] as? JsonPrimitive)?.content?.lowercase()
+        val terminalRole = (paramsObj["terminalRole"] as? JsonPrimitive)?.content?.lowercase()
+        val trigger = when {
+            explicitTrigger != null -> explicitTrigger
+            terminalRole == "cancelled" -> "cancel"
+            else -> "complete"
+        }
         val includeRoot = (paramsObj["includeRoot"] as? JsonPrimitive)?.booleanOrNull ?: true
 
         val requestIdStr = optionalString(params, "requestId")

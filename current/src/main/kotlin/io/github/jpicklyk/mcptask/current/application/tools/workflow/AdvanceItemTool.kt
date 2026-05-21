@@ -581,7 +581,9 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                         }
 
                     // Gate check: cascade-to-TERMINAL requires all required notes (like "complete" trigger)
-                    if (event.targetRole == Role.TERMINAL) {
+                    // Cancel cascades bypass work-phase gate enforcement (item was never in work role)
+                    val isCancelCascade = applyResult.item.statusLabel == "cancelled"
+                    if (event.targetRole == Role.TERMINAL && !isCancelCascade) {
                         val parentSchema = context.resolveSchema(parentItem)
                         if (parentSchema != null) {
                             val allRequired = parentSchema.notes.filter { it.required }
