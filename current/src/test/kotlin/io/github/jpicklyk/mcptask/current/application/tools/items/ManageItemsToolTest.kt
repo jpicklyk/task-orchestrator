@@ -1991,7 +1991,11 @@ class ManageItemsToolTest {
                     ),
                     context
                 ) as JsonObject
-            val itemId = (createResult["data"] as JsonObject)["items"]!!.jsonArray[0].jsonObject["id"]!!.jsonPrimitive.content
+            val itemId =
+                (createResult["data"] as JsonObject)["items"]!!
+                    .jsonArray[0]
+                    .jsonObject["id"]!!
+                    .jsonPrimitive.content
 
             val updateResult =
                 tool.execute(
@@ -1999,7 +2003,12 @@ class ManageItemsToolTest {
                         "operation" to JsonPrimitive("update"),
                         "items" to
                             JsonArray(
-                                listOf(buildJsonObject { put("id", JsonPrimitive(itemId)); put("title", JsonPrimitive("Updated")) })
+                                listOf(
+                                    buildJsonObject {
+                                        put("id", JsonPrimitive(itemId))
+                                        put("title", JsonPrimitive("Updated"))
+                                    }
+                                )
                             )
                     ),
                     context
@@ -2019,7 +2028,11 @@ class ManageItemsToolTest {
                     ),
                     context
                 ) as JsonObject
-            val itemId = (createResult["data"] as JsonObject)["items"]!!.jsonArray[0].jsonObject["id"]!!.jsonPrimitive.content
+            val itemId =
+                (createResult["data"] as JsonObject)["items"]!!
+                    .jsonArray[0]
+                    .jsonObject["id"]!!
+                    .jsonPrimitive.content
 
             val deleteResult =
                 tool.execute(
