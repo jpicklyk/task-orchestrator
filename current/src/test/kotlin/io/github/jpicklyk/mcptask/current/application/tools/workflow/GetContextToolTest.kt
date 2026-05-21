@@ -1907,4 +1907,89 @@ class GetContextToolTest {
             assertFalse(t.containsKey("actor"), "actor field should be absent when actorClaim is null")
             assertFalse(t.containsKey("verification"), "verification field should be absent when verification is null")
         }
+
+    // ──────────────────────────────────────────────
+    // Explicit mode parameter tests
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `mode=health-check explicit returns health-check response`(): Unit =
+        runBlocking {
+            coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.findByRole(Role.BLOCKED, any()) } returns Result.Success(emptyList())
+
+            val result =
+                tool.execute(
+                    params("mode" to JsonPrimitive("health-check")),
+                    context
+                )
+
+            val data = extractData(result)
+            assertEquals("health-check", data["mode"]!!.jsonPrimitive.content)
+            assertNotNull(data["activeItems"])
+            assertNotNull(data["blockedItems"])
+            assertNotNull(data["stalledItems"])
+        }
+
+    @Test
+    fun `mode=item without itemId returns validation error`(): Unit =
+        runBlocking {
+            val result =
+                tool.execute(
+                    params("mode" to JsonPrimitive("item")),
+                    context
+                )
+
+            assertFalse(isSuccess(result), "Expected error when mode=item but no itemId provided")
+            val errorObj = (result as JsonObject)["error"] as JsonObject
+            assertTrue(
+                errorObj["message"]!!.jsonPrimitive.content.contains("itemId"),
+                "Error message should mention itemId"
+            )
+        }
+
+    @Test
+    fun `mode=session-resume without since returns validation error`(): Unit =
+        runBlocking {
+            val result =
+                tool.execute(
+                    params("mode" to JsonPrimitive("session-resume")),
+                    context
+                )
+
+            assertFalse(isSuccess(result), "Expected error when mode=session-resume but no since provided")
+            val errorObj = (result as JsonObject)["error"] as JsonObject
+            assertTrue(
+                errorObj["message"]!!.jsonPrimitive.content.contains("since"),
+                "Error message should mention since"
+            )
+        }
+
+    @Test
+    fun `mode=invalid throws ToolValidationException`() {
+        assertFailsWith<ToolValidationException> {
+            tool.validateParams(params("mode" to JsonPrimitive("notamode")))
+        }
+    }
+
+    @Test
+    fun `no mode with itemId still works (backward compat)`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            val item = makeItem(id = itemId, role = Role.WORK, tags = null)
+
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+
+            val result =
+                tool.execute(
+                    params("itemId" to JsonPrimitive(itemId.toString())),
+                    context
+                )
+
+            val data = extractData(result)
+            assertEquals("item", data["mode"]!!.jsonPrimitive.content)
+            assertNotNull(data["item"])
+        }
 }
