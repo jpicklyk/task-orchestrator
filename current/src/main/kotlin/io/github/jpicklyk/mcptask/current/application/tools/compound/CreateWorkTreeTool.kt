@@ -43,14 +43,14 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
 **Parameters:**
 - `root` (required): Root item spec `{ title (required), priority?, tags?, traits?, summary?, description?, requiresVerification?, type? }`. `traits` is a comma-separated string of trait keys merged into properties.
 - `parentId` (optional): UUID of existing parent item. If provided, root depth = parent.depth + 1; otherwise depth = 0.
-- `children` (optional): Array of child item specs `[{ ref (required), title (required), priority?, tags?, traits?, summary?, description?, requiresVerification?, type? }]`. `ref` is a local name used in `deps` to wire dependencies.
+- `children` (optional): Array of child item specs `[{ ref (required), title (required), parentRef (optional, defaults to "root"), priority?, tags?, traits?, summary?, description?, requiresVerification?, type? }]`. `ref` is a local name used in `deps` to wire dependencies. `parentRef` specifies this child's parent: either `"root"` or another child's `ref`. Children can be provided in any order; a topological sort ensures parents are created before children.
 - `deps` (optional): Array of dependency specs `[{ from: ref, to: ref, type?: BLOCKS|IS_BLOCKED_BY|RELATES_TO, unblockAt?: queue|work|review|terminal }]`. Use `"root"` to reference the root item.
 - `createNotes` (optional, default false): Auto-create blank notes for each item based on its resolved schema (looked up by `type` first, then by `tags`).
 - `notes` (optional): Notes to create with bodies: `[{ itemRef (required, "root" or child ref), key (required), role (required: queue|work|review), body (optional, defaults to empty string) }]`. Explicit notes win over `createNotes=true` blanks per `(itemRef, key)`. **Strict role enforcement:** when an explicit note's `key` is declared in the resolved schema for the target item, the note's `role` must equal the schema role; mismatch is rejected with `VALIDATION_ERROR`. Off-schema keys and items without a schema are unconstrained.
 - `actor` (optional): Actor claim `{ id (required), kind (required: orchestrator|subagent|user|external), parent?, proof? }`. See **Idempotency** and **Actor attribution** above for the two effects.
 - `requestId` (optional): Client-generated UUID. With `actor`, enables idempotent retries (see Idempotency above).
 
-**Depth:** Root depth = parent.depth + 1 when parentId is provided, otherwise 0. Children are always root.depth + 1. No application-layer depth cap; cycle protection is enforced by the database.
+**Depth:** Root depth = parent.depth + 1 when parentId is provided, otherwise 0. Children's depth = their parent's depth + 1 (root or sibling via parentRef). No application-layer depth cap; cycle protection is enforced by the database.
 
 **Response:**
 ```json
@@ -118,8 +118,12 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Child item specs: [{ ref (required local name), title (required), priority?, " +
+                                    "Child item specs: [{ ref (required local name), title (required), " +
+                                        "parentRef (optional, defaults to \"root\"), priority?, " +
                                         "tags?, traits?, summary?, description?, requiresVerification?, type? }]. " +
+                                        "parentRef sets the parent of this child: either \"root\" or another child's ref. " +
+                                        "Children may be listed in any order; a topological sort ensures parents are " +
+                                        "created before children. Cycle detection runs at validation time. " +
                                         "traits is a comma-separated string of trait keys merged into properties."
                                 )
                             )
@@ -227,6 +231,7 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
             val children =
                 childrenElement as? JsonArray
                     ?: throw ToolValidationException("'children' must be a JSON array")
+            val allRefs = mutableListOf<String>()
             for ((index, child) in children.withIndex()) {
                 val childObj =
                     child as? JsonObject
@@ -241,6 +246,34 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
                 val title = (childObj["title"] as? JsonPrimitive)?.takeIf { it.isString }?.content
                 if (title.isNullOrBlank()) {
                     throw ToolValidationException("children[$index]: 'title' is required")
+                }
+                allRefs.add(ref)
+            }
+            // Validate parentRef values and detect cycles
+            val validParentRefs = setOf(ROOT_REF) + allRefs.toSet()
+            val refToParentRef = mutableMapOf<String, String>()
+            for ((index, child) in children.withIndex()) {
+                val childObj = child as JsonObject
+                val ref = (childObj["ref"] as? JsonPrimitive)!!.content
+                val parentRef = (childObj["parentRef"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: ROOT_REF
+                if (parentRef !in validParentRefs) {
+                    throw ToolValidationException(
+                        "children[$index]: 'parentRef' '$parentRef' is not defined. Valid refs: ${validParentRefs.joinToString()}"
+                    )
+                }
+                refToParentRef[ref] = parentRef
+            }
+            // Cycle detection: for each ref, walk the parentRef chain
+            for (startRef in allRefs) {
+                val visited = mutableSetOf<String>()
+                var current = startRef
+                while (current != ROOT_REF) {
+                    if (!visited.add(current)) {
+                        throw ToolValidationException(
+                            "children: cycle detected in parentRef chain involving '$current'"
+                        )
+                    }
+                    current = refToParentRef[current] ?: break
                 }
             }
         }
@@ -401,23 +434,64 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
             ) ?: return errorResponse("Failed to build root item", ErrorCodes.VALIDATION_ERROR)
 
         // ── 4. Parse children ──────────────────────────────────────────────────
-        val childDepth = rootDepth + 1
         val childrenArray = paramsObj["children"] as? JsonArray ?: JsonArray(emptyList())
         val refToItem = mutableMapOf<String, WorkItem>()
         refToItem[ROOT_REF] = rootItem
 
-        for ((index, childElement) in childrenArray.withIndex()) {
+        // Build ref→parentRef map (default "root" if absent)
+        val refToParentRef = mutableMapOf<String, String>()
+        for (childElement in childrenArray) {
             val childObj = childElement as JsonObject
-            val ref = (childObj["ref"] as? JsonPrimitive)!!.content // validated already
+            val ref = (childObj["ref"] as JsonPrimitive).content
+            val parentRef = (childObj["parentRef"] as? JsonPrimitive)?.takeIf { it.isString }?.content ?: ROOT_REF
+            refToParentRef[ref] = parentRef
+        }
 
+        // Topological sort: Kahn's algorithm on parentRef DAG
+        val inDegree = mutableMapOf<String, Int>()
+        val adjacency = mutableMapOf<String, MutableList<String>>()
+        for (ref in refToParentRef.keys) {
+            inDegree[ref] = 0
+            adjacency[ref] = mutableListOf()
+        }
+        for ((ref, parentRef) in refToParentRef) {
+            if (parentRef != ROOT_REF) {
+                inDegree[ref] = (inDegree[ref] ?: 0) + 1
+                adjacency.getOrPut(parentRef) { mutableListOf() }.add(ref)
+            }
+        }
+        val topoQueue = ArrayDeque<String>()
+        for ((ref, degree) in inDegree) {
+            if (degree == 0) topoQueue.add(ref)
+        }
+        val sortedChildRefs = mutableListOf<String>()
+        while (topoQueue.isNotEmpty()) {
+            val current = topoQueue.removeFirst()
+            sortedChildRefs.add(current)
+            for (neighbor in adjacency[current] ?: emptyList()) {
+                val newDegree = (inDegree[neighbor] ?: 1) - 1
+                inDegree[neighbor] = newDegree
+                if (newDegree == 0) topoQueue.add(neighbor)
+            }
+        }
+        // Append any remaining (shouldn't happen after validateParams cycle check, but safety net)
+        sortedChildRefs.addAll(refToParentRef.keys - sortedChildRefs.toSet())
+
+        // Build children in topological order
+        for (ref in sortedChildRefs) {
+            val childObj = childrenArray
+                .map { it as JsonObject }
+                .first { (it["ref"] as JsonPrimitive).content == ref }
+            val parentRef = refToParentRef[ref]!!
+            val parentItem = refToItem[parentRef]!! // root or already-built sibling
+            val depth = parentItem.depth + 1
             val childItem =
                 buildWorkItem(
                     obj = childObj,
-                    parentId = rootItem.id,
-                    depth = childDepth,
-                    contextLabel = "children[$index]"
-                ) ?: return errorResponse("Failed to build child item at index $index", ErrorCodes.VALIDATION_ERROR)
-
+                    parentId = parentItem.id,
+                    depth = depth,
+                    contextLabel = "child '$ref'"
+                ) ?: return errorResponse("Failed to build child item '$ref'", ErrorCodes.VALIDATION_ERROR)
             refToItem[ref] = childItem
         }
 
@@ -549,11 +623,9 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
             }
         }
 
-        // ── 7. Build ordered item list (root first, children in insertion order) ─
+        // ── 7. Build ordered item list (root first, children in topological order) ─
         val orderedItems = mutableListOf(rootItem)
-        for (childElement in childrenArray) {
-            val childObj = childElement as JsonObject
-            val ref = (childObj["ref"] as? JsonPrimitive)!!.content
+        for (ref in sortedChildRefs) {
             orderedItems.add(refToItem[ref]!!)
         }
 
