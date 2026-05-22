@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] — FTS5 + Graph-Aware Search
+## [3.8.0] - 2026-05-22 (Plugin v3.2.2)
 
 ### Breaking Changes
 
@@ -37,9 +37,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   at any depth. Cycle protection is enforced at the database level by a recursive trigger (V7
   migration).
 
+- **`create_work_tree parentRef`** — attach a new work subtree to an existing parent item by
+  passing `parentRef: { itemId: "..." }`. Eliminates the need to pre-create a container when
+  nesting child trees under an existing item (#180).
+
 - **FTS5 architecture concept doc.** `current/docs/search-and-discovery.md` — explains the
   two-table FTS5 design, RRF scoring, scope filters, backlinks, score interpretation, and
   `explain=true` usage.
+
+### Fixed
+
+- Fixed MCP server startup failure and FTS5 search errors in production Docker deployments
+  introduced with the V7 migration (#179).
+- Fixed 8 MCP API surface consistency issues — error codes, field names, and response shapes
+  now match documented contracts across all tools (#183).
+- Fixed 3 doc/code mismatches in the API reference where documented behavior differed from
+  implementation (#184).
+
+### Changed
+
+- Bumped plugin to 3.2.2 — updated ralph skill content.
 
 ### Requirements
 
