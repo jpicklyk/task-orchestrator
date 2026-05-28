@@ -9,7 +9,7 @@ import com.nimbusds.jose.jwk.JWKSelector
 import com.nimbusds.jose.jwk.OctetKeyPair
 import com.nimbusds.jose.jwk.RSAKey
 import com.nimbusds.jwt.SignedJWT
-import io.github.jpicklyk.mcptask.current.infrastructure.security.JwksKeyCache
+import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksKeySetProvider
 import org.slf4j.LoggerFactory
 import java.time.Clock
 import java.time.Instant
@@ -19,13 +19,15 @@ import java.util.UUID
 /**
  * Verifies `Authorization: Bearer <jwt>` tokens for the REST API layer.
  *
- * Reuses [JwksKeyCache] (the Phase 0 typealias for `DefaultJwksKeySetProvider`) for
- * key caching and fetching — no new caching infrastructure is needed.
+ * Accepts a [JwksKeySetProvider] for key caching and fetching — the interface makes this
+ * class testable without needing a concrete [io.github.jpicklyk.mcptask.current.infrastructure.security.JwksKeyCache]
+ * instance. In production, pass a [io.github.jpicklyk.mcptask.current.infrastructure.config.DefaultJwksKeySetProvider]
+ * (or the [io.github.jpicklyk.mcptask.current.infrastructure.security.JwksKeyCache] typealias for it).
  *
  * Verification steps (mirroring [JwksActorVerifier][io.github.jpicklyk.mcptask.current.infrastructure.config.JwksActorVerifier]):
  * 1. Parse the JWT.
  * 2. Check that the signing algorithm is in the configured [ApiAuthConfig.Jwks.algorithms] allowlist.
- * 3. Fetch public keys from [keyCache] matching the JWT's `kid` header.
+ * 3. Fetch public keys from [keyProvider] matching the JWT's `kid` header.
  * 4. Verify the signature.
  * 5. Validate `exp` / `nbf` with 60-second clock skew.
  * 6. Validate `iss` against [ApiAuthConfig.Jwks.issuer].
@@ -34,13 +36,12 @@ import java.util.UUID
  *    `to_capabilities`), defaulting to read-only unrestricted scope if the claims are absent.
  *
  * @param config The JWKS auth configuration (URL, issuer, audience, algorithms, TTL).
- * @param keyCache The JWKS key cache to delegate key material fetching to.  Defaults to a
- *   new [JwksKeyCache] constructed from [config]'s [VerifierConfig][io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig.Jwks].
+ * @param keyProvider The [JwksKeySetProvider] to delegate key material fetching to.
  * @param clock Injectable clock for unit testing of expiry/nbf logic.
  */
 class JwksApiVerifier(
     private val config: ApiAuthConfig.Jwks,
-    private val keyCache: JwksKeyCache,
+    private val keyProvider: JwksKeySetProvider,
     private val clock: Clock = Clock.systemUTC(),
 ) {
     private val logger = LoggerFactory.getLogger(JwksApiVerifier::class.java)
@@ -79,7 +80,7 @@ class JwksApiVerifier(
         // Step 3 — fetch JWKS keys
         val jwksResult =
             try {
-                keyCache.getKeySet()
+                keyProvider.getKeySet()
             } catch (e: Exception) {
                 logger.warn("Failed to fetch JWKS for API verification: {}", e.message)
                 return null
@@ -199,8 +200,7 @@ class JwksApiVerifier(
                                     logger.debug("Ignoring invalid UUID in to_scope.root_ids: '{}'", idStr)
                                     null
                                 }
-                            }
-                            .toSet()
+                            }.toSet()
                             .ifEmpty { null }
                     }
                 }
@@ -242,8 +242,7 @@ class JwksApiVerifier(
                     logger.debug("Ignoring unknown capability in JWT to_capabilities: '{}'", capStr)
                     null
                 }
-            }
-            .toSet()
+            }.toSet()
             .ifEmpty { setOf(ApiCapability.READ) }
     }
 

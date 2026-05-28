@@ -13,7 +13,6 @@ import com.nimbusds.jwt.SignedJWT
 import io.github.jpicklyk.mcptask.current.infrastructure.config.CacheState
 import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksKeySetProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksResult
-import io.github.jpicklyk.mcptask.current.infrastructure.security.JwksKeyCache
 import io.mockk.Runs
 import io.mockk.coEvery
 import io.mockk.every
@@ -59,26 +58,22 @@ class JwksApiVerifierTest {
 
     private val freshCacheState = CacheState(fromStaleCache = false, ageSeconds = null)
 
-    private fun rsaMockCache(): JwksKeyCache {
+    private fun rsaMockCache(): JwksKeySetProvider {
         val provider = mockk<JwksKeySetProvider>()
         coEvery { provider.getKeySet() } returns JwksResult(JWKSet(listOf(rsaKey.toPublicJWK())), freshCacheState)
         every { provider.getResolvedIssuer() } returns null
         every { provider.close() } just Runs
         coEvery { provider.getKeySetForIssuer(any()) } returns JwksResult(JWKSet(listOf(rsaKey.toPublicJWK())), freshCacheState)
-        // JwksKeyCache is a typealias for DefaultJwksKeySetProvider, but here we use the mock
-        // by coercing the type — acceptable in tests.
-        @Suppress("UNCHECKED_CAST")
-        return provider as JwksKeyCache
+        return provider
     }
 
-    private fun ecMockCache(): JwksKeyCache {
+    private fun ecMockCache(): JwksKeySetProvider {
         val provider = mockk<JwksKeySetProvider>()
         coEvery { provider.getKeySet() } returns JwksResult(JWKSet(listOf(ecKey.toPublicJWK())), freshCacheState)
         every { provider.getResolvedIssuer() } returns null
         every { provider.close() } just Runs
         coEvery { provider.getKeySetForIssuer(any()) } returns JwksResult(JWKSet(listOf(ecKey.toPublicJWK())), freshCacheState)
-        @Suppress("UNCHECKED_CAST")
-        return provider as JwksKeyCache
+        return provider
     }
 
     private fun buildClaims(
@@ -292,8 +287,7 @@ class JwksApiVerifierTest {
             val failingCache = mockk<JwksKeySetProvider>()
             coEvery { failingCache.getKeySet() } throws Exception("JWKS endpoint unavailable")
             every { failingCache.close() } just Runs
-            @Suppress("UNCHECKED_CAST")
-            val verifier = JwksApiVerifier(defaultConfig, failingCache as JwksKeyCache)
+            val verifier = JwksApiVerifier(defaultConfig, failingCache)
             val result = verifier.verify(signRsa())
             assertNull(result, "JWKS fetch failure should return null, not throw")
         }

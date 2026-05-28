@@ -1,7 +1,9 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth
 
 import org.slf4j.LoggerFactory
+import org.yaml.snakeyaml.LoaderOptions
 import org.yaml.snakeyaml.Yaml
+import org.yaml.snakeyaml.constructor.SafeConstructor
 import java.io.FileReader
 import java.security.MessageDigest
 import java.time.Instant
@@ -53,11 +55,15 @@ class BearerTokenStore(
             )
         }
 
-        val yaml = Yaml()
+        val yaml = Yaml(SafeConstructor(LoaderOptions()))
         val root: Map<String, Any> =
             try {
-                FileReader(file).use { yaml.load(it) }
-                    ?: throw IllegalArgumentException("API token file '$filePath' parsed to null — check YAML structure.")
+                @Suppress("UNCHECKED_CAST")
+                (
+                    FileReader(file).use { reader -> yaml.load<Any?>(reader) }
+                        ?: throw IllegalArgumentException("API token file '$filePath' parsed to null — check YAML structure.")
+                )
+                    as Map<String, Any>
             } catch (e: IllegalArgumentException) {
                 throw e
             } catch (e: Exception) {
@@ -199,11 +205,15 @@ class BearerTokenStore(
             )
         }
 
-        val yaml = Yaml()
+        val yaml = Yaml(SafeConstructor(LoaderOptions()))
         val root: Map<String, Any> =
             try {
-                FileReader(file).use { yaml.load(it) }
-                    ?: throw IllegalArgumentException("API token file '$filePath' parsed to null.")
+                @Suppress("UNCHECKED_CAST")
+                (
+                    FileReader(file).use { reader -> yaml.load<Any?>(reader) }
+                        ?: throw IllegalArgumentException("API token file '$filePath' parsed to null.")
+                )
+                    as Map<String, Any>
             } catch (e: IllegalArgumentException) {
                 throw e
             } catch (e: Exception) {
@@ -334,16 +344,17 @@ class BearerTokenStore(
                     if (list.isEmpty()) {
                         null // empty list → unrestricted (same as null per spec)
                     } else {
-                        list.map { item ->
-                            try {
-                                UUID.fromString(item.toString())
-                            } catch (e: IllegalArgumentException) {
-                                throw IllegalArgumentException(
-                                    "API token file: token '$tokenId' scope.root_ids contains " +
-                                        "invalid UUID '$item': ${e.message}",
-                                )
-                            }
-                        }.toSet()
+                        list
+                            .map { item ->
+                                try {
+                                    UUID.fromString(item.toString())
+                                } catch (e: IllegalArgumentException) {
+                                    throw IllegalArgumentException(
+                                        "API token file: token '$tokenId' scope.root_ids contains " +
+                                            "invalid UUID '$item': ${e.message}",
+                                    )
+                                }
+                            }.toSet()
                     }
                 }
                 else -> null
@@ -385,8 +396,7 @@ class BearerTokenStore(
                             "Valid values: read, write-notes, write-items, advance, manage-dependencies, admin.",
                     )
                 }
-            }
-            .toSet()
+            }.toSet()
     }
 
     /** Computes SHA-256 of the UTF-8 encoding of [input]. */

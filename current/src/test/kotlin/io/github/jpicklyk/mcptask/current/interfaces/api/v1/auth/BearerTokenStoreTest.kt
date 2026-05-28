@@ -38,8 +38,11 @@ class BearerTokenStoreTest {
         rootIds: String? = null,
     ): String {
         val hash = sha256Hex(rawToken)
-        val expiresLine = if (expiresAt != null) "\n    expires_at: \"$expiresAt\"" else ""
-        val rootLine = if (rootIds != null) "\n      root_ids: [$rootIds]" else "\n      root_ids: null"
+        // These injected strings must carry the same indent depth they'll appear at AFTER
+        // trimIndent removes the 12-space common prefix. rootLine is a child of scope: (6 spaces
+        // post-trim → 18 raw); expiresLine is a peer of scope: (4 spaces post-trim → 16 raw).
+        val expiresLine = if (expiresAt != null) "\n                expires_at: \"$expiresAt\"" else ""
+        val rootLine = if (rootIds != null) "\n                  root_ids: [$rootIds]" else "\n                  root_ids: null"
         return """
             version: 1
             tokens:
@@ -50,7 +53,7 @@ class BearerTokenStoreTest {
                   tags_include: []
                 capabilities:
                   $capabilities$expiresLine
-        """.trimIndent()
+            """.trimIndent()
     }
 
     // -------------------------------------------------------------------------
@@ -431,7 +434,7 @@ class BearerTokenStoreTest {
                   tags_include: []
                 capabilities:
                   - read
-                expires_at: "${pastExpiry}"
+                expires_at: "$pastExpiry"
             """.trimIndent()
         val path = writeYaml(content = yaml)
         val store = BearerTokenStore(path)
@@ -457,7 +460,7 @@ class BearerTokenStoreTest {
                   tags_include: []
                 capabilities:
                   - read
-                expires_at: "${futureExpiry}"
+                expires_at: "$futureExpiry"
             """.trimIndent()
         val path = writeYaml(content = yaml)
         val store = BearerTokenStore(path)
