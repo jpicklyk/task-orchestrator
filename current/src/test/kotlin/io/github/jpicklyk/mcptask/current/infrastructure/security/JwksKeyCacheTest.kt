@@ -64,7 +64,12 @@ class JwksKeyCacheTest {
                     val result = cache.getKeySet()
                     assertNotNull(result.keys)
                     assertEquals(1, result.keys.keys.size)
-                    assertEquals("cache-test-key", result.keys.keys.first().keyID)
+                    assertEquals(
+                        "cache-test-key",
+                        result.keys.keys
+                            .first()
+                            .keyID
+                    )
                     assertEquals(false, result.cacheState.fromStaleCache, "First fetch must not be marked stale")
                 } finally {
                     cache.close()
@@ -117,7 +122,9 @@ class JwksKeyCacheTest {
             val advancingClock =
                 object : Clock() {
                     override fun getZone(): ZoneOffset = ZoneOffset.UTC
+
                     override fun withZone(zone: java.time.ZoneId): Clock = this
+
                     override fun instant(): Instant = currentInstant
                 }
             val prevUserDir = System.getProperty("user.dir")
@@ -175,7 +182,9 @@ class JwksKeyCacheTest {
             val advancingClock =
                 object : Clock() {
                     override fun getZone(): ZoneOffset = ZoneOffset.UTC
+
                     override fun withZone(zone: java.time.ZoneId): Clock = this
+
                     override fun instant(): Instant = currentInstant
                 }
 
@@ -200,7 +209,12 @@ class JwksKeyCacheTest {
                 assertNotNull(second.cacheState.ageSeconds, "Stale entry must include age metadata")
                 // Keys should match the original successful fetch.
                 assertEquals(1, second.keys.keys.size)
-                assertEquals("cache-test-key", second.keys.keys.first().keyID)
+                assertEquals(
+                    "cache-test-key",
+                    second.keys.keys
+                        .first()
+                        .keyID
+                )
             } finally {
                 cache.close()
             }
@@ -238,7 +252,9 @@ class JwksKeyCacheTest {
             val advancingClock =
                 object : Clock() {
                     override fun getZone(): ZoneOffset = ZoneOffset.UTC
+
                     override fun withZone(zone: java.time.ZoneId): Clock = this
+
                     override fun instant(): Instant = currentInstant
                 }
 
