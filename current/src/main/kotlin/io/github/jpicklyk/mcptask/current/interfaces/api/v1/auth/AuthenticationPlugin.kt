@@ -3,7 +3,6 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.createApplicationPlugin
-import io.ktor.server.application.plugin
 import io.ktor.server.response.header
 import io.ktor.server.response.respond
 import io.ktor.util.AttributeKey
@@ -47,6 +46,20 @@ class ApiAuthPluginConfig {
 
     /** Injectable clock for expiry testing in bearer mode. */
     var clock: () -> java.time.Instant = { java.time.Instant.now() }
+
+    /**
+     * Exact URI paths that bypass authentication entirely (e.g. `/api/v1/health`).
+     * Requests whose [io.ktor.server.request.ApplicationRequest.uri] matches one of these
+     * paths are passed through without credential validation.
+     */
+    var publicPaths: Set<String> = setOf("/api/v1/health")
+
+    /**
+     * URI path prefixes that bypass authentication entirely (e.g. `/.well-known/`).
+     * Requests whose URI starts with any of these prefixes are passed through without
+     * credential validation.
+     */
+    var publicPrefixes: Set<String> = setOf("/.well-known/")
 }
 
 /**
@@ -88,11 +101,23 @@ val ApiBearerAuth =
             // When API is disabled, skip authentication entirely.
             if (authConfig is ApiAuthConfig.Disabled) return@onCall
 
+            // Skip authentication for public endpoints (health, well-known discovery, etc.)
+            val uri = call.request.local.uri
+            if (config.publicPaths.contains(uri) || config.publicPrefixes.any { uri.startsWith(it) }) {
+                return@onCall
+            }
+
             val authHeader = call.request.headers["Authorization"]
             if (authHeader == null || !authHeader.startsWith("Bearer ", ignoreCase = true)) {
                 logger.debug("Missing or malformed Authorization header")
                 call.response.header("WWW-Authenticate", "Bearer error=\"invalid_request\"")
-                call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "invalid_request", "error_description" to "Missing Authorization header"))
+                call.respond(
+                    HttpStatusCode.Unauthorized,
+                    mapOf(
+                        "error" to "invalid_request",
+                        "error_description" to "Missing Authorization header"
+                    )
+                )
                 return@onCall
             }
 
@@ -138,7 +163,13 @@ val ApiBearerAuth =
             if (principal == null) {
                 logger.debug("Authentication failed for request to {}", call.request.local.uri)
                 call.response.header("WWW-Authenticate", "Bearer error=\"invalid_token\"")
-                call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "invalid_token", "error_description" to "Invalid or expired token"))
+                call.respond(
+                    HttpStatusCode.Unauthorized,
+                    mapOf(
+                        "error" to "invalid_token",
+                        "error_description" to "Invalid or expired token"
+                    )
+                )
                 return@onCall
             }
 
