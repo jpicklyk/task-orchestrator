@@ -36,7 +36,12 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.cors.configureCors
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.dependencyRoutes
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.itemRoutes
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.noteRoutes
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.searchRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.serviceRoutes
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.transitionRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.wellKnownRoutes
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.install
@@ -332,6 +337,12 @@ class CurrentMcpServer(
                                 serverVersion = version,
                                 actorAuthEnabled = actorAuthEnabled,
                             )
+                            // Phase 3: read API — items, notes, dependencies, transitions, search
+                            itemRoutes(repositoryProvider)
+                            noteRoutes(repositoryProvider)
+                            dependencyRoutes(repositoryProvider)
+                            transitionRoutes(repositoryProvider)
+                            searchRoutes(repositoryProvider)
                         }
                         // Discovery endpoint — no auth, mounted at root
                         wellKnownRoutes(serverName = serverName, serverVersion = version)
