@@ -8,7 +8,6 @@ import io.github.jpicklyk.mcptask.current.infrastructure.security.ConstantTimeCo
 // Phase 2 reads this config to decide whether to install the authentication plugin
 // and which verification path to take for each request.
 sealed class ApiAuthConfig {
-
     // API is disabled (API_ENABLED=false). Phase 2 skips registering /api/v1/* routes.
     data object Disabled : ApiAuthConfig()
 
@@ -45,7 +44,9 @@ sealed class ApiAuthConfig {
 // all lookups are timing-safe, and derives hashCode from ByteArray.contentHashCode.
 //
 // Always wrap a digest before inserting into or looking up from ApiAuthConfig.Bearer.tokens.
-class HashBytes(val bytes: ByteArray) {
+class HashBytes(
+    val bytes: ByteArray
+) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (other !is HashBytes) return false

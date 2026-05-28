@@ -38,6 +38,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStor
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.cors.configureCors
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.serviceRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.wellKnownRoutes
+import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.install
 import io.ktor.server.cio.CIO
 import io.ktor.server.engine.embeddedServer
@@ -53,7 +54,6 @@ import io.modelcontextprotocol.kotlin.sdk.server.mcpStreamableHttp
 import io.modelcontextprotocol.kotlin.sdk.types.Implementation
 import io.modelcontextprotocol.kotlin.sdk.types.McpJson
 import io.modelcontextprotocol.kotlin.sdk.types.ServerCapabilities
-import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.runBlocking
 import kotlinx.io.asSink
@@ -280,8 +280,10 @@ class CurrentMcpServer(
             }
 
         // Determine actor_authentication status for /info endpoint
-        val actorAuthEnabled = YamlActorAuthenticationConfigService().getConfig()
-            .let { it.verifier !is VerifierConfig.Noop }
+        val actorAuthEnabled =
+            YamlActorAuthenticationConfigService()
+                .getConfig()
+                .let { it.verifier !is VerifierConfig.Noop }
 
         val done = Job()
         val ktorServer =

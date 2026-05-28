@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth
 
 import io.mockk.coEvery
-import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
 import kotlinx.coroutines.test.runTest
@@ -43,11 +42,10 @@ class AuthenticationPluginTest {
             authMode = ApiAuthMode.BEARER,
         )
 
-    private fun makeEntries(vararg tokens: Pair<String, String>): Map<HashBytes, BearerTokenStore.TokenEntry> {
-        return tokens.associate { (rawToken, tokenId) ->
+    private fun makeEntries(vararg tokens: Pair<String, String>): Map<HashBytes, BearerTokenStore.TokenEntry> =
+        tokens.associate { (rawToken, tokenId) ->
             HashBytes(sha256(rawToken)) to BearerTokenStore.TokenEntry(makePrincipal(tokenId), expiresAt = null)
         }
-    }
 
     // -------------------------------------------------------------------------
     // BearerTokenStore.lookupInEntries — directly exercises the auth logic
