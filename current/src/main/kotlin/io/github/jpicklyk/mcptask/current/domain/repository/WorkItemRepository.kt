@@ -358,6 +358,69 @@ interface WorkItemRepository {
      * @param parentId Optional parent UUID to scope the aggregation.
      */
     suspend fun countByClaimStatus(parentId: UUID? = null): Result<ClaimStatusCounts>
+
+    /**
+     * Find work items that are within the subtree rooted at any of [rootIds] (roots included).
+     *
+     * When [rootIds] is empty, returns an empty list immediately (no implicit fallback to
+     * [findByFilters] — an empty scope set is an unambiguous empty result).
+     *
+     * On SQLite the subtree is computed via a single recursive CTE. On H2 (test environment)
+     * a BFS loop is used instead (H2's recursive CTE syntax differs from SQLite's).
+     *
+     * All filter parameters mirror [findByFilters] exactly and are AND-combined on top of the
+     * scope constraint.
+     *
+     * @param rootIds Set of item UUIDs whose full subtrees (inclusive) are included in scope.
+     *   Must be non-empty; pass `emptySet()` only when you want an empty result.
+     */
+    suspend fun findInScope(
+        rootIds: Set<UUID>,
+        parentId: UUID? = null,
+        depth: Int? = null,
+        role: Role? = null,
+        priority: Priority? = null,
+        tags: List<String>? = null,
+        query: String? = null,
+        createdAfter: Instant? = null,
+        createdBefore: Instant? = null,
+        modifiedAfter: Instant? = null,
+        modifiedBefore: Instant? = null,
+        roleChangedAfter: Instant? = null,
+        roleChangedBefore: Instant? = null,
+        sortBy: String? = null,
+        sortOrder: String? = null,
+        limit: Int = 50,
+        offset: Int = 0,
+        type: String? = null,
+        claimStatus: String? = null,
+    ): Result<List<WorkItem>>
+
+    /**
+     * Count work items within the subtree rooted at any of [rootIds] (roots included).
+     *
+     * Mirrors [findInScope] exactly (same scope semantics and filter parameters) but returns
+     * the total row count without pagination.
+     *
+     * When [rootIds] is empty, returns 0 immediately.
+     */
+    suspend fun countInScope(
+        rootIds: Set<UUID>,
+        parentId: UUID? = null,
+        depth: Int? = null,
+        role: Role? = null,
+        priority: Priority? = null,
+        tags: List<String>? = null,
+        query: String? = null,
+        createdAfter: Instant? = null,
+        createdBefore: Instant? = null,
+        modifiedAfter: Instant? = null,
+        modifiedBefore: Instant? = null,
+        roleChangedAfter: Instant? = null,
+        roleChangedBefore: Instant? = null,
+        type: String? = null,
+        claimStatus: String? = null,
+    ): Result<Int>
 }
 
 /**

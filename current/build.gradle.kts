@@ -86,6 +86,8 @@ dependencies {
     implementation(platform(libs.ktor.bom))
     // CIO engine — not provided transitively by the MCP SDK, must be declared explicitly
     implementation(libs.ktor.server.cio)
+    // SSE (Server-Sent Events) routing — used by Phase 6 REST API SSE endpoint
+    implementation(libs.ktor.server.sse)
     // Ktor HTTP client — used by JwksKeySetProvider for JWKS URI and OIDC discovery fetching
     implementation(libs.ktor.client.cio)
 
