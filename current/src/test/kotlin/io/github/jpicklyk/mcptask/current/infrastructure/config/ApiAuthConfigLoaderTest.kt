@@ -38,7 +38,7 @@ class ApiAuthConfigLoaderTest {
                   tags_include: []
                 capabilities:
                   - read
-        """.trimIndent()
+            """.trimIndent()
     }
 
     private fun env(vararg pairs: Pair<String, String?>): (String) -> String? {
@@ -283,5 +283,48 @@ class ApiAuthConfigLoaderTest {
             )
         val ex = assertThrows<IllegalArgumentException> { loader.load() }
         assertTrue(ex.message!!.contains("API_AUTH_MODE"), "Error: ${ex.message}")
+    }
+
+    // -------------------------------------------------------------------------
+    // JWKS URL validation (Phase 2 carry-forward, Part 5.2)
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun `JWKS mode with malformed URL throws at startup with descriptive message`() {
+        val loader =
+            ApiAuthConfigLoader(
+                envResolver =
+                    env(
+                        "API_ENABLED" to "true",
+                        "API_AUTH_MODE" to "jwks",
+                        "API_JWKS_URL" to "not-a-valid-url",
+                        "API_JWKS_ISSUER" to "https://idp.example.com",
+                        "API_JWKS_AUDIENCE" to "api",
+                        "API_JWKS_ALGORITHMS" to "RS256",
+                    ),
+            )
+        val ex = assertThrows<IllegalArgumentException> { loader.load() }
+        assertTrue(
+            ex.message!!.contains("not a valid URL") || ex.message!!.contains("MalformedURL"),
+            "Expected URL validation error, got: ${ex.message}",
+        )
+    }
+
+    @Test
+    fun `JWKS mode with valid URL passes URL validation`() {
+        val loader =
+            ApiAuthConfigLoader(
+                envResolver =
+                    env(
+                        "API_ENABLED" to "true",
+                        "API_AUTH_MODE" to "jwks",
+                        "API_JWKS_URL" to "https://idp.example.com/.well-known/jwks.json",
+                        "API_JWKS_ISSUER" to "https://idp.example.com",
+                        "API_JWKS_AUDIENCE" to "api",
+                        "API_JWKS_ALGORITHMS" to "RS256",
+                    ),
+            )
+        val config = loader.load()
+        assertInstanceOf(ApiAuthConfig.Jwks::class.java, config)
     }
 }

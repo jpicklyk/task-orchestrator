@@ -3,6 +3,8 @@ package io.github.jpicklyk.mcptask.current.infrastructure.config
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import org.slf4j.LoggerFactory
+import java.net.MalformedURLException
+import java.net.URL
 
 /**
  * Environment-variable-driven loader for [ApiAuthConfig].
@@ -113,6 +115,16 @@ class ApiAuthConfigLoader(
                 ?: throw IllegalArgumentException(
                     "API_JWKS_URL is required when API_AUTH_MODE=jwks.",
                 )
+
+        // Fail-fast URL validation — reject malformed URLs at startup rather than at first JWKS fetch
+        try {
+            URL(url)
+        } catch (e: MalformedURLException) {
+            throw IllegalArgumentException(
+                "API_JWKS_URL '$url' is not a valid URL: ${e.message}. " +
+                    "Provide a fully-qualified URL, e.g. 'https://auth.example.com/.well-known/jwks.json'.",
+            )
+        }
 
         val issuer =
             envResolver("API_JWKS_ISSUER")?.trim()?.takeIf { it.isNotBlank() }

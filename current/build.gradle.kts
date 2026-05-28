@@ -88,6 +88,12 @@ dependencies {
     implementation(libs.ktor.server.cio)
     // SSE (Server-Sent Events) routing — used by Phase 6 REST API SSE endpoint
     implementation(libs.ktor.server.sse)
+    // CORS plugin — env-driven origin allowlist for REST API cross-origin requests
+    implementation(libs.ktor.server.cors)
+    // ContentNegotiation — installs before mcpStreamableHttp so MCP SDK sees CN already present
+    implementation(libs.ktor.server.content.negotiation)
+    // kotlinx-serialization JSON adapter for Ktor ContentNegotiation
+    implementation(libs.ktor.serialization.kotlinx.json)
     // Ktor HTTP client — used by JwksKeySetProvider for JWKS URI and OIDC discovery fetching
     implementation(libs.ktor.client.cio)
 
@@ -106,6 +112,9 @@ dependencies {
 
     // Ktor mock engine for hermetic HTTP tests
     testImplementation(libs.ktor.client.mock)
+
+    // Ktor test-host — enables testApplication { } integration tests for REST API routes
+    testImplementation(libs.ktor.server.test.host)
 
     // Coroutines test support
     testImplementation(libs.kotlinx.coroutines.test)

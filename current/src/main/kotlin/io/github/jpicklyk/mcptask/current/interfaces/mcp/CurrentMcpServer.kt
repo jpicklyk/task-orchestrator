@@ -21,6 +21,7 @@ import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetNextItem
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetNextStatusTool
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
+import io.github.jpicklyk.mcptask.current.infrastructure.config.ApiAuthConfigLoader
 import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksActorVerifier
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlActorAuthenticationConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlNoteSchemaService
@@ -29,15 +30,30 @@ import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.logging.DefaultMcpLoggingService
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
+import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.cors.configureCors
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.serviceRoutes
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.wellKnownRoutes
+import io.ktor.server.application.install
 import io.ktor.server.cio.CIO
 import io.ktor.server.engine.embeddedServer
+import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.server.plugins.cors.routing.CORS
+import io.ktor.server.routing.route
+import io.ktor.server.routing.routing
+import io.ktor.server.sse.SSE
 import io.modelcontextprotocol.kotlin.sdk.server.Server
 import io.modelcontextprotocol.kotlin.sdk.server.ServerOptions
 import io.modelcontextprotocol.kotlin.sdk.server.StdioServerTransport
 import io.modelcontextprotocol.kotlin.sdk.server.mcpStreamableHttp
 import io.modelcontextprotocol.kotlin.sdk.types.Implementation
+import io.modelcontextprotocol.kotlin.sdk.types.McpJson
 import io.modelcontextprotocol.kotlin.sdk.types.ServerCapabilities
+import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.runBlocking
 import kotlinx.io.asSink
@@ -158,7 +174,7 @@ class CurrentMcpServer(
             val transportType = System.getenv("MCP_TRANSPORT")?.lowercase() ?: "stdio"
             when (transportType) {
                 "stdio" -> runStdioTransport(server, serverName, toolCount)
-                "http" -> runHttpTransport(server, serverName, toolCount)
+                "http" -> runHttpTransport(server, serverName, toolCount, repositoryProvider)
                 else -> logger.error("Unknown MCP_TRANSPORT: '$transportType'. Valid values: stdio, http")
             }
 
@@ -247,17 +263,77 @@ class CurrentMcpServer(
     private suspend fun runHttpTransport(
         server: Server,
         serverName: String,
-        toolCount: Int
+        toolCount: Int,
+        repositoryProvider: RepositoryProvider,
     ) {
         val host = System.getenv("MCP_HTTP_HOST") ?: "0.0.0.0"
         val port = System.getenv("MCP_HTTP_PORT")?.toIntOrNull() ?: 3001
         logger.info("Starting MCP server with HTTP transport on $host:$port/mcp ...")
 
+        // Load API auth config once at startup — fail-fast on misconfiguration
+        val apiConfig =
+            try {
+                ApiAuthConfigLoader().load()
+            } catch (e: IllegalArgumentException) {
+                logger.error("REST API configuration error: {}", e.message)
+                throw e
+            }
+
+        // Determine actor_authentication status for /info endpoint
+        val actorAuthEnabled = YamlActorAuthenticationConfigService().getConfig()
+            .let { it.verifier !is VerifierConfig.Noop }
+
         val done = Job()
         val ktorServer =
             embeddedServer(CIO, host = host, port = port) {
+                // 1. Install ContentNegotiation FIRST with McpJson.
+                //    The MCP SDK's installMcpContentNegotiation() is idempotent — when it finds CN
+                //    already installed it logs a warning and skips. By installing McpJson here, REST
+                //    routes benefit from the same JSON configuration (explicitNulls=false,
+                //    encodeDefaults=true). Both /mcp and /api/v1/* use the same Json instance.
+                install(ContentNegotiation) {
+                    json(McpJson)
+                }
+
+                // 2. CORS plugin — env-driven allowlist, locked-down default (empty = no cross-origin)
+                install(CORS) {
+                    configureCors()
+                }
+
+                // 3. SSE plugin — required by mcpStreamableHttp and future Phase 6 /events endpoint
+                install(SSE)
+
+                // 4. Mount /mcp — mcpStreamableHttp sees ContentNegotiation already installed
+                //    (logs warning "already installed" and skips its own CN install)
                 mcpStreamableHttp {
                     server
+                }
+
+                // 5. Register REST routes when API is enabled
+                if (apiConfig !is ApiAuthConfig.Disabled) {
+                    routing {
+                        // Authenticated routes under /api/v1 — auth plugin enforces bearer/JWKS
+                        route("/api/v1") {
+                            install(ApiBearerAuth) {
+                                authConfig = apiConfig
+                                // Load token entries with expiry metadata for bearer mode
+                                if (apiConfig is ApiAuthConfig.Bearer) {
+                                    val tokensPath =
+                                        System.getenv("API_TOKENS_PATH")?.trim()?.takeIf { it.isNotBlank() }
+                                            ?: "/run/secrets/api-tokens.yaml"
+                                    tokenEntries = BearerTokenStore(tokensPath).loadWithEntries()
+                                }
+                            }
+                            serviceRoutes(
+                                repositoryProvider = repositoryProvider,
+                                serverName = serverName,
+                                serverVersion = version,
+                                actorAuthEnabled = actorAuthEnabled,
+                            )
+                        }
+                        // Discovery endpoint — no auth, mounted at root
+                        wellKnownRoutes(serverName = serverName, serverVersion = version)
+                    }
                 }
             }
 
