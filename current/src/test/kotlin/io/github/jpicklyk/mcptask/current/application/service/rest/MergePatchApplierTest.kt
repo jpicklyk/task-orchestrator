@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.service.rest
 
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -13,7 +12,6 @@ import kotlinx.serialization.json.put
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -33,10 +31,11 @@ class MergePatchApplierTest {
     // 2. Null delete: explicit null in patch removes the key
     @Test
     fun `null value in patch removes key from result`() {
-        val target = buildJsonObject {
-            put("title", "Title")
-            put("description", "To Remove")
-        }
+        val target =
+            buildJsonObject {
+                put("title", "Title")
+                put("description", "To Remove")
+            }
         val patch = buildJsonObject { put("description", JsonNull) }
         val result = MergePatchApplier.apply(target, patch).jsonObject
         assertTrue(result.containsKey("title"), "title should remain")
@@ -46,10 +45,11 @@ class MergePatchApplierTest {
     // 3. Absent key in patch: field is left unchanged
     @Test
     fun `absent key in patch leaves field untouched`() {
-        val target = buildJsonObject {
-            put("title", "Keep")
-            put("summary", "Also Keep")
-        }
+        val target =
+            buildJsonObject {
+                put("title", "Keep")
+                put("summary", "Also Keep")
+            }
         val patch = buildJsonObject { put("title", "Changed") } // summary absent
         val result = MergePatchApplier.apply(target, patch).jsonObject
         assertEquals("Changed", result["title"]?.jsonPrimitive?.content)
@@ -59,18 +59,26 @@ class MergePatchApplierTest {
     // 4. Nested object merge: sub-objects merge recursively
     @Test
     fun `nested objects merge recursively`() {
-        val target = buildJsonObject {
-            put("nested", buildJsonObject {
-                put("a", "1")
-                put("b", "2")
-            })
-        }
-        val patch = buildJsonObject {
-            put("nested", buildJsonObject {
-                put("b", "updated")
-                put("c", "new")
-            })
-        }
+        val target =
+            buildJsonObject {
+                put(
+                    "nested",
+                    buildJsonObject {
+                        put("a", "1")
+                        put("b", "2")
+                    }
+                )
+            }
+        val patch =
+            buildJsonObject {
+                put(
+                    "nested",
+                    buildJsonObject {
+                        put("b", "updated")
+                        put("c", "new")
+                    }
+                )
+            }
         val result = MergePatchApplier.apply(target, patch).jsonObject
         val nested = result["nested"]?.jsonObject!!
         assertEquals("1", nested["a"]?.jsonPrimitive?.content, "a should be preserved")
@@ -112,10 +120,11 @@ class MergePatchApplierTest {
     // 8. Empty patch leaves target unchanged
     @Test
     fun `empty patch object leaves target unchanged`() {
-        val target = buildJsonObject {
-            put("a", "1")
-            put("b", "2")
-        }
+        val target =
+            buildJsonObject {
+                put("a", "1")
+                put("b", "2")
+            }
         val patch = JsonObject(emptyMap())
         val result = MergePatchApplier.apply(target, patch).jsonObject
         assertEquals(target, result)
@@ -124,17 +133,25 @@ class MergePatchApplierTest {
     // 9. Nested null removes sub-key
     @Test
     fun `null in nested patch removes sub-key`() {
-        val target = buildJsonObject {
-            put("meta", buildJsonObject {
-                put("k1", "v1")
-                put("k2", "v2")
-            })
-        }
-        val patch = buildJsonObject {
-            put("meta", buildJsonObject {
-                put("k1", JsonNull) // remove k1
-            })
-        }
+        val target =
+            buildJsonObject {
+                put(
+                    "meta",
+                    buildJsonObject {
+                        put("k1", "v1")
+                        put("k2", "v2")
+                    }
+                )
+            }
+        val patch =
+            buildJsonObject {
+                put(
+                    "meta",
+                    buildJsonObject {
+                        put("k1", JsonNull) // remove k1
+                    }
+                )
+            }
         val result = MergePatchApplier.apply(target, patch).jsonObject
         val meta = result["meta"]?.jsonObject!!
         assertFalse(meta.containsKey("k1"), "k1 should be removed")
@@ -144,16 +161,18 @@ class MergePatchApplierTest {
     // 10. Multiple simultaneous operations in one patch
     @Test
     fun `multiple operations in single patch apply correctly`() {
-        val target = buildJsonObject {
-            put("title", "old")
-            put("description", "remove-me")
-            put("summary", "keep-me")
-        }
-        val patch = buildJsonObject {
-            put("title", "new")
-            put("description", JsonNull) // delete
-            // summary absent → unchanged
-        }
+        val target =
+            buildJsonObject {
+                put("title", "old")
+                put("description", "remove-me")
+                put("summary", "keep-me")
+            }
+        val patch =
+            buildJsonObject {
+                put("title", "new")
+                put("description", JsonNull) // delete
+                // summary absent → unchanged
+            }
         val result = MergePatchApplier.apply(target, patch).jsonObject
         assertEquals("new", result["title"]?.jsonPrimitive?.content)
         assertFalse(result.containsKey("description"), "description should be deleted")

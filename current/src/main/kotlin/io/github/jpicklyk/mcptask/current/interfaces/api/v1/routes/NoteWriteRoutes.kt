@@ -39,7 +39,11 @@ private val VALID_NOTE_ROLES = setOf("queue", "work", "review")
  */
 private sealed class NoteIdempotencyKeyResult {
     object Absent : NoteIdempotencyKeyResult()
-    data class Present(val key: UUID) : NoteIdempotencyKeyResult()
+
+    data class Present(
+        val key: UUID
+    ) : NoteIdempotencyKeyResult()
+
     object Invalid : NoteIdempotencyKeyResult()
 }
 

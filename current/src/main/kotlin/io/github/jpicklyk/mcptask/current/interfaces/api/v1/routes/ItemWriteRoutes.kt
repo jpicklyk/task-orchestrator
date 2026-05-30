@@ -38,24 +38,32 @@ import io.ktor.server.routing.post
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.put
 import org.slf4j.LoggerFactory
-import java.time.Instant
 import java.util.UUID
 
 private val writeLogger = LoggerFactory.getLogger("ItemWriteRoutes")
 
 // Field allowlist for PATCH — server-owned fields that must not be patchable
-private val REJECTED_PATCH_FIELDS = setOf(
-    "id", "role", "previousRole", "roleChangedAt", "depth",
-    "createdAt", "modifiedAt", "version",
-    "claimedBy", "claimedAt", "claimExpiresAt", "originalClaimedAt",
-)
+private val REJECTED_PATCH_FIELDS =
+    setOf(
+        "id",
+        "role",
+        "previousRole",
+        "roleChangedAt",
+        "depth",
+        "createdAt",
+        "modifiedAt",
+        "version",
+        "claimedBy",
+        "claimedAt",
+        "claimExpiresAt",
+        "originalClaimedAt",
+    )
 
 private val MERGE_PATCH_CONTENT_TYPES = setOf("application/merge-patch+json", "application/json")
 
@@ -70,7 +78,11 @@ private val warnOnClaimedAdvance: Boolean
  */
 private sealed class IdempotencyKeyResult {
     object Absent : IdempotencyKeyResult()
-    data class Present(val key: UUID) : IdempotencyKeyResult()
+
+    data class Present(
+        val key: UUID
+    ) : IdempotencyKeyResult()
+
     object Invalid : IdempotencyKeyResult()
 }
 
@@ -227,7 +239,11 @@ fun Route.itemWriteRoutes(
                 }
 
             // Content-Type check — accept merge-patch+json and application/json
-            val contentType = call.request.contentType().withoutParameters().toString()
+            val contentType =
+                call.request
+                    .contentType()
+                    .withoutParameters()
+                    .toString()
             if (contentType !in MERGE_PATCH_CONTENT_TYPES) {
                 call.response.header("Accept-Patch", "application/merge-patch+json, application/json")
                 call.respond(
@@ -316,16 +332,19 @@ fun Route.itemWriteRoutes(
 
                 // Normalize: `properties` in the merged object may be a JsonObject (from
                 // recursive merge). ItemPatchDto.properties is String? — re-serialize it.
-                val normalizedMerged: JsonObject = run {
-                    val propsElement = merged["properties"]
-                    if (propsElement != null && propsElement is JsonObject) {
-                        JsonObject(merged.toMutableMap().also { map ->
-                            map["properties"] = JsonPrimitive(propsElement.toString())
-                        })
-                    } else {
-                        merged
+                val normalizedMerged: JsonObject =
+                    run {
+                        val propsElement = merged["properties"]
+                        if (propsElement != null && propsElement is JsonObject) {
+                            JsonObject(
+                                merged.toMutableMap().also { map ->
+                                    map["properties"] = JsonPrimitive(propsElement.toString())
+                                }
+                            )
+                        } else {
+                            merged
+                        }
                     }
-                }
 
                 val patchDto =
                     try {
@@ -525,14 +544,15 @@ fun Route.itemWriteRoutes(
                     return@post
                 }
 
-            val userTrigger = UserTrigger.fromString(advanceDto.trigger) ?: run {
-                val validTriggers = UserTrigger.entries.joinToString { it.triggerString }
-                call.respond(
-                    HttpStatusCode.BadRequest,
-                    ErrorDto("validation_error", "Invalid trigger '${advanceDto.trigger}'. Valid: $validTriggers"),
-                )
-                return@post
-            }
+            val userTrigger =
+                UserTrigger.fromString(advanceDto.trigger) ?: run {
+                    val validTriggers = UserTrigger.entries.joinToString { it.triggerString }
+                    call.respond(
+                        HttpStatusCode.BadRequest,
+                        ErrorDto("validation_error", "Invalid trigger '${advanceDto.trigger}'. Valid: $validTriggers"),
+                    )
+                    return@post
+                }
 
             val itemResult = workItemRepo.getById(id)
             if (itemResult is Result.Error) {

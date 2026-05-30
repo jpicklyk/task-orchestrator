@@ -23,7 +23,11 @@ import kotlinx.serialization.json.jsonObject
  * tags, type, properties, metadata, requiresVerification, parentId.
  */
 object WorkItemPatchProjection {
-    private val lenientJson = Json { ignoreUnknownKeys = true; isLenient = true }
+    private val lenientJson =
+        Json {
+            ignoreUnknownKeys = true
+            isLenient = true
+        }
 
     fun toJsonObject(item: WorkItem): JsonObject =
         buildJsonObject {
@@ -70,9 +74,10 @@ object WorkItemPatchProjection {
             // (or JsonNull if absent). The patch handler applies MergePatchApplier on the
             // sub-object when the patch for "properties" is a JsonObject.
             if (item.properties != null) {
-                val parsed = runCatching {
-                    lenientJson.parseToJsonElement(item.properties).jsonObject
-                }.getOrNull()
+                val parsed =
+                    runCatching {
+                        lenientJson.parseToJsonElement(item.properties).jsonObject
+                    }.getOrNull()
                 if (parsed != null) {
                     put("properties", parsed)
                 } else {

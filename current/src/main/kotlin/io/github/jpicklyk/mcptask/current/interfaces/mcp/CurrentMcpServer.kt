@@ -184,7 +184,16 @@ class CurrentMcpServer(
             val transportType = System.getenv("MCP_TRANSPORT")?.lowercase() ?: "stdio"
             when (transportType) {
                 "stdio" -> runStdioTransport(server, serverName, toolCount)
-                "http" -> runHttpTransport(server, serverName, toolCount, repositoryProvider, noteSchemaService, degradedModePolicy, idempotencyCache)
+                "http" ->
+                    runHttpTransport(
+                        server,
+                        serverName,
+                        toolCount,
+                        repositoryProvider,
+                        noteSchemaService,
+                        degradedModePolicy,
+                        idempotencyCache
+                    )
                 else -> logger.error("Unknown MCP_TRANSPORT: '$transportType'. Valid values: stdio, http")
             }
 

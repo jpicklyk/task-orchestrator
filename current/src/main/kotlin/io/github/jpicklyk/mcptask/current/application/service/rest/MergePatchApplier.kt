@@ -17,7 +17,10 @@ import kotlinx.serialization.json.JsonObject
  */
 object MergePatchApplier {
     /** RFC 7396 JSON Merge Patch. Arrays replace; null deletes; nested objects merge recursively. */
-    fun apply(target: JsonElement, patch: JsonElement): JsonElement {
+    fun apply(
+        target: JsonElement,
+        patch: JsonElement
+    ): JsonElement {
         if (patch !is JsonObject) return patch // scalar/array/null replaces wholesale
         val base = (target as? JsonObject)?.toMutableMap() ?: mutableMapOf()
         for ((key, patchValue) in patch) {
