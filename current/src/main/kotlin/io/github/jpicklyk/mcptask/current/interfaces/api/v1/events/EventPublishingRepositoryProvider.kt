@@ -343,4 +343,3 @@ class EventPublishingRepositoryProvider(
         )
     }
 }
-

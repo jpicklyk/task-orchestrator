@@ -65,7 +65,8 @@ class ApiEventBusTest {
 
             val job =
                 async {
-                    withTimeout(500) { // short timeout — should NOT receive anything
+                    withTimeout(500) {
+                        // short timeout — should NOT receive anything
                         try {
                             flow.take(1).toList()
                             received = true

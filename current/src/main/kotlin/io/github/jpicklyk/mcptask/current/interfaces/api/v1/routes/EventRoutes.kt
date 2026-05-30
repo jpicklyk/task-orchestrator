@@ -114,7 +114,9 @@ fun Route.eventRoutes(
                 authHeader != null && authHeader.startsWith("Bearer ", ignoreCase = true) ->
                     authHeader.removePrefix("Bearer ").removePrefix("bearer ").trim()
                 allowQueryToken ->
-                    requestCall.request.queryParameters["token"]?.trim()?.takeIf { it.isNotEmpty() }
+                    requestCall.request.queryParameters["token"]
+                        ?.trim()
+                        ?.takeIf { it.isNotEmpty() }
                 else -> null
             }
 
@@ -166,7 +168,8 @@ fun Route.eventRoutes(
         // -------------------------------------------------------------------------
 
         val queriedRoots: Set<UUID> =
-            requestCall.request.queryParameters.getAll("root")
+            requestCall.request.queryParameters
+                .getAll("root")
                 ?.mapNotNull {
                     try {
                         UUID.fromString(it)

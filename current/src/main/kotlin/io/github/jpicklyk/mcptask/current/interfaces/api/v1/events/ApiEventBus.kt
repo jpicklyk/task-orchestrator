@@ -81,8 +81,10 @@ class ApiEventBus(
         // Fan out to subscribers
         for (sub in subscribers.values) {
             val interested =
-                sub.rootIds.isEmpty() || // no filter → all events
-                    affectedRoots.isEmpty() || // bus-level event → all subscribers
+                sub.rootIds.isEmpty() ||
+                    // no filter → all events
+                    affectedRoots.isEmpty() ||
+                    // bus-level event → all subscribers
                     sub.rootIds.intersect(affectedRoots).isNotEmpty()
 
             if (!interested) continue

@@ -576,4 +576,3 @@ class EventRoutesTest {
             bus.unsubscribe("scope-test-r2")
         }
 }
-
