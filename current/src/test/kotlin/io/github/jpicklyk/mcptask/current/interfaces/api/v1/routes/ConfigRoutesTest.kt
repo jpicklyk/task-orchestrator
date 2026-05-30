@@ -337,8 +337,13 @@ class ConfigRoutesTest {
 
         val blockedRow = featureTask.transitions["blocked"] ?: error("blocked row missing")
         assertEquals(StatusGraphBuilder.PREVIOUS_ROLE_SENTINEL, blockedRow["resume"], "blocked.resume→<previousRole>")
-        // blocked row should ONLY have resume
-        assertEquals(1, blockedRow.size, "blocked row should have exactly 1 entry (resume): $blockedRow")
+        // `cancel` is valid from ANY non-terminal role, including BLOCKED → terminal. The plan's
+        // §5.2 illustration showed only `resume`, but the graph is DERIVED from the real
+        // RoleTransitionHandler (per the plan's own derivation instruction), which permits
+        // cancel-from-blocked. The graph reflects reality so dashboards can offer a cancel button
+        // on blocked items.
+        assertEquals("terminal", blockedRow["cancel"], "blocked.cancel→terminal")
+        assertEquals(2, blockedRow.size, "blocked row should have resume + cancel: $blockedRow")
 
         val terminalRow = featureTask.transitions["terminal"] ?: error("terminal row missing")
         assertEquals("queue", terminalRow["reopen"], "terminal.reopen→queue")
