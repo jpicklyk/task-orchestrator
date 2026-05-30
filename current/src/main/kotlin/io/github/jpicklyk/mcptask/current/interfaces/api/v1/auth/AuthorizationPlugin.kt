@@ -9,7 +9,9 @@ import io.ktor.server.application.createRouteScopedPlugin
 import io.ktor.server.application.install
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
-import io.ktor.server.routing.route
+import io.ktor.server.routing.RouteSelector
+import io.ktor.server.routing.RouteSelectorEvaluation
+import io.ktor.server.routing.RoutingResolveContext
 import org.slf4j.LoggerFactory
 import java.util.UUID
 
@@ -59,27 +61,49 @@ private fun makeCapabilityPlugin(cap: ApiCapability) =
         }
     }
 
+// Transparent route selector that matches without consuming a path segment.
+//
+// Crucially relies on reference (identity) equality — each instance is distinct — so that
+// [Route.createChild] always creates a NEW child node. This is what isolates each
+// requireCapability scope: with `route("")` (empty path) Ktor MERGES the child into a
+// shared node, so two requireCapability(sameCap) blocks under one parent (e.g. several
+// READ route groups under /api/v1) would install the same route-scoped capability plugin
+// twice on that node and throw DuplicatePluginException at wiring time. A fresh transparent
+// child per call avoids the merge while keeping the URL unchanged.
+private class CapabilityRouteSelector(
+    private val cap: ApiCapability,
+) : RouteSelector() {
+    override suspend fun evaluate(
+        context: RoutingResolveContext,
+        segmentIndex: Int,
+    ): RouteSelectorEvaluation = RouteSelectorEvaluation.Transparent
+
+    override fun toString(): String = "(capability:${cap.name.lowercase()})"
+}
+
 // Route-level DSL helper that enforces a required ApiCapability before delegating to build.
 //
-// Wraps build() in an unnamed child route with a route-scoped plugin that checks the
-// resolved ApiPrincipal has cap. Returns 403 Forbidden on failure.
+// Wraps build() in a fresh transparent child route carrying a route-scoped plugin that
+// checks the resolved ApiPrincipal has cap (or ADMIN). Returns 403 Forbidden on failure,
+// 401 when unauthenticated.
 //
-// Usage (Phase 2):
+// Usage:
 //   requireCapability(ApiCapability.READ) {
-//       get("/api/v1/items") { ... }
+//       get("/items") { ... }
 //   }
 //
-// Phase 2 will wire this into route definitions once the auth plugin is installed.
-// The Ktor pattern chosen: createRouteScopedPlugin + install on a child route, which
-// is the correct Ktor 3.x approach for route-scoped capability enforcement.
+// Each call creates a DISTINCT child via createChild(CapabilityRouteSelector) so multiple
+// groups requiring the same capability under one parent route do not collide on the plugin
+// key — see CapabilityRouteSelector for why this matters.
 fun Route.requireCapability(
     cap: ApiCapability,
     build: Route.() -> Unit,
-): Route =
-    route("") {
-        install(makeCapabilityPlugin(cap))
-        build()
-    }
+): Route {
+    val child = createChild(CapabilityRouteSelector(cap))
+    child.install(makeCapabilityPlugin(cap))
+    child.build()
+    return child
+}
 
 // Scope-enforcement helper for individual item access.
 //
