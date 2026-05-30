@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
 import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommender
 import io.github.jpicklyk.mcptask.current.application.service.NoOpActorVerifier
+import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
@@ -36,6 +37,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.cors.configureCors
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.configRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.dependencyRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.itemRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.noteRoutes
@@ -179,7 +181,7 @@ class CurrentMcpServer(
             val transportType = System.getenv("MCP_TRANSPORT")?.lowercase() ?: "stdio"
             when (transportType) {
                 "stdio" -> runStdioTransport(server, serverName, toolCount)
-                "http" -> runHttpTransport(server, serverName, toolCount, repositoryProvider)
+                "http" -> runHttpTransport(server, serverName, toolCount, repositoryProvider, noteSchemaService)
                 else -> logger.error("Unknown MCP_TRANSPORT: '$transportType'. Valid values: stdio, http")
             }
 
@@ -270,6 +272,7 @@ class CurrentMcpServer(
         serverName: String,
         toolCount: Int,
         repositoryProvider: RepositoryProvider,
+        noteSchemaService: WorkItemSchemaService,
     ) {
         val host = System.getenv("MCP_HTTP_HOST") ?: "0.0.0.0"
         val port = System.getenv("MCP_HTTP_PORT")?.toIntOrNull() ?: 3001
@@ -343,6 +346,8 @@ class CurrentMcpServer(
                             dependencyRoutes(repositoryProvider)
                             transitionRoutes(repositoryProvider)
                             searchRoutes(repositoryProvider)
+                            // Phase 4: config/schema-discovery + status-graph
+                            configRoutes(noteSchemaService)
                         }
                         // Discovery endpoint — no auth, mounted at root
                         wellKnownRoutes(serverName = serverName, serverVersion = version)

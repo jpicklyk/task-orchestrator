@@ -9,6 +9,7 @@ import org.slf4j.LoggerFactory
 import org.yaml.snakeyaml.Yaml
 import java.io.FileReader
 import java.nio.file.Paths
+import java.security.MessageDigest
 
 /**
  * YAML-backed implementation of [WorkItemSchemaService].
@@ -97,6 +98,32 @@ class YamlWorkItemSchemaService(
 
     override fun getDefaultTraits(type: String?): List<String> =
         if (type != null) workItemSchemas[type]?.defaultTraits ?: emptyList() else emptyList()
+
+    // -----------------------------------------------------------------------
+    // Phase 4: Discovery / metadata API overrides
+    // -----------------------------------------------------------------------
+
+    override fun getAllSchemas(): Map<String, WorkItemSchema> = workItemSchemas
+
+    override fun getAllTraits(): Map<String, List<NoteSchemaEntry>> = traitDefs
+
+    /**
+     * Returns a SHA-256 fingerprint of the config file bytes, or
+     * `"${lastModified}-${size}"` if reading the file fails.
+     * Returns `null` when no config file is present.
+     */
+    override fun getConfigFingerprint(): String? {
+        val file = configPath.toFile()
+        if (!file.exists()) return null
+        return try {
+            val bytes = file.readBytes()
+            val digest = MessageDigest.getInstance("SHA-256").digest(bytes)
+            digest.joinToString("") { "%02x".format(it) }
+        } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
+            logger.warn("Failed to compute config fingerprint: ${e.message}")
+            "${file.lastModified()}-${file.length()}"
+        }
+    }
 
     @Suppress("UNCHECKED_CAST")
     private fun loadSchemas(): SchemaLoadResult {

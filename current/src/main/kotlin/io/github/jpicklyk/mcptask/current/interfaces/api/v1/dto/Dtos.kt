@@ -140,6 +140,95 @@ data class ErrorDto(
     val details: JsonObject? = null,
 )
 
+// ─── Phase 4: Config / schema-discovery DTOs ────────────────────────────────
+
+/**
+ * DTO for a single note schema entry (one row in a schema or trait definition).
+ *
+ * `role` is the lowercase phase name ("queue", "work", "review").
+ * `skill` is present only when a skill-routing pointer is configured for this entry.
+ */
+@Serializable
+data class NoteSchemaEntryDto(
+    val key: String,
+    val role: String,
+    val required: Boolean,
+    val description: String,
+    val guidance: String? = null,
+    val skill: String? = null,
+)
+
+/**
+ * DTO for a full work-item schema type.
+ *
+ * `lifecycleMode` is the lowercase lifecycle mode ("auto", "manual", etc.).
+ * `hasReviewPhase` is `true` when the schema contains at least one REVIEW-phase note.
+ * `defaultTraits` lists trait names automatically applied to items of this type.
+ */
+@Serializable
+data class SchemaDto(
+    val type: String,
+    val lifecycleMode: String,
+    val hasReviewPhase: Boolean,
+    val notes: List<NoteSchemaEntryDto>,
+    val defaultTraits: List<String>,
+)
+
+/**
+ * DTO for a trait definition — a named set of note schema entries that can be
+ * composed onto any work-item schema.
+ */
+@Serializable
+data class TraitDto(
+    val name: String,
+    val notes: List<NoteSchemaEntryDto>,
+)
+
+/**
+ * Per-type view of the status-transition graph.
+ *
+ * `transitions` is a map of `role → (trigger → targetRole)`.
+ * `targetRole` values are lowercase role names ("queue", "work", "review", "blocked", "terminal")
+ * or the sentinel string `"<previousRole>"` for the `blocked.resume` cell (the dashboard
+ * must resolve this from the live item's `previousRole` field).
+ */
+@Serializable
+data class StatusGraphTypeDto(
+    val type: String,
+    val lifecycleMode: String,
+    val hasReviewPhase: Boolean,
+    val transitions: Map<String, Map<String, String>>,
+)
+
+/**
+ * Full static status-transition graph across all registered schema types.
+ *
+ * `roles` and `triggers` enumerate the axes of the graph.
+ * `types` contains one entry per registered schema type.
+ */
+@Serializable
+data class StatusGraphDto(
+    val roles: List<String>,
+    val triggers: List<String>,
+    val types: List<StatusGraphTypeDto>,
+)
+
+/**
+ * Full config snapshot DTO returned by `GET /api/v1/config`.
+ *
+ * Aggregates all schemas, traits, type names, and the status-transition graph.
+ * `defaultSchema` is the schema registered under the key `"default"`, or `null`
+ * if no default schema is configured.
+ */
+@Serializable
+data class ConfigSnapshotDto(
+    val schemas: List<SchemaDto>,
+    val traits: List<TraitDto>,
+    val types: List<String>,
+    val statusGraph: StatusGraphDto,
+    val defaultSchema: SchemaDto? = null,
+)
+
 /**
  * A single FTS5 search hit returned by `/api/v1/search` (items) and `/api/v1/notes/search` (notes).
  *
