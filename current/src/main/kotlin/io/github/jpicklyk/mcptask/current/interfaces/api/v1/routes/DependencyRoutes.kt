@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryPr
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.enforceScopeForItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.requireCapability
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.BacklinkDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.buildDependenciesDto
 import io.ktor.http.HttpStatusCode
@@ -95,10 +96,10 @@ fun Route.dependencyRoutes(repositoryProvider: RepositoryProvider) {
             val backlinks = depRepo.backlinks(id)
             val dtos =
                 backlinks.map { bl ->
-                    mapOf(
-                        "fromItemId" to bl.fromItemId.toString(),
-                        "type" to bl.type.name.lowercase(),
-                        "fromTitle" to bl.fromTitle,
+                    BacklinkDto(
+                        fromItemId = bl.fromItemId.toString(),
+                        type = bl.type.name.lowercase(),
+                        fromTitle = bl.fromTitle,
                     )
                 }
             call.respond(HttpStatusCode.OK, dtos)

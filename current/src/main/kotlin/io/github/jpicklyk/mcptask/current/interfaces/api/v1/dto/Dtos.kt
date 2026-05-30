@@ -100,6 +100,14 @@ data class DependenciesDto(
     val related: List<DependencyEdgeDto>,
 )
 
+/** DTO for a single backlink entry — another item referencing this one via a dependency edge. */
+@Serializable
+data class BacklinkDto(
+    val fromItemId: String,
+    val fromTitle: String,
+    val type: String,
+)
+
 /** DTO for a single dependency edge. */
 @Serializable
 data class DependencyEdgeDto(
@@ -228,6 +236,122 @@ data class ConfigSnapshotDto(
     val statusGraph: StatusGraphDto,
     val defaultSchema: SchemaDto? = null,
 )
+
+// ─── Phase 5: Write-API request DTOs ─────────────────────────────────────────
+
+/**
+ * Request DTO for `POST /api/v1/items`.
+ *
+ * All optional fields match [WorkItem] semantics. `parentId` must be a valid UUID string
+ * when provided; null creates a root item.
+ */
+@Serializable
+data class ItemCreateDto(
+    val title: String,
+    val description: String? = null,
+    val summary: String? = null,
+    val parentId: String? = null,
+    val type: String? = null,
+    val priority: String? = null,
+    val complexity: Int? = null,
+    val requiresVerification: Boolean? = null,
+    val tags: List<String>? = null,
+    val statusLabel: String? = null,
+    val properties: JsonObject? = null,
+    val metadata: String? = null,
+)
+
+/**
+ * Merge-patch DTO for `PATCH /api/v1/items/{id}`.
+ *
+ * ALL fields are nullable so that absent fields are distinguished from explicit nulls.
+ * This DTO is decoded from the MERGED JsonObject, not directly from the request body
+ * (the request body is parsed as a raw [JsonObject] to preserve absent-vs-null semantics).
+ *
+ * Tags: when present in the merged object, `tags` is a comma-separated string mirroring
+ * the domain model storage format.
+ */
+@Serializable
+data class ItemPatchDto(
+    val title: String? = null,
+    val description: String? = null,
+    val summary: String? = null,
+    val statusLabel: String? = null,
+    val priority: String? = null,
+    val complexity: Int? = null,
+    val requiresVerification: Boolean? = null,
+    val tags: String? = null,
+    val type: String? = null,
+    val properties: String? = null,
+    val metadata: String? = null,
+    val parentId: String? = null,
+)
+
+/**
+ * Request DTO for `PUT /api/v1/items/{id}/notes/{key}`.
+ *
+ * `role` must be one of "queue", "work", "review".
+ * `properties` is reserved for future note-level metadata and is silently ignored in v1.
+ */
+@Serializable
+data class NoteWriteDto(
+    val role: String,
+    val body: String,
+    val properties: JsonObject? = null,
+)
+
+/**
+ * Request DTO for `POST /api/v1/dependencies`.
+ *
+ * `type` must be one of "blocks" or "relates_to" (case-insensitive).
+ * `unblockAt` may be one of "queue", "work", "review", "terminal"; null defaults to "terminal"
+ * for BLOCKS edges and must be absent for RELATES_TO edges.
+ */
+@Serializable
+data class DependencyCreateDto(
+    val fromItemId: String,
+    val toItemId: String,
+    val type: String,
+    val unblockAt: String? = null,
+)
+
+/**
+ * Request DTO for `POST /api/v1/items/{id}/advance`.
+ *
+ * `trigger` must be one of the 7 user triggers:
+ * start, complete, block, hold, resume, cancel, reopen.
+ */
+@Serializable
+data class AdvanceRequestDto(
+    val trigger: String,
+)
+
+/**
+ * Response DTO for `POST /api/v1/items/{id}/advance`.
+ *
+ * Does NOT include `claimedBy` — tiered-disclosure principle prevents exposing
+ * claim-holder identity via the API surface.
+ */
+@Serializable
+data class AdvanceResponseDto(
+    val itemId: String,
+    val previousRole: String,
+    val newRole: String,
+    val trigger: String,
+    val statusLabel: String? = null,
+)
+
+/**
+ * Response DTO returned by idempotency-cached responses.
+ *
+ * When an `Idempotency-Key` header is present and the request was already processed,
+ * the original [ItemDto] / [NoteDto] / [DependencyEdgeDto] is returned from cache.
+ * This wrapper is NOT used — the actual DTO types are cached and returned directly.
+ *
+ * (This comment block documents the idempotency cache replay contract for reviewers.)
+ */
+@Suppress("unused")
+private object IdempotencyCacheContract
 
 /**
  * A single FTS5 search hit returned by `/api/v1/search` (items) and `/api/v1/notes/search` (notes).

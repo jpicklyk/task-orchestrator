@@ -39,8 +39,11 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStor
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.cors.configureCors
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.configRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.dependencyRoutes
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.dependencyWriteRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.itemRoutes
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.itemWriteRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.noteRoutes
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.noteWriteRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.searchRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.serviceRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.transitionRoutes
@@ -181,7 +184,7 @@ class CurrentMcpServer(
             val transportType = System.getenv("MCP_TRANSPORT")?.lowercase() ?: "stdio"
             when (transportType) {
                 "stdio" -> runStdioTransport(server, serverName, toolCount)
-                "http" -> runHttpTransport(server, serverName, toolCount, repositoryProvider, noteSchemaService)
+                "http" -> runHttpTransport(server, serverName, toolCount, repositoryProvider, noteSchemaService, degradedModePolicy, idempotencyCache)
                 else -> logger.error("Unknown MCP_TRANSPORT: '$transportType'. Valid values: stdio, http")
             }
 
@@ -273,6 +276,8 @@ class CurrentMcpServer(
         toolCount: Int,
         repositoryProvider: RepositoryProvider,
         noteSchemaService: WorkItemSchemaService,
+        degradedModePolicy: DegradedModePolicy,
+        idempotencyCache: IdempotencyCache,
     ) {
         val host = System.getenv("MCP_HTTP_HOST") ?: "0.0.0.0"
         val port = System.getenv("MCP_HTTP_PORT")?.toIntOrNull() ?: 3001
@@ -348,6 +353,10 @@ class CurrentMcpServer(
                             searchRoutes(repositoryProvider)
                             // Phase 4: config/schema-discovery + status-graph
                             configRoutes(noteSchemaService)
+                            // Phase 5: write API — items, notes, dependencies, advance
+                            itemWriteRoutes(repositoryProvider, degradedModePolicy, idempotencyCache)
+                            noteWriteRoutes(repositoryProvider, degradedModePolicy, idempotencyCache)
+                            dependencyWriteRoutes(repositoryProvider, degradedModePolicy)
                         }
                         // Discovery endpoint — no auth, mounted at root
                         wellKnownRoutes(serverName = serverName, serverVersion = version)
