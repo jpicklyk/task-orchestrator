@@ -394,8 +394,67 @@ After adding or editing this file, reconnect the MCP server:
 
 ---
 
+---
+
+## Step 9: Enabling the REST API (optional)
+
+The REST API layer provides HTTP endpoints for dashboards, CI systems, and operators who want to read or write work items without an MCP client.
+
+**Docker — bearer mode:**
+
+```bash
+docker run --rm -p 3001:3001 \
+  -v mcp-task-data:/app/data \
+  -e MCP_TRANSPORT=http \
+  -e MCP_HTTP_PORT=3001 \
+  -e API_ENABLED=true \
+  -e API_AUTH_MODE=bearer \
+  -e API_TOKENS_PATH=/run/secrets/api-tokens.yaml \
+  -v "$(pwd)/api-tokens.yaml:/run/secrets/api-tokens.yaml:ro" \
+  ghcr.io/jpicklyk/task-orchestrator:latest
+```
+
+**Create a minimal token file (`api-tokens.yaml`):**
+
+```yaml
+version: 1
+tokens:
+  - id: my-read-token
+    description: "Read-only access"
+    # SHA-256 hex of your plaintext token (openssl dgst -sha256 -hex <<< "mytoken")
+    token_sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    capabilities:
+      - read
+```
+
+**Read an endpoint with the bearer token:**
+
+```bash
+curl -H "Authorization: Bearer mytoken" \
+     http://localhost:3001/api/v1/items?role=work
+
+# Check server health (no auth required)
+curl http://localhost:3001/api/v1/health
+```
+
+**Write an item:**
+
+```bash
+curl -X POST http://localhost:3001/api/v1/items \
+  -H "Authorization: Bearer mytoken" \
+  -H "Content-Type: application/json" \
+  -d '{"title": "New task from REST API", "priority": "HIGH"}'
+```
+
+The REST API runs on the same port as HTTP-transport MCP (`MCP_HTTP_PORT`). The MCP transport uses `/mcp`; the REST API uses `/api/v1`. Both are available on the same port when `MCP_TRANSPORT=http`.
+
+See [api-rest.md](api-rest.md) for full endpoint documentation, DTOs, merge-patch semantics, ETag/idempotency, SSE, and the complete env var reference.
+
+---
+
 ## What's next
 
 - Run `/task-orchestrator:quick-start` for an interactive hands-on tutorial
 - [api-reference.md](api-reference.md) — full reference for all 14 MCP tools, parameters, and response shapes
 - [workflow-guide.md](workflow-guide.md) — note schemas, phase gates, dependency patterns, and lifecycle examples
+- [api-rest.md](api-rest.md) — REST API reference: endpoints, DTOs, SSE, auth

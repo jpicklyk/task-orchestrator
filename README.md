@@ -316,9 +316,10 @@ Agent: advance_item(trigger="start", itemId="a3f2",
 | Resource | What's there |
 |----------|-------------|
 | **[Quick Start Guide](https://github.com/jpicklyk/task-orchestrator/wiki/quick-start)** | Full setup walkthrough with first work item |
-| **[API Reference](https://github.com/jpicklyk/task-orchestrator/wiki/api-reference)** | All 14 tools — parameters, response shapes, actor attribution |
+| **[API Reference](https://github.com/jpicklyk/task-orchestrator/wiki/api-reference)** | All 14 MCP tools — parameters, response shapes, actor attribution |
+| **[REST API Reference](current/docs/api-rest.md)** | HTTP REST endpoints, DTOs, SSE, auth, merge-patch, ETag |
 | **[Workflow Guide](https://github.com/jpicklyk/task-orchestrator/wiki/workflow-guide)** | Schemas, phase gates, dependencies, lifecycle modes |
-| **[Fleet Deployment](https://github.com/jpicklyk/task-orchestrator/wiki/fleet-deployment)** | Multi-agent operators: identity policy, SQLite tuning, capacity planning, claim disclosure |
+| **[Fleet Deployment](https://github.com/jpicklyk/task-orchestrator/wiki/fleet-deployment)** | Multi-agent operators: REST API auth, MCP actor identity, SQLite tuning, capacity planning |
 | **[Wiki](https://github.com/jpicklyk/task-orchestrator/wiki)** | Full documentation hub |
 | **[Changelog](CHANGELOG.md)** | Release history |
 | **[Contributing](CONTRIBUTING.md)** | Developer setup and contribution process |
@@ -336,6 +337,7 @@ Agent: advance_item(trigger="start", itemId="a3f2",
 Clean Architecture (Domain > Application > Infrastructure > Interface) with comprehensive test coverage.
 
 Key capabilities added in recent versions:
+- **REST API** — an HTTP REST layer (`API_ENABLED=true`) exposes items, notes, dependencies, transitions, config, and real-time SSE events to dashboards, CI systems, and operators. Supports static bearer tokens and JWKS JWT auth. See [`current/docs/api-rest.md`](current/docs/api-rest.md) for the full endpoint reference.
 - **Full-text search** — search work items and notes by keyword with ranked results (see [Full-Text Search](#full-text-search) above)
 - **Unbounded hierarchy depth** — item trees are not capped at depth 3; cycle protection is enforced at the database level via a trigger
 - **Backlinks** — `query_dependencies(operation="backlinks")` finds all items that reference a given item (reverse-direction edge lookup)
