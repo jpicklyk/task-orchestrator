@@ -7,6 +7,8 @@ import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepos
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.cors.configureCors
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventBus
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventPublishingRepositoryProvider
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -48,34 +50,37 @@ class FullApiWiringSmokeTest {
         install(CORS) { configureCors() }
         install(SSE)
 
+        val bus = ApiEventBus()
+        val decorated = EventPublishingRepositoryProvider(repo, bus)
         val authConfig = makeWriteAuthConfig() // TEST_TOKEN=read, WRITE_TOKEN=all-write, ADMIN_TOKEN=admin
+        val tokenEntries = authConfig.tokens.mapValues { (_, p) -> BearerTokenStore.TokenEntry(p, expiresAt = null) }
+
         routing {
             route("/api/v1") {
                 install(ApiBearerAuth) {
                     this.authConfig = authConfig
-                    tokenEntries =
-                        authConfig.tokens.mapValues { (_, p) ->
-                            BearerTokenStore.TokenEntry(p, expiresAt = null)
-                        }
+                    this.tokenEntries = tokenEntries
                 }
                 serviceRoutes(
-                    repositoryProvider = repo,
+                    repositoryProvider = decorated,
                     serverName = "smoke",
                     serverVersion = "test",
                     actorAuthEnabled = false,
                 )
                 // Phase 3 read
-                itemRoutes(repo)
-                noteRoutes(repo)
-                dependencyRoutes(repo)
-                transitionRoutes(repo)
-                searchRoutes(repo)
+                itemRoutes(decorated)
+                noteRoutes(decorated)
+                dependencyRoutes(decorated)
+                transitionRoutes(decorated)
+                searchRoutes(decorated)
                 // Phase 4 config
                 configRoutes(NoOpNoteSchemaService)
                 // Phase 5 write
-                itemWriteRoutes(repo, DegradedModePolicy.ACCEPT_CACHED, IdempotencyCache(), NoOpNoteSchemaService)
-                noteWriteRoutes(repo, DegradedModePolicy.ACCEPT_CACHED, IdempotencyCache())
-                dependencyWriteRoutes(repo, DegradedModePolicy.ACCEPT_CACHED)
+                itemWriteRoutes(decorated, DegradedModePolicy.ACCEPT_CACHED, IdempotencyCache(), NoOpNoteSchemaService)
+                noteWriteRoutes(decorated, DegradedModePolicy.ACCEPT_CACHED, IdempotencyCache())
+                dependencyWriteRoutes(decorated, DegradedModePolicy.ACCEPT_CACHED)
+                // Phase 6 SSE — inline auth (no ApiBearerAuth plugin for this route)
+                eventRoutes(bus, tokenEntries, allowQueryToken = false, authCheckIntervalSeconds = 60)
             }
             wellKnownRoutes(serverName = "smoke", serverVersion = "test")
         }
@@ -131,5 +136,18 @@ class FullApiWiringSmokeTest {
                     setBody("""{"title":"smoke-created"}""")
                 }
             assertEquals(HttpStatusCode.Created, created.status, "WRITE token creates item")
+
+            // Phase 6: SSE events route — inline auth (not the plugin). 401 without auth.
+            assertEquals(
+                HttpStatusCode.Unauthorized,
+                client.get("/api/v1/events").status,
+                "events requires auth (inline check)",
+            )
+            // SSE with valid READ token returns 200 (stream opened)
+            assertEquals(
+                HttpStatusCode.OK,
+                client.get("/api/v1/events") { header("Authorization", "Bearer $TEST_TOKEN") }.status,
+                "events accessible with READ token",
+            )
         }
 }

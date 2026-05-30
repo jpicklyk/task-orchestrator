@@ -36,10 +36,14 @@ import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordi
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.cors.configureCors
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventBus
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventPublishingRepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.configRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.dependencyRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.dependencyWriteRoutes
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.eventRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.itemRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.itemWriteRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.noteRoutes
@@ -301,6 +305,41 @@ class CurrentMcpServer(
                 throw e
             }
 
+        // Phase 6: Construct ApiEventBus and wrap repositories with event-publishing decorator
+        // when the API is enabled. When disabled, repositoryProvider is returned undecorated —
+        // zero behavior change and zero overhead for MCP-only deployments (additive/default-off).
+        val allowQueryToken = System.getenv("API_ALLOW_QUERY_TOKEN_FOR_SSE")?.lowercase() == "true"
+        if (allowQueryToken) {
+            logger.warn(
+                "API_ALLOW_QUERY_TOKEN_FOR_SSE=true: bearer tokens accepted as ?token= query " +
+                    "parameter on GET /api/v1/events. This leaks tokens into server logs and " +
+                    "browser history. Do NOT use in production.",
+            )
+        }
+
+        val eventBus: ApiEventBus?
+        val effectiveProvider: RepositoryProvider
+        val apiTokenEntries: Map<HashBytes, BearerTokenStore.TokenEntry>
+
+        if (apiConfig !is ApiAuthConfig.Disabled) {
+            val bus = ApiEventBus()
+            eventBus = bus
+            effectiveProvider = EventPublishingRepositoryProvider(repositoryProvider, bus)
+            val tokensPath =
+                System.getenv("API_TOKENS_PATH")?.trim()?.takeIf { it.isNotBlank() }
+                    ?: "/run/secrets/api-tokens.yaml"
+            apiTokenEntries =
+                if (apiConfig is ApiAuthConfig.Bearer) {
+                    BearerTokenStore(tokensPath).loadWithEntries()
+                } else {
+                    emptyMap()
+                }
+        } else {
+            eventBus = null
+            effectiveProvider = repositoryProvider
+            apiTokenEntries = emptyMap()
+        }
+
         // Determine actor_authentication status for /info endpoint
         val actorAuthEnabled =
             YamlActorAuthenticationConfigService()
@@ -340,32 +379,35 @@ class CurrentMcpServer(
                         route("/api/v1") {
                             install(ApiBearerAuth) {
                                 authConfig = apiConfig
-                                // Load token entries with expiry metadata for bearer mode
-                                if (apiConfig is ApiAuthConfig.Bearer) {
-                                    val tokensPath =
-                                        System.getenv("API_TOKENS_PATH")?.trim()?.takeIf { it.isNotBlank() }
-                                            ?: "/run/secrets/api-tokens.yaml"
-                                    tokenEntries = BearerTokenStore(tokensPath).loadWithEntries()
-                                }
+                                // Use pre-loaded token entries (already loaded for event bus wiring above)
+                                tokenEntries = apiTokenEntries
                             }
                             serviceRoutes(
-                                repositoryProvider = repositoryProvider,
+                                repositoryProvider = effectiveProvider,
                                 serverName = serverName,
                                 serverVersion = version,
                                 actorAuthEnabled = actorAuthEnabled,
                             )
                             // Phase 3: read API — items, notes, dependencies, transitions, search
-                            itemRoutes(repositoryProvider)
-                            noteRoutes(repositoryProvider)
-                            dependencyRoutes(repositoryProvider)
-                            transitionRoutes(repositoryProvider)
-                            searchRoutes(repositoryProvider)
+                            itemRoutes(effectiveProvider)
+                            noteRoutes(effectiveProvider)
+                            dependencyRoutes(effectiveProvider)
+                            transitionRoutes(effectiveProvider)
+                            searchRoutes(effectiveProvider)
                             // Phase 4: config/schema-discovery + status-graph
                             configRoutes(noteSchemaService)
                             // Phase 5: write API — items, notes, dependencies, advance
-                            itemWriteRoutes(repositoryProvider, degradedModePolicy, idempotencyCache, noteSchemaService)
-                            noteWriteRoutes(repositoryProvider, degradedModePolicy, idempotencyCache)
-                            dependencyWriteRoutes(repositoryProvider, degradedModePolicy)
+                            itemWriteRoutes(effectiveProvider, degradedModePolicy, idempotencyCache, noteSchemaService)
+                            noteWriteRoutes(effectiveProvider, degradedModePolicy, idempotencyCache)
+                            dependencyWriteRoutes(effectiveProvider, degradedModePolicy)
+                            // Phase 6: real-time SSE event stream — inline auth (no plugin)
+                            if (eventBus != null) {
+                                eventRoutes(
+                                    eventBus = eventBus,
+                                    tokenEntries = apiTokenEntries,
+                                    allowQueryToken = allowQueryToken,
+                                )
+                            }
                         }
                         // Discovery endpoint — no auth, mounted at root
                         wellKnownRoutes(serverName = serverName, serverVersion = version)
