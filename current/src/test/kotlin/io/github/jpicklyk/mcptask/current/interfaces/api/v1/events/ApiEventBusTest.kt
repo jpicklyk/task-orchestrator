@@ -149,7 +149,7 @@ class ApiEventBusTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `Last-Event-ID replay: events after the given id are replayed from ring buffer`(): Unit =
+    fun `Last-Event-ID replay - events after the given id are replayed from ring buffer`(): Unit =
         runBlocking {
             val bus = ApiEventBus()
             val root = UUID.randomUUID()
@@ -191,7 +191,7 @@ class ApiEventBusTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `backpressure: slow consumer receives sync_lost event on queue overflow`(): Unit =
+    fun `backpressure - slow consumer receives sync_lost event on queue overflow`(): Unit =
         runBlocking {
             // Very small queue to trigger overflow easily
             val bus = ApiEventBus(bufferSize = 1000, connectionQueueSize = 4)
