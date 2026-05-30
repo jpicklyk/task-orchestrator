@@ -79,7 +79,11 @@ class FullApiWiringSmokeTest {
                 itemWriteRoutes(decorated, DegradedModePolicy.ACCEPT_CACHED, IdempotencyCache(), NoOpNoteSchemaService)
                 noteWriteRoutes(decorated, DegradedModePolicy.ACCEPT_CACHED, IdempotencyCache())
                 dependencyWriteRoutes(decorated, DegradedModePolicy.ACCEPT_CACHED)
-                // Phase 6 SSE — inline auth (no ApiBearerAuth plugin for this route)
+            }
+            // Phase 6 SSE — registered OUTSIDE the ApiBearerAuth block (sibling /api/v1 route)
+            // so the header-only ApiBearerAuth plugin does not intercept it; the SSE route does
+            // its own inline pre-flight auth. Mirrors CurrentMcpServer production wiring.
+            route("/api/v1") {
                 eventRoutes(bus, tokenEntries, allowQueryToken = false, authCheckIntervalSeconds = 60)
             }
             wellKnownRoutes(serverName = "smoke", serverVersion = "test")

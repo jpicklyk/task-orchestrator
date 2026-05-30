@@ -9,11 +9,15 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventBus
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventType
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.call
+import io.ktor.server.application.createRouteScopedPlugin
+import io.ktor.server.application.install
+import io.ktor.server.response.header
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
-import io.ktor.server.routing.get
-import io.ktor.server.sse.ServerSentEvent
+import io.ktor.server.routing.route
 import io.ktor.server.sse.sse
+import io.ktor.sse.ServerSentEvent
+import io.ktor.util.AttributeKey
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.coroutineScope
@@ -37,28 +41,115 @@ private val sseJson =
         encodeDefaults = true
     }
 
+/** The resolved SSE principal, stashed by the pre-flight auth plugin for the SSE handler to read. */
+private val SsePrincipalKey: AttributeKey<ApiPrincipal> = AttributeKey("SseResolvedPrincipal")
+
+/** The connection's token expiry (nullable), stashed by the pre-flight auth plugin. */
+private val SseTokenExpiryKey: AttributeKey<Instant> = AttributeKey("SseTokenExpiry")
+
+/**
+ * Configuration for [sseInlineAuthPlugin].
+ */
+private class SseInlineAuthConfig {
+    var tokenEntries: Map<HashBytes, BearerTokenStore.TokenEntry> = emptyMap()
+    var allowQueryToken: Boolean = false
+}
+
+/**
+ * Route-scoped plugin that authenticates the SSE request in the `Plugins` phase — BEFORE the
+ * `sse { }` handler sets up the streaming response.
+ *
+ * This is the correct place for SSE auth: Ktor's `sse { }` invokes its handler inside
+ * `SSEServerContent.writeTo`, which runs during the response-body phase, AFTER the 200 status is
+ * committed. An auth check inside `sse { }` could therefore no longer send a 401. By running here
+ * (an `onCall` handler), the 401/403 is sent before the SSE response is ever constructed.
+ *
+ * On success it stashes the resolved [ApiPrincipal] (and token expiry) into `call.attributes` for
+ * the SSE handler to read.
+ */
+private val sseInlineAuthPlugin =
+    createRouteScopedPlugin(
+        name = "SseInlineAuth",
+        createConfiguration = ::SseInlineAuthConfig,
+    ) {
+        val tokenEntries = pluginConfig.tokenEntries
+        val allowQueryToken = pluginConfig.allowQueryToken
+
+        onCall { call ->
+            // Resolution order: Authorization header → (opt-in) ?token= query param → 401.
+            val authHeader = call.request.headers["Authorization"]
+            val rawToken: String? =
+                when {
+                    authHeader != null && authHeader.startsWith("Bearer ", ignoreCase = true) ->
+                        authHeader.removePrefix("Bearer ").removePrefix("bearer ").trim()
+                    allowQueryToken ->
+                        call.request.queryParameters["token"]
+                            ?.trim()
+                            ?.takeIf { it.isNotEmpty() }
+                    else -> null
+                }
+
+            if (rawToken == null) {
+                call.response.header("WWW-Authenticate", "Bearer error=\"invalid_request\"")
+                call.respond(
+                    HttpStatusCode.Unauthorized,
+                    mapOf("error" to "invalid_request", "error_description" to "Missing bearer token"),
+                )
+                return@onCall
+            }
+
+            val digest = sha256Bytes(rawToken)
+            val entry = tokenEntries[HashBytes(digest)]
+            if (entry == null) {
+                call.response.header("WWW-Authenticate", "Bearer error=\"invalid_token\"")
+                call.respond(
+                    HttpStatusCode.Unauthorized,
+                    mapOf("error" to "invalid_token", "error_description" to "Invalid or expired token"),
+                )
+                return@onCall
+            }
+
+            val principal = entry.principal
+            if (!principal.capabilities.contains(ApiCapability.READ) &&
+                !principal.capabilities.contains(ApiCapability.ADMIN)
+            ) {
+                call.respond(
+                    HttpStatusCode.Forbidden,
+                    mapOf(
+                        "error" to "insufficient_scope",
+                        "error_description" to "Token does not have read capability",
+                    ),
+                )
+                return@onCall
+            }
+
+            val expiry = entry.expiresAt
+            if (expiry != null && Instant.now().isAfter(expiry)) {
+                call.response.header("WWW-Authenticate", "Bearer error=\"invalid_token\"")
+                call.respond(
+                    HttpStatusCode.Unauthorized,
+                    mapOf("error" to "invalid_token", "error_description" to "Token has expired"),
+                )
+                return@onCall
+            }
+
+            // Auth OK — stash for the SSE handler.
+            call.attributes.put(SsePrincipalKey, principal)
+            if (expiry != null) call.attributes.put(SseTokenExpiryKey, expiry)
+        }
+    }
+
 /**
  * Registers the `GET /api/v1/events` SSE endpoint.
  *
- * ## Authentication (INLINE — performed in a pre-check GET handler)
+ * ## Authentication (INLINE — performed in a pre-flight route plugin, NOT the route-plugin chain)
  *
- * SSE in Ktor 3.x commits response headers (200, Content-Type: text/event-stream) before
- * the `sse { }` lambda runs. Auth cannot be done inside `sse { }` — we'd be unable to
- * respond with 401 after headers are committed. The solution is a two-step approach:
- *
- * 1. A `get("/events")` handler performs auth and resolves the principal. If auth fails,
- *    it responds with 401/403 immediately.
- * 2. If auth succeeds, it falls through to the `sse("/events")` handler (via Ktor's
- *    plugin pipeline) — actually the two can't coexist on the same path in the same route.
- *
- * The cleanest Ktor 3.x approach: use `sse("/events")` with the auth state stored in
- * call attributes BEFORE the sse block runs (via a route-scoped plugin that runs pre-call).
- *
- * Practical solution for Ktor 3.3.3: perform auth at the start of `sse { }` BEFORE any
- * `send()` call. Ktor 3.3.3 does NOT flush SSE headers until the first `send()`, so
- * `call.respond(401)` works correctly if called before any SSE data is sent.
- * (Verified: `sse { }` uses `respondBytesWriter` whose header flush is lazy — the actual
- * flush occurs on first write to the byte channel, not at lambda entry.)
+ * Auth runs in [sseInlineAuthPlugin] (`onCall`, `Plugins` phase) — before the `sse { }` handler
+ * constructs the streaming response. This is required because Ktor's `sse { }` invokes its handler
+ * inside the response-body phase (`SSEServerContent.writeTo`), after the 200 status is committed;
+ * a 401 cannot be sent from inside `sse { }`. We deliberately do NOT reuse the `ApiBearerAuth`
+ * route plugin (§5.8.1) — this SSE-specific plugin additionally supports the opt-in `?token=`
+ * query-param path and a `read`/`admin` capability gate.
  *
  * ## Resolution order
  * 1. `Authorization: Bearer <token>` header (always allowed)
@@ -85,188 +176,116 @@ fun Route.eventRoutes(
     authCheckIntervalSeconds: Int =
         System.getenv("API_SSE_AUTH_CHECK_INTERVAL_SECONDS")?.toIntOrNull() ?: 30,
 ) {
-    // -------------------------------------------------------------------------
-    // Pre-auth GET handler — responds 401/403 BEFORE the SSE session starts.
-    // This handler is reached when auth fails. On success, the `sse` handler below
-    // takes over (Ktor selects the most-specific handler; the `sse` route is more
-    // specific than `get` for the same path when the Accept header includes text/event-stream).
-    //
-    // Actually in Ktor 3.x routing, `sse` and `get` on the same path are registered as
-    // separate routes. Ktor picks the `sse` route for SSE requests (Accept: text/event-stream).
-    // Non-SSE GET requests (e.g., curl without the SSE Accept header) hit the `get` route.
-    //
-    // For auth errors, we perform the check in the SSE handler itself before any `send()`,
-    // which works because Ktor 3.3.3 flushes SSE response headers lazily (on first write).
-    // -------------------------------------------------------------------------
-
-    sse("/events") {
-        val requestCall = call
-
-        // -------------------------------------------------------------------------
-        // Inline auth — MUST complete before any `send()` call.
-        // Ktor 3.3.3 flushes response headers lazily so `call.respond(401)` works
-        // here as long as no `send()` has been called yet.
-        // -------------------------------------------------------------------------
-
-        val authHeader = requestCall.request.headers["Authorization"]
-        val rawToken: String? =
-            when {
-                authHeader != null && authHeader.startsWith("Bearer ", ignoreCase = true) ->
-                    authHeader.removePrefix("Bearer ").removePrefix("bearer ").trim()
-                allowQueryToken ->
-                    requestCall.request.queryParameters["token"]
-                        ?.trim()
-                        ?.takeIf { it.isNotEmpty() }
-                else -> null
-            }
-
-        if (rawToken == null) {
-            requestCall.response.headers.append("WWW-Authenticate", "Bearer error=\"invalid_request\"")
-            requestCall.respond(
-                HttpStatusCode.Unauthorized,
-                mapOf("error" to "invalid_request", "error_description" to "Missing bearer token"),
-            )
-            return@sse
+    // Wrap the SSE handler in a dedicated child route so the pre-flight auth plugin is scoped
+    // ONLY to /events and does not affect sibling routes.
+    route("/events") {
+        install(sseInlineAuthPlugin) {
+            this.tokenEntries = tokenEntries
+            this.allowQueryToken = allowQueryToken
         }
 
-        val digest = sha256Bytes(rawToken)
-        val entry = tokenEntries[HashBytes(digest)]
+        sse {
+            // Auth already ran in the pre-flight plugin. If the principal is absent, the plugin
+            // already responded 401/403 and finished the call — but guard defensively.
+            val principal = call.attributes.getOrNull(SsePrincipalKey) ?: return@sse
+            val tokenExpiry: Instant? = call.attributes.getOrNull(SseTokenExpiryKey)
 
-        if (entry == null) {
-            requestCall.response.headers.append("WWW-Authenticate", "Bearer error=\"invalid_token\"")
-            requestCall.respond(
-                HttpStatusCode.Unauthorized,
-                mapOf("error" to "invalid_token", "error_description" to "Invalid or expired token"),
+            // -----------------------------------------------------------------
+            // Scope resolution: intersection(?root=, principal.scope.rootIds)
+            // -----------------------------------------------------------------
+            val queriedRoots: Set<UUID> =
+                call.request.queryParameters
+                    .getAll("root")
+                    ?.mapNotNull {
+                        try {
+                            UUID.fromString(it)
+                        } catch (_: IllegalArgumentException) {
+                            null
+                        }
+                    }?.toSet()
+                    ?: emptySet()
+
+            val principalRoots = principal.scope.rootIds
+            val effectiveRoots: Set<UUID> =
+                when {
+                    principalRoots == null && queriedRoots.isEmpty() -> emptySet()
+                    principalRoots == null -> queriedRoots
+                    queriedRoots.isEmpty() -> principalRoots
+                    else -> principalRoots.intersect(queriedRoots)
+                }
+
+            // -----------------------------------------------------------------
+            // Optional event-type filter
+            // -----------------------------------------------------------------
+            val typeFilter: Set<String>? =
+                call.request.queryParameters["types"]
+                    ?.split(",")
+                    ?.map { it.trim() }
+                    ?.filter { it.isNotBlank() }
+                    ?.toSet()
+                    ?.takeIf { it.isNotEmpty() }
+
+            // -----------------------------------------------------------------
+            // Last-Event-ID replay
+            // -----------------------------------------------------------------
+            val lastEventId: Long? = call.request.headers["Last-Event-ID"]?.toLongOrNull()
+
+            val subscriberId = "sse-${UUID.randomUUID()}"
+            sseLogger.debug(
+                "SSE connection {} opened (principal={}, roots={}, types={})",
+                subscriberId,
+                principal.tokenId,
+                effectiveRoots,
+                typeFilter,
             )
-            return@sse
-        }
 
-        val principal: ApiPrincipal = entry.principal
-        val tokenExpiry: Instant? = entry.expiresAt
+            // Capture the SseServerSession so it can be used in nested coroutines.
+            val session = this
+            val flow = eventBus.subscribe(subscriberId, effectiveRoots, lastEventId)
 
-        if (!principal.capabilities.contains(ApiCapability.READ) &&
-            !principal.capabilities.contains(ApiCapability.ADMIN)
-        ) {
-            requestCall.respond(
-                HttpStatusCode.Forbidden,
-                mapOf("error" to "insufficient_scope", "error_description" to "Token does not have read capability"),
-            )
-            return@sse
-        }
-
-        if (tokenExpiry != null && Instant.now().isAfter(tokenExpiry)) {
-            requestCall.response.headers.append("WWW-Authenticate", "Bearer error=\"invalid_token\"")
-            requestCall.respond(
-                HttpStatusCode.Unauthorized,
-                mapOf("error" to "invalid_token", "error_description" to "Token has expired"),
-            )
-            return@sse
-        }
-
-        // -------------------------------------------------------------------------
-        // Scope resolution
-        // -------------------------------------------------------------------------
-
-        val queriedRoots: Set<UUID> =
-            requestCall.request.queryParameters
-                .getAll("root")
-                ?.mapNotNull {
-                    try {
-                        UUID.fromString(it)
-                    } catch (_: IllegalArgumentException) {
-                        null
+            try {
+                coroutineScope {
+                    // Periodic token-expiry check
+                    if (tokenExpiry != null) {
+                        launch {
+                            try {
+                                while (isActive) {
+                                    delay(authCheckIntervalSeconds.seconds)
+                                    if (Instant.now().isAfter(tokenExpiry)) {
+                                        val expiredEvent =
+                                            eventBus.buildEvent(
+                                                ApiEventType.AUTH_EXPIRED,
+                                                modifiedAt = Instant.now(),
+                                            )
+                                        session.send(expiredEvent.toServerSentEvent())
+                                        this@coroutineScope.cancel("Token expired")
+                                        break
+                                    }
+                                }
+                            } catch (_: CancellationException) {
+                                // Normal teardown
+                            }
+                        }
                     }
-                }?.toSet()
-                ?: emptySet()
 
-        val principalRoots = principal.scope.rootIds
-
-        val effectiveRoots: Set<UUID> =
-            when {
-                principalRoots == null && queriedRoots.isEmpty() -> emptySet()
-                principalRoots == null -> queriedRoots
-                queriedRoots.isEmpty() -> principalRoots
-                else -> principalRoots.intersect(queriedRoots)
-            }
-
-        // -------------------------------------------------------------------------
-        // Event-type filter
-        // -------------------------------------------------------------------------
-
-        val typeFilter: Set<String>? =
-            requestCall.request.queryParameters["types"]
-                ?.split(",")
-                ?.map { it.trim() }
-                ?.filter { it.isNotBlank() }
-                ?.toSet()
-                ?.takeIf { it.isNotEmpty() }
-
-        // -------------------------------------------------------------------------
-        // Last-Event-ID replay
-        // -------------------------------------------------------------------------
-
-        val lastEventId: Long? = requestCall.request.headers["Last-Event-ID"]?.toLongOrNull()
-
-        // -------------------------------------------------------------------------
-        // Subscribe and stream
-        // -------------------------------------------------------------------------
-
-        val subscriberId = "sse-${UUID.randomUUID()}"
-        sseLogger.debug(
-            "SSE connection {} opened (principal={}, roots={}, types={})",
-            subscriberId,
-            principal.tokenId,
-            effectiveRoots,
-            typeFilter,
-        )
-
-        // Capture the SseServerSession so it can be used in nested coroutines
-        val session = this
-
-        val flow = eventBus.subscribe(subscriberId, effectiveRoots, lastEventId)
-
-        try {
-            coroutineScope {
-                // Periodic token-expiry check
-                if (tokenExpiry != null) {
+                    // Streaming job
                     launch {
                         try {
-                            while (isActive) {
-                                delay(authCheckIntervalSeconds.seconds)
-                                if (Instant.now().isAfter(tokenExpiry)) {
-                                    val expiredEvent =
-                                        eventBus.buildEvent(
-                                            ApiEventType.AUTH_EXPIRED,
-                                            modifiedAt = Instant.now(),
-                                        )
-                                    session.send(expiredEvent.toServerSentEvent())
-                                    this@coroutineScope.cancel("Token expired")
-                                    break
-                                }
+                            flow.collect { event ->
+                                if (typeFilter != null && event.event !in typeFilter) return@collect
+                                session.send(event.toServerSentEvent())
                             }
                         } catch (_: CancellationException) {
                             // Normal teardown
                         }
                     }
                 }
-
-                // Streaming job
-                launch {
-                    try {
-                        flow.collect { event ->
-                            if (typeFilter != null && event.event !in typeFilter) return@collect
-                            session.send(event.toServerSentEvent())
-                        }
-                    } catch (_: CancellationException) {
-                        // Normal teardown
-                    }
-                }
+            } catch (_: CancellationException) {
+                sseLogger.debug("SSE connection {} closed", subscriberId)
+            } finally {
+                eventBus.unsubscribe(subscriberId)
+                sseLogger.debug("SSE connection {} cleaned up", subscriberId)
             }
-        } catch (_: CancellationException) {
-            sseLogger.debug("SSE connection {} closed", subscriberId)
-        } finally {
-            eventBus.unsubscribe(subscriberId)
-            sseLogger.debug("SSE connection {} cleaned up", subscriberId)
         }
     }
 }

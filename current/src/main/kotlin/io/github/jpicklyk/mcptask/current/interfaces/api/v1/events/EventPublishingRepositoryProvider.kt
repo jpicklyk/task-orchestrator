@@ -59,6 +59,13 @@ class EventPublishingRepositoryProvider(
      * On query failure, returns an empty set (event is broadcast to all subscribers as a fallback).
      */
     private suspend fun resolveRoots(itemId: UUID): Set<UUID> {
+        // Performance guard: when no SSE clients are connected, skip the ancestor-chain DB query.
+        // Returning emptySet() means "broadcast" in ApiEventBus.publish — but with zero subscribers
+        // there is nothing to fan out to, and the event is still added to the ring buffer for a
+        // future client's Last-Event-ID replay. This keeps MCP-tool writes cheap when the API is
+        // enabled but no dashboard is watching (e.g. stdio mode, or http with no live connections).
+        if (eventBus.subscriberCount() == 0) return emptySet()
+
         rootCache[itemId]?.let { return it }
 
         return try {
@@ -118,8 +125,11 @@ class EventPublishingRepositoryProvider(
         }
 
         override suspend fun update(item: WorkItem): Result<WorkItem> {
-            // Capture old parent before update for reparent detection
-            val oldItem = (inner.getById(item.id) as? Result.Success)?.data
+            // Performance guard: only read the pre-update row (for reparent detection) when an SSE
+            // client is connected. With no subscribers this extra getById is pure overhead — we
+            // still buffer a plain item.updated event below (roots resolve to emptySet()).
+            val hasSubscribers = eventBus.subscriberCount() > 0
+            val oldItem = if (hasSubscribers) (inner.getById(item.id) as? Result.Success)?.data else null
             val result = inner.update(item)
             if (result is Result.Success) {
                 val updated = result.data
@@ -128,20 +138,20 @@ class EventPublishingRepositoryProvider(
 
                 val roots = resolveRoots(updated.id)
 
-                if (oldParentId != newParentId) {
-                    // Reparent — emit scope.left for old roots, then invalidate and rebuild
-                    if (oldItem != null) {
-                        val oldRoots = resolveRoots(oldItem.id)
-                        for (oldRoot in oldRoots) {
-                            eventBus.publish(
-                                eventBus.buildEvent(
-                                    ApiEventType.SCOPE_LEFT,
-                                    itemId = updated.id,
-                                    modifiedAt = updated.modifiedAt,
-                                ),
-                                affectedRoots = setOf(oldRoot),
-                            )
-                        }
+                // Reparent detection requires the pre-update row; only attempt it when we read it
+                // (i.e. when subscribers are present). Otherwise fall through to a plain item.updated.
+                if (hasSubscribers && oldItem != null && oldParentId != newParentId) {
+                    // Reparent — emit scope.left for old roots, then invalidate and rebuild.
+                    val oldRoots = resolveRoots(oldItem.id)
+                    for (oldRoot in oldRoots) {
+                        eventBus.publish(
+                            eventBus.buildEvent(
+                                ApiEventType.SCOPE_LEFT,
+                                itemId = updated.id,
+                                modifiedAt = updated.modifiedAt,
+                            ),
+                            affectedRoots = setOf(oldRoot),
+                        )
                     }
                     // Invalidate and recompute — reparent changes the whole subtree ancestry
                     clearCache()
@@ -213,8 +223,9 @@ class EventPublishingRepositoryProvider(
         }
 
         override suspend fun delete(id: UUID): Result<Boolean> {
-            // Resolve the note's itemId before deleting so we know which roots to notify
-            val note = (inner.getById(id) as? Result.Success)?.data
+            // Performance guard: only pre-read the note (to learn its itemId for the event payload)
+            // when an SSE client is connected. With no subscribers, skip the extra getById entirely.
+            val note = if (eventBus.subscriberCount() > 0) (inner.getById(id) as? Result.Success)?.data else null
             val result = inner.delete(id)
             if (result is Result.Success && result.data && note != null) {
                 val roots = resolveRoots(note.itemId)
@@ -268,8 +279,9 @@ class EventPublishingRepositoryProvider(
         }
 
         override fun delete(id: UUID): Boolean {
-            // Look up dependency before deleting for event data
-            val dep = inner.findById(id)
+            // Performance guard: only pre-read the dependency (for the event payload) when an SSE
+            // client is connected. With no subscribers, skip the extra findById.
+            val dep = if (eventBus.subscriberCount() > 0) inner.findById(id) else null
             val result = inner.delete(id)
             if (result && dep != null) {
                 eventBus.publish(

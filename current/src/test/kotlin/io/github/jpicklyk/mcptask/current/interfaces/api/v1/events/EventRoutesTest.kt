@@ -1,5 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
+import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthMode
@@ -27,6 +29,14 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
@@ -276,6 +286,84 @@ class EventRoutesTest {
             assertTrue(
                 itemIds.contains(itemId.toString()),
                 "Expected itemId $itemId in events. Got: $itemIds",
+            )
+        }
+
+    /**
+     * PRODUCTION-WIRING PROOF TEST: an actual MCP tool (`ManageItemsTool.create`) executed
+     * through a [ToolExecutionContext] built on the DECORATED provider — exactly the way
+     * `CurrentMcpServer.run()` wires the tool context when the API is enabled — produces an
+     * event on a bus subscriber.
+     *
+     * This guards the WIRING (tool-context → decorated provider → bus → SSE subscriber), not
+     * just the decorator in isolation. If the tool context were ever wired to the raw provider
+     * (the bug fixed in this revision), this test would fail because no event would be published.
+     */
+    @Test
+    fun `production MCP tool path - ManageItemsTool create through decorated tool context emits event`(): Unit =
+        runBlocking {
+            // Mirror CurrentMcpServer.run() wiring when API is enabled:
+            // raw provider -> EventPublishingRepositoryProvider -> ToolExecutionContext.
+            val baseRepo = buildH2RepositoryProvider()
+            val bus = ApiEventBus()
+            val decorated = EventPublishingRepositoryProvider(baseRepo, bus)
+            val toolContext = ToolExecutionContext(decorated)
+            val tool = ManageItemsTool()
+
+            // Subscribe BEFORE executing the tool (simulates a connected dashboard).
+            val flow = bus.subscribe("prod-wiring-sub", emptySet(), lastEventId = null)
+            val collectedEvents = mutableListOf<ApiEvent>()
+            val collectJob =
+                GlobalScope.async {
+                    try {
+                        withTimeout(5.seconds) {
+                            flow.collect { event -> collectedEvents.add(event) }
+                        }
+                    } catch (_: Exception) {
+                        // timeout = done collecting
+                    }
+                }
+
+            delay(100)
+
+            // Execute the REAL MCP tool against the decorated tool context. No repository call,
+            // no REST route — this goes through the exact production tool path.
+            val result =
+                tool.execute(
+                    JsonObject(
+                        mapOf(
+                            "operation" to JsonPrimitive("create"),
+                            "items" to
+                                JsonArray(
+                                    listOf(
+                                        buildJsonObject { put("title", JsonPrimitive("Production wiring item")) },
+                                    ),
+                                ),
+                        ),
+                    ),
+                    toolContext,
+                ) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean, "Tool create should succeed: $result")
+            val createdItemId =
+                ((result["data"] as JsonObject)["items"]!!.jsonArray[0] as JsonObject)["id"]!!.jsonPrimitive.content
+
+            // Give the event time to propagate to the subscriber.
+            delay(500)
+            collectJob.cancel()
+            bus.unsubscribe("prod-wiring-sub")
+
+            // Verify the item.created event arrived via the production tool path.
+            assertTrue(collectedEvents.isNotEmpty(), "Expected at least one event from the MCP tool path. Got none.")
+            val eventTypes = collectedEvents.map { it.event }
+            assertTrue(
+                eventTypes.contains(ApiEventType.ITEM_CREATED),
+                "Expected item.created event from ManageItemsTool create. Got: $eventTypes",
+            )
+            val itemIds = collectedEvents.mapNotNull { it.itemId }
+            assertTrue(
+                itemIds.contains(createdItemId),
+                "Expected created item id $createdItemId in events. Got: $itemIds",
             )
         }
 

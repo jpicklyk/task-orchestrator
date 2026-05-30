@@ -122,14 +122,30 @@ class CurrentMcpServer(
             val mcpLoggingService = DefaultMcpLoggingService()
             val (actorVerifier, degradedModePolicy) = createActorVerifierAndPolicy()
             val idempotencyCache = IdempotencyCache()
+
+            // Phase 6: Resolve the REST/SSE API wiring ONCE, EARLY — before the tool context is
+            // built — so the SAME event bus and SAME decorated provider feed BOTH the MCP tool
+            // context AND the REST routes. This is critical: MCP-tool writes (the primary
+            // workflow) must publish to the same bus that SSE subscribers read from.
+            //
+            // When the API is enabled: effectiveProvider wraps repositoryProvider with the
+            // event-publishing decorator, and that wrapped provider is used for the tool context.
+            //
+            // ADDITIVE / DEFAULT-OFF: when the API is disabled, apiWiring.eventBus is null and
+            // apiWiring.effectiveProvider == repositoryProvider (the raw provider). The tool
+            // context then uses the raw provider — byte-for-byte unchanged MCP behavior with
+            // zero overhead and no decorator on the hot path.
+            val apiWiring = resolveApiWiring(repositoryProvider)
+            val effectiveProvider = apiWiring.effectiveProvider
+
             val nextItemRecommender =
                 NextItemRecommender(
-                    repositoryProvider.workItemRepository(),
-                    repositoryProvider.dependencyRepository()
+                    effectiveProvider.workItemRepository(),
+                    effectiveProvider.dependencyRepository()
                 )
             val toolContext =
                 ToolExecutionContext(
-                    repositoryProvider,
+                    effectiveProvider,
                     noteSchemaService,
                     statusLabelService,
                     mcpLoggingService,
@@ -138,7 +154,10 @@ class CurrentMcpServer(
                     idempotencyCache,
                     nextItemRecommender
                 )
-            logger.info("Repository provider and tool context initialized")
+            logger.info(
+                "Repository provider and tool context initialized (API {})",
+                if (apiWiring.eventBus != null) "enabled — writes publish to SSE bus" else "disabled — raw provider"
+            )
 
             // Build tool list
             val tools =
@@ -187,13 +206,26 @@ class CurrentMcpServer(
             // Transport dispatch
             val transportType = System.getenv("MCP_TRANSPORT")?.lowercase() ?: "stdio"
             when (transportType) {
-                "stdio" -> runStdioTransport(server, serverName, toolCount)
+                "stdio" -> {
+                    // stdio transport does NOT serve the REST/SSE API. When the API is enabled the
+                    // tool context still uses the decorated provider, so MCP-tool writes publish to
+                    // the bus — but with no SSE subscribers (no HTTP server), publish() is a cheap
+                    // no-op. Document the gap rather than expand scope to serve SSE over stdio.
+                    if (apiWiring.eventBus != null) {
+                        logger.info(
+                            "API config is enabled but MCP_TRANSPORT=stdio: the SSE endpoint is " +
+                                "only served under MCP_TRANSPORT=http. Event publishing is a no-op " +
+                                "(no subscribers) in stdio mode."
+                        )
+                    }
+                    runStdioTransport(server, serverName, toolCount)
+                }
                 "http" ->
                     runHttpTransport(
                         server,
                         serverName,
                         toolCount,
-                        repositoryProvider,
+                        apiWiring,
                         noteSchemaService,
                         degradedModePolicy,
                         idempotencyCache
@@ -209,6 +241,88 @@ class CurrentMcpServer(
      */
     suspend fun close() {
         mcpSdkServer?.close()
+    }
+
+    /**
+     * Holds the resolved REST/SSE API wiring, computed ONCE at startup.
+     *
+     * The same [effectiveProvider] and [eventBus] are shared between the MCP tool context and the
+     * REST routes so that BOTH MCP-tool writes and REST writes publish to the same SSE bus.
+     *
+     * @param apiConfig The resolved API auth configuration (Disabled / Bearer / Jwks).
+     * @param eventBus The SSE event bus, or null when the API is disabled.
+     * @param effectiveProvider The provider to use everywhere — the event-publishing decorator
+     *   when the API is enabled, or the raw provider (passed in) when disabled.
+     * @param tokenEntries Pre-loaded bearer token entries with expiry metadata (empty unless bearer mode).
+     * @param allowQueryToken Whether `?token=` query-param auth is enabled for the SSE route.
+     */
+    private data class ApiWiring(
+        val apiConfig: ApiAuthConfig,
+        val eventBus: ApiEventBus?,
+        val effectiveProvider: RepositoryProvider,
+        val tokenEntries: Map<HashBytes, BearerTokenStore.TokenEntry>,
+        val allowQueryToken: Boolean,
+    )
+
+    /**
+     * Resolve the REST/SSE API wiring exactly once at startup.
+     *
+     * Loads the API auth config (fail-fast on misconfiguration). When the API is enabled, builds a
+     * single [ApiEventBus] and wraps [rawProvider] with [EventPublishingRepositoryProvider]; both
+     * are returned so the tool context AND the REST routes share them. When disabled, returns the
+     * raw provider unchanged with a null bus — additive/default-off, zero overhead.
+     *
+     * @param rawProvider The undecorated [DefaultRepositoryProvider].
+     */
+    private fun resolveApiWiring(rawProvider: RepositoryProvider): ApiWiring {
+        // Load API auth config once at startup — fail-fast on misconfiguration.
+        val apiConfig =
+            try {
+                ApiAuthConfigLoader().load()
+            } catch (e: IllegalArgumentException) {
+                logger.error("REST API configuration error: {}", e.message)
+                throw e
+            }
+
+        val allowQueryToken = System.getenv("API_ALLOW_QUERY_TOKEN_FOR_SSE")?.lowercase() == "true"
+        if (allowQueryToken) {
+            logger.warn(
+                "API_ALLOW_QUERY_TOKEN_FOR_SSE=true: bearer tokens accepted as ?token= query " +
+                    "parameter on GET /api/v1/events. This leaks tokens into server logs and " +
+                    "browser history. Do NOT use in production."
+            )
+        }
+
+        if (apiConfig is ApiAuthConfig.Disabled) {
+            // Default-off: raw provider everywhere, no bus, no decorator, no overhead.
+            return ApiWiring(
+                apiConfig = apiConfig,
+                eventBus = null,
+                effectiveProvider = rawProvider,
+                tokenEntries = emptyMap(),
+                allowQueryToken = allowQueryToken,
+            )
+        }
+
+        val bus = ApiEventBus()
+        val decorated = EventPublishingRepositoryProvider(rawProvider, bus)
+        val tokenEntries: Map<HashBytes, BearerTokenStore.TokenEntry> =
+            if (apiConfig is ApiAuthConfig.Bearer) {
+                val tokensPath =
+                    System.getenv("API_TOKENS_PATH")?.trim()?.takeIf { it.isNotBlank() }
+                        ?: "/run/secrets/api-tokens.yaml"
+                BearerTokenStore(tokensPath).loadWithEntries()
+            } else {
+                emptyMap()
+            }
+
+        return ApiWiring(
+            apiConfig = apiConfig,
+            eventBus = bus,
+            effectiveProvider = decorated,
+            tokenEntries = tokenEntries,
+            allowQueryToken = allowQueryToken,
+        )
     }
 
     /**
@@ -287,7 +401,7 @@ class CurrentMcpServer(
         server: Server,
         serverName: String,
         toolCount: Int,
-        repositoryProvider: RepositoryProvider,
+        apiWiring: ApiWiring,
         noteSchemaService: WorkItemSchemaService,
         degradedModePolicy: DegradedModePolicy,
         idempotencyCache: IdempotencyCache,
@@ -296,49 +410,14 @@ class CurrentMcpServer(
         val port = System.getenv("MCP_HTTP_PORT")?.toIntOrNull() ?: 3001
         logger.info("Starting MCP server with HTTP transport on $host:$port/mcp ...")
 
-        // Load API auth config once at startup — fail-fast on misconfiguration
-        val apiConfig =
-            try {
-                ApiAuthConfigLoader().load()
-            } catch (e: IllegalArgumentException) {
-                logger.error("REST API configuration error: {}", e.message)
-                throw e
-            }
-
-        // Phase 6: Construct ApiEventBus and wrap repositories with event-publishing decorator
-        // when the API is enabled. When disabled, repositoryProvider is returned undecorated —
-        // zero behavior change and zero overhead for MCP-only deployments (additive/default-off).
-        val allowQueryToken = System.getenv("API_ALLOW_QUERY_TOKEN_FOR_SSE")?.lowercase() == "true"
-        if (allowQueryToken) {
-            logger.warn(
-                "API_ALLOW_QUERY_TOKEN_FOR_SSE=true: bearer tokens accepted as ?token= query " +
-                    "parameter on GET /api/v1/events. This leaks tokens into server logs and " +
-                    "browser history. Do NOT use in production.",
-            )
-        }
-
-        val eventBus: ApiEventBus?
-        val effectiveProvider: RepositoryProvider
-        val apiTokenEntries: Map<HashBytes, BearerTokenStore.TokenEntry>
-
-        if (apiConfig !is ApiAuthConfig.Disabled) {
-            val bus = ApiEventBus()
-            eventBus = bus
-            effectiveProvider = EventPublishingRepositoryProvider(repositoryProvider, bus)
-            val tokensPath =
-                System.getenv("API_TOKENS_PATH")?.trim()?.takeIf { it.isNotBlank() }
-                    ?: "/run/secrets/api-tokens.yaml"
-            apiTokenEntries =
-                if (apiConfig is ApiAuthConfig.Bearer) {
-                    BearerTokenStore(tokensPath).loadWithEntries()
-                } else {
-                    emptyMap()
-                }
-        } else {
-            eventBus = null
-            effectiveProvider = repositoryProvider
-            apiTokenEntries = emptyMap()
-        }
+        // Phase 6: reuse the API wiring resolved ONCE in run() — the SAME bus and decorated
+        // provider already feeding the MCP tool context. Do NOT re-resolve here, or the SSE route
+        // would subscribe to a different bus than the one MCP-tool writes publish to.
+        val apiConfig = apiWiring.apiConfig
+        val eventBus = apiWiring.eventBus
+        val effectiveProvider = apiWiring.effectiveProvider
+        val apiTokenEntries = apiWiring.tokenEntries
+        val allowQueryToken = apiWiring.allowQueryToken
 
         // Determine actor_authentication status for /info endpoint
         val actorAuthEnabled =
@@ -400,8 +479,14 @@ class CurrentMcpServer(
                             itemWriteRoutes(effectiveProvider, degradedModePolicy, idempotencyCache, noteSchemaService)
                             noteWriteRoutes(effectiveProvider, degradedModePolicy, idempotencyCache)
                             dependencyWriteRoutes(effectiveProvider, degradedModePolicy)
-                            // Phase 6: real-time SSE event stream — inline auth (no plugin)
-                            if (eventBus != null) {
+                        }
+                        // Phase 6: real-time SSE event stream — registered OUTSIDE the ApiBearerAuth
+                        // block (as a sibling `route("/api/v1/events")`) so the ApiBearerAuth plugin
+                        // does NOT intercept it. The SSE route does its own inline pre-flight auth,
+                        // which additionally supports the opt-in `?token=` query-param path that
+                        // ApiBearerAuth (header-only) would reject before our handler runs.
+                        if (eventBus != null) {
+                            route("/api/v1") {
                                 eventRoutes(
                                     eventBus = eventBus,
                                     tokenEntries = apiTokenEntries,
