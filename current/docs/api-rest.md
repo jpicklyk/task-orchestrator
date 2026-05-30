@@ -608,7 +608,7 @@ Trigger a role transition. Requires `ADVANCE`.
 
 **Responses:**
 - `200 OK` → `AdvanceResponseDto`
-- `400 bad_request` — invalid trigger string
+- `400 validation_error` — invalid trigger string
 - `422 transition_failed` — gate failure, dependency blocker, or invalid state transition
 
 The `hasReviewPhase` is resolved from the item's schema (type + tags + traits) to match `AdvanceItemTool` behavior — an advance from `work` goes to `review` when the schema has a review phase, or directly to `terminal` when it does not.
