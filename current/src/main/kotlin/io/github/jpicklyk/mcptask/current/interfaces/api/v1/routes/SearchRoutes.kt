@@ -83,7 +83,10 @@ fun Route.searchRoutes(repositoryProvider: RepositoryProvider) {
                     requestedAncestorId != null -> {
                         // Validate caller-requested narrowing against principal scope
                         if (principalRoots != null && !enforceScopeForItem(call, requestedAncestorId, workItemRepo)) {
-                            call.respond(HttpStatusCode.Forbidden, ErrorDto("scope_forbidden", "Requested ancestorId is outside your scope"))
+                            call.respond(
+                                HttpStatusCode.Forbidden,
+                                ErrorDto("scope_forbidden", "Requested ancestorId is outside your scope")
+                            )
                             return@get
                         }
                         SearchScope(ancestorId = requestedAncestorId, role = role, tags = tags)

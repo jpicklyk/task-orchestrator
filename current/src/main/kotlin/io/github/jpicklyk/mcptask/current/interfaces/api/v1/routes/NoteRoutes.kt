@@ -161,7 +161,10 @@ fun Route.noteRoutes(repositoryProvider: RepositoryProvider) {
                 when {
                     requestedAncestorId != null -> {
                         if (principalRoots != null && !enforceScopeForItem(call, requestedAncestorId, workItemRepo)) {
-                            call.respond(HttpStatusCode.Forbidden, ErrorDto("scope_forbidden", "Requested ancestorId is outside your scope"))
+                            call.respond(
+                                HttpStatusCode.Forbidden,
+                                ErrorDto("scope_forbidden", "Requested ancestorId is outside your scope")
+                            )
                             return@get
                         }
                         SearchScope(ancestorId = requestedAncestorId)
