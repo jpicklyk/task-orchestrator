@@ -360,12 +360,18 @@ class SearchRoutesIntegrationTest {
                 }
             assertEquals(HttpStatusCode.OK, response.status)
             val body = response.bodyAsText()
-            // R1 and R2 should be present
+            // Both in-scope roots MUST be present — a hard positive assertion. Without it the
+            // exclusion check below is vacuous (an empty/broken search would pass trivially).
+            // The fts5Available guard above guarantees FTS is working, so requiring real hits is safe.
             assertTrue(
-                body.contains(r1.id.toString()) || body.contains(r2.id.toString()) || body.isEmpty() || body == "[]",
-                "Expected R1/R2 hit or empty (no FTS match): $body"
+                body.contains(r1.id.toString()),
+                "Expected in-scope R1 in scoped search results: $body"
             )
-            // R3 must NOT appear — this is the security assertion
+            assertTrue(
+                body.contains(r2.id.toString()),
+                "Expected in-scope R2 in scoped search results: $body"
+            )
+            // R3 must NOT appear — the security assertion (meaningful only because R1/R2 are proven present).
             assertFalse(
                 body.contains(r3.id.toString()),
                 "R3 (out-of-scope root) must not appear in scoped search results: $body"
@@ -421,7 +427,13 @@ class SearchRoutesIntegrationTest {
                 }
             assertEquals(HttpStatusCode.OK, response.status)
             val body = response.bodyAsText()
-            // R3's note must NOT appear
+            // R1's in-scope note MUST be present — hard positive assertion so the exclusion
+            // check below is meaningful (an empty/broken search would otherwise pass trivially).
+            assertTrue(
+                body.contains(r1.id.toString()),
+                "Expected in-scope R1 note in scoped notes search: $body"
+            )
+            // R3's note must NOT appear — the security assertion.
             assertFalse(
                 body.contains(r3.id.toString()),
                 "R3 (out-of-scope root) note must not appear in scoped notes search: $body"
