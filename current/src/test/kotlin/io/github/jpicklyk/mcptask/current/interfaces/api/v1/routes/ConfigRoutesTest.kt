@@ -398,28 +398,30 @@ class ConfigRoutesTest {
         }
 
     @Test
-    fun `different config fingerprint produces different ETag`(): Unit =
+    fun `different config fingerprint produces different ETag`() {
+        // Make TWO real HTTP calls — one per service — and compare the ETags the ROUTE actually
+        // returns. Computing the expected ETag from the formula in-test would be tautological:
+        // it would pass even if the route ignored the fingerprint and returned a constant ETag.
+        var etag1: String? = null
         testApplication {
-            val service1 = FakeSchemaService(fingerprint = "fingerprint-A")
-            val service2 = FakeSchemaService(fingerprint = "fingerprint-B")
-
-            // Build two separate test app instances and compare ETags
-            application {
-                configureTestApp { configRoutes(service1) }
-            }
-            val r1 = client.get("/api/v1/config") { header("Authorization", "Bearer $TEST_TOKEN") }
-            val etag1 = r1.headers[HttpHeaders.ETag]
-            assertNotNull(etag1)
-
-            // Verify that a second service with a different fingerprint produces a different ETag
-            // We validate this directly via the etagFor-equivalent formula
-            val fp1 = service1.getConfigFingerprint()
-            val fp2 = service2.getConfigFingerprint()
-            assertNotEquals(fp1, fp2, "Fingerprints must differ")
-            // ETags are derived from fingerprints, so different fingerprints → different ETags
-            val etag2 = "\"cfg-${fp2}\""
-            assertNotEquals(etag1, etag2, "ETags from different fingerprints must differ")
+            application { configureTestApp { configRoutes(FakeSchemaService(fingerprint = "fingerprint-A")) } }
+            etag1 =
+                client
+                    .get("/api/v1/config") { header("Authorization", "Bearer $TEST_TOKEN") }
+                    .headers[HttpHeaders.ETag]
         }
+        var etag2: String? = null
+        testApplication {
+            application { configureTestApp { configRoutes(FakeSchemaService(fingerprint = "fingerprint-B")) } }
+            etag2 =
+                client
+                    .get("/api/v1/config") { header("Authorization", "Bearer $TEST_TOKEN") }
+                    .headers[HttpHeaders.ETag]
+        }
+        assertNotNull(etag1, "ETag must be present for service1")
+        assertNotNull(etag2, "ETag must be present for service2")
+        assertNotEquals(etag1, etag2, "Route must derive different ETags from different config fingerprints")
+    }
 
     @Test
     fun `null fingerprint produces stable no-config ETag`(): Unit =
