@@ -119,7 +119,9 @@ class YamlWorkItemSchemaService(
             val bytes = file.readBytes()
             val digest = MessageDigest.getInstance("SHA-256").digest(bytes)
             digest.joinToString("") { "%02x".format(it) }
-        } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
+        } catch (
+            @Suppress("TooGenericExceptionCaught") e: Exception
+        ) {
             logger.warn("Failed to compute config fingerprint: ${e.message}")
             "${file.lastModified()}-${file.length()}"
         }

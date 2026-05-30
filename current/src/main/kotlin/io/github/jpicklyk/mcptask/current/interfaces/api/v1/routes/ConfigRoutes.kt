@@ -81,10 +81,11 @@ fun Route.configRoutes(schemaService: WorkItemSchemaService) {
 
             // GET /config/schemas/{type} — single schema
             get("/schemas/{type}") {
-                val typeName = call.parameters["type"] ?: run {
-                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing type parameter"))
-                    return@get
-                }
+                val typeName =
+                    call.parameters["type"] ?: run {
+                        call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing type parameter"))
+                        return@get
+                    }
                 val schema = schemaService.getAllSchemas()[typeName]
                 if (schema == null) {
                     call.respond(
@@ -112,9 +113,10 @@ fun Route.configRoutes(schemaService: WorkItemSchemaService) {
                     return@get
                 }
                 call.response.header(HttpHeaders.ETag, etag)
-                val traits = schemaService.getAllTraits().entries.map { (name, entries) ->
-                    TraitDto(name, entries.map { it.toDto() })
-                }
+                val traits =
+                    schemaService.getAllTraits().entries.map { (name, entries) ->
+                        TraitDto(name, entries.map { it.toDto() })
+                    }
                 call.respond(HttpStatusCode.OK, traits)
             }
 
@@ -127,7 +129,14 @@ fun Route.configRoutes(schemaService: WorkItemSchemaService) {
                     return@get
                 }
                 call.response.header(HttpHeaders.ETag, etag)
-                call.respond(HttpStatusCode.OK, schemaService.getAllSchemas().keys.toList().sorted())
+                call.respond(
+                    HttpStatusCode.OK,
+                    schemaService
+                        .getAllSchemas()
+                        .keys
+                        .toList()
+                        .sorted()
+                )
             }
 
             // GET /config/status-graph — structural transition graph
@@ -152,8 +161,10 @@ private fun fingerprintEtag(schemaService: WorkItemSchemaService): String {
 }
 
 /** Returns true when the client's If-None-Match matches the current ETag (304 should be sent). */
-private fun respondWith304IfMatch(clientEtag: String?, currentEtag: String): Boolean =
-    clientEtag != null && clientEtag.trim() == currentEtag
+private fun respondWith304IfMatch(
+    clientEtag: String?,
+    currentEtag: String
+): Boolean = clientEtag != null && clientEtag.trim() == currentEtag
 
 // ─── Domain → DTO mapping helpers ───────────────────────────────────────────
 

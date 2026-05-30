@@ -41,7 +41,6 @@ import kotlin.test.assertTrue
  * - Additive interface: `NoOpNoteSchemaService` still compiles (verified structurally)
  */
 class ConfigRoutesTest {
-
     // ─── Helpers ─────────────────────────────────────────────────────────────
 
     /**
@@ -53,50 +52,56 @@ class ConfigRoutesTest {
         private val traits: Map<String, List<NoteSchemaEntry>> = buildDefaultTraits(),
         private val fingerprint: String? = "test-fingerprint-abc123",
     ) : WorkItemSchemaService {
-        override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
-            tags.firstNotNullOfOrNull { schemas[it]?.notes }
+        override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? = tags.firstNotNullOfOrNull { schemas[it]?.notes }
 
         override fun getAllSchemas(): Map<String, WorkItemSchema> = schemas
+
         override fun getAllTraits(): Map<String, List<NoteSchemaEntry>> = traits
+
         override fun getConfigFingerprint(): String? = fingerprint
     }
 
     companion object {
         fun buildDefaultSchemas(): Map<String, WorkItemSchema> =
             mapOf(
-                "feature-task" to WorkItemSchema(
-                    type = "feature-task",
-                    lifecycleMode = LifecycleMode.AUTO,
-                    notes = listOf(
-                        NoteSchemaEntry("task-scope", Role.QUEUE, required = true, description = "Scope note"),
-                        NoteSchemaEntry("impl-notes", Role.WORK, required = true, description = "Impl notes"),
-                        NoteSchemaEntry("review-checklist", Role.REVIEW, required = true, description = "Review"),
+                "feature-task" to
+                    WorkItemSchema(
+                        type = "feature-task",
+                        lifecycleMode = LifecycleMode.AUTO,
+                        notes =
+                            listOf(
+                                NoteSchemaEntry("task-scope", Role.QUEUE, required = true, description = "Scope note"),
+                                NoteSchemaEntry("impl-notes", Role.WORK, required = true, description = "Impl notes"),
+                                NoteSchemaEntry("review-checklist", Role.REVIEW, required = true, description = "Review"),
+                            ),
+                        defaultTraits = listOf("test-trait"),
                     ),
-                    defaultTraits = listOf("test-trait"),
-                ),
-                "simple-task" to WorkItemSchema(
-                    type = "simple-task",
-                    lifecycleMode = LifecycleMode.MANUAL,
-                    notes = listOf(
-                        NoteSchemaEntry("task-scope", Role.QUEUE, required = true, description = "Scope"),
-                        NoteSchemaEntry("impl-notes", Role.WORK, required = false, description = "Optional impl"),
+                "simple-task" to
+                    WorkItemSchema(
+                        type = "simple-task",
+                        lifecycleMode = LifecycleMode.MANUAL,
+                        notes =
+                            listOf(
+                                NoteSchemaEntry("task-scope", Role.QUEUE, required = true, description = "Scope"),
+                                NoteSchemaEntry("impl-notes", Role.WORK, required = false, description = "Optional impl"),
+                            ),
+                        defaultTraits = emptyList(),
                     ),
-                    defaultTraits = emptyList(),
-                ),
             )
 
         fun buildDefaultTraits(): Map<String, List<NoteSchemaEntry>> =
             mapOf(
-                "test-trait" to listOf(
-                    NoteSchemaEntry(
-                        "trait-note",
-                        Role.REVIEW,
-                        required = false,
-                        description = "A trait note",
-                        guidance = "Guidance text",
-                        skill = "some-skill",
+                "test-trait" to
+                    listOf(
+                        NoteSchemaEntry(
+                            "trait-note",
+                            Role.REVIEW,
+                            required = false,
+                            description = "A trait note",
+                            guidance = "Guidance text",
+                            skill = "some-skill",
+                        ),
                     ),
-                ),
             )
     }
 
@@ -106,9 +111,10 @@ class ConfigRoutesTest {
     fun `GET config returns 200 with snapshot`(): Unit =
         testApplication {
             application { configureTestApp { configRoutes(FakeSchemaService()) } }
-            val response = client.get("/api/v1/config") {
-                header("Authorization", "Bearer $TEST_TOKEN")
-            }
+            val response =
+                client.get("/api/v1/config") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                }
             assertEquals(HttpStatusCode.OK, response.status)
             val body = response.bodyAsText()
             // All 5 top-level keys present
@@ -128,9 +134,10 @@ class ConfigRoutesTest {
     fun `GET config schemas returns all schemas`(): Unit =
         testApplication {
             application { configureTestApp { configRoutes(FakeSchemaService()) } }
-            val response = client.get("/api/v1/config/schemas") {
-                header("Authorization", "Bearer $TEST_TOKEN")
-            }
+            val response =
+                client.get("/api/v1/config/schemas") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                }
             assertEquals(HttpStatusCode.OK, response.status)
             val body = response.bodyAsText()
             assertTrue(body.contains("feature-task"), "Expected feature-task: $body")
@@ -143,9 +150,10 @@ class ConfigRoutesTest {
     fun `GET config schemas has correct shape for feature-task`(): Unit =
         testApplication {
             application { configureTestApp { configRoutes(FakeSchemaService()) } }
-            val response = client.get("/api/v1/config/schemas") {
-                header("Authorization", "Bearer $TEST_TOKEN")
-            }
+            val response =
+                client.get("/api/v1/config/schemas") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                }
             assertEquals(HttpStatusCode.OK, response.status)
             val body = response.bodyAsText()
             // feature-task has review phase
@@ -159,9 +167,10 @@ class ConfigRoutesTest {
     fun `GET config schemas type returns single schema`(): Unit =
         testApplication {
             application { configureTestApp { configRoutes(FakeSchemaService()) } }
-            val response = client.get("/api/v1/config/schemas/feature-task") {
-                header("Authorization", "Bearer $TEST_TOKEN")
-            }
+            val response =
+                client.get("/api/v1/config/schemas/feature-task") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                }
             assertEquals(HttpStatusCode.OK, response.status)
             val body = response.bodyAsText()
             assertTrue(body.contains("feature-task"), "Expected feature-task: $body")
@@ -173,9 +182,10 @@ class ConfigRoutesTest {
     fun `GET config schemas unknown type returns 404`(): Unit =
         testApplication {
             application { configureTestApp { configRoutes(FakeSchemaService()) } }
-            val response = client.get("/api/v1/config/schemas/nonexistent-type") {
-                header("Authorization", "Bearer $TEST_TOKEN")
-            }
+            val response =
+                client.get("/api/v1/config/schemas/nonexistent-type") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                }
             assertEquals(HttpStatusCode.NotFound, response.status)
             val body = response.bodyAsText()
             assertTrue(body.contains("not_found"), "Expected not_found error: $body")
@@ -187,9 +197,10 @@ class ConfigRoutesTest {
     fun `GET config traits returns trait definitions`(): Unit =
         testApplication {
             application { configureTestApp { configRoutes(FakeSchemaService()) } }
-            val response = client.get("/api/v1/config/traits") {
-                header("Authorization", "Bearer $TEST_TOKEN")
-            }
+            val response =
+                client.get("/api/v1/config/traits") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                }
             assertEquals(HttpStatusCode.OK, response.status)
             val body = response.bodyAsText()
             assertTrue(body.contains("test-trait"), "Expected test-trait: $body")
@@ -204,9 +215,10 @@ class ConfigRoutesTest {
     fun `GET config types returns type names`(): Unit =
         testApplication {
             application { configureTestApp { configRoutes(FakeSchemaService()) } }
-            val response = client.get("/api/v1/config/types") {
-                header("Authorization", "Bearer $TEST_TOKEN")
-            }
+            val response =
+                client.get("/api/v1/config/types") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                }
             assertEquals(HttpStatusCode.OK, response.status)
             val body = response.bodyAsText()
             assertTrue(body.contains("feature-task"), "Expected feature-task: $body")
@@ -219,9 +231,10 @@ class ConfigRoutesTest {
     fun `GET config status-graph returns structural graph`(): Unit =
         testApplication {
             application { configureTestApp { configRoutes(FakeSchemaService()) } }
-            val response = client.get("/api/v1/config/status-graph") {
-                header("Authorization", "Bearer $TEST_TOKEN")
-            }
+            val response =
+                client.get("/api/v1/config/status-graph") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                }
             assertEquals(HttpStatusCode.OK, response.status)
             val body = response.bodyAsText()
             assertTrue(body.contains("\"roles\""), "Expected roles: $body")
@@ -235,9 +248,10 @@ class ConfigRoutesTest {
     fun `status-graph feature-task work-start goes to review`(): Unit =
         testApplication {
             application { configureTestApp { configRoutes(FakeSchemaService()) } }
-            val response = client.get("/api/v1/config/status-graph") {
-                header("Authorization", "Bearer $TEST_TOKEN")
-            }
+            val response =
+                client.get("/api/v1/config/status-graph") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                }
             assertEquals(HttpStatusCode.OK, response.status)
             val body = response.bodyAsText()
             // feature-task has review phase so work.start → review
@@ -249,9 +263,10 @@ class ConfigRoutesTest {
     fun `status-graph simple-task work-start goes to terminal`(): Unit =
         testApplication {
             application { configureTestApp { configRoutes(FakeSchemaService()) } }
-            val response = client.get("/api/v1/config/status-graph") {
-                header("Authorization", "Bearer $TEST_TOKEN")
-            }
+            val response =
+                client.get("/api/v1/config/status-graph") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                }
             assertEquals(HttpStatusCode.OK, response.status)
             val body = response.bodyAsText()
             // simple-task has no review phase so work.start → terminal
@@ -262,9 +277,10 @@ class ConfigRoutesTest {
     fun `status-graph blocked row has previousRole sentinel`(): Unit =
         testApplication {
             application { configureTestApp { configRoutes(FakeSchemaService()) } }
-            val response = client.get("/api/v1/config/status-graph") {
-                header("Authorization", "Bearer $TEST_TOKEN")
-            }
+            val response =
+                client.get("/api/v1/config/status-graph") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                }
             assertEquals(HttpStatusCode.OK, response.status)
             val body = response.bodyAsText()
             // BLOCKED.resume → "<previousRole>" sentinel
@@ -278,9 +294,10 @@ class ConfigRoutesTest {
     fun `status-graph terminal row has only reopen-to-queue`(): Unit =
         testApplication {
             application { configureTestApp { configRoutes(FakeSchemaService()) } }
-            val response = client.get("/api/v1/config/status-graph") {
-                header("Authorization", "Bearer $TEST_TOKEN")
-            }
+            val response =
+                client.get("/api/v1/config/status-graph") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                }
             assertEquals(HttpStatusCode.OK, response.status)
             val body = response.bodyAsText()
             // TERMINAL.reopen → "queue"
@@ -367,10 +384,11 @@ class ConfigRoutesTest {
             assertEquals(HttpStatusCode.OK, r1.status)
             val etag = r1.headers[HttpHeaders.ETag] ?: error("ETag header missing from first response")
 
-            val r2 = client.get("/api/v1/config/schemas") {
-                header("Authorization", "Bearer $TEST_TOKEN")
-                header(HttpHeaders.IfNoneMatch, etag)
-            }
+            val r2 =
+                client.get("/api/v1/config/schemas") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                    header(HttpHeaders.IfNoneMatch, etag)
+                }
             assertEquals(HttpStatusCode.NotModified, r2.status)
         }
 
@@ -427,9 +445,10 @@ class ConfigRoutesTest {
     fun `NoteSchemaEntryDto includes skill and guidance when present`(): Unit =
         testApplication {
             application { configureTestApp { configRoutes(FakeSchemaService()) } }
-            val response = client.get("/api/v1/config/traits") {
-                header("Authorization", "Bearer $TEST_TOKEN")
-            }
+            val response =
+                client.get("/api/v1/config/traits") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                }
             assertEquals(HttpStatusCode.OK, response.status)
             val body = response.bodyAsText()
             assertTrue(body.contains("\"skill\":\"some-skill\""), "Expected skill field: $body")
