@@ -22,29 +22,30 @@ import kotlin.test.assertTrue
  * - Scope filter: global transitions only show accessible items
  */
 class TransitionRoutesTest {
-
     @Test
     fun `GET items id transitions returns 200 with transitions list`() =
         testApplication {
             val repo = buildH2RepositoryProvider()
-            val item = runBlocking {
-                val i = repo.workItemRepository().create(WorkItem(title = "Transitioning", depth = 0)).getOrNull()!!
-                repo.roleTransitionRepository().create(
-                    RoleTransition(
-                        itemId = i.id,
-                        fromRole = "queue",
-                        toRole = "work",
-                        trigger = "start",
+            val item =
+                runBlocking {
+                    val i = repo.workItemRepository().create(WorkItem(title = "Transitioning", depth = 0)).getOrNull()!!
+                    repo.roleTransitionRepository().create(
+                        RoleTransition(
+                            itemId = i.id,
+                            fromRole = "queue",
+                            toRole = "work",
+                            trigger = "start",
+                        )
                     )
-                )
-                i
-            }
+                    i
+                }
             application {
                 configureTestApp { transitionRoutes(repo) }
             }
-            val response = client.get("/api/v1/items/${item.id}/transitions") {
-                header("Authorization", "Bearer $TEST_TOKEN")
-            }
+            val response =
+                client.get("/api/v1/items/${item.id}/transitions") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                }
             assertEquals(HttpStatusCode.OK, response.status)
             val body = response.bodyAsText()
             assertTrue(body.contains("start"), "Expected trigger 'start': $body")
@@ -59,9 +60,10 @@ class TransitionRoutesTest {
             application {
                 configureTestApp { transitionRoutes(repo) }
             }
-            val response = client.get("/api/v1/items/${UUID.randomUUID()}/transitions") {
-                header("Authorization", "Bearer $TEST_TOKEN")
-            }
+            val response =
+                client.get("/api/v1/items/${UUID.randomUUID()}/transitions") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                }
             assertEquals(HttpStatusCode.NotFound, response.status)
         }
 
@@ -69,16 +71,18 @@ class TransitionRoutesTest {
     fun `GET items id transitions returns 403 for item outside scope`() =
         testApplication {
             val repo = buildH2RepositoryProvider()
-            val item = runBlocking {
-                repo.workItemRepository().create(WorkItem(title = "Out of scope transition", depth = 0)).getOrNull()!!
-            }
+            val item =
+                runBlocking {
+                    repo.workItemRepository().create(WorkItem(title = "Out of scope transition", depth = 0)).getOrNull()!!
+                }
             val authConfig = makeTestAuthConfig(scopeRootIds = setOf(UUID.randomUUID()))
             application {
                 configureTestApp(authConfig) { transitionRoutes(repo) }
             }
-            val response = client.get("/api/v1/items/${item.id}/transitions") {
-                header("Authorization", "Bearer $TEST_TOKEN")
-            }
+            val response =
+                client.get("/api/v1/items/${item.id}/transitions") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                }
             assertEquals(HttpStatusCode.Forbidden, response.status)
         }
 
@@ -100,9 +104,10 @@ class TransitionRoutesTest {
             application {
                 configureTestApp { transitionRoutes(repo) }
             }
-            val response = client.get("/api/v1/transitions") {
-                header("Authorization", "Bearer $TEST_TOKEN")
-            }
+            val response =
+                client.get("/api/v1/transitions") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                }
             assertEquals(HttpStatusCode.OK, response.status)
             val body = response.bodyAsText()
             assertTrue(body.contains("\"items\""), "Expected items list: $body")
@@ -127,9 +132,10 @@ class TransitionRoutesTest {
                 configureTestApp { transitionRoutes(repo) }
             }
             // Request with since far in the future — expect no results
-            val response = client.get("/api/v1/transitions?since=2099-01-01T00:00:00Z") {
-                header("Authorization", "Bearer $TEST_TOKEN")
-            }
+            val response =
+                client.get("/api/v1/transitions?since=2099-01-01T00:00:00Z") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                }
             assertEquals(HttpStatusCode.OK, response.status)
             val body = response.bodyAsText()
             assertTrue(body.contains("\"items\":[]") || body.contains("\"items\": []"), "Expected empty items for future since: $body")
@@ -139,28 +145,30 @@ class TransitionRoutesTest {
     fun `GET items id transitions pagination works`() =
         testApplication {
             val repo = buildH2RepositoryProvider()
-            val item = runBlocking {
-                val i = repo.workItemRepository().create(WorkItem(title = "Many transitions", depth = 0)).getOrNull()!!
-                // Create a few transitions
-                repeat(3) { idx ->
-                    repo.roleTransitionRepository().create(
-                        RoleTransition(
-                            itemId = i.id,
-                            fromRole = "queue",
-                            toRole = "work",
-                            trigger = "start",
-                            summary = "transition $idx",
+            val item =
+                runBlocking {
+                    val i = repo.workItemRepository().create(WorkItem(title = "Many transitions", depth = 0)).getOrNull()!!
+                    // Create a few transitions
+                    repeat(3) { idx ->
+                        repo.roleTransitionRepository().create(
+                            RoleTransition(
+                                itemId = i.id,
+                                fromRole = "queue",
+                                toRole = "work",
+                                trigger = "start",
+                                summary = "transition $idx",
+                            )
                         )
-                    )
+                    }
+                    i
                 }
-                i
-            }
             application {
                 configureTestApp { transitionRoutes(repo) }
             }
-            val response = client.get("/api/v1/items/${item.id}/transitions?pageSize=2") {
-                header("Authorization", "Bearer $TEST_TOKEN")
-            }
+            val response =
+                client.get("/api/v1/items/${item.id}/transitions?pageSize=2") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                }
             assertEquals(HttpStatusCode.OK, response.status)
             val body = response.bodyAsText()
             assertTrue(body.contains("\"hasMore\""), "Expected hasMore: $body")

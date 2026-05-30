@@ -62,23 +62,26 @@ fun buildH2RepositoryProviderScoped(): DefaultRepositoryProvider = buildH2Reposi
  * - [ADMIN_TOKEN] → `admin` + `read` capabilities, unrestricted scope
  */
 fun makeTestAuthConfig(scopeRootIds: Set<UUID>? = null): ApiAuthConfig.Bearer {
-    val readPrincipal = ApiPrincipal(
-        tokenId = TEST_TOKEN_ID,
-        scope = ApiScope(rootIds = scopeRootIds, tagsInclude = emptySet()),
-        capabilities = setOf(ApiCapability.READ),
-        authMode = ApiAuthMode.BEARER,
-    )
-    val adminPrincipal = ApiPrincipal(
-        tokenId = ADMIN_TOKEN_ID,
-        scope = ApiScope(rootIds = null, tagsInclude = emptySet()),
-        capabilities = setOf(ApiCapability.READ, ApiCapability.ADMIN),
-        authMode = ApiAuthMode.BEARER,
-    )
+    val readPrincipal =
+        ApiPrincipal(
+            tokenId = TEST_TOKEN_ID,
+            scope = ApiScope(rootIds = scopeRootIds, tagsInclude = emptySet()),
+            capabilities = setOf(ApiCapability.READ),
+            authMode = ApiAuthMode.BEARER,
+        )
+    val adminPrincipal =
+        ApiPrincipal(
+            tokenId = ADMIN_TOKEN_ID,
+            scope = ApiScope(rootIds = null, tagsInclude = emptySet()),
+            capabilities = setOf(ApiCapability.READ, ApiCapability.ADMIN),
+            authMode = ApiAuthMode.BEARER,
+        )
     return ApiAuthConfig.Bearer(
-        tokens = mapOf(
-            HashBytes(sha256(TEST_TOKEN)) to readPrincipal,
-            HashBytes(sha256(ADMIN_TOKEN)) to adminPrincipal,
-        ),
+        tokens =
+            mapOf(
+                HashBytes(sha256(TEST_TOKEN)) to readPrincipal,
+                HashBytes(sha256(ADMIN_TOKEN)) to adminPrincipal,
+            ),
     )
 }
 
@@ -100,9 +103,10 @@ fun Application.configureTestApp(
         route("/api/v1") {
             install(ApiBearerAuth) {
                 this.authConfig = authConfig
-                tokenEntries = authConfig.tokens.mapValues { (_, p) ->
-                    BearerTokenStore.TokenEntry(p, expiresAt = null)
-                }
+                tokenEntries =
+                    authConfig.tokens.mapValues { (_, p) ->
+                        BearerTokenStore.TokenEntry(p, expiresAt = null)
+                    }
             }
             routeBlock()
         }

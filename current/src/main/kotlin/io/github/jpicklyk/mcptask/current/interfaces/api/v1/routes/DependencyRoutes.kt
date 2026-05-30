@@ -7,7 +7,6 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.enforceScopeFor
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.requireCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.buildDependenciesDto
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.toDto
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.call
 import io.ktor.server.response.respond
@@ -42,14 +41,16 @@ fun Route.dependencyRoutes(repositoryProvider: RepositoryProvider) {
     requireCapability(ApiCapability.READ) {
         // ─── GET /items/{id}/dependencies ───────────────────────────────────
         get("/items/{id}/dependencies") {
-            val rawId = call.parameters["id"] ?: run {
-                call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing item id"))
-                return@get
-            }
-            val id = runCatching { UUID.fromString(rawId) }.getOrNull() ?: run {
-                call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
-                return@get
-            }
+            val rawId =
+                call.parameters["id"] ?: run {
+                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing item id"))
+                    return@get
+                }
+            val id =
+                runCatching { UUID.fromString(rawId) }.getOrNull() ?: run {
+                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
+                    return@get
+                }
 
             val itemResult = workItemRepo.getById(id)
             if (itemResult is Result.Error) {
@@ -69,14 +70,16 @@ fun Route.dependencyRoutes(repositoryProvider: RepositoryProvider) {
 
         // ─── GET /items/{id}/backlinks ───────────────────────────────────────
         get("/items/{id}/backlinks") {
-            val rawId = call.parameters["id"] ?: run {
-                call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing item id"))
-                return@get
-            }
-            val id = runCatching { UUID.fromString(rawId) }.getOrNull() ?: run {
-                call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
-                return@get
-            }
+            val rawId =
+                call.parameters["id"] ?: run {
+                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing item id"))
+                    return@get
+                }
+            val id =
+                runCatching { UUID.fromString(rawId) }.getOrNull() ?: run {
+                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
+                    return@get
+                }
 
             val itemResult = workItemRepo.getById(id)
             if (itemResult is Result.Error) {
@@ -90,13 +93,14 @@ fun Route.dependencyRoutes(repositoryProvider: RepositoryProvider) {
             }
 
             val backlinks = depRepo.backlinks(id)
-            val dtos = backlinks.map { bl ->
-                mapOf(
-                    "fromItemId" to bl.fromItemId.toString(),
-                    "type" to bl.type.name.lowercase(),
-                    "fromTitle" to bl.fromTitle,
-                )
-            }
+            val dtos =
+                backlinks.map { bl ->
+                    mapOf(
+                        "fromItemId" to bl.fromItemId.toString(),
+                        "type" to bl.type.name.lowercase(),
+                        "fromTitle" to bl.fromTitle,
+                    )
+                }
             call.respond(HttpStatusCode.OK, dtos)
         }
     }

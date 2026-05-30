@@ -27,35 +27,41 @@ import kotlin.test.assertNull
  * - When redactNoteAttribution=false: all callers see actor/verification
  */
 class AttributionRedactorTest {
-
-    private fun makeNoteWithActor(proof: String? = null): NoteDto = NoteDto(
-        key = "spec",
-        role = "queue",
-        body = "Test body",
-        createdAt = "2026-01-01T00:00:00Z",
-        modifiedAt = "2026-01-01T00:00:00Z",
-        etag = "\"v1-1000\"",
-        actor = ActorClaimDto(
-            id = "agent-1",
-            kind = "orchestrator",
-            parent = "parent-1",
-            proof = proof,
-        ),
-        verification = VerificationDto(
-            status = "unchecked",
-            verifier = "noop",
-            reason = null,
-        ),
-    )
-
-    private fun makeReadCall(isAdmin: Boolean, includeProof: Boolean = false): ApplicationCall {
-        val capabilities = if (isAdmin) setOf(ApiCapability.READ, ApiCapability.ADMIN) else setOf(ApiCapability.READ)
-        val principal = ApiPrincipal(
-            tokenId = if (isAdmin) "admin" else "reader",
-            scope = ApiScope(rootIds = null, tagsInclude = emptySet()),
-            capabilities = capabilities,
-            authMode = ApiAuthMode.BEARER,
+    private fun makeNoteWithActor(proof: String? = null): NoteDto =
+        NoteDto(
+            key = "spec",
+            role = "queue",
+            body = "Test body",
+            createdAt = "2026-01-01T00:00:00Z",
+            modifiedAt = "2026-01-01T00:00:00Z",
+            etag = "\"v1-1000\"",
+            actor =
+                ActorClaimDto(
+                    id = "agent-1",
+                    kind = "orchestrator",
+                    parent = "parent-1",
+                    proof = proof,
+                ),
+            verification =
+                VerificationDto(
+                    status = "unchecked",
+                    verifier = "noop",
+                    reason = null,
+                ),
         )
+
+    private fun makeReadCall(
+        isAdmin: Boolean,
+        includeProof: Boolean = false
+    ): ApplicationCall {
+        val capabilities = if (isAdmin) setOf(ApiCapability.READ, ApiCapability.ADMIN) else setOf(ApiCapability.READ)
+        val principal =
+            ApiPrincipal(
+                tokenId = if (isAdmin) "admin" else "reader",
+                scope = ApiScope(rootIds = null, tagsInclude = emptySet()),
+                capabilities = capabilities,
+                authMode = ApiAuthMode.BEARER,
+            )
 
         val attrs = io.ktor.util.Attributes()
         attrs.put(ApiPrincipalKey, principal)
@@ -140,16 +146,17 @@ class AttributionRedactorTest {
     @Test
     fun `note without actor is unchanged by redactor`() {
         val redactor = AttributionRedactor.of(redactNoteAttribution = true, redactActorProof = true)
-        val note = NoteDto(
-            key = "spec",
-            role = "queue",
-            body = "No actor note",
-            createdAt = "2026-01-01T00:00:00Z",
-            modifiedAt = "2026-01-01T00:00:00Z",
-            etag = "\"v1-1000\"",
-            actor = null,
-            verification = null,
-        )
+        val note =
+            NoteDto(
+                key = "spec",
+                role = "queue",
+                body = "No actor note",
+                createdAt = "2026-01-01T00:00:00Z",
+                modifiedAt = "2026-01-01T00:00:00Z",
+                etag = "\"v1-1000\"",
+                actor = null,
+                verification = null,
+            )
         val call = makeReadCall(isAdmin = false)
         val result = redactor.redact(note, call)
         assertEquals(note, result, "Expected note to be unchanged when no actor present")

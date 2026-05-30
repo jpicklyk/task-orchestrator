@@ -15,11 +15,15 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.NoteDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.RoleTransitionDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.VerificationDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.etag.etagFor
-import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 
 // Lenient JSON instance for parsing stored `properties` strings — parse failures return null.
-private val lenientJson = Json { ignoreUnknownKeys = true; isLenient = true }
+private val lenientJson =
+    Json {
+        ignoreUnknownKeys = true
+        isLenient = true
+    }
 
 /**
  * Parses a JSON string into a [JsonObject], returning an empty object on any failure.
@@ -55,50 +59,53 @@ fun WorkItem.toDto(
     includeNotes: List<NoteDto>? = null,
     includeChildren: List<ItemDto>? = null,
     includeDependencies: DependenciesDto? = null,
-): ItemDto = ItemDto(
-    id = id.toString(),
-    parentId = parentId?.toString(),
-    title = title,
-    description = description,
-    summary = summary,
-    type = type,
-    role = role.name.lowercase(),
-    previousRole = previousRole?.name?.lowercase(),
-    statusLabel = statusLabel,
-    priority = priority.name.lowercase(),
-    complexity = complexity,
-    requiresVerification = requiresVerification,
-    tags = tagList() ?: emptyList(),
-    properties = parsePropertiesOrEmpty(properties),
-    createdAt = createdAt.toString(),
-    modifiedAt = modifiedAt.toString(),
-    roleChangedAt = roleChangedAt.toString(),
-    etag = etagFor(modifiedAt),
-    depth = depth,
-    isClaimed = claimedBy != null,
-    notes = includeNotes,
-    children = includeChildren,
-    dependencies = includeDependencies,
-)
+): ItemDto =
+    ItemDto(
+        id = id.toString(),
+        parentId = parentId?.toString(),
+        title = title,
+        description = description,
+        summary = summary,
+        type = type,
+        role = role.name.lowercase(),
+        previousRole = previousRole?.name?.lowercase(),
+        statusLabel = statusLabel,
+        priority = priority.name.lowercase(),
+        complexity = complexity,
+        requiresVerification = requiresVerification,
+        tags = tagList() ?: emptyList(),
+        properties = parsePropertiesOrEmpty(properties),
+        createdAt = createdAt.toString(),
+        modifiedAt = modifiedAt.toString(),
+        roleChangedAt = roleChangedAt.toString(),
+        etag = etagFor(modifiedAt),
+        depth = depth,
+        isClaimed = claimedBy != null,
+        notes = includeNotes,
+        children = includeChildren,
+        dependencies = includeDependencies,
+    )
 
 // ─────────────────────────────────────────────────────────────────────────────
 // NoteMapper
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Maps an [ActorClaim] domain object to an [ActorClaimDto]. */
-fun ActorClaim.toDto(): ActorClaimDto = ActorClaimDto(
-    id = id,
-    kind = kind.toJsonString(),
-    parent = parent,
-    proof = proof,
-)
+fun ActorClaim.toDto(): ActorClaimDto =
+    ActorClaimDto(
+        id = id,
+        kind = kind.toJsonString(),
+        parent = parent,
+        proof = proof,
+    )
 
 /** Maps a [VerificationResult] domain object to a [VerificationDto]. */
-fun VerificationResult.toDto(): VerificationDto = VerificationDto(
-    status = status.toJsonString(),
-    verifier = verifier,
-    reason = reason,
-)
+fun VerificationResult.toDto(): VerificationDto =
+    VerificationDto(
+        status = status.toJsonString(),
+        verifier = verifier,
+        reason = reason,
+    )
 
 /**
  * Maps a [Note] domain entity to a [NoteDto].
@@ -106,30 +113,32 @@ fun VerificationResult.toDto(): VerificationDto = VerificationDto(
  * The caller is responsible for applying [io.github.jpicklyk.mcptask.current.interfaces.api.v1.redaction.AttributionRedactor]
  * after mapping — this function always includes actor/verification when present.
  */
-fun Note.toDto(): NoteDto = NoteDto(
-    key = key,
-    role = role.lowercase(),
-    body = body,
-    createdAt = createdAt.toString(),
-    modifiedAt = modifiedAt.toString(),
-    etag = etagFor(modifiedAt),
-    actor = actorClaim?.toDto(),
-    verification = verification?.toDto(),
-)
+fun Note.toDto(): NoteDto =
+    NoteDto(
+        key = key,
+        role = role.lowercase(),
+        body = body,
+        createdAt = createdAt.toString(),
+        modifiedAt = modifiedAt.toString(),
+        etag = etagFor(modifiedAt),
+        actor = actorClaim?.toDto(),
+        verification = verification?.toDto(),
+    )
 
 // ─────────────────────────────────────────────────────────────────────────────
 // DependencyMapper
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Maps a [Dependency] domain entity to a [DependencyEdgeDto]. */
-fun Dependency.toDto(): DependencyEdgeDto = DependencyEdgeDto(
-    id = id.toString(),
-    fromItemId = fromItemId.toString(),
-    toItemId = toItemId.toString(),
-    type = type.name.lowercase(),
-    unblockAt = unblockAt ?: if (type == DependencyType.BLOCKS) "terminal" else null,
-    createdAt = createdAt.toString(),
-)
+fun Dependency.toDto(): DependencyEdgeDto =
+    DependencyEdgeDto(
+        id = id.toString(),
+        fromItemId = fromItemId.toString(),
+        toItemId = toItemId.toString(),
+        type = type.name.lowercase(),
+        unblockAt = unblockAt ?: if (type == DependencyType.BLOCKS) "terminal" else null,
+        createdAt = createdAt.toString(),
+    )
 
 /**
  * Builds a [DependenciesDto] from a flat list of [Dependency] objects relative to [itemId].
@@ -183,14 +192,15 @@ fun buildDependenciesDto(
  * [io.github.jpicklyk.mcptask.current.interfaces.api.v1.redaction.AttributionRedactor]
  * as needed.
  */
-fun RoleTransition.toDto(): RoleTransitionDto = RoleTransitionDto(
-    id = id.toString(),
-    itemId = itemId.toString(),
-    fromRole = fromRole.takeIf { it.isNotBlank() },
-    toRole = toRole,
-    trigger = trigger,
-    statusLabel = toStatusLabel,
-    occurredAt = transitionedAt.toString(),
-    actor = actorClaim?.toDto(),
-    verification = verification?.toDto(),
-)
+fun RoleTransition.toDto(): RoleTransitionDto =
+    RoleTransitionDto(
+        id = id.toString(),
+        itemId = itemId.toString(),
+        fromRole = fromRole.takeIf { it.isNotBlank() },
+        toRole = toRole,
+        trigger = trigger,
+        statusLabel = toStatusLabel,
+        occurredAt = transitionedAt.toString(),
+        actor = actorClaim?.toDto(),
+        verification = verification?.toDto(),
+    )

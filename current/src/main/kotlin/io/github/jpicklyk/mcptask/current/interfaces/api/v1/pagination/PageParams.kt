@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.pagination
 
-import io.ktor.server.application.ApplicationCall
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.PageDto
+import io.ktor.server.application.ApplicationCall
 
 /** Default page number when the `page` query parameter is absent or invalid. */
 const val DEFAULT_PAGE = 1
@@ -61,11 +61,12 @@ fun <T> buildPageDto(
     pageParams: PageParams,
     totalItems: Long?,
 ): PageDto<T> {
-    val hasMore = if (totalItems != null) {
-        (pageParams.offset + items.size).toLong() < totalItems
-    } else {
-        items.size >= pageParams.pageSize
-    }
+    val hasMore =
+        if (totalItems != null) {
+            (pageParams.offset + items.size).toLong() < totalItems
+        } else {
+            items.size >= pageParams.pageSize
+        }
     return PageDto(
         items = items,
         page = pageParams.page,

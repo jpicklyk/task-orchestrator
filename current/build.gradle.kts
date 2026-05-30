@@ -135,6 +135,14 @@ tasks.test {
     // fix in Exposed 1.0.0-beta-5+ for the underlying serialization mechanics).
     systemProperty("user.timezone", "UTC")
     jvmArgs("-Duser.timezone=UTC")
+
+    // Gradle forks the test worker with a default 512 MB max heap regardless of how much
+    // physical RAM is free. The suite spins up many concurrent Ktor `testApplication`
+    // instances plus H2 in-memory databases (notably the REST API route tests), whose peak
+    // resident footprint exceeds 512 MB and produced reproducible
+    // `OutOfMemoryError: Java heap space` worker crashes. Raise the cap to give the suite
+    // headroom; production runtime heap is unaffected (this is test-only).
+    maxHeapSize = "2g"
 }
 
 kotlin {

@@ -42,9 +42,10 @@ class AttributionRedactor(
         call: ApplicationCall,
     ): NoteDto {
         val principal = call.attributes.getOrNull(ApiPrincipalKey)
-        val isAdmin = principal?.capabilities?.let {
-            it.contains(ApiCapability.ADMIN)
-        } ?: false
+        val isAdmin =
+            principal?.capabilities?.let {
+                it.contains(ApiCapability.ADMIN)
+            } ?: false
 
         // Step 1: redact full actor + verification attribution unless caller is admin
         if (redactNoteAttribution && !isAdmin) {
@@ -59,10 +60,11 @@ class AttributionRedactor(
         }
 
         // Proof redaction: require admin AND ?include=proof
-        val includeProof = call.request.queryParameters["include"]
-            ?.split(",")
-            ?.map { it.trim() }
-            ?.contains("proof") ?: false
+        val includeProof =
+            call.request.queryParameters["include"]
+                ?.split(",")
+                ?.map { it.trim() }
+                ?.contains("proof") ?: false
 
         return if (includeProof) {
             note
@@ -88,10 +90,18 @@ class AttributionRedactor(
          */
         fun fromEnv(): AttributionRedactor =
             AttributionRedactor(
-                redactNoteAttribution = System.getenv("API_REDACT_NOTE_ATTRIBUTION")
-                    ?.trim()?.lowercase()?.let { it != "false" } ?: true,
-                redactActorProof = System.getenv("API_REDACT_ACTOR_PROOF")
-                    ?.trim()?.lowercase()?.let { it != "false" } ?: true,
+                redactNoteAttribution =
+                    System
+                        .getenv("API_REDACT_NOTE_ATTRIBUTION")
+                        ?.trim()
+                        ?.lowercase()
+                        ?.let { it != "false" } ?: true,
+                redactActorProof =
+                    System
+                        .getenv("API_REDACT_ACTOR_PROOF")
+                        ?.trim()
+                        ?.lowercase()
+                        ?.let { it != "false" } ?: true,
             )
 
         /** Constructs an [AttributionRedactor] with explicit values (useful for testing). */
@@ -126,10 +136,11 @@ fun redactActorProofIfNeeded(
     val isAdmin = principal?.capabilities?.contains(ApiCapability.ADMIN) ?: false
     if (!isAdmin) return actor.copy(proof = null)
 
-    val includeProof = call.request.queryParameters["include"]
-        ?.split(",")
-        ?.map { it.trim() }
-        ?.contains("proof") ?: false
+    val includeProof =
+        call.request.queryParameters["include"]
+            ?.split(",")
+            ?.map { it.trim() }
+            ?.contains("proof") ?: false
     return if (includeProof) actor else actor.copy(proof = null)
 }
 

@@ -28,7 +28,6 @@ import kotlin.test.assertTrue
  * - `If-None-Match` with stale ETag → 200 (full response)
  */
 class EtagSupportTest {
-
     @Test
     fun `etagFor produces deterministic string from epoch millis`() {
         val ts = Instant.ofEpochMilli(1716910000000L)
@@ -51,18 +50,21 @@ class EtagSupportTest {
     fun `same item read twice returns identical ETag`() =
         testApplication {
             val repo = buildH2RepositoryProvider()
-            val item = runBlocking {
-                repo.workItemRepository().create(WorkItem(title = "ETag stable", depth = 0)).getOrNull()!!
-            }
+            val item =
+                runBlocking {
+                    repo.workItemRepository().create(WorkItem(title = "ETag stable", depth = 0)).getOrNull()!!
+                }
             application {
                 configureTestApp { itemRoutes(repo) }
             }
-            val r1 = client.get("/api/v1/items/${item.id}") {
-                header("Authorization", "Bearer $TEST_TOKEN")
-            }
-            val r2 = client.get("/api/v1/items/${item.id}") {
-                header("Authorization", "Bearer $TEST_TOKEN")
-            }
+            val r1 =
+                client.get("/api/v1/items/${item.id}") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                }
+            val r2 =
+                client.get("/api/v1/items/${item.id}") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                }
             assertEquals(HttpStatusCode.OK, r1.status)
             assertEquals(HttpStatusCode.OK, r2.status)
             val etag1 = r1.headers[HttpHeaders.ETag]
@@ -74,22 +76,25 @@ class EtagSupportTest {
     fun `If-None-Match with current ETag returns 304`() =
         testApplication {
             val repo = buildH2RepositoryProvider()
-            val item = runBlocking {
-                repo.workItemRepository().create(WorkItem(title = "ETag cache test", depth = 0)).getOrNull()!!
-            }
+            val item =
+                runBlocking {
+                    repo.workItemRepository().create(WorkItem(title = "ETag cache test", depth = 0)).getOrNull()!!
+                }
             application {
                 configureTestApp { itemRoutes(repo) }
             }
-            val r1 = client.get("/api/v1/items/${item.id}") {
-                header("Authorization", "Bearer $TEST_TOKEN")
-            }
+            val r1 =
+                client.get("/api/v1/items/${item.id}") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                }
             assertEquals(HttpStatusCode.OK, r1.status)
             val etag = r1.headers[HttpHeaders.ETag] ?: error("ETag header missing")
 
-            val r2 = client.get("/api/v1/items/${item.id}") {
-                header("Authorization", "Bearer $TEST_TOKEN")
-                header(HttpHeaders.IfNoneMatch, etag)
-            }
+            val r2 =
+                client.get("/api/v1/items/${item.id}") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                    header(HttpHeaders.IfNoneMatch, etag)
+                }
             assertEquals(HttpStatusCode.NotModified, r2.status)
         }
 
@@ -97,17 +102,19 @@ class EtagSupportTest {
     fun `If-None-Match with stale ETag returns 200`() =
         testApplication {
             val repo = buildH2RepositoryProvider()
-            val item = runBlocking {
-                repo.workItemRepository().create(WorkItem(title = "Stale ETag test", depth = 0)).getOrNull()!!
-            }
+            val item =
+                runBlocking {
+                    repo.workItemRepository().create(WorkItem(title = "Stale ETag test", depth = 0)).getOrNull()!!
+                }
             application {
                 configureTestApp { itemRoutes(repo) }
             }
             val staleEtag = "\"v1-0000000000000\""
-            val response = client.get("/api/v1/items/${item.id}") {
-                header("Authorization", "Bearer $TEST_TOKEN")
-                header(HttpHeaders.IfNoneMatch, staleEtag)
-            }
+            val response =
+                client.get("/api/v1/items/${item.id}") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                    header(HttpHeaders.IfNoneMatch, staleEtag)
+                }
             assertEquals(HttpStatusCode.OK, response.status)
             val body = response.bodyAsText()
             assertTrue(body.contains("Stale ETag test"), "Expected item in response: $body")

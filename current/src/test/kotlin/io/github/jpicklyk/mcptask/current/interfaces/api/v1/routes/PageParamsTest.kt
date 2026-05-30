@@ -5,14 +5,13 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.pagination.DEFAULT_P
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.pagination.MAX_PAGE_SIZE
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.pagination.buildPageDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.pagination.pageParams
-import io.ktor.server.testing.testApplication
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.call
 import io.ktor.server.response.respond
 import io.ktor.server.routing.get
-import io.ktor.server.routing.routing
+import io.ktor.server.testing.testApplication
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -32,7 +31,6 @@ import kotlin.test.assertTrue
  * - hasMore inferred from item count when totalItems null
  */
 class PageParamsTest {
-
     @Test
     fun `pageParams returns defaults when no query params`() =
         testApplication {
@@ -94,7 +92,9 @@ class PageParamsTest {
     @Test
     fun `buildPageDto hasMore true when totalItems exceeds offset plus count`() {
         val items = listOf("a", "b")
-        val pp = io.github.jpicklyk.mcptask.current.interfaces.api.v1.pagination.PageParams(page = 1, pageSize = 2)
+        val pp =
+            io.github.jpicklyk.mcptask.current.interfaces.api.v1.pagination
+                .PageParams(page = 1, pageSize = 2)
         val dto = buildPageDto(items, pp, totalItems = 5L)
         assertTrue(dto.hasMore, "Expected hasMore=true when 5 total, offset 0 + 2 returned")
     }
@@ -102,7 +102,9 @@ class PageParamsTest {
     @Test
     fun `buildPageDto hasMore false when all items returned`() {
         val items = listOf("a", "b")
-        val pp = io.github.jpicklyk.mcptask.current.interfaces.api.v1.pagination.PageParams(page = 1, pageSize = 10)
+        val pp =
+            io.github.jpicklyk.mcptask.current.interfaces.api.v1.pagination
+                .PageParams(page = 1, pageSize = 10)
         val dto = buildPageDto(items, pp, totalItems = 2L)
         assertFalse(dto.hasMore, "Expected hasMore=false when 2 total and 2 returned")
     }
@@ -111,7 +113,9 @@ class PageParamsTest {
     fun `buildPageDto hasMore inferred from item count when totalItems null`() {
         // pageSize=2, got 2 items → infer hasMore=true (may be false positive on last page)
         val items = listOf("a", "b")
-        val pp = io.github.jpicklyk.mcptask.current.interfaces.api.v1.pagination.PageParams(page = 1, pageSize = 2)
+        val pp =
+            io.github.jpicklyk.mcptask.current.interfaces.api.v1.pagination
+                .PageParams(page = 1, pageSize = 2)
         val dto = buildPageDto(items, pp, totalItems = null)
         assertTrue(dto.hasMore, "Expected hasMore=true (inferred) when items.size == pageSize")
     }
@@ -119,7 +123,9 @@ class PageParamsTest {
     @Test
     fun `buildPageDto hasMore false inferred when fewer items than pageSize`() {
         val items = listOf("a")
-        val pp = io.github.jpicklyk.mcptask.current.interfaces.api.v1.pagination.PageParams(page = 1, pageSize = 10)
+        val pp =
+            io.github.jpicklyk.mcptask.current.interfaces.api.v1.pagination
+                .PageParams(page = 1, pageSize = 10)
         val dto = buildPageDto(items, pp, totalItems = null)
         assertFalse(dto.hasMore, "Expected hasMore=false when fewer items than pageSize")
     }
@@ -127,7 +133,9 @@ class PageParamsTest {
     @Test
     fun `buildPageDto includes correct page and pageSize`() {
         val items = listOf("x", "y", "z")
-        val pp = io.github.jpicklyk.mcptask.current.interfaces.api.v1.pagination.PageParams(page = 3, pageSize = 7)
+        val pp =
+            io.github.jpicklyk.mcptask.current.interfaces.api.v1.pagination
+                .PageParams(page = 3, pageSize = 7)
         val dto = buildPageDto(items, pp, totalItems = 25L)
         assertEquals(3, dto.page)
         assertEquals(7, dto.pageSize)

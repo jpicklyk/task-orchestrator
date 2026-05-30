@@ -43,22 +43,32 @@ fun Route.transitionRoutes(repositoryProvider: RepositoryProvider) {
     val transitionRepo = repositoryProvider.roleTransitionRepository()
 
     // Read env-based redaction flags (same as notes)
-    val redactAttribution = System.getenv("API_REDACT_NOTE_ATTRIBUTION")
-        ?.trim()?.lowercase()?.let { it != "false" } ?: true
-    val redactProof = System.getenv("API_REDACT_ACTOR_PROOF")
-        ?.trim()?.lowercase()?.let { it != "false" } ?: true
+    val redactAttribution =
+        System
+            .getenv("API_REDACT_NOTE_ATTRIBUTION")
+            ?.trim()
+            ?.lowercase()
+            ?.let { it != "false" } ?: true
+    val redactProof =
+        System
+            .getenv("API_REDACT_ACTOR_PROOF")
+            ?.trim()
+            ?.lowercase()
+            ?.let { it != "false" } ?: true
 
     requireCapability(ApiCapability.READ) {
         // ─── GET /items/{id}/transitions ────────────────────────────────────
         get("/items/{id}/transitions") {
-            val rawId = call.parameters["id"] ?: run {
-                call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing item id"))
-                return@get
-            }
-            val id = runCatching { UUID.fromString(rawId) }.getOrNull() ?: run {
-                call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
-                return@get
-            }
+            val rawId =
+                call.parameters["id"] ?: run {
+                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing item id"))
+                    return@get
+                }
+            val id =
+                runCatching { UUID.fromString(rawId) }.getOrNull() ?: run {
+                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
+                    return@get
+                }
 
             val itemResult = workItemRepo.getById(id)
             if (itemResult is Result.Error) {
@@ -82,10 +92,11 @@ fun Route.transitionRoutes(repositoryProvider: RepositoryProvider) {
                     val all = result.data
                     val page = all.take(pp.pageSize)
                     val hasMore = all.size > pp.pageSize
-                    val dtos = page.map { t ->
-                        val dto = t.toDto()
-                        applyTransitionRedaction(dto, call, redactAttribution, redactProof)
-                    }
+                    val dtos =
+                        page.map { t ->
+                            val dto = t.toDto()
+                            applyTransitionRedaction(dto, call, redactAttribution, redactProof)
+                        }
                     call.respond(HttpStatusCode.OK, buildPageDto(dtos, pp, null).copy(hasMore = hasMore))
                 }
             }
@@ -95,8 +106,9 @@ fun Route.transitionRoutes(repositoryProvider: RepositoryProvider) {
         get("/transitions") {
             val principal = call.attributes.getOrNull(ApiPrincipalKey)
             val sinceRaw = call.request.queryParameters["since"]
-            val since = sinceRaw?.let { runCatching { Instant.parse(it) }.getOrNull() }
-                ?: Instant.now().minusSeconds(86400) // default: last 24 hours
+            val since =
+                sinceRaw?.let { runCatching { Instant.parse(it) }.getOrNull() }
+                    ?: Instant.now().minusSeconds(86400) // default: last 24 hours
 
             val pp = call.pageParams()
             val result = transitionRepo.findSince(since, limit = pp.pageSize * pp.page + 1)
@@ -137,10 +149,11 @@ fun Route.transitionRoutes(repositoryProvider: RepositoryProvider) {
                     val page = transitions.drop(offset).take(pp.pageSize)
                     val hasMore = (offset + page.size) < transitions.size
 
-                    val dtos = page.map { t ->
-                        val dto = t.toDto()
-                        applyTransitionRedaction(dto, call, redactAttribution, redactProof)
-                    }
+                    val dtos =
+                        page.map { t ->
+                            val dto = t.toDto()
+                            applyTransitionRedaction(dto, call, redactAttribution, redactProof)
+                        }
                     call.respond(HttpStatusCode.OK, buildPageDto(dtos, pp, null).copy(hasMore = hasMore))
                 }
             }

@@ -10,6 +10,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.enforceScopeForItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.requireCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.SearchHitDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.toDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.redaction.AttributionRedactor
 import io.ktor.http.HttpStatusCode
@@ -45,14 +46,16 @@ fun Route.noteRoutes(repositoryProvider: RepositoryProvider) {
     requireCapability(ApiCapability.READ) {
         // ─── GET /items/{id}/notes ──────────────────────────────────────────
         get("/items/{id}/notes") {
-            val rawId = call.parameters["id"] ?: run {
-                call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing item id"))
-                return@get
-            }
-            val id = runCatching { UUID.fromString(rawId) }.getOrNull() ?: run {
-                call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
-                return@get
-            }
+            val rawId =
+                call.parameters["id"] ?: run {
+                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing item id"))
+                    return@get
+                }
+            val id =
+                runCatching { UUID.fromString(rawId) }.getOrNull() ?: run {
+                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
+                    return@get
+                }
 
             val itemResult = workItemRepo.getById(id)
             if (itemResult is Result.Error) {
@@ -75,9 +78,10 @@ fun Route.noteRoutes(repositoryProvider: RepositoryProvider) {
                     call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Database query failed"))
                 }
                 is Result.Success -> {
-                    val notes = notesResult.data
-                        .let { list -> if (keyFilter != null) list.filter { it.key == keyFilter } else list }
-                        .map { n -> redactor.redact(n.toDto(), call) }
+                    val notes =
+                        notesResult.data
+                            .let { list -> if (keyFilter != null) list.filter { it.key == keyFilter } else list }
+                            .map { n -> redactor.redact(n.toDto(), call) }
                     call.respond(HttpStatusCode.OK, notes)
                 }
             }
@@ -85,18 +89,21 @@ fun Route.noteRoutes(repositoryProvider: RepositoryProvider) {
 
         // ─── GET /items/{id}/notes/{key} ────────────────────────────────────
         get("/items/{id}/notes/{key}") {
-            val rawId = call.parameters["id"] ?: run {
-                call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing item id"))
-                return@get
-            }
-            val id = runCatching { UUID.fromString(rawId) }.getOrNull() ?: run {
-                call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
-                return@get
-            }
-            val key = call.parameters["key"] ?: run {
-                call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing note key"))
-                return@get
-            }
+            val rawId =
+                call.parameters["id"] ?: run {
+                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing item id"))
+                    return@get
+                }
+            val id =
+                runCatching { UUID.fromString(rawId) }.getOrNull() ?: run {
+                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
+                    return@get
+                }
+            val key =
+                call.parameters["key"] ?: run {
+                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing note key"))
+                    return@get
+                }
 
             val itemResult = workItemRepo.getById(id)
             if (itemResult is Result.Error) {
@@ -129,15 +136,17 @@ fun Route.noteRoutes(repositoryProvider: RepositoryProvider) {
 
         // ─── GET /notes/search ──────────────────────────────────────────────
         get("/notes/search") {
-            val rawQuery = call.request.queryParameters["q"]?.takeIf { it.isNotBlank() } ?: run {
-                call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Query parameter 'q' is required"))
-                return@get
-            }
+            val rawQuery =
+                call.request.queryParameters["q"]?.takeIf { it.isNotBlank() } ?: run {
+                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Query parameter 'q' is required"))
+                    return@get
+                }
 
-            val sanitizedQuery = FtsQuerySanitizer.sanitize(rawQuery) ?: run {
-                call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Search query produced no usable tokens"))
-                return@get
-            }
+            val sanitizedQuery =
+                FtsQuerySanitizer.sanitize(rawQuery) ?: run {
+                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Search query produced no usable tokens"))
+                    return@get
+                }
 
             val ancestorIdRaw = call.request.queryParameters["ancestorId"]
             val ancestorId = ancestorIdRaw?.let { runCatching { UUID.fromString(it) }.getOrNull() }
@@ -147,27 +156,29 @@ fun Route.noteRoutes(repositoryProvider: RepositoryProvider) {
             val repo = noteRepo
             if (repo !is SQLiteNoteRepository) {
                 // H2 test environment — FTS5 not available
-                call.respond(HttpStatusCode.OK, emptyList<Any>())
+                call.respond(HttpStatusCode.OK, emptyList<SearchHitDto>())
                 return@get
             }
 
-            val result = repo.ftsSearch(
-                sanitizedFtsQuery = sanitizedQuery,
-                matchMode = SearchMatchMode.AUTO,
-                scope = scope,
-                limit = 50,
-                offset = 0,
-            )
-
-            val hits = result.hits.map { hit ->
-                mapOf(
-                    "itemId" to hit.itemId.toString(),
-                    "noteKey" to hit.noteKey,
-                    "field" to hit.field,
-                    "snippet" to hit.snippet,
-                    "score" to hit.score,
+            val result =
+                repo.ftsSearch(
+                    sanitizedFtsQuery = sanitizedQuery,
+                    matchMode = SearchMatchMode.AUTO,
+                    scope = scope,
+                    limit = 50,
+                    offset = 0,
                 )
-            }
+
+            val hits =
+                result.hits.map { hit ->
+                    SearchHitDto(
+                        itemId = hit.itemId.toString(),
+                        noteKey = hit.noteKey,
+                        field = hit.field,
+                        snippet = hit.snippet,
+                        score = hit.score,
+                    )
+                }
             call.respond(HttpStatusCode.OK, hits)
         }
     }

@@ -1,11 +1,9 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
+import io.github.jpicklyk.mcptask.current.domain.model.Note
+import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteNoteRepository
-import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
@@ -59,14 +57,21 @@ class SearchRoutesIntegrationTest {
 
     @AfterEach
     fun tearDown() {
-        try { TransactionManager.closeAndUnregister(database) } catch (_: Exception) {}
-        try { keepAliveConnection.close() } catch (_: Exception) {}
+        try {
+            TransactionManager.closeAndUnregister(database)
+        } catch (_: Exception) {
+        }
+        try {
+            keepAliveConnection.close()
+        } catch (_: Exception) {
+        }
     }
 
     private fun createSchema(): Boolean {
         try {
             transaction(db = database) {
-                exec("""
+                exec(
+                    """
                     CREATE TABLE IF NOT EXISTS work_items (
                         id BLOB PRIMARY KEY DEFAULT (randomblob(16)),
                         parent_id BLOB REFERENCES work_items(id),
@@ -93,10 +98,12 @@ class SearchRoutesIntegrationTest {
                         claim_expires_at TEXT DEFAULT NULL,
                         original_claimed_at TEXT DEFAULT NULL
                     )
-                """.trimIndent())
+                    """.trimIndent()
+                )
                 exec("CREATE INDEX IF NOT EXISTS idx_work_items_parent ON work_items(parent_id)")
                 exec("CREATE INDEX IF NOT EXISTS idx_work_items_role ON work_items(role)")
-                exec("""
+                exec(
+                    """
                     CREATE TABLE IF NOT EXISTS notes (
                         id BLOB PRIMARY KEY DEFAULT (randomblob(16)),
                         work_item_id BLOB NOT NULL REFERENCES work_items(id),
@@ -108,8 +115,10 @@ class SearchRoutesIntegrationTest {
                         actor_id TEXT, actor_kind TEXT, actor_parent TEXT, actor_proof TEXT,
                         verification_status TEXT, verification_verifier TEXT, verification_reason TEXT
                     )
-                """.trimIndent())
-                exec("""
+                    """.trimIndent()
+                )
+                exec(
+                    """
                     CREATE TABLE IF NOT EXISTS dependencies (
                         id BLOB PRIMARY KEY DEFAULT (randomblob(16)),
                         from_item_id BLOB NOT NULL REFERENCES work_items(id),
@@ -118,8 +127,10 @@ class SearchRoutesIntegrationTest {
                         unblock_at TEXT,
                         created_at TIMESTAMP NOT NULL
                     )
-                """.trimIndent())
-                exec("""
+                    """.trimIndent()
+                )
+                exec(
+                    """
                     CREATE TABLE IF NOT EXISTS role_transitions (
                         id BLOB PRIMARY KEY DEFAULT (randomblob(16)),
                         item_id BLOB NOT NULL REFERENCES work_items(id),
@@ -131,7 +142,8 @@ class SearchRoutesIntegrationTest {
                         actor_id TEXT, actor_kind TEXT, actor_parent TEXT, actor_proof TEXT,
                         verification_status TEXT, verification_verifier TEXT, verification_reason TEXT
                     )
-                """.trimIndent())
+                    """.trimIndent()
+                )
             }
         } catch (e: Exception) {
             return false
@@ -139,52 +151,64 @@ class SearchRoutesIntegrationTest {
 
         return try {
             transaction(db = database) {
-                exec("""
+                exec(
+                    """
                     CREATE VIRTUAL TABLE IF NOT EXISTS work_items_fts_trigram USING fts5(
                         title, summary,
                         content='work_items', content_rowid='rowid',
                         tokenize='trigram',
                         prefix='2 3'
                     )
-                """.trimIndent())
-                exec("""
+                    """.trimIndent()
+                )
+                exec(
+                    """
                     CREATE VIRTUAL TABLE IF NOT EXISTS work_items_fts_text USING fts5(
                         title, summary,
                         content='work_items', content_rowid='rowid',
                         tokenize='porter unicode61 remove_diacritics 2',
                         prefix='2 3'
                     )
-                """.trimIndent())
-                exec("""
+                    """.trimIndent()
+                )
+                exec(
+                    """
                     CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts_trigram USING fts5(
                         body,
                         content='notes', content_rowid='rowid',
                         tokenize='trigram',
                         prefix='2 3'
                     )
-                """.trimIndent())
-                exec("""
+                    """.trimIndent()
+                )
+                exec(
+                    """
                     CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts_text USING fts5(
                         body,
                         content='notes', content_rowid='rowid',
                         tokenize='porter unicode61 remove_diacritics 2',
                         prefix='2 3'
                     )
-                """.trimIndent())
+                    """.trimIndent()
+                )
                 // Sync triggers for work_items
-                exec("""
+                exec(
+                    """
                     CREATE TRIGGER IF NOT EXISTS work_items_fts_insert AFTER INSERT ON work_items BEGIN
                         INSERT INTO work_items_fts_trigram(rowid, title, summary) VALUES (NEW.rowid, NEW.title, NEW.summary);
                         INSERT INTO work_items_fts_text(rowid, title, summary) VALUES (NEW.rowid, NEW.title, NEW.summary);
                     END
-                """.trimIndent())
+                    """.trimIndent()
+                )
                 // Sync triggers for notes
-                exec("""
+                exec(
+                    """
                     CREATE TRIGGER IF NOT EXISTS notes_fts_insert AFTER INSERT ON notes BEGIN
                         INSERT INTO notes_fts_trigram(rowid, body) VALUES (NEW.rowid, NEW.body);
                         INSERT INTO notes_fts_text(rowid, body) VALUES (NEW.rowid, NEW.body);
                     END
-                """.trimIndent())
+                    """.trimIndent()
+                )
             }
             true
         } catch (e: Exception) {
@@ -199,17 +223,21 @@ class SearchRoutesIntegrationTest {
             return
         }
         testApplication {
-            val item = runBlocking {
-                repositoryProvider.workItemRepository().create(
-                    WorkItem(title = "OAuth authentication flow", depth = 0)
-                ).getOrNull()!!
-            }
+            val item =
+                runBlocking {
+                    repositoryProvider
+                        .workItemRepository()
+                        .create(
+                            WorkItem(title = "OAuth authentication flow", depth = 0)
+                        ).getOrNull()!!
+                }
             application {
                 configureTestApp { searchRoutes(repositoryProvider) }
             }
-            val response = client.get("/api/v1/search?q=OAuth") {
-                header("Authorization", "Bearer $TEST_TOKEN")
-            }
+            val response =
+                client.get("/api/v1/search?q=OAuth") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                }
             assertEquals(HttpStatusCode.OK, response.status)
             val body = response.bodyAsText()
             assertTrue(
@@ -226,26 +254,31 @@ class SearchRoutesIntegrationTest {
             return
         }
         testApplication {
-            val item = runBlocking {
-                val i = repositoryProvider.workItemRepository().create(
-                    WorkItem(title = "Container item", depth = 0)
-                ).getOrNull()!!
-                repositoryProvider.noteRepository().upsert(
-                    Note(
-                        itemId = i.id,
-                        key = "spec",
-                        role = "queue",
-                        body = "This note discusses the migration strategy",
+            val item =
+                runBlocking {
+                    val i =
+                        repositoryProvider
+                            .workItemRepository()
+                            .create(
+                                WorkItem(title = "Container item", depth = 0)
+                            ).getOrNull()!!
+                    repositoryProvider.noteRepository().upsert(
+                        Note(
+                            itemId = i.id,
+                            key = "spec",
+                            role = "queue",
+                            body = "This note discusses the migration strategy",
+                        )
                     )
-                )
-                i
-            }
+                    i
+                }
             application {
                 configureTestApp { noteRoutes(repositoryProvider) }
             }
-            val response = client.get("/api/v1/notes/search?q=migration") {
-                header("Authorization", "Bearer $TEST_TOKEN")
-            }
+            val response =
+                client.get("/api/v1/notes/search?q=migration") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                }
             assertEquals(HttpStatusCode.OK, response.status)
             val body = response.bodyAsText()
             assertTrue(
@@ -261,9 +294,10 @@ class SearchRoutesIntegrationTest {
             application {
                 configureTestApp { searchRoutes(repositoryProvider) }
             }
-            val response = client.get("/api/v1/search") {
-                header("Authorization", "Bearer $TEST_TOKEN")
-            }
+            val response =
+                client.get("/api/v1/search") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                }
             assertEquals(HttpStatusCode.BadRequest, response.status)
         }
 

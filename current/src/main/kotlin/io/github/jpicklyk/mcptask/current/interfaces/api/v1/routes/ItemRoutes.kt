@@ -55,12 +55,14 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
             val pp = call.pageParams()
             val params = call.request.queryParameters
 
-            val role = params["role"]?.let { r ->
-                Role.entries.find { it.name.equals(r, ignoreCase = true) }
-            }
-            val priority = params["priority"]?.let { p ->
-                Priority.entries.find { it.name.equals(p, ignoreCase = true) }
-            }
+            val role =
+                params["role"]?.let { r ->
+                    Role.entries.find { it.name.equals(r, ignoreCase = true) }
+                }
+            val priority =
+                params["priority"]?.let { p ->
+                    Priority.entries.find { it.name.equals(p, ignoreCase = true) }
+                }
             val tags = params["tag"]?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }
             val tagAny = params["tagAny"]?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }
             val effectiveTags = tagAny ?: tags
@@ -78,54 +80,58 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
             val scopeRootIds = principal?.scope?.rootIds
 
             // Merge rootId query param with principal scope
-            val effectiveScopeRootIds: Set<UUID>? = when {
-                scopeRootIds != null && rootIdFilter != null -> scopeRootIds.intersect(setOf(rootIdFilter)).takeIf { it.isNotEmpty() } ?: emptySet()
-                scopeRootIds != null -> scopeRootIds
-                rootIdFilter != null -> setOf(rootIdFilter)
-                else -> null
-            }
-
-            val items = if (effectiveScopeRootIds != null) {
-                if (effectiveScopeRootIds.isEmpty()) {
-                    val total = 0L
-                    call.respond(HttpStatusCode.OK, buildPageDto(emptyList<ItemDto>(), pp, total))
-                    return@get
+            val effectiveScopeRootIds: Set<UUID>? =
+                when {
+                    scopeRootIds != null && rootIdFilter != null ->
+                        scopeRootIds.intersect(setOf(rootIdFilter)).takeIf { it.isNotEmpty() }
+                            ?: emptySet()
+                    scopeRootIds != null -> scopeRootIds
+                    rootIdFilter != null -> setOf(rootIdFilter)
+                    else -> null
                 }
-                workItemRepo.findInScope(
-                    rootIds = effectiveScopeRootIds,
-                    parentId = parentId,
-                    role = role,
-                    priority = priority,
-                    tags = effectiveTags,
-                    createdAfter = createdAfter,
-                    createdBefore = createdBefore,
-                    modifiedAfter = modifiedAfter,
-                    modifiedBefore = modifiedBefore,
-                    sortBy = orderBy,
-                    sortOrder = orderDir,
-                    limit = pp.pageSize,
-                    offset = pp.offset,
-                    type = type,
-                    claimStatus = claimStatus,
-                )
-            } else {
-                workItemRepo.findByFilters(
-                    parentId = parentId,
-                    role = role,
-                    priority = priority,
-                    tags = effectiveTags,
-                    createdAfter = createdAfter,
-                    createdBefore = createdBefore,
-                    modifiedAfter = modifiedAfter,
-                    modifiedBefore = modifiedBefore,
-                    sortBy = orderBy,
-                    sortOrder = orderDir,
-                    limit = pp.pageSize,
-                    offset = pp.offset,
-                    type = type,
-                    claimStatus = claimStatus,
-                )
-            }
+
+            val items =
+                if (effectiveScopeRootIds != null) {
+                    if (effectiveScopeRootIds.isEmpty()) {
+                        val total = 0L
+                        call.respond(HttpStatusCode.OK, buildPageDto(emptyList<ItemDto>(), pp, total))
+                        return@get
+                    }
+                    workItemRepo.findInScope(
+                        rootIds = effectiveScopeRootIds,
+                        parentId = parentId,
+                        role = role,
+                        priority = priority,
+                        tags = effectiveTags,
+                        createdAfter = createdAfter,
+                        createdBefore = createdBefore,
+                        modifiedAfter = modifiedAfter,
+                        modifiedBefore = modifiedBefore,
+                        sortBy = orderBy,
+                        sortOrder = orderDir,
+                        limit = pp.pageSize,
+                        offset = pp.offset,
+                        type = type,
+                        claimStatus = claimStatus,
+                    )
+                } else {
+                    workItemRepo.findByFilters(
+                        parentId = parentId,
+                        role = role,
+                        priority = priority,
+                        tags = effectiveTags,
+                        createdAfter = createdAfter,
+                        createdBefore = createdBefore,
+                        modifiedAfter = modifiedAfter,
+                        modifiedBefore = modifiedBefore,
+                        sortBy = orderBy,
+                        sortOrder = orderDir,
+                        limit = pp.pageSize,
+                        offset = pp.offset,
+                        type = type,
+                        claimStatus = claimStatus,
+                    )
+                }
 
             when (items) {
                 is Result.Error -> {
@@ -133,34 +139,37 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
                     call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Database query failed"))
                 }
                 is Result.Success -> {
-                    val total = if (effectiveScopeRootIds != null) {
-                        workItemRepo.countInScope(
-                            rootIds = effectiveScopeRootIds,
-                            parentId = parentId,
-                            role = role,
-                            priority = priority,
-                            tags = effectiveTags,
-                            createdAfter = createdAfter,
-                            createdBefore = createdBefore,
-                            modifiedAfter = modifiedAfter,
-                            modifiedBefore = modifiedBefore,
-                            type = type,
-                            claimStatus = claimStatus,
-                        ).let { r -> if (r is Result.Success) r.data.toLong() else null }
-                    } else {
-                        workItemRepo.countByFilters(
-                            parentId = parentId,
-                            role = role,
-                            priority = priority,
-                            tags = effectiveTags,
-                            createdAfter = createdAfter,
-                            createdBefore = createdBefore,
-                            modifiedAfter = modifiedAfter,
-                            modifiedBefore = modifiedBefore,
-                            type = type,
-                            claimStatus = claimStatus,
-                        ).let { r -> if (r is Result.Success) r.data.toLong() else null }
-                    }
+                    val total =
+                        if (effectiveScopeRootIds != null) {
+                            workItemRepo
+                                .countInScope(
+                                    rootIds = effectiveScopeRootIds,
+                                    parentId = parentId,
+                                    role = role,
+                                    priority = priority,
+                                    tags = effectiveTags,
+                                    createdAfter = createdAfter,
+                                    createdBefore = createdBefore,
+                                    modifiedAfter = modifiedAfter,
+                                    modifiedBefore = modifiedBefore,
+                                    type = type,
+                                    claimStatus = claimStatus,
+                                ).let { r -> if (r is Result.Success) r.data.toLong() else null }
+                        } else {
+                            workItemRepo
+                                .countByFilters(
+                                    parentId = parentId,
+                                    role = role,
+                                    priority = priority,
+                                    tags = effectiveTags,
+                                    createdAfter = createdAfter,
+                                    createdBefore = createdBefore,
+                                    modifiedAfter = modifiedAfter,
+                                    modifiedBefore = modifiedBefore,
+                                    type = type,
+                                    claimStatus = claimStatus,
+                                ).let { r -> if (r is Result.Success) r.data.toLong() else null }
+                        }
                     val dtos = items.data.map { it.toDto() }
                     call.respond(HttpStatusCode.OK, buildPageDto(dtos, pp, total))
                 }
@@ -181,11 +190,12 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
                 }
                 is Result.Success -> {
                     val allRoots = result.data
-                    val filtered = if (scopeRootIds != null) {
-                        allRoots.filter { item -> item.id in scopeRootIds }
-                    } else {
-                        allRoots
-                    }
+                    val filtered =
+                        if (scopeRootIds != null) {
+                            allRoots.filter { item -> item.id in scopeRootIds }
+                        } else {
+                            allRoots
+                        }
                     val page = filtered.drop(pp.offset).take(pp.pageSize)
                     val dtos = page.map { it.toDto() }
                     call.respond(HttpStatusCode.OK, buildPageDto(dtos, pp, filtered.size.toLong()))
@@ -195,14 +205,16 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
 
         // ─── GET /items/{id} ─────────────────────────────────────────────────
         get("/items/{id}") {
-            val rawId = call.parameters["id"] ?: run {
-                call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing item id"))
-                return@get
-            }
-            val id = runCatching { UUID.fromString(rawId) }.getOrNull() ?: run {
-                call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
-                return@get
-            }
+            val rawId =
+                call.parameters["id"] ?: run {
+                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing item id"))
+                    return@get
+                }
+            val id =
+                runCatching { UUID.fromString(rawId) }.getOrNull() ?: run {
+                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
+                    return@get
+                }
 
             val itemResult = workItemRepo.getById(id)
             if (itemResult is Result.Error) {
@@ -218,43 +230,59 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
 
             if (call.respondWithEtagCheck(item.modifiedAt)) return@get
 
-            val includes = call.request.queryParameters["include"]
-                ?.split(",")?.map { it.trim() } ?: emptyList()
+            val includes =
+                call.request.queryParameters["include"]
+                    ?.split(",")
+                    ?.map { it.trim() } ?: emptyList()
 
-            val noteDtos = if ("notes" in includes) {
-                noteRepo.findByItemId(id).let { r ->
-                    if (r is Result.Success) r.data.map { n -> redactor.redact(n.toDto(), call) } else null
+            val noteDtos =
+                if ("notes" in includes) {
+                    noteRepo.findByItemId(id).let { r ->
+                        if (r is Result.Success) r.data.map { n -> redactor.redact(n.toDto(), call) } else null
+                    }
+                } else {
+                    null
                 }
-            } else null
 
-            val depDtos: DependenciesDto? = if ("deps" in includes) {
-                val deps = depRepo.findByItemId(id)
-                buildDependenciesDto(id.toString(), deps)
-            } else null
-
-            val childrenDtos: List<ItemDto>? = if ("children" in includes) {
-                workItemRepo.findChildren(id).let { r ->
-                    if (r is Result.Success) r.data.map { it.toDto() } else null
+            val depDtos: DependenciesDto? =
+                if ("deps" in includes) {
+                    val deps = depRepo.findByItemId(id)
+                    buildDependenciesDto(id.toString(), deps)
+                } else {
+                    null
                 }
-            } else null
 
-            call.respond(HttpStatusCode.OK, item.toDto(
-                includeNotes = noteDtos,
-                includeChildren = childrenDtos,
-                includeDependencies = depDtos,
-            ))
+            val childrenDtos: List<ItemDto>? =
+                if ("children" in includes) {
+                    workItemRepo.findChildren(id).let { r ->
+                        if (r is Result.Success) r.data.map { it.toDto() } else null
+                    }
+                } else {
+                    null
+                }
+
+            call.respond(
+                HttpStatusCode.OK,
+                item.toDto(
+                    includeNotes = noteDtos,
+                    includeChildren = childrenDtos,
+                    includeDependencies = depDtos,
+                )
+            )
         }
 
         // ─── GET /items/{id}/tree ─────────────────────────────────────────────
         get("/items/{id}/tree") {
-            val rawId = call.parameters["id"] ?: run {
-                call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing item id"))
-                return@get
-            }
-            val id = runCatching { UUID.fromString(rawId) }.getOrNull() ?: run {
-                call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
-                return@get
-            }
+            val rawId =
+                call.parameters["id"] ?: run {
+                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing item id"))
+                    return@get
+                }
+            val id =
+                runCatching { UUID.fromString(rawId) }.getOrNull() ?: run {
+                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
+                    return@get
+                }
 
             val itemResult = workItemRepo.getById(id)
             if (itemResult is Result.Error) {
@@ -272,22 +300,24 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
             val maxDepth = call.request.queryParameters["depth"]?.toIntOrNull()
 
             val descendantsResult = workItemRepo.findDescendants(id)
-            val descendants = when (descendantsResult) {
-                is Result.Error -> {
-                    logger.warn("GET /items/{}/tree DB error: {}", id, descendantsResult.error.message)
-                    call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Database query failed"))
-                    return@get
+            val descendants =
+                when (descendantsResult) {
+                    is Result.Error -> {
+                        logger.warn("GET /items/{}/tree DB error: {}", id, descendantsResult.error.message)
+                        call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Database query failed"))
+                        return@get
+                    }
+                    is Result.Success -> descendantsResult.data
                 }
-                is Result.Success -> descendantsResult.data
-            }
 
             // Apply depth filter if requested
             val relativeMaxDepth = if (maxDepth != null) root.depth + maxDepth else null
-            val filtered = if (relativeMaxDepth != null) {
-                descendants.filter { it.depth <= relativeMaxDepth }
-            } else {
-                descendants
-            }
+            val filtered =
+                if (relativeMaxDepth != null) {
+                    descendants.filter { it.depth <= relativeMaxDepth }
+                } else {
+                    descendants
+                }
 
             // Paginate the flat list
             val page = filtered.drop(pp.offset).take(pp.pageSize)
@@ -297,14 +327,16 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
 
         // ─── GET /items/{id}/breadcrumbs ────────────────────────────────────
         get("/items/{id}/breadcrumbs") {
-            val rawId = call.parameters["id"] ?: run {
-                call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing item id"))
-                return@get
-            }
-            val id = runCatching { UUID.fromString(rawId) }.getOrNull() ?: run {
-                call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
-                return@get
-            }
+            val rawId =
+                call.parameters["id"] ?: run {
+                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing item id"))
+                    return@get
+                }
+            val id =
+                runCatching { UUID.fromString(rawId) }.getOrNull() ?: run {
+                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
+                    return@get
+                }
 
             val itemResult = workItemRepo.getById(id)
             if (itemResult is Result.Error) {
@@ -319,14 +351,15 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
             }
 
             val chainResult = workItemRepo.findAncestorChains(setOf(id))
-            val ancestors = when (chainResult) {
-                is Result.Error -> {
-                    logger.warn("GET /items/{}/breadcrumbs DB error: {}", id, chainResult.error.message)
-                    call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Database query failed"))
-                    return@get
+            val ancestors =
+                when (chainResult) {
+                    is Result.Error -> {
+                        logger.warn("GET /items/{}/breadcrumbs DB error: {}", id, chainResult.error.message)
+                        call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Database query failed"))
+                        return@get
+                    }
+                    is Result.Success -> chainResult.data[id] ?: emptyList()
                 }
-                is Result.Success -> chainResult.data[id] ?: emptyList()
-            }
 
             // ancestors is root-first (excludes item itself), so append item at end
             val chain = ancestors + item
@@ -335,14 +368,16 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
 
         // ─── GET /items/{id}/children ────────────────────────────────────────
         get("/items/{id}/children") {
-            val rawId = call.parameters["id"] ?: run {
-                call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing item id"))
-                return@get
-            }
-            val id = runCatching { UUID.fromString(rawId) }.getOrNull() ?: run {
-                call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
-                return@get
-            }
+            val rawId =
+                call.parameters["id"] ?: run {
+                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing item id"))
+                    return@get
+                }
+            val id =
+                runCatching { UUID.fromString(rawId) }.getOrNull() ?: run {
+                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
+                    return@get
+                }
 
             val itemResult = workItemRepo.getById(id)
             if (itemResult is Result.Error) {
@@ -356,11 +391,12 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
             }
 
             val pp = call.pageParams()
-            val childrenResult = workItemRepo.findByFilters(
-                parentId = id,
-                limit = pp.pageSize,
-                offset = pp.offset,
-            )
+            val childrenResult =
+                workItemRepo.findByFilters(
+                    parentId = id,
+                    limit = pp.pageSize,
+                    offset = pp.offset,
+                )
             when (childrenResult) {
                 is Result.Error -> {
                     logger.warn("GET /items/{}/children DB error: {}", id, childrenResult.error.message)

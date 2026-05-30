@@ -10,6 +10,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.requireCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.SearchHitDto
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.call
 import io.ktor.server.response.respond
@@ -41,60 +42,70 @@ fun Route.searchRoutes(repositoryProvider: RepositoryProvider) {
     requireCapability(ApiCapability.READ) {
         get("/search") {
             val principal = call.attributes.getOrNull(ApiPrincipalKey)
-            val rawQuery = call.request.queryParameters["q"]?.takeIf { it.isNotBlank() } ?: run {
-                call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Query parameter 'q' is required"))
-                return@get
-            }
+            val rawQuery =
+                call.request.queryParameters["q"]?.takeIf { it.isNotBlank() } ?: run {
+                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Query parameter 'q' is required"))
+                    return@get
+                }
 
-            val sanitizedQuery = FtsQuerySanitizer.sanitize(rawQuery) ?: run {
-                call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Search query produced no usable tokens"))
-                return@get
-            }
+            val sanitizedQuery =
+                FtsQuerySanitizer.sanitize(rawQuery) ?: run {
+                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Search query produced no usable tokens"))
+                    return@get
+                }
 
             val ancestorIdRaw = call.request.queryParameters["ancestorId"]
             val ancestorId = ancestorIdRaw?.let { runCatching { UUID.fromString(it) }.getOrNull() }
 
-            val role = call.request.queryParameters["role"]?.let { r ->
-                Role.entries.find { it.name.equals(r, ignoreCase = true) }
-            }
+            val role =
+                call.request.queryParameters["role"]?.let { r ->
+                    Role.entries.find { it.name.equals(r, ignoreCase = true) }
+                }
 
-            val tags = call.request.queryParameters["tag"]
-                ?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }
+            val tags =
+                call.request.queryParameters["tag"]
+                    ?.split(",")
+                    ?.map { it.trim() }
+                    ?.filter { it.isNotEmpty() }
 
             // Merge principal scope into ancestorId: if scope has rootIds, use the first root
             // as ancestorId if none specified (or ignore — the caller can specify ancestorId explicitly)
-            val effectiveAncestorId: UUID? = ancestorId
-                ?: principal?.scope?.rootIds?.singleOrNull() // only auto-apply if single root
+            val effectiveAncestorId: UUID? =
+                ancestorId
+                    ?: principal?.scope?.rootIds?.singleOrNull() // only auto-apply if single root
 
-            val scope = SearchScope(
-                ancestorId = effectiveAncestorId,
-                role = role,
-                tags = tags,
-            )
+            val scope =
+                SearchScope(
+                    ancestorId = effectiveAncestorId,
+                    role = role,
+                    tags = tags,
+                )
 
             val repo = workItemRepo
             if (repo !is SQLiteWorkItemRepository) {
                 // H2 test environment — FTS5 not available
-                call.respond(HttpStatusCode.OK, emptyList<Any>())
+                call.respond(HttpStatusCode.OK, emptyList<SearchHitDto>())
                 return@get
             }
 
-            val result = repo.ftsSearch(
-                sanitizedFtsQuery = sanitizedQuery,
-                matchMode = SearchMatchMode.AUTO,
-                scope = scope,
-                limit = 50,
-                offset = 0,
-            )
-
-            val hits = result.hits.map { hit ->
-                mapOf(
-                    "itemId" to hit.itemId.toString(),
-                    "field" to hit.field,
-                    "snippet" to hit.snippet,
-                    "score" to hit.score,
+            val result =
+                repo.ftsSearch(
+                    sanitizedFtsQuery = sanitizedQuery,
+                    matchMode = SearchMatchMode.AUTO,
+                    scope = scope,
+                    limit = 50,
+                    offset = 0,
                 )
-            }
+
+            val hits =
+                result.hits.map { hit ->
+                    SearchHitDto(
+                        itemId = hit.itemId.toString(),
+                        field = hit.field,
+                        snippet = hit.snippet,
+                        score = hit.score,
+                    )
+                }
             call.respond(HttpStatusCode.OK, hits)
         }
     }

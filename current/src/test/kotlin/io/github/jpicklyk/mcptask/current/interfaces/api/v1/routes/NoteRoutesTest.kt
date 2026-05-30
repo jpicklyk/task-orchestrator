@@ -28,30 +28,34 @@ import kotlin.test.assertTrue
  * - Scope enforcement: 403 when item outside caller scope
  */
 class NoteRoutesTest {
-
     private fun makeItemAndNote(
         repo: io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider,
         noteKey: String = "spec",
         actorClaim: ActorClaim? = null,
-    ): Pair<WorkItem, Note> = runBlocking {
-        val item = repo.workItemRepository().create(WorkItem(title = "Noted Item", depth = 0)).getOrNull()!!
-        val note = repo.noteRepository().upsert(
-            Note(
-                itemId = item.id,
-                key = noteKey,
-                role = "queue",
-                body = "Note body content",
-                actorClaim = actorClaim,
-                verification = actorClaim?.let {
-                    VerificationResult(
-                        status = VerificationStatus.UNCHECKED,
-                        verifier = "noop",
-                    )
-                },
-            )
-        ).getOrNull()!!
-        Pair(item, note)
-    }
+    ): Pair<WorkItem, Note> =
+        runBlocking {
+            val item = repo.workItemRepository().create(WorkItem(title = "Noted Item", depth = 0)).getOrNull()!!
+            val note =
+                repo
+                    .noteRepository()
+                    .upsert(
+                        Note(
+                            itemId = item.id,
+                            key = noteKey,
+                            role = "queue",
+                            body = "Note body content",
+                            actorClaim = actorClaim,
+                            verification =
+                                actorClaim?.let {
+                                    VerificationResult(
+                                        status = VerificationStatus.UNCHECKED,
+                                        verifier = "noop",
+                                    )
+                                },
+                        )
+                    ).getOrNull()!!
+            Pair(item, note)
+        }
 
     // ─── List notes ──────────────────────────────────────────────────────────
 
@@ -63,9 +67,10 @@ class NoteRoutesTest {
             application {
                 configureTestApp { noteRoutes(repo) }
             }
-            val response = client.get("/api/v1/items/${item.id}/notes") {
-                header("Authorization", "Bearer $TEST_TOKEN")
-            }
+            val response =
+                client.get("/api/v1/items/${item.id}/notes") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                }
             assertEquals(HttpStatusCode.OK, response.status)
             val body = response.bodyAsText()
             assertTrue(body.contains("Note body content"), "Expected note body: $body")
@@ -75,15 +80,17 @@ class NoteRoutesTest {
     fun `GET items id notes returns empty list when no notes`() =
         testApplication {
             val repo = buildH2RepositoryProvider()
-            val item = runBlocking {
-                repo.workItemRepository().create(WorkItem(title = "Empty notes item", depth = 0)).getOrNull()!!
-            }
+            val item =
+                runBlocking {
+                    repo.workItemRepository().create(WorkItem(title = "Empty notes item", depth = 0)).getOrNull()!!
+                }
             application {
                 configureTestApp { noteRoutes(repo) }
             }
-            val response = client.get("/api/v1/items/${item.id}/notes") {
-                header("Authorization", "Bearer $TEST_TOKEN")
-            }
+            val response =
+                client.get("/api/v1/items/${item.id}/notes") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                }
             assertEquals(HttpStatusCode.OK, response.status)
             val body = response.bodyAsText()
             assertTrue(body.contains("[]") || body.contains("\"items\":[]"), "Expected empty list: $body")
@@ -93,18 +100,20 @@ class NoteRoutesTest {
     fun `GET items id notes filters by role`() =
         testApplication {
             val repo = buildH2RepositoryProvider()
-            val item = runBlocking {
-                val i = repo.workItemRepository().create(WorkItem(title = "Multi-role", depth = 0)).getOrNull()!!
-                repo.noteRepository().upsert(Note(itemId = i.id, key = "q-note", role = "queue", body = "Queue note"))
-                repo.noteRepository().upsert(Note(itemId = i.id, key = "w-note", role = "work", body = "Work note"))
-                i
-            }
+            val item =
+                runBlocking {
+                    val i = repo.workItemRepository().create(WorkItem(title = "Multi-role", depth = 0)).getOrNull()!!
+                    repo.noteRepository().upsert(Note(itemId = i.id, key = "q-note", role = "queue", body = "Queue note"))
+                    repo.noteRepository().upsert(Note(itemId = i.id, key = "w-note", role = "work", body = "Work note"))
+                    i
+                }
             application {
                 configureTestApp { noteRoutes(repo) }
             }
-            val response = client.get("/api/v1/items/${item.id}/notes?role=queue") {
-                header("Authorization", "Bearer $TEST_TOKEN")
-            }
+            val response =
+                client.get("/api/v1/items/${item.id}/notes?role=queue") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                }
             assertEquals(HttpStatusCode.OK, response.status)
             val body = response.bodyAsText()
             assertTrue(body.contains("Queue note"), "Expected queue note: $body")
@@ -115,18 +124,20 @@ class NoteRoutesTest {
     fun `GET items id notes filters by key`() =
         testApplication {
             val repo = buildH2RepositoryProvider()
-            val item = runBlocking {
-                val i = repo.workItemRepository().create(WorkItem(title = "Multi-key", depth = 0)).getOrNull()!!
-                repo.noteRepository().upsert(Note(itemId = i.id, key = "spec", role = "queue", body = "Spec content"))
-                repo.noteRepository().upsert(Note(itemId = i.id, key = "impl", role = "work", body = "Impl content"))
-                i
-            }
+            val item =
+                runBlocking {
+                    val i = repo.workItemRepository().create(WorkItem(title = "Multi-key", depth = 0)).getOrNull()!!
+                    repo.noteRepository().upsert(Note(itemId = i.id, key = "spec", role = "queue", body = "Spec content"))
+                    repo.noteRepository().upsert(Note(itemId = i.id, key = "impl", role = "work", body = "Impl content"))
+                    i
+                }
             application {
                 configureTestApp { noteRoutes(repo) }
             }
-            val response = client.get("/api/v1/items/${item.id}/notes?key=spec") {
-                header("Authorization", "Bearer $TEST_TOKEN")
-            }
+            val response =
+                client.get("/api/v1/items/${item.id}/notes?key=spec") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                }
             assertEquals(HttpStatusCode.OK, response.status)
             val body = response.bodyAsText()
             assertTrue(body.contains("Spec content"), "Expected spec note: $body")
@@ -143,9 +154,10 @@ class NoteRoutesTest {
             application {
                 configureTestApp { noteRoutes(repo) }
             }
-            val response = client.get("/api/v1/items/${item.id}/notes/spec") {
-                header("Authorization", "Bearer $TEST_TOKEN")
-            }
+            val response =
+                client.get("/api/v1/items/${item.id}/notes/spec") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                }
             assertEquals(HttpStatusCode.OK, response.status)
             val body = response.bodyAsText()
             assertTrue(body.contains("Note body content"), "Expected note body: $body")
@@ -155,15 +167,17 @@ class NoteRoutesTest {
     fun `GET items id notes key returns 404 when key absent`() =
         testApplication {
             val repo = buildH2RepositoryProvider()
-            val item = runBlocking {
-                repo.workItemRepository().create(WorkItem(title = "No notes item", depth = 0)).getOrNull()!!
-            }
+            val item =
+                runBlocking {
+                    repo.workItemRepository().create(WorkItem(title = "No notes item", depth = 0)).getOrNull()!!
+                }
             application {
                 configureTestApp { noteRoutes(repo) }
             }
-            val response = client.get("/api/v1/items/${item.id}/notes/nonexistent") {
-                header("Authorization", "Bearer $TEST_TOKEN")
-            }
+            val response =
+                client.get("/api/v1/items/${item.id}/notes/nonexistent") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                }
             assertEquals(HttpStatusCode.NotFound, response.status)
         }
 
@@ -179,9 +193,10 @@ class NoteRoutesTest {
             application {
                 configureTestApp { noteRoutes(repo) }
             }
-            val response = client.get("/api/v1/items/${item.id}/notes") {
-                header("Authorization", "Bearer $TEST_TOKEN") // READ token, not admin
-            }
+            val response =
+                client.get("/api/v1/items/${item.id}/notes") {
+                    header("Authorization", "Bearer $TEST_TOKEN") // READ token, not admin
+                }
             assertEquals(HttpStatusCode.OK, response.status)
             val body = response.bodyAsText()
             // actor should be null in response (redacted)
@@ -198,9 +213,10 @@ class NoteRoutesTest {
                 // Use auth config with no environment override — rely on constructor test override
                 configureTestApp { noteRoutes(repo) }
             }
-            val response = client.get("/api/v1/items/${item.id}/notes") {
-                header("Authorization", "Bearer $ADMIN_TOKEN") // ADMIN token
-            }
+            val response =
+                client.get("/api/v1/items/${item.id}/notes") {
+                    header("Authorization", "Bearer $ADMIN_TOKEN") // ADMIN token
+                }
             assertEquals(HttpStatusCode.OK, response.status)
             val body = response.bodyAsText()
             // actor should be visible for admin (assuming env var not overriding)
@@ -216,16 +232,18 @@ class NoteRoutesTest {
     fun `GET items id notes returns 403 for item outside scope`() =
         testApplication {
             val repo = buildH2RepositoryProvider()
-            val item = runBlocking {
-                repo.workItemRepository().create(WorkItem(title = "Out of scope", depth = 0)).getOrNull()!!
-            }
+            val item =
+                runBlocking {
+                    repo.workItemRepository().create(WorkItem(title = "Out of scope", depth = 0)).getOrNull()!!
+                }
             val authConfig = makeTestAuthConfig(scopeRootIds = setOf(UUID.randomUUID()))
             application {
                 configureTestApp(authConfig) { noteRoutes(repo) }
             }
-            val response = client.get("/api/v1/items/${item.id}/notes") {
-                header("Authorization", "Bearer $TEST_TOKEN")
-            }
+            val response =
+                client.get("/api/v1/items/${item.id}/notes") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                }
             assertEquals(HttpStatusCode.Forbidden, response.status)
         }
 
@@ -233,9 +251,10 @@ class NoteRoutesTest {
     fun `GET items id notes returns 401 without auth`() =
         testApplication {
             val repo = buildH2RepositoryProvider()
-            val item = runBlocking {
-                repo.workItemRepository().create(WorkItem(title = "Auth required", depth = 0)).getOrNull()!!
-            }
+            val item =
+                runBlocking {
+                    repo.workItemRepository().create(WorkItem(title = "Auth required", depth = 0)).getOrNull()!!
+                }
             application {
                 configureTestApp { noteRoutes(repo) }
             }

@@ -139,3 +139,22 @@ data class ErrorDto(
     val message: String,
     val details: JsonObject? = null,
 )
+
+/**
+ * A single FTS5 search hit returned by `/api/v1/search` (items) and `/api/v1/notes/search` (notes).
+ *
+ * `noteKey` is populated only for note-body hits; it is null/omitted for item hits.
+ * `score` is the RRF-fused relevance score from the repository search layer.
+ *
+ * This is a serializable replacement for the raw `Map<String, Any>` previously emitted by the
+ * search routes — kotlinx.serialization has no serializer for `Any`, so the map form threw at
+ * response-encoding time (HTTP 500). See SearchRoutesIntegrationTest.
+ */
+@Serializable
+data class SearchHitDto(
+    val itemId: String,
+    val field: String,
+    val snippet: String,
+    val score: Double,
+    val noteKey: String? = null,
+)
