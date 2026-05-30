@@ -130,19 +130,21 @@ class EventPublishingRepositoryProvider(
             // still buffer a plain item.updated event below (roots resolve to emptySet()).
             val hasSubscribers = eventBus.subscriberCount() > 0
             val oldItem = if (hasSubscribers) (inner.getById(item.id) as? Result.Success)?.data else null
+            // Capture the OLD root set BEFORE the update — while the DB still reflects the old parent
+            // chain. After inner.update(), resolveRoots(item.id) returns the NEW roots for this same
+            // itemId, so scope.left must use this pre-update snapshot (else it fires to the new root
+            // and the old-root subscriber never gets scope.left). Reparent path only; cheap otherwise.
+            val oldRoots = if (hasSubscribers && oldItem != null) resolveRoots(item.id) else emptySet()
             val result = inner.update(item)
             if (result is Result.Success) {
                 val updated = result.data
                 val oldParentId = oldItem?.parentId
                 val newParentId = updated.parentId
 
-                val roots = resolveRoots(updated.id)
-
                 // Reparent detection requires the pre-update row; only attempt it when we read it
                 // (i.e. when subscribers are present). Otherwise fall through to a plain item.updated.
                 if (hasSubscribers && oldItem != null && oldParentId != newParentId) {
-                    // Reparent — emit scope.left for old roots, then invalidate and rebuild.
-                    val oldRoots = resolveRoots(oldItem.id)
+                    // Reparent — emit scope.left for the OLD roots (pre-update snapshot), rebuild, then enter.
                     for (oldRoot in oldRoots) {
                         eventBus.publish(
                             eventBus.buildEvent(
@@ -167,14 +169,15 @@ class EventPublishingRepositoryProvider(
                         )
                     }
                 } else {
-                    // Normal update — emit item.updated
+                    // Normal update — roots unchanged. Resolve from current state so the buffered
+                    // item.updated event is correctly scoped even when no subscriber is connected.
                     eventBus.publish(
                         eventBus.buildEvent(
                             ApiEventType.ITEM_UPDATED,
                             itemId = updated.id,
                             modifiedAt = updated.modifiedAt,
                         ),
-                        affectedRoots = roots,
+                        affectedRoots = resolveRoots(updated.id),
                     )
                 }
             }
