@@ -403,4 +403,94 @@ class ItemRoutesTest {
             val response = client.get("/api/v1/items")
             assertEquals(HttpStatusCode.Unauthorized, response.status)
         }
+
+    // ─── Breadcrumbs scope truncation ────────────────────────────────────────
+
+    /**
+     * Token scoped to mid-tree item S: breadcrumbs for a leaf under S must start at S,
+     * not expose ancestor A above S.
+     */
+    @Test
+    fun `GET items id breadcrumbs truncates ancestors above scope root`() =
+        testApplication {
+            val repo = buildH2RepositoryProvider()
+            val (scopeRoot, leaf) =
+                runBlocking {
+                    val a = repo.workItemRepository().create(WorkItem(title = "GrandParentA", depth = 0)).getOrNull()!!
+                    val s = repo.workItemRepository().create(WorkItem(title = "ScopeRootS", parentId = a.id, depth = 1)).getOrNull()!!
+                    val leaf = repo.workItemRepository().create(WorkItem(title = "LeafUnderS", parentId = s.id, depth = 2)).getOrNull()!!
+                    s to leaf
+                }
+            // Token scoped to S — should not see GrandParentA
+            val authConfig = makeTestAuthConfig(scopeRootIds = setOf(scopeRoot.id))
+            application {
+                configureTestApp(authConfig) { itemRoutes(repo) }
+            }
+            val response =
+                client.get("/api/v1/items/${leaf.id}/breadcrumbs") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                }
+            assertEquals(HttpStatusCode.OK, response.status)
+            val body = response.bodyAsText()
+            assertTrue(body.contains("ScopeRootS"), "Expected scope root in chain: $body")
+            assertTrue(body.contains("LeafUnderS"), "Expected leaf in chain: $body")
+            assertFalse(body.contains("GrandParentA"), "Ancestor above scope root must be excluded: $body")
+        }
+
+    /**
+     * Unscoped token (null rootIds) gets the full ancestor chain.
+     */
+    @Test
+    fun `GET items id breadcrumbs returns full chain for unscoped token`() =
+        testApplication {
+            val repo = buildH2RepositoryProvider()
+            val leaf =
+                runBlocking {
+                    val a = repo.workItemRepository().create(WorkItem(title = "TopA", depth = 0)).getOrNull()!!
+                    val b = repo.workItemRepository().create(WorkItem(title = "MidB", parentId = a.id, depth = 1)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "LeafC", parentId = b.id, depth = 2)).getOrNull()!!
+                }
+            // Default TEST_TOKEN has null scopeRootIds — unrestricted
+            application {
+                configureTestApp { itemRoutes(repo) }
+            }
+            val response =
+                client.get("/api/v1/items/${leaf.id}/breadcrumbs") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                }
+            assertEquals(HttpStatusCode.OK, response.status)
+            val body = response.bodyAsText()
+            assertTrue(body.contains("TopA"), "Expected root in full chain: $body")
+            assertTrue(body.contains("MidB"), "Expected mid in full chain: $body")
+            assertTrue(body.contains("LeafC"), "Expected leaf in full chain: $body")
+        }
+
+    // ─── /items/roots scoped fetch ────────────────────────────────────────────
+
+    /**
+     * Scoped token sees only its own roots, not all global roots.
+     */
+    @Test
+    fun `GET items roots with scoped token returns only principal roots`() =
+        testApplication {
+            val repo = buildH2RepositoryProvider()
+            val (inScopeRoot, outScopeRoot) =
+                runBlocking {
+                    val r1 = repo.workItemRepository().create(WorkItem(title = "InScopeRoot", depth = 0)).getOrNull()!!
+                    val r2 = repo.workItemRepository().create(WorkItem(title = "OutOfScopeRoot", depth = 0)).getOrNull()!!
+                    r1 to r2
+                }
+            val authConfig = makeTestAuthConfig(scopeRootIds = setOf(inScopeRoot.id))
+            application {
+                configureTestApp(authConfig) { itemRoutes(repo) }
+            }
+            val response =
+                client.get("/api/v1/items/roots") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                }
+            assertEquals(HttpStatusCode.OK, response.status)
+            val body = response.bodyAsText()
+            assertTrue(body.contains("InScopeRoot"), "Expected in-scope root: $body")
+            assertFalse(body.contains("OutOfScopeRoot"), "Out-of-scope root must be excluded: $body")
+        }
 }

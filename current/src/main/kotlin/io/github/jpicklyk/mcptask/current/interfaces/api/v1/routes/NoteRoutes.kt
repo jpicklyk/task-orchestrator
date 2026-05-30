@@ -7,6 +7,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteNoteRe
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SearchMatchMode
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SearchScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.enforceScopeForItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.requireCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
@@ -136,6 +137,7 @@ fun Route.noteRoutes(repositoryProvider: RepositoryProvider) {
 
         // ─── GET /notes/search ──────────────────────────────────────────────
         get("/notes/search") {
+            val principal = call.attributes.getOrNull(ApiPrincipalKey)
             val rawQuery =
                 call.request.queryParameters["q"]?.takeIf { it.isNotBlank() } ?: run {
                     call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Query parameter 'q' is required"))
@@ -149,9 +151,24 @@ fun Route.noteRoutes(repositoryProvider: RepositoryProvider) {
                 }
 
             val ancestorIdRaw = call.request.queryParameters["ancestorId"]
-            val ancestorId = ancestorIdRaw?.let { runCatching { UUID.fromString(it) }.getOrNull() }
+            val requestedAncestorId = ancestorIdRaw?.let { runCatching { UUID.fromString(it) }.getOrNull() }
 
-            val scope = SearchScope(ancestorId = ancestorId)
+            val principalRoots = principal?.scope?.rootIds
+
+            // Multi-root scope: same logic as /search — validate ?ancestorId against principal
+            // scope, fall back to principalRoots for multi-root enforcement, or unrestricted.
+            val scope: SearchScope =
+                when {
+                    requestedAncestorId != null -> {
+                        if (principalRoots != null && !enforceScopeForItem(call, requestedAncestorId, workItemRepo)) {
+                            call.respond(HttpStatusCode.Forbidden, ErrorDto("scope_forbidden", "Requested ancestorId is outside your scope"))
+                            return@get
+                        }
+                        SearchScope(ancestorId = requestedAncestorId)
+                    }
+                    principalRoots != null -> SearchScope(ancestorIds = principalRoots)
+                    else -> SearchScope()
+                }
 
             val repo = noteRepo
             if (repo !is SQLiteNoteRepository) {

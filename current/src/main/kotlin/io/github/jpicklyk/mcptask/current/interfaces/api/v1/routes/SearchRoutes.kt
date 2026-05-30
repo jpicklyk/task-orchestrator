@@ -8,6 +8,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.repository.SearchMatchM
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SearchScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.enforceScopeForItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.requireCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.SearchHitDto
@@ -33,8 +34,9 @@ import java.util.UUID
  * **FTS5 caveat:** Returns empty results when the repository is H2-backed (test env).
  * Use real SQLite fixtures for integration tests of this endpoint.
  *
- * Scope filtering: when the principal has `root_ids`, results are filtered to items
- * within the principal's scope. `ancestorId` is additionally applied as a subtree filter.
+ * Scope filtering: when the principal has `root_ids`, results are filtered to descendants of
+ * ALL roots (multi-root). An optional `?ancestorId=` further narrows to a single subtree;
+ * if the requested ancestorId is outside the principal's scope, 403 is returned.
  */
 fun Route.searchRoutes(repositoryProvider: RepositoryProvider) {
     val workItemRepo = repositoryProvider.workItemRepository()
@@ -55,7 +57,7 @@ fun Route.searchRoutes(repositoryProvider: RepositoryProvider) {
                 }
 
             val ancestorIdRaw = call.request.queryParameters["ancestorId"]
-            val ancestorId = ancestorIdRaw?.let { runCatching { UUID.fromString(it) }.getOrNull() }
+            val requestedAncestorId = ancestorIdRaw?.let { runCatching { UUID.fromString(it) }.getOrNull() }
 
             val role =
                 call.request.queryParameters["role"]?.let { r ->
@@ -68,18 +70,27 @@ fun Route.searchRoutes(repositoryProvider: RepositoryProvider) {
                     ?.map { it.trim() }
                     ?.filter { it.isNotEmpty() }
 
-            // Merge principal scope into ancestorId: if scope has rootIds, use the first root
-            // as ancestorId if none specified (or ignore — the caller can specify ancestorId explicitly)
-            val effectiveAncestorId: UUID? =
-                ancestorId
-                    ?: principal?.scope?.rootIds?.singleOrNull() // only auto-apply if single root
+            val principalRoots = principal?.scope?.rootIds
 
-            val scope =
-                SearchScope(
-                    ancestorId = effectiveAncestorId,
-                    role = role,
-                    tags = tags,
-                )
+            // Resolve effective scope:
+            // 1. If caller supplied ?ancestorId: verify it falls within the principal's scope,
+            //    then use it as a single-subtree filter (singular ancestorId path).
+            // 2. Else if principal has rootIds: apply multi-root filter (closes the leak for
+            //    tokens with 2+ roots that previously received unscoped results).
+            // 3. Else (unscoped/admin): no subtree filter.
+            val scope: SearchScope =
+                when {
+                    requestedAncestorId != null -> {
+                        // Validate caller-requested narrowing against principal scope
+                        if (principalRoots != null && !enforceScopeForItem(call, requestedAncestorId, workItemRepo)) {
+                            call.respond(HttpStatusCode.Forbidden, ErrorDto("scope_forbidden", "Requested ancestorId is outside your scope"))
+                            return@get
+                        }
+                        SearchScope(ancestorId = requestedAncestorId, role = role, tags = tags)
+                    }
+                    principalRoots != null -> SearchScope(ancestorIds = principalRoots, role = role, tags = tags)
+                    else -> SearchScope(role = role, tags = tags)
+                }
 
             val repo = workItemRepo
             if (repo !is SQLiteWorkItemRepository) {

@@ -182,23 +182,32 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
             val pp = call.pageParams()
             val scopeRootIds = principal?.scope?.rootIds
 
-            val result = workItemRepo.findRootItems(limit = 200)
-            when (result) {
-                is Result.Error -> {
-                    logger.warn("GET /items/roots DB error: {}", result.error.message)
-                    call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Database query failed"))
-                }
-                is Result.Success -> {
-                    val allRoots = result.data
-                    val filtered =
-                        if (scopeRootIds != null) {
-                            allRoots.filter { item -> item.id in scopeRootIds }
-                        } else {
-                            allRoots
+            if (scopeRootIds != null) {
+                // Scoped token: fetch only the specific root items the principal can see.
+                // This avoids the 200-cap correctness issue for tokens with many roots.
+                val roots =
+                    scopeRootIds
+                        .mapNotNull { rid ->
+                            val r = workItemRepo.getById(rid)
+                            if (r is Result.Success && r.data.parentId == null) r.data else null
                         }
-                    val page = filtered.drop(pp.offset).take(pp.pageSize)
-                    val dtos = page.map { it.toDto() }
-                    call.respond(HttpStatusCode.OK, buildPageDto(dtos, pp, filtered.size.toLong()))
+                val page = roots.drop(pp.offset).take(pp.pageSize)
+                val dtos = page.map { it.toDto() }
+                call.respond(HttpStatusCode.OK, buildPageDto(dtos, pp, roots.size.toLong()))
+            } else {
+                // Unscoped/admin: global scan (cap documented — full count may exceed 200).
+                val result = workItemRepo.findRootItems(limit = 200)
+                when (result) {
+                    is Result.Error -> {
+                        logger.warn("GET /items/roots DB error: {}", result.error.message)
+                        call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Database query failed"))
+                    }
+                    is Result.Success -> {
+                        val allRoots = result.data
+                        val page = allRoots.drop(pp.offset).take(pp.pageSize)
+                        val dtos = page.map { it.toDto() }
+                        call.respond(HttpStatusCode.OK, buildPageDto(dtos, pp, allRoots.size.toLong()))
+                    }
                 }
             }
         }
@@ -327,6 +336,7 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
 
         // ─── GET /items/{id}/breadcrumbs ────────────────────────────────────
         get("/items/{id}/breadcrumbs") {
+            val principal = call.attributes.getOrNull(ApiPrincipalKey)
             val rawId =
                 call.parameters["id"] ?: run {
                     call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing item id"))
@@ -363,7 +373,21 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
 
             // ancestors is root-first (excludes item itself), so append item at end
             val chain = ancestors + item
-            call.respond(HttpStatusCode.OK, chain.map { it.toDto() })
+
+            // Scope truncation: if the principal has rootIds, trim the chain to start at
+            // the first ancestor that is within the scope. This prevents exposing ancestors
+            // that are above the caller's scope root.
+            // If the scope root does not appear in the chain (e.g., scoped to a non-root mid-
+            // tree item that isn't a direct ancestor), fall back to showing only the target item.
+            val scopeRootIds = principal?.scope?.rootIds
+            val visible =
+                if (scopeRootIds != null) {
+                    val idx = chain.indexOfFirst { it.id in scopeRootIds }
+                    if (idx >= 0) chain.drop(idx) else listOf(item)
+                } else {
+                    chain
+                }
+            call.respond(HttpStatusCode.OK, visible.map { it.toDto() })
         }
 
         // ─── GET /items/{id}/children ────────────────────────────────────────

@@ -72,14 +72,19 @@ enum class SearchMatchMode {
 /**
  * Structural scope filters applied on top of the FTS5 full-text match.
  *
- * @property itemId    Narrow to a single work item (only content produced by that item).
- * @property ancestorId Narrow to a subtree rooted at this item (recursive CTE).
+ * @property itemId     Narrow to a single work item (only content produced by that item).
+ * @property ancestorId Narrow to a subtree rooted at this item (recursive CTE). Singular form;
+ *   takes precedence when both [ancestorId] and [ancestorIds] are set.
+ * @property ancestorIds Narrow to descendants of ANY of these roots (multi-root, additive OR).
+ *   Only used when [ancestorId] is null. Null means no subtree filter (unrestricted). An empty
+ *   set means "no roots match" and results in an always-false WHERE clause (no hits).
  * @property tags      OR-match any of the supplied tags on the work item.
  * @property role      Exact role filter on the work item.
  */
 data class SearchScope(
     val itemId: UUID? = null,
     val ancestorId: UUID? = null,
+    val ancestorIds: Set<UUID>? = null,
     val tags: List<String>? = null,
     val role: Role? = null,
 )
@@ -642,26 +647,45 @@ class SQLiteWorkItemRepository(
                 // k=60 is the standard Reciprocal Rank Fusion constant.
 
                 // Build optional subtree CTE clause.
-                // When scope.ancestorId is set, the query joins against a recursive CTE
-                // that walks all descendants of ancestorId (inclusive of the root).
+                // Singular path (scope.ancestorId): unchanged — single-root recursive CTE.
+                // Plural path (scope.ancestorIds, non-null, non-empty): multi-root CTE with one
+                //   seed row per root (OR semantics). An empty ancestorIds set → no-match stub.
+                // Precedence: singular ancestorId wins if both are set (backward compat).
                 val subtreeCteClause =
-                    if (scope?.ancestorId != null) {
-                        """
-                        WITH RECURSIVE subtree(id) AS (
-                            SELECT id FROM work_items WHERE id = ?
-                            UNION ALL
-                            SELECT wi.id FROM work_items wi JOIN subtree s ON wi.parent_id = s.id
-                        )
-                        """.trimIndent()
-                    } else {
-                        ""
+                    when {
+                        scope?.ancestorId != null -> {
+                            // SINGULAR path — behavior-identical to original; MCP query_items depends on this.
+                            """
+                            WITH RECURSIVE subtree(id) AS (
+                                SELECT id FROM work_items WHERE id = ?
+                                UNION ALL
+                                SELECT wi.id FROM work_items wi JOIN subtree s ON wi.parent_id = s.id
+                            )
+                            """.trimIndent()
+                        }
+                        scope?.ancestorIds != null && scope.ancestorIds.isNotEmpty() -> {
+                            // PLURAL path — seed CTE with one ? per root, then walk descendants.
+                            val placeholders = scope.ancestorIds.joinToString(", ") { "?" }
+                            """
+                            WITH RECURSIVE subtree(id) AS (
+                                SELECT id FROM work_items WHERE id IN ($placeholders)
+                                UNION ALL
+                                SELECT wi.id FROM work_items wi JOIN subtree s ON wi.parent_id = s.id
+                            )
+                            """.trimIndent()
+                        }
+                        else -> ""
                     }
 
                 // Build the WHERE clause additions for work_items column filters.
                 // These are appended as literal fragments (values bound via positional params).
                 val extraWhereParts = mutableListOf<String>()
                 if (scope?.itemId != null) extraWhereParts.add("wi.id = ?")
-                if (scope?.ancestorId != null) extraWhereParts.add("wi.id IN subtree")
+                when {
+                    scope?.ancestorId != null -> extraWhereParts.add("wi.id IN subtree")
+                    scope?.ancestorIds != null && scope.ancestorIds.isNotEmpty() -> extraWhereParts.add("wi.id IN subtree")
+                    scope?.ancestorIds != null && scope.ancestorIds.isEmpty() -> extraWhereParts.add("1 = 0") // empty scope → no hits
+                }
                 if (scope?.role != null) extraWhereParts.add("wi.role = ?")
                 if (!scope?.tags.isNullOrEmpty()) {
                     // Tags are stored as a comma-separated string; OR-match each tag.
@@ -676,11 +700,14 @@ class SQLiteWorkItemRepository(
                 val extraWhere = if (extraWhereParts.isEmpty()) "" else " AND " + extraWhereParts.joinToString(" AND ")
 
                 // Accumulate positional args shared across trigram / text queries.
-                // Order: subtree anchor (if any), then fts query, then scope filters.
+                // Order: subtree anchors (if any), then fts query, then scope filters.
                 fun buildArgs(): List<Pair<org.jetbrains.exposed.v1.core.ColumnType<*>, Any?>> {
                     val args = mutableListOf<Pair<org.jetbrains.exposed.v1.core.ColumnType<*>, Any?>>()
                     val varcharType = VarCharColumnType(4000)
-                    if (scope?.ancestorId != null) args.add(uuidType to scope.ancestorId)
+                    when {
+                        scope?.ancestorId != null -> args.add(uuidType to scope.ancestorId) // SINGULAR — unchanged
+                        scope?.ancestorIds != null -> scope.ancestorIds.forEach { args.add(uuidType to it) } // PLURAL — one per root
+                    }
                     args.add(varcharType to sanitizedFtsQuery) // FTS MATCH param
                     if (scope?.itemId != null) args.add(uuidType to scope.itemId)
                     if (scope?.role != null) args.add(varcharType to scope.role.name.lowercase())

@@ -247,23 +247,43 @@ class SQLiteNoteRepository(
                 // RRF scoring delegated to RrfFusion utility (application.service.search.RrfFusion).
 
                 // Build optional subtree CTE (filters notes to those in the subtree under ancestorId).
+                // Singular path (scope.ancestorId): unchanged — single-root recursive CTE.
+                // Plural path (scope.ancestorIds, non-null, non-empty): multi-root CTE.
+                // Precedence: singular ancestorId wins if both are set (backward compat).
                 val subtreeCteClause =
-                    if (scope?.ancestorId != null) {
-                        """
-                        WITH RECURSIVE subtree(id) AS (
-                            SELECT id FROM work_items WHERE id = ?
-                            UNION ALL
-                            SELECT wi.id FROM work_items wi JOIN subtree s ON wi.parent_id = s.id
-                        )
-                        """.trimIndent()
-                    } else {
-                        ""
+                    when {
+                        scope?.ancestorId != null -> {
+                            // SINGULAR path — behavior-identical to original.
+                            """
+                            WITH RECURSIVE subtree(id) AS (
+                                SELECT id FROM work_items WHERE id = ?
+                                UNION ALL
+                                SELECT wi.id FROM work_items wi JOIN subtree s ON wi.parent_id = s.id
+                            )
+                            """.trimIndent()
+                        }
+                        scope?.ancestorIds != null && scope.ancestorIds.isNotEmpty() -> {
+                            // PLURAL path — seed CTE with one ? per root.
+                            val placeholders = scope.ancestorIds.joinToString(", ") { "?" }
+                            """
+                            WITH RECURSIVE subtree(id) AS (
+                                SELECT id FROM work_items WHERE id IN ($placeholders)
+                                UNION ALL
+                                SELECT wi.id FROM work_items wi JOIN subtree s ON wi.parent_id = s.id
+                            )
+                            """.trimIndent()
+                        }
+                        else -> ""
                     }
 
                 // Build additional WHERE fragments for scope filters.
                 val extraWhereParts = mutableListOf<String>()
                 if (scope?.itemId != null) extraWhereParts.add("n.work_item_id = ?")
-                if (scope?.ancestorId != null) extraWhereParts.add("n.work_item_id IN subtree")
+                when {
+                    scope?.ancestorId != null -> extraWhereParts.add("n.work_item_id IN subtree")
+                    scope?.ancestorIds != null && scope.ancestorIds.isNotEmpty() -> extraWhereParts.add("n.work_item_id IN subtree")
+                    scope?.ancestorIds != null && scope.ancestorIds.isEmpty() -> extraWhereParts.add("1 = 0") // empty scope → no hits
+                }
                 // role filter on notes (not work_items.role — notes themselves have a role column)
                 // scope.role maps to the note's role field.
                 val extraWhere = if (extraWhereParts.isEmpty()) "" else " AND " + extraWhereParts.joinToString(" AND ")
@@ -271,7 +291,10 @@ class SQLiteNoteRepository(
                 // Build positional args for one FTS query.
                 fun buildArgs(): List<Pair<org.jetbrains.exposed.v1.core.ColumnType<*>, Any?>> {
                     val args = mutableListOf<Pair<org.jetbrains.exposed.v1.core.ColumnType<*>, Any?>>()
-                    if (scope?.ancestorId != null) args.add(uuidType to scope.ancestorId)
+                    when {
+                        scope?.ancestorId != null -> args.add(uuidType to scope.ancestorId) // SINGULAR — unchanged
+                        scope?.ancestorIds != null -> scope.ancestorIds.forEach { args.add(uuidType to it) } // PLURAL
+                    }
                     args.add(varcharType to sanitizedFtsQuery) // FTS MATCH param
                     if (scope?.itemId != null) args.add(uuidType to scope.itemId)
                     return args
