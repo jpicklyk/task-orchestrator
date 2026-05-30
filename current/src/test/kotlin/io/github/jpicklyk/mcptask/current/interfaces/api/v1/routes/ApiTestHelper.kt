@@ -33,6 +33,13 @@ const val TEST_TOKEN_ID = "test-read-principal"
 const val ADMIN_TOKEN = "integration-admin-token-xyz789"
 const val ADMIN_TOKEN_ID = "test-admin-principal"
 
+/**
+ * Write-capable token for Phase 5 write-route tests. Granted READ + all write capabilities
+ * (WRITE_ITEMS, WRITE_NOTES, ADVANCE, MANAGE_DEPENDENCIES) but NOT admin.
+ */
+const val WRITE_TOKEN = "integration-write-token-w0987"
+const val WRITE_TOKEN_ID = "test-write-principal"
+
 fun sha256(input: String): ByteArray {
     val md = MessageDigest.getInstance("SHA-256")
     return md.digest(input.toByteArray(Charsets.UTF_8))
@@ -82,6 +89,37 @@ fun makeTestAuthConfig(scopeRootIds: Set<UUID>? = null): ApiAuthConfig.Bearer {
                 HashBytes(sha256(TEST_TOKEN)) to readPrincipal,
                 HashBytes(sha256(ADMIN_TOKEN)) to adminPrincipal,
             ),
+    )
+}
+
+/**
+ * Returns a [ApiAuthConfig.Bearer] with three principals (extends [makeTestAuthConfig] for
+ * Phase 5 write-route tests):
+ * - [TEST_TOKEN]  → `read` only, scope = [scopeRootIds]
+ * - [ADMIN_TOKEN] → `admin` + `read`, unrestricted scope
+ * - [WRITE_TOKEN] → `read` + all write capabilities, scope = [scopeRootIds]
+ *
+ * The WRITE principal shares [scopeRootIds] with the READ principal so scope-enforcement tests
+ * can exercise write routes with a constrained scope.
+ */
+fun makeWriteAuthConfig(scopeRootIds: Set<UUID>? = null): ApiAuthConfig.Bearer {
+    val base = makeTestAuthConfig(scopeRootIds)
+    val writePrincipal =
+        ApiPrincipal(
+            tokenId = WRITE_TOKEN_ID,
+            scope = ApiScope(rootIds = scopeRootIds, tagsInclude = emptySet()),
+            capabilities =
+                setOf(
+                    ApiCapability.READ,
+                    ApiCapability.WRITE_ITEMS,
+                    ApiCapability.WRITE_NOTES,
+                    ApiCapability.ADVANCE,
+                    ApiCapability.MANAGE_DEPENDENCIES,
+                ),
+            authMode = ApiAuthMode.BEARER,
+        )
+    return ApiAuthConfig.Bearer(
+        tokens = base.tokens + (HashBytes(sha256(WRITE_TOKEN)) to writePrincipal),
     )
 }
 

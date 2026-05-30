@@ -363,7 +363,7 @@ class CurrentMcpServer(
                             // Phase 4: config/schema-discovery + status-graph
                             configRoutes(noteSchemaService)
                             // Phase 5: write API — items, notes, dependencies, advance
-                            itemWriteRoutes(repositoryProvider, degradedModePolicy, idempotencyCache)
+                            itemWriteRoutes(repositoryProvider, degradedModePolicy, idempotencyCache, noteSchemaService)
                             noteWriteRoutes(repositoryProvider, degradedModePolicy, idempotencyCache)
                             dependencyWriteRoutes(repositoryProvider, degradedModePolicy)
                         }

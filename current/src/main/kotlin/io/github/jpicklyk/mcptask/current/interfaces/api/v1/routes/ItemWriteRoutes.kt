@@ -2,8 +2,10 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
 import io.github.jpicklyk.mcptask.current.application.service.RoleTransitionHandler
+import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.rest.MergePatchApplier
 import io.github.jpicklyk.mcptask.current.application.service.rest.WorkItemPatchProjection
+import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.UserTrigger
@@ -19,12 +21,12 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.AdvanceRequestDt
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.AdvanceResponseDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ItemCreateDto
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ItemDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ItemPatchDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.etag.etagFor
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.toDto
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
-import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.call
 import io.ktor.server.request.contentType
 import io.ktor.server.request.receive
@@ -35,14 +37,11 @@ import io.ktor.server.routing.Route
 import io.ktor.server.routing.delete
 import io.ktor.server.routing.patch
 import io.ktor.server.routing.post
-import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
-import kotlinx.serialization.json.put
 import org.slf4j.LoggerFactory
 import java.util.UUID
 
@@ -70,21 +69,26 @@ private val MERGE_PATCH_CONTENT_TYPES = setOf("application/merge-patch+json", "a
 private val warnOnClaimedAdvance: Boolean
     get() = System.getenv("API_WARN_ON_CLAIMED_ADVANCE")?.lowercase() != "false"
 
-/**
- * Sealed result for idempotency key parsing.
- * - [Absent]: no `Idempotency-Key` header present
- * - [Present]: valid UUID parsed
- * - [Invalid]: malformed UUID (caller has already responded 400)
- */
-private sealed class IdempotencyKeyResult {
-    object Absent : IdempotencyKeyResult()
+// IdempotencyKeyResult + parseIdempotencyKey + runWithIdempotency + CachedHttpResponse live in
+// WriteIdempotency.kt (shared with NoteWriteRoutes).
 
-    data class Present(
-        val key: UUID
-    ) : IdempotencyKeyResult()
+// JSON encoder for capturing serialized write responses (matches the server's explicitNulls=false).
+private val writeJson =
+    Json {
+        explicitNulls = false
+        encodeDefaults = true
+    }
 
-    object Invalid : IdempotencyKeyResult()
-}
+/** Builds a [CachedHttpResponse] from an [ErrorDto] at [status]. */
+private fun errorCaptured(
+    status: HttpStatusCode,
+    error: String,
+    message: String,
+): CachedHttpResponse =
+    CachedHttpResponse(
+        statusCode = status.value,
+        bodyJson = writeJson.encodeToString(ErrorDto.serializer(), ErrorDto(error, message)),
+    )
 
 /**
  * Registers item-write and advance routes under the `/api/v1` route prefix.
@@ -101,15 +105,24 @@ private sealed class IdempotencyKeyResult {
  * **Idempotency:** `Idempotency-Key: <UUID>` header supported on POST and PATCH.
  * **ETag concurrency:** PATCH requires `If-Match`; DELETE accepts optional `If-Match`.
  * **degradedModePolicy:** `reject` policy + verification failure → 401.
+ *
+ * @param schemaService used to resolve the item's actual `hasReviewPhase` on advance, mirroring
+ *   [io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool] (trait-merged).
  */
 fun Route.itemWriteRoutes(
     repositoryProvider: RepositoryProvider,
     degradedModePolicy: DegradedModePolicy,
     idempotencyCache: IdempotencyCache,
+    schemaService: WorkItemSchemaService,
 ) {
     val workItemRepo = repositoryProvider.workItemRepository()
     val roleTransitionRepo = repositoryProvider.roleTransitionRepository()
     val depRepo = repositoryProvider.dependencyRepository()
+
+    // Schema-resolution context — reuses the EXACT trait-merging + review-phase logic from
+    // AdvanceItemTool (via ToolExecutionContext.resolveHasReviewPhase). Repository access is shared;
+    // no MCP behavior is affected since this context is read-only for schema resolution here.
+    val schemaResolutionContext = ToolExecutionContext(repositoryProvider, schemaService)
 
     // ─── POST /items ─────────────────────────────────────────────────────────
     requireCapability(ApiCapability.WRITE_ITEMS) {
@@ -132,33 +145,30 @@ fun Route.itemWriteRoutes(
             val idempotencyKeyResult = call.parseIdempotencyKey()
             if (idempotencyKeyResult is IdempotencyKeyResult.Invalid) return@post
 
-            suspend fun executeCreate() {
+            // Produce a CachedHttpResponse so the body is serialized once and replayed verbatim on
+            // an Idempotency-Key hit (the DB write runs at most once — see runWithIdempotency).
+            suspend fun executeCreate(): CachedHttpResponse {
                 val dto =
                     try {
                         call.receive<ItemCreateDto>()
                     } catch (e: SerializationException) {
-                        call.respond(HttpStatusCode.BadRequest, ErrorDto("validation_error", e.message ?: "Invalid request body"))
-                        return
+                        return errorCaptured(HttpStatusCode.BadRequest, "validation_error", e.message ?: "Invalid request body")
                     }
 
                 val parentId =
                     dto.parentId?.let { pid ->
-                        runCatching { UUID.fromString(pid) }.getOrNull() ?: run {
-                            call.respond(HttpStatusCode.BadRequest, ErrorDto("validation_error", "Invalid parentId UUID: $pid"))
-                            return
-                        }
+                        runCatching { UUID.fromString(pid) }.getOrNull()
+                            ?: return errorCaptured(HttpStatusCode.BadRequest, "validation_error", "Invalid parentId UUID: $pid")
                     }
 
                 val depth: Int
                 if (parentId != null) {
                     val parentResult = workItemRepo.getById(parentId)
                     if (parentResult is Result.Error) {
-                        call.respond(HttpStatusCode.BadRequest, ErrorDto("not_found", "Parent item $parentId not found"))
-                        return
+                        return errorCaptured(HttpStatusCode.BadRequest, "not_found", "Parent item $parentId not found")
                     }
                     if (!enforceScopeForItem(call, parentId, workItemRepo)) {
-                        call.respond(HttpStatusCode.Forbidden, ErrorDto("scope_forbidden", "Access denied for parent $parentId"))
-                        return
+                        return errorCaptured(HttpStatusCode.Forbidden, "scope_forbidden", "Access denied for parent $parentId")
                     }
                     depth = (parentResult as Result.Success).data.depth + 1
                 } else {
@@ -167,10 +177,8 @@ fun Route.itemWriteRoutes(
 
                 val priority =
                     dto.priority?.let { pStr ->
-                        Priority.entries.find { it.name.equals(pStr, ignoreCase = true) } ?: run {
-                            call.respond(HttpStatusCode.BadRequest, ErrorDto("validation_error", "Invalid priority: $pStr"))
-                            return
-                        }
+                        Priority.entries.find { it.name.equals(pStr, ignoreCase = true) }
+                            ?: return errorCaptured(HttpStatusCode.BadRequest, "validation_error", "Invalid priority: $pStr")
                     } ?: Priority.MEDIUM
 
                 val propertiesStr = dto.properties?.toString()
@@ -194,29 +202,24 @@ fun Route.itemWriteRoutes(
                             metadata = dto.metadata,
                         )
                     } catch (e: Exception) {
-                        call.respond(HttpStatusCode.BadRequest, ErrorDto("validation_error", e.message ?: "Validation failed"))
-                        return
+                        return errorCaptured(HttpStatusCode.BadRequest, "validation_error", e.message ?: "Validation failed")
                     }
 
-                when (val result = workItemRepo.create(item)) {
+                return when (val result = workItemRepo.create(item)) {
                     is Result.Error -> {
                         writeLogger.warn("POST /items DB error: {}", result.error.message)
-                        call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Failed to create item"))
+                        errorCaptured(HttpStatusCode.InternalServerError, "db_error", "Failed to create item")
                     }
-                    is Result.Success -> {
-                        call.response.header(HttpHeaders.ETag, etagFor(result.data.modifiedAt))
-                        call.respond(HttpStatusCode.Created, result.data.toDto())
-                    }
+                    is Result.Success ->
+                        CachedHttpResponse(
+                            statusCode = HttpStatusCode.Created.value,
+                            bodyJson = writeJson.encodeToString(ItemDto.serializer(), result.data.toDto()),
+                            etag = etagFor(result.data.modifiedAt),
+                        )
                 }
             }
 
-            when (idempotencyKeyResult) {
-                is IdempotencyKeyResult.Present ->
-                    idempotencyCache.getOrCompute(trustedActorId, idempotencyKeyResult.key) {
-                        runBlocking { executeCreate() }
-                    }
-                else -> executeCreate()
-            }
+            call.runWithIdempotency(idempotencyCache, trustedActorId, idempotencyKeyResult) { executeCreate() }
         }
     }
 
@@ -264,66 +267,66 @@ fun Route.itemWriteRoutes(
                     return@patch
                 }
 
-            val itemResult = workItemRepo.getById(id)
-            if (itemResult is Result.Error) {
-                call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Item $id not found"))
-                return@patch
-            }
-            val existing = (itemResult as Result.Success).data
-
-            if (!enforceScopeForItem(call, id, workItemRepo)) {
-                call.respond(HttpStatusCode.Forbidden, ErrorDto("scope_forbidden", "Access denied for item $id"))
-                return@patch
-            }
-
-            // ETag concurrency — If-Match required for PATCH
-            val ifMatch = call.request.headers[HttpHeaders.IfMatch]?.trim()
-            val currentEtag = etagFor(existing.modifiedAt)
-            if (ifMatch == null) {
-                call.response.header(HttpHeaders.ETag, currentEtag)
-                call.respond(
-                    HttpStatusCode.BadRequest,
-                    ErrorDto("precondition_required", "PATCH requires If-Match header with current ETag"),
-                )
-                return@patch
-            }
-            if (ifMatch != currentEtag) {
-                call.response.header(HttpHeaders.ETag, currentEtag)
-                call.respond(
-                    HttpStatusCode.PreconditionFailed,
-                    ErrorDto("etag_mismatch", "ETag mismatch; current ETag is $currentEtag"),
-                )
-                return@patch
-            }
-
             val idempotencyKeyResult = call.parseIdempotencyKey()
             if (idempotencyKeyResult is IdempotencyKeyResult.Invalid) return@patch
 
-            suspend fun executePatch() {
+            // The state-dependent pre-conditions (existence, scope, If-Match ETag) AND the write run
+            // INSIDE the captured block, so an Idempotency-Key replay returns the cached response
+            // verbatim WITHOUT re-evaluating the ETag against the now-mutated item (which would
+            // otherwise spuriously 412). The Content-Type 415 check above is request-shape-only and
+            // stays outside (a replay carries the same Content-Type).
+            suspend fun executePatch(): CachedHttpResponse {
+                val itemResult = workItemRepo.getById(id)
+                if (itemResult is Result.Error) {
+                    return errorCaptured(HttpStatusCode.NotFound, "not_found", "Item $id not found")
+                }
+                val existing = (itemResult as Result.Success).data
+
+                if (!enforceScopeForItem(call, id, workItemRepo)) {
+                    return errorCaptured(HttpStatusCode.Forbidden, "scope_forbidden", "Access denied for item $id")
+                }
+
+                // ETag concurrency — If-Match required for PATCH
+                val ifMatch = call.request.headers[HttpHeaders.IfMatch]?.trim()
+                val currentEtag = etagFor(existing.modifiedAt)
+                if (ifMatch == null) {
+                    return CachedHttpResponse(
+                        statusCode = HttpStatusCode.BadRequest.value,
+                        bodyJson = writeJson.encodeToString(
+                            ErrorDto.serializer(),
+                            ErrorDto("precondition_required", "PATCH requires If-Match header with current ETag"),
+                        ),
+                        etag = currentEtag,
+                    )
+                }
+                if (ifMatch != currentEtag) {
+                    return CachedHttpResponse(
+                        statusCode = HttpStatusCode.PreconditionFailed.value,
+                        bodyJson = writeJson.encodeToString(
+                            ErrorDto.serializer(),
+                            ErrorDto("etag_mismatch", "ETag mismatch; current ETag is $currentEtag"),
+                        ),
+                        etag = currentEtag,
+                    )
+                }
+
                 val bodyText = call.receiveText()
                 val patchObject =
                     try {
-                        Json.parseToJsonElement(bodyText) as? JsonObject ?: run {
-                            call.respond(HttpStatusCode.BadRequest, ErrorDto("validation_error", "PATCH body must be a JSON object"))
-                            return
-                        }
+                        Json.parseToJsonElement(bodyText) as? JsonObject
+                            ?: return errorCaptured(HttpStatusCode.BadRequest, "validation_error", "PATCH body must be a JSON object")
                     } catch (e: Exception) {
-                        call.respond(HttpStatusCode.BadRequest, ErrorDto("validation_error", "Invalid JSON: ${e.message}"))
-                        return
+                        return errorCaptured(HttpStatusCode.BadRequest, "validation_error", "Invalid JSON: ${e.message}")
                     }
 
                 // Security: reject any attempt to patch server-owned fields
                 val disallowedFields = patchObject.keys.intersect(REJECTED_PATCH_FIELDS)
                 if (disallowedFields.isNotEmpty()) {
-                    call.respond(
+                    return errorCaptured(
                         HttpStatusCode.BadRequest,
-                        ErrorDto(
-                            "field_not_patchable",
-                            "The following fields cannot be patched: ${disallowedFields.joinToString()}",
-                            details = buildJsonObject { put("rejectedFields", disallowedFields.joinToString()) },
-                        ),
+                        "field_not_patchable",
+                        "The following fields cannot be patched: ${disallowedFields.joinToString()}",
                     )
-                    return
                 }
 
                 // Merge-patch flow: project existing → apply patch → normalize → decode → update
@@ -350,96 +353,81 @@ fun Route.itemWriteRoutes(
                     try {
                         Json.decodeFromJsonElement<ItemPatchDto>(normalizedMerged)
                     } catch (e: Exception) {
-                        call.respond(HttpStatusCode.BadRequest, ErrorDto("validation_error", "Invalid patch values: ${e.message}"))
-                        return
+                        return errorCaptured(HttpStatusCode.BadRequest, "validation_error", "Invalid patch values: ${e.message}")
                     }
 
+                // The projection (WorkItemPatchProjection) includes EVERY patchable field in `base`,
+                // so `normalizedMerged` is the COMPLETE desired final state and `patchDto` carries the
+                // final value for each field. RFC 7396 null-delete works correctly: a `null` patch
+                // removes the key during merge, so the field decodes to null in patchDto (→ cleared).
+                // We therefore use patchDto values directly. Required, non-nullable fields (title,
+                // summary, priority, requiresVerification) fall back to the existing value as a safety
+                // net so they can never be cleared to null.
                 val newPriority =
                     patchDto.priority?.let { pStr ->
-                        Priority.entries.find { it.name.equals(pStr, ignoreCase = true) } ?: run {
-                            call.respond(HttpStatusCode.BadRequest, ErrorDto("validation_error", "Invalid priority: $pStr"))
-                            return
-                        }
-                    }
+                        Priority.entries.find { it.name.equals(pStr, ignoreCase = true) }
+                            ?: return errorCaptured(HttpStatusCode.BadRequest, "validation_error", "Invalid priority: $pStr")
+                    } ?: existing.priority
 
-                // parentId: null in normalizedMerged = move to root (server-owned depth recalculated)
+                // parentId: patchDto.parentId is the FINAL parent (null = move to root). Depth is
+                // server-owned: recompute only when the resolved parent actually changes.
                 val newParentId =
-                    if (normalizedMerged.containsKey("parentId")) {
-                        patchDto.parentId?.let { pid ->
-                            runCatching { UUID.fromString(pid) }.getOrNull() ?: run {
-                                call.respond(HttpStatusCode.BadRequest, ErrorDto("validation_error", "Invalid parentId UUID: $pid"))
-                                return
-                            }
-                        }
-                    } else {
-                        existing.parentId
+                    patchDto.parentId?.let { pid ->
+                        runCatching { UUID.fromString(pid) }.getOrNull()
+                            ?: return errorCaptured(HttpStatusCode.BadRequest, "validation_error", "Invalid parentId UUID: $pid")
                     }
 
                 val newDepth =
-                    if (normalizedMerged.containsKey("parentId")) {
-                        if (newParentId == null) {
-                            0
-                        } else {
-                            val parentResult = workItemRepo.getById(newParentId)
-                            if (parentResult is Result.Error) {
-                                call.respond(HttpStatusCode.BadRequest, ErrorDto("not_found", "Parent item $newParentId not found"))
-                                return
-                            }
-                            (parentResult as Result.Success).data.depth + 1
-                        }
-                    } else {
+                    if (newParentId == existing.parentId) {
                         existing.depth
+                    } else if (newParentId == null) {
+                        0
+                    } else {
+                        val parentResult = workItemRepo.getById(newParentId)
+                        if (parentResult is Result.Error) {
+                            return errorCaptured(HttpStatusCode.BadRequest, "not_found", "Parent item $newParentId not found")
+                        }
+                        (parentResult as Result.Success).data.depth + 1
                     }
-
-                // properties: special handling per spec §5.4.1
-                // The MergePatchApplier already handled properties sub-merging in the base→patch apply.
-                // After decoding normalizedMerged to ItemPatchDto, properties is a re-serialized string.
-                val newProperties =
-                    if (normalizedMerged.containsKey("properties")) patchDto.properties else existing.properties
 
                 val updated =
                     try {
                         existing.update { item ->
                             item.copy(
                                 title = patchDto.title ?: item.title,
-                                description = if (normalizedMerged.containsKey("description")) patchDto.description else item.description,
+                                description = patchDto.description,
                                 summary = patchDto.summary ?: item.summary,
-                                statusLabel = if (normalizedMerged.containsKey("statusLabel")) patchDto.statusLabel else item.statusLabel,
-                                priority = newPriority ?: item.priority,
-                                complexity = if (normalizedMerged.containsKey("complexity")) patchDto.complexity else item.complexity,
+                                statusLabel = patchDto.statusLabel,
+                                priority = newPriority,
+                                complexity = patchDto.complexity,
                                 requiresVerification = patchDto.requiresVerification ?: item.requiresVerification,
-                                tags = if (normalizedMerged.containsKey("tags")) patchDto.tags else item.tags,
-                                type = if (normalizedMerged.containsKey("type")) patchDto.type else item.type,
-                                properties = newProperties,
-                                metadata = if (normalizedMerged.containsKey("metadata")) patchDto.metadata else item.metadata,
+                                tags = patchDto.tags,
+                                type = patchDto.type,
+                                properties = patchDto.properties,
+                                metadata = patchDto.metadata,
                                 parentId = newParentId,
                                 depth = newDepth,
                             )
                         }
                     } catch (e: Exception) {
-                        call.respond(HttpStatusCode.BadRequest, ErrorDto("validation_error", e.message ?: "Validation failed"))
-                        return
+                        return errorCaptured(HttpStatusCode.BadRequest, "validation_error", e.message ?: "Validation failed")
                     }
 
-                when (val result = workItemRepo.update(updated)) {
+                return when (val result = workItemRepo.update(updated)) {
                     is Result.Error -> {
                         writeLogger.warn("PATCH /items/{} DB error: {}", id, result.error.message)
-                        call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Failed to update item"))
+                        errorCaptured(HttpStatusCode.InternalServerError, "db_error", "Failed to update item")
                     }
-                    is Result.Success -> {
-                        call.response.header(HttpHeaders.ETag, etagFor(result.data.modifiedAt))
-                        call.respond(HttpStatusCode.OK, result.data.toDto())
-                    }
+                    is Result.Success ->
+                        CachedHttpResponse(
+                            statusCode = HttpStatusCode.OK.value,
+                            bodyJson = writeJson.encodeToString(ItemDto.serializer(), result.data.toDto()),
+                            etag = etagFor(result.data.modifiedAt),
+                        )
                 }
             }
 
-            when (idempotencyKeyResult) {
-                is IdempotencyKeyResult.Present ->
-                    idempotencyCache.getOrCompute(trustedActorId, idempotencyKeyResult.key) {
-                        runBlocking { executePatch() }
-                    }
-                else -> executePatch()
-            }
+            call.runWithIdempotency(idempotencyCache, trustedActorId, idempotencyKeyResult) { executePatch() }
         }
     }
 
@@ -588,20 +576,29 @@ fun Route.itemWriteRoutes(
 
             val handler = RoleTransitionHandler()
 
-            // Simple hasReviewPhase=false for REST API path — full schema-aware logic via MCP
+            // Resolve the item's ACTUAL hasReviewPhase from its schema (type + tags + traits),
+            // mirroring AdvanceItemTool so an API advance of a WORK item with a review schema
+            // lands in REVIEW (not terminal). Schema-free items resolve to false (skip REVIEW).
+            val hasReviewPhase = schemaResolutionContext.resolveHasReviewPhase(item)
+
+            // enforceOwnership = false: the REST API bypasses claim ownership entirely (plan §2 —
+            // API callers are operators, not fleet agents). The advance SUCCEEDS even when the item
+            // is claimed by a different MCP agent, while the synthesized API actor is still recorded
+            // on the role_transitions row for audit. MCP call sites keep the default (true).
             val transitionResult =
                 handler.userTransition(
                     item = item,
                     trigger = userTrigger,
                     summary = null,
                     statusLabel = null,
-                    hasReviewPhase = false,
+                    hasReviewPhase = hasReviewPhase,
                     workItemRepository = workItemRepo,
                     roleTransitionRepository = roleTransitionRepo,
                     dependencyRepository = depRepo,
                     actorClaim = actorClaim,
                     verification = verification,
                     degradedModePolicy = degradedModePolicy,
+                    enforceOwnership = false,
                 )
 
             if (!transitionResult.success) {
@@ -625,23 +622,5 @@ fun Route.itemWriteRoutes(
                 ),
             )
         }
-    }
-}
-
-/**
- * Parses the `Idempotency-Key` header from the request.
- *
- * Returns:
- * - [IdempotencyKeyResult.Absent] when no header is present
- * - [IdempotencyKeyResult.Present] when the header contains a valid UUID
- * - [IdempotencyKeyResult.Invalid] when the header is present but malformed (400 already sent)
- */
-private suspend fun ApplicationCall.parseIdempotencyKey(): IdempotencyKeyResult {
-    val keyHeader = request.headers["Idempotency-Key"] ?: return IdempotencyKeyResult.Absent
-    return try {
-        IdempotencyKeyResult.Present(UUID.fromString(keyHeader.trim()))
-    } catch (e: IllegalArgumentException) {
-        respond(HttpStatusCode.BadRequest, ErrorDto("validation_error", "Idempotency-Key must be a valid UUID"))
-        IdempotencyKeyResult.Invalid
     }
 }

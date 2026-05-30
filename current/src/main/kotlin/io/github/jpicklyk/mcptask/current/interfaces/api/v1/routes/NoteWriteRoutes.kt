@@ -11,13 +11,13 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.enforceScopeForItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.requireCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.NoteDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.NoteWriteDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.etag.etagFor
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.toDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.redaction.AttributionRedactor
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
-import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.call
 import io.ktor.server.request.receive
 import io.ktor.server.response.header
@@ -25,8 +25,8 @@ import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.delete
 import io.ktor.server.routing.put
-import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.SerializationException
+import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
 import java.util.UUID
 
@@ -34,18 +34,22 @@ private val noteWriteLogger = LoggerFactory.getLogger("NoteWriteRoutes")
 
 private val VALID_NOTE_ROLES = setOf("queue", "work", "review")
 
-/**
- * Sealed result for idempotency key parsing (note routes version — same pattern as item write routes).
- */
-private sealed class NoteIdempotencyKeyResult {
-    object Absent : NoteIdempotencyKeyResult()
+// JSON encoder for capturing serialized note responses (matches the server's explicitNulls=false).
+private val noteWriteJson =
+    Json {
+        explicitNulls = false
+        encodeDefaults = true
+    }
 
-    data class Present(
-        val key: UUID
-    ) : NoteIdempotencyKeyResult()
-
-    object Invalid : NoteIdempotencyKeyResult()
-}
+private fun noteErrorCaptured(
+    status: HttpStatusCode,
+    error: String,
+    message: String,
+): CachedHttpResponse =
+    CachedHttpResponse(
+        statusCode = status.value,
+        bodyJson = noteWriteJson.encodeToString(ErrorDto.serializer(), ErrorDto(error, message)),
+    )
 
 /**
  * Registers note-write routes under the `/api/v1` route prefix.
@@ -101,56 +105,54 @@ fun Route.noteWriteRoutes(
                     return@put
                 }
 
-            val itemResult = workItemRepo.getById(id)
-            if (itemResult is Result.Error) {
-                call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Item $id not found"))
-                return@put
-            }
+            val idempotencyKeyResult = call.parseIdempotencyKey()
+            if (idempotencyKeyResult is IdempotencyKeyResult.Invalid) return@put
 
-            if (!enforceScopeForItem(call, id, workItemRepo)) {
-                call.respond(HttpStatusCode.Forbidden, ErrorDto("scope_forbidden", "Access denied for item $id"))
-                return@put
-            }
-
-            // Check for existing note to handle ETag and ID preservation
-            val existingNote =
-                when (val findResult = noteRepo.findByItemIdAndKey(id, key)) {
-                    is Result.Success -> findResult.data
-                    is Result.Error -> null
+            // The state-dependent pre-conditions (item existence, scope, note-existence, If-Match
+            // ETag) AND the upsert run INSIDE the captured block, so an Idempotency-Key replay
+            // returns the cached response verbatim without re-evaluating the now-mutated note's ETag.
+            suspend fun executeUpsert(): CachedHttpResponse {
+                val itemResult = workItemRepo.getById(id)
+                if (itemResult is Result.Error) {
+                    return noteErrorCaptured(HttpStatusCode.NotFound, "not_found", "Item $id not found")
                 }
 
-            // If-Match for update path (optional but validated when present)
-            val ifMatch = call.request.headers[HttpHeaders.IfMatch]?.trim()
-            if (ifMatch != null && existingNote != null) {
-                val currentEtag = etagFor(existingNote.modifiedAt)
-                if (ifMatch != currentEtag) {
-                    call.response.header(HttpHeaders.ETag, currentEtag)
-                    call.respond(
-                        HttpStatusCode.PreconditionFailed,
-                        ErrorDto("etag_mismatch", "Note ETag mismatch; current ETag is $currentEtag"),
-                    )
-                    return@put
+                if (!enforceScopeForItem(call, id, workItemRepo)) {
+                    return noteErrorCaptured(HttpStatusCode.Forbidden, "scope_forbidden", "Access denied for item $id")
                 }
-            }
 
-            val idempotencyKeyResult = call.parseNoteIdempotencyKey()
-            if (idempotencyKeyResult is NoteIdempotencyKeyResult.Invalid) return@put
+                // Check for existing note to handle ETag and ID preservation
+                val existingNote =
+                    when (val findResult = noteRepo.findByItemIdAndKey(id, key)) {
+                        is Result.Success -> findResult.data
+                        is Result.Error -> null
+                    }
 
-            suspend fun executeUpsert() {
+                // If-Match for update path (optional but validated when present)
+                val ifMatch = call.request.headers[HttpHeaders.IfMatch]?.trim()
+                if (ifMatch != null && existingNote != null) {
+                    val currentEtag = etagFor(existingNote.modifiedAt)
+                    if (ifMatch != currentEtag) {
+                        return CachedHttpResponse(
+                            statusCode = HttpStatusCode.PreconditionFailed.value,
+                            bodyJson = noteWriteJson.encodeToString(
+                                ErrorDto.serializer(),
+                                ErrorDto("etag_mismatch", "Note ETag mismatch; current ETag is $currentEtag"),
+                            ),
+                            etag = currentEtag,
+                        )
+                    }
+                }
+
                 val dto =
                     try {
                         call.receive<NoteWriteDto>()
                     } catch (e: SerializationException) {
-                        call.respond(HttpStatusCode.BadRequest, ErrorDto("validation_error", e.message ?: "Invalid request body"))
-                        return
+                        return noteErrorCaptured(HttpStatusCode.BadRequest, "validation_error", e.message ?: "Invalid request body")
                     }
 
                 if (dto.role.lowercase() !in VALID_NOTE_ROLES) {
-                    call.respond(
-                        HttpStatusCode.BadRequest,
-                        ErrorDto("validation_error", "role must be one of: queue, work, review"),
-                    )
-                    return
+                    return noteErrorCaptured(HttpStatusCode.BadRequest, "validation_error", "role must be one of: queue, work, review")
                 }
 
                 // Synthesize actor server-side — client body actor.* fields are dropped
@@ -169,31 +171,27 @@ fun Route.noteWriteRoutes(
                             verification = verification,
                         )
                     } catch (e: Exception) {
-                        call.respond(HttpStatusCode.BadRequest, ErrorDto("validation_error", e.message ?: "Validation failed"))
-                        return
+                        return noteErrorCaptured(HttpStatusCode.BadRequest, "validation_error", e.message ?: "Validation failed")
                     }
 
-                when (val result = noteRepo.upsert(note)) {
+                return when (val result = noteRepo.upsert(note)) {
                     is Result.Error -> {
                         noteWriteLogger.warn("PUT /items/{}/notes/{} DB error: {}", id, key, result.error.message)
-                        call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Failed to upsert note"))
+                        noteErrorCaptured(HttpStatusCode.InternalServerError, "db_error", "Failed to upsert note")
                     }
                     is Result.Success -> {
                         val isCreate = existingNote == null
-                        call.response.header(HttpHeaders.ETag, etagFor(result.data.modifiedAt))
-                        val dto2 = redactor.redact(result.data.toDto(), call)
-                        call.respond(if (isCreate) HttpStatusCode.Created else HttpStatusCode.OK, dto2)
+                        val redactedDto = redactor.redact(result.data.toDto(), call)
+                        CachedHttpResponse(
+                            statusCode = if (isCreate) HttpStatusCode.Created.value else HttpStatusCode.OK.value,
+                            bodyJson = noteWriteJson.encodeToString(NoteDto.serializer(), redactedDto),
+                            etag = etagFor(result.data.modifiedAt),
+                        )
                     }
                 }
             }
 
-            when (idempotencyKeyResult) {
-                is NoteIdempotencyKeyResult.Present ->
-                    idempotencyCache.getOrCompute(trustedActorId, idempotencyKeyResult.key) {
-                        runBlocking { executeUpsert() }
-                    }
-                else -> executeUpsert()
-            }
+            call.runWithIdempotency(idempotencyCache, trustedActorId, idempotencyKeyResult) { executeUpsert() }
         }
 
         // ─── DELETE /items/{id}/notes/{key} ─────────────────────────────────
@@ -261,15 +259,5 @@ fun Route.noteWriteRoutes(
                 }
             }
         }
-    }
-}
-
-private suspend fun ApplicationCall.parseNoteIdempotencyKey(): NoteIdempotencyKeyResult {
-    val keyHeader = request.headers["Idempotency-Key"] ?: return NoteIdempotencyKeyResult.Absent
-    return try {
-        NoteIdempotencyKeyResult.Present(UUID.fromString(keyHeader.trim()))
-    } catch (e: IllegalArgumentException) {
-        respond(HttpStatusCode.BadRequest, ErrorDto("validation_error", "Idempotency-Key must be a valid UUID"))
-        NoteIdempotencyKeyResult.Invalid
     }
 }

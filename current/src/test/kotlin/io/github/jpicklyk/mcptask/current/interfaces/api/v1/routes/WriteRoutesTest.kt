@@ -1,19 +1,21 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
+import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
+import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.Note
+import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
+import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
+import io.github.jpicklyk.mcptask.current.domain.repository.ClaimResult
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthMode
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipal
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
@@ -22,6 +24,7 @@ import io.ktor.client.request.patch
 import io.ktor.client.request.post
 import io.ktor.client.request.put
 import io.ktor.client.request.setBody
+import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
@@ -36,66 +39,39 @@ import io.ktor.server.routing.routing
 import io.ktor.server.sse.SSE
 import io.ktor.server.testing.testApplication
 import io.modelcontextprotocol.kotlin.sdk.types.McpJson
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import org.junit.jupiter.api.Test
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/** Bearer token for a principal with ALL write capabilities. */
-const val WRITE_TOKEN = "write-all-token-xyz456"
-const val WRITE_TOKEN_ID = "test-write-principal"
-
-/** Bearer token for a principal with only READ capability (no write). */
-const val READ_ONLY_TOKEN = TEST_TOKEN
-const val READ_ONLY_TOKEN_ID = TEST_TOKEN_ID
-
 /**
- * Builds a test auth config that includes:
- * - WRITE_TOKEN → all capabilities
- * - TEST_TOKEN (READ_ONLY_TOKEN) → READ only
+ * Read-only-capability token alias — reuses [TEST_TOKEN] from [ApiTestHelper] (READ only).
+ * Used to assert that write routes reject principals lacking the required write capability.
  */
-fun makeWriteTestAuthConfig(scopeRootIds: Set<UUID>? = null): ApiAuthConfig.Bearer {
-    val writePrincipal =
-        ApiPrincipal(
-            tokenId = WRITE_TOKEN_ID,
-            scope = ApiScope(rootIds = scopeRootIds, tagsInclude = emptySet()),
-            capabilities =
-                setOf(
-                    ApiCapability.READ,
-                    ApiCapability.WRITE_ITEMS,
-                    ApiCapability.WRITE_NOTES,
-                    ApiCapability.ADVANCE,
-                    ApiCapability.MANAGE_DEPENDENCIES,
-                ),
-            authMode = ApiAuthMode.BEARER,
-        )
-    val readOnlyPrincipal =
-        ApiPrincipal(
-            tokenId = READ_ONLY_TOKEN_ID,
-            scope = ApiScope(rootIds = null, tagsInclude = emptySet()),
-            capabilities = setOf(ApiCapability.READ),
-            authMode = ApiAuthMode.BEARER,
-        )
-    return ApiAuthConfig.Bearer(
-        tokens =
-            mapOf(
-                HashBytes(sha256(WRITE_TOKEN)) to writePrincipal,
-                HashBytes(sha256(READ_ONLY_TOKEN)) to readOnlyPrincipal,
-            ),
-    )
-}
+private const val READ_ONLY_TOKEN = TEST_TOKEN
 
 /**
- * Configures a test Ktor application with write routes registered.
+ * Configures a test Ktor application with Phase 5 write routes registered.
+ *
+ * Reuses the shared [makeWriteAuthConfig] / [ApiBearerAuth] setup from [ApiTestHelper] —
+ * NO hand-rolled auth config. The WRITE_TOKEN principal has all write capabilities; the
+ * TEST_TOKEN (READ_ONLY_TOKEN) principal has READ only.
+ *
+ * @param schemaService schema service used by the advance route to resolve hasReviewPhase.
+ *   Defaults to [NoOpNoteSchemaService] (schema-free → no review phase).
  */
 fun Application.configureWriteTestApp(
     repo: DefaultRepositoryProvider,
     idempotencyCache: IdempotencyCache = IdempotencyCache(),
     degradedModePolicy: DegradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
-    authConfig: ApiAuthConfig.Bearer = makeWriteTestAuthConfig(),
+    authConfig: ApiAuthConfig.Bearer = makeWriteAuthConfig(),
+    schemaService: WorkItemSchemaService = NoOpNoteSchemaService,
 ) {
     install(ContentNegotiation) { json(McpJson) }
     install(SSE)
@@ -113,7 +89,7 @@ fun Application.configureWriteTestApp(
             noteRoutes(repo)
             dependencyRoutes(repo)
             // WRITE routes under test
-            itemWriteRoutes(repo, degradedModePolicy, idempotencyCache)
+            itemWriteRoutes(repo, degradedModePolicy, idempotencyCache, schemaService)
             noteWriteRoutes(repo, degradedModePolicy, idempotencyCache)
             dependencyWriteRoutes(repo, degradedModePolicy)
         }
@@ -349,12 +325,11 @@ class ItemPatchRouteTest {
                 }
 
             assertEquals(HttpStatusCode.OK, response.status)
-            // Hard assertion: description removed
+            // Hard assertion: description removed (RFC 7396 null = delete)
             val persisted = runBlocking { repo.workItemRepository().getById(item.id) }
-            assertFalse(
-                (persisted as Result.Success).data.description != null &&
-                    (persisted as Result.Success).data.description!!.isNotBlank(),
-                "Description should be cleared"
+            assertNull(
+                (persisted as Result.Success).data.description,
+                "Description should be cleared to null by an explicit null patch"
             )
         }
 
@@ -654,12 +629,15 @@ class AdvanceRouteTest {
             }
 
             // Hard assertion: query the role_transitions table to verify actor was persisted
-            val transitions =
+            val transitionsResult =
                 runBlocking {
                     repo.roleTransitionRepository().findByItemId(item.id)
                 }
+            assertTrue(transitionsResult is Result.Success, "Role transition query should succeed")
+            val transitions = (transitionsResult as Result.Success).data
             assertTrue(transitions.isNotEmpty(), "Role transition row should be created")
-            val transition = transitions.last()
+            // findByItemId returns rows ordered by transitionedAt DESC — the most recent is first.
+            val transition = transitions.first()
             assertNotNull(transition.actorClaim, "Actor claim should be persisted on transition")
             assertEquals(
                 "api:$WRITE_TOKEN_ID",
@@ -721,13 +699,21 @@ class AdvanceRouteTest {
         }
 
     @Test
-    fun `POST items id advance response body does not contain claimedBy`(): Unit =
+    fun `POST advance on item CLAIMED by another MCP agent SUCCEEDS and records API actor`(): Unit =
         testApplication {
             val repo = buildH2RepositoryProvider()
+            // Create then CLAIM the item as a fleet MCP agent (different identity than the API).
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(WorkItem(title = "Claimed Item Test", depth = 0)).getOrNull()!!
+                    val created = repo.workItemRepository().create(WorkItem(title = "Claimed By Agent", depth = 0)).getOrNull()!!
+                    val claimResult = repo.workItemRepository().claim(created.id, agentId = "fleet-agent-7", ttlSeconds = 900)
+                    assertTrue(claimResult is ClaimResult.Success, "Pre-condition: item must be claimed by fleet-agent-7")
+                    (claimResult as ClaimResult.Success).item
                 }
+            // Sanity: the item is actively claimed by a different agent before the API advance.
+            assertEquals("fleet-agent-7", item.claimedBy)
+            assertNotNull(item.claimExpiresAt)
+
             application { configureWriteTestApp(repo) }
 
             val response =
@@ -737,13 +723,131 @@ class AdvanceRouteTest {
                     setBody("""{"trigger":"start"}""")
                 }
 
-            if (response.status == HttpStatusCode.OK) {
-                val body = response.bodyAsText()
-                assertFalse(
-                    body.contains("claimedBy"),
-                    "Response MUST NOT disclose claimedBy (tiered-disclosure): $body"
-                )
-            }
+            // 1. The advance MUST succeed despite the foreign claim (API bypasses ownership).
+            assertEquals(HttpStatusCode.OK, response.status, "API advance of a claimed item must succeed")
+            val body = response.bodyAsText()
+
+            // 4. Response body MUST NOT disclose claimedBy (tiered-disclosure principle).
+            assertFalse(body.contains("claimedBy"), "Response must NOT disclose claimedBy: $body")
+            assertFalse(body.contains("fleet-agent-7"), "Response must NOT leak the claim holder id: $body")
+
+            // 1b. Hard assertion: the role actually advanced from queue.
+            val persisted = runBlocking { repo.workItemRepository().getById(item.id) }
+            val persistedItem = (persisted as Result.Success).data
+            assertTrue(persistedItem.role.name.lowercase() != "queue", "Item should have advanced from queue")
+            // The claim holder is unchanged (API does not touch claim fields).
+            assertEquals("fleet-agent-7", persistedItem.claimedBy, "API advance must not alter claimedBy")
+
+            // 2. The role_transitions row records the API actor (audit must not be lost).
+            val transitionsResult = runBlocking { repo.roleTransitionRepository().findByItemId(item.id) }
+            val transitions = (transitionsResult as Result.Success).data
+            assertTrue(transitions.isNotEmpty(), "A role_transitions row must be recorded")
+            val transition = transitions.first()
+            assertEquals("api:$WRITE_TOKEN_ID", transition.actorClaim?.id, "Transition must record the API actor id")
+            assertEquals("external", transition.actorClaim?.kind?.toJsonString(), "Transition actor kind must be external")
+        }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Advance — schema review-phase resolution
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Minimal in-memory schema service for advance review-phase tests.
+ *
+ * Two TYPED schemas (resolved via type-first lookup in [ToolExecutionContext.resolveBaseSchema]):
+ * - `review-type` → has a REVIEW-phase note (hasReviewPhase = true)
+ * - `flat-type`   → only QUEUE/WORK notes (hasReviewPhase = false)
+ */
+private class ReviewPhaseSchemaService : WorkItemSchemaService {
+    private val schemas =
+        mapOf(
+            "review-type" to
+                WorkItemSchema(
+                    type = "review-type",
+                    notes =
+                        listOf(
+                            NoteSchemaEntry("scope", Role.QUEUE, required = false, description = "scope"),
+                            NoteSchemaEntry("impl", Role.WORK, required = false, description = "impl"),
+                            NoteSchemaEntry("review", Role.REVIEW, required = false, description = "review"),
+                        ),
+                ),
+            "flat-type" to
+                WorkItemSchema(
+                    type = "flat-type",
+                    notes =
+                        listOf(
+                            NoteSchemaEntry("scope", Role.QUEUE, required = false, description = "scope"),
+                            NoteSchemaEntry("impl", Role.WORK, required = false, description = "impl"),
+                        ),
+                ),
+        )
+
+    override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
+        tags.firstNotNullOfOrNull { schemas[it]?.notes }
+
+    override fun getSchemaForType(type: String?): WorkItemSchema? = type?.let { schemas[it] }
+}
+
+class AdvanceReviewPhaseTest {
+    @Test
+    fun `advance from WORK on item whose schema HAS review phase lands in REVIEW not terminal`(): Unit =
+        testApplication {
+            val repo = buildH2RepositoryProvider()
+            // Item typed 'review-type' (has REVIEW phase), starting in WORK.
+            val item =
+                runBlocking {
+                    repo.workItemRepository().create(
+                        WorkItem(title = "Has Review", type = "review-type", role = Role.WORK, depth = 0),
+                    ).getOrNull()!!
+                }
+            application { configureWriteTestApp(repo, schemaService = ReviewPhaseSchemaService()) }
+
+            val response =
+                client.post("/api/v1/items/${item.id}/advance") {
+                    header("Authorization", "Bearer $WRITE_TOKEN")
+                    contentType(ContentType.Application.Json)
+                    setBody("""{"trigger":"start"}""")
+                }
+
+            assertEquals(HttpStatusCode.OK, response.status)
+            // Hard assertion: persisted role is REVIEW (NOT terminal).
+            val persisted = runBlocking { repo.workItemRepository().getById(item.id) }
+            assertEquals(
+                "review",
+                (persisted as Result.Success).data.role.name.lowercase(),
+                "WORK→start with a review schema must land in REVIEW, not terminal",
+            )
+        }
+
+    @Test
+    fun `advance from WORK on item whose schema has NO review phase goes to terminal`(): Unit =
+        testApplication {
+            val repo = buildH2RepositoryProvider()
+            // Item typed 'flat-type' (no REVIEW phase), starting in WORK.
+            val item =
+                runBlocking {
+                    repo.workItemRepository().create(
+                        WorkItem(title = "No Review", type = "flat-type", role = Role.WORK, depth = 0),
+                    ).getOrNull()!!
+                }
+            application { configureWriteTestApp(repo, schemaService = ReviewPhaseSchemaService()) }
+
+            val response =
+                client.post("/api/v1/items/${item.id}/advance") {
+                    header("Authorization", "Bearer $WRITE_TOKEN")
+                    contentType(ContentType.Application.Json)
+                    setBody("""{"trigger":"start"}""")
+                }
+
+            assertEquals(HttpStatusCode.OK, response.status)
+            // Hard assertion: persisted role is TERMINAL (review phase skipped).
+            val persisted = runBlocking { repo.workItemRepository().getById(item.id) }
+            assertEquals(
+                "terminal",
+                (persisted as Result.Success).data.role.name.lowercase(),
+                "WORK→start with no review schema must advance straight to terminal",
+            )
         }
 }
 
@@ -939,7 +1043,7 @@ class DependencyWriteRouteTest {
             // Hard assertion: dependency persisted
             val deps =
                 runBlocking {
-                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    withContext(Dispatchers.IO) {
                         repo.dependencyRepository().findByItemId(from.id)
                     }
                 }
@@ -1004,7 +1108,7 @@ class DependencyWriteRouteTest {
                 }
             val dep =
                 runBlocking {
-                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    withContext(Dispatchers.IO) {
                         repo.dependencyRepository().create(
                             Dependency(fromItemId = from.id, toItemId = to.id, type = DependencyType.BLOCKS)
                         )
@@ -1021,7 +1125,7 @@ class DependencyWriteRouteTest {
             // Hard assertion: dep gone
             val remaining =
                 runBlocking {
-                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    withContext(Dispatchers.IO) {
                         repo.dependencyRepository().findById(dep.id)
                     }
                 }
@@ -1063,7 +1167,7 @@ class IdempotencyTest {
             application { configureWriteTestApp(repo, idempotencyCache = cache) }
 
             val idempotencyKey = UUID.randomUUID().toString()
-            val makeRequest: suspend () -> io.ktor.client.statement.HttpResponse = {
+            val makeRequest: suspend () -> HttpResponse = {
                 client.post("/api/v1/items") {
                     header("Authorization", "Bearer $WRITE_TOKEN")
                     header("Idempotency-Key", idempotencyKey)
@@ -1142,7 +1246,7 @@ class WriteScopeEnforcementTest {
                     repo.workItemRepository().create(WorkItem(title = "Out Of Scope", depth = 0)).getOrNull()!!
                 }
             // Scoped auth config: only allows access to scopeRootId subtree (item is not there)
-            val scopedAuthConfig = makeWriteTestAuthConfig(scopeRootIds = setOf(scopeRootId))
+            val scopedAuthConfig = makeWriteAuthConfig(scopeRootIds = setOf(scopeRootId))
             application { configureWriteTestApp(repo, authConfig = scopedAuthConfig) }
 
             val etag = "\"v1-${item.modifiedAt.toEpochMilli()}\""
