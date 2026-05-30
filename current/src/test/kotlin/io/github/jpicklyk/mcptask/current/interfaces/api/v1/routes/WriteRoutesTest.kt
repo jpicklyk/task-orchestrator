@@ -11,7 +11,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
-import io.github.jpicklyk.mcptask.current.domain.repository.ClaimResult
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
@@ -702,13 +701,29 @@ class AdvanceRouteTest {
     fun `POST advance on item CLAIMED by another MCP agent SUCCEEDS and records API actor`(): Unit =
         testApplication {
             val repo = buildH2RepositoryProvider()
-            // Create then CLAIM the item as a fleet MCP agent (different identity than the API).
+            // Create the item ALREADY claimed by a fleet MCP agent (different identity than the API).
+            // Construct the claim fields directly instead of calling repo.claim() — claim() uses
+            // SQLite-specific SQL that does not run on the H2 test fixture, whereas create() persists
+            // claim fields on H2 (see SQLiteWorkItemClaimFieldsTest). Capture `now` ONCE so the
+            // WorkItem.validate() invariant originalClaimedAt <= claimedAt holds.
             val item =
                 runBlocking {
-                    val created = repo.workItemRepository().create(WorkItem(title = "Claimed By Agent", depth = 0)).getOrNull()!!
-                    val claimResult = repo.workItemRepository().claim(created.id, agentId = "fleet-agent-7", ttlSeconds = 900)
-                    assertTrue(claimResult is ClaimResult.Success, "Pre-condition: item must be claimed by fleet-agent-7")
-                    (claimResult as ClaimResult.Success).item
+                    val now =
+                        java.time.Instant
+                            .now()
+                            .truncatedTo(java.time.temporal.ChronoUnit.MILLIS)
+                    repo
+                        .workItemRepository()
+                        .create(
+                            WorkItem(
+                                title = "Claimed By Agent",
+                                depth = 0,
+                                claimedBy = "fleet-agent-7",
+                                claimedAt = now,
+                                claimExpiresAt = now.plusSeconds(900),
+                                originalClaimedAt = now,
+                            ),
+                        ).getOrNull()!!
                 }
             // Sanity: the item is actively claimed by a different agent before the API advance.
             assertEquals("fleet-agent-7", item.claimedBy)

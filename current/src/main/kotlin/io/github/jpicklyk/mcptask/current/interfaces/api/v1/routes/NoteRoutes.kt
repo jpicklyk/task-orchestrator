@@ -14,8 +14,10 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.SearchHitDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.toDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.redaction.AttributionRedactor
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.call
+import io.ktor.server.response.header
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
@@ -129,6 +131,9 @@ fun Route.noteRoutes(repositoryProvider: RepositoryProvider) {
                         call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Note '$key' not found on item $id"))
                     } else {
                         val dto = redactor.redact(note.toDto(), call)
+                        // Emit the note's ETag as a response header so clients can supply it as
+                        // If-Match on a subsequent note update (PUT). dto.etag = etagFor(modifiedAt).
+                        call.response.header(HttpHeaders.ETag, dto.etag)
                         call.respond(HttpStatusCode.OK, dto)
                     }
                 }
