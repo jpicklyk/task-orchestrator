@@ -12,7 +12,6 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStor
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.buildH2RepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.eventRoutes
-import io.ktor.client.plugins.sse.SSE as ClientSSE
 import io.ktor.client.plugins.sse.sse
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -48,6 +47,7 @@ import java.security.MessageDigest
 import java.time.Instant
 import java.util.UUID
 import kotlin.time.Duration.Companion.seconds
+import io.ktor.client.plugins.sse.SSE as ClientSSE
 
 /**
  * Integration tests for `GET /api/v1/events` SSE route.
