@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
+import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthMode
@@ -286,6 +287,44 @@ class EventRoutesTest {
             assertTrue(
                 itemIds.contains(itemId.toString()),
                 "Expected itemId $itemId in events. Got: $itemIds",
+            )
+        }
+
+    @Test
+    fun `role change via decorated update emits item_advanced with newRole not item_updated`(): Unit =
+        runBlocking {
+            val baseRepo = buildH2RepositoryProvider()
+            val bus = ApiEventBus()
+            val decorated = EventPublishingRepositoryProvider(baseRepo, bus)
+
+            // Subscriber connected before the writes — create + advance produce exactly two events.
+            val flow = bus.subscribe("advance-sub", emptySet(), lastEventId = null)
+            val collectorDeferred = async { withTimeout(10.seconds) { flow.take(2).toList() } }
+            delay(100)
+
+            val itemId = UUID.randomUUID()
+            val item = WorkItem(id = itemId, parentId = null, title = "Advance test", depth = 0, role = Role.QUEUE)
+            assertTrue(decorated.workItemRepository().create(item) is Result.Success)
+
+            // Change the ROLE (a phase advance) — must surface as item.advanced (carries newRole),
+            // distinct from item.updated, capturing the MCP advance path (AdvanceItemTool → update).
+            val advanced = item.copy(role = Role.WORK)
+            assertTrue(decorated.workItemRepository().update(advanced) is Result.Success)
+
+            val events = collectorDeferred.await()
+            bus.unsubscribe("advance-sub")
+
+            assertEquals(2, events.size, "Expected create + advance events. Got: ${events.map { it.event }}")
+            val advancedEvents = events.filter { it.event == ApiEventType.ITEM_ADVANCED }
+            assertEquals(
+                1,
+                advancedEvents.size,
+                "Role change must emit exactly one item.advanced. Got: ${events.map { it.event }}",
+            )
+            assertEquals("work", advancedEvents[0].newRole, "item.advanced must carry the new role")
+            assertTrue(
+                events.none { it.event == ApiEventType.ITEM_UPDATED },
+                "A role change must NOT also surface as item.updated. Got: ${events.map { it.event }}",
             )
         }
 

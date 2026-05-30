@@ -141,9 +141,16 @@ class EventPublishingRepositoryProvider(
                 val oldParentId = oldItem?.parentId
                 val newParentId = updated.parentId
 
-                // Reparent detection requires the pre-update row; only attempt it when we read it
-                // (i.e. when subscribers are present). Otherwise fall through to a plain item.updated.
-                if (hasSubscribers && oldItem != null && oldParentId != newParentId) {
+                // Classify the update for the event model (all require the pre-update row, so only
+                // when subscribers are present):
+                //   - role change   → item.advanced (semantic phase transition; carries newRole)
+                //   - parent change  → scope.left / scope.entered (reparent across roots)
+                //   - otherwise      → item.updated
+                if (hasSubscribers && oldItem != null && oldItem.role != updated.role) {
+                    // Advance — distinct from item.updated; carries the new role for dashboards.
+                    // Captures BOTH the MCP path (AdvanceItemTool → update) and the REST /advance route.
+                    publishAdvance(updated.id, updated.role, updated.modifiedAt)
+                } else if (hasSubscribers && oldItem != null && oldParentId != newParentId) {
                     // Reparent — emit scope.left for the OLD roots (pre-update snapshot), rebuild, then enter.
                     for (oldRoot in oldRoots) {
                         eventBus.publish(

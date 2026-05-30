@@ -81,7 +81,9 @@ private val sseInlineAuthPlugin =
             val rawToken: String? =
                 when {
                     authHeader != null && authHeader.startsWith("Bearer ", ignoreCase = true) ->
-                        authHeader.removePrefix("Bearer ").removePrefix("bearer ").trim()
+                        // The matched prefix is always 7 chars ("Bearer ") regardless of case;
+                        // strip by length so non-standard casing (e.g. "BEARER ") isn't left in the token.
+                        authHeader.substring("Bearer ".length).trim()
                     allowQueryToken ->
                         call.request.queryParameters["token"]
                             ?.trim()
