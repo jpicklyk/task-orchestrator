@@ -201,9 +201,17 @@ fun Route.dependencyWriteRoutes(
                 return@delete
             }
 
-            // Scope-check: both endpoints must be accessible
+            // Scope-check: BOTH endpoints must be accessible. Deleting an edge mutates the
+            // block/relation state of both items, so a caller must have scope over each side —
+            // mirrors the POST /dependencies check. (Previously only fromItemId was checked,
+            // letting a caller scoped to the 'from' subtree delete an edge reaching into a
+            // subtree they have no authority over.)
             if (!enforceScopeForItem(call, existing.fromItemId, workItemRepo)) {
-                call.respond(HttpStatusCode.Forbidden, ErrorDto("scope_forbidden", "Access denied"))
+                call.respond(HttpStatusCode.Forbidden, ErrorDto("scope_forbidden", "Access denied for fromItemId"))
+                return@delete
+            }
+            if (!enforceScopeForItem(call, existing.toItemId, workItemRepo)) {
+                call.respond(HttpStatusCode.Forbidden, ErrorDto("scope_forbidden", "Access denied for toItemId"))
                 return@delete
             }
 

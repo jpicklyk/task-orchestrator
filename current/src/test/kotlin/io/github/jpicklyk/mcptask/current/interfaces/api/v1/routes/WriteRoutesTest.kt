@@ -1155,6 +1155,46 @@ class DependencyWriteRouteTest {
         }
 
     @Test
+    fun `DELETE dependencies enforces scope on BOTH endpoints not just from`(): Unit =
+        testApplication {
+            val repo = buildH2RepositoryProvider()
+            // 'from' is a root inside the caller's scope; 'to' is a separate root OUTSIDE it.
+            val (from, to) =
+                runBlocking {
+                    val a = repo.workItemRepository().create(WorkItem(title = "In Scope From", depth = 0)).getOrNull()!!
+                    val b = repo.workItemRepository().create(WorkItem(title = "Out Of Scope To", depth = 0)).getOrNull()!!
+                    Pair(a, b)
+                }
+            val dep =
+                runBlocking {
+                    withContext(Dispatchers.IO) {
+                        repo.dependencyRepository().create(
+                            Dependency(fromItemId = from.id, toItemId = to.id, type = DependencyType.BLOCKS),
+                        )
+                    }
+                }
+            // Principal scoped to ONLY the 'from' root — authority over the from side, not the to side.
+            application {
+                configureWriteTestApp(repo, authConfig = makeWriteAuthConfig(scopeRootIds = setOf(from.id)))
+            }
+
+            val response =
+                client.delete("/api/v1/dependencies/${dep.id}") {
+                    header("Authorization", "Bearer $WRITE_TOKEN")
+                }
+            // Forbidden: the 'to' endpoint is outside the caller's scope (regression guard for the
+            // prior bug where DELETE only checked fromItemId).
+            assertEquals(HttpStatusCode.Forbidden, response.status)
+
+            // Hard negative assertion: the edge must NOT have been deleted.
+            val remaining =
+                runBlocking {
+                    withContext(Dispatchers.IO) { repo.dependencyRepository().findById(dep.id) }
+                }
+            assertNotNull(remaining, "Dependency must NOT be deleted when toItemId is outside the caller's scope")
+        }
+
+    @Test
     fun `POST dependencies without MANAGE_DEPENDENCIES returns 403`(): Unit =
         testApplication {
             val repo = buildH2RepositoryProvider()
