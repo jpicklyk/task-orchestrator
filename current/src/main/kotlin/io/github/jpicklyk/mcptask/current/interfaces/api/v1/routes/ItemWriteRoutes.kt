@@ -292,20 +292,22 @@ fun Route.itemWriteRoutes(
                 if (ifMatch == null) {
                     return CachedHttpResponse(
                         statusCode = HttpStatusCode.BadRequest.value,
-                        bodyJson = writeJson.encodeToString(
-                            ErrorDto.serializer(),
-                            ErrorDto("precondition_required", "PATCH requires If-Match header with current ETag"),
-                        ),
+                        bodyJson =
+                            writeJson.encodeToString(
+                                ErrorDto.serializer(),
+                                ErrorDto("precondition_required", "PATCH requires If-Match header with current ETag"),
+                            ),
                         etag = currentEtag,
                     )
                 }
                 if (ifMatch != currentEtag) {
                     return CachedHttpResponse(
                         statusCode = HttpStatusCode.PreconditionFailed.value,
-                        bodyJson = writeJson.encodeToString(
-                            ErrorDto.serializer(),
-                            ErrorDto("etag_mismatch", "ETag mismatch; current ETag is $currentEtag"),
-                        ),
+                        bodyJson =
+                            writeJson.encodeToString(
+                                ErrorDto.serializer(),
+                                ErrorDto("etag_mismatch", "ETag mismatch; current ETag is $currentEtag"),
+                            ),
                         etag = currentEtag,
                     )
                 }

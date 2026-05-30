@@ -783,8 +783,7 @@ private class ReviewPhaseSchemaService : WorkItemSchemaService {
                 ),
         )
 
-    override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
-        tags.firstNotNullOfOrNull { schemas[it]?.notes }
+    override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? = tags.firstNotNullOfOrNull { schemas[it]?.notes }
 
     override fun getSchemaForType(type: String?): WorkItemSchema? = type?.let { schemas[it] }
 }
@@ -797,9 +796,11 @@ class AdvanceReviewPhaseTest {
             // Item typed 'review-type' (has REVIEW phase), starting in WORK.
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(
-                        WorkItem(title = "Has Review", type = "review-type", role = Role.WORK, depth = 0),
-                    ).getOrNull()!!
+                    repo
+                        .workItemRepository()
+                        .create(
+                            WorkItem(title = "Has Review", type = "review-type", role = Role.WORK, depth = 0),
+                        ).getOrNull()!!
                 }
             application { configureWriteTestApp(repo, schemaService = ReviewPhaseSchemaService()) }
 
@@ -815,7 +816,9 @@ class AdvanceReviewPhaseTest {
             val persisted = runBlocking { repo.workItemRepository().getById(item.id) }
             assertEquals(
                 "review",
-                (persisted as Result.Success).data.role.name.lowercase(),
+                (persisted as Result.Success)
+                    .data.role.name
+                    .lowercase(),
                 "WORK→start with a review schema must land in REVIEW, not terminal",
             )
         }
@@ -827,9 +830,11 @@ class AdvanceReviewPhaseTest {
             // Item typed 'flat-type' (no REVIEW phase), starting in WORK.
             val item =
                 runBlocking {
-                    repo.workItemRepository().create(
-                        WorkItem(title = "No Review", type = "flat-type", role = Role.WORK, depth = 0),
-                    ).getOrNull()!!
+                    repo
+                        .workItemRepository()
+                        .create(
+                            WorkItem(title = "No Review", type = "flat-type", role = Role.WORK, depth = 0),
+                        ).getOrNull()!!
                 }
             application { configureWriteTestApp(repo, schemaService = ReviewPhaseSchemaService()) }
 
@@ -845,7 +850,9 @@ class AdvanceReviewPhaseTest {
             val persisted = runBlocking { repo.workItemRepository().getById(item.id) }
             assertEquals(
                 "terminal",
-                (persisted as Result.Success).data.role.name.lowercase(),
+                (persisted as Result.Success)
+                    .data.role.name
+                    .lowercase(),
                 "WORK→start with no review schema must advance straight to terminal",
             )
         }

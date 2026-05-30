@@ -134,10 +134,11 @@ fun Route.noteWriteRoutes(
                     if (ifMatch != currentEtag) {
                         return CachedHttpResponse(
                             statusCode = HttpStatusCode.PreconditionFailed.value,
-                            bodyJson = noteWriteJson.encodeToString(
-                                ErrorDto.serializer(),
-                                ErrorDto("etag_mismatch", "Note ETag mismatch; current ETag is $currentEtag"),
-                            ),
+                            bodyJson =
+                                noteWriteJson.encodeToString(
+                                    ErrorDto.serializer(),
+                                    ErrorDto("etag_mismatch", "Note ETag mismatch; current ETag is $currentEtag"),
+                                ),
                             etag = currentEtag,
                         )
                     }
