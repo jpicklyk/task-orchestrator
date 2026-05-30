@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -60,28 +61,22 @@ class ApiEventBusTest {
             val root2 = UUID.randomUUID()
             val itemId = UUID.randomUUID()
 
-            var received = false
             val flow = bus.subscribe("sub-r2-only", setOf(root2), lastEventId = null)
 
-            val job =
+            // Collect the first event (if any) within a short bounded window. The publish targets
+            // root1 only, so the root2 subscriber must NOT receive it: take(1) never completes and
+            // withTimeoutOrNull returns null (no TimeoutCancellationException propagates out).
+            val received =
                 async {
-                    withTimeout(500) {
-                        // short timeout — should NOT receive anything
-                        try {
-                            flow.take(1).toList()
-                            received = true
-                        } catch (_: Exception) {
-                            // timeout or cancellation = no event received
-                        }
-                    }
+                    withTimeoutOrNull(800) { flow.take(1).toList() }
                 }
 
             delay(50)
             val event = bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = itemId, modifiedAt = Instant.now())
             bus.publish(event, affectedRoots = setOf(root1)) // only root1
 
-            job.await()
-            assertTrue(!received, "Subscriber for root2 should NOT receive root1 events")
+            val result = received.await()
+            assertNull(result, "Subscriber for root2 should NOT receive root1 events (expected no event)")
             bus.unsubscribe("sub-r2-only")
         }
 

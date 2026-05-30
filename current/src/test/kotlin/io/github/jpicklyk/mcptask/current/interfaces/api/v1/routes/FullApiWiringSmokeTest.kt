@@ -141,17 +141,16 @@ class FullApiWiringSmokeTest {
                 }
             assertEquals(HttpStatusCode.Created, created.status, "WRITE token creates item")
 
-            // Phase 6: SSE events route — inline auth (not the plugin). 401 without auth.
+            // Phase 6: SSE events route — proving it is WIRED. A request with NO auth is rejected
+            // by the pre-flight inline auth BEFORE any stream is opened, so .status completes.
+            // We deliberately do NOT open the stream with a valid token here: an SSE endpoint is an
+            // infinite stream, so a plain GET-with-auth would hang the smoke test until the harness
+            // timeout. The 401 below proves the route is mounted and its inline auth runs; the
+            // streaming behaviour is covered by EventRoutesTest with a bounded SSE client.
             assertEquals(
                 HttpStatusCode.Unauthorized,
                 client.get("/api/v1/events").status,
-                "events requires auth (inline check)",
-            )
-            // SSE with valid READ token returns 200 (stream opened)
-            assertEquals(
-                HttpStatusCode.OK,
-                client.get("/api/v1/events") { header("Authorization", "Bearer $TEST_TOKEN") }.status,
-                "events accessible with READ token",
+                "events route is wired and its inline auth rejects unauthenticated requests",
             )
         }
 }
