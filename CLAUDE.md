@@ -53,10 +53,31 @@ infrastructure/
   database/schema/      — WorkItemsTable, NotesTable, DependenciesTable, RoleTransitionsTable
   database/schema/management/ — DirectDatabaseSchemaManager, FlywayDatabaseSchemaManager, SchemaManagerFactory
   repository/           — SQLite implementations, RepositoryProvider
-  config/               — YamlWorkItemSchemaService (typealias YamlNoteSchemaService)
+  config/               — YamlWorkItemSchemaService (typealias YamlNoteSchemaService), ApiAuthConfigLoader
 
 interfaces/mcp/
   CurrentMcpServer.kt, McpToolAdapter.kt
+
+interfaces/api/v1/
+  auth/     — ApiAuthConfig, ApiPrincipal, ApiScope, ApiCapability, AuthenticationPlugin, AuthorizationPlugin, BearerTokenStore, JwksApiVerifier
+  cors/     — CorsConfig (env-driven CORS from CORS_ALLOWED_ORIGINS etc.)
+  dto/      — Dtos.kt (ItemDto, NoteDto, ActorClaimDto, VerificationDto, RoleTransitionDto, DependenciesDto, DependencyEdgeDto, BacklinkDto, PageDto, ErrorDto, SearchHitDto, config DTOs, request DTOs, AdvanceResponseDto)
+  etag/     — etagFor() — "v1-<modifiedAtMillis>" for items/notes
+  events/   — ApiEvent, ApiEventType constants, ApiEventBus (ring-buffer pub/sub with per-root filtering)
+  mapping/  — Domain → DTO mappers (.toDto() extensions)
+  pagination/ — pageParams(), buildPageDto()
+  redaction/  — AttributionRedactor (API_REDACT_NOTE_ATTRIBUTION, API_REDACT_ACTOR_PROOF)
+  audit/    — ApiAuditBridge (server-synthesized actor "api:<tokenId>", kind external)
+  routes/   — ItemRoutes, ItemWriteRoutes, NoteRoutes, NoteWriteRoutes, DependencyRoutes, DependencyWriteRoutes, TransitionRoutes, SearchRoutes, ConfigRoutes, ServiceRoutes, EventRoutes, WellKnownRoutes, WriteIdempotency
+
+application/service/rest/
+  MergePatchApplier — RFC 7396 JSON Merge Patch
+  StatusGraphBuilder — status-transition graph builder for ConfigRoutes
+  WorkItemPatchProjection — projects existing item fields into a JsonObject base for merge-patch
+
+infrastructure/security/
+  ConstantTimeCompare — timing-safe byte comparison (used by BearerTokenStore for SHA-256 digests)
+  JwksKeyCache — JWKS key material cache for JWKS auth mode
 ```
 
 **Entry point:** `current/src/main/kotlin/io/github/jpicklyk/mcptask/current/CurrentMain.kt`
@@ -166,6 +187,27 @@ Add to `gradle/libs.versions.toml` (`[versions]` + `[libraries]`), then referenc
 - `FLYWAY_REPAIR` — run repair and exit (default: `false`)
 - `DEGRADED_MODE_POLICY` — overrides `actor_authentication.degraded_mode_policy` in config; values: `accept-cached` (default) | `accept-self-reported` | `reject`; invalid value = startup failure
 
+**REST API environment variables** (see also `current/docs/fleet-deployment.md`):
+- `API_ENABLED` — master API switch (default: `true`; requires `API_AUTH_MODE` when enabled)
+- `API_AUTH_MODE` — `bearer` or `jwks`; required when API enabled; no `none` mode
+- `API_TOKENS_PATH` — bearer token YAML file path (default: `/run/secrets/api-tokens.yaml`)
+- `API_JWKS_URL` — JWKS endpoint URL (jwks mode, required)
+- `API_JWKS_ISSUER` — expected JWT `iss` claim (jwks mode, required)
+- `API_JWKS_AUDIENCE` — expected JWT `aud` claim (jwks mode, required)
+- `API_JWKS_ALGORITHMS` — comma-separated algorithm allowlist e.g. `RS256,EdDSA` (jwks mode, required)
+- `API_JWKS_CACHE_TTL_SECONDS` — JWKS key cache TTL (default: `300`)
+- `CORS_ALLOWED_ORIGINS` — comma-separated origins; empty = no CORS
+- `CORS_ALLOWED_METHODS` — default: `GET,POST,PATCH,PUT,DELETE,OPTIONS`
+- `CORS_ALLOWED_HEADERS` — default: `Authorization,Content-Type,If-Match`
+- `CORS_EXPOSE_HEADERS` — default: `ETag,Last-Event-ID`
+- `CORS_MAX_AGE_SECONDS` — default: `3600`
+- `API_SSE_BUFFER_SIZE` — SSE ring-buffer size for Last-Event-ID replay (default: `1000`)
+- `API_ALLOW_QUERY_TOKEN_FOR_SSE` — allow `?token=` auth on SSE endpoint (default: `false`)
+- `API_SSE_AUTH_CHECK_INTERVAL_SECONDS` — token-expiry check interval on SSE connections (default: `30`)
+- `API_REDACT_NOTE_ATTRIBUTION` — default `true`; when `true` non-admin callers see no actor/verification on notes/transitions
+- `API_REDACT_ACTOR_PROOF` — default `true`; when `true` actor.proof redacted unless ADMIN + `?include=proof`
+- `API_WARN_ON_CLAIMED_ADVANCE` — default `true`; WARN when REST API caller advances a claimed item
+
 **Migration files:** `current/src/main/resources/db/migration/`
 
 ## Testing
@@ -191,6 +233,16 @@ Add to `gradle/libs.versions.toml` (`[versions]` + `[libraries]`), then referenc
 | BacklinkRow (domain model) | `current/.../domain/model/BacklinkRow.kt` |
 | Plugin | `claude-plugins/task-orchestrator/` |
 | Tests | `current/src/test/kotlin/` |
+| REST API routes | `current/.../interfaces/api/v1/routes/` |
+| REST API DTOs | `current/.../interfaces/api/v1/dto/Dtos.kt` |
+| REST API auth config | `current/.../interfaces/api/v1/auth/` |
+| REST API audit bridge | `current/.../interfaces/api/v1/audit/ApiAuditBridge.kt` |
+| REST API event bus | `current/.../interfaces/api/v1/events/ApiEventBus.kt` |
+| REST API auth loader | `current/.../infrastructure/config/ApiAuthConfigLoader.kt` |
+| Security utilities | `current/.../infrastructure/security/` (ConstantTimeCompare, JwksKeyCache) |
+| Merge patch + status graph | `current/.../application/service/rest/` |
+| REST API doc | `current/docs/api-rest.md` |
+| OpenAPI spec | `current/docs/api/openapi.yaml` |
 
 ## Claude Code Plugin Discovery
 

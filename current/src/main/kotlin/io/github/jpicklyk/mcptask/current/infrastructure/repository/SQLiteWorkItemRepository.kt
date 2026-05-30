@@ -40,6 +40,7 @@ import org.jetbrains.exposed.v1.jdbc.Query
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.selectAll
+import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
 import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import org.jetbrains.exposed.v1.jdbc.update
 import org.slf4j.LoggerFactory
@@ -71,14 +72,19 @@ enum class SearchMatchMode {
 /**
  * Structural scope filters applied on top of the FTS5 full-text match.
  *
- * @property itemId    Narrow to a single work item (only content produced by that item).
- * @property ancestorId Narrow to a subtree rooted at this item (recursive CTE).
+ * @property itemId     Narrow to a single work item (only content produced by that item).
+ * @property ancestorId Narrow to a subtree rooted at this item (recursive CTE). Singular form;
+ *   takes precedence when both [ancestorId] and [ancestorIds] are set.
+ * @property ancestorIds Narrow to descendants of ANY of these roots (multi-root, additive OR).
+ *   Only used when [ancestorId] is null. Null means no subtree filter (unrestricted). An empty
+ *   set means "no roots match" and results in an always-false WHERE clause (no hits).
  * @property tags      OR-match any of the supplied tags on the work item.
  * @property role      Exact role filter on the work item.
  */
 data class SearchScope(
     val itemId: UUID? = null,
     val ancestorId: UUID? = null,
+    val ancestorIds: Set<UUID>? = null,
     val tags: List<String>? = null,
     val role: Role? = null,
 )
@@ -641,26 +647,45 @@ class SQLiteWorkItemRepository(
                 // k=60 is the standard Reciprocal Rank Fusion constant.
 
                 // Build optional subtree CTE clause.
-                // When scope.ancestorId is set, the query joins against a recursive CTE
-                // that walks all descendants of ancestorId (inclusive of the root).
+                // Singular path (scope.ancestorId): unchanged — single-root recursive CTE.
+                // Plural path (scope.ancestorIds, non-null, non-empty): multi-root CTE with one
+                //   seed row per root (OR semantics). An empty ancestorIds set → no-match stub.
+                // Precedence: singular ancestorId wins if both are set (backward compat).
                 val subtreeCteClause =
-                    if (scope?.ancestorId != null) {
-                        """
-                        WITH RECURSIVE subtree(id) AS (
-                            SELECT id FROM work_items WHERE id = ?
-                            UNION ALL
-                            SELECT wi.id FROM work_items wi JOIN subtree s ON wi.parent_id = s.id
-                        )
-                        """.trimIndent()
-                    } else {
-                        ""
+                    when {
+                        scope?.ancestorId != null -> {
+                            // SINGULAR path — behavior-identical to original; MCP query_items depends on this.
+                            """
+                            WITH RECURSIVE subtree(id) AS (
+                                SELECT id FROM work_items WHERE id = ?
+                                UNION ALL
+                                SELECT wi.id FROM work_items wi JOIN subtree s ON wi.parent_id = s.id
+                            )
+                            """.trimIndent()
+                        }
+                        scope?.ancestorIds != null && scope.ancestorIds.isNotEmpty() -> {
+                            // PLURAL path — seed CTE with one ? per root, then walk descendants.
+                            val placeholders = scope.ancestorIds.joinToString(", ") { "?" }
+                            """
+                            WITH RECURSIVE subtree(id) AS (
+                                SELECT id FROM work_items WHERE id IN ($placeholders)
+                                UNION ALL
+                                SELECT wi.id FROM work_items wi JOIN subtree s ON wi.parent_id = s.id
+                            )
+                            """.trimIndent()
+                        }
+                        else -> ""
                     }
 
                 // Build the WHERE clause additions for work_items column filters.
                 // These are appended as literal fragments (values bound via positional params).
                 val extraWhereParts = mutableListOf<String>()
                 if (scope?.itemId != null) extraWhereParts.add("wi.id = ?")
-                if (scope?.ancestorId != null) extraWhereParts.add("wi.id IN subtree")
+                when {
+                    scope?.ancestorId != null -> extraWhereParts.add("wi.id IN subtree")
+                    scope?.ancestorIds != null && scope.ancestorIds.isNotEmpty() -> extraWhereParts.add("wi.id IN subtree")
+                    scope?.ancestorIds != null && scope.ancestorIds.isEmpty() -> extraWhereParts.add("1 = 0") // empty scope → no hits
+                }
                 if (scope?.role != null) extraWhereParts.add("wi.role = ?")
                 if (!scope?.tags.isNullOrEmpty()) {
                     // Tags are stored as a comma-separated string; OR-match each tag.
@@ -675,11 +700,14 @@ class SQLiteWorkItemRepository(
                 val extraWhere = if (extraWhereParts.isEmpty()) "" else " AND " + extraWhereParts.joinToString(" AND ")
 
                 // Accumulate positional args shared across trigram / text queries.
-                // Order: subtree anchor (if any), then fts query, then scope filters.
+                // Order: subtree anchors (if any), then fts query, then scope filters.
                 fun buildArgs(): List<Pair<org.jetbrains.exposed.v1.core.ColumnType<*>, Any?>> {
                     val args = mutableListOf<Pair<org.jetbrains.exposed.v1.core.ColumnType<*>, Any?>>()
                     val varcharType = VarCharColumnType(4000)
-                    if (scope?.ancestorId != null) args.add(uuidType to scope.ancestorId)
+                    when {
+                        scope?.ancestorId != null -> args.add(uuidType to scope.ancestorId) // SINGULAR — unchanged
+                        scope?.ancestorIds != null -> scope.ancestorIds.forEach { args.add(uuidType to it) } // PLURAL — one per root
+                    }
                     args.add(varcharType to sanitizedFtsQuery) // FTS MATCH param
                     if (scope?.itemId != null) args.add(uuidType to scope.itemId)
                     if (scope?.role != null) args.add(varcharType to scope.role.name.lowercase())
@@ -1354,6 +1382,213 @@ class SQLiteWorkItemRepository(
             Result.Success(ClaimStatusCounts(active = activeCount, expired = expiredCount, unclaimed = unclaimedCount))
         }
 
+    override suspend fun findInScope(
+        rootIds: Set<UUID>,
+        parentId: UUID?,
+        depth: Int?,
+        role: Role?,
+        priority: Priority?,
+        tags: List<String>?,
+        query: String?,
+        createdAfter: Instant?,
+        createdBefore: Instant?,
+        modifiedAfter: Instant?,
+        modifiedBefore: Instant?,
+        roleChangedAfter: Instant?,
+        roleChangedBefore: Instant?,
+        sortBy: String?,
+        sortOrder: String?,
+        limit: Int,
+        offset: Int,
+        type: String?,
+        claimStatus: String?,
+    ): Result<List<WorkItem>> {
+        if (rootIds.isEmpty()) return Result.Success(emptyList())
+
+        return try {
+            suspendTransaction(db = databaseManager.getDatabase()) {
+                val scopeIds = resolveScopeIds(rootIds)
+                if (scopeIds.isEmpty()) return@suspendTransaction Result.Success(emptyList())
+
+                val nowFromDb = if (claimStatus != null) dbNow() else Instant.now()
+                val base =
+                    buildScopedQuery(
+                        scopeIds,
+                        parentId,
+                        depth,
+                        role,
+                        priority,
+                        tags,
+                        createdAfter,
+                        createdBefore,
+                        modifiedAfter,
+                        modifiedBefore,
+                        roleChangedAfter,
+                        roleChangedBefore,
+                        type,
+                        claimStatus,
+                        nowFromDb,
+                    )
+
+                val sortColumn =
+                    when (sortBy?.lowercase()) {
+                        "created" -> WorkItemsTable.createdAt
+                        "modified" -> WorkItemsTable.modifiedAt
+                        "priority" -> WorkItemsTable.priority
+                        else -> WorkItemsTable.createdAt
+                    }
+                val order =
+                    when (sortOrder?.lowercase()) {
+                        "asc" -> SortOrder.ASC
+                        "desc" -> SortOrder.DESC
+                        else -> SortOrder.DESC
+                    }
+
+                val items =
+                    base
+                        .orderBy(sortColumn, order)
+                        .limit(limit)
+                        .offset(offset.coerceAtLeast(0).toLong())
+                        .mapNotNull { toWorkItemOrNull(it) }
+
+                Result.Success(items)
+            }
+        } catch (e: Exception) {
+            logger.error("Failed to findInScope for roots ${rootIds.size}: ${e.message}", e)
+            Result.Error(RepositoryError.DatabaseError("Failed to findInScope: ${e.message}", e))
+        }
+    }
+
+    override suspend fun countInScope(
+        rootIds: Set<UUID>,
+        parentId: UUID?,
+        depth: Int?,
+        role: Role?,
+        priority: Priority?,
+        tags: List<String>?,
+        query: String?,
+        createdAfter: Instant?,
+        createdBefore: Instant?,
+        modifiedAfter: Instant?,
+        modifiedBefore: Instant?,
+        roleChangedAfter: Instant?,
+        roleChangedBefore: Instant?,
+        type: String?,
+        claimStatus: String?,
+    ): Result<Int> {
+        if (rootIds.isEmpty()) return Result.Success(0)
+
+        return try {
+            suspendTransaction(db = databaseManager.getDatabase()) {
+                val scopeIds = resolveScopeIds(rootIds)
+                if (scopeIds.isEmpty()) return@suspendTransaction Result.Success(0)
+
+                val nowFromDb = if (claimStatus != null) dbNow() else Instant.now()
+                val count =
+                    buildScopedQuery(
+                        scopeIds,
+                        parentId,
+                        depth,
+                        role,
+                        priority,
+                        tags,
+                        createdAfter,
+                        createdBefore,
+                        modifiedAfter,
+                        modifiedBefore,
+                        roleChangedAfter,
+                        roleChangedBefore,
+                        type,
+                        claimStatus,
+                        nowFromDb,
+                    ).count()
+
+                Result.Success(count.toInt())
+            }
+        } catch (e: Exception) {
+            logger.error("Failed to countInScope for roots ${rootIds.size}: ${e.message}", e)
+            Result.Error(RepositoryError.DatabaseError("Failed to countInScope: ${e.message}", e))
+        }
+    }
+
+    /**
+     * Resolve a set of root UUIDs into the full set of UUIDs (roots + all descendants).
+     *
+     * On SQLite (production), uses a single recursive CTE. On H2 (test environment),
+     * falls back to a BFS loop using Exposed DSL (H2's CTE + xerial exec() combination
+     * has the same SELECT-returning issue as findDescendants).
+     *
+     * The roots themselves are included in the returned set.
+     *
+     * Must be called from within an active Exposed transaction (uses [TransactionManager.current]).
+     */
+    private fun resolveScopeIds(rootIds: Set<UUID>): Set<UUID> {
+        // currentDialect is only valid inside a transaction — this private method must be
+        // called from within a suspendTransaction block.
+        if (currentDialect is H2Dialect) {
+            // H2 BFS fallback: expand the subtree using Exposed DSL instead of a raw CTE.
+            val result = rootIds.toMutableSet()
+            val queue = ArrayDeque(rootIds.toList())
+            while (queue.isNotEmpty()) {
+                val current = queue.removeFirst()
+                val children =
+                    WorkItemsTable
+                        .selectAll()
+                        .where { WorkItemsTable.parentId eq current }
+                        .mapNotNull { toWorkItemOrNull(it) }
+                for (child in children) {
+                    if (result.add(child.id)) {
+                        queue.add(child.id)
+                    }
+                }
+            }
+            return result
+        }
+
+        // SQLite: single recursive CTE — all roots + their full subtrees in one query.
+        // Roots are seeded by id = any of rootIds; the UNION ALL branch walks children.
+        // UUIDs are stored as BLOBs in SQLite — bind via UUIDColumnType.
+        // Use connection.prepareStatement() + executeQuery() to avoid exec() routing
+        // through executeUpdate() (xerial sqlite-jdbc rejects SELECT-returning CTEs that way).
+        // Same workaround used in findDescendants() and ftsSearch().
+        val uuidType = UUIDColumnType()
+
+        val placeholders = rootIds.joinToString(",") { "?" }
+        val sql =
+            """
+            WITH RECURSIVE scope(id) AS (
+                SELECT id FROM work_items WHERE id IN ($placeholders)
+                UNION ALL
+                SELECT wi.id FROM work_items wi
+                JOIN scope s ON wi.parent_id = s.id
+            )
+            SELECT id FROM scope
+            """.trimIndent()
+
+        // Access the current transaction's connection via TransactionManager.current() —
+        // this.connection is only available directly inside a suspendTransaction/transaction
+        // lambda where `this` IS the Transaction, but resolveScopeIds() is a class method
+        // where `this` is SQLiteWorkItemRepository. TransactionManager.current() is safe
+        // to call here because this method is always invoked from within an active transaction.
+        val conn = TransactionManager.current().connection
+        val ps = conn.prepareStatement(sql, false)
+        try {
+            val args = rootIds.map { uuidType to it }
+            ps.fillParameters(args)
+            val rs = ps.executeQuery()
+            val ids = mutableSetOf<UUID>()
+            while (rs.next()) {
+                val rawId = rs.getObject("id")
+
+                @Suppress("UNCHECKED_CAST")
+                ids.add(uuidType.valueFromDB(rawId!!) as UUID)
+            }
+            return ids
+        } finally {
+            ps.closeIfPossible()
+        }
+    }
+
     override suspend fun findAncestorChains(itemIds: Set<UUID>): Result<Map<UUID, List<WorkItem>>> {
         if (itemIds.isEmpty()) return Result.Success(emptyMap())
         return databaseManager.suspendedTransaction("Failed to find ancestor chains") {
@@ -1402,6 +1637,74 @@ class SQLiteWorkItemRepository(
                     chain as List<WorkItem>
                 }
             Result.Success(result)
+        }
+    }
+
+    /**
+     * Builds a filtered SELECT query scoped to [scopeIds] (pre-resolved set of all IDs in the
+     * subtrees rooted at the caller-supplied roots).
+     *
+     * Delegates to [buildFilteredQuery] after prepending the scope-ID `inList` condition.
+     * The scope filter is the first condition so SQLite can push it through the PK index early.
+     */
+    private fun buildScopedQuery(
+        scopeIds: Set<UUID>,
+        parentId: UUID?,
+        depth: Int?,
+        role: Role?,
+        priority: Priority?,
+        tags: List<String>?,
+        createdAfter: Instant?,
+        createdBefore: Instant?,
+        modifiedAfter: Instant?,
+        modifiedBefore: Instant?,
+        roleChangedAfter: Instant?,
+        roleChangedBefore: Instant?,
+        type: String?,
+        claimStatus: String?,
+        now: Instant,
+    ): Query {
+        val entityIds = scopeIds.map { EntityID(it, WorkItemsTable) }
+        val conditions = mutableListOf<Op<Boolean>>()
+
+        // Scope constraint: id must be in the pre-resolved set
+        conditions.add(WorkItemsTable.id inList entityIds)
+
+        // Additional filter conditions (same logic as buildFilteredQuery)
+        parentId?.let { conditions.add(WorkItemsTable.parentId eq it) }
+        depth?.let { conditions.add(WorkItemsTable.depth eq it) }
+        role?.let { conditions.add(WorkItemsTable.role eq it.name.lowercase()) }
+        priority?.let { conditions.add(WorkItemsTable.priority eq it.name.lowercase()) }
+        tags?.takeIf { it.isNotEmpty() }?.let { conditions.add(buildTagFilter(it)) }
+        createdAfter?.let { conditions.add(WorkItemsTable.createdAt greaterEq it) }
+        createdBefore?.let { conditions.add(WorkItemsTable.createdAt lessEq it) }
+        modifiedAfter?.let { conditions.add(WorkItemsTable.modifiedAt greaterEq it) }
+        modifiedBefore?.let { conditions.add(WorkItemsTable.modifiedAt lessEq it) }
+        roleChangedAfter?.let { conditions.add(WorkItemsTable.roleChangedAt greaterEq it) }
+        roleChangedBefore?.let { conditions.add(WorkItemsTable.roleChangedAt lessEq it) }
+        type?.let { conditions.add(WorkItemsTable.type eq it) }
+
+        claimStatus?.let {
+            when (it.lowercase()) {
+                "claimed" -> {
+                    conditions.add(WorkItemsTable.claimedBy.isNotNull())
+                    conditions.add(WorkItemsTable.claimExpiresAt greater now)
+                }
+                "unclaimed" -> {
+                    conditions.add(WorkItemsTable.claimedBy.isNull())
+                }
+                "expired" -> {
+                    conditions.add(WorkItemsTable.claimedBy.isNotNull())
+                    conditions.add(WorkItemsTable.claimExpiresAt lessEq now)
+                }
+            }
+        }
+
+        return if (conditions.size == 1) {
+            WorkItemsTable.selectAll().where { conditions[0] }
+        } else {
+            val combined = conditions.reduce { acc, op -> acc and op }
+            WorkItemsTable.selectAll().where { combined }
         }
     }
 

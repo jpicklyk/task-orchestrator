@@ -76,6 +76,39 @@ interface WorkItemSchemaService {
      * Returns the names of all configured traits, or an empty list if none are defined.
      */
     fun getAvailableTraits(): List<String> = emptyList()
+
+    // -----------------------------------------------------------------------
+    // Phase 4: Discovery / metadata API (additive — all have safe defaults)
+    // -----------------------------------------------------------------------
+
+    /**
+     * Returns all registered [WorkItemSchema] instances keyed by type name.
+     *
+     * Default implementation returns an empty map (schema-free mode).
+     * Override in [io.github.jpicklyk.mcptask.current.infrastructure.config.YamlWorkItemSchemaService]
+     * to expose the private `workItemSchemas` map.
+     */
+    fun getAllSchemas(): Map<String, WorkItemSchema> = emptyMap()
+
+    /**
+     * Returns all trait definitions keyed by trait name.
+     * Each value is the list of [NoteSchemaEntry] objects for that trait.
+     *
+     * Default implementation returns an empty map (schema-free mode).
+     */
+    fun getAllTraits(): Map<String, List<NoteSchemaEntry>> = emptyMap()
+
+    /**
+     * Returns a stable fingerprint string for the current config state.
+     *
+     * The fingerprint is used to derive an ETag for the `/api/v1/config*` endpoints.
+     * Implementations should return a string that changes whenever the config changes
+     * (e.g., SHA-256 of config file bytes, or `"${lastModified}-${size}"`).
+     *
+     * Returns `null` when no config file is present (schema-free mode).
+     * Default implementation returns `null`.
+     */
+    fun getConfigFingerprint(): String? = null
 }
 
 /**

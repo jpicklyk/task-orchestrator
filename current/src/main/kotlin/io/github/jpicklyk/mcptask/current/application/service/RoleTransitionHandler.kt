@@ -215,6 +215,13 @@ class RoleTransitionHandler {
      * @param actorClaim Optional actor attribution (populated from verified request context).
      * @param verification Optional verification result attached to the actor claim.
      * @param degradedModePolicy The deployment's identity degraded-mode policy.
+     * @param enforceOwnership When true (default), the claim-ownership check is applied: a caller
+     *   may only transition an actively-claimed item if their resolved actor id matches `claimedBy`.
+     *   When false, the ownership check is SKIPPED entirely — the transition proceeds regardless of
+     *   claim state, while [actorClaim] is still recorded on the `role_transitions` row for audit.
+     *   This is the REST API path: API callers are operators, not fleet agents, so they bypass claim
+     *   ownership (plan §2) but their attribution must still be persisted. MCP call sites omit this
+     *   parameter and therefore keep ownership enforcement byte-for-byte unchanged.
      */
     suspend fun userTransition(
         item: WorkItem,
@@ -227,25 +234,29 @@ class RoleTransitionHandler {
         dependencyRepository: DependencyRepository,
         actorClaim: ActorClaim? = null,
         verification: VerificationResult? = null,
-        degradedModePolicy: DegradedModePolicy = DegradedModePolicy.ACCEPT_CACHED
+        degradedModePolicy: DegradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
+        enforceOwnership: Boolean = true
     ): EntryPointTransitionResult {
-        // Ownership check: enforced at this entry point for all UserTrigger values.
+        // Ownership check: enforced at this entry point for all UserTrigger values UNLESS the caller
+        // opts out via enforceOwnership=false (REST API path — operators bypass claim ownership).
         // Cascade transitions bypass this check via cascadeTransition().
         // Fetch DB-side time so the freshness decision matches the DB clock, not the JVM clock.
-        val dbNowInstant = workItemRepository.dbNow()
-        val ownershipResult = checkOwnershipForTransition(item, actorClaim, verification, degradedModePolicy, dbNowInstant)
-        when (ownershipResult) {
-            is OwnershipCheckResult.Allowed -> {} // proceed
-            is OwnershipCheckResult.Rejected ->
-                return EntryPointTransitionResult(
-                    success = false,
-                    error = ownershipResult.error
-                )
-            is OwnershipCheckResult.PolicyRejected ->
-                return EntryPointTransitionResult(
-                    success = false,
-                    error = ownershipResult.reason
-                )
+        if (enforceOwnership) {
+            val dbNowInstant = workItemRepository.dbNow()
+            val ownershipResult = checkOwnershipForTransition(item, actorClaim, verification, degradedModePolicy, dbNowInstant)
+            when (ownershipResult) {
+                is OwnershipCheckResult.Allowed -> {} // proceed
+                is OwnershipCheckResult.Rejected ->
+                    return EntryPointTransitionResult(
+                        success = false,
+                        error = ownershipResult.error
+                    )
+                is OwnershipCheckResult.PolicyRejected ->
+                    return EntryPointTransitionResult(
+                        success = false,
+                        error = ownershipResult.reason
+                    )
+            }
         }
 
         val triggerStr = trigger.triggerString

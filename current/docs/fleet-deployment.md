@@ -1,13 +1,90 @@
 # Fleet Deployment Guide
 
-This guide is written for operators deploying the MCP Task Orchestrator to production multi-agent fleets. It covers identity configuration, SQLite tuning, capacity planning, observability gaps, and the tiered claim disclosure design.
+This guide is written for operators deploying the MCP Task Orchestrator to production multi-agent fleets. It covers REST API authentication, MCP actor identity configuration, SQLite tuning, capacity planning, observability gaps, and the tiered claim disclosure design.
 
 For single-agent or local-dev setups, the defaults are appropriate and this guide can be skipped.
 
 **Companion docs:**
+- [REST API Reference](api-rest.md) — HTTP endpoint docs, DTOs, error codes, SSE
 - [API Reference — `claim_item`](api-reference.md#claim_item) — tool spec: parameters, outcome codes, examples
 - [Workflow Guide §10 — Claim Mechanism](workflow-guide.md#10-claim-mechanism-for-multi-agent-fleets) — agent-side lifecycle, heartbeat pattern, discovery
 - This guide — operator-side: identity policy, capacity, disclosure, observability
+
+---
+
+## REST API Authentication
+
+The REST API layer (`API_ENABLED=true`) is a **separate authentication layer** from the MCP actor identity system. They are independent:
+
+| Layer | What it authenticates | Governs |
+|-------|----------------------|---------|
+| **REST API auth** (`API_AUTH_MODE`) | HTTP callers (dashboards, CI systems, operators) using bearer tokens or JWTs | Access to `/api/v1/*` endpoints — which HTTP clients can read/write the work-item graph via REST |
+| **MCP actor authentication** (`actor_authentication:`) | MCP agent identity — verifies the `actor.proof` JWT on MCP tool calls (`claim_item`, `advance_item`, etc.) | Claim ownership enforcement and audit attribution on MCP agent writes |
+
+A REST API caller with `write-items` capability can create and patch items; it does NOT need (and does NOT have) an MCP agent identity. An MCP agent with a verified `did:web` identity can claim and advance items; it does NOT use REST API bearer tokens.
+
+### Enabling the REST API
+
+Set `API_ENABLED=true` (default `true` — but the API requires `API_AUTH_MODE` to be set; startup fails without it). Choose a mode:
+
+```bash
+# Bearer mode — static tokens from a YAML secret file
+API_ENABLED=true
+API_AUTH_MODE=bearer
+API_TOKENS_PATH=/run/secrets/api-tokens.yaml
+```
+
+```bash
+# JWKS mode — JWT tokens validated against a JWKS endpoint
+API_ENABLED=true
+API_AUTH_MODE=jwks
+API_JWKS_URL=https://auth.example.com/.well-known/jwks.json
+API_JWKS_ISSUER=https://auth.example.com
+API_JWKS_AUDIENCE=task-orchestrator
+API_JWKS_ALGORITHMS=RS256,EdDSA
+API_JWKS_CACHE_TTL_SECONDS=300   # optional, default 300
+```
+
+### REST API env vars
+
+| Variable | Required when | Default | Description |
+|----------|--------------|---------|-------------|
+| `API_ENABLED` | always | `true` | Master API switch. `false` skips all `/api/v1/*` route registration. |
+| `API_AUTH_MODE` | API enabled | — | `bearer` or `jwks`. Required; no `none` mode. |
+| `API_TOKENS_PATH` | bearer mode | `/run/secrets/api-tokens.yaml` | Path to bearer token YAML secret file. |
+| `API_JWKS_URL` | jwks mode | — | JWKS endpoint URL (fully-qualified HTTP/HTTPS). |
+| `API_JWKS_ISSUER` | jwks mode | — | Expected `iss` claim value in JWTs. |
+| `API_JWKS_AUDIENCE` | jwks mode | — | Expected `aud` claim value in JWTs. |
+| `API_JWKS_ALGORITHMS` | jwks mode | — | Comma-separated algorithm allowlist (e.g., `RS256,EdDSA`). |
+| `API_JWKS_CACHE_TTL_SECONDS` | jwks mode | `300` | JWKS key cache TTL in seconds. |
+| `CORS_ALLOWED_ORIGINS` | browser clients | _(none)_ | Comma-separated allowed origins. Empty = no cross-origin access. |
+| `CORS_ALLOWED_METHODS` | CORS enabled | `GET,POST,PATCH,PUT,DELETE,OPTIONS` | Comma-separated methods. |
+| `CORS_ALLOWED_HEADERS` | CORS enabled | `Authorization,Content-Type,If-Match` | Comma-separated request headers. |
+| `CORS_EXPOSE_HEADERS` | CORS enabled | `ETag,Last-Event-ID` | Response headers JS may read. |
+| `CORS_MAX_AGE_SECONDS` | CORS enabled | `3600` | Preflight cache duration. |
+| `API_SSE_BUFFER_SIZE` | SSE in use | `1000` | Ring-buffer size for Last-Event-ID replay. |
+| `API_ALLOW_QUERY_TOKEN_FOR_SSE` | SSE + browser | `false` | Allow `?token=` auth for SSE (browser EventSource workaround). |
+| `API_SSE_AUTH_CHECK_INTERVAL_SECONDS` | SSE in use | `30` | Interval for token-expiry checks on open SSE connections. |
+| `API_REDACT_NOTE_ATTRIBUTION` | always | `true` | When `true`, non-admin callers see no `actor`/`verification` on notes/transitions. |
+| `API_REDACT_ACTOR_PROOF` | always | `true` | When `true`, `actor.proof` is redacted even from admin callers unless `?include=proof`. |
+| `API_WARN_ON_CLAIMED_ADVANCE` | always | `true` | Log WARN when API caller advances a claimed item. |
+
+### Bearer token secret file
+
+See [api-rest.md §1](api-rest.md#1-authentication) for the full YAML format. Key points:
+- `token_sha256` must be a 64-char lowercase hex SHA-256 digest of the plaintext token
+- `capabilities` grant specific operations: `read`, `write-notes`, `write-items`, `advance`, `manage-dependencies`, `admin`
+- `scope.root_ids` restricts access to specific subtrees (null/empty = unrestricted)
+- Token rotation requires a server restart (no live reload)
+- `admin` capability unlocks attribution fields in responses (subject to `API_REDACT_*` env flags)
+
+### `degradedModePolicy` and the REST API
+
+When `API_AUTH_MODE=jwks` and `DEGRADED_MODE_POLICY=reject`, write endpoints (`POST`, `PATCH`, `PUT`, `DELETE`, advance) return `401 verification_failed` if JWKS verification fails. **Bearer mode is always trusted** — the REST API bearer token was validated at the HTTP layer and has no JWKS verification chain.
+
+This is different from the MCP actor `reject` policy, which governs MCP tool calls (`claim_item`, `advance_item`). Both layers share the same `DEGRADED_MODE_POLICY` env var but apply it independently.
+
+---
 
 ---
 

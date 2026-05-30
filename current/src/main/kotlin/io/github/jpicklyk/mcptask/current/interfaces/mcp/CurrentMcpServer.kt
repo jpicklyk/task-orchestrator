@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
 import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommender
 import io.github.jpicklyk.mcptask.current.application.service.NoOpActorVerifier
+import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
@@ -21,6 +22,7 @@ import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetNextItem
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetNextStatusTool
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
+import io.github.jpicklyk.mcptask.current.infrastructure.config.ApiAuthConfigLoader
 import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksActorVerifier
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlActorAuthenticationConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlNoteSchemaService
@@ -29,14 +31,42 @@ import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.logging.DefaultMcpLoggingService
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
+import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.cors.configureCors
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventBus
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventPublishingRepositoryProvider
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.configRoutes
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.dependencyRoutes
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.dependencyWriteRoutes
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.eventRoutes
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.itemRoutes
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.itemWriteRoutes
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.noteRoutes
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.noteWriteRoutes
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.searchRoutes
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.serviceRoutes
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.transitionRoutes
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.wellKnownRoutes
+import io.ktor.serialization.kotlinx.json.json
+import io.ktor.server.application.install
 import io.ktor.server.cio.CIO
 import io.ktor.server.engine.embeddedServer
+import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.server.plugins.cors.routing.CORS
+import io.ktor.server.routing.route
+import io.ktor.server.routing.routing
+import io.ktor.server.sse.SSE
 import io.modelcontextprotocol.kotlin.sdk.server.Server
 import io.modelcontextprotocol.kotlin.sdk.server.ServerOptions
 import io.modelcontextprotocol.kotlin.sdk.server.StdioServerTransport
 import io.modelcontextprotocol.kotlin.sdk.server.mcpStreamableHttp
 import io.modelcontextprotocol.kotlin.sdk.types.Implementation
+import io.modelcontextprotocol.kotlin.sdk.types.McpJson
 import io.modelcontextprotocol.kotlin.sdk.types.ServerCapabilities
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.runBlocking
@@ -92,14 +122,30 @@ class CurrentMcpServer(
             val mcpLoggingService = DefaultMcpLoggingService()
             val (actorVerifier, degradedModePolicy) = createActorVerifierAndPolicy()
             val idempotencyCache = IdempotencyCache()
+
+            // Phase 6: Resolve the REST/SSE API wiring ONCE, EARLY — before the tool context is
+            // built — so the SAME event bus and SAME decorated provider feed BOTH the MCP tool
+            // context AND the REST routes. This is critical: MCP-tool writes (the primary
+            // workflow) must publish to the same bus that SSE subscribers read from.
+            //
+            // When the API is enabled: effectiveProvider wraps repositoryProvider with the
+            // event-publishing decorator, and that wrapped provider is used for the tool context.
+            //
+            // ADDITIVE / DEFAULT-OFF: when the API is disabled, apiWiring.eventBus is null and
+            // apiWiring.effectiveProvider == repositoryProvider (the raw provider). The tool
+            // context then uses the raw provider — byte-for-byte unchanged MCP behavior with
+            // zero overhead and no decorator on the hot path.
+            val apiWiring = resolveApiWiring(repositoryProvider)
+            val effectiveProvider = apiWiring.effectiveProvider
+
             val nextItemRecommender =
                 NextItemRecommender(
-                    repositoryProvider.workItemRepository(),
-                    repositoryProvider.dependencyRepository()
+                    effectiveProvider.workItemRepository(),
+                    effectiveProvider.dependencyRepository()
                 )
             val toolContext =
                 ToolExecutionContext(
-                    repositoryProvider,
+                    effectiveProvider,
                     noteSchemaService,
                     statusLabelService,
                     mcpLoggingService,
@@ -108,7 +154,10 @@ class CurrentMcpServer(
                     idempotencyCache,
                     nextItemRecommender
                 )
-            logger.info("Repository provider and tool context initialized")
+            logger.info(
+                "Repository provider and tool context initialized (API {})",
+                if (apiWiring.eventBus != null) "enabled — writes publish to SSE bus" else "disabled — raw provider"
+            )
 
             // Build tool list
             val tools =
@@ -157,8 +206,30 @@ class CurrentMcpServer(
             // Transport dispatch
             val transportType = System.getenv("MCP_TRANSPORT")?.lowercase() ?: "stdio"
             when (transportType) {
-                "stdio" -> runStdioTransport(server, serverName, toolCount)
-                "http" -> runHttpTransport(server, serverName, toolCount)
+                "stdio" -> {
+                    // stdio transport does NOT serve the REST/SSE API. When the API is enabled the
+                    // tool context still uses the decorated provider, so MCP-tool writes publish to
+                    // the bus — but with no SSE subscribers (no HTTP server), publish() is a cheap
+                    // no-op. Document the gap rather than expand scope to serve SSE over stdio.
+                    if (apiWiring.eventBus != null) {
+                        logger.info(
+                            "API config is enabled but MCP_TRANSPORT=stdio: the SSE endpoint is " +
+                                "only served under MCP_TRANSPORT=http. Event publishing is a no-op " +
+                                "(no subscribers) in stdio mode."
+                        )
+                    }
+                    runStdioTransport(server, serverName, toolCount)
+                }
+                "http" ->
+                    runHttpTransport(
+                        server,
+                        serverName,
+                        toolCount,
+                        apiWiring,
+                        noteSchemaService,
+                        degradedModePolicy,
+                        idempotencyCache
+                    )
                 else -> logger.error("Unknown MCP_TRANSPORT: '$transportType'. Valid values: stdio, http")
             }
 
@@ -170,6 +241,88 @@ class CurrentMcpServer(
      */
     suspend fun close() {
         mcpSdkServer?.close()
+    }
+
+    /**
+     * Holds the resolved REST/SSE API wiring, computed ONCE at startup.
+     *
+     * The same [effectiveProvider] and [eventBus] are shared between the MCP tool context and the
+     * REST routes so that BOTH MCP-tool writes and REST writes publish to the same SSE bus.
+     *
+     * @param apiConfig The resolved API auth configuration (Disabled / Bearer / Jwks).
+     * @param eventBus The SSE event bus, or null when the API is disabled.
+     * @param effectiveProvider The provider to use everywhere — the event-publishing decorator
+     *   when the API is enabled, or the raw provider (passed in) when disabled.
+     * @param tokenEntries Pre-loaded bearer token entries with expiry metadata (empty unless bearer mode).
+     * @param allowQueryToken Whether `?token=` query-param auth is enabled for the SSE route.
+     */
+    private data class ApiWiring(
+        val apiConfig: ApiAuthConfig,
+        val eventBus: ApiEventBus?,
+        val effectiveProvider: RepositoryProvider,
+        val tokenEntries: Map<HashBytes, BearerTokenStore.TokenEntry>,
+        val allowQueryToken: Boolean,
+    )
+
+    /**
+     * Resolve the REST/SSE API wiring exactly once at startup.
+     *
+     * Loads the API auth config (fail-fast on misconfiguration). When the API is enabled, builds a
+     * single [ApiEventBus] and wraps [rawProvider] with [EventPublishingRepositoryProvider]; both
+     * are returned so the tool context AND the REST routes share them. When disabled, returns the
+     * raw provider unchanged with a null bus — additive/default-off, zero overhead.
+     *
+     * @param rawProvider The undecorated [DefaultRepositoryProvider].
+     */
+    private fun resolveApiWiring(rawProvider: RepositoryProvider): ApiWiring {
+        // Load API auth config once at startup — fail-fast on misconfiguration.
+        val apiConfig =
+            try {
+                ApiAuthConfigLoader().load()
+            } catch (e: IllegalArgumentException) {
+                logger.error("REST API configuration error: {}", e.message)
+                throw e
+            }
+
+        val allowQueryToken = System.getenv("API_ALLOW_QUERY_TOKEN_FOR_SSE")?.lowercase() == "true"
+        if (allowQueryToken) {
+            logger.warn(
+                "API_ALLOW_QUERY_TOKEN_FOR_SSE=true: bearer tokens accepted as ?token= query " +
+                    "parameter on GET /api/v1/events. This leaks tokens into server logs and " +
+                    "browser history. Do NOT use in production."
+            )
+        }
+
+        if (apiConfig is ApiAuthConfig.Disabled) {
+            // Default-off: raw provider everywhere, no bus, no decorator, no overhead.
+            return ApiWiring(
+                apiConfig = apiConfig,
+                eventBus = null,
+                effectiveProvider = rawProvider,
+                tokenEntries = emptyMap(),
+                allowQueryToken = allowQueryToken,
+            )
+        }
+
+        val bus = ApiEventBus()
+        val decorated = EventPublishingRepositoryProvider(rawProvider, bus)
+        val tokenEntries: Map<HashBytes, BearerTokenStore.TokenEntry> =
+            if (apiConfig is ApiAuthConfig.Bearer) {
+                val tokensPath =
+                    System.getenv("API_TOKENS_PATH")?.trim()?.takeIf { it.isNotBlank() }
+                        ?: "/run/secrets/api-tokens.yaml"
+                BearerTokenStore(tokensPath).loadWithEntries()
+            } else {
+                emptyMap()
+            }
+
+        return ApiWiring(
+            apiConfig = apiConfig,
+            eventBus = bus,
+            effectiveProvider = decorated,
+            tokenEntries = tokenEntries,
+            allowQueryToken = allowQueryToken,
+        )
     }
 
     /**
@@ -247,17 +400,103 @@ class CurrentMcpServer(
     private suspend fun runHttpTransport(
         server: Server,
         serverName: String,
-        toolCount: Int
+        toolCount: Int,
+        apiWiring: ApiWiring,
+        noteSchemaService: WorkItemSchemaService,
+        degradedModePolicy: DegradedModePolicy,
+        idempotencyCache: IdempotencyCache,
     ) {
         val host = System.getenv("MCP_HTTP_HOST") ?: "0.0.0.0"
         val port = System.getenv("MCP_HTTP_PORT")?.toIntOrNull() ?: 3001
         logger.info("Starting MCP server with HTTP transport on $host:$port/mcp ...")
 
+        // Phase 6: reuse the API wiring resolved ONCE in run() — the SAME bus and decorated
+        // provider already feeding the MCP tool context. Do NOT re-resolve here, or the SSE route
+        // would subscribe to a different bus than the one MCP-tool writes publish to.
+        val apiConfig = apiWiring.apiConfig
+        val eventBus = apiWiring.eventBus
+        val effectiveProvider = apiWiring.effectiveProvider
+        val apiTokenEntries = apiWiring.tokenEntries
+        val allowQueryToken = apiWiring.allowQueryToken
+
+        // Determine actor_authentication status for /info endpoint
+        val actorAuthEnabled =
+            YamlActorAuthenticationConfigService()
+                .getConfig()
+                .let { it.verifier !is VerifierConfig.Noop }
+
         val done = Job()
         val ktorServer =
             embeddedServer(CIO, host = host, port = port) {
+                // 1. Install ContentNegotiation FIRST with McpJson.
+                //    The MCP SDK's installMcpContentNegotiation() is idempotent — when it finds CN
+                //    already installed it logs a warning and skips. By installing McpJson here, REST
+                //    routes benefit from the same JSON configuration (explicitNulls=false,
+                //    encodeDefaults=true). Both /mcp and /api/v1/* use the same Json instance.
+                install(ContentNegotiation) {
+                    json(McpJson)
+                }
+
+                // 2. CORS plugin — env-driven allowlist, locked-down default (empty = no cross-origin)
+                install(CORS) {
+                    configureCors()
+                }
+
+                // 3. SSE plugin — required by mcpStreamableHttp and future Phase 6 /events endpoint
+                install(SSE)
+
+                // 4. Mount /mcp — mcpStreamableHttp sees ContentNegotiation already installed
+                //    (logs warning "already installed" and skips its own CN install)
                 mcpStreamableHttp {
                     server
+                }
+
+                // 5. Register REST routes when API is enabled
+                if (apiConfig !is ApiAuthConfig.Disabled) {
+                    routing {
+                        // Authenticated routes under /api/v1 — auth plugin enforces bearer/JWKS
+                        route("/api/v1") {
+                            install(ApiBearerAuth) {
+                                authConfig = apiConfig
+                                // Use pre-loaded token entries (already loaded for event bus wiring above)
+                                tokenEntries = apiTokenEntries
+                            }
+                            serviceRoutes(
+                                repositoryProvider = effectiveProvider,
+                                serverName = serverName,
+                                serverVersion = version,
+                                actorAuthEnabled = actorAuthEnabled,
+                            )
+                            // Phase 3: read API — items, notes, dependencies, transitions, search
+                            itemRoutes(effectiveProvider)
+                            noteRoutes(effectiveProvider)
+                            dependencyRoutes(effectiveProvider)
+                            transitionRoutes(effectiveProvider)
+                            searchRoutes(effectiveProvider)
+                            // Phase 4: config/schema-discovery + status-graph
+                            configRoutes(noteSchemaService)
+                            // Phase 5: write API — items, notes, dependencies, advance
+                            itemWriteRoutes(effectiveProvider, degradedModePolicy, idempotencyCache, noteSchemaService)
+                            noteWriteRoutes(effectiveProvider, degradedModePolicy, idempotencyCache)
+                            dependencyWriteRoutes(effectiveProvider, degradedModePolicy)
+                        }
+                        // Phase 6: real-time SSE event stream — registered OUTSIDE the ApiBearerAuth
+                        // block (as a sibling `route("/api/v1/events")`) so the ApiBearerAuth plugin
+                        // does NOT intercept it. The SSE route does its own inline pre-flight auth,
+                        // which additionally supports the opt-in `?token=` query-param path that
+                        // ApiBearerAuth (header-only) would reject before our handler runs.
+                        if (eventBus != null) {
+                            route("/api/v1") {
+                                eventRoutes(
+                                    eventBus = eventBus,
+                                    tokenEntries = apiTokenEntries,
+                                    allowQueryToken = allowQueryToken,
+                                )
+                            }
+                        }
+                        // Discovery endpoint — no auth, mounted at root
+                        wellKnownRoutes(serverName = serverName, serverVersion = version)
+                    }
                 }
             }
 

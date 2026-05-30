@@ -1,0 +1,1629 @@
+openapi: "3.1.0"
+info:
+  title: MCP Task Orchestrator REST API
+  version: "1.0"
+  description: |
+    HTTP REST API for the MCP Task Orchestrator. Operates alongside the MCP transport when
+    API_ENABLED=true. Base URL: /api/v1
+
+    NOTE: This file is hand-maintained and may lag edge-case behavior. The source code and
+    api-rest.md are authoritative. See api-rest.md for full semantics including merge-patch
+    rules, ETag formats, idempotency, audit model, and the SSE replay known limitation.
+
+servers:
+  - url: /api/v1
+    description: REST API base
+
+security:
+  - BearerAuth: []
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: |
+        Static bearer token (API_AUTH_MODE=bearer) or JWT (API_AUTH_MODE=jwks).
+        For SSE, use Authorization header or opt-in ?token= query param.
+
+  parameters:
+    itemId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    noteKey:
+      name: key
+      in: path
+      required: true
+      schema:
+        type: string
+    depId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    page:
+      name: page
+      in: query
+      schema:
+        type: integer
+        default: 1
+    pageSize:
+      name: pageSize
+      in: query
+      schema:
+        type: integer
+        default: 20
+
+  schemas:
+    ItemDto:
+      type: object
+      required: [id, title, summary, role, priority, requiresVerification, tags, properties,
+                 createdAt, modifiedAt, roleChangedAt, etag, depth, isClaimed]
+      properties:
+        id:
+          type: string
+          format: uuid
+        parentId:
+          type: string
+          format: uuid
+          nullable: true
+        title:
+          type: string
+        description:
+          type: string
+          nullable: true
+        summary:
+          type: string
+        type:
+          type: string
+          nullable: true
+        role:
+          type: string
+          enum: [queue, work, review, terminal, blocked]
+        previousRole:
+          type: string
+          enum: [queue, work, review]
+          nullable: true
+        statusLabel:
+          type: string
+          nullable: true
+        priority:
+          type: string
+          enum: [HIGH, MEDIUM, LOW, CRITICAL, BACKLOG]
+        complexity:
+          type: integer
+          nullable: true
+        requiresVerification:
+          type: boolean
+        tags:
+          type: array
+          items:
+            type: string
+        properties:
+          type: object
+        createdAt:
+          type: string
+          format: date-time
+        modifiedAt:
+          type: string
+          format: date-time
+        roleChangedAt:
+          type: string
+          format: date-time
+        etag:
+          type: string
+          description: '"v1-<modifiedAtMillis>" — use as If-Match on PATCH'
+        depth:
+          type: integer
+        isClaimed:
+          type: boolean
+        notes:
+          type: array
+          items:
+            $ref: "#/components/schemas/NoteDto"
+          nullable: true
+          description: Populated when ?include=notes
+        children:
+          type: array
+          items:
+            $ref: "#/components/schemas/ItemDto"
+          nullable: true
+          description: Populated when ?include=children
+        dependencies:
+          $ref: "#/components/schemas/DependenciesDto"
+
+    NoteDto:
+      type: object
+      required: [key, role, body, createdAt, modifiedAt, etag]
+      properties:
+        key:
+          type: string
+        role:
+          type: string
+          enum: [queue, work, review]
+        body:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        modifiedAt:
+          type: string
+          format: date-time
+        etag:
+          type: string
+          description: '"v1-<modifiedAtMillis>" — use as If-Match on PUT'
+        actor:
+          $ref: "#/components/schemas/ActorClaimDto"
+        verification:
+          $ref: "#/components/schemas/VerificationDto"
+
+    ActorClaimDto:
+      type: object
+      nullable: true
+      required: [id, kind]
+      properties:
+        id:
+          type: string
+          description: "Server-synthesized: api:<tokenId>"
+        kind:
+          type: string
+          enum: [orchestrator, subagent, user, external]
+          description: Always "external" for REST API writes
+        parent:
+          type: string
+          nullable: true
+        proof:
+          type: string
+          nullable: true
+          description: Redacted unless ADMIN + ?include=proof
+
+    VerificationDto:
+      type: object
+      nullable: true
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [unverified, verified, unavailable, unchecked]
+        verifier:
+          type: string
+          nullable: true
+        reason:
+          type: string
+          nullable: true
+
+    RoleTransitionDto:
+      type: object
+      required: [id, itemId, toRole, trigger, occurredAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        itemId:
+          type: string
+          format: uuid
+        fromRole:
+          type: string
+          nullable: true
+        toRole:
+          type: string
+        trigger:
+          type: string
+        statusLabel:
+          type: string
+          nullable: true
+        occurredAt:
+          type: string
+          format: date-time
+        actor:
+          $ref: "#/components/schemas/ActorClaimDto"
+        verification:
+          $ref: "#/components/schemas/VerificationDto"
+
+    DependenciesDto:
+      type: object
+      required: [blocks, blockedBy, related]
+      properties:
+        blocks:
+          type: array
+          items:
+            $ref: "#/components/schemas/DependencyEdgeDto"
+        blockedBy:
+          type: array
+          items:
+            $ref: "#/components/schemas/DependencyEdgeDto"
+        related:
+          type: array
+          items:
+            $ref: "#/components/schemas/DependencyEdgeDto"
+
+    DependencyEdgeDto:
+      type: object
+      required: [id, fromItemId, toItemId, type, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        fromItemId:
+          type: string
+          format: uuid
+        toItemId:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [blocks, relates_to]
+        unblockAt:
+          type: string
+          nullable: true
+          enum: [queue, work, review, terminal]
+        createdAt:
+          type: string
+          format: date-time
+
+    BacklinkDto:
+      type: object
+      required: [fromItemId, fromTitle, type]
+      properties:
+        fromItemId:
+          type: string
+          format: uuid
+        fromTitle:
+          type: string
+        type:
+          type: string
+          enum: [blocks, relates_to]
+
+    ErrorDto:
+      type: object
+      required: [error, message]
+      properties:
+        error:
+          type: string
+          description: Machine-readable error code
+        message:
+          type: string
+          description: Human-readable description
+        details:
+          type: object
+          nullable: true
+
+    PageDto:
+      type: object
+      required: [items, page, pageSize, hasMore]
+      properties:
+        items:
+          type: array
+          items: {}
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        totalItems:
+          type: integer
+          format: int64
+          nullable: true
+        hasMore:
+          type: boolean
+
+    ItemCreateDto:
+      type: object
+      required: [title]
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+          nullable: true
+        summary:
+          type: string
+          nullable: true
+        parentId:
+          type: string
+          format: uuid
+          nullable: true
+        type:
+          type: string
+          nullable: true
+        priority:
+          type: string
+          nullable: true
+        complexity:
+          type: integer
+          nullable: true
+        requiresVerification:
+          type: boolean
+          nullable: true
+        tags:
+          type: array
+          items:
+            type: string
+          description: JSON array of tag strings (POST only — PATCH uses CSV string)
+        statusLabel:
+          type: string
+          nullable: true
+        properties:
+          type: object
+          nullable: true
+        metadata:
+          type: string
+          nullable: true
+
+    NoteWriteDto:
+      type: object
+      required: [role, body]
+      properties:
+        role:
+          type: string
+          enum: [queue, work, review]
+        body:
+          type: string
+        properties:
+          type: object
+          nullable: true
+          description: Reserved for future use; silently ignored in v1
+
+    DependencyCreateDto:
+      type: object
+      required: [fromItemId, toItemId, type]
+      properties:
+        fromItemId:
+          type: string
+          format: uuid
+        toItemId:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [blocks, relates_to]
+        unblockAt:
+          type: string
+          nullable: true
+          description: Must be absent/null for relates_to edges
+
+    AdvanceRequestDto:
+      type: object
+      required: [trigger]
+      properties:
+        trigger:
+          type: string
+          enum: [start, complete, block, hold, resume, cancel, reopen]
+
+    AdvanceResponseDto:
+      type: object
+      required: [itemId, previousRole, newRole, trigger]
+      properties:
+        itemId:
+          type: string
+          format: uuid
+        previousRole:
+          type: string
+        newRole:
+          type: string
+        trigger:
+          type: string
+        statusLabel:
+          type: string
+          nullable: true
+
+    SearchHitDto:
+      type: object
+      required: [itemId, field, snippet, score]
+      properties:
+        itemId:
+          type: string
+          format: uuid
+        field:
+          type: string
+        snippet:
+          type: string
+        score:
+          type: number
+          format: double
+        noteKey:
+          type: string
+          nullable: true
+
+    NoteSchemaEntryDto:
+      type: object
+      required: [key, role, required, description]
+      properties:
+        key:
+          type: string
+        role:
+          type: string
+          enum: [queue, work, review]
+        required:
+          type: boolean
+        description:
+          type: string
+        guidance:
+          type: string
+          nullable: true
+        skill:
+          type: string
+          nullable: true
+
+    SchemaDto:
+      type: object
+      required: [type, lifecycleMode, hasReviewPhase, notes, defaultTraits]
+      properties:
+        type:
+          type: string
+        lifecycleMode:
+          type: string
+        hasReviewPhase:
+          type: boolean
+        notes:
+          type: array
+          items:
+            $ref: "#/components/schemas/NoteSchemaEntryDto"
+        defaultTraits:
+          type: array
+          items:
+            type: string
+
+    TraitDto:
+      type: object
+      required: [name, notes]
+      properties:
+        name:
+          type: string
+        notes:
+          type: array
+          items:
+            $ref: "#/components/schemas/NoteSchemaEntryDto"
+
+    ConfigSnapshotDto:
+      type: object
+      required: [schemas, traits, types, statusGraph]
+      properties:
+        schemas:
+          type: array
+          items:
+            $ref: "#/components/schemas/SchemaDto"
+        traits:
+          type: array
+          items:
+            $ref: "#/components/schemas/TraitDto"
+        types:
+          type: array
+          items:
+            type: string
+        statusGraph:
+          $ref: "#/components/schemas/StatusGraphDto"
+        defaultSchema:
+          $ref: "#/components/schemas/SchemaDto"
+
+    StatusGraphTypeDto:
+      type: object
+      required: [type, lifecycleMode, hasReviewPhase, transitions]
+      properties:
+        type:
+          type: string
+        lifecycleMode:
+          type: string
+        hasReviewPhase:
+          type: boolean
+        transitions:
+          type: object
+          additionalProperties:
+            type: object
+            additionalProperties:
+              type: string
+          description: |
+            role -> trigger -> targetRole. Value "<previousRole>" is a sentinel string
+            for blocked.resume — resolve from the live item's previousRole field.
+
+    StatusGraphDto:
+      type: object
+      required: [roles, triggers, types]
+      properties:
+        roles:
+          type: array
+          items:
+            type: string
+        triggers:
+          type: array
+          items:
+            type: string
+        types:
+          type: array
+          items:
+            $ref: "#/components/schemas/StatusGraphTypeDto"
+
+    ServiceInfoDto:
+      type: object
+      required: [serverName, version, apiVersion, capabilities, claimModeAvailable,
+                 actorAuthenticationEnabled]
+      properties:
+        serverName:
+          type: string
+        version:
+          type: string
+        apiVersion:
+          type: string
+        capabilities:
+          type: array
+          items:
+            type: string
+        claimModeAvailable:
+          type: boolean
+        actorAuthenticationEnabled:
+          type: boolean
+
+    HealthDto:
+      type: object
+      required: [status, dbReachable]
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded]
+        dbReachable:
+          type: boolean
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid bearer token
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorDto"
+    Forbidden:
+      description: Authenticated but lacks required capability or scope
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorDto"
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorDto"
+    BadRequest:
+      description: Invalid request parameters or body
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorDto"
+    InternalServerError:
+      description: Database or server error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorDto"
+
+paths:
+  /items:
+    get:
+      summary: List work items
+      operationId: listItems
+      tags: [items]
+      parameters:
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/pageSize"
+        - name: role
+          in: query
+          schema:
+            type: string
+        - name: priority
+          in: query
+          schema:
+            type: string
+        - name: tag
+          in: query
+          schema:
+            type: string
+          description: Comma-separated tags; all must be present (AND)
+        - name: tagAny
+          in: query
+          schema:
+            type: string
+          description: Comma-separated tags; any must be present (OR); overrides tag
+        - name: type
+          in: query
+          schema:
+            type: string
+        - name: parentId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: rootId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: modifiedAfter
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: modifiedBefore
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: createdAfter
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: createdBefore
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: claimStatus
+          in: query
+          schema:
+            type: string
+            enum: [claimed, unclaimed, expired]
+        - name: orderBy
+          in: query
+          schema:
+            type: string
+        - name: orderDir
+          in: query
+          schema:
+            type: string
+            enum: [asc, desc]
+      responses:
+        "200":
+          description: Paginated item list
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/PageDto"
+                  - properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/ItemDto"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+    post:
+      summary: Create a work item
+      operationId: createItem
+      tags: [items]
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ItemCreateDto"
+      responses:
+        "201":
+          description: Item created
+          headers:
+            ETag:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ItemDto"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /items/roots:
+    get:
+      summary: List root items (depth=0)
+      operationId: listRootItems
+      tags: [items]
+      parameters:
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/pageSize"
+      responses:
+        "200":
+          description: Root items
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/PageDto"
+                  - properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/ItemDto"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /items/{id}:
+    get:
+      summary: Get a single work item
+      operationId: getItem
+      tags: [items]
+      parameters:
+        - $ref: "#/components/parameters/itemId"
+        - name: include
+          in: query
+          schema:
+            type: string
+          description: Comma-separated inclusions - notes, deps, children
+        - name: If-None-Match
+          in: header
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Item
+          headers:
+            ETag:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ItemDto"
+        "304":
+          description: Not modified (If-None-Match matched)
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    patch:
+      summary: JSON Merge Patch update
+      operationId: patchItem
+      tags: [items]
+      parameters:
+        - $ref: "#/components/parameters/itemId"
+        - name: If-Match
+          in: header
+          required: true
+          schema:
+            type: string
+          description: Current ETag; required — missing -> 400 precondition_required
+        - name: Idempotency-Key
+          in: header
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              type: object
+              description: |
+                RFC 7396 merge patch. tags must be a CSV string (not array).
+                Server-owned fields id, role, previousRole, roleChangedAt, depth,
+                createdAt, modifiedAt, version, claimedBy, claimedAt, claimExpiresAt,
+                originalClaimedAt cannot be patched (400 field_not_patchable).
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Updated item
+          headers:
+            ETag:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ItemDto"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "412":
+          description: ETag mismatch
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDto"
+        "415":
+          description: Unsupported media type
+          headers:
+            Accept-Patch:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDto"
+
+    delete:
+      summary: Cascade delete item
+      operationId: deleteItem
+      tags: [items]
+      parameters:
+        - $ref: "#/components/parameters/itemId"
+        - name: If-Match
+          in: header
+          schema:
+            type: string
+          description: Optional conditional delete
+      responses:
+        "204":
+          description: Deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "412":
+          description: ETag mismatch
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDto"
+
+  /items/{id}/advance:
+    post:
+      summary: Trigger a role transition
+      operationId: advanceItem
+      tags: [items]
+      description: |
+        Bypasses MCP claim ownership — a claimed item advances successfully
+        regardless of which MCP agent holds the claim. Response does NOT include
+        claimedBy. WARN is logged when API_WARN_ON_CLAIMED_ADVANCE=true (default).
+      parameters:
+        - $ref: "#/components/parameters/itemId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdvanceRequestDto"
+      responses:
+        "200":
+          description: Transition applied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdvanceResponseDto"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          description: Transition rejected (gate failure, blocker, invalid state)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDto"
+
+  /items/{id}/tree:
+    get:
+      summary: Descendant tree (flat paginated list)
+      operationId: getItemTree
+      tags: [items]
+      parameters:
+        - $ref: "#/components/parameters/itemId"
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/pageSize"
+        - name: depth
+          in: query
+          schema:
+            type: integer
+          description: Max relative depth from root item
+      responses:
+        "200":
+          description: Tree nodes (root item always first)
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/PageDto"
+                  - properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/ItemDto"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /items/{id}/breadcrumbs:
+    get:
+      summary: Ancestor chain (root to item)
+      operationId: getItemBreadcrumbs
+      tags: [items]
+      parameters:
+        - $ref: "#/components/parameters/itemId"
+      responses:
+        "200":
+          description: List ordered root-first, target item last; truncated at scope root for scoped tokens
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ItemDto"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /items/{id}/children:
+    get:
+      summary: Direct children of an item
+      operationId: getItemChildren
+      tags: [items]
+      parameters:
+        - $ref: "#/components/parameters/itemId"
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/pageSize"
+      responses:
+        "200":
+          description: Paginated children
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/PageDto"
+                  - properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/ItemDto"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /items/{id}/notes:
+    get:
+      summary: List notes for an item
+      operationId: listNotes
+      tags: [notes]
+      parameters:
+        - $ref: "#/components/parameters/itemId"
+        - name: role
+          in: query
+          schema:
+            type: string
+            enum: [queue, work, review]
+        - name: key
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Notes list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/NoteDto"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /items/{id}/notes/{key}:
+    get:
+      summary: Get single note by key
+      operationId: getNote
+      tags: [notes]
+      parameters:
+        - $ref: "#/components/parameters/itemId"
+        - $ref: "#/components/parameters/noteKey"
+      responses:
+        "200":
+          description: Note
+          headers:
+            ETag:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NoteDto"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    put:
+      summary: Upsert a note
+      operationId: upsertNote
+      tags: [notes]
+      parameters:
+        - $ref: "#/components/parameters/itemId"
+        - $ref: "#/components/parameters/noteKey"
+        - name: If-Match
+          in: header
+          schema:
+            type: string
+          description: Optional on create; validated on update — mismatch -> 412
+        - name: Idempotency-Key
+          in: header
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NoteWriteDto"
+      responses:
+        "201":
+          description: Note created
+          headers:
+            ETag:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NoteDto"
+        "200":
+          description: Note updated
+          headers:
+            ETag:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NoteDto"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "412":
+          description: ETag mismatch on update
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDto"
+
+    delete:
+      summary: Delete a note
+      operationId: deleteNote
+      tags: [notes]
+      parameters:
+        - $ref: "#/components/parameters/itemId"
+        - $ref: "#/components/parameters/noteKey"
+      responses:
+        "204":
+          description: Deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /items/{id}/dependencies:
+    get:
+      summary: Combined dependency view for an item
+      operationId: getItemDependencies
+      tags: [dependencies]
+      parameters:
+        - $ref: "#/components/parameters/itemId"
+      responses:
+        "200":
+          description: Dependencies split by direction and type
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DependenciesDto"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /items/{id}/backlinks:
+    get:
+      summary: Items that reference this item via a dependency edge
+      operationId: getItemBacklinks
+      tags: [dependencies]
+      parameters:
+        - $ref: "#/components/parameters/itemId"
+      responses:
+        "200":
+          description: Backlinks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BacklinkDto"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /items/{id}/transitions:
+    get:
+      summary: Role-transition audit history for an item
+      operationId: getItemTransitions
+      tags: [transitions]
+      parameters:
+        - $ref: "#/components/parameters/itemId"
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/pageSize"
+      responses:
+        "200":
+          description: Paginated transition history
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/PageDto"
+                  - properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/RoleTransitionDto"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /dependencies:
+    post:
+      summary: Create a dependency edge
+      operationId: createDependency
+      tags: [dependencies]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DependencyCreateDto"
+      responses:
+        "201":
+          description: Edge created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DependencyEdgeDto"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /dependencies/{id}:
+    delete:
+      summary: Remove a dependency edge
+      operationId: deleteDependency
+      tags: [dependencies]
+      parameters:
+        - $ref: "#/components/parameters/depId"
+      responses:
+        "204":
+          description: Deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /transitions:
+    get:
+      summary: Recent transitions across all items
+      operationId: listTransitions
+      tags: [transitions]
+      parameters:
+        - name: since
+          in: query
+          schema:
+            type: string
+            format: date-time
+          description: Default 24 hours ago
+        - $ref: "#/components/parameters/page"
+        - $ref: "#/components/parameters/pageSize"
+      responses:
+        "200":
+          description: Scope-filtered transition history
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/PageDto"
+                  - properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/RoleTransitionDto"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /search:
+    get:
+      summary: FTS5 full-text search over item titles and summaries
+      operationId: searchItems
+      tags: [search]
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: ancestorId
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: role
+          in: query
+          schema:
+            type: string
+        - name: tag
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Ranked search hits (up to 50)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SearchHitDto"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /notes/search:
+    get:
+      summary: FTS5 full-text search over note bodies
+      operationId: searchNotes
+      tags: [search]
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: ancestorId
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Ranked note-body hits (up to 50)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SearchHitDto"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /config:
+    get:
+      summary: Full config snapshot
+      operationId: getConfig
+      tags: [config]
+      parameters:
+        - name: If-None-Match
+          in: header
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Config snapshot
+          headers:
+            ETag:
+              schema:
+                type: string
+                description: '"cfg-<fingerprint>"'
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigSnapshotDto"
+        "304":
+          description: Not modified
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /config/schemas:
+    get:
+      summary: All schema definitions
+      operationId: listSchemas
+      tags: [config]
+      parameters:
+        - name: If-None-Match
+          in: header
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Schema list
+          headers:
+            ETag:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SchemaDto"
+        "304":
+          description: Not modified
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /config/schemas/{type}:
+    get:
+      summary: Single schema by type
+      operationId: getSchema
+      tags: [config]
+      parameters:
+        - name: type
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: If-None-Match
+          in: header
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Schema
+          headers:
+            ETag:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SchemaDto"
+        "304":
+          description: Not modified
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /config/traits:
+    get:
+      summary: All trait definitions
+      operationId: listTraits
+      tags: [config]
+      parameters:
+        - name: If-None-Match
+          in: header
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Traits list
+          headers:
+            ETag:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TraitDto"
+        "304":
+          description: Not modified
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /config/types:
+    get:
+      summary: Sorted list of registered type name strings
+      operationId: listTypes
+      tags: [config]
+      parameters:
+        - name: If-None-Match
+          in: header
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Type names
+          headers:
+            ETag:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+        "304":
+          description: Not modified
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /config/status-graph:
+    get:
+      summary: Structural role-transition graph
+      operationId: getStatusGraph
+      tags: [config]
+      description: |
+        IMPORTANT: This is the structural/schema-defined graph only. It does NOT reflect
+        runtime gate enforcement (note gates, dependency blockers, claim ownership).
+        Do not use to pre-compute which transitions to enable in UI — call advance and
+        surface the 422 error instead.
+      parameters:
+        - name: If-None-Match
+          in: header
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Status graph
+          headers:
+            ETag:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusGraphDto"
+        "304":
+          description: Not modified
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /info:
+    get:
+      summary: Server metadata and caller capabilities
+      operationId: getInfo
+      tags: [service]
+      responses:
+        "200":
+          description: Service info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServiceInfoDto"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /health:
+    get:
+      summary: Health check — no authentication required
+      operationId: healthCheck
+      tags: [service]
+      security: []
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthDto"
+        "503":
+          description: Degraded — database unreachable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthDto"
+
+  /events:
+    get:
+      summary: Server-Sent Events stream
+      operationId: getEvents
+      tags: [events]
+      description: |
+        Real-time SSE stream. Auth runs in a pre-flight plugin phase (before the SSE handler
+        commits the 200 response). Requires read or admin capability.
+
+        Browser clients cannot use native EventSource because it does not support custom headers.
+        Use a fetch-based SSE library (e.g. @microsoft/fetch-event-source) with
+        Authorization: Bearer, or enable API_ALLOW_QUERY_TOKEN_FOR_SSE=true for ?token= access.
+
+        KNOWN LIMITATION: Last-Event-ID replay is unfiltered by root — buffered events may
+        include metadata from outside the requested ?root= scope. See api-rest.md §22.
+
+        Event ID namespace is independent from /mcp SSE channel. Do NOT reuse Last-Event-ID
+        values across the two channels.
+      parameters:
+        - name: root
+          in: query
+          schema:
+            type: string
+            format: uuid
+          description: Root-subtree filter (repeatable); intersected with principal scope
+        - name: types
+          in: query
+          schema:
+            type: string
+          description: Comma-separated event type filter
+        - name: token
+          in: query
+          schema:
+            type: string
+          description: Bearer token (only accepted when API_ALLOW_QUERY_TOKEN_FOR_SSE=true)
+        - name: Last-Event-ID
+          in: header
+          schema:
+            type: string
+          description: Resume from this event ID; replay unfiltered by root (known limitation)
+      responses:
+        "200":
+          description: SSE stream (text/event-stream)
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: |
+                  Each event: id:<n>\nevent:<type>\ndata:<ApiEvent JSON>\n\n
+                  Event types: item.created, item.updated, item.deleted, item.advanced,
+                  note.upserted, note.deleted, dependency.added, dependency.removed,
+                  scope.entered, scope.left, sync.lost, auth.expired
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
