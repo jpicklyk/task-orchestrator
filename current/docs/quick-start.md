@@ -411,7 +411,36 @@ docker run --rm -p 127.0.0.1:3001:3001 \
   ghcr.io/jpicklyk/task-orchestrator:latest
 ```
 
-Point your MCP client at `http://localhost:3001/mcp`.
+**Register the HTTP endpoint with Claude Code:**
+
+```bash
+claude mcp add --transport http mcp-task-orchestrator-http http://localhost:3001/mcp
+```
+
+Or add it to a project `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "mcp-task-orchestrator-http": {
+      "type": "http",
+      "url": "http://localhost:3001/mcp"
+    }
+  }
+}
+```
+
+Restart Claude Code and run `/mcp` to confirm the connection and all 14 tools. Other MCP clients should target the same `http://localhost:3001/mcp` URL using the Streamable HTTP transport.
+
+**HTTP transport environment variables:**
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MCP_TRANSPORT` | `stdio` | Set to `http` to serve the Streamable HTTP transport instead of stdio. |
+| `MCP_HTTP_PORT` | `3001` | Port the server listens on (inside the container for Docker). |
+| `MCP_HTTP_HOST` | `0.0.0.0` | Interface the server binds. Leave at `0.0.0.0` for Docker — the container is network-isolated, so control host exposure via the `-p` mapping (publish to `127.0.0.1` as shown above). For a direct, non-Docker JAR run, set `127.0.0.1` to bind loopback only. |
+| `API_ENABLED` | `true` | Set `false` for MCP-only HTTP; `true` opts into the REST API (Step 10) and then requires `API_AUTH_MODE`. |
+| `AGENT_CONFIG_DIR` | working dir | Directory containing `.taskorchestrator/config.yaml` (schema config). Set to the mounted project path. |
 
 > **`API_ENABLED=false` is required for MCP-only HTTP.** The REST API (Step 10) is a separate opt-in layer that *hard-requires* an auth mode — leaving the API enabled without `API_AUTH_MODE` is a fatal startup error. Set `API_ENABLED=false` when you want the MCP transport over HTTP without the REST surface.
 
