@@ -66,7 +66,7 @@ AskUserQuestion(
       },
       {
         label: "HTTP",
-        description: "Expose port 3001 — runs detached as a long-lived daemon; requires MCP SDK with 2025-11-25 protocol support"
+        description: "Serves the MCP endpoint at /mcp on port 3001 (loopback by default) — runs detached as a long-lived daemon"
       }
     ]
   }]
