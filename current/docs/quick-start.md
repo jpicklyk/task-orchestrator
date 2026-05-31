@@ -439,10 +439,10 @@ Restart Claude Code and run `/mcp` to confirm the connection and all 14 tools. O
 | `MCP_TRANSPORT` | `stdio` | Set to `http` to serve the Streamable HTTP transport instead of stdio. |
 | `MCP_HTTP_PORT` | `3001` | Port the server listens on (inside the container for Docker). |
 | `MCP_HTTP_HOST` | `0.0.0.0` | Interface the server binds. Leave at `0.0.0.0` for Docker — the container is network-isolated, so control host exposure via the `-p` mapping (publish to `127.0.0.1` as shown above). For a direct, non-Docker JAR run, set `127.0.0.1` to bind loopback only. |
-| `API_ENABLED` | `true` | Set `false` for MCP-only HTTP; `true` opts into the REST API (Step 10) and then requires `API_AUTH_MODE`. |
+| `API_ENABLED` | `false` | REST API off by default (MCP-only). Set `true` to opt into the REST API (Step 10), which then requires `API_AUTH_MODE`. |
 | `AGENT_CONFIG_DIR` | working dir | Directory containing `.taskorchestrator/config.yaml` (schema config). Set to the mounted project path. |
 
-> **`API_ENABLED=false` is required for MCP-only HTTP.** The REST API (Step 10) is a separate opt-in layer that *hard-requires* an auth mode — leaving the API enabled without `API_AUTH_MODE` is a fatal startup error. Set `API_ENABLED=false` when you want the MCP transport over HTTP without the REST surface.
+> **The REST API is off by default.** `API_ENABLED` defaults to `false`, so MCP-over-HTTP needs no API configuration — the example sets it explicitly only for clarity. Opt into the REST API (Step 10) with `API_ENABLED=true`, which then *hard-requires* `API_AUTH_MODE` (omitting it is a fatal startup error).
 
 > **Schema config works identically over HTTP.** `.taskorchestrator/config.yaml` is loaded via `AGENT_CONFIG_DIR` regardless of transport — the `-v ...:/project/.taskorchestrator:ro` mount above gives the HTTP server the same schemas it would have over stdio. (An HTTP server resolves a single project's config; run one server per project.)
 

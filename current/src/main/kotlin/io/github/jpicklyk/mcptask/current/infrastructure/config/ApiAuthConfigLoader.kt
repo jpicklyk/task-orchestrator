@@ -13,7 +13,7 @@ import java.net.URL
  *
  * | Variable | Required when | Default | Description |
  * |----------|--------------|---------|-------------|
- * | `API_ENABLED` | always | `true` | Master API switch. `false` → [ApiAuthConfig.Disabled]. |
+ * | `API_ENABLED` | optional | `false` | Master API switch. Unset or `false` → [ApiAuthConfig.Disabled]. `true` opts in (then `API_AUTH_MODE` is required). |
  * | `API_AUTH_MODE` | `API_ENABLED=true` | — | `bearer` or `jwks`. Unset / `none` / invalid → startup failure. |
  * | `API_TOKENS_PATH` | bearer mode | `/run/secrets/api-tokens.yaml` | Path to the bearer token secret file. |
  * | `API_JWKS_URL` | jwks mode | — | JWKS endpoint URL. Required; startup fails if absent. |
@@ -44,7 +44,7 @@ class ApiAuthConfigLoader(
         val apiEnabled = resolveApiEnabled()
 
         if (!apiEnabled) {
-            logger.info("API is disabled (API_ENABLED=false)")
+            logger.info("API is disabled (API_ENABLED unset or false)")
             return ApiAuthConfig.Disabled
         }
 
@@ -63,7 +63,11 @@ class ApiAuthConfigLoader(
     // -------------------------------------------------------------------------
 
     private fun resolveApiEnabled(): Boolean {
-        val raw = envResolver("API_ENABLED") ?: return true
+        // Default-OFF: when API_ENABLED is unset, the REST API is disabled. This keeps the stock
+        // container (stdio, no API_* vars) booting cleanly — an enabled API hard-requires
+        // API_AUTH_MODE and would otherwise crash a default deployment at startup. The API is an
+        // opt-in layer the operator turns on with API_ENABLED=true + API_AUTH_MODE.
+        val raw = envResolver("API_ENABLED") ?: return false
         return when (raw.lowercase().trim()) {
             "true", "1", "yes" -> true
             "false", "0", "no" -> false
