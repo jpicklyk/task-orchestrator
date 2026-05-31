@@ -58,7 +58,10 @@ services:
       # (see current/docs/quick-start.md "Enabling the REST API").
       API_ENABLED: "false"
     ports:
-      - "3001:3001"
+      # Bind to loopback only (Streamable HTTP spec: prefer localhost when running locally).
+      # The /mcp endpoint is unauthenticated; do not expose it on all interfaces. To reach it
+      # from other hosts, front it with an authenticated reverse proxy or change to "3001:3001".
+      - "127.0.0.1:3001:3001"
     logging:
       driver: json-file
       options:

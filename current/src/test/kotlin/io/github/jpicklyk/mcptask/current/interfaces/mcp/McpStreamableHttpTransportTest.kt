@@ -118,6 +118,31 @@ class McpStreamableHttpTransportTest {
         }
 
     @Test
+    fun `rejects cross-origin requests with 403 to guard against DNS rebinding`() =
+        testApplication {
+            val server = serverWithAllTools()
+            application { installMcpStreamableHttp(server) }
+
+            // Streamable HTTP spec security requirement: servers MUST validate the Origin header and
+            // respond 403 to an invalid origin (DNS-rebinding protection). This is enforced by the
+            // SDK's mcpStreamableHttp; the test locks the behavior in for our wiring so a future SDK
+            // bump or misconfiguration that drops it is caught.
+            val response =
+                client.post("/mcp") {
+                    header(HttpHeaders.Accept, acceptBoth)
+                    header(HttpHeaders.Origin, "http://evil.example.com")
+                    contentType(ContentType.Application.Json)
+                    setBody(initializeBody)
+                }
+
+            assertEquals(
+                HttpStatusCode.Forbidden,
+                response.status,
+                "a cross-origin Origin header must be rejected with 403",
+            )
+        }
+
+    @Test
     fun `tools list and a tool call work over the HTTP transport`() =
         testApplication {
             val server = serverWithAllTools()

@@ -401,7 +401,7 @@ After adding or editing this file, reconnect the MCP server:
 By default the server speaks the **stdio** transport (Step 2). To serve MCP over **HTTP** instead — for remote clients, container-to-container access, or a shared long-running server — set `MCP_TRANSPORT=http`. The MCP endpoint is mounted at `/mcp` using the Streamable HTTP transport.
 
 ```bash
-docker run --rm -p 3001:3001 \
+docker run --rm -p 127.0.0.1:3001:3001 \
   -v mcp-task-data:/app/data \
   -v "$(pwd)/.taskorchestrator:/project/.taskorchestrator:ro" \
   -e MCP_TRANSPORT=http \
@@ -418,6 +418,14 @@ Point your MCP client at `http://localhost:3001/mcp`.
 > **Schema config works identically over HTTP.** `.taskorchestrator/config.yaml` is loaded via `AGENT_CONFIG_DIR` regardless of transport — the `-v ...:/project/.taskorchestrator:ro` mount above gives the HTTP server the same schemas it would have over stdio. (An HTTP server resolves a single project's config; run one server per project.)
 
 The `docker compose --profile http up` service in `docker-compose.yml` is pre-configured this way.
+
+### HTTP transport security
+
+The Streamable HTTP transport follows the [MCP transport security requirements](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#security-warning):
+
+- **Origin validation is enforced.** The server validates the `Origin` header and rejects cross-origin browser requests with `403 Forbidden` (DNS-rebinding protection). Non-browser MCP clients (Claude Code and other CLI agents) send no `Origin` and are unaffected.
+- **Bind to loopback when running locally.** The examples above publish the port as `127.0.0.1:3001:3001` so it is reachable only from the local host. Use `-p 3001:3001` (or set `MCP_HTTP_HOST`) only when you intentionally need access from other hosts.
+- **The `/mcp` endpoint is unauthenticated.** Unlike the REST API (Step 10, which requires bearer/JWKS auth), the MCP transport has no built-in authentication. Keep it on a trusted network boundary, or front it with an authenticating reverse proxy, before exposing it to untrusted callers.
 
 ---
 
