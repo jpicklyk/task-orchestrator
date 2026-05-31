@@ -573,6 +573,12 @@ internal fun Application.installRestApiRoutes(
                 authConfig = apiConfig
                 // Use pre-loaded token entries (already loaded for event bus wiring at startup)
                 tokenEntries = apiTokenEntries
+                // ApiBearerAuth is an APPLICATION plugin — it intercepts every request, not just
+                // /api/v1. The MCP Streamable HTTP endpoint (/mcp) is a separate protocol with its
+                // own transport and must remain reachable WITHOUT a REST bearer token. Exempt it via
+                // the plugin's public-path bypass; otherwise enabling the REST API 401s /mcp and
+                // breaks MCP-over-HTTP clients (which send no REST token). See McpRestAuthBypassTest.
+                publicPaths = publicPaths + "/mcp"
             }
             serviceRoutes(
                 repositoryProvider = effectiveProvider,
