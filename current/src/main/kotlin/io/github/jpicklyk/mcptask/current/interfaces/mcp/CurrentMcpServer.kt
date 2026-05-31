@@ -60,7 +60,6 @@ import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.plugins.cors.routing.CORS
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
-import io.ktor.server.sse.SSE
 import io.modelcontextprotocol.kotlin.sdk.server.Server
 import io.modelcontextprotocol.kotlin.sdk.server.ServerOptions
 import io.modelcontextprotocol.kotlin.sdk.server.StdioServerTransport
@@ -442,16 +441,18 @@ class CurrentMcpServer(
                     configureCors()
                 }
 
-                // 3. SSE plugin — required by mcpStreamableHttp and future Phase 6 /events endpoint
-                install(SSE)
-
-                // 4. Mount /mcp — mcpStreamableHttp sees ContentNegotiation already installed
-                //    (logs warning "already installed" and skips its own CN install)
+                // 3. Mount /mcp — mcpStreamableHttp installs the Ktor SSE plugin ITSELF (SDK 0.12.0).
+                //    Do NOT install(SSE) before this call: a second install throws
+                //    DuplicatePluginException ("already installed with the same key as SSE") at
+                //    startup and the HTTP server never comes up. The SSE plugin installed here also
+                //    serves the Phase 6 /api/v1/events route registered in the routing block below.
+                //    mcpStreamableHttp also sees ContentNegotiation already installed (logs a
+                //    warning "already installed" and skips its own CN install).
                 mcpStreamableHttp {
                     server
                 }
 
-                // 5. Register REST routes when API is enabled
+                // 4. Register REST routes when API is enabled
                 if (apiConfig !is ApiAuthConfig.Disabled) {
                     routing {
                         // Authenticated routes under /api/v1 — auth plugin enforces bearer/JWKS
