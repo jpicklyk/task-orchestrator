@@ -58,10 +58,12 @@ class ApiAuthConfigLoaderTest {
     }
 
     @Test
-    fun `API_ENABLED not set defaults to enabled — requires AUTH_MODE`() {
+    fun `API_ENABLED not set defaults to disabled (default-off)`() {
+        // Default-OFF: an unset API_ENABLED must NOT enable the API. Enabling it hard-requires
+        // API_AUTH_MODE, so a true default would crash the stock stdio container at startup.
         val loader = ApiAuthConfigLoader(envResolver = env())
-        val ex = assertThrows<IllegalArgumentException> { loader.load() }
-        assertTrue(ex.message!!.contains("API_AUTH_MODE"), "Error: ${ex.message}")
+        val config = loader.load()
+        assertInstanceOf(ApiAuthConfig.Disabled::class.java, config)
     }
 
     // -------------------------------------------------------------------------

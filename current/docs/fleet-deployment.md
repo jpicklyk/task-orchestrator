@@ -25,7 +25,7 @@ A REST API caller with `write-items` capability can create and patch items; it d
 
 ### Enabling the REST API
 
-Set `API_ENABLED=true` (default `true` — but the API requires `API_AUTH_MODE` to be set; startup fails without it). Choose a mode:
+The REST API is off by default (`API_ENABLED` defaults to `false`). Set `API_ENABLED=true` to opt in — the API then requires `API_AUTH_MODE` to be set, and startup fails without it. Choose a mode:
 
 ```bash
 # Bearer mode — static tokens from a YAML secret file
@@ -49,7 +49,7 @@ API_JWKS_CACHE_TTL_SECONDS=300   # optional, default 300
 
 | Variable | Required when | Default | Description |
 |----------|--------------|---------|-------------|
-| `API_ENABLED` | always | `true` | Master API switch. `false` skips all `/api/v1/*` route registration. |
+| `API_ENABLED` | optional | `false` | Master API switch. Unset or `false` skips all `/api/v1/*` route registration; set `true` to opt in. |
 | `API_AUTH_MODE` | API enabled | — | `bearer` or `jwks`. Required; no `none` mode. |
 | `API_TOKENS_PATH` | bearer mode | `/run/secrets/api-tokens.yaml` | Path to bearer token YAML secret file. |
 | `API_JWKS_URL` | jwks mode | — | JWKS endpoint URL (fully-qualified HTTP/HTTPS). |

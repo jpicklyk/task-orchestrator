@@ -396,7 +396,69 @@ After adding or editing this file, reconnect the MCP server:
 
 ---
 
-## Step 9: Enabling the REST API (optional)
+## Step 9: Running MCP over HTTP (optional)
+
+By default the server speaks the **stdio** transport (Step 2). To serve MCP over **HTTP** instead — for remote clients, container-to-container access, or a shared long-running server — set `MCP_TRANSPORT=http`. The MCP endpoint is mounted at `/mcp` using the Streamable HTTP transport.
+
+```bash
+docker run --rm -p 127.0.0.1:3001:3001 \
+  -v mcp-task-data:/app/data \
+  -v "$(pwd)/.taskorchestrator:/project/.taskorchestrator:ro" \
+  -e MCP_TRANSPORT=http \
+  -e MCP_HTTP_PORT=3001 \
+  -e AGENT_CONFIG_DIR=/project \
+  -e API_ENABLED=false \
+  ghcr.io/jpicklyk/task-orchestrator:latest
+```
+
+**Register the HTTP endpoint with Claude Code:**
+
+```bash
+claude mcp add --transport http mcp-task-orchestrator-http http://localhost:3001/mcp
+```
+
+Or add it to a project `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "mcp-task-orchestrator-http": {
+      "type": "http",
+      "url": "http://localhost:3001/mcp"
+    }
+  }
+}
+```
+
+Restart Claude Code and run `/mcp` to confirm the connection and all 14 tools. Other MCP clients should target the same `http://localhost:3001/mcp` URL using the Streamable HTTP transport.
+
+**HTTP transport environment variables:**
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MCP_TRANSPORT` | `stdio` | Set to `http` to serve the Streamable HTTP transport instead of stdio. |
+| `MCP_HTTP_PORT` | `3001` | Port the server listens on (inside the container for Docker). |
+| `MCP_HTTP_HOST` | `0.0.0.0` | Interface the server binds. Leave at `0.0.0.0` for Docker — the container is network-isolated, so control host exposure via the `-p` mapping (publish to `127.0.0.1` as shown above). For a direct, non-Docker JAR run, set `127.0.0.1` to bind loopback only. |
+| `API_ENABLED` | `false` | REST API off by default (MCP-only). Set `true` to opt into the REST API (Step 10), which then requires `API_AUTH_MODE`. |
+| `AGENT_CONFIG_DIR` | working dir | Directory containing `.taskorchestrator/config.yaml` (schema config). Set to the mounted project path. |
+
+> **The REST API is off by default.** `API_ENABLED` defaults to `false`, so MCP-over-HTTP needs no API configuration — the example sets it explicitly only for clarity. Opt into the REST API (Step 10) with `API_ENABLED=true`, which then *hard-requires* `API_AUTH_MODE` (omitting it is a fatal startup error).
+
+> **Schema config works identically over HTTP.** `.taskorchestrator/config.yaml` is loaded via `AGENT_CONFIG_DIR` regardless of transport — the `-v ...:/project/.taskorchestrator:ro` mount above gives the HTTP server the same schemas it would have over stdio. (An HTTP server resolves a single project's config; run one server per project.)
+
+The `docker compose --profile http up` service in `docker-compose.yml` is pre-configured this way.
+
+### HTTP transport security
+
+The Streamable HTTP transport follows the [MCP transport security requirements](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#security-warning):
+
+- **Origin validation is enforced.** The server validates the `Origin` header and rejects cross-origin browser requests with `403 Forbidden` (DNS-rebinding protection). Non-browser MCP clients (Claude Code and other CLI agents) send no `Origin` and are unaffected.
+- **Bind to loopback when running locally.** The examples above publish the port as `127.0.0.1:3001:3001` so it is reachable only from the local host. Use `-p 3001:3001` (or set `MCP_HTTP_HOST`) only when you intentionally need access from other hosts.
+- **The `/mcp` endpoint is unauthenticated.** Unlike the REST API (Step 10, which requires bearer/JWKS auth), the MCP transport has no built-in authentication. Keep it on a trusted network boundary, or front it with an authenticating reverse proxy, before exposing it to untrusted callers.
+
+---
+
+## Step 10: Enabling the REST API (optional)
 
 The REST API layer provides HTTP endpoints for dashboards, CI systems, and operators who want to read or write work items without an MCP client.
 

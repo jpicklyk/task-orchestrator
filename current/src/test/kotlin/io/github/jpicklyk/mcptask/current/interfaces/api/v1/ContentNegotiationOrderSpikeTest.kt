@@ -37,7 +37,12 @@ import org.junit.jupiter.api.Test
  * 1. When CN is installed with McpJson first, subsequent JSON routes work correctly.
  * 2. McpJson uses explicitNulls=false and encodeDefaults=true — the REST /info endpoint
  *    serializes correctly under the same config.
- * 3. install(SSE) is idempotent with mcpStreamableHttp's SSE install path.
+ *
+ * NOTE: an earlier version of this comment claimed "install(SSE) is idempotent with
+ * mcpStreamableHttp's SSE install path." That is FALSE for MCP SDK 0.12.0 — mcpStreamableHttp
+ * installs the SSE plugin itself, so an explicit install(SSE) throws DuplicatePluginException at
+ * startup. This spike never actually called mcpStreamableHttp, which is why it never caught the
+ * bug; the real /mcp transport is now exercised by McpStreamableHttpTransportTest.
  */
 class ContentNegotiationOrderSpikeTest {
     @Serializable

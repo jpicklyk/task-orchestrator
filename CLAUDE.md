@@ -188,7 +188,7 @@ Add to `gradle/libs.versions.toml` (`[versions]` + `[libraries]`), then referenc
 - `DEGRADED_MODE_POLICY` — overrides `actor_authentication.degraded_mode_policy` in config; values: `accept-cached` (default) | `accept-self-reported` | `reject`; invalid value = startup failure
 
 **REST API environment variables** (see also `current/docs/fleet-deployment.md`):
-- `API_ENABLED` — master API switch (default: `true`; requires `API_AUTH_MODE` when enabled)
+- `API_ENABLED` — master API switch (default: `false`; set `true` to opt into the REST API, which then requires `API_AUTH_MODE`)
 - `API_AUTH_MODE` — `bearer` or `jwks`; required when API enabled; no `none` mode
 - `API_TOKENS_PATH` — bearer token YAML file path (default: `/run/secrets/api-tokens.yaml`)
 - `API_JWKS_URL` — JWKS endpoint URL (jwks mode, required)

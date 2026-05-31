@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
 import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommender
 import io.github.jpicklyk.mcptask.current.application.service.NoOpActorVerifier
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
+import io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
@@ -53,6 +54,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.serviceRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.transitionRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.wellKnownRoutes
 import io.ktor.serialization.kotlinx.json.json
+import io.ktor.server.application.Application
 import io.ktor.server.application.install
 import io.ktor.server.cio.CIO
 import io.ktor.server.engine.embeddedServer
@@ -60,7 +62,6 @@ import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.plugins.cors.routing.CORS
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
-import io.ktor.server.sse.SSE
 import io.modelcontextprotocol.kotlin.sdk.server.Server
 import io.modelcontextprotocol.kotlin.sdk.server.ServerOptions
 import io.modelcontextprotocol.kotlin.sdk.server.StdioServerTransport
@@ -159,29 +160,8 @@ class CurrentMcpServer(
                 if (apiWiring.eventBus != null) "enabled — writes publish to SSE bus" else "disabled — raw provider"
             )
 
-            // Build tool list
-            val tools =
-                listOf(
-                    // Phase 1: CRUD
-                    ManageItemsTool(),
-                    QueryItemsTool(),
-                    ManageNotesTool(),
-                    QueryNotesTool(),
-                    // Phase 2: Dependencies
-                    ManageDependenciesTool(),
-                    QueryDependenciesTool(),
-                    // Phase 2: Workflow
-                    AdvanceItemTool(),
-                    ClaimItemTool(),
-                    GetNextStatusTool(),
-                    GetNextItemTool(),
-                    GetBlockedItemsTool(),
-                    // Phase 3: Compound operations
-                    CompleteTreeTool(),
-                    CreateWorkTreeTool(),
-                    // Phase 3: Context
-                    GetContextTool()
-                )
+            // Build tool list (shared with tests via buildMcpTools())
+            val tools = buildMcpTools()
 
             // Configure MCP server
             val serverName = System.getenv("MCP_SERVER_NAME") ?: "mcp-task-orchestrator-current"
@@ -428,76 +408,24 @@ class CurrentMcpServer(
         val done = Job()
         val ktorServer =
             embeddedServer(CIO, host = host, port = port) {
-                // 1. Install ContentNegotiation FIRST with McpJson.
-                //    The MCP SDK's installMcpContentNegotiation() is idempotent — when it finds CN
-                //    already installed it logs a warning and skips. By installing McpJson here, REST
-                //    routes benefit from the same JSON configuration (explicitNulls=false,
-                //    encodeDefaults=true). Both /mcp and /api/v1/* use the same Json instance.
-                install(ContentNegotiation) {
-                    json(McpJson)
-                }
-
-                // 2. CORS plugin — env-driven allowlist, locked-down default (empty = no cross-origin)
-                install(CORS) {
-                    configureCors()
-                }
-
-                // 3. SSE plugin — required by mcpStreamableHttp and future Phase 6 /events endpoint
-                install(SSE)
-
-                // 4. Mount /mcp — mcpStreamableHttp sees ContentNegotiation already installed
-                //    (logs warning "already installed" and skips its own CN install)
-                mcpStreamableHttp {
-                    server
-                }
-
-                // 5. Register REST routes when API is enabled
-                if (apiConfig !is ApiAuthConfig.Disabled) {
-                    routing {
-                        // Authenticated routes under /api/v1 — auth plugin enforces bearer/JWKS
-                        route("/api/v1") {
-                            install(ApiBearerAuth) {
-                                authConfig = apiConfig
-                                // Use pre-loaded token entries (already loaded for event bus wiring above)
-                                tokenEntries = apiTokenEntries
-                            }
-                            serviceRoutes(
-                                repositoryProvider = effectiveProvider,
-                                serverName = serverName,
-                                serverVersion = version,
-                                actorAuthEnabled = actorAuthEnabled,
-                            )
-                            // Phase 3: read API — items, notes, dependencies, transitions, search
-                            itemRoutes(effectiveProvider)
-                            noteRoutes(effectiveProvider)
-                            dependencyRoutes(effectiveProvider)
-                            transitionRoutes(effectiveProvider)
-                            searchRoutes(effectiveProvider)
-                            // Phase 4: config/schema-discovery + status-graph
-                            configRoutes(noteSchemaService)
-                            // Phase 5: write API — items, notes, dependencies, advance
-                            itemWriteRoutes(effectiveProvider, degradedModePolicy, idempotencyCache, noteSchemaService)
-                            noteWriteRoutes(effectiveProvider, degradedModePolicy, idempotencyCache)
-                            dependencyWriteRoutes(effectiveProvider, degradedModePolicy)
-                        }
-                        // Phase 6: real-time SSE event stream — registered OUTSIDE the ApiBearerAuth
-                        // block (as a sibling `route("/api/v1/events")`) so the ApiBearerAuth plugin
-                        // does NOT intercept it. The SSE route does its own inline pre-flight auth,
-                        // which additionally supports the opt-in `?token=` query-param path that
-                        // ApiBearerAuth (header-only) would reject before our handler runs.
-                        if (eventBus != null) {
-                            route("/api/v1") {
-                                eventRoutes(
-                                    eventBus = eventBus,
-                                    tokenEntries = apiTokenEntries,
-                                    allowQueryToken = allowQueryToken,
-                                )
-                            }
-                        }
-                        // Discovery endpoint — no auth, mounted at root
-                        wellKnownRoutes(serverName = serverName, serverVersion = version)
-                    }
-                }
+                // MCP transport (/mcp) + optional REST API (/api/v1) wiring is extracted into
+                // installMcpStreamableHttp() and installRestApiRoutes() so the SAME production code
+                // path is exercised by tests (see McpStreamableHttpTransportTest). The MCP mount must
+                // come first: mcpStreamableHttp installs the SSE plugin that the events route reuses.
+                installMcpStreamableHttp(server)
+                installRestApiRoutes(
+                    apiConfig = apiConfig,
+                    eventBus = eventBus,
+                    effectiveProvider = effectiveProvider,
+                    apiTokenEntries = apiTokenEntries,
+                    allowQueryToken = allowQueryToken,
+                    serverName = serverName,
+                    serverVersion = version,
+                    actorAuthEnabled = actorAuthEnabled,
+                    noteSchemaService = noteSchemaService,
+                    degradedModePolicy = degradedModePolicy,
+                    idempotencyCache = idempotencyCache,
+                )
             }
 
         shutdownCoordinator?.addCleanupAction("Stop HTTP Server") {
@@ -556,4 +484,129 @@ class CurrentMcpServer(
                 ),
             instructions = "Current (v3) MCP Task Orchestrator — $toolCount tools: $toolNames"
         )
+}
+
+/**
+ * Builds the canonical list of MCP tools registered with the server.
+ *
+ * Extracted from [CurrentMcpServer.run] so tests can register the exact same tool set the
+ * production server exposes (see McpStreamableHttpTransportTest), avoiding a hard-coded tool
+ * count or a drifting parallel list.
+ */
+internal fun buildMcpTools(): List<ToolDefinition> =
+    listOf(
+        // Phase 1: CRUD
+        ManageItemsTool(),
+        QueryItemsTool(),
+        ManageNotesTool(),
+        QueryNotesTool(),
+        // Phase 2: Dependencies
+        ManageDependenciesTool(),
+        QueryDependenciesTool(),
+        // Phase 2: Workflow
+        AdvanceItemTool(),
+        ClaimItemTool(),
+        GetNextStatusTool(),
+        GetNextItemTool(),
+        GetBlockedItemsTool(),
+        // Phase 3: Compound operations
+        CompleteTreeTool(),
+        CreateWorkTreeTool(),
+        // Phase 3: Context
+        GetContextTool(),
+    )
+
+/**
+ * Installs the MCP Streamable HTTP transport at `/mcp` plus the JSON + CORS plugins it shares with
+ * the REST API.
+ *
+ * **Plugin-ordering contract (do not reorder):**
+ * 1. [ContentNegotiation] with `McpJson` is installed first so both `/mcp` and the `/api/v1` routes
+ *    use the same JSON config (`explicitNulls=false`, `encodeDefaults=true`). `mcpStreamableHttp` detects CN
+ *    is already installed and skips its own (logging a benign "already installed" warning).
+ * 2. [CORS] — env-driven allowlist, locked-down default (empty = no cross-origin).
+ * 3. [mcpStreamableHttp] mounts `/mcp` and **installs the Ktor `SSE` plugin itself** (SDK 0.12.0).
+ *    Therefore callers MUST NOT `install(SSE)` separately: a second install throws
+ *    `DuplicatePluginException` at startup and the HTTP server never comes up. The SSE plugin
+ *    installed here is reused by the `/api/v1/events` route in [installRestApiRoutes].
+ *
+ * Extracted from [CurrentMcpServer.runHttpTransport] so the exact production wiring is testable.
+ */
+internal fun Application.installMcpStreamableHttp(server: Server) {
+    install(ContentNegotiation) {
+        json(McpJson)
+    }
+    install(CORS) {
+        configureCors()
+    }
+    mcpStreamableHttp {
+        server
+    }
+}
+
+/**
+ * Registers the REST API routes under `/api/v1` when the API is enabled. No-op when
+ * [apiConfig] is [ApiAuthConfig.Disabled] (default-off) — `/mcp` still works without these routes.
+ *
+ * Must be called AFTER [installMcpStreamableHttp]: the SSE-backed `/api/v1/events` stream relies on
+ * the SSE plugin that `mcpStreamableHttp` installed.
+ */
+internal fun Application.installRestApiRoutes(
+    apiConfig: ApiAuthConfig,
+    eventBus: ApiEventBus?,
+    effectiveProvider: RepositoryProvider,
+    apiTokenEntries: Map<HashBytes, BearerTokenStore.TokenEntry>,
+    allowQueryToken: Boolean,
+    serverName: String,
+    serverVersion: String,
+    actorAuthEnabled: Boolean,
+    noteSchemaService: WorkItemSchemaService,
+    degradedModePolicy: DegradedModePolicy,
+    idempotencyCache: IdempotencyCache,
+) {
+    if (apiConfig is ApiAuthConfig.Disabled) return
+
+    routing {
+        // Authenticated routes under /api/v1 — auth plugin enforces bearer/JWKS
+        route("/api/v1") {
+            install(ApiBearerAuth) {
+                authConfig = apiConfig
+                // Use pre-loaded token entries (already loaded for event bus wiring at startup)
+                tokenEntries = apiTokenEntries
+            }
+            serviceRoutes(
+                repositoryProvider = effectiveProvider,
+                serverName = serverName,
+                serverVersion = serverVersion,
+                actorAuthEnabled = actorAuthEnabled,
+            )
+            // Phase 3: read API — items, notes, dependencies, transitions, search
+            itemRoutes(effectiveProvider)
+            noteRoutes(effectiveProvider)
+            dependencyRoutes(effectiveProvider)
+            transitionRoutes(effectiveProvider)
+            searchRoutes(effectiveProvider)
+            // Phase 4: config/schema-discovery + status-graph
+            configRoutes(noteSchemaService)
+            // Phase 5: write API — items, notes, dependencies, advance
+            itemWriteRoutes(effectiveProvider, degradedModePolicy, idempotencyCache, noteSchemaService)
+            noteWriteRoutes(effectiveProvider, degradedModePolicy, idempotencyCache)
+            dependencyWriteRoutes(effectiveProvider, degradedModePolicy)
+        }
+        // Phase 6: real-time SSE event stream — registered OUTSIDE the ApiBearerAuth block (as a
+        // sibling `route("/api/v1/events")`) so the ApiBearerAuth plugin does NOT intercept it. The
+        // SSE route does its own inline pre-flight auth, which additionally supports the opt-in
+        // `?token=` query-param path that ApiBearerAuth (header-only) would reject before our handler.
+        if (eventBus != null) {
+            route("/api/v1") {
+                eventRoutes(
+                    eventBus = eventBus,
+                    tokenEntries = apiTokenEntries,
+                    allowQueryToken = allowQueryToken,
+                )
+            }
+        }
+        // Discovery endpoint — no auth, mounted at root
+        wellKnownRoutes(serverName = serverName, serverVersion = serverVersion)
+    }
 }
