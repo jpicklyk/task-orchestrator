@@ -134,9 +134,10 @@ docker run --rm -i -v <DATA_VOLUME>:/app/data <image-tag>
 
 #### If HTTP transport selected
 
-> **Note:** HTTP transport requires the MCP Kotlin SDK to support protocol version `2025-11-25`.
-> As of SDK 0.8.4, only `2025-06-18` is supported — Claude Code will show the server as failed.
-> Use HTTP mode for testing or when the SDK is updated.
+> **Note:** HTTP (Streamable HTTP) transport works with the bundled MCP Kotlin SDK (0.12.0). The
+> MCP endpoint is served at `/mcp`. The REST API is off by default (`API_ENABLED=false`); leave it
+> off for an MCP-only HTTP server, or set `API_ENABLED=true` + `API_AUTH_MODE` to enable it.
+> Origin validation is enforced (cross-origin requests get 403), so bind to loopback when local.
 
 Ask which run configuration to use:
 
@@ -173,15 +174,20 @@ docker rm mcp-task-orchestrator-http 2>/dev/null || true
 ```bash
 docker run -d \
   --name mcp-task-orchestrator-http \
+  --restart unless-stopped \
   -v <DATA_VOLUME>:/app/data \
   -v "$(pwd)"/.taskorchestrator:/project/.taskorchestrator:ro \
   -e AGENT_CONFIG_DIR=/project \
   -e MCP_TRANSPORT=http \
   -e MCP_HTTP_HOST=0.0.0.0 \
   -e MCP_HTTP_PORT=3001 \
-  -p 3001:3001 \
+  -e API_ENABLED=false \
+  -p 127.0.0.1:3001:3001 \
   <image-tag>
 ```
+> `MCP_HTTP_HOST=0.0.0.0` is the container's internal bind; `-p 127.0.0.1:3001:3001` publishes it to
+> the host on loopback only (per the Streamable HTTP localhost-binding recommendation). Use
+> `-p 3001:3001` only when you intentionally need access from other hosts.
 
 **"With Debug Logging"**
 ```bash
@@ -193,9 +199,10 @@ docker run -d \
   -e MCP_TRANSPORT=http \
   -e MCP_HTTP_HOST=0.0.0.0 \
   -e MCP_HTTP_PORT=3001 \
+  -e API_ENABLED=false \
   -e LOG_LEVEL=DEBUG \
   -e DATABASE_SHOW_SQL=true \
-  -p 3001:3001 \
+  -p 127.0.0.1:3001:3001 \
   <image-tag>
 ```
 
@@ -229,7 +236,7 @@ Report:
 - **Database persistence:** Volume `mcp-task-data` persists across container runs
 - **Config access:** Project mount modes mount the project for `.taskorchestrator/config.yaml` access
 - **STDIO transport:** Uses stdin/stdout, no port mapping needed; started with `-i` flag
-- **HTTP transport:** Runs detached (`-d`), exposes port 3001, named `mcp-task-orchestrator-http`; requires SDK protocol `2025-11-25` support (SDK 0.8.4 = `2025-06-18` only)
+- **HTTP transport:** Runs detached (`-d`), serves the MCP endpoint at `/mcp`, named `mcp-task-orchestrator-http`; publish on `127.0.0.1:3001` (loopback) by default. Works with the bundled SDK (0.12.0). The REST API stays off unless `API_ENABLED=true` + `API_AUTH_MODE` are set.
 
 ## Troubleshooting
 
