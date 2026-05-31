@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Stock deployment crashed on startup.** With `API_ENABLED` defaulting to `true`, the REST API
   config loaded in every mode and hard-required `API_AUTH_MODE` — so the default stdio container
   (no `API_*` vars) and naive MCP-over-HTTP both failed with `API_AUTH_MODE is required`.
+- **Enabling the REST API gated the `/mcp` endpoint behind bearer auth.** `ApiBearerAuth` is an
+  application-level plugin that intercepts every request, so with `API_ENABLED=true` the MCP
+  Streamable HTTP endpoint returned `401` to clients that send no REST token — breaking
+  MCP-over-HTTP whenever the REST API was also enabled (contradicting the documented "both on one
+  port" behavior). `/mcp` is now exempted via the auth plugin's public-path bypass.
 
 ### Changed
 
