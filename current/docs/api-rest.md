@@ -76,6 +76,20 @@ tokens:
 - `expires_at` — optional token expiry; expired tokens are rejected at lookup time
 - Token rotation requires a server restart (tokens are loaded once at startup).
 
+**Generating `token_sha256`** — the digest must cover the token's exact bytes with **no trailing newline**:
+
+```bash
+# macOS / Linux / Git Bash
+printf '%s' "$TOKEN" | openssl dgst -sha256 | awk '{print $NF}'
+```
+```powershell
+# Windows PowerShell
+([System.BitConverter]::ToString([System.Security.Cryptography.SHA256]::Create().ComputeHash(
+  [System.Text.Encoding]::UTF8.GetBytes($token))) -replace '-','').ToLower()
+```
+
+> Do **not** use `openssl dgst -sha256 <<< "$TOKEN"` or `echo "$TOKEN" | …` — `<<<` and `echo` append a newline, so the digest won't match the token sent in requests (every call returns `401`). See the [quick-start REST API walkthrough](quick-start.md) for the full token-generation flow.
+
 ### JWKS Mode (`API_AUTH_MODE=jwks`)
 
 Present a JWT in the `Authorization: Bearer` header. The server validates the JWT against the JWKS endpoint configured by `API_JWKS_URL`. Claims extracted: `iss`, `aud`, `sub`, `exp`, `nbf`.
