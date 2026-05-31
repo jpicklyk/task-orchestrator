@@ -396,7 +396,32 @@ After adding or editing this file, reconnect the MCP server:
 
 ---
 
-## Step 9: Enabling the REST API (optional)
+## Step 9: Running MCP over HTTP (optional)
+
+By default the server speaks the **stdio** transport (Step 2). To serve MCP over **HTTP** instead — for remote clients, container-to-container access, or a shared long-running server — set `MCP_TRANSPORT=http`. The MCP endpoint is mounted at `/mcp` using the Streamable HTTP transport.
+
+```bash
+docker run --rm -p 3001:3001 \
+  -v mcp-task-data:/app/data \
+  -v "$(pwd)/.taskorchestrator:/project/.taskorchestrator:ro" \
+  -e MCP_TRANSPORT=http \
+  -e MCP_HTTP_PORT=3001 \
+  -e AGENT_CONFIG_DIR=/project \
+  -e API_ENABLED=false \
+  ghcr.io/jpicklyk/task-orchestrator:latest
+```
+
+Point your MCP client at `http://localhost:3001/mcp`.
+
+> **`API_ENABLED=false` is required for MCP-only HTTP.** The REST API (Step 10) is a separate opt-in layer that *hard-requires* an auth mode — leaving the API enabled without `API_AUTH_MODE` is a fatal startup error. Set `API_ENABLED=false` when you want the MCP transport over HTTP without the REST surface.
+
+> **Schema config works identically over HTTP.** `.taskorchestrator/config.yaml` is loaded via `AGENT_CONFIG_DIR` regardless of transport — the `-v ...:/project/.taskorchestrator:ro` mount above gives the HTTP server the same schemas it would have over stdio. (An HTTP server resolves a single project's config; run one server per project.)
+
+The `docker compose --profile http up` service in `docker-compose.yml` is pre-configured this way.
+
+---
+
+## Step 10: Enabling the REST API (optional)
 
 The REST API layer provides HTTP endpoints for dashboards, CI systems, and operators who want to read or write work items without an MCP client.
 
