@@ -460,57 +460,130 @@ The Streamable HTTP transport follows the [MCP transport security requirements](
 
 ## Step 10: Enabling the REST API (optional)
 
-The REST API layer provides HTTP endpoints for dashboards, CI systems, and operators who want to read or write work items without an MCP client.
+The REST API adds HTTP endpoints under `/api/v1` for dashboards, CI systems, and operators who want to read or write work items without an MCP client. It runs on the **same** HTTP server as the MCP transport (Step 9) — `/mcp` keeps serving MCP clients while `/api/v1/*` serves REST. So you enable it on top of an `MCP_TRANSPORT=http` container.
 
-**Docker — bearer mode:**
+The API is **off by default**, and when enabled it **always requires authentication** (there is no unauthenticated mode). This walkthrough uses **bearer-token** auth — the simplest option for local use. For JWT/JWKS, see [api-rest.md](api-rest.md).
+
+> **You never store your plaintext token.** The server only keeps its **SHA-256 hash**. You generate a token once, keep the plaintext somewhere safe (e.g. a password manager), and put only the hash in `api-tokens.yaml`. You send the plaintext in each request.
+
+### 1. Generate a token and its hash
+
+Run the snippet for your platform. It prints a random **token** (you send this in requests) and its **SHA-256 hash** (this goes in the file).
+
+**macOS / Linux / Git Bash:**
 
 ```bash
-docker run --rm -p 3001:3001 \
+TOKEN=$(openssl rand -hex 32)
+printf 'TOKEN   (save this securely): %s\n' "$TOKEN"
+printf 'SHA-256 (paste into the yaml): %s\n' "$(printf '%s' "$TOKEN" | openssl dgst -sha256 | awk '{print $NF}')"
+```
+
+**Windows (PowerShell):**
+
+```powershell
+$bytes = New-Object 'System.Byte[]' 32
+[System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
+$token = ([System.BitConverter]::ToString($bytes) -replace '-','').ToLower()
+$hash  = ([System.BitConverter]::ToString(
+  [System.Security.Cryptography.SHA256]::Create().ComputeHash(
+    [System.Text.Encoding]::UTF8.GetBytes($token))) -replace '-','').ToLower()
+"TOKEN   (save this securely): $token"
+"SHA-256 (paste into the yaml): $hash"
+```
+
+> **Hashing gotcha (the #1 cause of `401`s):** the hash must cover the token's **exact bytes with no trailing newline**. The commands above are correct. Do **not** use `openssl dgst -sha256 <<< "token"` or `echo "token" | openssl dgst -sha256` — `<<<` and `echo` append a newline, producing a hash that never matches.
+
+### 2. Create the token file
+
+Save a file named `api-tokens.yaml` containing the **hash** (not the token):
+
+```yaml
+version: 1
+tokens:
+  - id: local-dev
+    description: "Local developer token"
+    token_sha256: "PASTE_THE_SHA256_FROM_STEP_1_HERE"
+    capabilities:
+      - read
+      - write-items
+      - write-notes
+      - advance
+      - manage-dependencies
+```
+
+`capabilities` controls what the token may do. Valid values: `read`, `write-items`, `write-notes`, `advance`, `manage-dependencies`, `admin`. For a read-only dashboard token use just `- read`. (`admin` additionally exposes actor/verification attribution fields — omit it unless you need that.)
+
+### 3. Start the server with the API enabled
+
+This mounts your token file into the container and turns the API on. Run it from the folder where you saved `api-tokens.yaml`.
+
+**macOS / Linux / Git Bash:**
+
+```bash
+docker run -d --name task-orchestrator-http --restart unless-stopped \
+  -p 127.0.0.1:3001:3001 \
   -v mcp-task-data:/app/data \
+  -v "$(pwd)/api-tokens.yaml:/run/secrets/api-tokens.yaml:ro" \
   -e MCP_TRANSPORT=http \
   -e MCP_HTTP_PORT=3001 \
   -e API_ENABLED=true \
   -e API_AUTH_MODE=bearer \
   -e API_TOKENS_PATH=/run/secrets/api-tokens.yaml \
-  -v "$(pwd)/api-tokens.yaml:/run/secrets/api-tokens.yaml:ro" \
   ghcr.io/jpicklyk/task-orchestrator:latest
 ```
 
-**Create a minimal token file (`api-tokens.yaml`):**
+**Windows (PowerShell):**
 
-```yaml
-version: 1
-tokens:
-  - id: my-read-token
-    description: "Read-only access"
-    # SHA-256 hex of your plaintext token (openssl dgst -sha256 -hex <<< "mytoken")
-    token_sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-    capabilities:
-      - read
+```powershell
+docker run -d --name task-orchestrator-http --restart unless-stopped `
+  -p 127.0.0.1:3001:3001 `
+  -v mcp-task-data:/app/data `
+  -v "${PWD}\api-tokens.yaml:/run/secrets/api-tokens.yaml:ro" `
+  -e MCP_TRANSPORT=http `
+  -e MCP_HTTP_PORT=3001 `
+  -e API_ENABLED=true `
+  -e API_AUTH_MODE=bearer `
+  -e API_TOKENS_PATH=/run/secrets/api-tokens.yaml `
+  ghcr.io/jpicklyk/task-orchestrator:latest
 ```
 
-**Read an endpoint with the bearer token:**
+What the key flags do:
+
+- `-p 127.0.0.1:3001:3001` — publishes the server on your machine's **loopback only**, not the wider network. Use `-p 3001:3001` only if other machines must reach it.
+- `-v "<host>/api-tokens.yaml:/run/secrets/api-tokens.yaml:ro"` — mounts your token file read-only where `API_TOKENS_PATH` points. The **left** side is the host path (`$(pwd)` / `${PWD}` expands to an absolute path for you); the **right** side is the in-container path.
+- `-e API_ENABLED=true -e API_AUTH_MODE=bearer` — turns the REST API on in bearer mode.
+- **Docker Desktop:** the folder holding `api-tokens.yaml` must be allowed under **Settings → Resources → File sharing** (your home/project directory is shared by default).
+- **Schema config (optional):** to also load note schemas from `.taskorchestrator/config.yaml`, add `-v "$(pwd)/.taskorchestrator:/project/.taskorchestrator:ro"` and `-e AGENT_CONFIG_DIR=/project` (as in Step 9). The REST API works without it (schema-free).
+
+If the API is enabled but the token file is missing, empty, or malformed, the server **exits on startup** — check `docker logs task-orchestrator-http`.
+
+### 4. Test it
 
 ```bash
-curl -H "Authorization: Bearer mytoken" \
-     http://localhost:3001/api/v1/items?role=work
-
-# Check server health (no auth required)
+# Health — no auth required
 curl http://localhost:3001/api/v1/health
-```
 
-**Write an item:**
+# Read items — send your PLAINTEXT token from step 1 as the bearer
+curl -H "Authorization: Bearer YOUR_PLAINTEXT_TOKEN" \
+     http://localhost:3001/api/v1/items
 
-```bash
+# Create an item (requires the write-items capability)
 curl -X POST http://localhost:3001/api/v1/items \
-  -H "Authorization: Bearer mytoken" \
+  -H "Authorization: Bearer YOUR_PLAINTEXT_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"title": "New task from REST API", "priority": "HIGH"}'
+  -d '{"title": "New task from REST API", "priority": "high"}'
 ```
 
-The REST API runs on the same port as HTTP-transport MCP (`MCP_HTTP_PORT`). The MCP transport uses `/mcp`; the REST API uses `/api/v1`. Both are available on the same port when `MCP_TRANSPORT=http`.
+Expected: `/api/v1/health` → `200`; the authenticated calls **without** the header → `401`; a `read`-only token on the POST → `403`.
 
-See [api-rest.md](api-rest.md) for full endpoint documentation, DTOs, merge-patch semantics, ETag/idempotency, SSE, and the complete env var reference.
+### Notes & troubleshooting
+
+- **`401` on every authenticated call** almost always means the hash in `api-tokens.yaml` doesn't match your token — re-run step 1 (usually the trailing-newline gotcha).
+- **The `/mcp` endpoint stays open** even with the API enabled (MCP clients don't send the REST token). Keep the server on a trusted boundary — the `127.0.0.1` binding above does this.
+- **Rotating a token:** generate a new one (step 1), replace `token_sha256`, then restart the container (`docker restart task-orchestrator-http`). Tokens are read once at startup.
+- **Docker Compose alternative:** the `http` profile in `docker-compose.yml` runs an MCP-only HTTP server; to enable the REST API there, add the same `API_ENABLED`/`API_AUTH_MODE`/`API_TOKENS_PATH` env vars and the `api-tokens.yaml` mount to that service.
+
+See [api-rest.md](api-rest.md) for full endpoint documentation, capabilities and scopes, JWKS mode, DTOs, merge-patch semantics, ETag/idempotency, SSE, and the complete env-var reference.
 
 ---
 
