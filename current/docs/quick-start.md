@@ -23,6 +23,8 @@ The image is published to GitHub Container Registry. The `latest` tag always poi
 
 ## Step 2: Add to Claude Code
 
+> **Choosing a transport — read this before registering.** This guide sets up the **stdio** transport (Steps 2–3), which is the right choice for most local Claude Code users: the server runs on demand, one process per project, with no ports to manage. If you instead need **HTTP** — for remote clients, container-to-container access, or a single shared long-running server — the registration is different. Skip ahead to [Step 9: Running MCP over HTTP](#step-9-running-mcp-over-http-optional) and register that endpoint *instead of* the stdio one below; Steps 4–8 (plugin, workflow, schemas) then apply unchanged. Step 1 (pulling the image) is shared by both transports. You can switch later by re-registering.
+
 ### Option A: CLI (recommended)
 
 Run this once in your terminal:
