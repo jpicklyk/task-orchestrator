@@ -5,43 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
-### Fixed
-
-- **HTTP transport (`MCP_TRANSPORT=http`) crashed on startup.** MCP SDK 0.12.0 made
-  `mcpStreamableHttp` install the Ktor `SSE` plugin itself, colliding with an explicit
-  `install(SSE)` (`DuplicatePluginException`). The server never started in HTTP mode, regardless of
-  API config. Removed the redundant `install(SSE)`.
-- **Stock deployment crashed on startup.** With `API_ENABLED` defaulting to `true`, the REST API
-  config loaded in every mode and hard-required `API_AUTH_MODE` — so the default stdio container
-  (no `API_*` vars) and naive MCP-over-HTTP both failed with `API_AUTH_MODE is required`.
-- **Enabling the REST API gated the `/mcp` endpoint behind bearer auth.** `ApiBearerAuth` is an
-  application-level plugin that intercepts every request, so with `API_ENABLED=true` the MCP
-  Streamable HTTP endpoint returned `401` to clients that send no REST token — breaking
-  MCP-over-HTTP whenever the REST API was also enabled (contradicting the documented "both on one
-  port" behavior). `/mcp` is now exempted via the auth plugin's public-path bypass.
-
-### Changed
-
-- **`API_ENABLED` now defaults to `false` (default-off).** The REST API is opt-in: set
-  `API_ENABLED=true` (plus `API_AUTH_MODE`) to enable it. An unset `API_ENABLED` resolves to
-  `ApiAuthConfig.Disabled`, so the stock container boots cleanly with no API configuration. (Refines
-  the still-unreleased REST API layer; not a breaking change.)
-- **`docker-compose.yml` `http` profile** now publishes on `127.0.0.1:3001` (loopback) and sets
-  `API_ENABLED=false`, per the Streamable HTTP transport's localhost-binding recommendation.
+## [3.9.0] - 2026-06-01
 
 ### Added
 
-- **MCP-over-HTTP setup documentation.** `quick-start.md` documents the MCP-only HTTP path
-  (`MCP_TRANSPORT=http`, `/mcp` endpoint), client registration (`claude mcp add --transport http`
-  and `.mcp.json`), an HTTP env-var reference, and HTTP transport security guidance (Origin
-  validation, loopback binding, unauthenticated `/mcp`).
-- **HTTP transport tests.** `McpStreamableHttpTransportTest` drives the real `mcpStreamableHttp`
-  module over Ktor — initialize → tools/list → tools/call across all 14 tools — and asserts
-  cross-origin requests are rejected with `403` (DNS-rebinding protection). The HTTP module wiring
-  is extracted into `installMcpStreamableHttp`/`installRestApiRoutes` so the production path is
-  directly testable.
+- **REST API layer (opt-in).** New authenticated HTTP API under `/api/v1` for reading and
+  writing the work-item graph without an MCP client — items, notes, dependencies, role
+  transitions, config/schema discovery, FTS5 search, and a real-time SSE event stream. Enable
+  with `API_ENABLED=true` and `API_AUTH_MODE` (`bearer` static tokens or `jwks` JWTs). Includes
+  capability- and scope-based authorization, ETag optimistic concurrency, and idempotency keys.
+- **MCP over HTTP (Streamable HTTP transport).** Set `MCP_TRANSPORT=http` to serve the MCP
+  endpoint at `/mcp` (protocol `2025-11-25`), on its own or alongside the REST API on the same
+  port. Validates the `Origin` header (DNS-rebinding protection) and binds to loopback by default.
+- **HTTP setup guides.** Step-by-step quick-start sections for running MCP over HTTP and for
+  enabling the REST API with a bearer token, with verified macOS/Linux and Windows commands.
+
+### Changed
+
+- **The REST API is off by default.** `API_ENABLED` defaults to `false`, so the stock container
+  (stdio or MCP-over-HTTP) starts with no API configuration; enable the API explicitly with
+  `API_ENABLED=true` (which then requires `API_AUTH_MODE`).
 
 ## [3.8.0] - 2026-05-22 (Plugin v3.2.2)
 
