@@ -95,7 +95,7 @@ components:
           nullable: true
         priority:
           type: string
-          enum: [HIGH, MEDIUM, LOW, CRITICAL, BACKLOG]
+          enum: [high, medium, low]
         complexity:
           type: integer
           nullable: true
@@ -190,7 +190,7 @@ components:
       properties:
         status:
           type: string
-          enum: [unverified, verified, unavailable, unchecked]
+          enum: [absent, unchecked, verified, rejected, unavailable]
         verifier:
           type: string
           nullable: true
@@ -258,7 +258,7 @@ components:
           format: uuid
         type:
           type: string
-          enum: [blocks, relates_to]
+          enum: [blocks, is_blocked_by, relates_to]
         unblockAt:
           type: string
           nullable: true
@@ -278,7 +278,7 @@ components:
           type: string
         type:
           type: string
-          enum: [blocks, relates_to]
+          enum: [blocks, is_blocked_by, relates_to]
 
     ErrorDto:
       type: object
@@ -381,7 +381,7 @@ components:
           format: uuid
         type:
           type: string
-          enum: [blocks, relates_to]
+          enum: [blocks, is_blocked_by, relates_to]
         unblockAt:
           type: string
           nullable: true

@@ -292,7 +292,7 @@ When `canAdvance: true`, calling `advance_item(trigger="start")` will succeed.
 ### Reading Existing Notes
 
 ```json
-manage_notes(operation="list", itemId="abc-123")
+query_notes(operation="list", itemId="abc-123")
 ```
 
 ---
@@ -685,7 +685,7 @@ The response echoes the actor claim and includes a verification record:
 ```json
 {
   "actor": { "id": "impl-agent", "kind": "subagent", "parent": "orchestrator-1" },
-  "verification": { "status": "unverified", "verifier": "noop" }
+  "verification": { "status": "unchecked", "verifier": "noop" }
 }
 ```
 
