@@ -855,7 +855,8 @@ class RoleTransitionHandlerTest {
                 coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
                 coEvery { roleTransitionRepo.create(any()) } returns
                     io.github.jpicklyk.mcptask.current.domain.repository.Result.Error(
-                        io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError.DatabaseError("DB write failed")
+                        io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
+                            .DatabaseError("DB write failed")
                     )
 
                 val result =
@@ -904,8 +905,11 @@ class RoleTransitionHandlerTest {
                 assertTrue(result.success)
                 val resultItem = assertNotNull(result.item)
                 // The item's roleChangedAt must exactly match the DB-clock value we passed in
-                assertEquals(fixedTimestamp, resultItem.roleChangedAt,
-                    "roleChangedAt must reflect the DB-clock value passed to applyTransition")
+                assertEquals(
+                    fixedTimestamp,
+                    resultItem.roleChangedAt,
+                    "roleChangedAt must reflect the DB-clock value passed to applyTransition"
+                )
             }
 
         @Test

@@ -806,5 +806,7 @@ class RoleTransitionHandler {
      * two atomic writes fails. Caught and discarded by the [applyTransition] wrapper;
      * never surfaced to callers.
      */
-    private class AtomicTransitionException(message: String) : Exception(message)
+    private class AtomicTransitionException(
+        message: String
+    ) : Exception(message)
 }
