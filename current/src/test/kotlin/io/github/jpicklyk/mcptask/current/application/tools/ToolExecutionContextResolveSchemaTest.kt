@@ -384,7 +384,7 @@ class ToolExecutionContextResolveSchemaTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `resolveSchema preserves lifecycleMode and defaultTraits when no individual tag matches but default WorkItemSchema exists (bug 5 regression)`() {
+    fun `resolveSchema preserves lifecycleMode and defaultTraits on default fallback (bug 5 regression)`() {
         // Scenario: item has tags ["bug","tools-layer"], no type set.
         // No individual tag matches a schema.
         // getSchemaForTags(["bug","tools-layer"]) falls back to default entries.
@@ -423,7 +423,7 @@ class ToolExecutionContextResolveSchemaTest {
     }
 
     @Test
-    fun `resolveSchema uses captured tagNotes when no individual tag matches and getSchemaForType returns null (bug 5 graceful fallback)`() {
+    fun `resolveSchema uses captured tagNotes when getSchemaForType returns null (bug 5 graceful fallback)`() {
         // Scenario: item has multiple tags, none individually match a schema,
         // getSchemaForTags(fullList) returns default notes (default fallback inside the service),
         // but getSchemaForType("default") returns null (default not defined as a full WorkItemSchema).
