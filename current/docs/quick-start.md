@@ -452,11 +452,13 @@ The `docker compose --profile http up` service in `docker-compose.yml` is pre-co
 
 ### HTTP transport security
 
+> ⚠️ **SECURITY: `/mcp` over HTTP is UNAUTHENTICATED.** The Streamable HTTP transport has **no built-in authentication**. Anyone who can reach `MCP_HTTP_HOST:MCP_HTTP_PORT` gets **full read / write / delete** access to every MCP tool. Enabling the REST API (Step 10) does **not** protect `/mcp` — REST bearer/JWKS auth gates `/api/v1/*` only; `/mcp` stays open by design so MCP clients (which send no REST token) can still connect. The server logs a loud `SECURITY:` warning at startup whenever `MCP_TRANSPORT=http`. **Never expose this port to untrusted callers** — front it with an authenticating reverse proxy / mTLS, or keep it on a private network or loopback.
+
 The Streamable HTTP transport follows the [MCP transport security requirements](https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#security-warning):
 
 - **Origin validation is enforced.** The server validates the `Origin` header and rejects cross-origin browser requests with `403 Forbidden` (DNS-rebinding protection). Non-browser MCP clients (Claude Code and other CLI agents) send no `Origin` and are unaffected.
-- **Bind to loopback when running locally.** The examples above publish the port as `127.0.0.1:3001:3001` so it is reachable only from the local host. Use `-p 3001:3001` (or set `MCP_HTTP_HOST`) only when you intentionally need access from other hosts.
-- **The `/mcp` endpoint is unauthenticated.** Unlike the REST API (Step 10, which requires bearer/JWKS auth), the MCP transport has no built-in authentication. Keep it on a trusted network boundary, or front it with an authenticating reverse proxy, before exposing it to untrusted callers.
+- **Bind to loopback when running locally.** For a direct (non-Docker) JAR run, set `MCP_HTTP_HOST=127.0.0.1` so the server binds loopback only. The default is `0.0.0.0` because Docker port-mapping requires the server to bind all interfaces *inside* the container — control host exposure via the `-p` mapping instead (the examples above publish as `127.0.0.1:3001:3001` so the port is reachable only from the local host). Use `-p 3001:3001` only when you intentionally need access from other hosts, and only behind a reverse proxy / mTLS.
+- **The `/mcp` endpoint is unauthenticated** (see the warning above). Keep it on a trusted network boundary, or front it with an authenticating reverse proxy, before exposing it to untrusted callers.
 
 ---
 
