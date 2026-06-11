@@ -65,14 +65,17 @@ fun buildH2RepositoryProviderScoped(): DefaultRepositoryProvider = buildH2Reposi
 
 /**
  * Returns a [ApiAuthConfig.Bearer] with two principals:
- * - [TEST_TOKEN] → `read` capability, unrestricted scope
+ * - [TEST_TOKEN] → `read` capability, unrestricted scope (optionally scoped by [scopeRootIds] and/or [tagsInclude])
  * - [ADMIN_TOKEN] → `admin` + `read` capabilities, unrestricted scope
  */
-fun makeTestAuthConfig(scopeRootIds: Set<UUID>? = null): ApiAuthConfig.Bearer {
+fun makeTestAuthConfig(
+    scopeRootIds: Set<UUID>? = null,
+    tagsInclude: Set<String> = emptySet(),
+): ApiAuthConfig.Bearer {
     val readPrincipal =
         ApiPrincipal(
             tokenId = TEST_TOKEN_ID,
-            scope = ApiScope(rootIds = scopeRootIds, tagsInclude = emptySet()),
+            scope = ApiScope(rootIds = scopeRootIds, tagsInclude = tagsInclude),
             capabilities = setOf(ApiCapability.READ),
             authMode = ApiAuthMode.BEARER,
         )

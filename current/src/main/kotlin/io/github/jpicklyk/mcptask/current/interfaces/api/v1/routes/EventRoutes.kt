@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipal
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.JwksApiVerifier
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEvent
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventBus
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventType
@@ -53,6 +54,13 @@ private val SseTokenExpiryKey: AttributeKey<Instant> = AttributeKey("SseTokenExp
 private class SseInlineAuthConfig {
     var tokenEntries: Map<HashBytes, BearerTokenStore.TokenEntry> = emptyMap()
     var allowQueryToken: Boolean = false
+
+    /**
+     * REST JWT verifier for jwks mode. When set, a presented token that is not found among
+     * [tokenEntries] (bearer mode is empty in jwks mode) is validated as a JWT. Null in bearer
+     * and disabled modes.
+     */
+    var jwksVerifier: JwksApiVerifier? = null
 }
 
 /**
@@ -74,6 +82,7 @@ private val sseInlineAuthPlugin =
     ) {
         val tokenEntries = pluginConfig.tokenEntries
         val allowQueryToken = pluginConfig.allowQueryToken
+        val jwksVerifier = pluginConfig.jwksVerifier
 
         onCall { call ->
             // Resolution order: Authorization header → (opt-in) ?token= query param → 401.
@@ -100,9 +109,38 @@ private val sseInlineAuthPlugin =
                 return@onCall
             }
 
+            // Resolve the principal. Bearer mode: SHA-256 lookup against pre-loaded token entries
+            // (carries an explicit expiry → drives the periodic expiry watchdog). JWKS mode:
+            // tokenEntries is empty, so the lookup misses and we fall through to the JWT verifier.
+            // The verifier enforces `exp` at verify time, so no separate expiry watchdog is needed
+            // (expiry stays null and the periodic check is skipped).
             val digest = sha256Bytes(rawToken)
             val entry = tokenEntries[HashBytes(digest)]
-            if (entry == null) {
+
+            val principal: ApiPrincipal?
+            val expiry: Instant?
+            if (entry != null) {
+                principal = entry.principal
+                expiry = entry.expiresAt
+                if (expiry != null && Instant.now().isAfter(expiry)) {
+                    call.response.header("WWW-Authenticate", "Bearer error=\"invalid_token\"")
+                    call.respond(
+                        HttpStatusCode.Unauthorized,
+                        mapOf("error" to "invalid_token", "error_description" to "Token has expired"),
+                    )
+                    return@onCall
+                }
+            } else if (jwksVerifier != null) {
+                // JWKS mode — validate the token as a JWT. verify() enforces exp/nbf/iss/aud and
+                // returns null on any failure. Expiry is enforced inside verify(), so no watchdog.
+                principal = jwksVerifier.verify(rawToken)
+                expiry = null
+            } else {
+                principal = null
+                expiry = null
+            }
+
+            if (principal == null) {
                 call.response.header("WWW-Authenticate", "Bearer error=\"invalid_token\"")
                 call.respond(
                     HttpStatusCode.Unauthorized,
@@ -111,7 +149,6 @@ private val sseInlineAuthPlugin =
                 return@onCall
             }
 
-            val principal = entry.principal
             if (!principal.capabilities.contains(ApiCapability.READ) &&
                 !principal.capabilities.contains(ApiCapability.ADMIN)
             ) {
@@ -121,16 +158,6 @@ private val sseInlineAuthPlugin =
                         "error" to "insufficient_scope",
                         "error_description" to "Token does not have read capability",
                     ),
-                )
-                return@onCall
-            }
-
-            val expiry = entry.expiresAt
-            if (expiry != null && Instant.now().isAfter(expiry)) {
-                call.response.header("WWW-Authenticate", "Bearer error=\"invalid_token\"")
-                call.respond(
-                    HttpStatusCode.Unauthorized,
-                    mapOf("error" to "invalid_token", "error_description" to "Token has expired"),
                 )
                 return@onCall
             }
@@ -169,12 +196,15 @@ private val sseInlineAuthPlugin =
  * @param eventBus The shared [ApiEventBus] instance.
  * @param tokenEntries Pre-loaded bearer token entries with expiry metadata.
  * @param allowQueryToken Whether `?token=` query param is accepted.
+ * @param jwksVerifier REST JWT verifier for jwks mode; null in bearer/disabled modes. When set,
+ *   a token not found among [tokenEntries] is validated as a JWT.
  * @param authCheckIntervalSeconds Interval between token-expiry checks.
  */
 fun Route.eventRoutes(
     eventBus: ApiEventBus,
     tokenEntries: Map<HashBytes, BearerTokenStore.TokenEntry> = emptyMap(),
     allowQueryToken: Boolean = System.getenv("API_ALLOW_QUERY_TOKEN_FOR_SSE")?.lowercase() == "true",
+    jwksVerifier: JwksApiVerifier? = null,
     authCheckIntervalSeconds: Int =
         System.getenv("API_SSE_AUTH_CHECK_INTERVAL_SECONDS")?.toIntOrNull() ?: 30,
 ) {
@@ -184,6 +214,7 @@ fun Route.eventRoutes(
         install(sseInlineAuthPlugin) {
             this.tokenEntries = tokenEntries
             this.allowQueryToken = allowQueryToken
+            this.jwksVerifier = jwksVerifier
         }
 
         sse {

@@ -173,6 +173,12 @@ class SQLiteWorkItemRepository(
             Instant.now()
         }
 
+    override suspend fun inTransaction(block: suspend () -> Unit) {
+        suspendTransaction(db = databaseManager.getDatabase()) {
+            block()
+        }
+    }
+
     /**
      * Parse a CURRENT_TIMESTAMP-style string from either SQLite or H2 into an [Instant] (UTC).
      *

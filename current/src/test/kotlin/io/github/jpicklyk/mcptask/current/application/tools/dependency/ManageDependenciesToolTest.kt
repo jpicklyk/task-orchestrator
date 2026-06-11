@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.application.tools.dependency
 
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
+import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
@@ -1140,4 +1141,101 @@ class ManageDependenciesToolTest {
             )
         assertEquals("manage_dependencies(create) failed", summary)
     }
+
+    // ──────────────────────────────────────────────
+    // Bug regression: delete-by-relationship unknown type validation (Bug 4)
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `delete by relationship with unknown type returns validation error (bug 4 regression)`(): Unit =
+        runBlocking {
+            // Create a dependency so there is something to (not) delete
+            tool.execute(
+                params(
+                    "operation" to JsonPrimitive("create"),
+                    "dependencies" to
+                        JsonArray(
+                            listOf(
+                                buildJsonObject {
+                                    put("fromItemId", JsonPrimitive(itemA.toString()))
+                                    put("toItemId", JsonPrimitive(itemB.toString()))
+                                    put("type", JsonPrimitive("BLOCKS"))
+                                }
+                            )
+                        )
+                ),
+                context
+            )
+
+            // Before fix: unknown type would silently match nothing and return {deleted:0}
+            // After fix: validation error is returned
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("delete"),
+                        "fromItemId" to JsonPrimitive(itemA.toString()),
+                        "toItemId" to JsonPrimitive(itemB.toString()),
+                        "type" to JsonPrimitive("INVALID_TYPE")
+                    ),
+                    context
+                ) as JsonObject
+
+            assertFalse(result["success"]!!.jsonPrimitive.boolean, "Unknown type should produce an error response")
+            val message = (result["error"] as JsonObject)["message"]!!.jsonPrimitive.content
+            assertTrue(
+                message.contains("INVALID_TYPE") || message.contains("Unknown dependency type"),
+                "Error message should mention the unknown type. Got: $message"
+            )
+
+            // Verify the dependency still exists (nothing was deleted)
+            val deps = context.dependencyRepository().findByFromItemId(itemA)
+            assertEquals(1, deps.size, "Dependency must remain — unknown type should not delete anything")
+        }
+
+    @Test
+    fun `delete by relationship with valid type deletes matching dependency (bug 4 positive case)`(): Unit =
+        runBlocking {
+            // Create two dependencies with different types
+            tool.execute(
+                params(
+                    "operation" to JsonPrimitive("create"),
+                    "dependencies" to
+                        JsonArray(
+                            listOf(
+                                buildJsonObject {
+                                    put("fromItemId", JsonPrimitive(itemA.toString()))
+                                    put("toItemId", JsonPrimitive(itemB.toString()))
+                                    put("type", JsonPrimitive("BLOCKS"))
+                                },
+                                buildJsonObject {
+                                    put("fromItemId", JsonPrimitive(itemA.toString()))
+                                    put("toItemId", JsonPrimitive(itemB.toString()))
+                                    put("type", JsonPrimitive("RELATES_TO"))
+                                }
+                            )
+                        )
+                ),
+                context
+            )
+
+            // Delete only the BLOCKS dependency using type filter
+            val deleteResult =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("delete"),
+                        "fromItemId" to JsonPrimitive(itemA.toString()),
+                        "toItemId" to JsonPrimitive(itemB.toString()),
+                        "type" to JsonPrimitive("BLOCKS")
+                    ),
+                    context
+                ) as JsonObject
+
+            assertTrue(deleteResult["success"]!!.jsonPrimitive.boolean)
+            assertEquals(1, (deleteResult["data"] as JsonObject)["deleted"]!!.jsonPrimitive.int)
+
+            // Verify RELATES_TO still exists
+            val deps = context.dependencyRepository().findByFromItemId(itemA)
+            assertEquals(1, deps.size, "Only the RELATES_TO dependency should remain")
+            assertEquals(DependencyType.RELATES_TO, deps[0].type)
+        }
 }

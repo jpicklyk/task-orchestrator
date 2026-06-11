@@ -80,6 +80,19 @@ interface WorkItemRepository {
      */
     suspend fun dbNow(): Instant
 
+    /**
+     * Execute [block] inside a single shared database transaction.
+     *
+     * All repository calls made inside [block] that use the same underlying [Database]
+     * instance will participate in the same transaction: if [block] throws, all writes
+     * are rolled back atomically. Callers MUST NOT call [dbNow] inside [block] — that
+     * would open a nested transaction; read DB time before entering [inTransaction].
+     *
+     * Used by [io.github.jpicklyk.mcptask.current.application.service.RoleTransitionHandler]
+     * to write the item update and the audit trail row atomically in [applyTransition].
+     */
+    suspend fun inTransaction(block: suspend () -> Unit)
+
     suspend fun getById(id: UUID): Result<WorkItem>
 
     suspend fun create(item: WorkItem): Result<WorkItem>

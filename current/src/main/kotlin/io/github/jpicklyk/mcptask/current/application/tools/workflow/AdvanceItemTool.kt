@@ -532,6 +532,9 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
 
             // Phase 3: Apply — routes through userTransition() to enforce the ownership check
             // at the handler layer as well (canonical enforcement point).
+            // Pass dbNowForOwnership as roleChangedAt so the timestamp is sourced from the DB
+            // clock rather than the JVM clock — consistent with roleChangedAfter/Before filter
+            // queries that compare against DB-side timestamps.
             val effectiveLabel = resolution.statusLabel ?: configLabel
             val applyResult =
                 handler.applyTransition(
@@ -543,7 +546,8 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                     context.workItemRepository(),
                     context.roleTransitionRepository(),
                     actorClaim = actorClaim,
-                    verification = verification
+                    verification = verification,
+                    roleChangedAt = dbNowForOwnership
                 )
             if (!applyResult.success || applyResult.item == null) {
                 failCount++
@@ -581,8 +585,11 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                         }
 
                     // Gate check: cascade-to-TERMINAL requires all required notes (like "complete" trigger)
-                    // Cancel cascades bypass work-phase gate enforcement (item was never in work role)
-                    val isCancelCascade = applyResult.item.statusLabel == "cancelled"
+                    // Cancel cascades bypass work-phase gate enforcement (item was never in work role).
+                    // Derived from the trigger string — NOT from statusLabel, which is config-driven and
+                    // may use a custom value (e.g. "aborted"), and which would be wrong in mixed batches
+                    // that contain both cancel and complete triggers.
+                    val isCancelCascade = trigger == "cancel"
                     if (event.targetRole == Role.TERMINAL && !isCancelCascade) {
                         val parentSchema = context.resolveSchema(parentItem)
                         if (parentSchema != null) {

@@ -12,14 +12,13 @@ import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionReposi
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.test.TestStatusLabelService
-import io.mockk.coEvery
-import io.mockk.every
-import io.mockk.mockk
+import io.mockk.*
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
+import java.time.Instant
 import java.util.UUID
 import kotlin.test.*
 
@@ -45,6 +44,12 @@ class CompleteTreeToolTest {
         every { repoProvider.dependencyRepository() } returns depRepo
         every { repoProvider.noteRepository() } returns noteRepo
         every { repoProvider.roleTransitionRepository() } returns roleTransitionRepo
+        // dbNow() is called for ownership checks; default to JVM time for non-clock-skew tests.
+        coEvery { workItemRepo.dbNow() } returns Instant.now()
+        // inTransaction delegates to its block directly — no real DB transaction in unit tests
+        coEvery { workItemRepo.inTransaction(any()) } coAnswers {
+            firstArg<suspend () -> Unit>().invoke()
+        }
 
         context = ToolExecutionContext(repoProvider)
     }
@@ -1257,6 +1262,51 @@ class CompleteTreeToolTest {
                 assertNotNull(r["gateErrors"], "Gate errors expected when trigger=complete wins")
 
                 val summary = extractSummary(result)
+                assertEquals(1, summary["gateFailures"]!!.jsonPrimitive.int)
+            }
+
+        @Test
+        fun `terminalRole=cancelled without explicit trigger uses complete not cancel (bug 3 regression)`(): Unit =
+            runBlocking {
+                // Before the fix, passing terminalRole=cancelled without a trigger would silently
+                // switch to trigger=cancel, bypassing gate enforcement. After the fix, terminalRole
+                // is ignored entirely and the default trigger=complete is used, enforcing the gate.
+                val itemId = UUID.randomUUID()
+                val item = makeItem(id = itemId, title = "Queue Item", role = Role.QUEUE, tags = "feature-task")
+
+                val gatedContext = contextWithNoteSchema(makeSchemaServiceWithWorkPhaseNote())
+
+                // No notes filled — gate should block when trigger=complete is used
+                coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+                coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+                coEvery { noteRepo.findByItemId(itemId, any()) } returns Result.Success(emptyList())
+                every { depRepo.findByToItemId(itemId) } returns emptyList()
+
+                // Pass only terminalRole=cancelled (no explicit trigger)
+                // Before fix: would cancel (bypass gate). After fix: uses complete (gate enforced).
+                val params =
+                    buildJsonObject {
+                        put(
+                            "itemIds",
+                            buildJsonArray { add(JsonPrimitive(itemId.toString())) }
+                        )
+                        put("terminalRole", JsonPrimitive("cancelled"))
+                        // No "trigger" field — after fix, default complete is used
+                    }
+                val result = tool.execute(params, gatedContext)
+
+                val results = extractResults(result)
+                assertEquals(1, results.size)
+                val r = results[0].jsonObject
+                // Gate must be enforced — item should NOT be applied (complete requires notes)
+                assertFalse(
+                    r["applied"]!!.jsonPrimitive.boolean,
+                    "terminalRole=cancelled without explicit trigger must NOT silently cancel; default complete must enforce gate"
+                )
+                assertNotNull(r["gateErrors"], "Gate errors expected — default trigger=complete is used when terminalRole is ignored")
+
+                val summary = extractSummary(result)
+                assertEquals(0, summary["completed"]!!.jsonPrimitive.int)
                 assertEquals(1, summary["gateFailures"]!!.jsonPrimitive.int)
             }
     }
