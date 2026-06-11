@@ -409,11 +409,13 @@ class SQLiteWorkItemRepository(
         offset: Int,
         type: String?,
         claimStatus: String?
-    ): Result<List<WorkItem>> =
-        databaseManager.suspendedTransaction("Failed to find WorkItems by filters") {
-            // Fetch DB-side now once so all claim-freshness comparisons in buildFilteredQuery
-            // use the DB clock rather than the JVM clock.
-            val nowFromDb = if (claimStatus != null) dbNow() else Instant.now()
+    ): Result<List<WorkItem>> {
+        // Fetch DB-side now ONCE before opening the transaction so all claim-freshness
+        // comparisons in buildFilteredQuery use the DB clock rather than the JVM clock, and to
+        // avoid a nested transaction/savepoint (dbNow() opens its own suspendTransaction).
+        val nowFromDb = if (claimStatus != null) dbNow() else Instant.now()
+
+        return databaseManager.suspendedTransaction("Failed to find WorkItems by filters") {
             val baseQuery =
                 buildFilteredQuery(
                     parentId,
@@ -457,6 +459,7 @@ class SQLiteWorkItemRepository(
 
             Result.Success(items)
         }
+    }
 
     override suspend fun countByFilters(
         parentId: UUID?,
@@ -473,9 +476,12 @@ class SQLiteWorkItemRepository(
         roleChangedBefore: Instant?,
         type: String?,
         claimStatus: String?
-    ): Result<Int> =
-        databaseManager.suspendedTransaction("Failed to count WorkItems by filters") {
-            val nowFromDb = if (claimStatus != null) dbNow() else Instant.now()
+    ): Result<Int> {
+        // Fetch DB-side now ONCE before opening the transaction (see findByFilters) to avoid a
+        // nested transaction/savepoint from dbNow().
+        val nowFromDb = if (claimStatus != null) dbNow() else Instant.now()
+
+        return databaseManager.suspendedTransaction("Failed to count WorkItems by filters") {
             val count =
                 buildFilteredQuery(
                     parentId,
@@ -497,6 +503,7 @@ class SQLiteWorkItemRepository(
 
             Result.Success(count.toInt())
         }
+    }
 
     override suspend fun countChildrenByRole(parentId: UUID): Result<Map<Role, Int>> =
         databaseManager.suspendedTransaction("Failed to count children by role") {
@@ -1353,11 +1360,13 @@ class SQLiteWorkItemRepository(
         }
     }
 
-    override suspend fun countByClaimStatus(parentId: UUID?): Result<ClaimStatusCounts> =
-        databaseManager.suspendedTransaction("Failed to count WorkItems by claim status") {
-            // Use DB-side clock so counts are consistent with the DB's view of claim freshness.
-            val now = dbNow()
+    override suspend fun countByClaimStatus(parentId: UUID?): Result<ClaimStatusCounts> {
+        // Read DB-side clock ONCE before opening the transaction to avoid a nested
+        // transaction/savepoint (dbNow() opens its own suspendTransaction internally).
+        // Use DB-side clock so counts are consistent with the DB's view of claim freshness.
+        val now = dbNow()
 
+        return databaseManager.suspendedTransaction("Failed to count WorkItems by claim status") {
             // Helper to build a base condition list optionally scoped to a parent
             fun baseConditions(): MutableList<Op<Boolean>> {
                 val conds = mutableListOf<Op<Boolean>>()
@@ -1405,6 +1414,7 @@ class SQLiteWorkItemRepository(
 
             Result.Success(ClaimStatusCounts(active = activeCount, expired = expiredCount, unclaimed = unclaimedCount))
         }
+    }
 
     override suspend fun findInScope(
         rootIds: Set<UUID>,
@@ -1429,12 +1439,15 @@ class SQLiteWorkItemRepository(
     ): Result<List<WorkItem>> {
         if (rootIds.isEmpty()) return Result.Success(emptyList())
 
+        // Fetch DB-side now ONCE before opening the transaction to avoid a nested
+        // transaction/savepoint (dbNow() opens its own suspendTransaction internally).
+        val nowFromDb = if (claimStatus != null) dbNow() else Instant.now()
+
         return try {
             suspendTransaction(db = databaseManager.getDatabase()) {
                 val scopeIds = resolveScopeIds(rootIds)
                 if (scopeIds.isEmpty()) return@suspendTransaction Result.Success(emptyList())
 
-                val nowFromDb = if (claimStatus != null) dbNow() else Instant.now()
                 val base =
                     buildScopedQuery(
                         scopeIds,
@@ -1502,12 +1515,15 @@ class SQLiteWorkItemRepository(
     ): Result<Int> {
         if (rootIds.isEmpty()) return Result.Success(0)
 
+        // Fetch DB-side now ONCE before opening the transaction to avoid a nested
+        // transaction/savepoint (dbNow() opens its own suspendTransaction internally).
+        val nowFromDb = if (claimStatus != null) dbNow() else Instant.now()
+
         return try {
             suspendTransaction(db = databaseManager.getDatabase()) {
                 val scopeIds = resolveScopeIds(rootIds)
                 if (scopeIds.isEmpty()) return@suspendTransaction Result.Success(0)
 
-                val nowFromDb = if (claimStatus != null) dbNow() else Instant.now()
                 val count =
                     buildScopedQuery(
                         scopeIds,
