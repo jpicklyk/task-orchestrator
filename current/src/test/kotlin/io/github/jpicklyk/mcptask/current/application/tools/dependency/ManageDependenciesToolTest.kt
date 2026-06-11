@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.application.tools.dependency
 
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
+import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
@@ -1180,22 +1181,14 @@ class ManageDependenciesToolTest {
                 ) as JsonObject
 
             assertFalse(result["success"]!!.jsonPrimitive.boolean, "Unknown type should produce an error response")
-            val message = result["message"]!!.jsonPrimitive.content
+            val message = (result["error"] as JsonObject)["message"]!!.jsonPrimitive.content
             assertTrue(
                 message.contains("INVALID_TYPE") || message.contains("Unknown dependency type"),
                 "Error message should mention the unknown type. Got: $message"
             )
 
             // Verify the dependency still exists (nothing was deleted)
-            val queryResult =
-                tool.execute(
-                    params(
-                        "operation" to JsonPrimitive("query"),
-                        "fromItemId" to JsonPrimitive(itemA.toString())
-                    ),
-                    context
-                ) as JsonObject
-            val deps = (queryResult["data"] as JsonObject)["dependencies"]!!.jsonArray
+            val deps = context.dependencyRepository().findByFromItemId(itemA)
             assertEquals(1, deps.size, "Dependency must remain — unknown type should not delete anything")
         }
 
@@ -1241,16 +1234,8 @@ class ManageDependenciesToolTest {
             assertEquals(1, (deleteResult["data"] as JsonObject)["deleted"]!!.jsonPrimitive.int)
 
             // Verify RELATES_TO still exists
-            val queryResult =
-                tool.execute(
-                    params(
-                        "operation" to JsonPrimitive("query"),
-                        "fromItemId" to JsonPrimitive(itemA.toString())
-                    ),
-                    context
-                ) as JsonObject
-            val deps = (queryResult["data"] as JsonObject)["dependencies"]!!.jsonArray
+            val deps = context.dependencyRepository().findByFromItemId(itemA)
             assertEquals(1, deps.size, "Only the RELATES_TO dependency should remain")
-            assertEquals("RELATES_TO", deps[0].jsonObject["type"]!!.jsonPrimitive.content)
+            assertEquals(DependencyType.RELATES_TO, deps[0].type)
         }
 }
