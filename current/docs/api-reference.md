@@ -50,6 +50,7 @@ is computed automatically from the parent; nesting depth is unbounded (cycle pro
 | `items` | array | Yes (create/update) | Array of item objects |
 | `ids` | array | Yes (delete) | Array of item UUIDs to delete |
 | `parentId` | string (UUID) | No | Shared default parent for all created items; per-item `parentId` overrides this |
+| `traits` | string | No | Comma-separated trait names applied as a shared default to all items in this batch (e.g., `"needs-migration-review,needs-security-review"`). Adds trait note requirements from the `traits:` config section. Merged into each item's `properties` JSON automatically. |
 | `recursive` | boolean | No | Delete all descendants before deleting the target items (default: false) |
 | `requiresVerification` | boolean | No | **Top-level `requiresVerification` is ignored.** Set it on individual items in the `items` array instead. |
 | `requestId` | string (UUID) | No | Client-generated UUID for idempotency. Repeated calls with the same `(actor.id, requestId)` within ~10 minutes return the cached response without re-executing. Cache is single-instance and in-memory (not persisted). |
@@ -88,9 +89,12 @@ Setting `parentId` to JSON null moves the item to root.
     { "id": "uuid", "modifiedAt": "2025-01-01T00:00:00Z", "requiresVerification": false }
   ],
   "updated": 1,
-  "failed": 0
+  "failed": 0,
+  "failures": [{ "id": "bad-uuid", "error": "Item 'bad-uuid' not found" }]
 }
 ```
+
+`failures` is only present when `failed > 0`; omitted entirely on a clean run.
 
 **Examples.**
 
