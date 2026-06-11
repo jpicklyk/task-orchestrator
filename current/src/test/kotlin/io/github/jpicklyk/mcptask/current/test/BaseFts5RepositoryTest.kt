@@ -192,8 +192,10 @@ abstract class BaseFts5RepositoryTest {
                 exec(
                     "CREATE TRIGGER IF NOT EXISTS work_items_fts_trigram_ad AFTER DELETE ON work_items BEGIN INSERT INTO work_items_fts_trigram(work_items_fts_trigram, rowid, title, summary) VALUES ('delete', old.rowid, old.title, old.summary); END"
                 )
+                // UPDATE triggers restricted to content columns (V8 migration equivalent):
+                // work_items: AFTER UPDATE OF title, summary; notes: AFTER UPDATE OF body
                 exec(
-                    "CREATE TRIGGER IF NOT EXISTS work_items_fts_trigram_au AFTER UPDATE ON work_items BEGIN INSERT INTO work_items_fts_trigram(work_items_fts_trigram, rowid, title, summary) VALUES ('delete', old.rowid, old.title, old.summary); INSERT INTO work_items_fts_trigram(rowid, title, summary) VALUES (new.rowid, new.title, new.summary); END"
+                    "CREATE TRIGGER IF NOT EXISTS work_items_fts_trigram_au AFTER UPDATE OF title, summary ON work_items BEGIN INSERT INTO work_items_fts_trigram(work_items_fts_trigram, rowid, title, summary) VALUES ('delete', old.rowid, old.title, old.summary); INSERT INTO work_items_fts_trigram(rowid, title, summary) VALUES (new.rowid, new.title, new.summary); END"
                 )
                 exec(
                     "CREATE TRIGGER IF NOT EXISTS work_items_fts_text_ai AFTER INSERT ON work_items BEGIN INSERT INTO work_items_fts_text(rowid, title, summary) VALUES (new.rowid, new.title, new.summary); END"
@@ -202,7 +204,7 @@ abstract class BaseFts5RepositoryTest {
                     "CREATE TRIGGER IF NOT EXISTS work_items_fts_text_ad AFTER DELETE ON work_items BEGIN INSERT INTO work_items_fts_text(work_items_fts_text, rowid, title, summary) VALUES ('delete', old.rowid, old.title, old.summary); END"
                 )
                 exec(
-                    "CREATE TRIGGER IF NOT EXISTS work_items_fts_text_au AFTER UPDATE ON work_items BEGIN INSERT INTO work_items_fts_text(work_items_fts_text, rowid, title, summary) VALUES ('delete', old.rowid, old.title, old.summary); INSERT INTO work_items_fts_text(rowid, title, summary) VALUES (new.rowid, new.title, new.summary); END"
+                    "CREATE TRIGGER IF NOT EXISTS work_items_fts_text_au AFTER UPDATE OF title, summary ON work_items BEGIN INSERT INTO work_items_fts_text(work_items_fts_text, rowid, title, summary) VALUES ('delete', old.rowid, old.title, old.summary); INSERT INTO work_items_fts_text(rowid, title, summary) VALUES (new.rowid, new.title, new.summary); END"
                 )
 
                 // Sync triggers — notes
@@ -213,7 +215,7 @@ abstract class BaseFts5RepositoryTest {
                     "CREATE TRIGGER IF NOT EXISTS notes_fts_trigram_ad AFTER DELETE ON notes BEGIN INSERT INTO notes_fts_trigram(notes_fts_trigram, rowid, body) VALUES ('delete', old.rowid, old.body); END"
                 )
                 exec(
-                    "CREATE TRIGGER IF NOT EXISTS notes_fts_trigram_au AFTER UPDATE ON notes BEGIN INSERT INTO notes_fts_trigram(notes_fts_trigram, rowid, body) VALUES ('delete', old.rowid, old.body); INSERT INTO notes_fts_trigram(rowid, body) VALUES (new.rowid, new.body); END"
+                    "CREATE TRIGGER IF NOT EXISTS notes_fts_trigram_au AFTER UPDATE OF body ON notes BEGIN INSERT INTO notes_fts_trigram(notes_fts_trigram, rowid, body) VALUES ('delete', old.rowid, old.body); INSERT INTO notes_fts_trigram(rowid, body) VALUES (new.rowid, new.body); END"
                 )
                 exec(
                     "CREATE TRIGGER IF NOT EXISTS notes_fts_text_ai AFTER INSERT ON notes BEGIN INSERT INTO notes_fts_text(rowid, body) VALUES (new.rowid, new.body); END"
@@ -222,7 +224,7 @@ abstract class BaseFts5RepositoryTest {
                     "CREATE TRIGGER IF NOT EXISTS notes_fts_text_ad AFTER DELETE ON notes BEGIN INSERT INTO notes_fts_text(notes_fts_text, rowid, body) VALUES ('delete', old.rowid, old.body); END"
                 )
                 exec(
-                    "CREATE TRIGGER IF NOT EXISTS notes_fts_text_au AFTER UPDATE ON notes BEGIN INSERT INTO notes_fts_text(notes_fts_text, rowid, body) VALUES ('delete', old.rowid, old.body); INSERT INTO notes_fts_text(rowid, body) VALUES (new.rowid, new.body); END"
+                    "CREATE TRIGGER IF NOT EXISTS notes_fts_text_au AFTER UPDATE OF body ON notes BEGIN INSERT INTO notes_fts_text(notes_fts_text, rowid, body) VALUES ('delete', old.rowid, old.body); INSERT INTO notes_fts_text(rowid, body) VALUES (new.rowid, new.body); END"
                 )
 
                 // Backfill
