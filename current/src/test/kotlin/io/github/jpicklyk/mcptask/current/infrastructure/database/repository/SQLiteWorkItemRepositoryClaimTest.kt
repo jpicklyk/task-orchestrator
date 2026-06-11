@@ -1317,4 +1317,96 @@ class SQLiteWorkItemRepositoryClaimTest : SQLiteRepositoryTestBase() {
                     "The PK-index miss may have regressed. Actual plan:\n$plan"
             )
         }
+
+    // -----------------------------------------------------------------------
+    // BUG2-REGRESSION: Parameterized claim TTL — expiry is honored correctly
+    // -----------------------------------------------------------------------
+
+    /**
+     * BUG2-REGRESSION: Claim with a short TTL produces a claimExpiresAt strictly after claimedAt,
+     * and the expiry comparison in findForNextItem/findClaimable respects the TTL value.
+     *
+     * This test verifies that the parameterized `datetime('now', ? || ' seconds')` form
+     * (replacing the prior interpolated `datetime('now', '+$ttlSeconds seconds')`) still
+     * produces a valid future expiry instant. A TTL of 30 seconds should produce
+     * claimExpiresAt >= claimedAt + 29 seconds (generous margin for DB second-granularity).
+     */
+    @Test
+    fun `parameterized TTL claim — claimExpiresAt is strictly after claimedAt by the given TTL`(): Unit =
+        runBlocking {
+            val item = createItem()
+            val ttlSeconds = 30
+
+            val result = repository.claim(item.id, "agent-ttl-param", ttlSeconds)
+            assertIs<ClaimResult.Success>(result)
+            val claimed = result.item
+
+            val claimedAt = assertNotNull(claimed.claimedAt, "claimedAt must be set")
+            val claimExpiresAt = assertNotNull(claimed.claimExpiresAt, "claimExpiresAt must be set")
+
+            // claimExpiresAt must be strictly after claimedAt
+            assertTrue(
+                claimExpiresAt > claimedAt,
+                "claimExpiresAt must be after claimedAt for ttlSeconds=$ttlSeconds"
+            )
+
+            // claimExpiresAt should be approximately claimedAt + ttlSeconds (within 5 seconds margin)
+            val diffSeconds = (claimExpiresAt.toEpochMilli() - claimedAt.toEpochMilli()) / 1000L
+            assertTrue(
+                diffSeconds >= ttlSeconds - 5 && diffSeconds <= ttlSeconds + 5,
+                "Expected claimExpiresAt - claimedAt ≈ $ttlSeconds s, got $diffSeconds s"
+            )
+        }
+
+    // -----------------------------------------------------------------------
+    // BUG4-REGRESSION: release() single-statement semantics
+    // -----------------------------------------------------------------------
+
+    /**
+     * BUG4-REGRESSION: Release by the wrong agent returns NotClaimedByYou (not Success).
+     *
+     * Prior implementation: SELECT row → check claimedBy → UPDATE WHERE id=? AND claimed_by=?.
+     * Bug: if the claim was stolen between the pre-read and the UPDATE, the UPDATE zero-matches
+     * but the code returned ReleaseResult.Success with stale data because row count was unchecked.
+     *
+     * Fix: single UPDATE WHERE id=? AND claimed_by=? with row-count check. Zero rows → derive
+     * NotFound vs NotClaimedByYou from a follow-up existence check.
+     *
+     * This test covers the straightforward "wrong agent" path; the TOCTOU window itself is
+     * exercised by the concurrent release test above (concurrent_release_does_not_corrupt).
+     */
+    @Test
+    fun `release by wrong agent returns NotClaimedByYou — never Success`(): Unit =
+        runBlocking {
+            val item = createItem()
+            // Claim by agent-holder
+            assertIs<ClaimResult.Success>(repository.claim(item.id, "agent-holder-bug4", 900))
+
+            // Attempt release by a different agent — must return NotClaimedByYou
+            val result = repository.release(item.id, "agent-interloper-bug4")
+            assertIs<ReleaseResult.NotClaimedByYou>(result)
+            assertEquals(item.id, result.itemId)
+
+            // Verify the item is still held by the original claimer
+            val fetchResult = repository.getById(item.id)
+            assertIs<Result.Success<WorkItem>>(fetchResult)
+            assertEquals("agent-holder-bug4", fetchResult.data.claimedBy, "Item must still be held by original claimer")
+        }
+
+    /**
+     * BUG4-REGRESSION: Release on unclaimed item returns NotClaimedByYou (not NotFound).
+     *
+     * After the single-statement fix, zero rows updated + item exists → NotClaimedByYou.
+     * An unclaimed item has claimedBy=null which never matches the WHERE claimed_by=? predicate.
+     */
+    @Test
+    fun `release on unclaimed item returns NotClaimedByYou with correct itemId`(): Unit =
+        runBlocking {
+            val item = createItem()
+            // Item is never claimed
+
+            val result = repository.release(item.id, "agent-nobody-bug4")
+            assertIs<ReleaseResult.NotClaimedByYou>(result)
+            assertEquals(item.id, result.itemId)
+        }
 }

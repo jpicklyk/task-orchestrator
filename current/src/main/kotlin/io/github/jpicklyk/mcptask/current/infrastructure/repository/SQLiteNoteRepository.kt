@@ -20,10 +20,9 @@ import org.jetbrains.exposed.v1.core.java.UUIDColumnType
 import org.jetbrains.exposed.v1.core.vendors.H2Dialect
 import org.jetbrains.exposed.v1.core.vendors.currentDialect
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
-import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
-import org.jetbrains.exposed.v1.jdbc.update
+import org.jetbrains.exposed.v1.jdbc.upsert
 import org.slf4j.LoggerFactory
 import java.time.Instant
 import java.util.UUID
@@ -45,60 +44,91 @@ class SQLiteNoteRepository(
         }
 
     /**
-     * Upserts a single [Note] row in [NotesTable] using select-then-update-or-insert logic.
+     * Upserts a single [Note] row in [NotesTable] atomically using a single
+     * INSERT … ON CONFLICT DO UPDATE statement (via Exposed's dialect-agnostic `upsert()`).
      *
      * **Must be called within an existing transaction** — this function does NOT open its own
      * transaction. Use [upsert] for the public API that wraps this in a transaction.
      *
-     * Returns the note with the correct ID and timestamps (existing ID on update, original on insert).
+     * **Concurrency safety:** The prior implementation used SELECT-then-branch-to-UPDATE-or-INSERT,
+     * which had a TOCTOU race: two concurrent writers for the same (itemId, key) could both see
+     * `existing == null` and both attempt INSERT. The second INSERT would hit the UNIQUE constraint
+     * on (work_item_id, key) and its write would be silently dropped. Using a single atomic
+     * statement eliminates the race — the DB resolves the conflict in one serialised operation.
+     *
+     * **Dialect handling:** On SQLite (production) Exposed emits
+     * `INSERT … ON CONFLICT(work_item_id, key) DO UPDATE SET …`.
+     * On H2 (test environment) Exposed emits `MERGE INTO … USING (VALUES …) AS excluded ON …`.
+     * Both are single atomic statements; no dialect branching is needed here.
+     *
+     * **Row identity / immutability:** On the conflict (update) path, the `onUpdate` block
+     * below enumerates ONLY the mutable columns. The immutable `id` (primary key) and
+     * `created_at` columns are deliberately omitted, so the pre-existing row keeps its original
+     * id and createdAt — only body/role/modifiedAt/actor/verification change. This preserves
+     * the invariant asserted by `upsert preserves original note id and createdAt on update`.
+     *
+     * **FTS5 sync:** Because the SQLite statement is `INSERT … ON CONFLICT DO UPDATE` (NOT
+     * `INSERT OR REPLACE`), the existing row's `rowid` is preserved on conflict. The notes
+     * external-content FTS5 tables (`notes_fts_trigram`, `notes_fts_text`) sync via AFTER
+     * INSERT/UPDATE/DELETE triggers keyed on `rowid`; an INSERT-OR-REPLACE would delete+reinsert
+     * the row with a new rowid and orphan the FTS index, whereas ON CONFLICT DO UPDATE fires the
+     * AFTER UPDATE trigger and keeps the FTS rowid stable. The fresh-insert path fires the
+     * AFTER INSERT trigger as before.
+     *
+     * Returns the note with the correct ID (existing ID preserved on conflict, new ID on fresh insert).
      */
     internal fun upsertRow(note: Note): Result<Note> {
         note.validate()
-        // Check if a note with the same (itemId, key) already exists
-        val existing =
+        val now = Instant.now()
+
+        // Perform a single atomic upsert keyed on (itemId, key) — the UNIQUE index columns.
+        //
+        // body{}      — INSERT values for the fresh-insert path (all columns, including id/createdAt).
+        // onUpdate{}  — DO UPDATE SET clause for the conflict path: ONLY mutable columns.
+        //               id, itemId, key, and createdAt are intentionally NOT updated so the
+        //               existing row keeps its identity and creation timestamp.
+        NotesTable.upsert(
+            keys = arrayOf(NotesTable.itemId, NotesTable.key),
+            onUpdate = {
+                it[NotesTable.role] = note.role
+                it[NotesTable.body] = note.body
+                it[NotesTable.modifiedAt] = now
+                it[NotesTable.actorId] = note.actorClaim?.id
+                it[NotesTable.actorKind] = note.actorClaim?.kind?.toJsonString()
+                it[NotesTable.actorParent] = note.actorClaim?.parent
+                it[NotesTable.actorProof] = note.actorClaim?.proof
+                it[NotesTable.verificationStatus] = note.verification?.status?.toJsonString()
+                it[NotesTable.verificationVerifier] = note.verification?.verifier
+                it[NotesTable.verificationReason] = note.verification?.reason
+            },
+        ) {
+            it[id] = note.id
+            it[itemId] = note.itemId
+            it[key] = note.key
+            it[role] = note.role
+            it[body] = note.body
+            it[createdAt] = note.createdAt
+            it[modifiedAt] = now
+            it[NotesTable.actorId] = note.actorClaim?.id
+            it[NotesTable.actorKind] = note.actorClaim?.kind?.toJsonString()
+            it[NotesTable.actorParent] = note.actorClaim?.parent
+            it[NotesTable.actorProof] = note.actorClaim?.proof
+            it[NotesTable.verificationStatus] = note.verification?.status?.toJsonString()
+            it[NotesTable.verificationVerifier] = note.verification?.verifier
+            it[NotesTable.verificationReason] = note.verification?.reason
+        }
+
+        // Read back the canonical row to obtain the actual ID (preserved from the pre-existing
+        // row on conflict, or the note.id we just inserted on a fresh row) and the canonical
+        // createdAt (unchanged on conflict).
+        val row =
             NotesTable
                 .selectAll()
                 .where { (NotesTable.itemId eq note.itemId) and (NotesTable.key eq note.key) }
                 .singleOrNull()
+                ?: return Result.Error(RepositoryError.NotFound(note.id, "Note not found after upsert: (${note.itemId}, ${note.key})"))
 
-        return if (existing != null) {
-            // Update existing note (last-writer-wins for actor attribution)
-            val existingId = existing[NotesTable.id].value
-            val now = Instant.now()
-            NotesTable.update({ NotesTable.id eq existingId }) {
-                it[body] = note.body
-                it[role] = note.role
-                it[modifiedAt] = now
-                it[NotesTable.actorId] = note.actorClaim?.id
-                it[NotesTable.actorKind] = note.actorClaim?.kind?.toJsonString()
-                it[NotesTable.actorParent] = note.actorClaim?.parent
-                it[NotesTable.actorProof] = note.actorClaim?.proof
-                it[NotesTable.verificationStatus] = note.verification?.status?.toJsonString()
-                it[NotesTable.verificationVerifier] = note.verification?.verifier
-                it[NotesTable.verificationReason] = note.verification?.reason
-            }
-            // Return the updated note with the existing ID and updated timestamp
-            Result.Success(note.copy(id = existingId, modifiedAt = now))
-        } else {
-            // Insert new note
-            NotesTable.insert {
-                it[id] = note.id
-                it[itemId] = note.itemId
-                it[key] = note.key
-                it[role] = note.role
-                it[body] = note.body
-                it[createdAt] = note.createdAt
-                it[modifiedAt] = note.modifiedAt
-                it[NotesTable.actorId] = note.actorClaim?.id
-                it[NotesTable.actorKind] = note.actorClaim?.kind?.toJsonString()
-                it[NotesTable.actorParent] = note.actorClaim?.parent
-                it[NotesTable.actorProof] = note.actorClaim?.proof
-                it[NotesTable.verificationStatus] = note.verification?.status?.toJsonString()
-                it[NotesTable.verificationVerifier] = note.verification?.verifier
-                it[NotesTable.verificationReason] = note.verification?.reason
-            }
-            Result.Success(note)
-        }
+        return Result.Success(mapRowToNote(row))
     }
 
     override suspend fun upsert(note: Note): Result<Note> =

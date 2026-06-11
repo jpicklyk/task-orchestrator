@@ -415,11 +415,13 @@ class SQLiteWorkItemRepository(
         offset: Int,
         type: String?,
         claimStatus: String?
-    ): Result<List<WorkItem>> =
-        databaseManager.suspendedTransaction("Failed to find WorkItems by filters") {
-            // Fetch DB-side now once so all claim-freshness comparisons in buildFilteredQuery
-            // use the DB clock rather than the JVM clock.
-            val nowFromDb = if (claimStatus != null) dbNow() else Instant.now()
+    ): Result<List<WorkItem>> {
+        // Fetch DB-side now ONCE before opening the transaction so all claim-freshness
+        // comparisons in buildFilteredQuery use the DB clock rather than the JVM clock, and to
+        // avoid a nested transaction/savepoint (dbNow() opens its own suspendTransaction).
+        val nowFromDb = if (claimStatus != null) dbNow() else Instant.now()
+
+        return databaseManager.suspendedTransaction("Failed to find WorkItems by filters") {
             val baseQuery =
                 buildFilteredQuery(
                     parentId,
@@ -463,6 +465,7 @@ class SQLiteWorkItemRepository(
 
             Result.Success(items)
         }
+    }
 
     override suspend fun countByFilters(
         parentId: UUID?,
@@ -479,9 +482,12 @@ class SQLiteWorkItemRepository(
         roleChangedBefore: Instant?,
         type: String?,
         claimStatus: String?
-    ): Result<Int> =
-        databaseManager.suspendedTransaction("Failed to count WorkItems by filters") {
-            val nowFromDb = if (claimStatus != null) dbNow() else Instant.now()
+    ): Result<Int> {
+        // Fetch DB-side now ONCE before opening the transaction (see findByFilters) to avoid a
+        // nested transaction/savepoint from dbNow().
+        val nowFromDb = if (claimStatus != null) dbNow() else Instant.now()
+
+        return databaseManager.suspendedTransaction("Failed to count WorkItems by filters") {
             val count =
                 buildFilteredQuery(
                     parentId,
@@ -503,6 +509,7 @@ class SQLiteWorkItemRepository(
 
             Result.Success(count.toInt())
         }
+    }
 
     override suspend fun countChildrenByRole(parentId: UUID): Result<Map<Role, Int>> =
         databaseManager.suspendedTransaction("Failed to count children by role") {
@@ -978,13 +985,23 @@ class SQLiteWorkItemRepository(
         ttlSeconds: Int
     ): ClaimResult =
         try {
+            // Read the DB-side clock ONCE before opening the transaction to avoid a nested
+            // transaction/savepoint when dbNow() opens its own suspendTransaction internally.
+            // This instant is used only for computing retryAfterMs on the AlreadyClaimed path —
+            // the claim SQL itself uses datetime('now') exclusively for DB-side timestamps.
+            val dbNowInstant = dbNow()
+
             suspendTransaction(db = databaseManager.getDatabase()) {
-                // Both agentId and itemId are bound as typed JDBC parameters — no string interpolation.
+                // All parameters are bound as typed JDBC parameters — no string interpolation.
                 // itemId binds via UUIDColumnType so the WHERE id = ? predicate uses the primary-key
                 // index directly (the prior HEX(id) = ? form wrapped the column in a function call,
                 // which the SQLite planner cannot push through the PK index, forcing a full scan).
+                // ttlOffset binds as a VarChar parameter (+N) passed to datetime('now', ? || ' seconds')
+                // so the TTL value is never interpolated into raw SQL text.
                 val agentIdType = VarCharColumnType(500)
                 val uuidType = UUIDColumnType()
+                val ttlOffsetType = VarCharColumnType(50)
+                val ttlOffset = "+$ttlSeconds"
 
                 // Step 1 (acquire target): Claim or refresh the target item using only DB-side timestamps.
                 // Matches rows that are: (a) unclaimed, (b) expired, or (c) already held by this agent.
@@ -999,7 +1016,7 @@ class SQLiteWorkItemRepository(
                     UPDATE work_items
                       SET claimed_by = ?,
                           claimed_at = datetime('now'),
-                          claim_expires_at = datetime('now', '+$ttlSeconds seconds'),
+                          claim_expires_at = datetime('now', ? || ' seconds'),
                           original_claimed_at = COALESCE(
                             CASE WHEN claimed_by = ? THEN original_claimed_at ELSE NULL END,
                             datetime('now')
@@ -1014,6 +1031,7 @@ class SQLiteWorkItemRepository(
                     args =
                         listOf(
                             agentIdType to agentId,
+                            ttlOffsetType to ttlOffset,
                             agentIdType to agentId,
                             uuidType to itemId,
                             agentIdType to agentId,
@@ -1033,10 +1051,9 @@ class SQLiteWorkItemRepository(
                                 item.claimedBy == agentId -> ClaimResult.Success(item)
                                 else -> {
                                     // Claimed by someone else — compute retryAfterMs using the DB clock
-                                    // so the hint reflects DB-side remaining TTL, not JVM-side.
+                                    // (read before the transaction to avoid a nested transaction).
                                     val retryAfterMs =
                                         if (item.claimExpiresAt != null) {
-                                            val dbNowInstant = dbNow()
                                             val remaining = item.claimExpiresAt.toEpochMilli() - dbNowInstant.toEpochMilli()
                                             if (remaining > 0) remaining else null
                                         } else {
@@ -1090,18 +1107,13 @@ class SQLiteWorkItemRepository(
                 val agentIdType = VarCharColumnType(500)
                 val uuidType = UUIDColumnType()
 
-                // Check existence and current claimant before attempting update.
-                val row =
-                    WorkItemsTable.selectAll().where { WorkItemsTable.id eq itemId }.singleOrNull()
-                        ?: return@suspendTransaction ReleaseResult.NotFound(itemId)
-
-                val item = toWorkItem(row)
-                if (item.claimedBy != agentId) {
-                    return@suspendTransaction ReleaseResult.NotClaimedByYou(itemId)
-                }
-
-                // Release: clear all four claim fields atomically.
-                exec(
+                // Single-statement release: the WHERE clause atomically asserts both item identity
+                // and claimant ownership.  We capture the affected-row count to determine the
+                // outcome — eliminating the prior SELECT-then-UPDATE TOCTOU window where a claim
+                // stolen between the pre-read and the UPDATE could produce a false Success result
+                // (the UPDATE would zero-match but the code would still return ReleaseResult.Success
+                // with stale data because the row count was never checked).
+                val sql =
                     """
                     UPDATE work_items
                       SET claimed_by = NULL,
@@ -1111,20 +1123,31 @@ class SQLiteWorkItemRepository(
                           version = version + 1
                       WHERE id = ?
                         AND claimed_by = ?
-                    """.trimIndent(),
-                    args =
-                        listOf(
-                            uuidType to itemId,
-                            agentIdType to agentId,
-                        )
-                )
+                    """.trimIndent()
+                val ps = this.connection.prepareStatement(sql, false)
+                val rowsUpdated =
+                    try {
+                        ps.fillParameters(listOf(uuidType to itemId, agentIdType to agentId))
+                        ps.executeUpdate()
+                    } finally {
+                        ps.closeIfPossible()
+                    }
 
-                // Read back updated state.
-                val updatedRow =
-                    WorkItemsTable.selectAll().where { WorkItemsTable.id eq itemId }.singleOrNull()
-                        ?: return@suspendTransaction ReleaseResult.NotFound(itemId)
-
-                ReleaseResult.Success(toWorkItem(updatedRow))
+                when {
+                    rowsUpdated > 0 -> {
+                        // Release succeeded — read back the updated state.
+                        val updatedRow =
+                            WorkItemsTable.selectAll().where { WorkItemsTable.id eq itemId }.singleOrNull()
+                                ?: return@suspendTransaction ReleaseResult.NotFound(itemId)
+                        ReleaseResult.Success(toWorkItem(updatedRow))
+                    }
+                    else -> {
+                        // Zero rows updated — item either doesn't exist or is not claimed by this agent.
+                        val exists =
+                            WorkItemsTable.selectAll().where { WorkItemsTable.id eq itemId }.singleOrNull()
+                        if (exists == null) ReleaseResult.NotFound(itemId) else ReleaseResult.NotClaimedByYou(itemId)
+                    }
+                }
             }
         } catch (e: Exception) {
             logger.error("Failed to release WorkItem $itemId for agent $agentId: ${e.message}", e)
@@ -1136,8 +1159,12 @@ class SQLiteWorkItemRepository(
         parentId: UUID?,
         excludeActiveClaims: Boolean,
         limit: Int
-    ): Result<List<WorkItem>> =
-        databaseManager.suspendedTransaction("Failed to find next items by role") {
+    ): Result<List<WorkItem>> {
+        // Read DB-side clock ONCE before opening the transaction to avoid a nested
+        // transaction/savepoint (dbNow() opens its own suspendTransaction internally).
+        val dbNowInstant = if (excludeActiveClaims) dbNow() else null
+
+        return databaseManager.suspendedTransaction("Failed to find next items by role") {
             val conditions = mutableListOf<Op<Boolean>>()
 
             // Role filter
@@ -1150,9 +1177,8 @@ class SQLiteWorkItemRepository(
             // An item is "actively claimed" when claimed_by IS NOT NULL AND claim_expires_at > now.
             // The complement (items to include) is: claimed_by IS NULL OR claim_expires_at <= now.
             // Use DB-side now so the freshness decision is made on the DB clock, not the JVM clock.
-            if (excludeActiveClaims) {
+            if (excludeActiveClaims && dbNowInstant != null) {
                 val notClaimed = WorkItemsTable.claimedBy.isNull()
-                val dbNowInstant = dbNow()
                 val claimExpired = WorkItemsTable.claimExpiresAt lessEq dbNowInstant
                 // Re-express as: NOT (claimedBy IS NOT NULL AND claimExpiresAt > now)
                 //               = claimedBy IS NULL  OR  claimExpiresAt <= now
@@ -1169,6 +1195,7 @@ class SQLiteWorkItemRepository(
 
             Result.Success(items)
         }
+    }
 
     override suspend fun findClaimable(
         role: Role,
@@ -1186,8 +1213,12 @@ class SQLiteWorkItemRepository(
         orderBy: NextItemOrder,
         limit: Int,
         requestingAgentId: String?,
-    ): Result<List<WorkItem>> =
-        databaseManager.suspendedTransaction("Failed to find claimable items") {
+    ): Result<List<WorkItem>> {
+        // Read DB-side clock ONCE before opening the transaction to avoid a nested
+        // transaction/savepoint (dbNow() opens its own suspendTransaction internally).
+        val dbNowInstant = dbNow()
+
+        return databaseManager.suspendedTransaction("Failed to find claimable items") {
             val conditions = mutableListOf<Op<Boolean>>()
 
             // Role filter — always required
@@ -1222,8 +1253,7 @@ class SQLiteWorkItemRepository(
 
             // Active-claim exclusion — always applied; claim-eligibility by definition requires this.
             // Include items where: claimed_by IS NULL  OR  claim_expires_at <= now.
-            // DB-side now avoids JVM/SQLite clock skew.
-            val dbNowInstant = dbNow()
+            // dbNowInstant was obtained before the transaction to avoid a nested transaction.
             conditions.add(WorkItemsTable.claimedBy.isNull() or (WorkItemsTable.claimExpiresAt lessEq dbNowInstant))
 
             val combined = conditions.reduce { acc, op -> acc and op }
@@ -1334,12 +1364,15 @@ class SQLiteWorkItemRepository(
 
             Result.Success(filtered)
         }
+    }
 
-    override suspend fun countByClaimStatus(parentId: UUID?): Result<ClaimStatusCounts> =
-        databaseManager.suspendedTransaction("Failed to count WorkItems by claim status") {
-            // Use DB-side clock so counts are consistent with the DB's view of claim freshness.
-            val now = dbNow()
+    override suspend fun countByClaimStatus(parentId: UUID?): Result<ClaimStatusCounts> {
+        // Read DB-side clock ONCE before opening the transaction to avoid a nested
+        // transaction/savepoint (dbNow() opens its own suspendTransaction internally).
+        // Use DB-side clock so counts are consistent with the DB's view of claim freshness.
+        val now = dbNow()
 
+        return databaseManager.suspendedTransaction("Failed to count WorkItems by claim status") {
             // Helper to build a base condition list optionally scoped to a parent
             fun baseConditions(): MutableList<Op<Boolean>> {
                 val conds = mutableListOf<Op<Boolean>>()
@@ -1387,6 +1420,7 @@ class SQLiteWorkItemRepository(
 
             Result.Success(ClaimStatusCounts(active = activeCount, expired = expiredCount, unclaimed = unclaimedCount))
         }
+    }
 
     override suspend fun findInScope(
         rootIds: Set<UUID>,
@@ -1411,12 +1445,15 @@ class SQLiteWorkItemRepository(
     ): Result<List<WorkItem>> {
         if (rootIds.isEmpty()) return Result.Success(emptyList())
 
+        // Fetch DB-side now ONCE before opening the transaction to avoid a nested
+        // transaction/savepoint (dbNow() opens its own suspendTransaction internally).
+        val nowFromDb = if (claimStatus != null) dbNow() else Instant.now()
+
         return try {
             suspendTransaction(db = databaseManager.getDatabase()) {
                 val scopeIds = resolveScopeIds(rootIds)
                 if (scopeIds.isEmpty()) return@suspendTransaction Result.Success(emptyList())
 
-                val nowFromDb = if (claimStatus != null) dbNow() else Instant.now()
                 val base =
                     buildScopedQuery(
                         scopeIds,
@@ -1484,12 +1521,15 @@ class SQLiteWorkItemRepository(
     ): Result<Int> {
         if (rootIds.isEmpty()) return Result.Success(0)
 
+        // Fetch DB-side now ONCE before opening the transaction to avoid a nested
+        // transaction/savepoint (dbNow() opens its own suspendTransaction internally).
+        val nowFromDb = if (claimStatus != null) dbNow() else Instant.now()
+
         return try {
             suspendTransaction(db = databaseManager.getDatabase()) {
                 val scopeIds = resolveScopeIds(rootIds)
                 if (scopeIds.isEmpty()) return@suspendTransaction Result.Success(0)
 
-                val nowFromDb = if (claimStatus != null) dbNow() else Instant.now()
                 val count =
                     buildScopedQuery(
                         scopeIds,
