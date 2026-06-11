@@ -61,6 +61,20 @@ class SQLiteNoteRepository(
      * On H2 (test environment) Exposed emits `MERGE INTO … USING (VALUES …) AS excluded ON …`.
      * Both are single atomic statements; no dialect branching is needed here.
      *
+     * **Row identity / immutability:** On the conflict (update) path, the `onUpdate` block
+     * below enumerates ONLY the mutable columns. The immutable `id` (primary key) and
+     * `created_at` columns are deliberately omitted, so the pre-existing row keeps its original
+     * id and createdAt — only body/role/modifiedAt/actor/verification change. This preserves
+     * the invariant asserted by `upsert preserves original note id and createdAt on update`.
+     *
+     * **FTS5 sync:** Because the SQLite statement is `INSERT … ON CONFLICT DO UPDATE` (NOT
+     * `INSERT OR REPLACE`), the existing row's `rowid` is preserved on conflict. The notes
+     * external-content FTS5 tables (`notes_fts_trigram`, `notes_fts_text`) sync via AFTER
+     * INSERT/UPDATE/DELETE triggers keyed on `rowid`; an INSERT-OR-REPLACE would delete+reinsert
+     * the row with a new rowid and orphan the FTS index, whereas ON CONFLICT DO UPDATE fires the
+     * AFTER UPDATE trigger and keeps the FTS rowid stable. The fresh-insert path fires the
+     * AFTER INSERT trigger as before.
+     *
      * Returns the note with the correct ID (existing ID preserved on conflict, new ID on fresh insert).
      */
     internal fun upsertRow(note: Note): Result<Note> {
@@ -68,10 +82,25 @@ class SQLiteNoteRepository(
         val now = Instant.now()
 
         // Perform a single atomic upsert keyed on (itemId, key) — the UNIQUE index columns.
-        // On conflict: update all mutable fields (last-writer-wins for actor attribution).
-        // The primary-key column (id) is excluded from the DO UPDATE set by Exposed automatically.
+        //
+        // body{}      — INSERT values for the fresh-insert path (all columns, including id/createdAt).
+        // onUpdate{}  — DO UPDATE SET clause for the conflict path: ONLY mutable columns.
+        //               id, itemId, key, and createdAt are intentionally NOT updated so the
+        //               existing row keeps its identity and creation timestamp.
         NotesTable.upsert(
             keys = arrayOf(NotesTable.itemId, NotesTable.key),
+            onUpdate = {
+                it[NotesTable.role] = note.role
+                it[NotesTable.body] = note.body
+                it[NotesTable.modifiedAt] = now
+                it[NotesTable.actorId] = note.actorClaim?.id
+                it[NotesTable.actorKind] = note.actorClaim?.kind?.toJsonString()
+                it[NotesTable.actorParent] = note.actorClaim?.parent
+                it[NotesTable.actorProof] = note.actorClaim?.proof
+                it[NotesTable.verificationStatus] = note.verification?.status?.toJsonString()
+                it[NotesTable.verificationVerifier] = note.verification?.verifier
+                it[NotesTable.verificationReason] = note.verification?.reason
+            },
         ) {
             it[id] = note.id
             it[itemId] = note.itemId
@@ -90,7 +119,8 @@ class SQLiteNoteRepository(
         }
 
         // Read back the canonical row to obtain the actual ID (preserved from the pre-existing
-        // row on conflict, or the note.id we just inserted on a fresh row).
+        // row on conflict, or the note.id we just inserted on a fresh row) and the canonical
+        // createdAt (unchanged on conflict).
         val row =
             NotesTable
                 .selectAll()
