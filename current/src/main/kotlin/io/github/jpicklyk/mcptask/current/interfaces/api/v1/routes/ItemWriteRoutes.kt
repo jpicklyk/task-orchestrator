@@ -318,7 +318,10 @@ fun Route.itemWriteRoutes(
                         Json.parseToJsonElement(bodyText) as? JsonObject
                             ?: return errorCaptured(HttpStatusCode.BadRequest, "validation_error", "PATCH body must be a JSON object")
                     } catch (e: Exception) {
-                        return errorCaptured(HttpStatusCode.BadRequest, "validation_error", "Invalid JSON: ${e.message}")
+                        // Log the parse detail server-side; do not echo the raw exception message back
+                        // to the client (avoids leaking parser internals / input fragments).
+                        writeLogger.debug("PATCH body JSON parse failed: {}", e.message)
+                        return errorCaptured(HttpStatusCode.BadRequest, "validation_error", "Invalid JSON in request body")
                     }
 
                 // Security: reject any attempt to patch server-owned fields
@@ -355,7 +358,9 @@ fun Route.itemWriteRoutes(
                     try {
                         Json.decodeFromJsonElement<ItemPatchDto>(normalizedMerged)
                     } catch (e: Exception) {
-                        return errorCaptured(HttpStatusCode.BadRequest, "validation_error", "Invalid patch values: ${e.message}")
+                        // Log the decode detail server-side; return a generic message to the client.
+                        writeLogger.debug("PATCH patch-value decode failed: {}", e.message)
+                        return errorCaptured(HttpStatusCode.BadRequest, "validation_error", "Invalid patch values")
                     }
 
                 // The projection (WorkItemPatchProjection) includes EVERY patchable field in `base`,

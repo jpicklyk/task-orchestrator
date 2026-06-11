@@ -80,7 +80,19 @@ class DirectDatabaseSchemaManager : DatabaseSchemaManager {
             """.trimIndent(),
         )
 
-    // Cycle-detection and FTS sync triggers
+    // Cycle-detection and FTS sync triggers.
+    //
+    // INSERT/DELETE triggers use CREATE TRIGGER IF NOT EXISTS — they are stable and never need
+    // to change body once created.
+    //
+    // UPDATE (_au) triggers use DROP TRIGGER IF EXISTS + CREATE TRIGGER so that any future body
+    // change (e.g., column-filter adjustment) actually applies on re-run of updateSchema().
+    // IF NOT EXISTS would silently skip the CREATE if an old trigger body already exists.
+    //
+    // FTS _au triggers are restricted to content-bearing columns (V8 migration equivalent):
+    //   work_items: AFTER UPDATE OF title, summary
+    //   notes:      AFTER UPDATE OF body
+    // This prevents needless FTS write amplification on claim bumps, version increments, etc.
     private val triggers =
         listOf(
             // Cycle detection — BEFORE INSERT
@@ -129,22 +141,30 @@ class DirectDatabaseSchemaManager : DatabaseSchemaManager {
                 );
             END
             """.trimIndent(),
-            // FTS sync: work_items_fts_trigram
+            // FTS sync: work_items_fts_trigram — INSERT and DELETE use IF NOT EXISTS (stable body)
             "CREATE TRIGGER IF NOT EXISTS work_items_fts_trigram_ai AFTER INSERT ON work_items BEGIN INSERT INTO work_items_fts_trigram(rowid, title, summary) VALUES (new.rowid, new.title, new.summary); END",
             "CREATE TRIGGER IF NOT EXISTS work_items_fts_trigram_ad AFTER DELETE ON work_items BEGIN INSERT INTO work_items_fts_trigram(work_items_fts_trigram, rowid, title, summary) VALUES ('delete', old.rowid, old.title, old.summary); END",
-            "CREATE TRIGGER IF NOT EXISTS work_items_fts_trigram_au AFTER UPDATE ON work_items BEGIN INSERT INTO work_items_fts_trigram(work_items_fts_trigram, rowid, title, summary) VALUES ('delete', old.rowid, old.title, old.summary); INSERT INTO work_items_fts_trigram(rowid, title, summary) VALUES (new.rowid, new.title, new.summary); END",
-            // FTS sync: work_items_fts_text
+            // UPDATE trigger: drop-then-recreate so body changes apply; restricted to content columns
+            "DROP TRIGGER IF EXISTS work_items_fts_trigram_au",
+            "CREATE TRIGGER work_items_fts_trigram_au AFTER UPDATE OF title, summary ON work_items BEGIN INSERT INTO work_items_fts_trigram(work_items_fts_trigram, rowid, title, summary) VALUES ('delete', old.rowid, old.title, old.summary); INSERT INTO work_items_fts_trigram(rowid, title, summary) VALUES (new.rowid, new.title, new.summary); END",
+            // FTS sync: work_items_fts_text — INSERT and DELETE use IF NOT EXISTS (stable body)
             "CREATE TRIGGER IF NOT EXISTS work_items_fts_text_ai AFTER INSERT ON work_items BEGIN INSERT INTO work_items_fts_text(rowid, title, summary) VALUES (new.rowid, new.title, new.summary); END",
             "CREATE TRIGGER IF NOT EXISTS work_items_fts_text_ad AFTER DELETE ON work_items BEGIN INSERT INTO work_items_fts_text(work_items_fts_text, rowid, title, summary) VALUES ('delete', old.rowid, old.title, old.summary); END",
-            "CREATE TRIGGER IF NOT EXISTS work_items_fts_text_au AFTER UPDATE ON work_items BEGIN INSERT INTO work_items_fts_text(work_items_fts_text, rowid, title, summary) VALUES ('delete', old.rowid, old.title, old.summary); INSERT INTO work_items_fts_text(rowid, title, summary) VALUES (new.rowid, new.title, new.summary); END",
-            // FTS sync: notes_fts_trigram
+            // UPDATE trigger: drop-then-recreate so body changes apply; restricted to content columns
+            "DROP TRIGGER IF EXISTS work_items_fts_text_au",
+            "CREATE TRIGGER work_items_fts_text_au AFTER UPDATE OF title, summary ON work_items BEGIN INSERT INTO work_items_fts_text(work_items_fts_text, rowid, title, summary) VALUES ('delete', old.rowid, old.title, old.summary); INSERT INTO work_items_fts_text(rowid, title, summary) VALUES (new.rowid, new.title, new.summary); END",
+            // FTS sync: notes_fts_trigram — INSERT and DELETE use IF NOT EXISTS (stable body)
             "CREATE TRIGGER IF NOT EXISTS notes_fts_trigram_ai AFTER INSERT ON notes BEGIN INSERT INTO notes_fts_trigram(rowid, body) VALUES (new.rowid, new.body); END",
             "CREATE TRIGGER IF NOT EXISTS notes_fts_trigram_ad AFTER DELETE ON notes BEGIN INSERT INTO notes_fts_trigram(notes_fts_trigram, rowid, body) VALUES ('delete', old.rowid, old.body); END",
-            "CREATE TRIGGER IF NOT EXISTS notes_fts_trigram_au AFTER UPDATE ON notes BEGIN INSERT INTO notes_fts_trigram(notes_fts_trigram, rowid, body) VALUES ('delete', old.rowid, old.body); INSERT INTO notes_fts_trigram(rowid, body) VALUES (new.rowid, new.body); END",
-            // FTS sync: notes_fts_text
+            // UPDATE trigger: drop-then-recreate so body changes apply; restricted to body column
+            "DROP TRIGGER IF EXISTS notes_fts_trigram_au",
+            "CREATE TRIGGER notes_fts_trigram_au AFTER UPDATE OF body ON notes BEGIN INSERT INTO notes_fts_trigram(notes_fts_trigram, rowid, body) VALUES ('delete', old.rowid, old.body); INSERT INTO notes_fts_trigram(rowid, body) VALUES (new.rowid, new.body); END",
+            // FTS sync: notes_fts_text — INSERT and DELETE use IF NOT EXISTS (stable body)
             "CREATE TRIGGER IF NOT EXISTS notes_fts_text_ai AFTER INSERT ON notes BEGIN INSERT INTO notes_fts_text(rowid, body) VALUES (new.rowid, new.body); END",
             "CREATE TRIGGER IF NOT EXISTS notes_fts_text_ad AFTER DELETE ON notes BEGIN INSERT INTO notes_fts_text(notes_fts_text, rowid, body) VALUES ('delete', old.rowid, old.body); END",
-            "CREATE TRIGGER IF NOT EXISTS notes_fts_text_au AFTER UPDATE ON notes BEGIN INSERT INTO notes_fts_text(notes_fts_text, rowid, body) VALUES ('delete', old.rowid, old.body); INSERT INTO notes_fts_text(rowid, body) VALUES (new.rowid, new.body); END",
+            // UPDATE trigger: drop-then-recreate so body changes apply; restricted to body column
+            "DROP TRIGGER IF EXISTS notes_fts_text_au",
+            "CREATE TRIGGER notes_fts_text_au AFTER UPDATE OF body ON notes BEGIN INSERT INTO notes_fts_text(notes_fts_text, rowid, body) VALUES ('delete', old.rowid, old.body); INSERT INTO notes_fts_text(rowid, body) VALUES (new.rowid, new.body); END",
         )
 
     override fun updateSchema(): Boolean =

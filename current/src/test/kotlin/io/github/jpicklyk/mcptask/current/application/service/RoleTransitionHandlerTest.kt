@@ -537,6 +537,14 @@ class RoleTransitionHandlerTest {
         private val workItemRepo: WorkItemRepository = mockk()
         private val roleTransitionRepo: RoleTransitionRepository = mockk()
 
+        @BeforeEach
+        fun setUpInTransaction() {
+            // inTransaction delegates to its block directly — no real DB transaction in unit tests
+            coEvery { workItemRepo.inTransaction(any()) } coAnswers {
+                firstArg<suspend () -> Unit>().invoke()
+            }
+        }
+
         @Test
         fun `apply QUEUE to WORK updates item role and creates audit transition`() =
             runBlocking {
@@ -732,6 +740,206 @@ class RoleTransitionHandlerTest {
     }
 
     // -----------------------------------------------------------------------
+    // Regression tests for the three transition-integrity bugs
+    // -----------------------------------------------------------------------
+
+    @Nested
+    inner class TransitionIntegrityRegressions {
+        private val workItemRepo: WorkItemRepository = mockk()
+        private val roleTransitionRepo: RoleTransitionRepository = mockk()
+
+        @BeforeEach
+        fun setUp() {
+            coEvery { workItemRepo.inTransaction(any()) } coAnswers {
+                firstArg<suspend () -> Unit>().invoke()
+            }
+        }
+
+        // -------------------------------------------------------------------
+        // Bug 1: Trigger-based cancel-cascade (fix: trigger == "cancel")
+        // -------------------------------------------------------------------
+
+        @Test
+        fun `applyTransition with cancel trigger reflects trigger string not statusLabel`() =
+            runBlocking {
+                // When trigger="cancel" and statusLabel uses a custom value (not "cancelled"),
+                // the resulting item's statusLabel should reflect the custom label.
+                // This test confirms we don't depend on the literal string "cancelled".
+                val item = testItem(role = Role.WORK)
+                coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+                coEvery { roleTransitionRepo.create(any()) } answers { Result.Success(firstArg()) }
+
+                val result =
+                    handler.applyTransition(
+                        item = item,
+                        targetRole = Role.TERMINAL,
+                        trigger = "cancel",
+                        summary = "cancelled with custom label",
+                        statusLabel = "aborted", // custom non-default label
+                        workItemRepository = workItemRepo,
+                        roleTransitionRepository = roleTransitionRepo
+                    )
+
+                assertTrue(result.success)
+                val resultItem = assertNotNull(result.item)
+                // The item reached TERMINAL with the custom label — trigger remains "cancel"
+                assertEquals(Role.TERMINAL, resultItem.role)
+                assertEquals("aborted", resultItem.statusLabel)
+                assertEquals("cancel", result.transition?.trigger)
+            }
+
+        @Test
+        fun `applyTransition with complete trigger and cancelled-looking label is not treated as cancel`() =
+            runBlocking {
+                // A "complete" trigger must NOT be mistaken for a cancel even if statusLabel happens
+                // to match "cancelled". This validates the fix uses trigger, not label.
+                val item = testItem(role = Role.WORK)
+                val transitionSlot = slot<RoleTransition>()
+                coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+                coEvery { roleTransitionRepo.create(capture(transitionSlot)) } answers { Result.Success(firstArg()) }
+
+                val result =
+                    handler.applyTransition(
+                        item = item,
+                        targetRole = Role.TERMINAL,
+                        trigger = "complete",
+                        summary = null,
+                        statusLabel = "cancelled", // misleading label, but trigger is "complete"
+                        workItemRepository = workItemRepo,
+                        roleTransitionRepository = roleTransitionRepo
+                    )
+
+                assertTrue(result.success)
+                // Trigger on the audit row must be "complete", confirming no confusion
+                assertEquals("complete", transitionSlot.captured.trigger)
+            }
+
+        // -------------------------------------------------------------------
+        // Bug 2: Atomic transition + audit write
+        // -------------------------------------------------------------------
+
+        @Test
+        fun `applyTransition creates audit row on success`() =
+            runBlocking {
+                // Happy path: both writes execute, audit row exists.
+                val item = testItem(role = Role.QUEUE)
+                val transitionSlot = slot<RoleTransition>()
+                coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+                coEvery { roleTransitionRepo.create(capture(transitionSlot)) } answers { Result.Success(firstArg()) }
+
+                val result =
+                    handler.applyTransition(
+                        item = item,
+                        targetRole = Role.WORK,
+                        trigger = "start",
+                        summary = null,
+                        statusLabel = null,
+                        workItemRepository = workItemRepo,
+                        roleTransitionRepository = roleTransitionRepo
+                    )
+
+                assertTrue(result.success)
+                // Verify the audit row was created
+                assertNotNull(result.transition)
+                assertEquals("queue", transitionSlot.captured.fromRole)
+                assertEquals("work", transitionSlot.captured.toRole)
+            }
+
+        @Test
+        fun `applyTransition returns failure when audit create fails (atomic rollback path)`() =
+            runBlocking {
+                // Regression: if roleTransitionRepository.create fails, applyTransition must
+                // report failure. In the pre-fix code, the item was already updated but the
+                // audit row was missing. With the atomic fix, both are inside one transaction.
+                val item = testItem(role = Role.QUEUE)
+                coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+                coEvery { roleTransitionRepo.create(any()) } returns
+                    io.github.jpicklyk.mcptask.current.domain.repository.Result.Error(
+                        io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
+                            .DatabaseError("DB write failed")
+                    )
+
+                val result =
+                    handler.applyTransition(
+                        item = item,
+                        targetRole = Role.WORK,
+                        trigger = "start",
+                        summary = null,
+                        statusLabel = null,
+                        workItemRepository = workItemRepo,
+                        roleTransitionRepository = roleTransitionRepo
+                    )
+
+                // Must be a failure — no partial success when the audit write fails
+                assertFalse(result.success)
+                assertNotNull(result.error)
+                assertTrue(result.error.contains("DB write failed"), "Expected error to mention DB write failed, got: ${result.error}")
+                assertNull(result.item)
+            }
+
+        // -------------------------------------------------------------------
+        // Bug 3: DB-clock roleChangedAt
+        // -------------------------------------------------------------------
+
+        @Test
+        fun `applyTransition uses provided roleChangedAt timestamp not Instant now`() =
+            runBlocking {
+                // When roleChangedAt is explicitly provided, the resulting item must reflect it.
+                val item = testItem(role = Role.QUEUE)
+                val fixedTimestamp = Instant.parse("2025-01-15T12:00:00Z")
+                coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+                coEvery { roleTransitionRepo.create(any()) } answers { Result.Success(firstArg()) }
+
+                val result =
+                    handler.applyTransition(
+                        item = item,
+                        targetRole = Role.WORK,
+                        trigger = "start",
+                        summary = null,
+                        statusLabel = null,
+                        workItemRepository = workItemRepo,
+                        roleTransitionRepository = roleTransitionRepo,
+                        roleChangedAt = fixedTimestamp
+                    )
+
+                assertTrue(result.success)
+                val resultItem = assertNotNull(result.item)
+                // The item's roleChangedAt must exactly match the DB-clock value we passed in
+                assertEquals(
+                    fixedTimestamp,
+                    resultItem.roleChangedAt,
+                    "roleChangedAt must reflect the DB-clock value passed to applyTransition"
+                )
+            }
+
+        @Test
+        fun `applyTransition default roleChangedAt is not null`() =
+            runBlocking {
+                // Default parameter backward compatibility: calling without roleChangedAt
+                // still sets a non-null timestamp.
+                val item = testItem(role = Role.QUEUE)
+                coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+                coEvery { roleTransitionRepo.create(any()) } answers { Result.Success(firstArg()) }
+
+                val result =
+                    handler.applyTransition(
+                        item = item,
+                        targetRole = Role.WORK,
+                        trigger = "start",
+                        summary = null,
+                        statusLabel = null,
+                        workItemRepository = workItemRepo,
+                        roleTransitionRepository = roleTransitionRepo
+                        // roleChangedAt omitted — uses Instant.now() default
+                    )
+
+                assertTrue(result.success)
+                val resultItem = assertNotNull(result.item)
+                assertNotNull(resultItem.roleChangedAt)
+            }
+    }
+
+    // -----------------------------------------------------------------------
     // High-level entry points: userTransition and cascadeTransition
     // -----------------------------------------------------------------------
 
@@ -745,6 +953,10 @@ class RoleTransitionHandlerTest {
         fun setUp() {
             // dbNow() is called by userTransition for ownership checks; return JVM time as a sensible default.
             coEvery { workItemRepo.dbNow() } returns Instant.now()
+            // inTransaction delegates to its block directly — no real DB transaction in unit tests
+            coEvery { workItemRepo.inTransaction(any()) } coAnswers {
+                firstArg<suspend () -> Unit>().invoke()
+            }
         }
 
         @Test

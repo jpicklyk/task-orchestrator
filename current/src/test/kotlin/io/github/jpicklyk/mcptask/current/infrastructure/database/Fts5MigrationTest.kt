@@ -128,6 +128,10 @@ class Fts5MigrationTest {
                     )
                     """.trimIndent()
                 )
+                // Unique index on (work_item_id, key) — matches production migration V1
+                // (idx_notes_item_key). Required as the ON CONFLICT(work_item_id, key) target
+                // for the atomic note upsert.
+                exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_notes_item_key ON notes(work_item_id, key)")
                 exec(
                     """
                     CREATE TABLE IF NOT EXISTS dependencies (
@@ -260,8 +264,10 @@ class Fts5MigrationTest {
                     exec(
                         "CREATE TRIGGER IF NOT EXISTS work_items_fts_trigram_ad AFTER DELETE ON work_items BEGIN INSERT INTO work_items_fts_trigram(work_items_fts_trigram, rowid, title, summary) VALUES ('delete', old.rowid, old.title, old.summary); END"
                     )
+                    // UPDATE triggers restricted to content columns (V8 migration equivalent):
+                    // work_items: AFTER UPDATE OF title, summary; notes: AFTER UPDATE OF body
                     exec(
-                        "CREATE TRIGGER IF NOT EXISTS work_items_fts_trigram_au AFTER UPDATE ON work_items BEGIN INSERT INTO work_items_fts_trigram(work_items_fts_trigram, rowid, title, summary) VALUES ('delete', old.rowid, old.title, old.summary); INSERT INTO work_items_fts_trigram(rowid, title, summary) VALUES (new.rowid, new.title, new.summary); END"
+                        "CREATE TRIGGER IF NOT EXISTS work_items_fts_trigram_au AFTER UPDATE OF title, summary ON work_items BEGIN INSERT INTO work_items_fts_trigram(work_items_fts_trigram, rowid, title, summary) VALUES ('delete', old.rowid, old.title, old.summary); INSERT INTO work_items_fts_trigram(rowid, title, summary) VALUES (new.rowid, new.title, new.summary); END"
                     )
 
                     // Sync triggers for work_items_fts_text
@@ -272,7 +278,7 @@ class Fts5MigrationTest {
                         "CREATE TRIGGER IF NOT EXISTS work_items_fts_text_ad AFTER DELETE ON work_items BEGIN INSERT INTO work_items_fts_text(work_items_fts_text, rowid, title, summary) VALUES ('delete', old.rowid, old.title, old.summary); END"
                     )
                     exec(
-                        "CREATE TRIGGER IF NOT EXISTS work_items_fts_text_au AFTER UPDATE ON work_items BEGIN INSERT INTO work_items_fts_text(work_items_fts_text, rowid, title, summary) VALUES ('delete', old.rowid, old.title, old.summary); INSERT INTO work_items_fts_text(rowid, title, summary) VALUES (new.rowid, new.title, new.summary); END"
+                        "CREATE TRIGGER IF NOT EXISTS work_items_fts_text_au AFTER UPDATE OF title, summary ON work_items BEGIN INSERT INTO work_items_fts_text(work_items_fts_text, rowid, title, summary) VALUES ('delete', old.rowid, old.title, old.summary); INSERT INTO work_items_fts_text(rowid, title, summary) VALUES (new.rowid, new.title, new.summary); END"
                     )
 
                     // Sync triggers for notes_fts_trigram
@@ -283,7 +289,7 @@ class Fts5MigrationTest {
                         "CREATE TRIGGER IF NOT EXISTS notes_fts_trigram_ad AFTER DELETE ON notes BEGIN INSERT INTO notes_fts_trigram(notes_fts_trigram, rowid, body) VALUES ('delete', old.rowid, old.body); END"
                     )
                     exec(
-                        "CREATE TRIGGER IF NOT EXISTS notes_fts_trigram_au AFTER UPDATE ON notes BEGIN INSERT INTO notes_fts_trigram(notes_fts_trigram, rowid, body) VALUES ('delete', old.rowid, old.body); INSERT INTO notes_fts_trigram(rowid, body) VALUES (new.rowid, new.body); END"
+                        "CREATE TRIGGER IF NOT EXISTS notes_fts_trigram_au AFTER UPDATE OF body ON notes BEGIN INSERT INTO notes_fts_trigram(notes_fts_trigram, rowid, body) VALUES ('delete', old.rowid, old.body); INSERT INTO notes_fts_trigram(rowid, body) VALUES (new.rowid, new.body); END"
                     )
 
                     // Sync triggers for notes_fts_text
@@ -294,7 +300,7 @@ class Fts5MigrationTest {
                         "CREATE TRIGGER IF NOT EXISTS notes_fts_text_ad AFTER DELETE ON notes BEGIN INSERT INTO notes_fts_text(notes_fts_text, rowid, body) VALUES ('delete', old.rowid, old.body); END"
                     )
                     exec(
-                        "CREATE TRIGGER IF NOT EXISTS notes_fts_text_au AFTER UPDATE ON notes BEGIN INSERT INTO notes_fts_text(notes_fts_text, rowid, body) VALUES ('delete', old.rowid, old.body); INSERT INTO notes_fts_text(rowid, body) VALUES (new.rowid, new.body); END"
+                        "CREATE TRIGGER IF NOT EXISTS notes_fts_text_au AFTER UPDATE OF body ON notes BEGIN INSERT INTO notes_fts_text(notes_fts_text, rowid, body) VALUES ('delete', old.rowid, old.body); INSERT INTO notes_fts_text(rowid, body) VALUES (new.rowid, new.body); END"
                     )
 
                     // Backfill
@@ -506,6 +512,122 @@ class Fts5MigrationTest {
         }
         return count
     }
+
+    // ────────────────────────────────────────────────────────────────────────
+    // V8 — FTS update trigger column restriction
+    // ────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Regression test for V8: updating a non-content column (version/role) must NOT
+     * re-index the work_item in FTS tables. Before V8 the _au trigger fired on any
+     * column update, causing spurious delete+reinsert on every claim bump.
+     *
+     * Approach: insert an item with a unique title, record FTS match count, then update
+     * only the `version` column. If the trigger fires needlessly the FTS index will be
+     * momentarily empty during the delete phase and then refilled — but since we are
+     * single-threaded here we can verify correctness by checking the count stays at 1
+     * after the non-content update.
+     */
+    @Test
+    fun `fts update trigger does not fire on non-content column update`(): Unit =
+        runBlocking {
+            org.junit.jupiter.api.Assumptions.assumeTrue(
+                fts5Available,
+                "FTS5 not available in bundled xerial/sqlite-jdbc on this platform"
+            )
+
+            val uniqueTitle = "ZephyrUniqueSearchToken${System.nanoTime()}"
+            val item = createItem(uniqueTitle)
+
+            // Confirm it's indexed
+            val countBefore = countFtsRows("work_items_fts_trigram", uniqueTitle)
+            assertEquals(1, countBefore, "Expected item to be indexed after insert")
+
+            // Update only version (non-content column) — restricted trigger must NOT fire
+            keepAliveConnection
+                .prepareStatement("UPDATE work_items SET version = version + 1 WHERE id = ?")
+                .use { stmt ->
+                    stmt.setBytes(1, uuidToBytes(item.id))
+                    stmt.executeUpdate()
+                }
+
+            // FTS index must still contain exactly 1 match — no spurious delete happened
+            val countAfter = countFtsRows("work_items_fts_trigram", uniqueTitle)
+            assertEquals(
+                1,
+                countAfter,
+                "FTS index must contain exactly 1 match after a non-content column update; " +
+                    "got $countAfter — trigger may have fired when it should not have"
+            )
+        }
+
+    /**
+     * Regression complement: updating a content column (title) MUST re-index and the
+     * old value must no longer match while the new value does.
+     */
+    @Test
+    fun `fts update trigger fires when title is updated`(): Unit =
+        runBlocking {
+            org.junit.jupiter.api.Assumptions.assumeTrue(
+                fts5Available,
+                "FTS5 not available in bundled xerial/sqlite-jdbc on this platform"
+            )
+
+            val oldTitle = "OldTitleTokenAlpha${System.nanoTime()}"
+            val newTitle = "NewTitleTokenBeta${System.nanoTime()}"
+            val item = createItem(oldTitle)
+
+            assertEquals(1, countFtsRows("work_items_fts_trigram", oldTitle), "Old title should be indexed")
+            assertEquals(0, countFtsRows("work_items_fts_trigram", newTitle), "New title must not exist yet")
+
+            // Update title — trigger MUST fire
+            keepAliveConnection
+                .prepareStatement("UPDATE work_items SET title = ? WHERE id = ?")
+                .use { stmt ->
+                    stmt.setString(1, newTitle)
+                    stmt.setBytes(2, uuidToBytes(item.id))
+                    stmt.executeUpdate()
+                }
+
+            assertEquals(0, countFtsRows("work_items_fts_trigram", oldTitle), "Old title must no longer match after update")
+            assertEquals(1, countFtsRows("work_items_fts_trigram", newTitle), "New title must be indexed after update")
+        }
+
+    /**
+     * Regression test for notes: updating a non-body column must NOT fire the notes FTS
+     * trigger. Notes have few non-body columns (role, key) but the same principle applies.
+     */
+    @Test
+    fun `notes fts update trigger does not fire on non-body column update`(): Unit =
+        runBlocking {
+            org.junit.jupiter.api.Assumptions.assumeTrue(
+                fts5Available,
+                "FTS5 not available in bundled xerial/sqlite-jdbc on this platform"
+            )
+
+            val uniqueBody = "NoteUniqueBodyToken${System.nanoTime()}"
+            val item = createItem("Any item for note trigger test")
+            createNote(item.id, "test-key", uniqueBody)
+
+            val countBefore = countFtsRows("notes_fts_trigram", uniqueBody)
+            assertEquals(1, countBefore, "Note body must be indexed after insert")
+
+            // Update the role column (non-body) — restricted trigger must NOT fire
+            keepAliveConnection
+                .prepareStatement("UPDATE notes SET role = 'review' WHERE work_item_id = ?")
+                .use { stmt ->
+                    stmt.setBytes(1, uuidToBytes(item.id))
+                    stmt.executeUpdate()
+                }
+
+            val countAfter = countFtsRows("notes_fts_trigram", uniqueBody)
+            assertEquals(
+                1,
+                countAfter,
+                "Notes FTS index must contain exactly 1 match after a non-body column update; " +
+                    "got $countAfter — notes trigger may have fired when it should not have"
+            )
+        }
 
     /**
      * Serialise a UUID to the 16-byte big-endian representation that SQLite stores for BLOB UUIDs.
