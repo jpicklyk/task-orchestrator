@@ -1196,4 +1196,146 @@ class ManageNotesToolTest {
             assertFalse(noteWithoutActor.containsKey("actor"), "note without actor should not have actor key")
             assertFalse(noteWithoutActor.containsKey("verification"), "note without actor should not have verification key")
         }
+
+    // ──────────────────────────────────────────────
+    // Bug regression: delete mutual exclusion (Bug 1) and notFound counter (Bug 2)
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `delete with both ids and itemId throws validation error (bug 1 regression)`() =
+        runBlocking {
+            val itemId = createTestItem()
+            val noteId = UUID.randomUUID().toString() // does not need to exist for validation check
+
+            assertFailsWith<ToolValidationException> {
+                tool.validateParams(
+                    params(
+                        "operation" to JsonPrimitive("delete"),
+                        "ids" to JsonArray(listOf(JsonPrimitive(noteId))),
+                        "itemId" to JsonPrimitive(itemId)
+                    )
+                )
+            }
+        }
+
+    @Test
+    fun `delete with both ids and itemId does not wipe item notes (bug 1 defense-in-depth)`() =
+        runBlocking {
+            val itemId = createTestItem()
+
+            // Create two notes on the item
+            val upsertResult =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("upsert"),
+                        "notes" to
+                            JsonArray(
+                                listOf(
+                                    buildJsonObject {
+                                        put("itemId", JsonPrimitive(itemId))
+                                        put("key", JsonPrimitive("note-to-delete-by-id"))
+                                        put("role", JsonPrimitive("queue"))
+                                    },
+                                    buildJsonObject {
+                                        put("itemId", JsonPrimitive(itemId))
+                                        put("key", JsonPrimitive("note-to-keep"))
+                                        put("role", JsonPrimitive("queue"))
+                                    }
+                                )
+                            )
+                    ),
+                    context
+                ) as JsonObject
+
+            val noteId =
+                (upsertResult["data"] as JsonObject)["notes"]!!
+                    .jsonArray
+                    .map { it as JsonObject }
+                    .first { it["key"]!!.jsonPrimitive.content == "note-to-delete-by-id" }["id"]!!
+                    .jsonPrimitive.content
+
+            // Calling validateParams with both ids and itemId should throw — execute should never be reached
+            assertFailsWith<ToolValidationException> {
+                tool.validateParams(
+                    params(
+                        "operation" to JsonPrimitive("delete"),
+                        "ids" to JsonArray(listOf(JsonPrimitive(noteId))),
+                        "itemId" to JsonPrimitive(itemId)
+                    )
+                )
+            }
+
+            // Verify both notes still exist (no path ran)
+            val queryTool = QueryNotesTool()
+            val listResult =
+                queryTool.execute(
+                    params("operation" to JsonPrimitive("list"), "itemId" to JsonPrimitive(itemId)),
+                    context
+                ) as JsonObject
+            val remaining = (listResult["data"] as JsonObject)["notes"]!!.jsonArray
+            assertEquals(2, remaining.size, "Both notes must remain — delete should not have executed")
+        }
+
+    @Test
+    fun `delete by itemId and nonexistent key returns notFound count not failed (bug 2 regression)`() =
+        runBlocking {
+            val itemId = createTestItem()
+
+            // Do NOT create any note with key "missing-key"
+            val deleteResult =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("delete"),
+                        "itemId" to JsonPrimitive(itemId),
+                        "key" to JsonPrimitive("missing-key")
+                    ),
+                    context
+                ) as JsonObject
+
+            assertTrue(deleteResult["success"]!!.jsonPrimitive.boolean)
+            val data = deleteResult["data"] as JsonObject
+            assertEquals(0, data["deleted"]!!.jsonPrimitive.int, "deleted should be 0 — key never existed")
+            assertEquals(1, data["notFound"]!!.jsonPrimitive.int, "notFound should be 1 — key not found is tracked separately")
+            assertEquals(0, data["failed"]!!.jsonPrimitive.int, "failed should be 0 — not found is not an error")
+            assertFalse(data.containsKey("failures"), "failures array should be absent when failed=0")
+        }
+
+    @Test
+    fun `delete by itemId and existing key shows deleted not notFound (bug 2 positive case)`() =
+        runBlocking {
+            val itemId = createTestItem()
+
+            // Create the note first
+            tool.execute(
+                params(
+                    "operation" to JsonPrimitive("upsert"),
+                    "notes" to
+                        JsonArray(
+                            listOf(
+                                buildJsonObject {
+                                    put("itemId", JsonPrimitive(itemId))
+                                    put("key", JsonPrimitive("real-key"))
+                                    put("role", JsonPrimitive("work"))
+                                }
+                            )
+                        )
+                ),
+                context
+            )
+
+            val deleteResult =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("delete"),
+                        "itemId" to JsonPrimitive(itemId),
+                        "key" to JsonPrimitive("real-key")
+                    ),
+                    context
+                ) as JsonObject
+
+            val data = deleteResult["data"] as JsonObject
+            assertEquals(1, data["deleted"]!!.jsonPrimitive.int)
+            assertEquals(0, data["notFound"]!!.jsonPrimitive.int)
+            assertEquals(0, data["failed"]!!.jsonPrimitive.int)
+        }
 }

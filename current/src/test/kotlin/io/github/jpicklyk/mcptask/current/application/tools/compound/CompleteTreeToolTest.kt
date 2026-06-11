@@ -1264,5 +1264,50 @@ class CompleteTreeToolTest {
                 val summary = extractSummary(result)
                 assertEquals(1, summary["gateFailures"]!!.jsonPrimitive.int)
             }
+
+        @Test
+        fun `terminalRole=cancelled without explicit trigger uses complete not cancel (bug 3 regression)`(): Unit =
+            runBlocking {
+                // Before the fix, passing terminalRole=cancelled without a trigger would silently
+                // switch to trigger=cancel, bypassing gate enforcement. After the fix, terminalRole
+                // is ignored entirely and the default trigger=complete is used, enforcing the gate.
+                val itemId = UUID.randomUUID()
+                val item = makeItem(id = itemId, title = "Queue Item", role = Role.QUEUE, tags = "feature-task")
+
+                val gatedContext = contextWithNoteSchema(makeSchemaServiceWithWorkPhaseNote())
+
+                // No notes filled — gate should block when trigger=complete is used
+                coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+                coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+                coEvery { noteRepo.findByItemId(itemId, any()) } returns Result.Success(emptyList())
+                every { depRepo.findByToItemId(itemId) } returns emptyList()
+
+                // Pass only terminalRole=cancelled (no explicit trigger)
+                // Before fix: would cancel (bypass gate). After fix: uses complete (gate enforced).
+                val params =
+                    buildJsonObject {
+                        put(
+                            "itemIds",
+                            buildJsonArray { add(JsonPrimitive(itemId.toString())) }
+                        )
+                        put("terminalRole", JsonPrimitive("cancelled"))
+                        // No "trigger" field — after fix, default complete is used
+                    }
+                val result = tool.execute(params, gatedContext)
+
+                val results = extractResults(result)
+                assertEquals(1, results.size)
+                val r = results[0].jsonObject
+                // Gate must be enforced — item should NOT be applied (complete requires notes)
+                assertFalse(
+                    r["applied"]!!.jsonPrimitive.boolean,
+                    "terminalRole=cancelled without explicit trigger must NOT silently cancel; default complete must enforce gate"
+                )
+                assertNotNull(r["gateErrors"], "Gate errors expected — default trigger=complete is used when terminalRole is ignored")
+
+                val summary = extractSummary(result)
+                assertEquals(0, summary["completed"]!!.jsonPrimitive.int)
+                assertEquals(1, summary["gateFailures"]!!.jsonPrimitive.int)
+            }
     }
 }

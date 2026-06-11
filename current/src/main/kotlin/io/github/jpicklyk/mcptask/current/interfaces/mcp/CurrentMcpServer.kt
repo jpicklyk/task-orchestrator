@@ -24,6 +24,7 @@ import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetNextStat
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.config.ApiAuthConfigLoader
+import io.github.jpicklyk.mcptask.current.infrastructure.config.DefaultJwksKeySetProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksActorVerifier
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlActorAuthenticationConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlNoteSchemaService
@@ -38,6 +39,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.JwksApiVerifier
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.cors.configureCors
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventBus
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventPublishingRepositoryProvider
@@ -235,6 +237,10 @@ class CurrentMcpServer(
      *   when the API is enabled, or the raw provider (passed in) when disabled.
      * @param tokenEntries Pre-loaded bearer token entries with expiry metadata (empty unless bearer mode).
      * @param allowQueryToken Whether `?token=` query-param auth is enabled for the SSE route.
+     * @param jwksVerifier REST JWT verifier built from [ApiAuthConfig.Jwks] settings, or null unless
+     *   the API is enabled in jwks mode. This is the REST-API verifier
+     *   ([io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.JwksApiVerifier]) — NOT the
+     *   unrelated actor-authentication [JwksActorVerifier].
      */
     private data class ApiWiring(
         val apiConfig: ApiAuthConfig,
@@ -242,6 +248,7 @@ class CurrentMcpServer(
         val effectiveProvider: RepositoryProvider,
         val tokenEntries: Map<HashBytes, BearerTokenStore.TokenEntry>,
         val allowQueryToken: Boolean,
+        val jwksVerifier: JwksApiVerifier?,
     )
 
     /**
@@ -281,6 +288,7 @@ class CurrentMcpServer(
                 effectiveProvider = rawProvider,
                 tokenEntries = emptyMap(),
                 allowQueryToken = allowQueryToken,
+                jwksVerifier = null,
             )
         }
 
@@ -296,12 +304,39 @@ class CurrentMcpServer(
                 emptyMap()
             }
 
+        // In jwks mode, build the REST JWT verifier from the resolved ApiAuthConfig.Jwks settings.
+        // Without this, the ApiBearerAuth plugin's Jwks branch finds a null verifier and 401s every
+        // request (the original bug). The key provider is a DefaultJwksKeySetProvider configured with
+        // a direct JWKS URL (config.url → VerifierConfig.Jwks.jwksUri) — REST jwks uses no OIDC
+        // discovery or DID trust, so only jwksUri/issuer/audience/algorithms/cacheTtl are set.
+        // NOTE: this is the REST verifier (JwksApiVerifier), NOT the actor-auth JwksActorVerifier.
+        val jwksVerifier: JwksApiVerifier? =
+            if (apiConfig is ApiAuthConfig.Jwks) {
+                val keyProvider =
+                    DefaultJwksKeySetProvider(
+                        VerifierConfig.Jwks(
+                            jwksUri = apiConfig.url,
+                            issuer = apiConfig.issuer,
+                            audience = apiConfig.audience,
+                            algorithms = apiConfig.algorithms,
+                            cacheTtlSeconds = apiConfig.cacheTtlSeconds,
+                        ),
+                    )
+                shutdownCoordinator?.addCleanupAction("Close REST JWKS key provider") {
+                    keyProvider.close()
+                }
+                JwksApiVerifier(apiConfig, keyProvider)
+            } else {
+                null
+            }
+
         return ApiWiring(
             apiConfig = apiConfig,
             eventBus = bus,
             effectiveProvider = decorated,
             tokenEntries = tokenEntries,
             allowQueryToken = allowQueryToken,
+            jwksVerifier = jwksVerifier,
         )
     }
 
@@ -390,6 +425,35 @@ class CurrentMcpServer(
         val port = System.getenv("MCP_HTTP_PORT")?.toIntOrNull() ?: 3001
         logger.info("Starting MCP server with HTTP transport on $host:$port/mcp ...")
 
+        // SECURITY WARNING: the /mcp Streamable HTTP endpoint is UNAUTHENTICATED by design — MCP
+        // clients reach it with no REST bearer token, so the ApiBearerAuth plugin exempts /mcp even
+        // when the REST API is enabled (see installRestApiRoutes / McpRestAuthBypassTest). Anyone who
+        // can reach $host:$port gets full read/write/delete via every MCP tool. This MUST be fronted
+        // by a reverse proxy / mTLS / network fencing before exposing the port. Bind is controlled by
+        // MCP_HTTP_HOST (default 0.0.0.0 so Docker port-mapping works; set 127.0.0.1 for loopback-only
+        // local runs). Logged loudly at startup so operators cannot miss it.
+        logger.warn(
+            "SECURITY: /mcp over HTTP is UNAUTHENTICATED. Anyone who can reach {}:{} has full " +
+                "read/write/delete access to all MCP tools. Front it with a reverse proxy, mTLS, or a " +
+                "private network — do NOT expose this port to untrusted callers. Bind address is set " +
+                "via MCP_HTTP_HOST (currently '{}'); use 127.0.0.1 for loopback-only local runs.",
+            host,
+            port,
+            host,
+        )
+        if (apiWiring.apiConfig !is ApiAuthConfig.Disabled) {
+            logger.warn(
+                "SECURITY: API_ENABLED=true authenticates /api/v1 routes but does NOT protect /mcp. " +
+                    "The /mcp endpoint remains unauthenticated regardless of the REST API auth mode.",
+            )
+        }
+        if (host == "0.0.0.0") {
+            logger.warn(
+                "SECURITY: MCP HTTP transport is bound to 0.0.0.0 (all interfaces). If this is not a " +
+                    "container behind a reverse proxy / private network, set MCP_HTTP_HOST=127.0.0.1.",
+            )
+        }
+
         // Phase 6: reuse the API wiring resolved ONCE in run() — the SAME bus and decorated
         // provider already feeding the MCP tool context. Do NOT re-resolve here, or the SSE route
         // would subscribe to a different bus than the one MCP-tool writes publish to.
@@ -398,6 +462,7 @@ class CurrentMcpServer(
         val effectiveProvider = apiWiring.effectiveProvider
         val apiTokenEntries = apiWiring.tokenEntries
         val allowQueryToken = apiWiring.allowQueryToken
+        val jwksVerifier = apiWiring.jwksVerifier
 
         // Determine actor_authentication status for /info endpoint
         val actorAuthEnabled =
@@ -425,6 +490,7 @@ class CurrentMcpServer(
                     noteSchemaService = noteSchemaService,
                     degradedModePolicy = degradedModePolicy,
                     idempotencyCache = idempotencyCache,
+                    jwksVerifier = jwksVerifier,
                 )
             }
 
@@ -563,6 +629,7 @@ internal fun Application.installRestApiRoutes(
     noteSchemaService: WorkItemSchemaService,
     degradedModePolicy: DegradedModePolicy,
     idempotencyCache: IdempotencyCache,
+    jwksVerifier: JwksApiVerifier? = null,
 ) {
     if (apiConfig is ApiAuthConfig.Disabled) return
 
@@ -573,6 +640,10 @@ internal fun Application.installRestApiRoutes(
                 authConfig = apiConfig
                 // Use pre-loaded token entries (already loaded for event bus wiring at startup)
                 tokenEntries = apiTokenEntries
+                // Wire the REST JWT verifier so jwks mode actually authenticates. Without this the
+                // plugin's Jwks branch finds a null verifier and 401s every request (the bug being
+                // fixed). Null in bearer/disabled modes — the plugin never reads it there.
+                this.jwksVerifier = jwksVerifier
                 // ApiBearerAuth is an APPLICATION plugin — it intercepts every request, not just
                 // /api/v1. The MCP Streamable HTTP endpoint (/mcp) is a separate protocol with its
                 // own transport and must remain reachable WITHOUT a REST bearer token. Exempt it via
@@ -609,6 +680,7 @@ internal fun Application.installRestApiRoutes(
                     eventBus = eventBus,
                     tokenEntries = apiTokenEntries,
                     allowQueryToken = allowQueryToken,
+                    jwksVerifier = jwksVerifier,
                 )
             }
         }

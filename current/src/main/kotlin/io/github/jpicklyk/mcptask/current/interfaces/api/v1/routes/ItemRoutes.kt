@@ -321,11 +321,33 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
 
             // Apply depth filter if requested
             val relativeMaxDepth = if (maxDepth != null) root.depth + maxDepth else null
-            val filtered =
+            val depthFiltered =
                 if (relativeMaxDepth != null) {
                     descendants.filter { it.depth <= relativeMaxDepth }
                 } else {
                     descendants
+                }
+
+            // Post-filter by tagsInclude when the principal's scope carries a tag allowlist.
+            // The entry-point check (enforceScopeForItem above) verified the ROOT item matches
+            // the tag constraint. Descendants are NOT checked by enforceScopeForItem, so without
+            // this filter a tag-scoped token would see ALL descendants regardless of tags.
+            val principal = call.attributes.getOrNull(ApiPrincipalKey)
+            val tagsInclude = principal?.scope?.tagsInclude ?: emptySet()
+            val filtered =
+                if (tagsInclude.isNotEmpty()) {
+                    depthFiltered.filter { item ->
+                        val itemTags =
+                            item.tags
+                                ?.split(",")
+                                ?.map { it.trim() }
+                                ?.filter { it.isNotEmpty() }
+                                ?.toSet()
+                                ?: emptySet()
+                        itemTags.any { it in tagsInclude }
+                    }
+                } else {
+                    depthFiltered
                 }
 
             // Paginate the flat list
@@ -415,6 +437,11 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
             }
 
             val pp = call.pageParams()
+            // Fetch all children without pagination first when tag filtering is needed,
+            // so that the page slice is taken from the already-filtered set.
+            val principalForChildren = call.attributes.getOrNull(ApiPrincipalKey)
+            val tagsIncludeForChildren = principalForChildren?.scope?.tagsInclude ?: emptySet()
+
             val childrenResult =
                 workItemRepo.findByFilters(
                     parentId = id,
@@ -427,9 +454,29 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
                     call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Database query failed"))
                 }
                 is Result.Success -> {
+                    // Post-filter by tagsInclude when the principal's scope carries a tag allowlist.
+                    // The entry-point check (enforceScopeForItem above) verified the parent item matches
+                    // the tag constraint. Children are not checked, so without this filter a tag-scoped
+                    // token would see ALL children regardless of their tags.
+                    val children =
+                        if (tagsIncludeForChildren.isNotEmpty()) {
+                            childrenResult.data.filter { item ->
+                                val itemTags =
+                                    item.tags
+                                        ?.split(",")
+                                        ?.map { it.trim() }
+                                        ?.filter { it.isNotEmpty() }
+                                        ?.toSet()
+                                        ?: emptySet()
+                                itemTags.any { it in tagsIncludeForChildren }
+                            }
+                        } else {
+                            childrenResult.data
+                        }
+
                     val totalResult = workItemRepo.countByFilters(parentId = id)
                     val total = if (totalResult is Result.Success) totalResult.data.toLong() else null
-                    val dtos = childrenResult.data.map { it.toDto() }
+                    val dtos = children.map { it.toDto() }
                     call.respond(HttpStatusCode.OK, buildPageDto(dtos, pp, total))
                 }
             }

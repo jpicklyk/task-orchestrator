@@ -229,11 +229,9 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
     ): JsonElement {
         val paramsObj = params as JsonObject
         val explicitTrigger = (paramsObj["trigger"] as? JsonPrimitive)?.content?.lowercase()
-        val terminalRole = (paramsObj["terminalRole"] as? JsonPrimitive)?.content?.lowercase()
         val trigger =
             when {
                 explicitTrigger != null -> explicitTrigger
-                terminalRole == "cancelled" -> "cancel"
                 else -> "complete"
             }
         val includeRoot = (paramsObj["includeRoot"] as? JsonPrimitive)?.booleanOrNull ?: true
