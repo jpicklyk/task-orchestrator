@@ -12,14 +12,13 @@ import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionReposi
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.test.TestStatusLabelService
-import io.mockk.coEvery
-import io.mockk.every
-import io.mockk.mockk
+import io.mockk.*
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Nested
 import org.junit.jupiter.api.Test
+import java.time.Instant
 import java.util.UUID
 import kotlin.test.*
 
@@ -45,6 +44,12 @@ class CompleteTreeToolTest {
         every { repoProvider.dependencyRepository() } returns depRepo
         every { repoProvider.noteRepository() } returns noteRepo
         every { repoProvider.roleTransitionRepository() } returns roleTransitionRepo
+        // dbNow() is called for ownership checks; default to JVM time for non-clock-skew tests.
+        coEvery { workItemRepo.dbNow() } returns Instant.now()
+        // inTransaction delegates to its block directly — no real DB transaction in unit tests
+        coEvery { workItemRepo.inTransaction(any()) } coAnswers {
+            firstArg<suspend () -> Unit>().invoke()
+        }
 
         context = ToolExecutionContext(repoProvider)
     }

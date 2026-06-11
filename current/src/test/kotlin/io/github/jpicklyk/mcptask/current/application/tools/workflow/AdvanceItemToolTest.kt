@@ -51,6 +51,10 @@ class AdvanceItemToolTest {
         every { repoProvider.roleTransitionRepository() } returns roleTransitionRepo
         // dbNow() is called for ownership checks; default to JVM time for non-clock-skew tests.
         coEvery { workItemRepo.dbNow() } returns Instant.now()
+        // inTransaction delegates to its block directly — no real DB transaction in unit tests
+        coEvery { workItemRepo.inTransaction(any()) } coAnswers {
+            firstArg<suspend () -> Unit>().invoke()
+        }
 
         context = ToolExecutionContext(repoProvider)
     }
@@ -3313,5 +3317,76 @@ class AdvanceItemToolTest {
             assertEquals("terminal", cascade["targetRole"]!!.jsonPrimitive.content)
             assertTrue(cascade["applied"]!!.jsonPrimitive.boolean, "Parent cascade should be applied (not gate-blocked)")
             assertNull(cascade["gateBlocked"], "gateBlocked must not be present on cancel cascade")
+        }
+
+    @Test
+    fun `cancel trigger uses trigger not statusLabel for cancel-cascade detection`(): Unit =
+        runBlocking {
+            // Regression test for bug #1: isCancelCascade must be derived from trigger=="cancel",
+            // not from applyResult.item.statusLabel == "cancelled". If a custom status label is
+            // configured (e.g. "aborted"), the cascade must still bypass gate enforcement.
+            val parentId = UUID.randomUUID()
+            val childId = UUID.randomUUID()
+            val parentItem = WorkItem(id = parentId, title = "Parent", role = Role.WORK, tags = "feature-task")
+            val childItem = makeItem(id = childId, role = Role.WORK, title = "Child", parentId = parentId)
+
+            // Schema that requires a work-phase note on the parent — gate would block if not bypassed
+            val schemaEntries =
+                listOf(
+                    NoteSchemaEntry(
+                        key = "diagnosis",
+                        role = Role.WORK,
+                        required = true,
+                        description = "Required note"
+                    )
+                )
+            val noteSchemaService =
+                object : NoteSchemaService {
+                    override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
+                        if (tags.isNotEmpty()) schemaEntries else null
+                }
+
+            val noteRepo = mockk<NoteRepository>()
+            coEvery { noteRepo.findByItemId(any()) } returns Result.Success(emptyList())
+            coEvery { noteRepo.findByItemId(any(), any()) } returns Result.Success(emptyList())
+
+            val gatedContext =
+                run {
+                    val provider = mockk<RepositoryProvider>()
+                    every { provider.workItemRepository() } returns workItemRepo
+                    every { provider.dependencyRepository() } returns depRepo
+                    every { provider.noteRepository() } returns noteRepo
+                    every { provider.roleTransitionRepository() } returns roleTransitionRepo
+                    ToolExecutionContext(provider, noteSchemaService)
+                }
+
+            coEvery { workItemRepo.getById(childId) } returns Result.Success(childItem)
+            coEvery { workItemRepo.getById(parentId) } returns Result.Success(parentItem)
+            // Simulate a custom status label resolver that uses "aborted" instead of "cancelled"
+            coEvery { workItemRepo.update(any()) } answers {
+                val updated = firstArg<WorkItem>()
+                Result.Success(updated)
+            }
+            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            every { depRepo.findByToItemId(any()) } returns emptyList()
+            every { depRepo.findByFromItemId(any()) } returns emptyList()
+            coEvery { workItemRepo.countChildrenByRole(parentId) } returns
+                Result.Success(mapOf(Role.TERMINAL to 1))
+
+            val params = buildParams(transitionObj(childId, "cancel"))
+            val result = tool.execute(params, gatedContext)
+
+            val results = extractResults(result)
+            val r = results[0].jsonObject
+            assertTrue(r["applied"]!!.jsonPrimitive.boolean, "Child cancel should succeed")
+
+            // The parent cascade must be applied — trigger-based detection bypasses gate
+            val cascadeEvents = r["cascadeEvents"]!!.jsonArray
+            assertEquals(1, cascadeEvents.size, "Expected one cascade event")
+            val cascade = cascadeEvents[0].jsonObject
+            assertTrue(
+                cascade["applied"]!!.jsonPrimitive.boolean,
+                "Parent cascade must be applied regardless of statusLabel value — trigger detection must use trigger==\"cancel\""
+            )
         }
 }
