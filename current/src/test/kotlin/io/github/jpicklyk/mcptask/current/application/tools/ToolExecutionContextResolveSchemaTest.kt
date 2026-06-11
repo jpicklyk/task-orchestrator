@@ -394,12 +394,13 @@ class ToolExecutionContextResolveSchemaTest {
         //   The fix captures tagNotes once and reuses them. Verified via: getSchemaForType("default") returned.
         val item = makeItem(type = null, tags = "bug,tools-layer")
         val defaultNotes = listOf(workEntry())
-        val defaultSchema = WorkItemSchema(
-            type = "default",
-            lifecycleMode = LifecycleMode.MANUAL,
-            notes = defaultNotes,
-            defaultTraits = listOf("some-trait")
-        )
+        val defaultSchema =
+            WorkItemSchema(
+                type = "default",
+                lifecycleMode = LifecycleMode.MANUAL,
+                notes = defaultNotes,
+                defaultTraits = listOf("some-trait")
+            )
 
         // Individual tag lookups return null (neither "bug" nor "tools-layer" matches)
         every { noteSchemaService.getSchemaForTags(listOf("bug")) } returns null
@@ -412,7 +413,11 @@ class ToolExecutionContextResolveSchemaTest {
         val result = context.resolveSchema(item)
         assertNotNull(result, "Should return a schema (default fallback)")
         assertEquals("default", result.type)
-        assertEquals(LifecycleMode.MANUAL, result.lifecycleMode, "lifecycleMode must be preserved from the WorkItemSchema returned by getSchemaForType")
+        assertEquals(
+            LifecycleMode.MANUAL,
+            result.lifecycleMode,
+            "lifecycleMode must be preserved from the WorkItemSchema returned by getSchemaForType"
+        )
         assertEquals(listOf("some-trait"), result.defaultTraits, "defaultTraits must be preserved from the WorkItemSchema")
         assertEquals(defaultNotes, result.notes)
     }

@@ -1248,7 +1248,8 @@ class ManageNotesToolTest {
                 ) as JsonObject
 
             val noteId =
-                (upsertResult["data"] as JsonObject)["notes"]!!.jsonArray
+                (upsertResult["data"] as JsonObject)["notes"]!!
+                    .jsonArray
                     .map { it as JsonObject }
                     .first { it["key"]!!.jsonPrimitive.content == "note-to-delete-by-id" }["id"]!!
                     .jsonPrimitive.content
