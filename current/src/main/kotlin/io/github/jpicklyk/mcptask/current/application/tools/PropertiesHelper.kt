@@ -11,13 +11,30 @@ object PropertiesHelper {
 
     /**
      * Extract the traits list from a properties JSON string.
-     * Returns empty list if properties is null, malformed, or has no "traits" key.
+     *
+     * Accepts the "traits" value as either a JSON array (`{"traits":["a","b"]}`) or a
+     * comma-separated JSON string (`{"traits":"a,b"}`) — the string form is split and
+     * trimmed identically to [mergeTraitsFromString], so hand-authored properties bags
+     * resolve the same as the `traits` convenience field. Any other value type (number,
+     * boolean, null), a missing key, malformed JSON, or null/blank input yields an empty list.
      */
     fun extractTraits(properties: String?): List<String> {
         if (properties.isNullOrBlank()) return emptyList()
         return try {
             val json = Json.parseToJsonElement(properties).jsonObject
-            json[TRAITS_KEY]?.jsonArray?.map { it.jsonPrimitive.content } ?: emptyList()
+            when (val traitsElement = json[TRAITS_KEY]) {
+                is JsonArray -> traitsElement.map { it.jsonPrimitive.content }
+                is JsonPrimitive ->
+                    if (traitsElement.isString) {
+                        traitsElement.content
+                            .split(",")
+                            .map { it.trim() }
+                            .filter { it.isNotEmpty() }
+                    } else {
+                        emptyList()
+                    }
+                else -> emptyList()
+            }
         } catch (_: Exception) {
             emptyList()
         }

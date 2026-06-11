@@ -52,9 +52,34 @@ class PropertiesHelperTest {
     }
 
     @Test
-    fun `extractTraits returns empty list when traits value is not an array`() {
-        // "traits" exists but is a string, not an array — jsonArray access throws
-        val properties = """{"traits": "not-an-array"}"""
+    fun `extractTraits parses single-trait comma-string in properties`() {
+        // "traits" as a JSON string (not an array) is tolerated and split on commas,
+        // mirroring the `traits` convenience field. A single value yields a one-element list.
+        val properties = """{"traits": "needs-security-review"}"""
+        assertEquals(listOf("needs-security-review"), PropertiesHelper.extractTraits(properties))
+    }
+
+    @Test
+    fun `extractTraits parses multi-trait comma-string in properties`() {
+        val properties = """{"traits": "a,b,c"}"""
+        assertEquals(listOf("a", "b", "c"), PropertiesHelper.extractTraits(properties))
+    }
+
+    @Test
+    fun `extractTraits trims whitespace and filters empty segments in comma-string`() {
+        val properties = """{"traits": " a , , b "}"""
+        assertEquals(listOf("a", "b"), PropertiesHelper.extractTraits(properties))
+    }
+
+    @Test
+    fun `extractTraits returns empty list when traits value is a number`() {
+        val properties = """{"traits": 42}"""
+        assertEquals(emptyList(), PropertiesHelper.extractTraits(properties))
+    }
+
+    @Test
+    fun `extractTraits returns empty list when traits value is null`() {
+        val properties = """{"traits": null}"""
         assertEquals(emptyList(), PropertiesHelper.extractTraits(properties))
     }
 
