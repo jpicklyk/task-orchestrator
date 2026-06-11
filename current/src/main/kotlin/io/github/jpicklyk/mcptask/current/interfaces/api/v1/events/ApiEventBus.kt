@@ -165,8 +165,10 @@ class ApiEventBus(
                             ringBuffer.filter { entry ->
                                 entry.event.id > lastEventId &&
                                     (
-                                        sub.rootIds.isEmpty() ||           // subscriber has no root filter
-                                            entry.affectedRoots.isEmpty() || // bus-level event (sync.lost, auth.expired)
+                                        sub.rootIds.isEmpty() ||
+                                            // subscriber has no root filter
+                                            entry.affectedRoots.isEmpty() ||
+                                            // bus-level event (sync.lost, auth.expired)
                                             sub.rootIds.intersect(entry.affectedRoots).isNotEmpty()
                                     )
                             }

@@ -44,19 +44,32 @@ class EventPublishingRepositoryProviderTest {
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 
-            // Create two root items (depth=0)
+            // Create two root items (depth=0). We must subscribe a warm-up subscriber BEFORE these
+            // writes: resolveRoots() short-circuits to emptySet (and does NOT populate rootCache)
+            // when subscriberCount()==0 as a performance guard. The cache is only warmed when a
+            // subscriber is connected during the item writes — which mirrors a live dashboard.
+            val warmupFlow = bus.subscribe("sub-warmup", emptySet(), lastEventId = null)
+            // Drain the warm-up subscriber in the background so its channel does not back-pressure.
+            val warmupDrain = async { warmupFlow.take(Int.MAX_VALUE).toList() }
+
             val rootR = provider.workItemRepository().create(WorkItem(title = "Root R", depth = 0)).getOrNull()!!
             val rootS = provider.workItemRepository().create(WorkItem(title = "Root S", depth = 0)).getOrNull()!!
 
-            // Create item A as a child of rootR (this primes the cache: rootR → {rootR.id})
-            val itemA = provider.workItemRepository().create(
-                WorkItem(title = "Item A", parentId = rootR.id, depth = 1)
-            ).getOrNull()!!
+            // Create item A as a child of rootR (this primes the cache: itemA → {rootR.id})
+            val itemA =
+                provider
+                    .workItemRepository()
+                    .create(
+                        WorkItem(title = "Item A", parentId = rootR.id, depth = 1)
+                    ).getOrNull()!!
 
             // Create item B as a child of rootR (needed for the dependency target)
-            val itemB = provider.workItemRepository().create(
-                WorkItem(title = "Item B", parentId = rootR.id, depth = 1)
-            ).getOrNull()!!
+            val itemB =
+                provider
+                    .workItemRepository()
+                    .create(
+                        WorkItem(title = "Item B", parentId = rootR.id, depth = 1)
+                    ).getOrNull()!!
 
             // Subscriber scoped to rootS should NOT receive dependency events for rootR items
             val flowS = bus.subscribe("sub-rootS", setOf(rootS.id), lastEventId = null)
@@ -67,7 +80,8 @@ class EventPublishingRepositoryProviderTest {
 
             delay(30)
 
-            // Create dependency from itemA → itemB via the non-suspend path
+            // Create dependency from itemA → itemB via the non-suspend path.
+            // itemA's root is cached → resolveRootsCached returns {rootR.id} → scoped, not broadcast.
             provider.dependencyRepository().create(
                 Dependency(
                     fromItemId = itemA.id,
@@ -82,10 +96,17 @@ class EventPublishingRepositoryProviderTest {
                 "Subscriber scoped to rootS must NOT receive dependency.added event for rootR items (got: $result)",
             )
             bus.unsubscribe("sub-rootS")
+            bus.unsubscribe("sub-warmup")
+            warmupDrain.cancel()
         }
 
     /**
      * Non-suspend dependency.create delivers event to the correct root-scoped subscriber.
+     *
+     * A warm-up subscriber is connected BEFORE the item writes so resolveRoots() populates the
+     * cache (it short-circuits to emptySet when subscriberCount()==0). This ensures the
+     * dependency event is delivered because itemA's root is genuinely IN the scoped subscriber's
+     * root set — not merely because of a cold-cache broadcast.
      */
     @Test
     fun `non-suspend dependency create delivers event to in-scope subscriber`(): Unit =
@@ -94,14 +115,24 @@ class EventPublishingRepositoryProviderTest {
             val bus = ApiEventBus()
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 
-            // Create root item and child (primes the cache)
+            // Warm-up subscriber present during writes so the root cache is populated.
+            val warmupFlow = bus.subscribe("sub-warmup-2", emptySet(), lastEventId = null)
+            val warmupDrain = async { warmupFlow.take(Int.MAX_VALUE).toList() }
+
+            // Create root item and child (primes the cache: itemA → {rootR.id})
             val rootR = provider.workItemRepository().create(WorkItem(title = "Root R2", depth = 0)).getOrNull()!!
-            val itemA = provider.workItemRepository().create(
-                WorkItem(title = "Item A2", parentId = rootR.id, depth = 1)
-            ).getOrNull()!!
-            val itemB = provider.workItemRepository().create(
-                WorkItem(title = "Item B2", parentId = rootR.id, depth = 1)
-            ).getOrNull()!!
+            val itemA =
+                provider
+                    .workItemRepository()
+                    .create(
+                        WorkItem(title = "Item A2", parentId = rootR.id, depth = 1)
+                    ).getOrNull()!!
+            val itemB =
+                provider
+                    .workItemRepository()
+                    .create(
+                        WorkItem(title = "Item B2", parentId = rootR.id, depth = 1)
+                    ).getOrNull()!!
 
             // Subscriber scoped to rootR SHOULD receive the dependency event
             val flowR = bus.subscribe("sub-rootR", setOf(rootR.id), lastEventId = null)
@@ -125,6 +156,8 @@ class EventPublishingRepositoryProviderTest {
             assertEquals(ApiEventType.DEPENDENCY_ADDED, events[0].event)
             assertEquals(itemA.id.toString(), events[0].itemId)
             bus.unsubscribe("sub-rootR")
+            bus.unsubscribe("sub-warmup-2")
+            warmupDrain.cancel()
         }
 
     /**

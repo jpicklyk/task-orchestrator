@@ -479,9 +479,19 @@ class ItemRoutesTest {
                 runBlocking {
                     val r = repo.workItemRepository().create(WorkItem(title = "SecRoot", tags = "security,api", depth = 0)).getOrNull()!!
                     // child1 does NOT have the 'security' tag
-                    val c1 = repo.workItemRepository().create(WorkItem(title = "ApiOnlyChild", tags = "api", parentId = r.id, depth = 1)).getOrNull()!!
+                    val c1 =
+                        repo
+                            .workItemRepository()
+                            .create(
+                                WorkItem(title = "ApiOnlyChild", tags = "api", parentId = r.id, depth = 1)
+                            ).getOrNull()!!
                     // child2 HAS the 'security' tag
-                    val c2 = repo.workItemRepository().create(WorkItem(title = "SecChild", tags = "security", parentId = r.id, depth = 1)).getOrNull()!!
+                    val c2 =
+                        repo
+                            .workItemRepository()
+                            .create(
+                                WorkItem(title = "SecChild", tags = "security", parentId = r.id, depth = 1)
+                            ).getOrNull()!!
                     Triple(r, c1, c2)
                 }
             // Token with tagsInclude = { "security" } — sees root and child2 but NOT child1
@@ -511,8 +521,18 @@ class ItemRoutesTest {
             val (root, _, _) =
                 runBlocking {
                     val r = repo.workItemRepository().create(WorkItem(title = "SecParent", tags = "security", depth = 0)).getOrNull()!!
-                    val c1 = repo.workItemRepository().create(WorkItem(title = "ApiChild", tags = "api", parentId = r.id, depth = 1)).getOrNull()!!
-                    val c2 = repo.workItemRepository().create(WorkItem(title = "SecChild2", tags = "security,api", parentId = r.id, depth = 1)).getOrNull()!!
+                    val c1 =
+                        repo
+                            .workItemRepository()
+                            .create(
+                                WorkItem(title = "ApiChild", tags = "api", parentId = r.id, depth = 1)
+                            ).getOrNull()!!
+                    val c2 =
+                        repo
+                            .workItemRepository()
+                            .create(
+                                WorkItem(title = "SecChild2", tags = "security,api", parentId = r.id, depth = 1)
+                            ).getOrNull()!!
                     Triple(r, c1, c2)
                 }
             val authConfig = makeTestAuthConfig(tagsInclude = setOf("security"))
