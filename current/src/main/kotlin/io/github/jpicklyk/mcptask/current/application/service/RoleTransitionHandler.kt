@@ -733,45 +733,59 @@ class RoleTransitionHandler {
         var savedTransition: RoleTransition? = null
         var atomicError: String? = null
 
-        workItemRepository.inTransaction {
-            when (val result = workItemRepository.update(updatedItem)) {
-                is Result.Success -> {
-                    savedItem = result.data
-                    // Record the audit trail inside the same transaction
-                    val transition =
-                        RoleTransition(
-                            itemId = item.id,
-                            fromRole = previousRole.name.lowercase(),
-                            toRole = targetRole.name.lowercase(),
-                            fromStatusLabel = item.statusLabel,
-                            toStatusLabel = statusLabel,
-                            trigger = trigger,
-                            summary = summary,
-                            actorClaim = actorClaim,
-                            verification = verification
-                        )
-                    when (val createResult = roleTransitionRepository.create(transition)) {
-                        is Result.Success -> {
-                            savedTransition = createResult.data
-                        }
-                        is Result.Error -> {
-                            val errMsg = "Failed to create audit transition: ${createResult.error.message}"
-                            atomicError = errMsg
-                            throw AtomicTransitionException(errMsg)
+        // The AtomicTransitionException is thrown INSIDE the inTransaction lambda to abort and
+        // roll back the transaction when either write fails. It is caught HERE, at the boundary,
+        // and converted into a failure Result — applyTransition never throws to its caller.
+        // Any other exception (e.g. a raw DB exception) is likewise caught and surfaced as a
+        // failure Result after the transaction has already rolled back.
+        try {
+            workItemRepository.inTransaction {
+                when (val result = workItemRepository.update(updatedItem)) {
+                    is Result.Success -> {
+                        savedItem = result.data
+                        // Record the audit trail inside the same transaction
+                        val transition =
+                            RoleTransition(
+                                itemId = item.id,
+                                fromRole = previousRole.name.lowercase(),
+                                toRole = targetRole.name.lowercase(),
+                                fromStatusLabel = item.statusLabel,
+                                toStatusLabel = statusLabel,
+                                trigger = trigger,
+                                summary = summary,
+                                actorClaim = actorClaim,
+                                verification = verification
+                            )
+                        when (val createResult = roleTransitionRepository.create(transition)) {
+                            is Result.Success -> {
+                                savedTransition = createResult.data
+                            }
+                            is Result.Error -> {
+                                val errMsg = "Failed to create audit transition: ${createResult.error.message}"
+                                atomicError = errMsg
+                                throw AtomicTransitionException(errMsg)
+                            }
                         }
                     }
-                }
-                is Result.Error -> {
-                    val errMsg = "Failed to update item: ${result.error.message}"
-                    atomicError = errMsg
-                    throw AtomicTransitionException(errMsg)
+                    is Result.Error -> {
+                        val errMsg = "Failed to update item: ${result.error.message}"
+                        atomicError = errMsg
+                        throw AtomicTransitionException(errMsg)
+                    }
                 }
             }
+        } catch (e: AtomicTransitionException) {
+            // Expected abort path — atomicError already holds the message. The transaction
+            // has rolled back, so no partial writes remain. Fall through to the failure return.
+            atomicError = atomicError ?: e.message
+        } catch (e: Exception) {
+            // Unexpected DB failure inside the transaction — also rolled back. Surface as failure.
+            atomicError = atomicError ?: "Failed to apply transition: ${e.message}"
         }
 
         val finalItem = savedItem
         val finalTransition = savedTransition
-        return if (finalItem != null && finalTransition != null) {
+        return if (atomicError == null && finalItem != null && finalTransition != null) {
             TransitionApplyResult(
                 success = true,
                 item = finalItem,
