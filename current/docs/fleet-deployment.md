@@ -12,6 +12,25 @@ For single-agent or local-dev setups, the defaults are appropriate and this guid
 
 ---
 
+## ⚠️ MCP HTTP Transport (`/mcp`) Is Unauthenticated — Read First
+
+When you run the server with `MCP_TRANSPORT=http`, the MCP endpoint is mounted at `/mcp` using the Streamable HTTP transport. **This endpoint has no authentication of any kind.** Any caller that can open a TCP connection to `MCP_HTTP_HOST:MCP_HTTP_PORT` (default `0.0.0.0:3001`) can invoke **every MCP tool** — full read, write, and delete of the entire work-item graph.
+
+This is **by design**: MCP-over-HTTP clients (Claude Code and other agents) connect without a REST bearer token, so gating `/mcp` would break them. The exemption is deliberate and load-bearing — do not attempt to bolt REST auth onto `/mcp`.
+
+**Critical consequences for fleet operators:**
+
+- **Enabling the REST API does NOT protect `/mcp`.** `API_ENABLED=true` + `API_AUTH_MODE=bearer|jwks` authenticates only the `/api/v1/*` routes. `/mcp` stays wide open regardless of REST auth mode. An operator who locks down the REST API can be lulled into thinking the whole HTTP surface is protected — it is not.
+- **The server logs a loud `SECURITY:` WARN at startup** whenever `MCP_TRANSPORT=http`, repeating this and noting the bind address. Check `docker logs` after first boot.
+- **You MUST fence `/mcp` at the network layer.** Choose one:
+  - Front it with an authenticating reverse proxy (e.g. nginx + mTLS, or an OAuth2 proxy) and never publish the raw port.
+  - Restrict it to a private network / VPC with no public ingress.
+  - For a single-host local run, bind loopback only: set `MCP_HTTP_HOST=127.0.0.1` (direct JAR run) or publish the Docker port as `127.0.0.1:3001:3001`.
+
+**Bind-default rationale.** The default bind is `0.0.0.0`, not `127.0.0.1`. Docker port-mapping (`-p host:container`) requires the server to bind all interfaces *inside* the container — a loopback default would make the published port unreachable and break the primary (containerized) deployment path. Control host exposure via the `-p` mapping for Docker, or set `MCP_HTTP_HOST=127.0.0.1` for a non-Docker local run. See [quick-start.md → HTTP transport security](quick-start.md) for the full matrix.
+
+---
+
 ## REST API Authentication
 
 The REST API layer (`API_ENABLED=true`) is a **separate authentication layer** from the MCP actor identity system. They are independent:

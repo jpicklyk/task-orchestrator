@@ -128,6 +128,10 @@ class Fts5MigrationTest {
                     )
                     """.trimIndent()
                 )
+                // Unique index on (work_item_id, key) — matches production migration V1
+                // (idx_notes_item_key). Required as the ON CONFLICT(work_item_id, key) target
+                // for the atomic note upsert.
+                exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_notes_item_key ON notes(work_item_id, key)")
                 exec(
                     """
                     CREATE TABLE IF NOT EXISTS dependencies (
