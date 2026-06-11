@@ -508,9 +508,7 @@ Unified write operations for Notes (upsert, delete).
                     }
                 }
             }
-        }
-
-        else if (itemIdStr != null) {
+        } else if (itemIdStr != null) {
             // Delete by itemId (+ optional key) — only when ids array was NOT provided (mutual exclusion, defense-in-depth)
             val (resolvedItemId, itemIdErr) = resolveIdString(itemIdStr, context)
             if (itemIdErr != null) return itemIdErr
