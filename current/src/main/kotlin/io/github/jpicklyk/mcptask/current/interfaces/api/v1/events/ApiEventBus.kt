@@ -38,8 +38,18 @@ class ApiEventBus(
     /** Monotonically increasing global event counter — independent of /mcp EventStore. */
     private val idCounter = AtomicLong(0L)
 
+    /**
+     * Internal wrapper that annotates a buffered event with the root UUIDs affected by it.
+     * This allows the replay path to apply the same root-scope filter that the live publish() path uses.
+     */
+    private data class RingBufferEntry(
+        val event: ApiEvent,
+        /** Root UUIDs affected by this event; empty = bus-level broadcast (sync.lost, auth.expired). */
+        val affectedRoots: Set<UUID>,
+    )
+
     /** Ring buffer of recent events for Last-Event-ID replay. Protected by synchronized access. */
-    private val ringBuffer = ArrayDeque<ApiEvent>(bufferSize)
+    private val ringBuffer = ArrayDeque<RingBufferEntry>(bufferSize)
 
     /** Active subscribers: subscriber-id → Subscriber. */
     private val subscribers = ConcurrentHashMap<String, Subscriber>()
@@ -70,12 +80,12 @@ class ApiEventBus(
         event: ApiEvent,
         affectedRoots: Set<UUID> = emptySet(),
     ) {
-        // Add to ring buffer
+        // Add to ring buffer — store alongside affectedRoots so replay can apply scope filtering
         synchronized(ringBuffer) {
             if (ringBuffer.size >= bufferSize) {
                 ringBuffer.removeFirst()
             }
-            ringBuffer.addLast(event)
+            ringBuffer.addLast(RingBufferEntry(event, affectedRoots))
         }
 
         // Fan out to subscribers
@@ -145,18 +155,24 @@ class ApiEventBus(
 
         return flow {
             try {
-                // Replay buffered events from lastEventId forward, THEN stream live
+                // Replay buffered events from lastEventId forward, THEN stream live.
+                // Apply the same root-scope filter as the live publish() fan-out so that
+                // a subscriber scoped to a subset of roots does not receive buffered events
+                // for roots outside its scope.
                 if (lastEventId != null) {
-                    // Replay all buffered events after the last-seen ID.
-                    // Ring-buffer entries do not carry per-publisher root metadata,
-                    // so replay is unfiltered by root — clients should treat replayed
-                    // events as potentially broader than their live subscription filter.
                     val buffered =
                         synchronized(ringBuffer) {
-                            ringBuffer.filter { it.id > lastEventId }
+                            ringBuffer.filter { entry ->
+                                entry.event.id > lastEventId &&
+                                    (
+                                        sub.rootIds.isEmpty() ||           // subscriber has no root filter
+                                            entry.affectedRoots.isEmpty() || // bus-level event (sync.lost, auth.expired)
+                                            sub.rootIds.intersect(entry.affectedRoots).isNotEmpty()
+                                    )
+                            }
                         }
-                    for (evt in buffered) {
-                        emit(evt)
+                    for (entry in buffered) {
+                        emit(entry.event)
                     }
                 }
 
@@ -186,9 +202,10 @@ class ApiEventBus(
 
     /**
      * Returns a snapshot of the ring buffer (for testing/replay verification).
+     * Returns [ApiEvent] objects only — affectedRoots metadata is internal.
      */
     fun ringBufferSnapshot(): List<ApiEvent> =
         synchronized(ringBuffer) {
-            ringBuffer.toList()
+            ringBuffer.map { it.event }
         }
 }

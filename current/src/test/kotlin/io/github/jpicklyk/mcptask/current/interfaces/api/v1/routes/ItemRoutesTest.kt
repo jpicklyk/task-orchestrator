@@ -465,6 +465,99 @@ class ItemRoutesTest {
             assertTrue(body.contains("LeafC"), "Expected leaf in full chain: $body")
         }
 
+    // ─── Tag-scope post-filtering on /tree and /children (Leak #3 regression) ────
+
+    /**
+     * A tag-scoped token requesting the tree of a tag-matching root must NOT see descendants
+     * that do not carry the required tag.
+     */
+    @Test
+    fun `GET items id tree with tag-scoped token excludes descendants without required tag`() =
+        testApplication {
+            val repo = buildH2RepositoryProvider()
+            val (root, child1, child2) =
+                runBlocking {
+                    val r = repo.workItemRepository().create(WorkItem(title = "SecRoot", tags = "security,api", depth = 0)).getOrNull()!!
+                    // child1 does NOT have the 'security' tag
+                    val c1 = repo.workItemRepository().create(WorkItem(title = "ApiOnlyChild", tags = "api", parentId = r.id, depth = 1)).getOrNull()!!
+                    // child2 HAS the 'security' tag
+                    val c2 = repo.workItemRepository().create(WorkItem(title = "SecChild", tags = "security", parentId = r.id, depth = 1)).getOrNull()!!
+                    Triple(r, c1, c2)
+                }
+            // Token with tagsInclude = { "security" } — sees root and child2 but NOT child1
+            val authConfig = makeTestAuthConfig(tagsInclude = setOf("security"))
+            application {
+                configureTestApp(authConfig) { itemRoutes(repo) }
+            }
+            val response =
+                client.get("/api/v1/items/${root.id}/tree") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                }
+            assertEquals(HttpStatusCode.OK, response.status)
+            val body = response.bodyAsText()
+            assertTrue(body.contains("SecRoot"), "Expected root in tree: $body")
+            assertTrue(body.contains("SecChild"), "Expected security-tagged child in tree: $body")
+            assertFalse(body.contains("ApiOnlyChild"), "Must NOT expose non-security-tagged descendant: $body")
+        }
+
+    /**
+     * A tag-scoped token requesting children of a tag-matching parent must NOT see children
+     * that do not carry the required tag.
+     */
+    @Test
+    fun `GET items id children with tag-scoped token excludes children without required tag`() =
+        testApplication {
+            val repo = buildH2RepositoryProvider()
+            val (root, _, _) =
+                runBlocking {
+                    val r = repo.workItemRepository().create(WorkItem(title = "SecParent", tags = "security", depth = 0)).getOrNull()!!
+                    val c1 = repo.workItemRepository().create(WorkItem(title = "ApiChild", tags = "api", parentId = r.id, depth = 1)).getOrNull()!!
+                    val c2 = repo.workItemRepository().create(WorkItem(title = "SecChild2", tags = "security,api", parentId = r.id, depth = 1)).getOrNull()!!
+                    Triple(r, c1, c2)
+                }
+            val authConfig = makeTestAuthConfig(tagsInclude = setOf("security"))
+            application {
+                configureTestApp(authConfig) { itemRoutes(repo) }
+            }
+            val response =
+                client.get("/api/v1/items/${root.id}/children") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                }
+            assertEquals(HttpStatusCode.OK, response.status)
+            val body = response.bodyAsText()
+            assertTrue(body.contains("SecChild2"), "Expected security-tagged child: $body")
+            assertFalse(body.contains("ApiChild"), "Must NOT expose non-security-tagged child: $body")
+        }
+
+    /**
+     * An unscoped token (null rootIds, empty tagsInclude) must still see all descendants
+     * of a tree — regression guard against over-filtering.
+     */
+    @Test
+    fun `GET items id tree unscoped token returns all descendants regardless of tags`() =
+        testApplication {
+            val repo = buildH2RepositoryProvider()
+            val root =
+                runBlocking {
+                    val r = repo.workItemRepository().create(WorkItem(title = "AllRoot", tags = "security", depth = 0)).getOrNull()!!
+                    repo.workItemRepository().create(WorkItem(title = "UntaggedChild", depth = 1, parentId = r.id))
+                    repo.workItemRepository().create(WorkItem(title = "TaggedChild", tags = "security", depth = 1, parentId = r.id))
+                    r
+                }
+            // Default TEST_TOKEN has no scope restrictions
+            application {
+                configureTestApp { itemRoutes(repo) }
+            }
+            val response =
+                client.get("/api/v1/items/${root.id}/tree") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                }
+            assertEquals(HttpStatusCode.OK, response.status)
+            val body = response.bodyAsText()
+            assertTrue(body.contains("UntaggedChild"), "Unscoped token must see all descendants: $body")
+            assertTrue(body.contains("TaggedChild"), "Unscoped token must see all descendants: $body")
+        }
+
     // ─── /items/roots scoped fetch ────────────────────────────────────────────
 
     /**

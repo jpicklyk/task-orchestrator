@@ -277,6 +277,123 @@ class ApiEventBusTest {
     }
 
     // -------------------------------------------------------------------------
+    // Last-Event-ID replay — root-scope filtering (security regression tests)
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun `Last-Event-ID replay does not leak out-of-scope root events to root-scoped subscriber`(): Unit =
+        runBlocking {
+            val bus = ApiEventBus()
+            val rootA = UUID.randomUUID()
+            val rootB = UUID.randomUUID()
+
+            // Publish 3 events for rootA without any subscriber (buffered in ring buffer)
+            repeat(3) {
+                val e = bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID(), modifiedAt = Instant.now())
+                bus.publish(e, affectedRoots = setOf(rootA))
+            }
+
+            // Subscribe with rootIds={rootB} and replay from id=0
+            // A token scoped to rootB must NOT receive the rootA-only buffered events
+            val flow = bus.subscribe("sub-rootB-only", setOf(rootB), lastEventId = 0L)
+            val received =
+                async {
+                    withTimeoutOrNull(500) { flow.take(1).toList() }
+                }
+
+            val result = received.await()
+            assertNull(result, "Root-scoped subscriber must NOT receive replayed events from out-of-scope roots")
+            bus.unsubscribe("sub-rootB-only")
+        }
+
+    @Test
+    fun `Last-Event-ID replay delivers only in-scope events to root-scoped subscriber`(): Unit =
+        runBlocking {
+            val bus = ApiEventBus()
+            val rootA = UUID.randomUUID()
+            val rootB = UUID.randomUUID()
+            val itemA = UUID.randomUUID()
+            val itemB = UUID.randomUUID()
+
+            // Publish events for rootA and rootB without any subscriber (buffered)
+            val evtA = bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = itemA, modifiedAt = Instant.now())
+            bus.publish(evtA, affectedRoots = setOf(rootA))
+            val evtB = bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = itemB, modifiedAt = Instant.now())
+            bus.publish(evtB, affectedRoots = setOf(rootB))
+
+            // Subscribe scoped to rootB — should only replay the rootB event
+            val flow = bus.subscribe("sub-rootB-replay", setOf(rootB), lastEventId = 0L)
+
+            val collected =
+                async {
+                    withTimeout(3.seconds) {
+                        flow.take(1).toList()
+                    }
+                }
+
+            val events = collected.await()
+            assertEquals(1, events.size, "Expected exactly 1 in-scope replayed event")
+            assertEquals(evtB.id, events[0].id, "Expected the rootB event, not the rootA event")
+            assertEquals(itemB.toString(), events[0].itemId)
+            bus.unsubscribe("sub-rootB-replay")
+        }
+
+    @Test
+    fun `Last-Event-ID replay delivers all events to unrestricted subscriber`(): Unit =
+        runBlocking {
+            val bus = ApiEventBus()
+            val rootA = UUID.randomUUID()
+            val rootB = UUID.randomUUID()
+
+            // Publish 2 events for different roots (no subscriber yet)
+            repeat(2) { i ->
+                val root = if (i == 0) rootA else rootB
+                val e = bus.buildEvent(ApiEventType.ITEM_CREATED, itemId = UUID.randomUUID(), modifiedAt = Instant.now())
+                bus.publish(e, affectedRoots = setOf(root))
+            }
+
+            // Unrestricted subscriber (emptySet) should receive ALL buffered events
+            val flow = bus.subscribe("sub-unrestricted", emptySet(), lastEventId = 0L)
+
+            val collected =
+                async {
+                    withTimeout(3.seconds) {
+                        flow.take(2).toList()
+                    }
+                }
+
+            val events = collected.await()
+            assertEquals(2, events.size, "Unrestricted subscriber must receive all replayed events regardless of roots")
+            bus.unsubscribe("sub-unrestricted")
+        }
+
+    @Test
+    fun `Last-Event-ID replay delivers bus-level events (emptySet roots) to all root-scoped subscribers`(): Unit =
+        runBlocking {
+            val bus = ApiEventBus()
+            val rootA = UUID.randomUUID()
+
+            // Publish a bus-level event (sync.lost / auth.expired use emptySet as affectedRoots)
+            val busEvt = bus.buildEvent(ApiEventType.AUTH_EXPIRED)
+            bus.publish(busEvt, affectedRoots = emptySet())
+
+            // Root-scoped subscriber MUST receive the bus-level event on replay
+            val flow = bus.subscribe("sub-rootA-replay", setOf(rootA), lastEventId = 0L)
+
+            val collected =
+                async {
+                    withTimeout(3.seconds) {
+                        flow.take(1).toList()
+                    }
+                }
+
+            val events = collected.await()
+            assertEquals(1, events.size, "Bus-level events (emptySet affectedRoots) must replay to all subscribers")
+            assertEquals(ApiEventType.AUTH_EXPIRED, events[0].event)
+            bus.unsubscribe("sub-rootA-replay")
+        }
+
+    // -------------------------------------------------------------------------
     // Subscriber count and cleanup
     // -------------------------------------------------------------------------
 

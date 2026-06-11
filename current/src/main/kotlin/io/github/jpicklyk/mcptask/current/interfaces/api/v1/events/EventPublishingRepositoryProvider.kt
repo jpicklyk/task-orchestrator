@@ -87,6 +87,23 @@ class EventPublishingRepositoryProvider(
         }
     }
 
+    /**
+     * Non-suspend variant of [resolveRoots] that reads from the cache only — no DB fallback.
+     *
+     * Used by non-suspend paths (e.g., [DependencyRepository.create] and [DependencyRepository.delete])
+     * that cannot call suspend functions. For items whose ancestor chain has already been cached
+     * (e.g., after a prior create or update), this returns the correct root set and allows
+     * dependency events to be root-scoped. For uncached items, it returns [emptySet] which causes
+     * [ApiEventBus.publish] to broadcast to all subscribers — the same behavior as before this fix.
+     *
+     * **Tradeoff:** A cold-start dependency event (item never fetched or written since server start)
+     * still broadcasts. This is acceptable because: (a) it only affects the rare case where no
+     * prior write has occurred for the item in this server session, and (b) the broadcast is
+     * metadata-only (itemId, no body). The correct fix for perfect scoping is to use
+     * [createSuspend] instead of [create] at all call sites, but that is a broader refactor.
+     */
+    private fun resolveRootsCached(itemId: UUID): Set<UUID> = rootCache[itemId] ?: emptySet()
+
     /** Invalidate the cache for [itemId] and all its known descendants (on delete or reparent). */
     private fun invalidateCache(itemId: UUID) {
         rootCache.remove(itemId)
@@ -261,15 +278,17 @@ class EventPublishingRepositoryProvider(
     ) : DependencyRepository by inner {
         override fun create(dependency: Dependency): Dependency {
             val result = inner.create(dependency)
-            // Fire-and-forget: can't call suspend here (DependencyRepository.create is non-suspend)
-            // Publish to all subscribers (no root filtering for dependencies in the non-suspend path)
+            // Non-suspend path: use the cached root set for the from-item (populated by prior
+            // create/update writes). Falls back to emptySet (broadcast) for items not yet cached.
+            // See resolveRootsCached() for the tradeoff rationale.
+            val roots = resolveRootsCached(dependency.fromItemId)
             eventBus.publish(
                 eventBus.buildEvent(
                     ApiEventType.DEPENDENCY_ADDED,
                     itemId = dependency.fromItemId,
                     modifiedAt = dependency.createdAt,
                 ),
-                affectedRoots = emptySet(), // broadcast; fine for non-suspend path
+                affectedRoots = roots,
             )
             return result
         }
@@ -294,13 +313,17 @@ class EventPublishingRepositoryProvider(
             val dep = if (eventBus.subscriberCount() > 0) inner.findById(id) else null
             val result = inner.delete(id)
             if (result && dep != null) {
+                // Non-suspend path: use the cached root set for the from-item.
+                // Falls back to emptySet (broadcast) for uncached items.
+                // See resolveRootsCached() for the tradeoff rationale.
+                val roots = resolveRootsCached(dep.fromItemId)
                 eventBus.publish(
                     eventBus.buildEvent(
                         ApiEventType.DEPENDENCY_REMOVED,
                         itemId = dep.fromItemId,
                         modifiedAt = Instant.now(),
                     ),
-                    affectedRoots = emptySet(), // broadcast; non-suspend path
+                    affectedRoots = roots,
                 )
             }
             return result
