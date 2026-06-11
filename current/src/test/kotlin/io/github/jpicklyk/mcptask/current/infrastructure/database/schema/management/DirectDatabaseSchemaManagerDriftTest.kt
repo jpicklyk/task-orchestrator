@@ -22,7 +22,6 @@ import kotlin.test.assertTrue
  * restriction). The _ai and _ad triggers are stable; they are not expected to change.
  */
 class DirectDatabaseSchemaManagerDriftTest {
-
     /** Canonical V8 trigger SQL (matches V8__Restrict_FTS_Update_Triggers.sql exactly). */
     private val canonicalWorkItemsTrigramAu =
         "CREATE TRIGGER work_items_fts_trigram_au AFTER UPDATE OF title, summary ON work_items " +
@@ -156,12 +155,13 @@ class DirectDatabaseSchemaManagerDriftTest {
         val manager = DirectDatabaseSchemaManager()
         val triggers = extractCreateTriggerSql(manager)
 
-        val auTriggers = listOf(
-            "work_items_fts_trigram_au",
-            "work_items_fts_text_au",
-            "notes_fts_trigram_au",
-            "notes_fts_text_au",
-        )
+        val auTriggers =
+            listOf(
+                "work_items_fts_trigram_au",
+                "work_items_fts_text_au",
+                "notes_fts_trigram_au",
+                "notes_fts_text_au",
+            )
 
         for (triggerName in auTriggers) {
             assertTrue(
