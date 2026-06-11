@@ -39,7 +39,7 @@ Unified write operations for Notes (upsert, delete).
 **delete** - Delete notes.
 - By `ids` array: delete each note by UUID
 - By `itemId` + optional `key`: delete all notes for item, or specific note by key
-- Response: `{ deleted: N, failed: N, failures: [{id, error}] }`
+- Response: `{ deleted: N, notFound: N, failed: N, failures: [{id, error}] }` — `notFound` counts keys that did not exist (not an error)
 
 **Idempotency:** Pass `requestId` (client-generated UUID) together with a top-level `actor.id` to enable idempotent retries. Repeated calls with the same (actor, requestId) within ~10 minutes return the cached response without re-executing.
         """.trimIndent()
@@ -151,6 +151,9 @@ Unified write operations for Notes (upsert, delete).
                 val itemId = optionalString(params, "itemId")
                 if ((ids == null || ids.isEmpty()) && itemId == null) {
                     throw ToolValidationException("Delete operation requires either 'ids' array or 'itemId'")
+                }
+                if ((ids != null && ids.isNotEmpty()) && itemId != null) {
+                    throw ToolValidationException("Provide either 'ids' or 'itemId' for delete, not both")
                 }
             }
             else -> throw ToolValidationException("Invalid operation: $operation. Must be upsert or delete")
@@ -453,6 +456,7 @@ Unified write operations for Notes (upsert, delete).
         val noteRepo = context.noteRepository()
 
         var deletedCount = 0
+        var notFoundCount = 0
         val failures = mutableListOf<JsonObject>()
 
         // Delete by IDs array
@@ -506,8 +510,8 @@ Unified write operations for Notes (upsert, delete).
             }
         }
 
-        // Delete by itemId (+ optional key)
-        if (itemIdStr != null) {
+        // Delete by itemId (+ optional key) — only when ids array was NOT provided (mutual exclusion, defense-in-depth)
+        else if (itemIdStr != null) {
             val (resolvedItemId, itemIdErr) = resolveIdString(itemIdStr, context)
             if (itemIdErr != null) return itemIdErr
             val itemId = resolvedItemId!!
@@ -529,8 +533,10 @@ Unified write operations for Notes (upsert, delete).
                                     )
                                 }
                             }
+                        } else {
+                            // Key did not exist — not an error, but tracked so callers can distinguish
+                            notFoundCount++
                         }
-                        // If note is null, nothing to delete — not an error
                     }
                     is Result.Error -> {
                         failures.add(
@@ -560,6 +566,7 @@ Unified write operations for Notes (upsert, delete).
         val data =
             buildJsonObject {
                 put("deleted", JsonPrimitive(deletedCount))
+                put("notFound", JsonPrimitive(notFoundCount))
                 put("failed", JsonPrimitive(failures.size))
                 if (failures.isNotEmpty()) {
                     put("failures", JsonArray(failures))

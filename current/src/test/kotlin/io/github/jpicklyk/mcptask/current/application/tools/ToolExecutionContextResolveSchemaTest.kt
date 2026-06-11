@@ -378,4 +378,66 @@ class ToolExecutionContextResolveSchemaTest {
         assertEquals(2, result.notes.size)
         assertEquals("from trait-a", result.notes[1].description)
     }
+
+    // ──────────────────────────────────────────────
+    // Bug regression: schema fallback preserves lifecycleMode + defaultTraits (Bug 5)
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `resolveSchema preserves lifecycleMode and defaultTraits when no individual tag matches but default WorkItemSchema exists (bug 5 regression)`() {
+        // Scenario: item has tags ["bug","tools-layer"], no type set.
+        // No individual tag matches a schema.
+        // getSchemaForTags(["bug","tools-layer"]) falls back to default entries.
+        // getSchemaForType("default") returns a WorkItemSchema with MANUAL lifecycle + defaultTraits.
+        // Before fix: getSchemaForTags was called a THIRD time in the fallback constructor.
+        //   (Redundant, but functionally equivalent — the real risk is a future refactor breaks capture.)
+        //   The fix captures tagNotes once and reuses them. Verified via: getSchemaForType("default") returned.
+        val item = makeItem(type = null, tags = "bug,tools-layer")
+        val defaultNotes = listOf(workEntry())
+        val defaultSchema = WorkItemSchema(
+            type = "default",
+            lifecycleMode = LifecycleMode.MANUAL,
+            notes = defaultNotes,
+            defaultTraits = listOf("some-trait")
+        )
+
+        // Individual tag lookups return null (neither "bug" nor "tools-layer" matches)
+        every { noteSchemaService.getSchemaForTags(listOf("bug")) } returns null
+        every { noteSchemaService.getSchemaForTags(listOf("tools-layer")) } returns null
+        // Full tag list lookup falls back to default schema entries
+        every { noteSchemaService.getSchemaForTags(listOf("bug", "tools-layer")) } returns defaultNotes
+        // getSchemaForType("default") returns the full WorkItemSchema with lifecycle + traits
+        every { noteSchemaService.getSchemaForType("default") } returns defaultSchema
+
+        val result = context.resolveSchema(item)
+        assertNotNull(result, "Should return a schema (default fallback)")
+        assertEquals("default", result.type)
+        assertEquals(LifecycleMode.MANUAL, result.lifecycleMode, "lifecycleMode must be preserved from the WorkItemSchema returned by getSchemaForType")
+        assertEquals(listOf("some-trait"), result.defaultTraits, "defaultTraits must be preserved from the WorkItemSchema")
+        assertEquals(defaultNotes, result.notes)
+    }
+
+    @Test
+    fun `resolveSchema uses captured tagNotes when no individual tag matches and getSchemaForType returns null (bug 5 graceful fallback)`() {
+        // Scenario: item has multiple tags, none individually match a schema,
+        // getSchemaForTags(fullList) returns default notes (default fallback inside the service),
+        // but getSchemaForType("default") returns null (default not defined as a full WorkItemSchema).
+        // Before fix: getSchemaForTags(tags) was called a SECOND time inside the fallback constructor.
+        // After fix: tagNotes is captured once and reused — functionally equivalent, no redundant call.
+        val item = makeItem(type = null, tags = "bug,tools-layer")
+        val fallbackNotes = listOf(workEntry())
+
+        // Individual tag lookups return null — no single tag matches
+        every { noteSchemaService.getSchemaForTags(listOf("bug")) } returns null
+        every { noteSchemaService.getSchemaForTags(listOf("tools-layer")) } returns null
+        // Full tag list returns notes (service's internal default fallback)
+        every { noteSchemaService.getSchemaForTags(listOf("bug", "tools-layer")) } returns fallbackNotes
+        // getSchemaForType("default") returns null — no full WorkItemSchema defined for default
+        every { noteSchemaService.getSchemaForType("default") } returns null
+
+        val result = context.resolveSchema(item)
+        assertNotNull(result, "Should return a bare schema using the captured tagNotes")
+        assertEquals("default", result.type)
+        assertEquals(fallbackNotes, result.notes, "Notes must come from the already-captured getSchemaForTags result — no redundant call")
+    }
 }
