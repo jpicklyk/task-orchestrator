@@ -17,6 +17,9 @@ import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.util.UUID
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
@@ -396,6 +399,73 @@ class SQLiteNoteRepositoryTest {
                 originalCreatedAt.epochSecond,
                 dbNote.createdAt.epochSecond,
                 "createdAt in DB should not be changed by upsert update"
+            )
+        }
+
+    /**
+     * BUG1-REGRESSION: Concurrent upsert for the same (itemId, key) must not lose either write.
+     *
+     * Prior implementation used SELECT-then-INSERT-or-UPDATE (TOCTOU). Two threads that both
+     * saw `existing == null` would both attempt INSERT; the second INSERT would hit the UNIQUE
+     * constraint on (work_item_id, key) and return Result.Error, silently dropping the write.
+     *
+     * The atomic upsert fix uses a single INSERT … ON CONFLICT DO UPDATE (SQLite) /
+     * MERGE INTO (H2) statement, so exactly one of the two writes wins and the other becomes
+     * a conflict-resolved update. After both threads complete, exactly one row must exist and
+     * both threads must have received Result.Success (not Result.Error).
+     */
+    @Test
+    fun `concurrent upsert for same itemId and key — both return Success, exactly one row persisted`(): Unit =
+        runBlocking {
+            val key = "concurrent-upsert-key"
+            val body1 = "body from thread 1"
+            val body2 = "body from thread 2"
+
+            val executor = Executors.newFixedThreadPool(2)
+            val startGate = CountDownLatch(1)
+            val results = arrayOfNulls<Result<Note>>(2)
+
+            val future1 =
+                executor.submit {
+                    startGate.await()
+                    results[0] =
+                        runBlocking {
+                            noteRepository.upsert(
+                                Note(itemId = testItemId, key = key, role = "queue", body = body1)
+                            )
+                        }
+                }
+            val future2 =
+                executor.submit {
+                    startGate.await()
+                    results[1] =
+                        runBlocking {
+                            noteRepository.upsert(
+                                Note(itemId = testItemId, key = key, role = "queue", body = body2)
+                            )
+                        }
+                }
+
+            startGate.countDown()
+            future1.get(10, TimeUnit.SECONDS)
+            future2.get(10, TimeUnit.SECONDS)
+            executor.shutdown()
+
+            // Both threads must have received Success — no write is silently dropped.
+            assertIs<Result.Success<Note>>(results[0], "Thread 1 upsert must return Success")
+            assertIs<Result.Success<Note>>(results[1], "Thread 2 upsert must return Success")
+
+            // Exactly one row must exist for this (itemId, key) pair.
+            val findResult = noteRepository.findByItemId(testItemId)
+            assertIs<Result.Success<List<Note>>>(findResult)
+            val notesForKey = findResult.data.filter { it.key == key }
+            assertEquals(1, notesForKey.size, "Exactly one note row must exist after concurrent upserts")
+
+            // The persisted body must be one of the two submitted values (not corrupted).
+            val persistedBody = notesForKey[0].body
+            assertTrue(
+                persistedBody == body1 || persistedBody == body2,
+                "Persisted body must be one of the two submitted values but was: $persistedBody"
             )
         }
 }
