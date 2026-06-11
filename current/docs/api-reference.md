@@ -513,7 +513,7 @@ delete by IDs, by item, or by item and key.
 | `key` | string | No (delete) | With `itemId`: delete the single note matching this key |
 | `requestId` | string (UUID) | No | Client-generated UUID for idempotency. See [Idempotency](#idempotency). |
 
-When both `ids` and `itemId` are provided, the delete is **additive**: notes matched by `ids` are deleted first, then notes matched by `itemId` (optionally scoped by `key`) are deleted. Both deletions contribute to the final `deleted` count. Deleting a non-existent note by `(itemId, key)` is a silent no-op (returns success with that note not counted in `deleted`).
+Providing both `ids` and `itemId` in the same delete call is an error — the server returns a validation error. Use one or the other. Deleting a non-existent note by `(itemId, key)` is not an error; it is reflected in the `notFound` count of the response.
 
 **Note object fields (upsert):**
 
@@ -579,6 +579,16 @@ The `itemContext` map is keyed by each `itemId` that had at least one successful
 - `noteProgress` — `{ filled, remaining, total }` counts of required notes for the current phase, or `null` if the item has no matching schema or is in terminal state.
 
 This eliminates the need to call `get_context` after each `manage_notes` upsert to check remaining work.
+
+**Response (delete).**
+
+```json
+{ "deleted": 1, "notFound": 0, "failed": 0 }
+```
+
+- `deleted` — number of notes successfully deleted
+- `notFound` — number of `(itemId, key)` lookups where the key did not exist (not treated as an error)
+- `failed` — number of delete attempts that produced an error (with a `failures` array when non-zero)
 
 ---
 

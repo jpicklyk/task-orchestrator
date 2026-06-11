@@ -658,6 +658,13 @@ Unified write operations for WorkItem dependencies (create, delete).
 
                 // Delete by relationship (fromItemId + toItemId)
                 fromItemId != null && toItemId != null -> {
+                    // Validate type filter before use — unknown type would silently match nothing
+                    if (typeFilter != null && DependencyType.fromString(typeFilter) == null) {
+                        return errorResponse(
+                            "Unknown dependency type: '$typeFilter'. Valid values: ${DependencyType.entries.joinToString(", ")}",
+                            ErrorCodes.VALIDATION_ERROR
+                        )
+                    }
                     val deps =
                         repo.findByFromItemId(fromItemId).filter { dep ->
                             dep.toItemId == toItemId &&
