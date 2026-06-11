@@ -68,7 +68,10 @@ class McpJwksRestAuthTest {
         init {
             // RSA signing/verification needs no BouncyCastle, but match the sibling test's setup.
             if (Security.getProvider("BC") == null) {
-                Security.addProvider(org.bouncycastle.jce.provider.BouncyCastleProvider())
+                Security.addProvider(
+                    org.bouncycastle.jce.provider
+                        .BouncyCastleProvider()
+                )
             }
         }
 
