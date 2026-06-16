@@ -271,16 +271,17 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
         // repositories and never re-acquires the IdempotencyCache lock.
         if (requestId != null && trustedActorId != null) {
             return context.idempotencyCache.getOrCompute(trustedActorId, requestId) {
-                runBlocking { executeTransitions(transitions, context) }
+                runBlocking { executeTransitions(transitions, context, requestIdStr) }
             }
         }
 
-        return executeTransitions(transitions, context)
+        return executeTransitions(transitions, context, requestIdStr)
     }
 
     private suspend fun executeTransitions(
         transitions: JsonArray,
-        context: ToolExecutionContext
+        context: ToolExecutionContext,
+        requestIdStr: String?
     ): JsonElement {
         val handler = RoleTransitionHandler()
         val cascadeDetector = CascadeDetector()
@@ -289,6 +290,9 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
         val allUnblockedItems = mutableListOf<JsonObject>()
         var successCount = 0
         var failCount = 0
+        var envelopeWorkflowId: String? = null
+        var envelopeTransition: String? = null
+        var envelopeActorId: String? = null
 
         for (element in transitions) {
             val obj = element as JsonObject
@@ -556,6 +560,11 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
             }
 
             successCount++
+            if (envelopeWorkflowId == null) {
+                envelopeWorkflowId = itemId.toString()
+                envelopeTransition = "${previousRole.toJsonString()}->${targetRole.toJsonString()}"
+                envelopeActorId = actorClaim?.id
+            }
 
             // Phase 4: Cascade detection (only when reaching TERMINAL)
             // Uses iterative detect-apply pattern: after applying each cascade,
@@ -789,6 +798,22 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                     }
                 )
                 put("allUnblockedItems", JsonArray(allUnblockedItems))
+                put(
+                    "dopemux_proof_envelope",
+                    buildDopemuxProofEnvelope(
+                        operation = name,
+                        workflowId = envelopeWorkflowId ?: "none",
+                        transition = envelopeTransition ?: "none",
+                        requestId = requestIdStr,
+                        actorId = envelopeActorId,
+                        status =
+                            when {
+                                failCount == 0 -> "OK"
+                                successCount == 0 -> "FAILED"
+                                else -> "PARTIAL"
+                            }
+                    )
+                )
             }
 
         return successResponse(data)

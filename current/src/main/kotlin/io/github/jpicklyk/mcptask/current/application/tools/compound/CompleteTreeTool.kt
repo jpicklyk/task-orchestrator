@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.application.tools.compound
 
 import io.github.jpicklyk.mcptask.current.application.service.RoleTransitionHandler
 import io.github.jpicklyk.mcptask.current.application.tools.*
+import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
@@ -279,18 +280,20 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
         // re-acquires the IdempotencyCache lock.
         if (requestId != null && trustedActorId != null) {
             return context.idempotencyCache.getOrCompute(trustedActorId, requestId) {
-                runBlocking { executeCompleteTree(paramsObj, trigger, includeRoot, context) }
+                runBlocking { executeCompleteTree(paramsObj, trigger, includeRoot, context, requestIdStr, trustedActorId) }
             }
         }
 
-        return executeCompleteTree(paramsObj, trigger, includeRoot, context)
+        return executeCompleteTree(paramsObj, trigger, includeRoot, context, requestIdStr, trustedActorId)
     }
 
     private suspend fun executeCompleteTree(
         paramsObj: JsonObject,
         trigger: String,
         includeRoot: Boolean,
-        context: ToolExecutionContext
+        context: ToolExecutionContext,
+        requestIdStr: String?,
+        trustedActorId: String?
     ): JsonElement {
         // Step 1: Collect target items (descendants only) and optionally the root item separately
         val (targetItems, rootItem) = collectTargetItemsWithRoot(paramsObj, context, includeRoot)
@@ -307,6 +310,17 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
                             put("skipped", JsonPrimitive(0))
                             put("gateFailures", JsonPrimitive(0))
                         }
+                    )
+                    put(
+                        "dopemux_proof_envelope",
+                        buildDopemuxProofEnvelope(
+                            operation = name,
+                            workflowId = "none",
+                            transition = "none",
+                            requestId = requestIdStr,
+                            actorId = trustedActorId,
+                            status = "OK"
+                        )
                     )
                 }
             )
@@ -368,6 +382,15 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
         var completedCount = 0
         var skippedCount = 0
         var gateFailureCount = 0
+        var envelopeWorkflowId: String? = null
+        var envelopeTransition: String? = null
+
+        fun rememberEnvelopeSource(item: WorkItem, targetRole: Role) {
+            if (envelopeWorkflowId == null) {
+                envelopeWorkflowId = item.id.toString()
+                envelopeTransition = "${item.role.toJsonString()}->${targetRole.toJsonString()}"
+            }
+        }
 
         for (itemId in sortedOrder) {
             val item = itemById[itemId] ?: continue
@@ -455,6 +478,7 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
             }
 
             completedCount++
+            rememberEnvelopeSource(item, resolution.targetRole)
             resultsList.add(
                 buildJsonObject {
                     put("itemId", JsonPrimitive(itemId.toString()))
@@ -487,7 +511,8 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
                     context,
                     resultsList,
                     onComplete = { completedCount++ },
-                    onSkip = { skippedCount++ }
+                    onSkip = { skippedCount++ },
+                    onApplied = { item, targetRole -> rememberEnvelopeSource(item, targetRole) }
                 )
             }
         }
@@ -505,6 +530,22 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
                         put("gateFailures", JsonPrimitive(gateFailureCount))
                     }
                 )
+                put(
+                    "dopemux_proof_envelope",
+                    buildDopemuxProofEnvelope(
+                        operation = name,
+                        workflowId = envelopeWorkflowId ?: "none",
+                        transition = envelopeTransition ?: "none",
+                        requestId = requestIdStr,
+                        actorId = trustedActorId,
+                        status =
+                            when {
+                                skippedCount == 0 && gateFailureCount == 0 -> "OK"
+                                completedCount == 0 -> "FAILED"
+                                else -> "PARTIAL"
+                            }
+                    )
+                )
             }
 
         return successResponse(data)
@@ -520,7 +561,8 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
         context: ToolExecutionContext,
         resultsList: MutableList<JsonObject>,
         onComplete: () -> Unit,
-        onSkip: () -> Unit
+        onSkip: () -> Unit,
+        onApplied: (WorkItem, Role) -> Unit
     ) {
         val hasReviewPhase = context.resolveHasReviewPhase(item)
         val resolution = handler.resolveTransition(item, trigger, hasReviewPhase)
@@ -566,6 +608,7 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
         }
 
         onComplete()
+        onApplied(item, resolution.targetRole)
         resultsList.add(
             buildJsonObject {
                 put("itemId", JsonPrimitive(item.id.toString()))

@@ -134,6 +134,10 @@ class CompleteTreeToolTest {
             assertEquals(0, summary["completed"]!!.jsonPrimitive.int)
             assertEquals(0, summary["skipped"]!!.jsonPrimitive.int)
             assertEquals(0, summary["gateFailures"]!!.jsonPrimitive.int)
+
+            val envelope = data["dopemux_proof_envelope"]!!.jsonObject
+            assertEquals("complete_tree", envelope["receipt"]!!.jsonObject["operation"]!!.jsonPrimitive.content)
+            assertEquals("OK", envelope["receipt"]!!.jsonObject["status"]!!.jsonPrimitive.content)
         }
 
     // ──────────────────────────────────────────────
@@ -169,6 +173,54 @@ class CompleteTreeToolTest {
             assertEquals(1, summary["completed"]!!.jsonPrimitive.int)
             assertEquals(0, summary["skipped"]!!.jsonPrimitive.int)
             assertEquals(0, summary["gateFailures"]!!.jsonPrimitive.int)
+        }
+
+    @Test
+    fun `single item completion response includes dopemux proof envelope`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            val requestId = UUID.randomUUID().toString()
+            val item = makeItem(id = itemId, title = "Simple Item", role = Role.QUEUE)
+
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            every { depRepo.findByToItemId(itemId) } returns emptyList()
+            every { depRepo.findByFromItemId(itemId) } returns emptyList()
+
+            val params =
+                buildJsonObject {
+                    put("requestId", JsonPrimitive(requestId))
+                    put(
+                        "actor",
+                        buildJsonObject {
+                            put("id", JsonPrimitive("operator-1"))
+                            put("kind", JsonPrimitive("orchestrator"))
+                        }
+                    )
+                    put(
+                        "itemIds",
+                        buildJsonArray {
+                            add(JsonPrimitive(itemId.toString()))
+                        }
+                    )
+                    put("trigger", JsonPrimitive("complete"))
+                }
+
+            val result = tool.execute(params, context)
+
+            val envelope = extractData(result)["dopemux_proof_envelope"]!!.jsonObject
+            assertEquals("1", envelope["schema_version"]!!.jsonPrimitive.content)
+            assertEquals(itemId.toString(), envelope["workflow_id"]!!.jsonPrimitive.content)
+            assertEquals("queue->terminal", envelope["transition"]!!.jsonPrimitive.content)
+            assertEquals(requestId, envelope["idempotency_key"]!!.jsonPrimitive.content)
+            assertEquals("operator-1", envelope["actor"]!!.jsonPrimitive.content)
+            assertEquals("task-orchestrator", envelope["canonical_writer"]!!.jsonPrimitive.content)
+
+            val receipt = envelope["receipt"]!!.jsonObject
+            assertEquals("complete_tree", receipt["operation"]!!.jsonPrimitive.content)
+            assertEquals("OK", receipt["status"]!!.jsonPrimitive.content)
+            assertTrue(receipt["proof_id"]!!.jsonPrimitive.content.isNotBlank())
         }
 
     // ──────────────────────────────────────────────
@@ -940,6 +992,10 @@ class CompleteTreeToolTest {
 
             val summary = extractSummary(result)
             assertEquals(1, summary["completed"]!!.jsonPrimitive.int)
+
+            val envelope = extractData(result)["dopemux_proof_envelope"]!!.jsonObject
+            assertEquals(rootId.toString(), envelope["workflow_id"]!!.jsonPrimitive.content)
+            assertEquals("queue->terminal", envelope["transition"]!!.jsonPrimitive.content)
         }
 
     // ──────────────────────────────────────────────

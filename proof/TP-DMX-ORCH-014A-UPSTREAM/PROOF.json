@@ -1,0 +1,75 @@
+{
+  "packet_id": "TP-DMX-ORCH-014A-UPSTREAM",
+  "project": "task-orchestrator",
+  "repo": "https://github.com/jpicklyk/task-orchestrator.git",
+  "branch": "feat/dopemux-transition-proof-envelope",
+  "base": "origin/main@20f2a9a9207b63e4ff1d70272377c589f954c50f",
+  "status": "READY_FOR_REVIEW_WITH_DETEKT_BLOCKED",
+  "authority_conflicts": [
+    {
+      "observed": "Live upstream source root is current/src/main/kotlin/io/github/jpicklyk/mcptask/current/...",
+      "packet": "Task packet allowlist references current/src/main/kotlin/com/jpicklyk/taskorchestrator/...",
+      "resolution": "Implemented against live runtime paths after inspecting upstream AGENTS.md, CLAUDE.md, source, and tests."
+    },
+    {
+      "observed": "No artifacts/ directory exists in the upstream checkout.",
+      "packet": "Task packet references artifacts/repo-truth-pack/MCP_TOOL_SCHEMAS/task-orchestrator-tools.json.",
+      "resolution": "Did not invent a generated artifact path; documented validation result here instead."
+    }
+  ],
+  "changes": [
+    "Added dopemux_proof_envelope to advance_item responses.",
+    "Added dopemux_proof_envelope to complete_tree responses, including empty successful calls and root-only completions.",
+    "Added focused unit coverage for advance_item, complete_tree, empty complete_tree, and root-only complete_tree envelope paths.",
+    "Documented the additive response field in current/docs/api-reference.md and CHANGELOG.md."
+  ],
+  "validations": [
+    {
+      "command": "sh ./gradlew :current:test --tests \"io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemToolTest.start transition response includes dopemux proof envelope\" --tests \"io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeToolTest.single item completion response includes dopemux proof envelope\"",
+      "exit_code": 1,
+      "result": "PASS_AS_RED",
+      "evidence": "Tests failed before implementation because dopemux_proof_envelope was absent."
+    },
+    {
+      "command": "sh ./gradlew :current:test --tests \"io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemToolTest.start transition response includes dopemux proof envelope\" --tests \"io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeToolTest.single item completion response includes dopemux proof envelope\" --tests \"io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeToolTest.empty item list returns empty results\" --tests \"io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeToolTest.rootId with no descendants still processes root when includeRoot=true\"",
+      "exit_code": 0,
+      "result": "PASS",
+      "evidence": "Focused envelope tests passed."
+    },
+    {
+      "command": "sh ./gradlew :current:compileKotlin",
+      "exit_code": 0,
+      "result": "PASS",
+      "evidence": "BUILD SUCCESSFUL."
+    },
+    {
+      "command": "sh ./gradlew :current:test",
+      "exit_code": 0,
+      "result": "PASS",
+      "evidence": "BUILD SUCCESSFUL; 2281 tests completed."
+    },
+    {
+      "command": "sh ./gradlew detekt",
+      "exit_code": 1,
+      "result": "NOT_RUN",
+      "evidence": "Gradle reported: Task 'detekt' not found in root project 'task-orchestrator' and its subprojects."
+    },
+    {
+      "command": "git diff --check",
+      "exit_code": 0,
+      "result": "PASS",
+      "evidence": "No whitespace errors."
+    },
+    {
+      "command": "rg --files -g '.pre-commit-config.yaml' -g '.pre-commit-config.yml' -g 'pre-commit-config.yaml' -g 'pre-commit-config.yml'",
+      "exit_code": 1,
+      "result": "NOT_RUN",
+      "evidence": "No pre-commit config found in this checkout."
+    }
+  ],
+  "residual_risks": [
+    "No detekt task is wired in the live Gradle project, so the packet detekt validation could not execute.",
+    "The proof envelope is additive and unit-tested, but not exercised through an end-to-end MCP client in this run.",
+    "The packet allowlist and schema artifact paths appear stale relative to upstream runtime truth."
+  ]
+}

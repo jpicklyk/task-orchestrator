@@ -485,9 +485,24 @@ Exactly one of `rootId` or `itemIds` must be provided.
     { "itemId": "uuid", "title": "Implement handler", "applied": false, "gateErrors": ["missing: done-criteria"] },
     { "itemId": "uuid", "title": "Write tests", "applied": false, "skipped": true, "skippedReason": "dependency gate failed" }
   ],
-  "summary": { "total": 3, "completed": 1, "skipped": 1, "gateFailures": 1 }
+  "summary": { "total": 3, "completed": 1, "skipped": 1, "gateFailures": 1 },
+  "dopemux_proof_envelope": {
+    "schema_version": "1",
+    "workflow_id": "uuid",
+    "transition": "queue->terminal",
+    "idempotency_key": "request-id-or-not-provided",
+    "actor": "operator-1",
+    "canonical_writer": "task-orchestrator",
+    "receipt": {
+      "proof_id": "task-orchestrator:complete_tree:uuid",
+      "operation": "complete_tree",
+      "status": "OK"
+    }
+  }
 }
 ```
+
+`dopemux_proof_envelope` is an additive response field for Dopemux consumers. It identifies the canonical writer (`task-orchestrator`), the first successfully applied transition in the call when one exists, the idempotency key value used by the caller or `"not-provided"`, and a compact receipt. `receipt.status` is `"OK"`, `"FAILED"`, or `"PARTIAL"` based on the aggregate result. Empty successful calls use `"none"` for `workflow_id` and `transition`.
 
 **`skippedReason` values:** Items can be skipped for two reasons:
 - `"dependency gate failed"` — a blocker item in the same target set failed its gate check or failed to apply, and this item is a downstream dependent.
@@ -988,11 +1003,26 @@ All cascade types are recorded in `cascadeEvents`.
     }
   ],
   "summary": { "total": 1, "succeeded": 1, "failed": 0 },
-  "allUnblockedItems": [{ "itemId": "uuid-next", "title": "Next task" }]
+  "allUnblockedItems": [{ "itemId": "uuid-next", "title": "Next task" }],
+  "dopemux_proof_envelope": {
+    "schema_version": "1",
+    "workflow_id": "uuid",
+    "transition": "queue->work",
+    "idempotency_key": "request-id-or-not-provided",
+    "actor": "operator-1",
+    "canonical_writer": "task-orchestrator",
+    "receipt": {
+      "proof_id": "task-orchestrator:advance_item:uuid",
+      "operation": "advance_item",
+      "status": "OK"
+    }
+  }
 }
 ```
 
 `unblockedItems` and `allUnblockedItems` are always present (as `[]` when empty). `cascadeEvents` is always present (as `[]` when no cascades occurred). `expectedNotes` is always present (as `[]` when no schema matches the item's tags). Each entry in `expectedNotes` includes: `key`, `role`, `required`, `description`, `exists`, and optionally `skill` (present only when a skill is configured for that note).
+
+`dopemux_proof_envelope` is an additive response field for Dopemux consumers. It identifies the canonical writer (`task-orchestrator`), the first successfully applied transition in the call when one exists, the request id value supplied by the caller or `"not-provided"`, the transition actor or `"anonymous"`, and a compact receipt. `receipt.status` is `"OK"`, `"FAILED"`, or `"PARTIAL"` based on the aggregate result.
 
 `guidancePointer` (string or null) is the guidance text for the first unfilled required note in the **new** role. It is null when no schema matches, no required notes exist for the new role, or all required notes are already filled. Omitted from the response when null.
 

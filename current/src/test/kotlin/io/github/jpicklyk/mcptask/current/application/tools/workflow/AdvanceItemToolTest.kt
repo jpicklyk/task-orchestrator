@@ -145,6 +145,58 @@ class AdvanceItemToolTest {
             assertEquals(0, summary["failed"]!!.jsonPrimitive.int)
         }
 
+    @Test
+    fun `start transition response includes dopemux proof envelope`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            val requestId = UUID.randomUUID().toString()
+            val item = makeItem(id = itemId, role = Role.QUEUE)
+
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            every { depRepo.findByToItemId(itemId) } returns emptyList()
+            every { depRepo.findByFromItemId(itemId) } returns emptyList()
+
+            val params =
+                buildJsonObject {
+                    put("requestId", JsonPrimitive(requestId))
+                    put(
+                        "transitions",
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("itemId", JsonPrimitive(itemId.toString()))
+                                    put("trigger", JsonPrimitive("start"))
+                                    put(
+                                        "actor",
+                                        buildJsonObject {
+                                            put("id", JsonPrimitive("operator-1"))
+                                            put("kind", JsonPrimitive("orchestrator"))
+                                        }
+                                    )
+                                }
+                            )
+                        }
+                    )
+                }
+
+            val result = tool.execute(params, context)
+
+            val envelope = extractData(result)["dopemux_proof_envelope"]!!.jsonObject
+            assertEquals("1", envelope["schema_version"]!!.jsonPrimitive.content)
+            assertEquals(itemId.toString(), envelope["workflow_id"]!!.jsonPrimitive.content)
+            assertEquals("queue->work", envelope["transition"]!!.jsonPrimitive.content)
+            assertEquals(requestId, envelope["idempotency_key"]!!.jsonPrimitive.content)
+            assertEquals("operator-1", envelope["actor"]!!.jsonPrimitive.content)
+            assertEquals("task-orchestrator", envelope["canonical_writer"]!!.jsonPrimitive.content)
+
+            val receipt = envelope["receipt"]!!.jsonObject
+            assertEquals("advance_item", receipt["operation"]!!.jsonPrimitive.content)
+            assertEquals("OK", receipt["status"]!!.jsonPrimitive.content)
+            assertTrue(receipt["proof_id"]!!.jsonPrimitive.content.isNotBlank())
+        }
+
     // ──────────────────────────────────────────────
     // 2. Single complete transition QUEUE -> TERMINAL
     // ──────────────────────────────────────────────
