@@ -5,6 +5,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.10.0] - 2026-06-24
+
+### Added
+
+- REST `POST /items/{id}/advance` now has full parity with the MCP `advance_item` tool — it
+  enforces required-note gates, runs cascade detection, and returns cascade / unblock /
+  `expectedNotes` data (previously the REST path silently skipped all of these).
+- `create_work_tree` attach mode — a new optional `root.id` attaches children, dependencies, and
+  notes to an existing item instead of creating a new root; `root.title` is optional when
+  `root.id` is provided.
+
+### Changed
+
+- `create_work_tree` now rejects a nested `children` array with a clear validation error instead
+  of silently dropping those items — build nested trees with the flat `children` array plus
+  `parentRef`.
+- REST `/advance` now returns `422` when required notes are missing, rather than silently
+  advancing the item.
+
+### Fixed
+
+- Wired JWKS verification into the REST auth path (jwks mode previously rejected every request)
+  and hardened `/mcp` HTTP exposure.
+- Hardened workflow transitions — atomic transition + audit writes, trigger-based cancel-cascade
+  detection, and DB-clock `roleChangedAt`.
+- Fixed concurrency in note upsert (now atomic), claim TTL handling, and claim release.
+- Scope-isolated SSE event replay and dependency events so API subscribers only receive events
+  for their own root.
+- Corrected `manage_notes`, `complete_tree`, and `manage_dependencies` delete operations and a
+  note schema-fallback bug.
+- `manage_items` traits now tolerate a comma-separated string in the properties bag.
+
+### Performance
+
+- Restricted FTS5 search-index update triggers to the title and summary columns, cutting write
+  overhead on item and note updates.
+
 ## [3.9.0] - 2026-06-01
 
 ### Added
