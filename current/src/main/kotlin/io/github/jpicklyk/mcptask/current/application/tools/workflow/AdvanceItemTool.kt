@@ -1,17 +1,13 @@
 package io.github.jpicklyk.mcptask.current.application.tools.workflow
 
-import io.github.jpicklyk.mcptask.current.application.service.CascadeDetector
-import io.github.jpicklyk.mcptask.current.application.service.CascadeEvent
-import io.github.jpicklyk.mcptask.current.application.service.OwnershipCheckResult
-import io.github.jpicklyk.mcptask.current.application.service.RoleTransitionHandler
+import io.github.jpicklyk.mcptask.current.application.service.AdvanceFailure
+import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
+import io.github.jpicklyk.mcptask.current.application.service.AdvanceService
 import io.github.jpicklyk.mcptask.current.application.service.buildExpectedNotesJson
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
 import io.github.jpicklyk.mcptask.current.application.tools.*
-import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.ToolError
 import io.github.jpicklyk.mcptask.current.domain.model.UserTrigger
-import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
@@ -282,8 +278,17 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
         transitions: JsonArray,
         context: ToolExecutionContext
     ): JsonElement {
-        val handler = RoleTransitionHandler()
-        val cascadeDetector = CascadeDetector()
+        // Shared advance pipeline (ownership → resolve → validate → gate → apply → cascade → unblock).
+        // MCP enforces claim ownership (enforceOwnership = true); the REST route passes false.
+        val advanceService =
+            AdvanceService(
+                workItemRepository = context.workItemRepository(),
+                roleTransitionRepository = context.roleTransitionRepository(),
+                dependencyRepository = context.dependencyRepository(),
+                noteRepository = context.noteRepository(),
+                statusLabelService = context.statusLabelService(),
+                schemaResolver = { context.resolveSchema(it) }
+            )
 
         val resultsList = mutableListOf<JsonObject>()
         val allUnblockedItems = mutableListOf<JsonObject>()
@@ -370,349 +375,61 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
 
             val previousRole = item.role
 
-            // Resolve schema once per item — reused across gate checks and response building
-            val itemSchema = context.resolveSchema(item)
-
-            // Ownership check: enforced for all UserTrigger values before any transition logic runs.
-            // Routes through RoleTransitionHandler.checkOwnershipForTransition() which is the same
-            // check that userTransition() applies internally — the tool calls it explicitly here so
-            // that gate-check errors (which require resolvedTargetRole) can be reported AFTER the
-            // ownership error is surfaced with correct priority.
-            // Use DB-side time so freshness is evaluated on the DB clock, not the JVM clock.
-            val dbNowForOwnership = context.workItemRepository().dbNow()
-            val ownershipResult =
-                handler.checkOwnershipForTransition(
-                    item,
-                    actorClaim,
-                    verification,
-                    context.degradedModePolicy,
-                    dbNowForOwnership
-                )
-            when (ownershipResult) {
-                is OwnershipCheckResult.Allowed -> {} // proceed
-                is OwnershipCheckResult.Rejected -> {
-                    failCount++
-                    resultsList.add(
-                        buildStructuredErrorResult(
-                            itemId,
-                            trigger,
-                            ToolError
-                                .permanent(
-                                    code = "not_claim_holder",
-                                    message = ownershipResult.error
-                                ).copy(contendedItemId = itemId)
-                        )
-                    )
-                    continue
-                }
-                is OwnershipCheckResult.PolicyRejected -> {
-                    failCount++
-                    resultsList.add(
-                        buildStructuredErrorResult(
-                            itemId,
-                            trigger,
-                            ToolError.permanent(
-                                code = "rejected_by_policy",
-                                message = ownershipResult.reason
-                            )
-                        )
-                    )
-                    continue
-                }
-            }
-
-            // Phase 1: Resolve — schema-driven review phase detection
-            val hasReviewPhase = itemSchema?.hasReviewPhase() ?: false
-            val resolution = handler.resolveTransition(item, trigger, hasReviewPhase)
-            val configLabel = context.statusLabelService().resolveLabel(trigger)
-            if (!resolution.success || resolution.targetRole == null) {
-                failCount++
-                resultsList.add(buildErrorResult(itemId, trigger, resolution.error ?: "Failed to resolve transition"))
-                continue
-            }
-
-            val targetRole = resolution.targetRole
-
-            // Phase 2: Validate dependency constraints
-            val validation =
-                handler.validateTransition(
-                    item,
-                    targetRole,
-                    context.dependencyRepository(),
-                    context.workItemRepository()
-                )
-            if (!validation.valid) {
-                failCount++
-                val blockersJson =
-                    if (validation.blockers.isNotEmpty()) {
-                        JsonArray(
-                            validation.blockers.map { blocker ->
-                                buildJsonObject {
-                                    put("fromItemId", JsonPrimitive(blocker.fromItemId.toString()))
-                                    put("currentRole", JsonPrimitive(blocker.currentRole.toJsonString()))
-                                    put("requiredRole", JsonPrimitive(blocker.requiredRole))
-                                }
-                            }
-                        )
-                    } else {
-                        null
-                    }
-                resultsList.add(
-                    buildErrorResult(
-                        itemId,
-                        trigger,
-                        validation.error ?: "Transition validation failed",
-                        blockersJson
-                    )
-                )
-                continue
-            }
-
-            // Gate check: required notes for the CURRENT role must exist before advancing (start trigger)
-            if (trigger == "start") {
-                if (itemSchema != null) {
-                    val resolvedSchema = itemSchema
-                    val requiredForCurrentPhase = resolvedSchema.notes.filter { it.role == item.role && it.required }
-                    if (requiredForCurrentPhase.isNotEmpty()) {
-                        val notesResult = context.noteRepository().findByItemId(item.id)
-                        val existingNotes =
-                            when (notesResult) {
-                                is Result.Success -> notesResult.data
-                                is Result.Error -> emptyList()
-                            }
-                        val filledKeys = NoteSchemaJsonHelpers.buildFilledKeys(existingNotes)
-                        val missingEntries = requiredForCurrentPhase.filter { it.key !in filledKeys }
-                        if (missingEntries.isNotEmpty()) {
-                            val missingKeys = missingEntries.map { it.key }
-                            failCount++
-                            resultsList.add(
-                                buildErrorResult(
-                                    itemId,
-                                    trigger,
-                                    "Gate check failed: required notes not filled for ${item.role.toJsonString()} phase: ${missingKeys.joinToString()}",
-                                    missingNotes = NoteSchemaJsonHelpers.buildMissingNotesArray(missingEntries)
-                                )
-                            )
-                            continue
-                        }
-                    }
-                }
-            }
-
-            // Gate check: all required notes across all phases must be filled (complete trigger)
-            if (trigger == "complete") {
-                if (itemSchema != null) {
-                    val resolvedSchema = itemSchema
-                    val allRequired = resolvedSchema.notes.filter { it.required }
-                    if (allRequired.isNotEmpty()) {
-                        val notesResult = context.noteRepository().findByItemId(item.id)
-                        val existingNotes =
-                            when (notesResult) {
-                                is Result.Success -> notesResult.data
-                                is Result.Error -> emptyList()
-                            }
-                        val filledKeys = NoteSchemaJsonHelpers.buildFilledKeys(existingNotes)
-                        val missingEntries = allRequired.filter { it.key !in filledKeys }
-                        if (missingEntries.isNotEmpty()) {
-                            val missingKeys = missingEntries.map { it.key }
-                            failCount++
-                            resultsList.add(
-                                buildErrorResult(
-                                    itemId,
-                                    trigger,
-                                    "Gate check failed: required notes not filled: ${missingKeys.joinToString()}",
-                                    missingNotes = NoteSchemaJsonHelpers.buildMissingNotesArray(missingEntries)
-                                )
-                            )
-                            continue
-                        }
-                    }
-                }
-            }
-
-            // Phase 3: Apply — routes through userTransition() to enforce the ownership check
-            // at the handler layer as well (canonical enforcement point).
-            // Pass dbNowForOwnership as roleChangedAt so the timestamp is sourced from the DB
-            // clock rather than the JVM clock — consistent with roleChangedAfter/Before filter
-            // queries that compare against DB-side timestamps.
-            val effectiveLabel = resolution.statusLabel ?: configLabel
-            val applyResult =
-                handler.applyTransition(
-                    item,
-                    targetRole,
-                    trigger,
-                    summary,
-                    effectiveLabel,
-                    context.workItemRepository(),
-                    context.roleTransitionRepository(),
+            // Delegate the full pipeline (ownership → resolve → validate → gate → apply → cascade →
+            // unblock) to the shared AdvanceService. MCP enforces claim ownership.
+            val outcome =
+                advanceService.advance(
+                    item = item,
+                    trigger = trigger,
+                    summary = summary,
                     actorClaim = actorClaim,
                     verification = verification,
-                    roleChangedAt = dbNowForOwnership
+                    degradedModePolicy = context.degradedModePolicy,
+                    enforceOwnership = true
                 )
-            if (!applyResult.success || applyResult.item == null) {
-                failCount++
-                resultsList.add(buildErrorResult(itemId, trigger, applyResult.error ?: "Failed to apply transition"))
-                continue
-            }
+
+            val advanceResult =
+                when (outcome) {
+                    is AdvanceOutcome.Success -> outcome.result
+                    is AdvanceOutcome.Failure -> {
+                        failCount++
+                        resultsList.add(buildFailureResult(itemId, trigger, outcome.failure))
+                        continue
+                    }
+                }
 
             successCount++
 
-            // Phase 4: Cascade detection (only when reaching TERMINAL)
-            // Uses iterative detect-apply pattern: after applying each cascade,
-            // re-detect from the cascaded parent with fresh DB state.
-            // The loop terminates naturally when events are empty, a gate blocks, or
-            // cascade fails to apply. The MAX_CASCADES guard is a safety net against
-            // unexpected cycles that evade the DB trigger (e.g., direct DB edits).
-            val schemaResolver: (WorkItem) -> WorkItemSchema? = { context.resolveSchema(it) }
-            val cascadeJsonList = mutableListOf<JsonObject>()
-            val maxCascades = 100
-            if (targetRole == Role.TERMINAL) {
-                var cascadeSource: WorkItem = applyResult.item
-                var depth = 0
-                while (depth < maxCascades) {
-                    val events = cascadeDetector.detectCascades(cascadeSource, context.workItemRepository(), schemaResolver)
-                    if (events.isEmpty()) break
+            val targetRole = advanceResult.newRole
 
-                    // Only the immediate parent cascade (first event) is reliable;
-                    // deeper events may read stale DB state prior to this cascade's apply.
-                    val event = events.first()
-
-                    val parentResult = context.workItemRepository().getById(event.itemId)
-                    val parentItem =
-                        when (parentResult) {
-                            is Result.Success -> parentResult.data
-                            is Result.Error -> break
+            // Map structured cascade events to the existing MCP JSON shape.
+            val cascadeJsonList =
+                advanceResult.cascadeEvents.map { event ->
+                    buildJsonObject {
+                        put("itemId", JsonPrimitive(event.itemId.toString()))
+                        put("title", JsonPrimitive(event.title))
+                        put("previousRole", JsonPrimitive(event.previousRole.toJsonString()))
+                        put("targetRole", JsonPrimitive(event.targetRole.toJsonString()))
+                        put("applied", JsonPrimitive(event.applied))
+                        if (event.gateBlocked) {
+                            put("gateBlocked", JsonPrimitive(true))
+                            put("missingNotes", NoteSchemaJsonHelpers.buildMissingNotesArray(event.gateMissingNotes))
                         }
-
-                    // Gate check: cascade-to-TERMINAL requires all required notes (like "complete" trigger)
-                    // Cancel cascades bypass work-phase gate enforcement (item was never in work role).
-                    // Derived from the trigger string — NOT from statusLabel, which is config-driven and
-                    // may use a custom value (e.g. "aborted"), and which would be wrong in mixed batches
-                    // that contain both cancel and complete triggers.
-                    val isCancelCascade = trigger == "cancel"
-                    if (event.targetRole == Role.TERMINAL && !isCancelCascade) {
-                        val parentSchema = context.resolveSchema(parentItem)
-                        if (parentSchema != null) {
-                            val allRequired = parentSchema.notes.filter { it.required }
-                            if (allRequired.isNotEmpty()) {
-                                val parentNotes =
-                                    when (val nr = context.noteRepository().findByItemId(parentItem.id)) {
-                                        is Result.Success -> nr.data
-                                        is Result.Error -> emptyList()
-                                    }
-                                val filledKeys = NoteSchemaJsonHelpers.buildFilledKeys(parentNotes)
-                                val missingEntries = allRequired.filter { it.key !in filledKeys }
-                                if (missingEntries.isNotEmpty()) {
-                                    // Block cascade — report gate failure in cascade event
-                                    cascadeJsonList.add(
-                                        buildJsonObject {
-                                            put("itemId", JsonPrimitive(event.itemId.toString()))
-                                            put("title", JsonPrimitive(parentItem.title))
-                                            put("previousRole", JsonPrimitive(event.currentRole.toJsonString()))
-                                            put("targetRole", JsonPrimitive(event.targetRole.toJsonString()))
-                                            put("applied", JsonPrimitive(false))
-                                            put("gateBlocked", JsonPrimitive(true))
-                                            put("missingNotes", NoteSchemaJsonHelpers.buildMissingNotesArray(missingEntries))
-                                        }
-                                    )
-                                    break // Stop cascading up the tree
-                                }
-                            }
-                        }
+                        event.statusLabel?.let { put("statusLabel", JsonPrimitive(it)) }
                     }
-
-                    // Route through the internal cascadeTransition entry point — no public path
-                    // can reach this method, enforced by Kotlin `internal` visibility.
-                    val cascadeApply =
-                        handler.cascadeTransition(
-                            parentItem,
-                            event.targetRole,
-                            "Auto-cascaded from child completion",
-                            context.workItemRepository(),
-                            context.roleTransitionRepository(),
-                            statusLabel = context.statusLabelService().resolveLabel("cascade")
-                        )
-
-                    cascadeJsonList.add(
-                        buildJsonObject {
-                            put("itemId", JsonPrimitive(event.itemId.toString()))
-                            put("title", JsonPrimitive(parentItem.title))
-                            put("previousRole", JsonPrimitive(event.currentRole.toJsonString()))
-                            put("targetRole", JsonPrimitive(event.targetRole.toJsonString()))
-                            put("applied", JsonPrimitive(cascadeApply.success))
-                            cascadeApply.item?.statusLabel?.let { put("statusLabel", JsonPrimitive(it)) }
-                        }
-                    )
-
-                    if (!cascadeApply.success || cascadeApply.item == null) break
-
-                    // Continue up the tree: re-detect from the newly-cascaded parent
-                    cascadeSource = cascadeApply.item
-                    depth++
                 }
-                if (depth >= maxCascades) {
-                    logger.warn(
-                        "Cascade safety net hit: terminal cascade reached maxCascades={} levels " +
-                            "starting from itemId={}. Remaining cascades (if any) are silently " +
-                            "truncated. Investigate ancestor chain for unexpected length or cycles.",
-                        maxCascades,
-                        applyResult.item.id,
-                    )
-                }
-            }
 
-            // Phase 4b: Start cascade detection (only when reaching WORK)
-            // When the first child starts, auto-advance the parent from QUEUE to WORK.
-            if (targetRole == Role.WORK) {
-                val startCascadeEvents = cascadeDetector.detectStartCascades(applyResult.item, context.workItemRepository())
-                applyCascadeEvents(
-                    startCascadeEvents,
-                    "Auto-cascaded from child start",
-                    handler,
-                    context,
-                    cascadeJsonList
-                )
-            }
-
-            // Phase 4c: Reopen cascade detection (only when reopening to QUEUE)
-            // When a child is reopened under a terminal parent, the parent should reopen to WORK.
-            if (trigger == "reopen" && targetRole == Role.QUEUE) {
-                val reopenCascadeEvents =
-                    cascadeDetector.detectReopenCascades(
-                        applyResult.item,
-                        context.workItemRepository(),
-                        schemaResolver
-                    )
-                applyCascadeEvents(
-                    reopenCascadeEvents,
-                    "Auto-cascaded from child reopen",
-                    handler,
-                    context,
-                    cascadeJsonList
-                )
-            }
-
-            // Phase 5: Unblock detection
-            val unblockedJsonList = mutableListOf<JsonObject>()
-            val unblockedItems =
-                cascadeDetector.findUnblockedItems(
-                    applyResult.item,
-                    context.dependencyRepository(),
-                    context.workItemRepository()
-                )
-            for (unblocked in unblockedItems) {
-                val unblockedJson =
+            // Map unblocked items; mirror into the top-level allUnblockedItems aggregate.
+            val unblockedJsonList =
+                advanceResult.unblockedItems.map { unblocked ->
                     buildJsonObject {
                         put("itemId", JsonPrimitive(unblocked.itemId.toString()))
                         put("title", JsonPrimitive(unblocked.title))
-                    }
-                unblockedJsonList.add(unblockedJson)
-                allUnblockedItems.add(unblockedJson)
-            }
+                    }.also { allUnblockedItems.add(it) }
+                }
 
             // Schema-driven response fields: expectedNotes, guidancePointer, skillPointer, noteProgress
-            val resolvedSchema = itemSchema
-            // Only query notes when a schema exists (avoids unnecessary DB call)
+            val resolvedSchema = advanceResult.resolvedSchema
             val expectedNotesJson: JsonArray
             val guidancePointer: String?
             val skillPointer: String?
@@ -761,7 +478,7 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                     put("previousRole", JsonPrimitive(previousRole.toJsonString()))
                     put("newRole", JsonPrimitive(targetRole.toJsonString()))
                     put("trigger", JsonPrimitive(trigger))
-                    applyResult.item?.statusLabel?.let { put("statusLabel", JsonPrimitive(it)) }
+                    advanceResult.statusLabel?.let { put("statusLabel", JsonPrimitive(it)) }
                     put("applied", JsonPrimitive(true))
                     if (summary != null) put("summary", JsonPrimitive(summary))
                     actorClaim?.let { put("actor", it.toJson()) }
@@ -809,52 +526,63 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
     }
 
     /**
-     * Apply a list of cascade events: fetch each parent, apply the transition, and record
-     * the cascade result as JSON. Shared by start cascade (Phase 4b) and reopen cascade (Phase 4c).
-     *
-     * Routes through the internal [RoleTransitionHandler.cascadeTransition] entry point so that
-     * cascade transitions never pass through the ownership-check path that [UserTrigger]-based
-     * user transitions will use.
+     * Maps a structured [AdvanceFailure] from [AdvanceService] back to the legacy per-transition
+     * error JSON shapes (preserved byte-for-byte from the pre-unification inline logic):
+     * - Ownership rejection → structured `not_claim_holder` error (+ `contendedItemId`)
+     * - Policy rejection → structured `rejected_by_policy` error
+     * - Validation failure → `error` + `blockers` array
+     * - Gate block → `error` + `missingNotes` array
+     * - Resolution / apply failure → plain `error` string
      */
-    private suspend fun applyCascadeEvents(
-        events: List<CascadeEvent>,
-        reason: String,
-        handler: RoleTransitionHandler,
-        context: ToolExecutionContext,
-        cascadeJsonList: MutableList<JsonObject>
-    ) {
-        for (event in events) {
-            val parentResult = context.workItemRepository().getById(event.itemId)
-            val parentItem =
-                when (parentResult) {
-                    is Result.Success -> parentResult.data
-                    is Result.Error -> continue
-                }
-
-            // Route through the internal cascadeTransition entry point — no public path
-            // can reach this method, enforced by Kotlin `internal` visibility.
-            val cascadeApply =
-                handler.cascadeTransition(
-                    parentItem,
-                    event.targetRole,
-                    reason,
-                    context.workItemRepository(),
-                    context.roleTransitionRepository(),
-                    statusLabel = context.statusLabelService().resolveLabel("cascade")
+    private fun buildFailureResult(
+        itemId: UUID,
+        trigger: String,
+        failure: AdvanceFailure
+    ): JsonObject =
+        when (failure) {
+            is AdvanceFailure.OwnershipRejected ->
+                buildStructuredErrorResult(
+                    itemId,
+                    trigger,
+                    ToolError
+                        .permanent(code = "not_claim_holder", message = failure.message)
+                        .copy(contendedItemId = itemId)
                 )
-
-            cascadeJsonList.add(
-                buildJsonObject {
-                    put("itemId", JsonPrimitive(event.itemId.toString()))
-                    put("title", JsonPrimitive(parentItem.title))
-                    put("previousRole", JsonPrimitive(event.currentRole.toJsonString()))
-                    put("targetRole", JsonPrimitive(event.targetRole.toJsonString()))
-                    put("applied", JsonPrimitive(cascadeApply.success))
-                    cascadeApply.item?.statusLabel?.let { put("statusLabel", JsonPrimitive(it)) }
-                }
-            )
+            is AdvanceFailure.PolicyRejected ->
+                buildStructuredErrorResult(
+                    itemId,
+                    trigger,
+                    ToolError.permanent(code = "rejected_by_policy", message = failure.reason)
+                )
+            is AdvanceFailure.ResolutionFailed ->
+                buildErrorResult(itemId, trigger, failure.message)
+            is AdvanceFailure.ApplyFailed ->
+                buildErrorResult(itemId, trigger, failure.message)
+            is AdvanceFailure.ValidationFailed -> {
+                val blockersJson =
+                    if (failure.blockers.isNotEmpty()) {
+                        JsonArray(
+                            failure.blockers.map { blocker ->
+                                buildJsonObject {
+                                    put("fromItemId", JsonPrimitive(blocker.fromItemId.toString()))
+                                    put("currentRole", JsonPrimitive(blocker.currentRole.toJsonString()))
+                                    put("requiredRole", JsonPrimitive(blocker.requiredRole))
+                                }
+                            }
+                        )
+                    } else {
+                        null
+                    }
+                buildErrorResult(itemId, trigger, failure.message, blockers = blockersJson)
+            }
+            is AdvanceFailure.GateBlocked ->
+                buildErrorResult(
+                    itemId,
+                    trigger,
+                    failure.message,
+                    missingNotes = NoteSchemaJsonHelpers.buildMissingNotesArray(failure.missingNotes)
+                )
         }
-    }
 
     private fun buildErrorResult(
         itemId: UUID,

@@ -1,7 +1,10 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
+import io.github.jpicklyk.mcptask.current.application.service.AdvanceFailure
+import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
+import io.github.jpicklyk.mcptask.current.application.service.AdvanceService
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
-import io.github.jpicklyk.mcptask.current.application.service.RoleTransitionHandler
+import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.rest.MergePatchApplier
 import io.github.jpicklyk.mcptask.current.application.service.rest.WorkItemPatchProjection
@@ -18,7 +21,6 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.enforceScopeForItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.requireCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.AdvanceRequestDto
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.AdvanceResponseDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ItemCreateDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ItemDto
@@ -41,6 +43,7 @@ import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
 import org.slf4j.LoggerFactory
 import java.util.UUID
@@ -89,6 +92,82 @@ private fun errorCaptured(
         statusCode = status.value,
         bodyJson = writeJson.encodeToString(ErrorDto.serializer(), ErrorDto(error, message)),
     )
+
+/**
+ * Maps a structured [AdvanceFailure] from [AdvanceService] to an HTTP error response.
+ *
+ * - [AdvanceFailure.GateBlocked] → **422** `gate_blocked`, with the structured missing required
+ *   notes in `details.missingNotes`. This is the key behavioral change from unification: a REST
+ *   advance that fails a required-note gate is now REJECTED instead of silently advancing.
+ * - [AdvanceFailure.ValidationFailed] → **422** `transition_blocked`, with the dependency blockers.
+ * - [AdvanceFailure.ResolutionFailed] / [AdvanceFailure.ApplyFailed] → **422** `transition_failed`.
+ * - [AdvanceFailure.PolicyRejected] → **401** `verification_failed` (defensive — ownership is not
+ *   enforced on the REST path, so this is not expected to occur here).
+ * - [AdvanceFailure.OwnershipRejected] → **409** `not_claim_holder` (defensive — same caveat).
+ */
+private suspend fun respondAdvanceFailure(
+    call: io.ktor.server.application.ApplicationCall,
+    failure: AdvanceFailure,
+) {
+    when (failure) {
+        is AdvanceFailure.GateBlocked -> {
+            val details =
+                buildJsonObject {
+                    put("targetRole", JsonPrimitive(failure.targetRole.name.lowercase()))
+                    put(
+                        "missingNotes",
+                        kotlinx.serialization.json.buildJsonArray {
+                            failure.missingNotes.forEach { entry ->
+                                add(
+                                    buildJsonObject {
+                                        put("key", JsonPrimitive(entry.key))
+                                        put("description", JsonPrimitive(entry.description))
+                                        entry.guidance?.let { put("guidance", JsonPrimitive(it)) }
+                                        entry.skill?.let { put("skill", JsonPrimitive(it)) }
+                                    },
+                                )
+                            }
+                        },
+                    )
+                }
+            call.respond(
+                HttpStatusCode.UnprocessableEntity,
+                ErrorDto("gate_blocked", failure.message, details),
+            )
+        }
+        is AdvanceFailure.ValidationFailed -> {
+            val details =
+                buildJsonObject {
+                    put(
+                        "blockers",
+                        kotlinx.serialization.json.buildJsonArray {
+                            failure.blockers.forEach { blocker ->
+                                add(
+                                    buildJsonObject {
+                                        put("fromItemId", JsonPrimitive(blocker.fromItemId.toString()))
+                                        put("currentRole", JsonPrimitive(blocker.currentRole.name.lowercase()))
+                                        put("requiredRole", JsonPrimitive(blocker.requiredRole))
+                                    },
+                                )
+                            }
+                        },
+                    )
+                }
+            call.respond(
+                HttpStatusCode.UnprocessableEntity,
+                ErrorDto("transition_blocked", failure.message, details),
+            )
+        }
+        is AdvanceFailure.ResolutionFailed ->
+            call.respond(HttpStatusCode.UnprocessableEntity, ErrorDto("transition_failed", failure.message))
+        is AdvanceFailure.ApplyFailed ->
+            call.respond(HttpStatusCode.UnprocessableEntity, ErrorDto("transition_failed", failure.message))
+        is AdvanceFailure.PolicyRejected ->
+            call.respond(HttpStatusCode.Unauthorized, ErrorDto("verification_failed", failure.reason))
+        is AdvanceFailure.OwnershipRejected ->
+            call.respond(HttpStatusCode.Conflict, ErrorDto("not_claim_holder", failure.message))
+    }
+}
 
 /**
  * Registers item-write and advance routes under the `/api/v1` route prefix.
@@ -581,52 +660,54 @@ fun Route.itemWriteRoutes(
             val actorClaim = ApiAuditBridge.toActorClaim(principal)
             val verification = ApiAuditBridge.toVerificationResult(principal)
 
-            val handler = RoleTransitionHandler()
-
-            // Resolve the item's ACTUAL hasReviewPhase from its schema (type + tags + traits),
-            // mirroring AdvanceItemTool so an API advance of a WORK item with a review schema
-            // lands in REVIEW (not terminal). Schema-free items resolve to false (skip REVIEW).
-            val hasReviewPhase = schemaResolutionContext.resolveHasReviewPhase(item)
-
-            // enforceOwnership = false: the REST API bypasses claim ownership entirely (plan §2 —
-            // API callers are operators, not fleet agents). The advance SUCCEEDS even when the item
-            // is claimed by a different MCP agent, while the synthesized API actor is still recorded
-            // on the role_transitions row for audit. MCP call sites keep the default (true).
-            val transitionResult =
-                handler.userTransition(
-                    item = item,
-                    trigger = userTrigger,
-                    summary = null,
-                    statusLabel = null,
-                    hasReviewPhase = hasReviewPhase,
+            // Delegate to the shared AdvanceService — the SAME pipeline the MCP advance_item tool
+            // uses (resolve → validate → required-note gate → apply → cascade → unblock). The schema
+            // resolver mirrors AdvanceItemTool's trait-merged resolution. enforceOwnership = false:
+            // the REST API bypasses claim ownership entirely (plan §2 — API callers are operators,
+            // not fleet agents). The advance SUCCEEDS even when the item is claimed by a different
+            // MCP agent, while the synthesized API actor is still recorded on the role_transitions
+            // row for audit. Unlike the prior userTransition() path, the gate is now ENFORCED.
+            val advanceService =
+                AdvanceService(
                     workItemRepository = workItemRepo,
                     roleTransitionRepository = roleTransitionRepo,
                     dependencyRepository = depRepo,
+                    noteRepository = repositoryProvider.noteRepository(),
+                    statusLabelService = NoOpStatusLabelService,
+                    schemaResolver = { schemaResolutionContext.resolveSchema(it) },
+                )
+
+            val outcome =
+                advanceService.advance(
+                    item = item,
+                    trigger = userTrigger.triggerString,
+                    summary = null,
                     actorClaim = actorClaim,
                     verification = verification,
                     degradedModePolicy = degradedModePolicy,
                     enforceOwnership = false,
                 )
 
-            if (!transitionResult.success) {
-                call.respond(
-                    HttpStatusCode.UnprocessableEntity,
-                    ErrorDto("transition_failed", transitionResult.error ?: "Transition failed"),
-                )
-                return@post
-            }
+            val advanceResult =
+                when (outcome) {
+                    is AdvanceOutcome.Success -> outcome.result
+                    is AdvanceOutcome.Failure -> {
+                        respondAdvanceFailure(call, outcome.failure)
+                        return@post
+                    }
+                }
 
-            val newItem = transitionResult.item!!
+            // Build expectedNotes parity: fetch the item's current note keys for the `exists` flag.
+            val existingNoteKeys =
+                when (val notesResult = repositoryProvider.noteRepository().findByItemId(id)) {
+                    is Result.Success -> notesResult.data.map { it.key }.toSet()
+                    is Result.Error -> emptySet()
+                }
+
             // Response body MUST NOT disclose claimedBy (tiered-disclosure principle)
             call.respond(
                 HttpStatusCode.OK,
-                AdvanceResponseDto(
-                    itemId = id.toString(),
-                    previousRole = transitionResult.previousRole!!.name.lowercase(),
-                    newRole = transitionResult.newRole!!.name.lowercase(),
-                    trigger = advanceDto.trigger,
-                    statusLabel = newItem.statusLabel,
-                ),
+                advanceResult.toDto(existingNoteKeys),
             )
         }
     }

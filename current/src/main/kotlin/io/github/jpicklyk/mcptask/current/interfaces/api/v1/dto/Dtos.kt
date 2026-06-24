@@ -327,10 +327,67 @@ data class AdvanceRequestDto(
 )
 
 /**
+ * A note schema entry missing at an advance gate, returned in the [AdvanceResponseDto.cascadeEvents]
+ * gate-block details and in the `details` of a gate-rejection error.
+ */
+@Serializable
+data class MissingNoteDto(
+    val key: String,
+    val description: String,
+    val guidance: String? = null,
+    val skill: String? = null,
+)
+
+/**
+ * A cascade transition applied (or gate-blocked) as a side effect of an advance.
+ *
+ * Mirrors the MCP `advance_item` cascadeEvents shape. When [gateBlocked] is true the cascade was
+ * suppressed because the parent had unfilled required notes; [applied] is then false and
+ * [missingNotes] lists the structured gaps.
+ */
+@Serializable
+data class CascadeEventDto(
+    val itemId: String,
+    val title: String,
+    val previousRole: String,
+    val targetRole: String,
+    val applied: Boolean,
+    val statusLabel: String? = null,
+    val gateBlocked: Boolean = false,
+    val missingNotes: List<MissingNoteDto>? = null,
+)
+
+/** A downstream item that became fully unblocked as a result of an advance. */
+@Serializable
+data class UnblockedItemDto(
+    val itemId: String,
+    val title: String,
+)
+
+/**
+ * A schema note entry expected for the item's new role after an advance (additive parity with the
+ * MCP `advance_item` expectedNotes field).
+ */
+@Serializable
+data class ExpectedNoteDto(
+    val key: String,
+    val role: String,
+    val required: Boolean,
+    val description: String,
+    val guidance: String? = null,
+    val skill: String? = null,
+    val exists: Boolean,
+)
+
+/**
  * Response DTO for `POST /api/v1/items/{id}/advance`.
  *
  * Does NOT include `claimedBy` — tiered-disclosure principle prevents exposing
  * claim-holder identity via the API surface.
+ *
+ * The `cascadeEvents`, `unblockedItems`, and `expectedNotes` fields were added when the REST and
+ * MCP advance paths were unified behind `AdvanceService` (additive change — older clients ignore
+ * the new fields). They mirror the corresponding MCP `advance_item` response data.
  */
 @Serializable
 data class AdvanceResponseDto(
@@ -339,6 +396,9 @@ data class AdvanceResponseDto(
     val newRole: String,
     val trigger: String,
     val statusLabel: String? = null,
+    val cascadeEvents: List<CascadeEventDto> = emptyList(),
+    val unblockedItems: List<UnblockedItemDto> = emptyList(),
+    val expectedNotes: List<ExpectedNoteDto> = emptyList(),
 )
 
 /**
