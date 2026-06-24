@@ -2499,4 +2499,203 @@ class CreateWorkTreeToolTest {
             }
         }
     }
+
+    // ──────────────────────────────────────────────
+    // Attach mode: validateParams tests
+    // ──────────────────────────────────────────────
+
+    @Nested
+    inner class AttachModeValidateParamsTests {
+        @Test
+        fun `root with id and no title does NOT throw (attach mode)`() {
+            // Should not throw — root.id present makes root.title optional
+            tool.validateParams(
+                buildJsonObject {
+                    put(
+                        "root",
+                        buildJsonObject {
+                            put("id", JsonPrimitive("8409074f-aca8-45be-b258-3550a4d069c4"))
+                            // title intentionally absent
+                        }
+                    )
+                }
+            )
+        }
+
+        @Test
+        fun `root with id and title does NOT throw (id wins, title ignored)`() {
+            // Both present is allowed — id takes precedence, title is ignored
+            tool.validateParams(
+                buildJsonObject {
+                    put(
+                        "root",
+                        buildJsonObject {
+                            put("id", JsonPrimitive("8409074f-aca8-45be-b258-3550a4d069c4"))
+                            put("title", JsonPrimitive("This title will be ignored"))
+                        }
+                    )
+                }
+            )
+        }
+
+        @Test
+        fun `root with neither id nor title throws ToolValidationException`() {
+            val ex =
+                assertFailsWith<ToolValidationException> {
+                    tool.validateParams(
+                        buildJsonObject {
+                            put(
+                                "root",
+                                buildJsonObject {
+                                    put("description", JsonPrimitive("no id and no title"))
+                                }
+                            )
+                        }
+                    )
+                }
+            assertTrue(
+                ex.message?.contains("root.title") == true || ex.message?.contains("required") == true,
+                "Exception should mention that title is required: ${ex.message}"
+            )
+        }
+
+        @Test
+        fun `root id with blank string falls through to title-required path`() {
+            // A blank id string is treated the same as absent id
+            val ex =
+                assertFailsWith<ToolValidationException> {
+                    tool.validateParams(
+                        buildJsonObject {
+                            put(
+                                "root",
+                                buildJsonObject {
+                                    put("id", JsonPrimitive("   ")) // blank
+                                    // title absent
+                                }
+                            )
+                        }
+                    )
+                }
+            assertTrue(
+                ex.message?.contains("root.title") == true || ex.message?.contains("required") == true,
+                "Blank id should fall through to title-required path: ${ex.message}"
+            )
+        }
+
+        @Test
+        fun `root id combined with parentId throws ToolValidationException`() {
+            val ex =
+                assertFailsWith<ToolValidationException> {
+                    tool.validateParams(
+                        buildJsonObject {
+                            put(
+                                "root",
+                                buildJsonObject {
+                                    put("id", JsonPrimitive("8409074f-aca8-45be-b258-3550a4d069c4"))
+                                }
+                            )
+                            put("parentId", JsonPrimitive(UUID.randomUUID().toString()))
+                        }
+                    )
+                }
+            assertTrue(
+                ex.message?.contains("root.id") == true && ex.message?.contains("parentId") == true,
+                "Exception should mention both root.id and parentId: ${ex.message}"
+            )
+        }
+    }
+
+    // ──────────────────────────────────────────────
+    // Attach mode: execute tests (unit / MockK)
+    // ──────────────────────────────────────────────
+
+    @Nested
+    inner class AttachModeExecuteTests {
+        @Test
+        fun `attach mode - existing root resolved and children depth derives from it`(): Unit =
+            runBlocking {
+                val existingRootId = UUID.randomUUID()
+                val existingRoot =
+                    WorkItem(
+                        id = existingRootId,
+                        title = "Existing Root at Depth 2",
+                        depth = 2,
+                        parentId = UUID.randomUUID()
+                    )
+                coEvery { workItemRepo.getById(existingRootId) } returns Result.Success(existingRoot)
+
+                var capturedInput: WorkTreeInput? = null
+                coEvery { mockExecutor.execute(any()) } answers {
+                    val input = firstArg<WorkTreeInput>()
+                    capturedInput = input
+                    // In attach mode items only contains children — reflect them back
+                    val refToId = input.refToItem.mapValues { (_, item) -> item.id }
+                    WorkTreeResult(
+                        items = input.items,
+                        refToId = refToId,
+                        deps = emptyList(),
+                        notes = emptyList()
+                    )
+                }
+
+                val params =
+                    buildJsonObject {
+                        put("root", buildJsonObject { put("id", JsonPrimitive(existingRootId.toString())) })
+                        put(
+                            "children",
+                            buildJsonArray {
+                                add(makeChildSpec("c1", "Child One"))
+                                add(makeChildSpec("c2", "Child Two"))
+                            }
+                        )
+                    }
+                val result = tool.execute(params, context)
+                val data = extractData(result)
+
+                // Response root reflects the existing item
+                val rootJson = data["root"]!!.jsonObject
+                assertEquals(existingRootId.toString(), rootJson["id"]!!.jsonPrimitive.content)
+                assertEquals("Existing Root at Depth 2", rootJson["title"]!!.jsonPrimitive.content)
+                assertEquals(2, rootJson["depth"]!!.jsonPrimitive.int)
+
+                // Children are at depth 3 (existingRoot.depth + 1 = 3)
+                val childrenArr = data["children"]!!.jsonArray
+                assertEquals(2, childrenArr.size)
+                assertEquals(3, childrenArr[0].jsonObject["depth"]!!.jsonPrimitive.int)
+                assertEquals(3, childrenArr[1].jsonObject["depth"]!!.jsonPrimitive.int)
+
+                // The existing root is NOT in input.items (only children)
+                val input = capturedInput!!
+                assertEquals(2, input.items.size, "Only children should be in items-to-insert in attach mode")
+                assertTrue(
+                    input.items.none { it.id == existingRootId },
+                    "Existing root must NOT be in the items-to-insert list"
+                )
+
+                // refToItem contains the existing root so deps can reference it
+                assertEquals(existingRoot, input.refToItem[CreateWorkTreeTool.ROOT_REF])
+            }
+
+        @Test
+        fun `attach mode - missing root id returns RESOURCE_NOT_FOUND error`(): Unit =
+            runBlocking {
+                val missingId = UUID.randomUUID()
+                coEvery { workItemRepo.getById(missingId) } returns
+                    Result.Error(RepositoryError.NotFound(missingId, "WorkItem not found"))
+
+                val params =
+                    buildJsonObject {
+                        put("root", buildJsonObject { put("id", JsonPrimitive(missingId.toString())) })
+                    }
+                val result = tool.execute(params, context)
+
+                val obj = result as JsonObject
+                assertFalse(obj["success"]!!.jsonPrimitive.boolean)
+                val errorMsg = obj["error"]!!.jsonObject["message"]!!.jsonPrimitive.content
+                assertTrue(
+                    errorMsg.contains("not found") || errorMsg.contains(missingId.toString()),
+                    "Expected not-found error for missing root.id, got: $errorMsg"
+                )
+            }
+    }
 }

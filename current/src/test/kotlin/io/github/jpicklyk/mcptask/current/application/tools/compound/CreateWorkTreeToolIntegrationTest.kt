@@ -250,6 +250,153 @@ class CreateWorkTreeToolIntegrationTest {
         }
 
     // ──────────────────────────────────────────────────────────────────────────
+    // Attach mode: children created under existing item, root not re-inserted,
+    // dep root→child resolves to existing id, note on root binds to existing id
+    // ──────────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `attach mode - children created under existing item at correct depth`(): Unit =
+        runBlocking {
+            // 1. Create an existing item at depth 0 that will become the attach root
+            val existingItemParams =
+                buildJsonObject {
+                    put(
+                        "root",
+                        buildJsonObject {
+                            put("title", JsonPrimitive("Existing Feature Root"))
+                        }
+                    )
+                }
+            val createResult = tool.execute(existingItemParams, context) as JsonObject
+            assertTrue(createResult["success"]!!.jsonPrimitive.boolean, "Pre-create should succeed: $createResult")
+            val existingRootId =
+                UUID.fromString(
+                    (createResult["data"] as JsonObject)["root"]!!.jsonObject["id"]!!.jsonPrimitive.content
+                )
+            val existingRoot = (workItemRepository.getById(existingRootId) as Result.Success).data
+            assertEquals(0, existingRoot.depth, "Pre-created root should be at depth 0")
+
+            // 2. Attach two children + a dep (root→c1) + a note on root
+            val attachParams =
+                buildJsonObject {
+                    put("root", buildJsonObject { put("id", JsonPrimitive(existingRootId.toString())) })
+                    put(
+                        "children",
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("ref", JsonPrimitive("c1"))
+                                    put("title", JsonPrimitive("Attach Child One"))
+                                }
+                            )
+                            add(
+                                buildJsonObject {
+                                    put("ref", JsonPrimitive("c2"))
+                                    put("title", JsonPrimitive("Attach Child Two"))
+                                }
+                            )
+                        }
+                    )
+                    put(
+                        "deps",
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("from", JsonPrimitive("root"))
+                                    put("to", JsonPrimitive("c1"))
+                                    put("type", JsonPrimitive("BLOCKS"))
+                                }
+                            )
+                        }
+                    )
+                    put(
+                        "notes",
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("itemRef", JsonPrimitive("root"))
+                                    put("key", JsonPrimitive("attach-note"))
+                                    put("role", JsonPrimitive("queue"))
+                                    put("body", JsonPrimitive("note on existing root"))
+                                }
+                            )
+                        }
+                    )
+                }
+            val attachResult = tool.execute(attachParams, context) as JsonObject
+            assertTrue(attachResult["success"]!!.jsonPrimitive.boolean, "Attach should succeed: $attachResult")
+
+            val data = attachResult["data"] as JsonObject
+
+            // Response root reflects the existing item
+            val rootJson = data["root"] as JsonObject
+            assertEquals(existingRootId.toString(), rootJson["id"]!!.jsonPrimitive.content)
+            assertEquals("Existing Feature Root", rootJson["title"]!!.jsonPrimitive.content)
+            assertEquals(0, rootJson["depth"]!!.jsonPrimitive.int)
+
+            // Children are at depth 1 (existing.depth 0 + 1)
+            val childrenArr = data["children"] as JsonArray
+            assertEquals(2, childrenArr.size)
+            val c1Id = UUID.fromString(childrenArr[0].jsonObject["id"]!!.jsonPrimitive.content)
+            val c2Id = UUID.fromString(childrenArr[1].jsonObject["id"]!!.jsonPrimitive.content)
+
+            val c1 = (workItemRepository.getById(c1Id) as Result.Success).data
+            val c2 = (workItemRepository.getById(c2Id) as Result.Success).data
+            assertEquals(1, c1.depth, "c1 should be at depth 1")
+            assertEquals(1, c2.depth, "c2 should be at depth 1")
+            assertEquals(existingRootId, c1.parentId, "c1 parent should be the existing root")
+            assertEquals(existingRootId, c2.parentId, "c2 parent should be the existing root")
+
+            // Existing root is NOT duplicated in DB (still exactly 1 item with that id)
+            val rootRefetch = workItemRepository.getById(existingRootId)
+            assertTrue(rootRefetch is Result.Success, "Existing root should still be fetchable after attach")
+
+            // Dep root→c1 resolves to existingRootId
+            val depsArr = data["dependencies"] as JsonArray
+            assertEquals(1, depsArr.size)
+            // The dep was created — verify via response
+            val depJson = depsArr[0].jsonObject
+            assertEquals("root", depJson["fromRef"]!!.jsonPrimitive.content)
+            assertEquals("c1", depJson["toRef"]!!.jsonPrimitive.content)
+
+            // Note on root binds to existingRootId
+            val noteResult = noteRepository.findByItemIdAndKey(existingRootId, "attach-note")
+            assertTrue(noteResult is Result.Success, "Note lookup should succeed")
+            val note = (noteResult as Result.Success).data
+            assertNotNull(note, "Note on root should be in DB")
+            assertEquals(existingRootId, note.itemId, "Note must be bound to the existing root")
+            assertEquals("note on existing root", note.body)
+        }
+
+    @Test
+    fun `attach mode - root id not found returns RESOURCE_NOT_FOUND error`(): Unit =
+        runBlocking {
+            val missingId = UUID.randomUUID()
+            val params =
+                buildJsonObject {
+                    put("root", buildJsonObject { put("id", JsonPrimitive(missingId.toString())) })
+                    put(
+                        "children",
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("ref", JsonPrimitive("c1"))
+                                    put("title", JsonPrimitive("Should Not Create"))
+                                }
+                            )
+                        }
+                    )
+                }
+            val result = tool.execute(params, context) as JsonObject
+            assertEquals(false, result["success"]!!.jsonPrimitive.boolean, "Expected failure for missing root.id: $result")
+            val errorMsg = result["error"]!!.jsonObject["message"]!!.jsonPrimitive.content
+            assertTrue(
+                errorMsg.contains("not found") || errorMsg.contains(missingId.toString()),
+                "Error should mention the missing id: $errorMsg"
+            )
+        }
+
+    // ──────────────────────────────────────────────────────────────────────────
     // Top-level actor attribution persists on the DB row for every note
     //
     // Verifies the audit trail is intact end-to-end: actor.id, actor.kind, and

@@ -36,13 +36,15 @@ class CreateWorkTreeTool :
         """
 Atomically create a hierarchical work tree: root item, child items, dependencies, and optional notes.
 
+**Attach mode:** Pass `root.id` (UUID or hex prefix of an existing item) to attach children/deps/notes directly to an existing item instead of creating a new root. When `root.id` is provided, `root.title` is optional (ignored if both are given). Providing both `root.id` and `parentId` is rejected (contradictory). The existing item is NOT re-inserted; children are created under it at existing.depth+1.
+
 **Idempotency:** Pass `requestId` (client-generated UUID) together with a top-level `actor.id` to enable idempotent retries. Repeated calls with the same (actor, requestId) within ~10 minutes return the cached response without re-executing.
 
 **Actor attribution:** A single top-level `actor` is applied to **every** persisted note in the tree (both explicit `notes` entries and `createNotes=true` schema blanks). This differs from `manage_notes`, which accepts a per-note `actor` block. If the top-level `actor` is malformed (e.g., missing `kind`), idempotency is disabled and attribution is dropped to `null` on each note — the call still proceeds and items/notes are created without an audit identity.
 
 **Parameters:**
-- `root` (required): Root item spec `{ title (required), priority?, tags?, traits?, summary?, description?, requiresVerification?, type? }`. `traits` is a comma-separated string of trait keys merged into properties.
-- `parentId` (optional): UUID of existing parent item. If provided, root depth = parent.depth + 1; otherwise depth = 0.
+- `root` (required): Root item spec. In create mode: `{ title (required), priority?, tags?, traits?, summary?, description?, requiresVerification?, type? }`. In attach mode: `{ id? (UUID or hex prefix of existing item), title? (optional, ignored when id is provided), priority?, tags?, traits?, summary?, description?, requiresVerification?, type? }`. `traits` is a comma-separated string of trait keys merged into properties.
+- `parentId` (optional): UUID of existing parent item. If provided, root depth = parent.depth + 1; otherwise depth = 0. Cannot be combined with `root.id`.
 - `children` (optional): Array of child item specs `[{ ref (required), title (required), parentRef (optional, defaults to "root"), priority?, tags?, traits?, summary?, description?, requiresVerification?, type? }]`. `ref` is a local name used in `deps` to wire dependencies. `parentRef` specifies this child's parent: either `"root"` or another child's `ref`. Children can be provided in any order; a topological sort ensures parents are created before children. Item specs must NOT embed their own nested `children` array — express nesting via this flat array plus `parentRef`; a nested `children` key is rejected with a validation error rather than silently dropped.
 - `deps` (optional): Array of dependency specs `[{ from: ref, to: ref, type?: BLOCKS|IS_BLOCKED_BY|RELATES_TO, unblockAt?: queue|work|review|terminal }]`. Use `"root"` to reference the root item.
 - `createNotes` (optional, default false): Auto-create blank notes for each item based on its resolved schema (looked up by `type` first, then by `tags`).
@@ -50,7 +52,7 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
 - `actor` (optional): Actor claim `{ id (required), kind (required: orchestrator|subagent|user|external), parent?, proof? }`. See **Idempotency** and **Actor attribution** above for the two effects.
 - `requestId` (optional): Client-generated UUID. With `actor`, enables idempotent retries (see Idempotency above).
 
-**Depth:** Root depth = parent.depth + 1 when parentId is provided, otherwise 0. Children's depth = their parent's depth + 1 (root or sibling via parentRef). No application-layer depth cap; cycle protection is enforced by the database.
+**Depth:** Root depth = parent.depth + 1 when parentId is provided, otherwise 0. In attach mode, children's depth derives from the existing root item's depth. Children's depth = their parent's depth + 1 (root or sibling via parentRef). No application-layer depth cap; cycle protection is enforced by the database.
 
 **Response:**
 ```json
@@ -92,8 +94,11 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Root item spec: { title (required), priority?, tags?, traits?, summary?, " +
+                                    "Root item spec. Create mode: { title (required), priority?, tags?, traits?, summary?, " +
                                         "description?, requiresVerification?, type? }. " +
+                                        "Attach mode: { id? (UUID or hex prefix of existing item), title? (optional when id provided), " +
+                                        "priority?, tags?, traits?, summary?, description?, requiresVerification?, type? }. " +
+                                        "When id is present, title is optional and ignored if both are given. " +
                                         "traits is a comma-separated string of trait keys merged into properties."
                                 )
                             )
@@ -223,10 +228,30 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
         val rootObj =
             rootElement as? JsonObject
                 ?: throw ToolValidationException("'root' must be a JSON object")
+
+        val rootId = (rootObj["id"] as? JsonPrimitive)?.takeIf { it.isString }?.content
         val rootTitle = (rootObj["title"] as? JsonPrimitive)?.takeIf { it.isString }?.content
-        if (rootTitle.isNullOrBlank()) {
-            throw ToolValidationException("'root.title' is required and must be a non-blank string")
+
+        if (rootId != null && !rootId.isBlank()) {
+            // Attach mode: root.id provided — root.title is optional.
+            // Reject root.id combined with parentId (contradictory: attach vs new-root-under-parent).
+            val parentIdElement = paramsObj["parentId"]
+            if (parentIdElement != null && parentIdElement !is JsonNull) {
+                val parentIdStr = (parentIdElement as? JsonPrimitive)?.takeIf { it.isString }?.content
+                if (!parentIdStr.isNullOrBlank()) {
+                    throw ToolValidationException(
+                        "'root.id' and 'parentId' cannot both be provided: 'root.id' attaches to an existing " +
+                            "item (which already has its own parent), while 'parentId' creates a new root under a parent."
+                    )
+                }
+            }
+        } else {
+            // Create mode: root.title is required.
+            if (rootTitle.isNullOrBlank()) {
+                throw ToolValidationException("'root.title' is required and must be a non-blank string")
+            }
         }
+
         rejectNestedChildren(rootObj, "root")
 
         // Validate children if provided
@@ -409,34 +434,60 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
         noteActorClaim: ActorClaim?,
         noteVerification: VerificationResult?
     ): JsonElement {
-        // ── 1. Parse parentId (optional) ──────────────────────────────────────
+        // ── 1. Detect mode: attach (root.id present) vs create ────────────────
+        val rootObj = paramsObj["root"] as JsonObject
+        val rootIdStr = (rootObj["id"] as? JsonPrimitive)?.takeIf { it.isString }?.content?.takeIf { it.isNotBlank() }
+        val isAttachMode = rootIdStr != null
+
+        // ── 2. Parse parentId (only valid in create mode) ────────────────────
+        //   validateParams already rejects root.id + parentId together, so if we
+        //   reach here in attach mode, parentId is absent.
         val (parentId, parentIdError) = resolveItemId(params, "parentId", context, required = false)
         if (parentIdError != null) return parentIdError
 
-        // ── 2. Compute root depth from parent ──────────────────────────────────
-        val rootDepth =
-            if (parentId != null) {
-                val parentResult = context.workItemRepository().getById(parentId)
-                when (parentResult) {
-                    is Result.Success -> parentResult.data.depth + 1
-                    is Result.Error -> return errorResponse(
-                        "Parent item '$parentId' not found: ${parentResult.error.message}",
-                        ErrorCodes.RESOURCE_NOT_FOUND
-                    )
-                }
-            } else {
-                0
-            }
+        // ── 3. Resolve root (attach mode: fetch existing; create mode: build new) ──
+        val rootItem: WorkItem
+        val isExistingRoot: Boolean
 
-        // ── 3. Parse root ──────────────────────────────────────────────────────
-        val rootObj = paramsObj["root"] as JsonObject
-        val rootItem =
-            buildWorkItem(
-                obj = rootObj,
-                parentId = parentId,
-                depth = rootDepth,
-                contextLabel = "root"
-            ) ?: return errorResponse("Failed to build root item", ErrorCodes.VALIDATION_ERROR)
+        if (isAttachMode) {
+            // Resolve the existing item via id (supports hex prefix like parentId)
+            val (resolvedRootId, rootIdError) = resolveIdString(rootIdStr!!, context)
+            if (rootIdError != null) return rootIdError
+            val fetchResult = context.workItemRepository().getById(resolvedRootId!!)
+            when (fetchResult) {
+                is Result.Success -> {
+                    rootItem = fetchResult.data
+                    isExistingRoot = true
+                }
+                is Result.Error -> return errorResponse(
+                    "Root item '$rootIdStr' not found: ${fetchResult.error.message}",
+                    ErrorCodes.RESOURCE_NOT_FOUND
+                )
+            }
+        } else {
+            // Create mode: compute root depth from parent, then build a new WorkItem.
+            val rootDepth =
+                if (parentId != null) {
+                    val parentResult = context.workItemRepository().getById(parentId)
+                    when (parentResult) {
+                        is Result.Success -> parentResult.data.depth + 1
+                        is Result.Error -> return errorResponse(
+                            "Parent item '$parentId' not found: ${parentResult.error.message}",
+                            ErrorCodes.RESOURCE_NOT_FOUND
+                        )
+                    }
+                } else {
+                    0
+                }
+            rootItem =
+                buildWorkItem(
+                    obj = rootObj,
+                    parentId = parentId,
+                    depth = rootDepth,
+                    contextLabel = "root"
+                ) ?: return errorResponse("Failed to build root item", ErrorCodes.VALIDATION_ERROR)
+            isExistingRoot = false
+        }
 
         // ── 4. Parse children ──────────────────────────────────────────────────
         val childrenArray = paramsObj["children"] as? JsonArray ?: JsonArray(emptyList())
@@ -629,8 +680,13 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
             }
         }
 
-        // ── 7. Build ordered item list (root first, children in topological order) ─
-        val orderedItems = mutableListOf(rootItem)
+        // ── 7. Build ordered item list ────────────────────────────────────────
+        // In attach mode the existing root is NOT inserted (it already exists in the DB).
+        // In create mode the root leads the list (root first, children in topological order).
+        val orderedItems = mutableListOf<WorkItem>()
+        if (!isExistingRoot) {
+            orderedItems.add(rootItem)
+        }
         for (ref in sortedChildRefs) {
             orderedItems.add(refToItem[ref]!!)
         }
@@ -658,7 +714,9 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
         // Build ref-to-result-item map for note lookup
         val idToRef = treeResult.refToId.entries.associate { (ref, id) -> id to ref }
 
-        val rootResultItem = treeResult.items.first()
+        // In attach mode the root was not inserted — use the fetched existing item for the response.
+        // In create mode the root is treeResult.items.first().
+        val rootResultItem = if (isExistingRoot) rootItem else treeResult.items.first()
         val rootSchemaFields = buildSchemaResponseFields(context.resolveSchema(rootResultItem))
         val rootJson =
             buildJsonObject {
@@ -671,9 +729,12 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
                 put("expectedNotes", rootSchemaFields.expectedNotes)
             }
 
+        // In attach mode treeResult.items contains only children.
+        // In create mode children start at index 1 (after the root).
+        val childItems = if (isExistingRoot) treeResult.items else treeResult.items.drop(1)
         val childrenJson =
             JsonArray(
-                treeResult.items.drop(1).map { item ->
+                childItems.map { item ->
                     val ref = idToRef[item.id] ?: "unknown"
                     val childSchemaFields = buildSchemaResponseFields(context.resolveSchema(item))
                     buildJsonObject {
