@@ -600,6 +600,8 @@ Cascade delete (removes item and all descendants, notes, and dependencies). Requ
 
 Trigger a role transition. Requires `ADVANCE`.
 
+This route runs the **same advance pipeline as the MCP `advance_item` tool**, unified behind `AdvanceService`: resolve → validate dependencies → **required-note gate** → apply → cascade detection → unblock detection. Previously the REST path skipped the gate, cascades, and unblock detection; those are now enforced and reported.
+
 **Request body:**
 ```json
 {
@@ -609,21 +611,57 @@ Trigger a role transition. Requires `ADVANCE`.
 
 **Claimed-item behavior:** The REST API bypasses MCP claim ownership — a claimed item advances successfully even if a different MCP agent holds the claim. A WARN is emitted to the server log (`API_WARN_ON_CLAIMED_ADVANCE=false` to suppress). The response does NOT disclose `claimedBy` (tiered-disclosure principle).
 
-**Response `200 OK`:**
+**Note-gate enforcement:** When the item's schema declares required notes, the gate is enforced exactly as in MCP — a `start` requires the current phase's required notes; a `complete` requires all required notes across every phase. An advance that leaves a required note unfilled is **rejected with `422 gate_blocked`** (it no longer silently advances). The missing notes are returned in `details.missingNotes`.
+
+**Response `200 OK`:** `AdvanceResponseDto`
 ```json
 {
   "itemId": "<uuid>",
   "previousRole": "queue",
   "newRole": "work",
   "trigger": "start",
-  "statusLabel": "string|null"
+  "statusLabel": "string|null",
+  "cascadeEvents": [
+    {
+      "itemId": "<uuid>",
+      "title": "Parent",
+      "previousRole": "work",
+      "targetRole": "terminal",
+      "applied": true,
+      "statusLabel": "done"
+    }
+  ],
+  "unblockedItems": [
+    { "itemId": "<uuid>", "title": "Downstream" }
+  ],
+  "expectedNotes": [
+    { "key": "implementation-notes", "role": "work", "required": true, "description": "...", "exists": false }
+  ]
 }
 ```
+
+The `cascadeEvents`, `unblockedItems`, and `expectedNotes` fields are **additive** — they were added when the REST and MCP advance paths were unified. A gate-blocked cascade carries `"applied": false`, `"gateBlocked": true`, and a `missingNotes` array.
 
 **Responses:**
 - `200 OK` → `AdvanceResponseDto`
 - `400 validation_error` — invalid trigger string
-- `422 transition_failed` — gate failure, dependency blocker, or invalid state transition
+- `422 gate_blocked` — a required-note gate failed; `details.missingNotes` lists the unfilled required notes
+- `422 transition_blocked` — a dependency blocker prevents the transition; `details.blockers` lists the blocking edges
+- `422 transition_failed` — invalid state transition (resolution/apply failure)
+
+**Gate-rejection example (`422`):**
+```json
+{
+  "error": "gate_blocked",
+  "message": "Gate check failed: required notes not filled for queue phase: spec",
+  "details": {
+    "targetRole": "work",
+    "missingNotes": [
+      { "key": "spec", "description": "Problem statement and approach", "guidance": "..." }
+    ]
+  }
+}
+```
 
 The `hasReviewPhase` is resolved from the item's schema (type + tags + traits) to match `AdvanceItemTool` behavior — an advance from `work` goes to `review` when the schema has a review phase, or directly to `terminal` when it does not.
 
@@ -988,7 +1026,7 @@ This graph does NOT reflect:
 - Claim ownership (MCP callers without claim ownership are blocked; REST API callers bypass claim ownership)
 - Per-item lifecycle exceptions
 
-Dashboard UI: do not use the status graph to pre-compute which buttons to enable. Always call `POST /items/{id}/advance` and surface the `422 transition_failed` error if the transition is blocked at runtime.
+Dashboard UI: do not use the status graph to pre-compute which buttons to enable. Always call `POST /items/{id}/advance` and surface the `422` error if the transition is blocked at runtime — `gate_blocked` (unfilled required note), `transition_blocked` (dependency blocker), or `transition_failed` (invalid state).
 
 The `"<previousRole>"` sentinel in `blocked.resume` is a literal string — resolve it from the live item's `previousRole` field.
 

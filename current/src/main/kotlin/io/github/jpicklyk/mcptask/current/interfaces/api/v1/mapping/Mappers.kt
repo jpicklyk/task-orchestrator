@@ -1,18 +1,25 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping
 
+import io.github.jpicklyk.mcptask.current.application.service.AdvanceResult
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.Note
+import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.RoleTransition
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ActorClaimDto
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.AdvanceResponseDto
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.CascadeEventDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.DependenciesDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.DependencyEdgeDto
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ExpectedNoteDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ItemDto
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.MissingNoteDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.NoteDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.RoleTransitionDto
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.UnblockedItemDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.VerificationDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.etag.etagFor
 import kotlinx.serialization.json.Json
@@ -204,3 +211,75 @@ fun RoleTransition.toDto(): RoleTransitionDto =
         actor = actorClaim?.toDto(),
         verification = verification?.toDto(),
     )
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AdvanceMapper — AdvanceService.AdvanceResult → AdvanceResponseDto
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Maps a [NoteSchemaEntry] to a [MissingNoteDto] (gate-block detail). */
+fun NoteSchemaEntry.toMissingNoteDto(): MissingNoteDto =
+    MissingNoteDto(
+        key = key,
+        description = description,
+        guidance = guidance,
+        skill = skill,
+    )
+
+/**
+ * Maps a successful [AdvanceResult] from the shared `AdvanceService` to the REST
+ * [AdvanceResponseDto], including the additive cascade / unblock / expected-note parity fields.
+ *
+ * `expectedNotes` is built from the resolved schema filtered to the item's NEW role, with `exists`
+ * computed against [existingNoteKeys] (the keys of notes currently attached to the item). When the
+ * item is schema-free, `expectedNotes` is empty.
+ *
+ * Claim-holder identity is never disclosed — the DTO has no `claimedBy` field.
+ *
+ * @param existingNoteKeys keys of notes currently on the item, used to set `exists` on each expected note.
+ */
+fun AdvanceResult.toDto(existingNoteKeys: Set<String>): AdvanceResponseDto {
+    val expectedNotes =
+        resolvedSchema
+            ?.notes
+            ?.filter { it.role == newRole }
+            ?.map { entry ->
+                ExpectedNoteDto(
+                    key = entry.key,
+                    role = entry.role.name.lowercase(),
+                    required = entry.required,
+                    description = entry.description,
+                    guidance = entry.guidance,
+                    skill = entry.skill,
+                    exists = entry.key in existingNoteKeys,
+                )
+            } ?: emptyList()
+
+    return AdvanceResponseDto(
+        itemId = itemId.toString(),
+        previousRole = previousRole.name.lowercase(),
+        newRole = newRole.name.lowercase(),
+        trigger = trigger,
+        statusLabel = statusLabel,
+        cascadeEvents =
+            cascadeEvents.map { event ->
+                CascadeEventDto(
+                    itemId = event.itemId.toString(),
+                    title = event.title,
+                    previousRole = event.previousRole.name.lowercase(),
+                    targetRole = event.targetRole.name.lowercase(),
+                    applied = event.applied,
+                    statusLabel = event.statusLabel,
+                    gateBlocked = event.gateBlocked,
+                    missingNotes =
+                        if (event.gateBlocked) {
+                            event.gateMissingNotes.map { it.toMissingNoteDto() }
+                        } else {
+                            null
+                        },
+                )
+            },
+        unblockedItems =
+            unblockedItems.map { UnblockedItemDto(itemId = it.itemId.toString(), title = it.title) },
+        expectedNotes = expectedNotes,
+    )
+}

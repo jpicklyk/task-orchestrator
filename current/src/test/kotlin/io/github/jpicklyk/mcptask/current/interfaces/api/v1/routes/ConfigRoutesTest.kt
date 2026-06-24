@@ -1,11 +1,11 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
-import io.github.jpicklyk.mcptask.current.application.service.rest.StatusGraphBuilder
 import io.github.jpicklyk.mcptask.current.domain.model.LifecycleMode
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.StatusGraphBuilder
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText

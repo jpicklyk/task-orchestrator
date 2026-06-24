@@ -395,6 +395,80 @@ components:
           type: string
           enum: [start, complete, block, hold, resume, cancel, reopen]
 
+    MissingNoteDto:
+      type: object
+      required: [key, description]
+      properties:
+        key:
+          type: string
+        description:
+          type: string
+        guidance:
+          type: string
+          nullable: true
+        skill:
+          type: string
+          nullable: true
+
+    CascadeEventDto:
+      type: object
+      required: [itemId, title, previousRole, targetRole, applied]
+      properties:
+        itemId:
+          type: string
+          format: uuid
+        title:
+          type: string
+        previousRole:
+          type: string
+        targetRole:
+          type: string
+        applied:
+          type: boolean
+        statusLabel:
+          type: string
+          nullable: true
+        gateBlocked:
+          type: boolean
+          description: True when this cascade was suppressed by a required-note gate on the parent.
+        missingNotes:
+          type: array
+          nullable: true
+          description: Present only when gateBlocked is true.
+          items:
+            $ref: "#/components/schemas/MissingNoteDto"
+
+    UnblockedItemDto:
+      type: object
+      required: [itemId, title]
+      properties:
+        itemId:
+          type: string
+          format: uuid
+        title:
+          type: string
+
+    ExpectedNoteDto:
+      type: object
+      required: [key, role, required, description, exists]
+      properties:
+        key:
+          type: string
+        role:
+          type: string
+        required:
+          type: boolean
+        description:
+          type: string
+        guidance:
+          type: string
+          nullable: true
+        skill:
+          type: string
+          nullable: true
+        exists:
+          type: boolean
+
     AdvanceResponseDto:
       type: object
       required: [itemId, previousRole, newRole, trigger]
@@ -411,6 +485,25 @@ components:
         statusLabel:
           type: string
           nullable: true
+        cascadeEvents:
+          type: array
+          description: >-
+            Cascade transitions applied (or gate-blocked) as a side effect of this advance —
+            e.g. completing the last child auto-completing the parent. Mirrors the MCP
+            advance_item cascadeEvents. Added when the REST and MCP advance paths were unified
+            behind AdvanceService.
+          items:
+            $ref: "#/components/schemas/CascadeEventDto"
+        unblockedItems:
+          type: array
+          description: Downstream items whose blocking dependencies are now satisfied.
+          items:
+            $ref: "#/components/schemas/UnblockedItemDto"
+        expectedNotes:
+          type: array
+          description: Schema notes expected for the item's NEW role (parity with MCP advance_item).
+          items:
+            $ref: "#/components/schemas/ExpectedNoteDto"
 
     SearchHitDto:
       type: object
@@ -893,9 +986,17 @@ paths:
       operationId: advanceItem
       tags: [items]
       description: |
-        Bypasses MCP claim ownership — a claimed item advances successfully
-        regardless of which MCP agent holds the claim. Response does NOT include
-        claimedBy. WARN is logged when API_WARN_ON_CLAIMED_ADVANCE=true (default).
+        Runs the SAME advance pipeline as the MCP advance_item tool (resolve → validate →
+        required-note gate → apply → cascade → unblock), unified behind AdvanceService.
+
+        Bypasses MCP claim ownership — a claimed item advances successfully regardless of
+        which MCP agent holds the claim. Response does NOT include claimedBy. WARN is logged
+        when API_WARN_ON_CLAIMED_ADVANCE=true (default).
+
+        Required-note gates ARE enforced: a start/complete that leaves a required note unfilled
+        is rejected with 422 (error code "gate_blocked") and the missing notes in details.missingNotes,
+        rather than silently advancing. The response includes cascadeEvents, unblockedItems, and
+        expectedNotes (additive — older clients can ignore the new fields).
       parameters:
         - $ref: "#/components/parameters/itemId"
       requestBody:
@@ -920,7 +1021,10 @@ paths:
         "404":
           $ref: "#/components/responses/NotFound"
         "422":
-          description: Transition rejected (gate failure, blocker, invalid state)
+          description: >-
+            Transition rejected. error="gate_blocked" with details.missingNotes when a required-note
+            gate fails; error="transition_blocked" with details.blockers when a dependency blocks the
+            transition; error="transition_failed" for invalid-state resolution/apply failures.
           content:
             application/json:
               schema:

@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
-import io.github.jpicklyk.mcptask.current.application.service.rest.StatusGraphBuilder
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
@@ -11,6 +10,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.NoteSchemaEntryDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.SchemaDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.TraitDto
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.StatusGraphBuilder
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.call

@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.cors
 
+import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.ktor.http.HttpMethod
 import io.ktor.server.plugins.cors.CORSConfig
 
@@ -21,40 +22,12 @@ import io.ktor.server.plugins.cors.CORSConfig
  * - Origins are stripped of their scheme prefix (`https://`, `http://`) before being passed to
  *   [allowHost], which takes the host component and a `schemes` list separately.
  */
-fun CORSConfig.configureCors() {
-    val rawOrigins =
-        System
-            .getenv("CORS_ALLOWED_ORIGINS")
-            ?.split(",")
-            ?.map { it.trim() }
-            ?.filter { it.isNotBlank() }
-            ?: emptyList()
-
-    val methods =
-        System
-            .getenv("CORS_ALLOWED_METHODS")
-            ?.split(",")
-            ?.map { it.trim() }
-            ?.filter { it.isNotBlank() }
-            ?: listOf("GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS")
-
-    val headers =
-        System
-            .getenv("CORS_ALLOWED_HEADERS")
-            ?.split(",")
-            ?.map { it.trim() }
-            ?.filter { it.isNotBlank() }
-            ?: listOf("Authorization", "Content-Type", "If-Match")
-
-    val exposeHeaders =
-        System
-            .getenv("CORS_EXPOSE_HEADERS")
-            ?.split(",")
-            ?.map { it.trim() }
-            ?.filter { it.isNotBlank() }
-            ?: listOf("ETag", "Last-Event-ID")
-
-    val maxAge = System.getenv("CORS_MAX_AGE_SECONDS")?.trim()?.toLongOrNull() ?: 3600L
+fun CORSConfig.configureCors(appConfig: AppConfig = AppConfig.fromEnv()) {
+    val rawOrigins = appConfig.corsAllowedOrigins
+    val methods = appConfig.corsAllowedMethods
+    val headers = appConfig.corsAllowedHeaders
+    val exposeHeaders = appConfig.corsExposeHeaders
+    val maxAge = appConfig.corsMaxAgeSeconds
 
     // Register each allowed origin; strip scheme prefix and pass schemes explicitly.
     rawOrigins.forEach { origin ->

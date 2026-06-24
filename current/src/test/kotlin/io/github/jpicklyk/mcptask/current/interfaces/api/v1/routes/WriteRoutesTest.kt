@@ -761,6 +761,104 @@ class AdvanceRouteTest {
             assertEquals("api:$WRITE_TOKEN_ID", transition.actorClaim?.id, "Transition must record the API actor id")
             assertEquals("external", transition.actorClaim?.kind?.toJsonString(), "Transition actor kind must be external")
         }
+
+    @Test
+    fun `POST advance on gate-incomplete item is REJECTED 422 instead of silently advancing`(): Unit =
+        testApplication {
+            val repo = buildH2RepositoryProvider()
+            // Item typed 'gated-type' with a REQUIRED queue-phase note that is NOT filled.
+            val item =
+                runBlocking {
+                    repo
+                        .workItemRepository()
+                        .create(WorkItem(title = "Gated", type = "gated-type", role = Role.QUEUE, depth = 0))
+                        .getOrNull()!!
+                }
+            application { configureWriteTestApp(repo, schemaService = GatedSchemaService()) }
+
+            val response =
+                client.post("/api/v1/items/${item.id}/advance") {
+                    header("Authorization", "Bearer $WRITE_TOKEN")
+                    contentType(ContentType.Application.Json)
+                    setBody("""{"trigger":"start"}""")
+                }
+
+            // The REST advance now enforces note gates — gate-incomplete start is rejected.
+            assertEquals(HttpStatusCode.UnprocessableEntity, response.status)
+            val body = response.bodyAsText()
+            assertTrue(body.contains("gate_blocked"), "Should report gate_blocked error: $body")
+            assertTrue(body.contains("spec"), "Should name the missing required note key: $body")
+
+            // Hard assertion: the item did NOT advance (still in queue).
+            val persisted = runBlocking { repo.workItemRepository().getById(item.id) }
+            assertEquals(
+                "queue",
+                (persisted as Result.Success)
+                    .data.role.name
+                    .lowercase(),
+                "Gate-blocked item must NOT have advanced",
+            )
+        }
+
+    @Test
+    fun `POST advance on gate-complete item SUCCEEDS and includes parity fields`(): Unit =
+        testApplication {
+            val repo = buildH2RepositoryProvider()
+            val item =
+                runBlocking {
+                    val i =
+                        repo
+                            .workItemRepository()
+                            .create(WorkItem(title = "Gated OK", type = "gated-type", role = Role.QUEUE, depth = 0))
+                            .getOrNull()!!
+                    // Fill the required queue note so the gate passes.
+                    repo.noteRepository().upsert(Note(itemId = i.id, key = "spec", role = "queue", body = "done"))
+                    i
+                }
+            application { configureWriteTestApp(repo, schemaService = GatedSchemaService()) }
+
+            val response =
+                client.post("/api/v1/items/${item.id}/advance") {
+                    header("Authorization", "Bearer $WRITE_TOKEN")
+                    contentType(ContentType.Application.Json)
+                    setBody("""{"trigger":"start"}""")
+                }
+
+            assertEquals(HttpStatusCode.OK, response.status)
+            val body = response.bodyAsText()
+            // Additive parity fields present in the response envelope.
+            assertTrue(body.contains("cascadeEvents"), "Response should include cascadeEvents: $body")
+            assertTrue(body.contains("unblockedItems"), "Response should include unblockedItems: $body")
+            assertTrue(body.contains("expectedNotes"), "Response should include expectedNotes: $body")
+
+            val persisted = runBlocking { repo.workItemRepository().getById(item.id) }
+            assertEquals(
+                "work",
+                (persisted as Result.Success)
+                    .data.role.name
+                    .lowercase()
+            )
+        }
+}
+
+/**
+ * Schema service for gate-enforcement tests: type `gated-type` has a REQUIRED queue-phase note
+ * (`spec`). The REST advance route resolves this via type-first lookup and enforces the gate.
+ */
+private class GatedSchemaService : WorkItemSchemaService {
+    private val schema =
+        WorkItemSchema(
+            type = "gated-type",
+            notes =
+                listOf(
+                    NoteSchemaEntry("spec", Role.QUEUE, required = true, description = "spec"),
+                    NoteSchemaEntry("impl", Role.WORK, required = false, description = "impl"),
+                ),
+        )
+
+    override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? = if ("gated-type" in tags) schema.notes else null
+
+    override fun getSchemaForType(type: String?): WorkItemSchema? = if (type == "gated-type") schema else null
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

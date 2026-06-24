@@ -888,6 +888,11 @@ Each backlink entry represents another item that holds a dependency edge pointin
 **Purpose.** Trigger-based role transitions for WorkItems with dependency validation, note-schema
 gate enforcement, cascade detection, and unblock reporting. Supports batch transitions.
 
+This tool and the REST `POST /items/{id}/advance` route share a single advance pipeline
+(`AdvanceService`): ownership pre-check → resolve → validate → required-note gate → apply → cascade
+detection → unblock detection. The MCP path enforces claim ownership; the REST path bypasses it (see
+`api-rest.md`). Both enforce the same note gates and report the same cascade/unblock results.
+
 #### Key Parameters
 
 | Parameter | Type | Required | Description |

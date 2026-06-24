@@ -391,7 +391,7 @@ class DefaultJwksKeySetProvider(
                 try {
                     val basePath =
                         Paths.get(
-                            System.getenv("AGENT_CONFIG_DIR") ?: System.getProperty("user.dir")
+                            AppConfig.resolveConfigBaseDir(System.getenv("AGENT_CONFIG_DIR"))
                         )
                     val resolved = basePath.resolve(relPath)
                     val content = resolved.toFile().readText()
