@@ -69,8 +69,12 @@ class AdvanceServiceTest {
         parentId: UUID? = null,
         claimedBy: String? = null,
         claimExpiresAt: Instant? = null,
-    ): WorkItem =
-        WorkItem(
+    ): WorkItem {
+        // Capture a single instant so claimedAt == originalClaimedAt. Two separate Instant.now()
+        // calls drift by microseconds on Linux CI's high-resolution clock and would flip the
+        // WorkItem.validate() invariant originalClaimedAt <= claimedAt (masked locally on Windows).
+        val claimInstant = if (claimedBy != null) Instant.now() else null
+        return WorkItem(
             id = id,
             title = title,
             role = role,
@@ -78,10 +82,11 @@ class AdvanceServiceTest {
             parentId = parentId,
             depth = if (parentId != null) 1 else 0,
             claimedBy = claimedBy,
-            claimedAt = if (claimedBy != null) Instant.now() else null,
+            claimedAt = claimInstant,
             claimExpiresAt = claimExpiresAt,
-            originalClaimedAt = if (claimedBy != null) Instant.now() else null,
+            originalClaimedAt = claimInstant,
         )
+    }
 
     /** Builds a service with a schema resolver that returns [schema] for every item. */
     private fun serviceWith(schema: WorkItemSchema? = null): AdvanceService =
