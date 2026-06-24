@@ -452,6 +452,80 @@ class CreateWorkTreeToolTest {
     }
 
     // ──────────────────────────────────────────────
+    // 9b. validateParams: nested children array → exception (bug 1248af0f)
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `nested children array on root throws ToolValidationException`() {
+        val ex =
+            assertFailsWith<ToolValidationException> {
+                tool.validateParams(
+                    buildJsonObject {
+                        put(
+                            "root",
+                            buildJsonObject {
+                                put("title", JsonPrimitive("Root"))
+                                put(
+                                    "children",
+                                    buildJsonArray {
+                                        add(
+                                            buildJsonObject {
+                                                put("ref", JsonPrimitive("c1"))
+                                                put("title", JsonPrimitive("Nested child"))
+                                            }
+                                        )
+                                    }
+                                )
+                            }
+                        )
+                    }
+                )
+            }
+        assertTrue(
+            ex.message!!.contains("parentRef"),
+            "Error should point the caller to the flat children + parentRef model: ${ex.message}"
+        )
+    }
+
+    @Test
+    fun `nested children array on a child throws ToolValidationException`() {
+        val ex =
+            assertFailsWith<ToolValidationException> {
+                tool.validateParams(
+                    buildJsonObject {
+                        put("root", buildJsonObject { put("title", JsonPrimitive("Root")) })
+                        put(
+                            "children",
+                            buildJsonArray {
+                                add(
+                                    buildJsonObject {
+                                        put("ref", JsonPrimitive("a"))
+                                        put("title", JsonPrimitive("Parent child"))
+                                        put(
+                                            "children",
+                                            buildJsonArray {
+                                                add(
+                                                    buildJsonObject {
+                                                        put("ref", JsonPrimitive("b"))
+                                                        put("title", JsonPrimitive("Grandchild"))
+                                                    }
+                                                )
+                                            }
+                                        )
+                                    }
+                                )
+                            }
+                        )
+                    }
+                )
+            }
+        assertTrue(
+            ex.message!!.contains("children[0]") && ex.message!!.contains("parentRef"),
+            "Error should identify the offending child and point to parentRef: ${ex.message}"
+        )
+    }
+
+    // ──────────────────────────────────────────────
     // 10. Root-only tree (no children) succeeds
     // ──────────────────────────────────────────────
 

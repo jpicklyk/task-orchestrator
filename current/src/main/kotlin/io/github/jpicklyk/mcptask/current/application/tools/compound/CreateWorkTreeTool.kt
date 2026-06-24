@@ -43,7 +43,7 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
 **Parameters:**
 - `root` (required): Root item spec `{ title (required), priority?, tags?, traits?, summary?, description?, requiresVerification?, type? }`. `traits` is a comma-separated string of trait keys merged into properties.
 - `parentId` (optional): UUID of existing parent item. If provided, root depth = parent.depth + 1; otherwise depth = 0.
-- `children` (optional): Array of child item specs `[{ ref (required), title (required), parentRef (optional, defaults to "root"), priority?, tags?, traits?, summary?, description?, requiresVerification?, type? }]`. `ref` is a local name used in `deps` to wire dependencies. `parentRef` specifies this child's parent: either `"root"` or another child's `ref`. Children can be provided in any order; a topological sort ensures parents are created before children.
+- `children` (optional): Array of child item specs `[{ ref (required), title (required), parentRef (optional, defaults to "root"), priority?, tags?, traits?, summary?, description?, requiresVerification?, type? }]`. `ref` is a local name used in `deps` to wire dependencies. `parentRef` specifies this child's parent: either `"root"` or another child's `ref`. Children can be provided in any order; a topological sort ensures parents are created before children. Item specs must NOT embed their own nested `children` array — express nesting via this flat array plus `parentRef`; a nested `children` key is rejected with a validation error rather than silently dropped.
 - `deps` (optional): Array of dependency specs `[{ from: ref, to: ref, type?: BLOCKS|IS_BLOCKED_BY|RELATES_TO, unblockAt?: queue|work|review|terminal }]`. Use `"root"` to reference the root item.
 - `createNotes` (optional, default false): Auto-create blank notes for each item based on its resolved schema (looked up by `type` first, then by `tags`).
 - `notes` (optional): Notes to create with bodies: `[{ itemRef (required, "root" or child ref), key (required), role (required: queue|work|review), body (optional, defaults to empty string) }]`. Explicit notes win over `createNotes=true` blanks per `(itemRef, key)`. **Strict role enforcement:** when an explicit note's `key` is declared in the resolved schema for the target item, the note's `role` must equal the schema role; mismatch is rejected with `VALIDATION_ERROR`. Off-schema keys and items without a schema are unconstrained.
@@ -124,6 +124,9 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
                                         "parentRef sets the parent of this child: either \"root\" or another child's ref. " +
                                         "Children may be listed in any order; a topological sort ensures parents are " +
                                         "created before children. Cycle detection runs at validation time. " +
+                                        "Item specs must not embed their own nested 'children' array — a nested " +
+                                        "'children' key is rejected rather than silently dropped; express nesting via " +
+                                        "this flat array plus parentRef. " +
                                         "traits is a comma-separated string of trait keys merged into properties."
                                 )
                             )
@@ -224,6 +227,7 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
         if (rootTitle.isNullOrBlank()) {
             throw ToolValidationException("'root.title' is required and must be a non-blank string")
         }
+        rejectNestedChildren(rootObj, "root")
 
         // Validate children if provided
         val childrenElement = paramsObj["children"]
@@ -247,6 +251,7 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
                 if (title.isNullOrBlank()) {
                     throw ToolValidationException("children[$index]: 'title' is required")
                 }
+                rejectNestedChildren(childObj, "children[$index]")
                 allRefs.add(ref)
             }
             // Validate parentRef values and detect cycles
@@ -755,6 +760,25 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
     // ──────────────────────────────────────────────
     // Private helpers
     // ──────────────────────────────────────────────
+
+    /**
+     * Rejects a nested `children` key inside an item spec. create_work_tree expresses nesting via
+     * the top-level flat `children` array plus each child's `parentRef`; a `children` array embedded
+     * inside a root or child spec was previously dropped silently, losing those items (bug 1248af0f).
+     */
+    private fun rejectNestedChildren(
+        itemObj: JsonObject,
+        contextLabel: String
+    ) {
+        val nested = itemObj["children"]
+        if (nested != null && nested !is JsonNull) {
+            throw ToolValidationException(
+                "$contextLabel must not contain a nested 'children' array — it would be silently dropped. " +
+                    "Build nested trees by listing every item in the top-level 'children' array and setting " +
+                    "each child's 'parentRef' to its parent's 'ref'."
+            )
+        }
+    }
 
     /**
      * Builds a [WorkItem] from a JSON object spec.
