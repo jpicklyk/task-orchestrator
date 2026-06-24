@@ -1,12 +1,8 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
-import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
-import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommender
-import io.github.jpicklyk.mcptask.current.application.service.NoOpActorVerifier
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition
-import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.dependency.ManageDependenciesTool
@@ -22,17 +18,8 @@ import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextT
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetNextItemTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetNextStatusTool
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
-import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
-import io.github.jpicklyk.mcptask.current.infrastructure.config.ApiAuthConfigLoader
-import io.github.jpicklyk.mcptask.current.infrastructure.config.DefaultJwksKeySetProvider
-import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksActorVerifier
-import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlActorAuthenticationConfigService
-import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlNoteSchemaService
-import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlStatusLabelService
-import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseConfig
+import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.logging.DefaultMcpLoggingService
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
@@ -42,7 +29,6 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.JwksApiVerifier
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.cors.configureCors
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventBus
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventPublishingRepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.configRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.dependencyRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.dependencyWriteRoutes
@@ -89,13 +75,20 @@ import org.slf4j.LoggerFactory
  *
  * @param version The server version string.
  * @param shutdownCoordinator Optional shutdown coordinator for graceful shutdown.
+ * @param appConfig Typed environment snapshot, read ONCE at construction. Built before
+ *   [databaseManager] so the DB layer reads its config from the same snapshot. Injectable for tests.
  */
 class CurrentMcpServer(
     private val version: String,
-    private val shutdownCoordinator: ShutdownCoordinator? = null
+    private val shutdownCoordinator: ShutdownCoordinator? = null,
+    private val appConfig: AppConfig = AppConfig.fromEnv()
 ) {
     private val logger = LoggerFactory.getLogger(CurrentMcpServer::class.java)
-    private val databaseManager = DatabaseManager()
+
+    // Build the AppConfig snapshot FIRST (constructor arg above), then DatabaseManager from it:
+    // DatabaseManager is constructed early (a field, before run()) and reads DB env, so the snapshot
+    // must exist before it.
+    private val databaseManager = DatabaseManager(appConfig = appConfig)
     private var mcpSdkServer: Server? = null
 
     /**
@@ -106,8 +99,8 @@ class CurrentMcpServer(
         runBlocking {
             logger.info("Initializing Current (v3) MCP server...")
 
-            // Initialize database
-            val dbPath = DatabaseConfig.databasePath
+            // Initialize database (DatabaseManager already holds the AppConfig snapshot)
+            val dbPath = appConfig.databasePath
             if (!databaseManager.initialize(dbPath)) {
                 logger.error("Failed to initialize database at: $dbPath")
                 return@runBlocking
@@ -118,55 +111,23 @@ class CurrentMcpServer(
             }
             logger.info("Database initialized at: $dbPath")
 
-            // Initialize repository provider and tool context
-            val repositoryProvider = DefaultRepositoryProvider(databaseManager)
-            val noteSchemaService = YamlNoteSchemaService()
-            val statusLabelService = YamlStatusLabelService()
-            val mcpLoggingService = DefaultMcpLoggingService()
-            val (actorVerifier, degradedModePolicy) = createActorVerifierAndPolicy()
-            val idempotencyCache = IdempotencyCache()
-
-            // Phase 6: Resolve the REST/SSE API wiring ONCE, EARLY — before the tool context is
-            // built — so the SAME event bus and SAME decorated provider feed BOTH the MCP tool
-            // context AND the REST routes. This is critical: MCP-tool writes (the primary
-            // workflow) must publish to the same bus that SSE subscribers read from.
-            //
-            // When the API is enabled: effectiveProvider wraps repositoryProvider with the
-            // event-publishing decorator, and that wrapped provider is used for the tool context.
-            //
-            // ADDITIVE / DEFAULT-OFF: when the API is disabled, apiWiring.eventBus is null and
-            // apiWiring.effectiveProvider == repositoryProvider (the raw provider). The tool
-            // context then uses the raw provider — byte-for-byte unchanged MCP behavior with
-            // zero overhead and no decorator on the hot path.
-            val apiWiring = resolveApiWiring(repositoryProvider)
-            val effectiveProvider = apiWiring.effectiveProvider
-
-            val nextItemRecommender =
-                NextItemRecommender(
-                    effectiveProvider.workItemRepository(),
-                    effectiveProvider.dependencyRepository()
-                )
-            val toolContext =
-                ToolExecutionContext(
-                    effectiveProvider,
-                    noteSchemaService,
-                    statusLabelService,
-                    mcpLoggingService,
-                    actorVerifier,
-                    degradedModePolicy,
-                    idempotencyCache,
-                    nextItemRecommender
-                )
-            logger.info(
-                "Repository provider and tool context initialized (API {})",
-                if (apiWiring.eventBus != null) "enabled — writes publish to SSE bus" else "disabled — raw provider"
-            )
+            // Delegate the entire object-graph construction (repositories, config services, actor
+            // verifier, REST/SSE wiring, tool context) to the manual composition root. This class
+            // stays lifecycle-only.
+            val composition =
+                ServerComposition(appConfig, databaseManager, shutdownCoordinator).build()
+            val toolContext = composition.toolContext
+            val apiWiring = composition.apiWiring
+            val noteSchemaService = composition.noteSchemaService
+            val degradedModePolicy = composition.degradedModePolicy
+            val idempotencyCache = composition.idempotencyCache
+            val mcpLoggingService = composition.mcpLoggingService
 
             // Build tool list (shared with tests via buildMcpTools())
             val tools = buildMcpTools()
 
             // Configure MCP server
-            val serverName = System.getenv("MCP_SERVER_NAME") ?: "mcp-task-orchestrator-current"
+            val serverName = appConfig.mcpServerName
             val toolNames = tools.joinToString(", ") { it.name }
             val server = configureServer(serverName, tools.size, toolNames)
             mcpSdkServer = server
@@ -186,7 +147,7 @@ class CurrentMcpServer(
             mcpLoggingService.info("mcp-task-orchestrator.server", "Server ready with $toolCount tools")
 
             // Transport dispatch
-            val transportType = System.getenv("MCP_TRANSPORT")?.lowercase() ?: "stdio"
+            val transportType = appConfig.mcpTransport
             when (transportType) {
                 "stdio" -> {
                     // stdio transport does NOT serve the REST/SSE API. When the API is enabled the
@@ -210,7 +171,8 @@ class CurrentMcpServer(
                         apiWiring,
                         noteSchemaService,
                         degradedModePolicy,
-                        idempotencyCache
+                        idempotencyCache,
+                        composition.actorAuthEnabled
                     )
                 else -> logger.error("Unknown MCP_TRANSPORT: '$transportType'. Valid values: stdio, http")
             }
@@ -223,153 +185,6 @@ class CurrentMcpServer(
      */
     suspend fun close() {
         mcpSdkServer?.close()
-    }
-
-    /**
-     * Holds the resolved REST/SSE API wiring, computed ONCE at startup.
-     *
-     * The same [effectiveProvider] and [eventBus] are shared between the MCP tool context and the
-     * REST routes so that BOTH MCP-tool writes and REST writes publish to the same SSE bus.
-     *
-     * @param apiConfig The resolved API auth configuration (Disabled / Bearer / Jwks).
-     * @param eventBus The SSE event bus, or null when the API is disabled.
-     * @param effectiveProvider The provider to use everywhere — the event-publishing decorator
-     *   when the API is enabled, or the raw provider (passed in) when disabled.
-     * @param tokenEntries Pre-loaded bearer token entries with expiry metadata (empty unless bearer mode).
-     * @param allowQueryToken Whether `?token=` query-param auth is enabled for the SSE route.
-     * @param jwksVerifier REST JWT verifier built from [ApiAuthConfig.Jwks] settings, or null unless
-     *   the API is enabled in jwks mode. This is the REST-API verifier
-     *   ([io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.JwksApiVerifier]) — NOT the
-     *   unrelated actor-authentication [JwksActorVerifier].
-     */
-    private data class ApiWiring(
-        val apiConfig: ApiAuthConfig,
-        val eventBus: ApiEventBus?,
-        val effectiveProvider: RepositoryProvider,
-        val tokenEntries: Map<HashBytes, BearerTokenStore.TokenEntry>,
-        val allowQueryToken: Boolean,
-        val jwksVerifier: JwksApiVerifier?,
-    )
-
-    /**
-     * Resolve the REST/SSE API wiring exactly once at startup.
-     *
-     * Loads the API auth config (fail-fast on misconfiguration). When the API is enabled, builds a
-     * single [ApiEventBus] and wraps [rawProvider] with [EventPublishingRepositoryProvider]; both
-     * are returned so the tool context AND the REST routes share them. When disabled, returns the
-     * raw provider unchanged with a null bus — additive/default-off, zero overhead.
-     *
-     * @param rawProvider The undecorated [DefaultRepositoryProvider].
-     */
-    private fun resolveApiWiring(rawProvider: RepositoryProvider): ApiWiring {
-        // Load API auth config once at startup — fail-fast on misconfiguration.
-        val apiConfig =
-            try {
-                ApiAuthConfigLoader().load()
-            } catch (e: IllegalArgumentException) {
-                logger.error("REST API configuration error: {}", e.message)
-                throw e
-            }
-
-        val allowQueryToken = System.getenv("API_ALLOW_QUERY_TOKEN_FOR_SSE")?.lowercase() == "true"
-        if (allowQueryToken) {
-            logger.warn(
-                "API_ALLOW_QUERY_TOKEN_FOR_SSE=true: bearer tokens accepted as ?token= query " +
-                    "parameter on GET /api/v1/events. This leaks tokens into server logs and " +
-                    "browser history. Do NOT use in production."
-            )
-        }
-
-        if (apiConfig is ApiAuthConfig.Disabled) {
-            // Default-off: raw provider everywhere, no bus, no decorator, no overhead.
-            return ApiWiring(
-                apiConfig = apiConfig,
-                eventBus = null,
-                effectiveProvider = rawProvider,
-                tokenEntries = emptyMap(),
-                allowQueryToken = allowQueryToken,
-                jwksVerifier = null,
-            )
-        }
-
-        val bus = ApiEventBus()
-        val decorated = EventPublishingRepositoryProvider(rawProvider, bus)
-        val tokenEntries: Map<HashBytes, BearerTokenStore.TokenEntry> =
-            if (apiConfig is ApiAuthConfig.Bearer) {
-                val tokensPath =
-                    System.getenv("API_TOKENS_PATH")?.trim()?.takeIf { it.isNotBlank() }
-                        ?: "/run/secrets/api-tokens.yaml"
-                BearerTokenStore(tokensPath).loadWithEntries()
-            } else {
-                emptyMap()
-            }
-
-        // In jwks mode, build the REST JWT verifier from the resolved ApiAuthConfig.Jwks settings.
-        // Without this, the ApiBearerAuth plugin's Jwks branch finds a null verifier and 401s every
-        // request (the original bug). The key provider is a DefaultJwksKeySetProvider configured with
-        // a direct JWKS URL (config.url → VerifierConfig.Jwks.jwksUri) — REST jwks uses no OIDC
-        // discovery or DID trust, so only jwksUri/issuer/audience/algorithms/cacheTtl are set.
-        // NOTE: this is the REST verifier (JwksApiVerifier), NOT the actor-auth JwksActorVerifier.
-        val jwksVerifier: JwksApiVerifier? =
-            if (apiConfig is ApiAuthConfig.Jwks) {
-                val keyProvider =
-                    DefaultJwksKeySetProvider(
-                        VerifierConfig.Jwks(
-                            jwksUri = apiConfig.url,
-                            issuer = apiConfig.issuer,
-                            audience = apiConfig.audience,
-                            algorithms = apiConfig.algorithms,
-                            cacheTtlSeconds = apiConfig.cacheTtlSeconds,
-                        ),
-                    )
-                shutdownCoordinator?.addCleanupAction("Close REST JWKS key provider") {
-                    keyProvider.close()
-                }
-                JwksApiVerifier(apiConfig, keyProvider)
-            } else {
-                null
-            }
-
-        return ApiWiring(
-            apiConfig = apiConfig,
-            eventBus = bus,
-            effectiveProvider = decorated,
-            tokenEntries = tokenEntries,
-            allowQueryToken = allowQueryToken,
-            jwksVerifier = jwksVerifier,
-        )
-    }
-
-    /**
-     * Creates the appropriate [ActorVerifier] and reads [DegradedModePolicy] from configuration.
-     * Returns a [Pair] of (verifier, policy) so both can be wired into [ToolExecutionContext].
-     */
-    private fun createActorVerifierAndPolicy(): Pair<ActorVerifier, DegradedModePolicy> {
-        val configService = YamlActorAuthenticationConfigService()
-        configService.getWarnings().forEach { logger.warn("Actor authentication config: {}", it) }
-        val config = configService.getConfig()
-        logger.info("Degraded mode policy: {}", config.degradedModePolicy.toConfigString())
-        val verifier =
-            when (val vc = config.verifier) {
-                is VerifierConfig.Noop -> {
-                    logger.info("Actor verifier: noop (all claims unverified)")
-                    NoOpActorVerifier
-                }
-                is VerifierConfig.Jwks -> {
-                    logger.info(
-                        "Actor verifier: jwks (uri={}, path={}, discovery={})",
-                        vc.jwksUri ?: "none",
-                        vc.jwksPath ?: "none",
-                        vc.oidcDiscovery ?: "none"
-                    )
-                    JwksActorVerifier(vc).also { jwksVerifier ->
-                        shutdownCoordinator?.addCleanupAction("Close JWKS ActorVerifier") {
-                            jwksVerifier.close()
-                        }
-                    }
-                }
-            }
-        return Pair(verifier, config.degradedModePolicy)
     }
 
     private fun registerCommonCleanup(server: Server) {
@@ -420,9 +235,10 @@ class CurrentMcpServer(
         noteSchemaService: WorkItemSchemaService,
         degradedModePolicy: DegradedModePolicy,
         idempotencyCache: IdempotencyCache,
+        actorAuthEnabled: Boolean,
     ) {
-        val host = System.getenv("MCP_HTTP_HOST") ?: "0.0.0.0"
-        val port = System.getenv("MCP_HTTP_PORT")?.toIntOrNull() ?: 3001
+        val host = appConfig.mcpHttpHost
+        val port = appConfig.mcpHttpPort
         logger.info("Starting MCP server with HTTP transport on $host:$port/mcp ...")
 
         // SECURITY WARNING: the /mcp Streamable HTTP endpoint is UNAUTHENTICATED by design — MCP
@@ -464,12 +280,6 @@ class CurrentMcpServer(
         val allowQueryToken = apiWiring.allowQueryToken
         val jwksVerifier = apiWiring.jwksVerifier
 
-        // Determine actor_authentication status for /info endpoint
-        val actorAuthEnabled =
-            YamlActorAuthenticationConfigService()
-                .getConfig()
-                .let { it.verifier !is VerifierConfig.Noop }
-
         val done = Job()
         val ktorServer =
             embeddedServer(CIO, host = host, port = port) {
@@ -477,7 +287,7 @@ class CurrentMcpServer(
                 // installMcpStreamableHttp() and installRestApiRoutes() so the SAME production code
                 // path is exercised by tests (see McpStreamableHttpTransportTest). The MCP mount must
                 // come first: mcpStreamableHttp installs the SSE plugin that the events route reuses.
-                installMcpStreamableHttp(server)
+                installMcpStreamableHttp(server, appConfig)
                 installRestApiRoutes(
                     apiConfig = apiConfig,
                     eventBus = eventBus,
@@ -491,6 +301,7 @@ class CurrentMcpServer(
                     degradedModePolicy = degradedModePolicy,
                     idempotencyCache = idempotencyCache,
                     jwksVerifier = jwksVerifier,
+                    appConfig = appConfig,
                 )
             }
 
@@ -598,12 +409,15 @@ internal fun buildMcpTools(): List<ToolDefinition> =
  *
  * Extracted from [CurrentMcpServer.runHttpTransport] so the exact production wiring is testable.
  */
-internal fun Application.installMcpStreamableHttp(server: Server) {
+internal fun Application.installMcpStreamableHttp(
+    server: Server,
+    appConfig: AppConfig = AppConfig.fromEnv(),
+) {
     install(ContentNegotiation) {
         json(McpJson)
     }
     install(CORS) {
-        configureCors()
+        configureCors(appConfig)
     }
     mcpStreamableHttp {
         server
@@ -630,6 +444,7 @@ internal fun Application.installRestApiRoutes(
     degradedModePolicy: DegradedModePolicy,
     idempotencyCache: IdempotencyCache,
     jwksVerifier: JwksApiVerifier? = null,
+    appConfig: AppConfig = AppConfig.fromEnv(),
 ) {
     if (apiConfig is ApiAuthConfig.Disabled) return
 
@@ -661,12 +476,22 @@ internal fun Application.installRestApiRoutes(
             itemRoutes(effectiveProvider)
             noteRoutes(effectiveProvider)
             dependencyRoutes(effectiveProvider)
-            transitionRoutes(effectiveProvider)
+            transitionRoutes(
+                effectiveProvider,
+                redactAttribution = appConfig.apiRedactNoteAttribution,
+                redactProof = appConfig.apiRedactActorProof,
+            )
             searchRoutes(effectiveProvider)
             // Phase 4: config/schema-discovery + status-graph
             configRoutes(noteSchemaService)
             // Phase 5: write API — items, notes, dependencies, advance
-            itemWriteRoutes(effectiveProvider, degradedModePolicy, idempotencyCache, noteSchemaService)
+            itemWriteRoutes(
+                effectiveProvider,
+                degradedModePolicy,
+                idempotencyCache,
+                noteSchemaService,
+                warnOnClaimedAdvance = appConfig.apiWarnOnClaimedAdvance,
+            )
             noteWriteRoutes(effectiveProvider, degradedModePolicy, idempotencyCache)
             dependencyWriteRoutes(effectiveProvider, degradedModePolicy)
         }
@@ -681,6 +506,7 @@ internal fun Application.installRestApiRoutes(
                     tokenEntries = apiTokenEntries,
                     allowQueryToken = allowQueryToken,
                     jwksVerifier = jwksVerifier,
+                    authCheckIntervalSeconds = appConfig.apiSseAuthCheckIntervalSeconds,
                 )
             }
         }

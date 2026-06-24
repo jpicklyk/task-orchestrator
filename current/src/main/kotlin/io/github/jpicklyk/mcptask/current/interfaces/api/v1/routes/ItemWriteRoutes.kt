@@ -14,6 +14,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.UserTrigger
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
+import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.audit.ApiAuditBridge
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
@@ -69,8 +70,11 @@ private val REJECTED_PATCH_FIELDS =
 
 private val MERGE_PATCH_CONTENT_TYPES = setOf("application/merge-patch+json", "application/json")
 
-private val warnOnClaimedAdvance: Boolean
-    get() = System.getenv("API_WARN_ON_CLAIMED_ADVANCE")?.lowercase() != "false"
+// Default source for itemWriteRoutes(warnOnClaimedAdvance=...) — reads API_WARN_ON_CLAIMED_ADVANCE
+// via the typed AppConfig snapshot. The composition root passes an explicit value from its
+// single startup snapshot; this default keeps direct (test) callers on the prior env behavior.
+private val defaultWarnOnClaimedAdvance: Boolean
+    get() = AppConfig.fromEnv().apiWarnOnClaimedAdvance
 
 // IdempotencyKeyResult + parseIdempotencyKey + runWithIdempotency + CachedHttpResponse live in
 // WriteIdempotency.kt (shared with NoteWriteRoutes).
@@ -193,6 +197,7 @@ fun Route.itemWriteRoutes(
     degradedModePolicy: DegradedModePolicy,
     idempotencyCache: IdempotencyCache,
     schemaService: WorkItemSchemaService,
+    warnOnClaimedAdvance: Boolean = defaultWarnOnClaimedAdvance,
 ) {
     val workItemRepo = repositoryProvider.workItemRepository()
     val roleTransitionRepo = repositoryProvider.roleTransitionRepository()

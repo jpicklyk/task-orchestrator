@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
+import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
@@ -38,23 +39,13 @@ private val transitionLogger = LoggerFactory.getLogger("TransitionRoutes")
  * - Non-admin callers: `actor` is stripped to `null` and `verification` to `null`
  * - Admin callers: `actor` visible; `proof` still redacted unless `?include=proof`
  */
-fun Route.transitionRoutes(repositoryProvider: RepositoryProvider) {
+fun Route.transitionRoutes(
+    repositoryProvider: RepositoryProvider,
+    redactAttribution: Boolean = AppConfig.fromEnv().apiRedactNoteAttribution,
+    redactProof: Boolean = AppConfig.fromEnv().apiRedactActorProof,
+) {
     val workItemRepo = repositoryProvider.workItemRepository()
     val transitionRepo = repositoryProvider.roleTransitionRepository()
-
-    // Read env-based redaction flags (same as notes)
-    val redactAttribution =
-        System
-            .getenv("API_REDACT_NOTE_ATTRIBUTION")
-            ?.trim()
-            ?.lowercase()
-            ?.let { it != "false" } ?: true
-    val redactProof =
-        System
-            .getenv("API_REDACT_ACTOR_PROOF")
-            ?.trim()
-            ?.lowercase()
-            ?.let { it != "false" } ?: true
 
     requireCapability(ApiCapability.READ) {
         // ─── GET /items/{id}/transitions ────────────────────────────────────

@@ -340,7 +340,7 @@ class YamlWorkItemSchemaService(
         fun resolveDefaultConfigPath(): java.nio.file.Path {
             val projectRoot =
                 Paths.get(
-                    System.getenv("AGENT_CONFIG_DIR") ?: System.getProperty("user.dir")
+                    AppConfig.resolveConfigBaseDir(System.getenv("AGENT_CONFIG_DIR"))
                 )
             return projectRoot.resolve(".taskorchestrator/config.yaml")
         }
