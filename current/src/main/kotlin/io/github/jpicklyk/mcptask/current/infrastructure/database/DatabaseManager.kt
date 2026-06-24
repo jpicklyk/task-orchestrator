@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.database
 
+import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.SchemaManagerFactory
 import org.jetbrains.exposed.v1.jdbc.Database
@@ -13,9 +14,13 @@ import java.sql.Connection
  * Manages database connections and schema management for the Current (v3) MCP Task Orchestrator.
  *
  * @param customDatabase Optional pre-configured database connection (useful for testing).
+ * @param appConfig Typed env snapshot supplying `useFlyway` and the busy_timeout value. Defaults to
+ *   a fresh [AppConfig.fromEnv] snapshot so existing no-arg construction (and tests) keep the prior
+ *   env-driven behavior unchanged.
  */
 class DatabaseManager(
-    private val customDatabase: Database? = null
+    private val customDatabase: Database? = null,
+    private val appConfig: AppConfig = AppConfig.fromEnv()
 ) {
     private val logger = LoggerFactory.getLogger(DatabaseManager::class.java)
     private var database: Database? = customDatabase
@@ -108,10 +113,10 @@ class DatabaseManager(
 
             // Create schema manager if not already created
             if (!::schemaManager.isInitialized) {
-                val useFlyway = DatabaseConfig.useFlyway
+                val useFlyway = appConfig.useFlyway
                 val jdbcUrl = database?.url
                 logger.info("Creating schema manager (Flyway: $useFlyway)")
-                schemaManager = SchemaManagerFactory.create(useFlyway, jdbcUrl)
+                schemaManager = SchemaManagerFactory.create(useFlyway, jdbcUrl, appConfig.flywayRepair)
             }
 
             val result = schemaManager.updateSchema()
@@ -178,16 +183,16 @@ class DatabaseManager(
     }
 
     /**
-     * Resolves the busy_timeout value from [DatabaseConfig.busyTimeoutMs] with logging.
+     * Resolves the busy_timeout value from [AppConfig.databaseBusyTimeoutMs] with logging.
      *
-     * Validation rules (enforced in [DatabaseConfig]):
+     * Validation rules (enforced in [AppConfig]):
      *   - Unset → default 5000 ms
      *   - Unparseable → default 5000 ms (warns here)
      *   - Below 100 ms → floor 100 ms (warns here)
      */
     private fun resolveBusyTimeout(): Long {
-        val rawEnv = System.getenv("DATABASE_BUSY_TIMEOUT_MS")
-        val resolved = DatabaseConfig.busyTimeoutMs
+        val rawEnv = appConfig.databaseBusyTimeoutRaw
+        val resolved = appConfig.databaseBusyTimeoutMs
         if (rawEnv != null) {
             val parsed = rawEnv.toLongOrNull()
             when {

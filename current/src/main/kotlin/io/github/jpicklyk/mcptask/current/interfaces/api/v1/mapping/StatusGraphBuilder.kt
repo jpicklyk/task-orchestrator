@@ -1,4 +1,4 @@
-package io.github.jpicklyk.mcptask.current.application.service.rest
+package io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping
 
 import io.github.jpicklyk.mcptask.current.application.service.RoleTransitionHandler
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
@@ -22,6 +22,9 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.StatusGraphTypeD
  *
  * The result is cached in memory keyed by config fingerprint. When the fingerprint changes
  * (config reload), the cache is invalidated and the graph is rebuilt on the next request.
+ *
+ * Lives in the interfaces layer because it returns `interfaces/api/v1/dto` `*Dto` types — the
+ * application layer must not depend on interface DTOs.
  */
 class StatusGraphBuilder(
     private val schemaService: WorkItemSchemaService,

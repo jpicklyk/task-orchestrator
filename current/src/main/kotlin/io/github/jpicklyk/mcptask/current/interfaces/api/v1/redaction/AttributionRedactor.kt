@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.redaction
 
+import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ActorClaimDto
@@ -88,20 +89,16 @@ class AttributionRedactor(
          * Reads `API_REDACT_NOTE_ATTRIBUTION` and `API_REDACT_ACTOR_PROOF`.
          * Both default to `true` when absent or blank.
          */
-        fun fromEnv(): AttributionRedactor =
+        fun fromEnv(): AttributionRedactor = fromConfig(AppConfig.fromEnv())
+
+        /**
+         * Constructs an [AttributionRedactor] from a typed [AppConfig] snapshot. Preferred over
+         * [fromEnv] on the production path so the environment is read once at startup.
+         */
+        fun fromConfig(appConfig: AppConfig): AttributionRedactor =
             AttributionRedactor(
-                redactNoteAttribution =
-                    System
-                        .getenv("API_REDACT_NOTE_ATTRIBUTION")
-                        ?.trim()
-                        ?.lowercase()
-                        ?.let { it != "false" } ?: true,
-                redactActorProof =
-                    System
-                        .getenv("API_REDACT_ACTOR_PROOF")
-                        ?.trim()
-                        ?.lowercase()
-                        ?.let { it != "false" } ?: true,
+                redactNoteAttribution = appConfig.apiRedactNoteAttribution,
+                redactActorProof = appConfig.apiRedactActorProof,
             )
 
         /** Constructs an [AttributionRedactor] with explicit values (useful for testing). */

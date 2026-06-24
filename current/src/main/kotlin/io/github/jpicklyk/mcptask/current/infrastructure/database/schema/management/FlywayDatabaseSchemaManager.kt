@@ -9,18 +9,19 @@ import org.slf4j.LoggerFactory
  * Migrations are loaded from classpath:db/migration/.
  *
  * @param jdbcUrl The JDBC URL for the database connection.
+ * @param repair Whether to run Flyway repair instead of migrate. Sourced from the FLYWAY_REPAIR
+ *   env var via [io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig]; defaults to
+ *   reading the env directly so standalone construction keeps the prior behavior.
  */
 class FlywayDatabaseSchemaManager(
-    private val jdbcUrl: String
+    private val jdbcUrl: String,
+    private val repair: Boolean = System.getenv("FLYWAY_REPAIR")?.toBoolean() ?: false
 ) : DatabaseSchemaManager {
     private val logger = LoggerFactory.getLogger(FlywayDatabaseSchemaManager::class.java)
 
     override fun updateSchema(): Boolean {
         return try {
-            // Check if repair mode is requested
-            val shouldRepair = System.getenv("FLYWAY_REPAIR")?.toBoolean() ?: false
-
-            if (shouldRepair) {
+            if (repair) {
                 logger.info("FLYWAY_REPAIR=true detected, running repair...")
                 return repair()
             }
