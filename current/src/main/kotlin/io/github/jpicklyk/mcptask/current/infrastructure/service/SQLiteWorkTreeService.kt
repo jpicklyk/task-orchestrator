@@ -15,7 +15,6 @@ import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteNoteRe
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
-import java.util.UUID
 
 /**
  * Infrastructure-layer implementation of [WorkTreeExecutor].
@@ -32,10 +31,15 @@ class SQLiteWorkTreeService(
     override suspend fun execute(input: WorkTreeInput): WorkTreeResult =
         suspendTransaction(db = databaseManager.getDatabase()) {
             val createdItems = mutableListOf<WorkItem>()
-            val refToId = mutableMapOf<String, UUID>()
             val itemIdToRef = input.refToItem.entries.associate { (ref, item) -> item.id to ref }
 
-            // 1. Insert all WorkItems via shared helper (no inner transaction)
+            // Seed refToId from ALL refs in refToItem (existing + to-be-created) so that
+            // dependency resolution can reference a pre-existing root (attach mode) before
+            // any inserts happen. In normal create mode this is a no-op superset of the
+            // per-insert population below — all refToItem entries are also in items.
+            val refToId = input.refToItem.mapValuesTo(mutableMapOf()) { (_, item) -> item.id }
+
+            // 1. Insert WorkItems that are in input.items (children in attach mode; all in create mode)
             for (item in input.items) {
                 val insertResult = workItemRepo.insertRow(item)
                 if (insertResult is Result.Error) {

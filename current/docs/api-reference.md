@@ -364,14 +364,19 @@ Nullable fields (`parentId`, `statusLabel`, `tags`, `type`) are omitted when nul
 between them, and optional blank notes — all in a single call. Eliminates the round-trips required
 when calling `manage_items`, `manage_dependencies`, and `manage_notes` separately.
 
+**Attach mode.** Pass `root.id` (UUID or hex prefix of an existing item) instead of `root.title` to
+attach children, deps, and notes directly to an existing item. When `root.id` is provided, `root.title`
+is optional (ignored if both are given). The existing item is NOT re-inserted; children are created
+under it at `existing.depth + 1`. Providing both `root.id` and `parentId` is rejected with `VALIDATION_ERROR`.
+
 **Operations.** Single operation (no `operation` parameter).
 
 #### Key Parameters
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `root` | object | Yes | Root item spec: `{ title, priority?, tags?, type?, traits?, summary?, description?, requiresVerification? }` |
-| `parentId` | string (UUID) | No | Existing parent; root depth = parent.depth + 1 |
+| `root` | object | Yes | Create mode: `{ title (required), priority?, tags?, type?, traits?, summary?, description?, requiresVerification? }`. Attach mode: `{ id? (UUID or hex prefix of existing item), title? (optional when id provided), priority?, tags?, type?, traits?, summary?, description?, requiresVerification? }`. When `id` is present, `title` is optional and ignored. |
+| `parentId` | string (UUID) | No | Existing parent; root depth = parent.depth + 1. Cannot be combined with `root.id`. |
 | `children` | array | No | Child item specs: `[{ ref, title, priority?, tags?, type?, traits?, summary?, description?, requiresVerification? }]`. `ref` is a local name used in `deps`. |
 | `deps` | array | No | Dependency specs: `[{ from: ref, to: ref, type?: BLOCKS\|IS_BLOCKED_BY\|RELATES_TO, unblockAt?: queue\|work\|review\|terminal }]`. Use `"root"` to reference the root item. |
 | `createNotes` | boolean | No | Auto-create blank notes for each item from its resolved schema (looked up by `type` first, then by `tags`). Default: false. |
@@ -379,7 +384,7 @@ when calling `manage_items`, `manage_dependencies`, and `manage_notes` separatel
 | `actor` | object | No | Actor claim `{ id, kind: orchestrator\|subagent\|user\|external, parent?, proof? }`. Used for idempotency keying AND propagated as the actor attribution on every persisted note (both explicit and `createNotes=true` blanks). |
 | `requestId` | string (UUID) | No | Client-generated UUID for idempotency. See [Idempotency](#idempotency). Requires `actor` to function. |
 
-Nesting depth is unbounded. The root item can be at any depth; children are always root.depth + 1. Cycle protection is enforced at the database level.
+Nesting depth is unbounded. The root item can be at any depth; children are always root.depth + 1. In attach mode, children derive depth from the existing root's depth. Cycle protection is enforced at the database level.
 
 **Example.**
 
