@@ -946,9 +946,7 @@ Ktor's `sse {}` handler runs inside the response-body phase — after the HTTP 2
 - `root` (repeatable) — filter to events for items in this root's subtree. Effective subscription = intersection of `?root=` values with `principal.scope.rootIds`.
 - `types` — comma-separated event type filter (e.g., `types=item.created,item.advanced`)
 
-**`Last-Event-ID` replay:** The bus maintains a ring buffer of recent events (size: `API_SSE_BUFFER_SIZE`, default 1000). On reconnect, events with `id > Last-Event-ID` are replayed before live streaming resumes.
-
-**KNOWN LIMITATION — replay is unfiltered by root:** Ring-buffer entries do not carry the per-publisher root metadata used for live filtering. A reconnecting client with `?root=<uuid>` may receive buffered event metadata from other roots during replay. Only the live stream path is correctly root-filtered. Clients should treat replayed events as potentially broader than their live subscription filter and re-fetch full item state when needed.
+**`Last-Event-ID` replay:** The bus maintains a ring buffer of recent events (size: `API_SSE_BUFFER_SIZE`, default 1000). On reconnect, events with `id > Last-Event-ID` are replayed before live streaming resumes. Ring-buffer entries carry `affectedRoots` metadata, so the replay path applies the **same root-intersection filter** as the live fan-out — a client reconnecting with `?root=<uuid>` receives only replayed events for roots within its subscription (and scope). Replay is consistent with the live stream.
 
 **Event ID namespace:** The monotonic ID counter for `/api/v1/events` is **independent** from the `/mcp` SSE channel's `EventStore`. Do NOT reuse `Last-Event-ID` values across the two channels.
 
@@ -1034,7 +1032,7 @@ The `"<previousRole>"` sentinel in `blocked.resume` is a literal string — reso
 
 ## 22. Known Limitations
 
-**SSE Last-Event-ID replay is unfiltered by root.** When a client reconnects with `?root=<uuid>` and a `Last-Event-ID`, buffered events replayed from the ring buffer are not filtered by root. The client may receive metadata for events from other roots during replay. The live stream path is correctly filtered. This is a known limitation of the current ring-buffer design; root metadata is not stored with buffered events. Mitigation: after reconnecting, re-fetch the full item list to reconcile state rather than relying solely on replayed events.
+**SSE dependency-event scoping depends on a warm ancestor cache.** Live root-filtering and `Last-Event-ID` replay are both correctly root-scoped — ring-buffer entries carry `affectedRoots` metadata and the replay path applies the same root-intersection filter as the live fan-out. One residual caveat remains for dependency events: `dependency.added` / `dependency.removed` resolve their affected roots from an in-memory ancestor cache populated by prior item create/update writes. On a cache miss (e.g., a dependency change with no preceding item write on that subtree during the connection's lifetime), the event falls back to an unscoped broadcast. This is a deliberate tradeoff; root-scoped subscribers that require exact dependency-event scoping should re-fetch state rather than relying solely on the event stream.
 
 **SSE is bearer-mode only.** The pre-flight auth plugin for the SSE route only supports bearer token authentication. JWKS JWT authentication for SSE is not implemented (the pre-flight plugin does not invoke the JWKS verifier).
 
