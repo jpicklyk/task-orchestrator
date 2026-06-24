@@ -4,18 +4,22 @@ description: Build Docker image and optionally start a container for the MCP Tas
 
 # Deploy to Docker
 
-Build the MCP Task Orchestrator Docker image. The Dockerfile handles its own Gradle build internally, so no local build step is needed.
+Build the MCP Task Orchestrator Docker image and, by default, start the detached HTTP container that the active `.mcp.json` connects to. The Dockerfile handles its own Gradle build internally, so no local build step is needed.
 
-**Usage:** `/deploy_to_docker [image-tag] [--run]`
+**Usage:** `/deploy_to_docker [image-tag] [--build-only] [--run]`
+
+**Default behavior (no flags):** Build the image, then start the detached HTTP container on `127.0.0.1:3001` with the config mount. This matches the active `.mcp.json` (`type: http`, `url: http://localhost:3001/mcp`) — the server is reachable immediately after `/mcp reconnect mcp-task-orchestrator`.
 
 **Arguments:**
 - `image-tag` (optional): Docker image tag. Default: `task-orchestrator:current`. A bare name like `dev` expands to `task-orchestrator:dev`.
-- `--run` (optional): Start a container after building. Prompts for run configuration.
+- `--build-only` (optional): Build the image but do not start any container.
+- `--run` (optional): Build, then interactively prompt for transport (STDIO/HTTP) and run configuration — use this for STDIO or debug variants.
 
 **Examples:**
-- `/deploy_to_docker` — Build `task-orchestrator:current`, no container
-- `/deploy_to_docker --run` — Build and prompt for container config
-- `/deploy_to_docker myfeature` — Build with tag `task-orchestrator:myfeature`
+- `/deploy_to_docker` — Build `task-orchestrator:current` and start the detached HTTP container on :3001 (matches `.mcp.json`)
+- `/deploy_to_docker --build-only` — Build the image only, start no container
+- `/deploy_to_docker --run` — Build and interactively choose transport + run config
+- `/deploy_to_docker myfeature` — Build tag `task-orchestrator:myfeature` and start the HTTP container from it
 
 ---
 
@@ -47,9 +51,11 @@ docker images | grep task-orchestrator
 
 Report the image ID and size.
 
-### Step 4: Start Container (only if `--run` was specified)
+### Step 4: Start Container
 
-**If `--run` was NOT specified:** Skip to summary. This is the default path.
+**If `--build-only` was specified:** Skip to summary — no container is started.
+
+**Default (no flags): start the HTTP container.** Do NOT prompt. Go directly to the "HTTP transport" section below and run the **"With Config Mount (Recommended)"** command — skip both the transport prompt and the HTTP run-config prompt. This is the path that matches the active `.mcp.json`.
 
 **If `--run` was specified**, first ask the user which transport mode to use:
 
@@ -139,7 +145,9 @@ docker run --rm -i -v <DATA_VOLUME>:/app/data <image-tag>
 > off for an MCP-only HTTP server, or set `API_ENABLED=true` + `API_AUTH_MODE` to enable it.
 > Origin validation is enforced (cross-origin requests get 403), so bind to loopback when local.
 
-Ask which run configuration to use:
+**If you arrived here via the default path (no flags):** skip the prompt below and use the **"With Config Mount (Recommended)"** command directly.
+
+Otherwise (reached via `--run` → HTTP), ask which run configuration to use:
 
 ```
 AskUserQuestion(
@@ -211,22 +219,27 @@ After starting, verify the container is running:
 docker ps --filter name=mcp-task-orchestrator-http --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
 ```
 
-Then remind the user to add the server to `.mcp.json` if not already present:
+Then verify `.mcp.json` contains the HTTP server entry (this is the active default in this repo):
 ```json
-"mcp-task-orchestrator-http": {
+"mcp-task-orchestrator": {
   "type": "http",
   "url": "http://localhost:3001/mcp"
 }
 ```
+> The `.mcp.json` server key is `mcp-task-orchestrator`; the Docker container is named
+> `mcp-task-orchestrator-http`. These are independent — Claude Code connects by URL, not by name.
+> Do NOT rename the existing `mcp-task-orchestrator` key or add a duplicate
+> `mcp-task-orchestrator-http` entry.
 
 ### Step 5: Summary
 
 Report:
 - Image tag and ID
 - Build target used (`runtime-current`)
-- Whether a container was started (transport mode + run config)
-- **STDIO:** Remind user to reconnect MCP: `/mcp reconnect mcp-task-orchestrator`
-- **HTTP:** Remind user to verify `.mcp.json` has the HTTP entry and run `/mcp` to check connection status
+- Whether a container was started (default HTTP, `--run` transport choice, or `--build-only`)
+- **HTTP (default):** Confirm `.mcp.json` has the `mcp-task-orchestrator` HTTP entry, then run `/mcp reconnect mcp-task-orchestrator` and `/mcp` to verify the connection
+- **STDIO (`--run` → STDIO):** Remind user to reconnect MCP: `/mcp reconnect mcp-task-orchestrator`
+- **`--build-only`:** No container started — note that the HTTP `.mcp.json` config will not connect until a container is running (re-run without `--build-only`)
 
 ---
 
