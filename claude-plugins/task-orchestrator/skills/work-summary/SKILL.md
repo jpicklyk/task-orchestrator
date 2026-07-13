@@ -12,10 +12,7 @@ Generate a PM-ready project dashboard. The goal is to show the full project stat
 
 ## Step 0 — Scope Check
 
-If `$ARGUMENTS` is provided:
-- If it looks like a UUID, use it directly as `parentId` for all queries below
-- If it's text, search: `query_items(operation="search", query="<text>")` — pick the best-matching root or container item and use its UUID as `parentId`
-- If multiple matches, pick the closest title match; if ambiguous, use `AskUserQuestion` to clarify
+If `$ARGUMENTS` is provided, resolve it to a UUID via `query_items` search (`operation="search"`, `query=$ARGUMENTS`, `limit=5`) — prefer the best-matching root or container item; if ambiguous, present matches via `AskUserQuestion`. Use the resolved UUID as `parentId` for all queries below.
 
 When scoped to a `parentId`, modify the data collection calls:
 1. `query_items(operation="overview", itemId="<parentId>")` — scoped overview of that subtree

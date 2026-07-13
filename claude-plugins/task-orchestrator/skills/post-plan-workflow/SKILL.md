@@ -1,6 +1,6 @@
 ---
 name: post-plan-workflow
-description: Internal workflow for post-plan materialization — creates MCP items from the approved plan and dispatches implementation. Triggered automatically after plan approval when MCP tracking is active.
+description: "Internal, hook-triggered: materializes MCP items from the approved plan and dispatches implementation."
 user-invocable: false
 ---
 

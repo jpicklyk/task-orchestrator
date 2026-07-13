@@ -1,6 +1,6 @@
 ---
 name: pre-plan-workflow
-description: "Gathers existing MCP work items, note schemas, and gate requirements to establish a definition floor before planning begins. Queries get_context() for active, blocked, and stalled items, reads .taskorchestrator/config.yaml for schema-defined note requirements per phase, and structures the plan so each task maps to one MCP work item with correct dependency ordering. Use when entering plan mode, starting implementation planning, creating a task breakdown, or beginning project setup for any non-trivial implementation task. Triggered automatically by the plan-mode hook."
+description: "Internal, hook-triggered: gathers existing MCP items and schema gate requirements to set the definition floor before planning."
 user-invocable: false
 ---
 

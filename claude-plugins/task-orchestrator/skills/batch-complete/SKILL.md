@@ -12,23 +12,7 @@ Close out a feature subtree, cancel an abandoned workstream, or clean up stale i
 
 ## Step 1 — Identify Scope
 
-Determine what to complete before calling anything else.
-
-**If `$ARGUMENTS` looks like a UUID** (8-4-4-4-12 hex pattern), use it directly as the root item ID in Step 2.
-
-**If `$ARGUMENTS` is a text string** (title fragment or keyword), search for it:
-
-```
-query_items(operation="search", query="$ARGUMENTS", limit=5)
-```
-
-If the search returns exactly one result, use that item ID. If multiple results match, present them via `AskUserQuestion`:
-
-```
-◆ Multiple items matched "$ARGUMENTS" — which did you mean?
-  1. "Auth System Feature" (queue) — uuid-1
-  2. "Auth Token Refresh" (work) — uuid-2
-```
+Resolve `$ARGUMENTS` to a UUID via `query_items` search (`operation="search"`, `query=$ARGUMENTS`, `limit=5`); if ambiguous, present matches via `AskUserQuestion`.
 
 **If `$ARGUMENTS` is empty**, classify the request from conversation context:
 
@@ -179,27 +163,6 @@ Report what was deleted:
 ```
 ✓ Deleted: "Auth System Feature" and all 5 descendants
 ```
-
----
-
-## Complete vs Cancel Reference
-
-| Aspect | trigger="complete" | trigger="cancel" |
-|--------|-------------------|-----------------|
-| Gate enforcement | All required notes across all phases must be filled | None — bypasses all gates |
-| Final role | terminal | terminal |
-| statusLabel | (not set) | "cancelled" |
-| Use when | Work is genuinely done and notes are filled | Abandoning, discarding, or force-closing |
-| Skips items | Yes — gate failures and dependency skips | No gate skips; dependency order still respected |
-
-## complete_tree Response Fields
-
-| Field | Meaning |
-|-------|---------|
-| `applied: true` | Item was transitioned to terminal |
-| `skipped: true` | Item was not transitioned (see skippedReason) |
-| `skippedReason` | "already terminal", "dependency gate failed", or "gate failed" |
-| `gateErrors` | Array of missing required note keys that blocked completion |
 
 ---
 
