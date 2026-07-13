@@ -106,9 +106,10 @@ class QueryItemsToolTest {
             assertEquals("queue", data["role"]!!.jsonPrimitive.content)
             assertEquals("medium", data["priority"]!!.jsonPrimitive.content)
             assertEquals(0, data["depth"]!!.jsonPrimitive.int)
-            assertNotNull(data["createdAt"])
-            assertNotNull(data["modifiedAt"])
-            assertNotNull(data["roleChangedAt"])
+            // timestamps are opt-in (includeTimestamps) since t43 — absent by default
+            assertNull(data["createdAt"])
+            assertNull(data["modifiedAt"])
+            assertNull(data["roleChangedAt"])
         }
 
     @Test
