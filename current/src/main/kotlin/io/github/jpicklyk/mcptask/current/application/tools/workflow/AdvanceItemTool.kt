@@ -75,9 +75,9 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
       ],
       "unblockedItems": [],
       "expectedNotes": [
-        { "key": "acceptance-criteria", "role": "work", "required": true, "description": "...", "exists": false }
+        { "key": "acceptance-criteria", "role": "work", "required": true, "exists": false }
       ],
-      "guidancePointer": "Guidance text for the first unfilled required note in the new role (null if all filled or no schema)",
+      "guidanceKey": "key of the first unfilled required note that has guidance (omitted if none); fetch text via query_items operation=schema",
       "noteProgress": { "filled": 0, "remaining": 2, "total": 2 }
     }
   ],
@@ -428,16 +428,16 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                     }.also { allUnblockedItems.add(it) }
                 }
 
-            // Schema-driven response fields: expectedNotes, guidancePointer, skillPointer, noteProgress
+            // Schema-driven response fields: expectedNotes, guidanceKey, skillPointer, noteProgress
             val resolvedSchema = advanceResult.resolvedSchema
             val expectedNotesJson: JsonArray
-            val guidancePointer: String?
+            val guidanceKey: String?
             val skillPointer: String?
             val noteProgress: JsonObject?
 
             if (resolvedSchema == null) {
                 expectedNotesJson = JsonArray(emptyList())
-                guidancePointer = null
+                guidanceKey = null
                 skillPointer = null
                 noteProgress = null
             } else {
@@ -457,9 +457,9 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                         filterRole = targetRole
                     )
 
-                // Use shared PhaseNoteContext for guidancePointer, skillPointer, and noteProgress
+                // Use shared PhaseNoteContext for guidanceKey, skillPointer, and noteProgress
                 val phaseContext = computePhaseNoteContext(targetRole, resolvedSchema, notesByKey)
-                guidancePointer = phaseContext?.guidancePointer
+                guidanceKey = phaseContext?.guidanceKey
                 skillPointer = phaseContext?.skillPointer
                 noteProgress =
                     phaseContext?.let {
@@ -486,7 +486,7 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                     put("cascadeEvents", JsonArray(cascadeJsonList))
                     put("unblockedItems", JsonArray(unblockedJsonList))
                     put("expectedNotes", expectedNotesJson)
-                    guidancePointer?.let { put("guidancePointer", JsonPrimitive(it)) }
+                    guidanceKey?.let { put("guidanceKey", JsonPrimitive(it)) }
                     skillPointer?.let { put("skillPointer", JsonPrimitive(it)) }
                     noteProgress?.let { put("noteProgress", it) }
                 }

@@ -1,10 +1,12 @@
 package io.github.jpicklyk.mcptask.current.application.tools.items
 
+import io.github.jpicklyk.mcptask.current.application.service.buildFullSchemaEntriesJson
 import io.github.jpicklyk.mcptask.current.application.service.search.FtsQuerySanitizer
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SearchMatchMode
@@ -45,7 +47,7 @@ class QueryItemsTool : BaseToolDefinition() {
         """
 Unified read operations for work items.
 
-Operations: get, search, overview
+Operations: get, search, overview, schema
 
 **get** - Retrieve a single item by ID or short prefix
 - Required: itemId (UUID or hex prefix, minimum 4 characters)
@@ -99,6 +101,8 @@ Operations: get, search, overview
 - claimSummary counts are per root-item's subtree (or global when no itemId)
 - Default limit: 20 root items
 - includeChildren (boolean, default false): When true (global overview only), each root item includes a `children` array of its direct child items
+
+**schema** - Full note schema (descriptions + guidance) by `type` or `itemId` (exactly one). Returns { type, configFingerprint, notes: [{key, role, required, description, guidance?, skill?}] }. Use this to resolve keys-only expectedNotes / guidanceKey references.
         """.trimIndent()
 
     override val category = ToolCategory.ITEM_MANAGEMENT
@@ -119,8 +123,8 @@ Operations: get, search, overview
                         "operation",
                         buildJsonObject {
                             put("type", JsonPrimitive("string"))
-                            put("description", JsonPrimitive("Operation: get, search, overview"))
-                            put("enum", JsonArray(listOf("get", "search", "overview").map { JsonPrimitive(it) }))
+                            put("description", JsonPrimitive("Operation: get, search, overview, schema"))
+                            put("enum", JsonArray(listOf("get", "search", "overview", "schema").map { JsonPrimitive(it) }))
                         }
                     )
                     put(
@@ -390,7 +394,7 @@ Operations: get, search, overview
                         "type",
                         buildJsonObject {
                             put("type", JsonPrimitive("string"))
-                            put("description", JsonPrimitive("Filter by type identifier (exact match)"))
+                            put("description", JsonPrimitive("Filter by type identifier (exact match); for operation=schema, the schema type to fetch"))
                         }
                     )
                     put(
@@ -437,7 +441,17 @@ Operations: get, search, overview
                 }
             }
             "overview" -> { /* all parameters are optional */ }
-            else -> throw ToolValidationException("Invalid operation: $operation. Must be one of: get, search, overview")
+            "schema" -> {
+                val type = optionalString(params, "type")
+                val itemIdStr = optionalString(params, "itemId")
+                if ((type == null) == (itemIdStr == null)) {
+                    throw ToolValidationException("operation=schema requires exactly one of: type, itemId")
+                }
+                if (itemIdStr != null) {
+                    validateIdOrPrefix(params, "itemId")
+                }
+            }
+            else -> throw ToolValidationException("Invalid operation: $operation. Must be one of: get, search, overview, schema")
         }
     }
 
@@ -458,6 +472,7 @@ Operations: get, search, overview
                 }
             }
             "overview" -> executeOverview(params, context)
+            "schema" -> executeSchema(params, context)
             else ->
                 errorResponse(
                     "Invalid operation: $operation",
@@ -533,8 +548,70 @@ Operations: get, search, overview
                     "Overview: root items -- $total items"
                 }
             }
+            "schema" -> {
+                val type =
+                    data?.get("type")?.let {
+                        if (it is JsonPrimitive && it.isString) it.content else null
+                    } ?: "?"
+                val noteCount = (data?.get("notes") as? JsonArray)?.size ?: 0
+                "Schema: $type -- $noteCount note(s)"
+            }
             else -> "Query completed"
         }
+    }
+
+    // ──────────────────────────────────────────────
+    // Operation: schema (get_schema)
+    // ──────────────────────────────────────────────
+
+    /**
+     * Returns the FULL note schema (description + guidance + skill per entry) for a work-item
+     * type or a specific item. This is the reference target for the keys-only `expectedNotes`
+     * and `guidanceKey` fields emitted elsewhere.
+     *
+     * - `type`: direct lookup via [NoteSchemaService.getSchemaForType] (base schema as configured;
+     *   no per-item trait merging since there is no item).
+     * - `itemId`: resolves the item, then uses the standard resolution logic
+     *   ([ToolExecutionContext.resolveSchema]: type-first, tag fallback, trait merging).
+     *
+     * Response: `{ type, configFingerprint, notes: [{key, role, required, description, guidance?, skill?}] }`.
+     */
+    private suspend fun executeSchema(
+        params: JsonElement,
+        context: ToolExecutionContext
+    ): JsonElement {
+        val typeParam = optionalString(params, "type")
+
+        val schema: WorkItemSchema? =
+            if (typeParam != null) {
+                context.noteSchemaService().getSchemaForType(typeParam)
+            } else {
+                val (resolvedId, idError) = resolveItemId(params, "itemId", context)
+                if (idError != null) return idError
+                val item =
+                    when (val result = context.workItemRepository().getById(resolvedId!!)) {
+                        is Result.Success -> result.data
+                        is Result.Error -> return errorResponse(
+                            "WorkItem not found: $resolvedId",
+                            ErrorCodes.RESOURCE_NOT_FOUND
+                        )
+                    }
+                context.resolveSchema(item)
+            }
+
+        if (schema == null) {
+            val subject = if (typeParam != null) "type '$typeParam'" else "item (schema-free mode)"
+            return errorResponse("No schema found for $subject", ErrorCodes.RESOURCE_NOT_FOUND)
+        }
+
+        val fingerprint = context.noteSchemaService().getConfigFingerprint()
+        val data =
+            buildJsonObject {
+                put("type", JsonPrimitive(schema.type))
+                put("configFingerprint", if (fingerprint != null) JsonPrimitive(fingerprint) else JsonNull)
+                put("notes", buildFullSchemaEntriesJson(schema.notes))
+            }
+        return successResponse(data)
     }
 
     // ──────────────────────────────────────────────

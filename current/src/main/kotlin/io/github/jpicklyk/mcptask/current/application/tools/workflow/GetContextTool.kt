@@ -20,11 +20,11 @@ import java.time.Instant
  * - **Health check** (no params): Returns all active/blocked/stalled items for a dashboard-style overview.
  */
 class GetContextTool : BaseToolDefinition() {
-    /** Result entry from [findStalledItems]: an active item with missing required notes and optional guidance. */
+    /** Result entry from [findStalledItems]: an active item with missing required notes and optional guidance key. */
     private data class StalledItemEntry(
         val item: io.github.jpicklyk.mcptask.current.domain.model.WorkItem,
         val missingKeys: List<String>,
-        val guidancePointer: String?,
+        val guidanceKey: String?,
         val skillPointer: String?
     )
 
@@ -219,7 +219,7 @@ Parameters:
         // Gate status for current phase — uses shared computation
         val phaseContext = computePhaseNoteContext(item.role, resolvedSchema?.notes, notesByKey)
         val missingForPhase = phaseContext?.missingKeys ?: emptyList()
-        val guidancePointer = phaseContext?.guidancePointer
+        val guidanceKey = phaseContext?.guidanceKey
         val skillPointer = phaseContext?.skillPointer
 
         // Resolve ancestors if requested
@@ -260,10 +260,10 @@ Parameters:
                         put("missing", JsonArray(missingForPhase.map { JsonPrimitive(it) }))
                     }
                 )
-                if (guidancePointer != null) {
-                    put("guidancePointer", JsonPrimitive(guidancePointer))
+                if (guidanceKey != null) {
+                    put("guidanceKey", JsonPrimitive(guidanceKey))
                 } else {
-                    put("guidancePointer", JsonNull)
+                    put("guidanceKey", JsonNull)
                 }
                 skillPointer?.let { put("skillPointer", JsonPrimitive(it)) }
                 if (phaseContext != null) {
@@ -392,11 +392,12 @@ Parameters:
                                 put("title", JsonPrimitive(entry.item.title))
                                 put("role", JsonPrimitive(entry.item.role.toJsonString()))
                                 put("missingNotes", JsonArray(entry.missingKeys.map { JsonPrimitive(it) }))
-                                // Bug 3 fix: include guidancePointer so callers don't need additional item-mode calls
-                                if (entry.guidancePointer != null) {
-                                    put("guidancePointer", JsonPrimitive(entry.guidancePointer))
+                                // Reference-based: guidanceKey names the first missing note with guidance;
+                                // resolve to full text via query_items operation "schema".
+                                if (entry.guidanceKey != null) {
+                                    put("guidanceKey", JsonPrimitive(entry.guidanceKey))
                                 } else {
-                                    put("guidancePointer", JsonNull)
+                                    put("guidanceKey", JsonNull)
                                 }
                                 entry.skillPointer?.let { put("skillPointer", JsonPrimitive(it)) }
                                 if (includeAncestors) put("ancestors", buildAncestorsArray(ancestorChains[entry.item.id] ?: emptyList()))
@@ -494,11 +495,12 @@ Parameters:
                                 put("title", JsonPrimitive(entry.item.title))
                                 put("role", JsonPrimitive(entry.item.role.toJsonString()))
                                 put("missingNotes", JsonArray(entry.missingKeys.map { JsonPrimitive(it) }))
-                                // Bug 3 fix: include guidancePointer so callers don't need additional item-mode calls
-                                if (entry.guidancePointer != null) {
-                                    put("guidancePointer", JsonPrimitive(entry.guidancePointer))
+                                // Reference-based: guidanceKey names the first missing note with guidance;
+                                // resolve to full text via query_items operation "schema".
+                                if (entry.guidanceKey != null) {
+                                    put("guidanceKey", JsonPrimitive(entry.guidanceKey))
                                 } else {
-                                    put("guidancePointer", JsonNull)
+                                    put("guidanceKey", JsonNull)
                                 }
                                 entry.skillPointer?.let { put("skillPointer", JsonPrimitive(it)) }
                                 if (includeAncestors) put("ancestors", buildAncestorsArray(ancestorChains[entry.item.id] ?: emptyList()))
@@ -529,7 +531,7 @@ Parameters:
     /**
      * For each active item, determine which required notes for its current phase are missing.
      * Returns only items that have at least one missing required note.
-     * Bug 3 fix: also computes guidancePointer per stalled item so health-check/session-resume
+     * Also computes guidanceKey per stalled item so health-check/session-resume
      * modes can include it without additional round-trips.
      */
     private suspend fun findStalledItems(
@@ -561,7 +563,7 @@ Parameters:
             val phaseContext = computePhaseNoteContext(item.role, schema, notesByKey)
 
             if (phaseContext != null && phaseContext.missingKeys.isNotEmpty()) {
-                result.add(StalledItemEntry(item, phaseContext.missingKeys, phaseContext.guidancePointer, phaseContext.skillPointer))
+                result.add(StalledItemEntry(item, phaseContext.missingKeys, phaseContext.guidanceKey, phaseContext.skillPointer))
             }
         }
 

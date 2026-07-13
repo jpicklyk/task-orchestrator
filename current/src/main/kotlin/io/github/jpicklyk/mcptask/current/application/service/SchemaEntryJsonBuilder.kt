@@ -20,6 +20,13 @@ data class SchemaResponseFields(
 /**
  * Build expectedNotes JSON array from schema entries.
  *
+ * Token-efficiency contract: the default serialization is reference-based — each entry
+ * carries only {key, role, required, exists} (+ filled when [filledNoteKeys] is provided).
+ * Static schema text (description, guidance, skill) is intentionally NOT included here;
+ * agents fetch it on demand via `query_items` operation "schema" (see [buildFullSchemaEntriesJson]),
+ * or receive full guidance in the two designated places (manage_notes itemContext and
+ * gate-failure error payloads).
+ *
  * Supports three shapes:
  * - Shape 1 (creation): exists=false for all, no filled field
  * - Shape 2 (transition): exists checked against existingNoteKeys
@@ -44,9 +51,6 @@ fun buildExpectedNotesJson(
                 put("key", JsonPrimitive(entry.key))
                 put("role", JsonPrimitive(entry.role.toJsonString()))
                 put("required", JsonPrimitive(entry.required))
-                put("description", JsonPrimitive(entry.description))
-                entry.guidance?.let { put("guidance", JsonPrimitive(it)) }
-                entry.skill?.let { put("skill", JsonPrimitive(it)) }
                 put("exists", JsonPrimitive(entry.key in existingNoteKeys))
                 if (filledNoteKeys != null) {
                     put("filled", JsonPrimitive(entry.key in filledNoteKeys))
@@ -55,6 +59,26 @@ fun buildExpectedNotesJson(
         }
     )
 }
+
+/**
+ * Build the FULL schema-entry JSON array: {key, role, required, description, guidance?, skill?}.
+ *
+ * This is the reference target for the keys-only default above. Used by the `query_items`
+ * operation "schema" (get_schema), which is the one place agents fetch complete schema text.
+ */
+fun buildFullSchemaEntriesJson(entries: List<NoteSchemaEntry>): JsonArray =
+    JsonArray(
+        entries.map { entry ->
+            buildJsonObject {
+                put("key", JsonPrimitive(entry.key))
+                put("role", JsonPrimitive(entry.role.toJsonString()))
+                put("required", JsonPrimitive(entry.required))
+                put("description", JsonPrimitive(entry.description))
+                entry.guidance?.let { put("guidance", JsonPrimitive(it)) }
+                entry.skill?.let { put("skill", JsonPrimitive(it)) }
+            }
+        }
+    )
 
 /**
  * Build both schemaMatch and expectedNotes for tool responses.

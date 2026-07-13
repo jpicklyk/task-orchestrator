@@ -39,7 +39,7 @@ class SchemaEntryJsonBuilderTest {
         assertEquals("spec", first["key"]!!.jsonPrimitive.content)
         assertEquals("queue", first["role"]!!.jsonPrimitive.content)
         assertTrue(first["required"]!!.jsonPrimitive.boolean)
-        assertEquals("Spec desc", first["description"]!!.jsonPrimitive.content)
+        assertFalse(first.containsKey("description"), "description should be absent in keys-only default shape")
         assertFalse(first["exists"]!!.jsonPrimitive.boolean)
         assertFalse(first.containsKey("filled"), "filled should be absent when filledNoteKeys is null")
 
@@ -135,21 +135,7 @@ class SchemaEntryJsonBuilderTest {
     }
 
     @Test
-    fun `entry with null guidance omits guidance field`() {
-        val schema =
-            listOf(
-                NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, description = "Spec", guidance = null)
-            )
-
-        val result = buildExpectedNotesJson(schema = schema)
-
-        assertEquals(1, result.size)
-        val entry = result[0].jsonObject
-        assertFalse(entry.containsKey("guidance"), "guidance field should be absent when null")
-    }
-
-    @Test
-    fun `entry with non-null guidance includes guidance field`() {
+    fun `default shape is keys-only - guidance and description absent even when set`() {
         val schema =
             listOf(
                 NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, description = "Spec", guidance = "Do it this way")
@@ -159,8 +145,9 @@ class SchemaEntryJsonBuilderTest {
 
         assertEquals(1, result.size)
         val entry = result[0].jsonObject
-        assertTrue(entry.containsKey("guidance"), "guidance field should be present when non-null")
-        assertEquals("Do it this way", entry["guidance"]!!.jsonPrimitive.content)
+        assertFalse(entry.containsKey("guidance"), "guidance must be absent from keys-only default shape")
+        assertFalse(entry.containsKey("description"), "description must be absent from keys-only default shape")
+        assertEquals(setOf("key", "role", "required", "exists"), entry.keys, "default shape carries exactly key/role/required/exists")
     }
 
     @Test
@@ -318,21 +305,7 @@ class SchemaEntryJsonBuilderTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `entry with null skill omits skill field`() {
-        val schema =
-            listOf(
-                NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, description = "Spec", skill = null)
-            )
-
-        val result = buildExpectedNotesJson(schema = schema)
-
-        assertEquals(1, result.size)
-        val entry = result[0].jsonObject
-        assertFalse(entry.containsKey("skill"), "skill field should be absent when null")
-    }
-
-    @Test
-    fun `entry with non-null skill includes skill field`() {
+    fun `skill is absent from default shape even when set`() {
         val schema =
             listOf(
                 NoteSchemaEntry(
@@ -348,7 +321,48 @@ class SchemaEntryJsonBuilderTest {
 
         assertEquals(1, result.size)
         val entry = result[0].jsonObject
-        assertTrue(entry.containsKey("skill"), "skill field should be present when non-null")
-        assertEquals("review-quality", entry["skill"]!!.jsonPrimitive.content)
+        assertFalse(entry.containsKey("skill"), "skill must be absent from keys-only default shape")
+    }
+
+    // ──────────────────────────────────────────────
+    // buildFullSchemaEntriesJson (get_schema full shape)
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `buildFullSchemaEntriesJson includes description guidance and skill`() {
+        val entries =
+            listOf(
+                NoteSchemaEntry(
+                    key = "spec",
+                    role = Role.QUEUE,
+                    required = true,
+                    description = "Spec desc",
+                    guidance = "Do it this way",
+                    skill = "review-quality"
+                ),
+                NoteSchemaEntry(key = "impl", role = Role.WORK, required = false, description = "Impl desc")
+            )
+
+        val result = buildFullSchemaEntriesJson(entries)
+
+        assertEquals(2, result.size)
+        val first = result[0].jsonObject
+        assertEquals("spec", first["key"]!!.jsonPrimitive.content)
+        assertEquals("queue", first["role"]!!.jsonPrimitive.content)
+        assertTrue(first["required"]!!.jsonPrimitive.boolean)
+        assertEquals("Spec desc", first["description"]!!.jsonPrimitive.content)
+        assertEquals("Do it this way", first["guidance"]!!.jsonPrimitive.content)
+        assertEquals("review-quality", first["skill"]!!.jsonPrimitive.content)
+        assertFalse(first.containsKey("exists"), "full shape is schema-only; no per-item exists flag")
+
+        val second = result[1].jsonObject
+        assertEquals("Impl desc", second["description"]!!.jsonPrimitive.content)
+        assertFalse(second.containsKey("guidance"), "guidance absent when null")
+        assertFalse(second.containsKey("skill"), "skill absent when null")
+    }
+
+    @Test
+    fun `buildFullSchemaEntriesJson with empty list returns empty array`() {
+        assertEquals(0, buildFullSchemaEntriesJson(emptyList()).size)
     }
 }

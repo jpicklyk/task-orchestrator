@@ -183,6 +183,47 @@ class GetContextToolTest {
         }
 
     // ──────────────────────────────────────────────
+    // Token-efficiency: item mode schema array is keys-only (t11)
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `item mode schema entries are keys-only with exists and filled booleans`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            val item = makeItem(id = itemId, role = Role.WORK, tags = "feature-task")
+
+            val schemaEntries =
+                listOf(
+                    NoteSchemaEntry(
+                        key = "implementation-notes",
+                        role = Role.WORK,
+                        required = true,
+                        description = "Notes on implementation",
+                        guidance = "Write the approach in detail",
+                        skill = "impl-quality"
+                    )
+                )
+            every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
+
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
+
+            val result =
+                tool.execute(
+                    params("itemId" to JsonPrimitive(itemId.toString())),
+                    schemaContext
+                )
+
+            val data = extractData(result)
+            val entry = data["schema"]!!.jsonArray[0].jsonObject
+            assertEquals(
+                setOf("key", "role", "required", "exists", "filled"),
+                entry.keys,
+                "item-mode schema entries must be keys-only: no description/guidance/skill text"
+            )
+        }
+
+    // ──────────────────────────────────────────────
     // Test 3: Item mode with all notes filled → canAdvance=true
     // ──────────────────────────────────────────────
 
@@ -690,11 +731,11 @@ class GetContextToolTest {
         }
 
     // ──────────────────────────────────────────────
-    // guidancePointer tests
+    // guidanceKey tests (reference-based: key of first missing note with guidance)
     // ──────────────────────────────────────────────
 
     @Test
-    fun `guidancePointer returns guidance for first missing required note`(): Unit =
+    fun `guidanceKey returns key of first missing required note`(): Unit =
         runBlocking {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.QUEUE, tags = "feature-task")
@@ -728,14 +769,15 @@ class GetContextToolTest {
                 )
 
             val data = extractData(result)
-            val guidancePointer = data["guidancePointer"]
-            assertNotNull(guidancePointer)
-            assertFalse(guidancePointer is JsonNull)
-            assertEquals("List each criterion as a bullet", guidancePointer.jsonPrimitive.content)
+            val guidanceKey = data["guidanceKey"]
+            assertNotNull(guidanceKey)
+            assertFalse(guidanceKey is JsonNull)
+            assertEquals("acceptance-criteria", guidanceKey.jsonPrimitive.content)
+            assertFalse(data.containsKey("guidancePointer"), "guidancePointer (full text) replaced by guidanceKey")
         }
 
     @Test
-    fun `guidancePointer returns guidance for second note when first is filled`(): Unit =
+    fun `guidanceKey returns key of second note when first is filled`(): Unit =
         runBlocking {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.QUEUE, tags = "feature-task")
@@ -778,14 +820,14 @@ class GetContextToolTest {
                 )
 
             val data = extractData(result)
-            val guidancePointer = data["guidancePointer"]
-            assertNotNull(guidancePointer)
-            assertFalse(guidancePointer is JsonNull)
-            assertEquals("Use T-shirt sizing: XS/S/M/L/XL", guidancePointer.jsonPrimitive.content)
+            val guidanceKey = data["guidanceKey"]
+            assertNotNull(guidanceKey)
+            assertFalse(guidanceKey is JsonNull)
+            assertEquals("effort-estimate", guidanceKey.jsonPrimitive.content)
         }
 
     @Test
-    fun `guidancePointer is null when all required notes are filled`(): Unit =
+    fun `guidanceKey is null when all required notes are filled`(): Unit =
         runBlocking {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.QUEUE, tags = "feature-task")
@@ -822,20 +864,20 @@ class GetContextToolTest {
                 )
 
             val data = extractData(result)
-            val guidancePointer = data["guidancePointer"]
-            // When all notes filled, guidancePointer should be JsonNull
+            val guidanceKey = data["guidanceKey"]
+            // When all notes filled, guidanceKey should be JsonNull
             assertTrue(
-                guidancePointer is JsonNull,
-                "Expected guidancePointer to be null when all required notes are filled, got: $guidancePointer"
+                guidanceKey is JsonNull,
+                "Expected guidanceKey to be null when all required notes are filled, got: $guidanceKey"
             )
         }
 
     // ──────────────────────────────────────────────
-    // Bug 1: guidancePointer must be phase-filtered (no cross-phase leakage)
+    // Bug 1: guidanceKey must be phase-filtered (no cross-phase leakage)
     // ──────────────────────────────────────────────
 
     @Test
-    fun `guidancePointer returns work-phase guidance after item advances to work role`(): Unit =
+    fun `guidanceKey returns work-phase note key after item advances to work role`(): Unit =
         runBlocking {
             val itemId = UUID.randomUUID()
             // Item is now in WORK role (advanced from queue)
@@ -883,19 +925,19 @@ class GetContextToolTest {
             assertEquals(1, missing.size)
             assertEquals("implementation-notes", missing[0].jsonPrimitive.content)
 
-            // guidancePointer must be for the work-phase missing note, not the queue-phase note
-            val guidancePointer = data["guidancePointer"]
-            assertNotNull(guidancePointer)
-            assertFalse(guidancePointer is JsonNull, "guidancePointer should not be null when work-phase note is missing")
+            // guidanceKey must be for the work-phase missing note, not the queue-phase note
+            val guidanceKey = data["guidanceKey"]
+            assertNotNull(guidanceKey)
+            assertFalse(guidanceKey is JsonNull, "guidanceKey should not be null when work-phase note is missing")
             assertEquals(
-                "Work-phase guidance — this should be the pointer",
-                guidancePointer.jsonPrimitive.content,
-                "guidancePointer must return work-phase guidance, not stale queue-phase guidance"
+                "implementation-notes",
+                guidanceKey.jsonPrimitive.content,
+                "guidanceKey must reference the work-phase note, not the stale queue-phase note"
             )
         }
 
     @Test
-    fun `guidancePointer does not bleed queue-phase guidance when item is in work role with no missing work notes`(): Unit =
+    fun `guidanceKey does not bleed queue-phase key when item is in work role with no missing work notes`(): Unit =
         runBlocking {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.WORK, tags = "feature-task")
@@ -935,10 +977,10 @@ class GetContextToolTest {
             val data = extractData(result)
             val gateStatus = data["gateStatus"]!!.jsonObject
             assertTrue(gateStatus["canAdvance"]!!.jsonPrimitive.boolean, "canAdvance should be true when all work-phase notes filled")
-            val guidancePointer = data["guidancePointer"]
+            val guidanceKey = data["guidanceKey"]
             assertTrue(
-                guidancePointer is JsonNull,
-                "guidancePointer should be null when no work-phase notes missing, got: $guidancePointer"
+                guidanceKey is JsonNull,
+                "guidanceKey should be null when no work-phase notes missing, got: $guidanceKey"
             )
         }
 
@@ -1004,16 +1046,16 @@ class GetContextToolTest {
                 "canAdvance must be false for terminal items regardless of schema"
             )
 
-            val guidancePointer = data["guidancePointer"]
-            assertTrue(guidancePointer is JsonNull, "guidancePointer should be null for terminal items")
+            val guidanceKey = data["guidanceKey"]
+            assertTrue(guidanceKey is JsonNull, "guidanceKey should be null for terminal items")
         }
 
     // ──────────────────────────────────────────────
-    // Bug 3: health-check stalled items include guidancePointer
+    // Bug 3: health-check stalled items include guidanceKey
     // ──────────────────────────────────────────────
 
     @Test
-    fun `health-check stalled items include guidancePointer`(): Unit =
+    fun `health-check stalled items include guidanceKey`(): Unit =
         runBlocking {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.WORK, tags = "feature-task")
@@ -1051,15 +1093,16 @@ class GetContextToolTest {
             assertEquals(1, missingNotes.size)
             assertEquals("implementation-notes", missingNotes[0].jsonPrimitive.content)
 
-            // Bug 3 fix: guidancePointer must be present in stalled item entry
-            val guidancePointer = stalledItem["guidancePointer"]
-            assertNotNull(guidancePointer, "guidancePointer should be present in stalled item")
-            assertFalse(guidancePointer is JsonNull, "guidancePointer should not be null when guidance is available")
-            assertEquals("Write the implementation approach here", guidancePointer.jsonPrimitive.content)
+            // guidanceKey must be present in stalled item entry
+            val guidanceKey = stalledItem["guidanceKey"]
+            assertNotNull(guidanceKey, "guidanceKey should be present in stalled item")
+            assertFalse(guidanceKey is JsonNull, "guidanceKey should not be null when guidance is available")
+            assertEquals("implementation-notes", guidanceKey.jsonPrimitive.content)
+            assertFalse(stalledItem.containsKey("guidancePointer"), "guidancePointer (full text) replaced by guidanceKey")
         }
 
     @Test
-    fun `health-check stalled items guidancePointer is null when schema has no guidance`(): Unit =
+    fun `health-check stalled items guidanceKey is null when schema has no guidance`(): Unit =
         runBlocking {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.WORK, tags = "feature-task")
@@ -1088,15 +1131,15 @@ class GetContextToolTest {
             assertEquals(1, stalledItems.size)
 
             val stalledItem = stalledItems[0].jsonObject
-            val guidancePointer = stalledItem["guidancePointer"]
+            val guidanceKey = stalledItem["guidanceKey"]
             assertTrue(
-                guidancePointer is JsonNull,
-                "guidancePointer should be null when schema entry has no guidance, got: $guidancePointer"
+                guidanceKey is JsonNull,
+                "guidanceKey should be null when schema entry has no guidance, got: $guidanceKey"
             )
         }
 
     @Test
-    fun `session-resume stalled items include guidancePointer`(): Unit =
+    fun `session-resume stalled items include guidanceKey`(): Unit =
         runBlocking {
             val since = Instant.now().minusSeconds(3600)
             val itemId = UUID.randomUUID()
@@ -1132,10 +1175,10 @@ class GetContextToolTest {
             assertEquals(1, stalledItems.size)
 
             val stalledItem = stalledItems[0].jsonObject
-            val guidancePointer = stalledItem["guidancePointer"]
-            assertNotNull(guidancePointer, "guidancePointer should be present in session-resume stalled item")
-            assertFalse(guidancePointer is JsonNull, "guidancePointer should not be null when guidance is available")
-            assertEquals("Describe the implementation", guidancePointer.jsonPrimitive.content)
+            val guidanceKey = stalledItem["guidanceKey"]
+            assertNotNull(guidanceKey, "guidanceKey should be present in session-resume stalled item")
+            assertFalse(guidanceKey is JsonNull, "guidanceKey should not be null when guidance is available")
+            assertEquals("implementation-notes", guidanceKey.jsonPrimitive.content)
         }
 
     // ──────────────────────────────────────────────
@@ -1254,14 +1297,14 @@ class GetContextToolTest {
             assertTrue("implementation-notes" in keys, "implementation-notes should be missing")
             assertTrue("effort-estimate" in keys, "effort-estimate should be missing")
 
-            // guidancePointer should be for the first missing note
-            val guidancePointer = stalledItem["guidancePointer"]
-            assertNotNull(guidancePointer)
-            assertFalse(guidancePointer is JsonNull)
+            // guidanceKey should be the first missing note's key
+            val guidanceKey = stalledItem["guidanceKey"]
+            assertNotNull(guidanceKey)
+            assertFalse(guidanceKey is JsonNull)
             assertEquals(
-                "First guidance",
-                guidancePointer.jsonPrimitive.content,
-                "guidancePointer should point to the first missing note's guidance"
+                "implementation-notes",
+                guidanceKey.jsonPrimitive.content,
+                "guidanceKey should reference the first missing note"
             )
         }
 
@@ -1371,7 +1414,7 @@ class GetContextToolTest {
         }
 
     @Test
-    fun `guidancePointer is null when schema entry has no guidance`(): Unit =
+    fun `guidanceKey is null when schema entry has no guidance`(): Unit =
         runBlocking {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.QUEUE, tags = "feature-task")
@@ -1398,11 +1441,11 @@ class GetContextToolTest {
                 )
 
             val data = extractData(result)
-            val guidancePointer = data["guidancePointer"]
-            // When the schema entry has no guidance, guidancePointer should be JsonNull
+            val guidanceKey = data["guidanceKey"]
+            // When the schema entry has no guidance, guidanceKey should be JsonNull
             assertTrue(
-                guidancePointer is JsonNull,
-                "Expected guidancePointer to be null when schema entry has no guidance, got: $guidancePointer"
+                guidanceKey is JsonNull,
+                "Expected guidanceKey to be null when schema entry has no guidance, got: $guidanceKey"
             )
         }
 
@@ -1810,8 +1853,8 @@ class GetContextToolTest {
             assertTrue(data.containsKey("skillPointer"), "skillPointer should be present in response")
             assertEquals("review-quality", data["skillPointer"]!!.jsonPrimitive.content)
 
-            // guidancePointer should also be populated from the same note
-            assertEquals("Write your implementation notes here", data["guidancePointer"]!!.jsonPrimitive.content)
+            // guidanceKey should also be populated from the same note
+            assertEquals("implementation-notes", data["guidanceKey"]!!.jsonPrimitive.content)
         }
 
     // ──────────────────────────────────────────────

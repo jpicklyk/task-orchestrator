@@ -9,10 +9,15 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
  * Snapshot of an item's required-note status for its current workflow phase.
  *
  * Computed from the item's role, its note schema, and the current state of its notes.
- * Used by ManageNotesTool (itemContext), GetContextTool (gateStatus + guidancePointer),
- * and GetContextTool.findStalledItems.
+ * Used by ManageNotesTool (itemContext, full guidancePointer), GetContextTool (gateStatus +
+ * guidanceKey), AdvanceItemTool (guidanceKey), and GetContextTool.findStalledItems.
  *
- * @property guidancePointer Guidance text for the first unfilled required note, or null if all filled
+ * @property guidancePointer Full guidance text for the first unfilled required note, or null if all
+ *   filled or the note has no guidance. Only serialized in the two full-guidance surfaces
+ *   (manage_notes itemContext and gate-failure payloads); all other tools emit [guidanceKey].
+ * @property guidanceKey Key of the first unfilled required note that has guidance, or null.
+ *   Reference-based counterpart of [guidancePointer]: non-null exactly when guidancePointer is
+ *   non-null. Agents resolve the key to full text via query_items operation "schema".
  * @property skillPointer Skill name for the first unfilled required note, or null if none specified
  * @property missingKeys Keys of required notes that are missing or have blank bodies
  * @property filled Count of required notes in this phase that have non-blank bodies
@@ -21,6 +26,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
  */
 data class PhaseNoteContext(
     val guidancePointer: String?,
+    val guidanceKey: String?,
     val skillPointer: String?,
     val missingKeys: List<String>,
     val filled: Int,
@@ -56,6 +62,7 @@ fun computePhaseNoteContext(
     val firstMissing = missing.firstOrNull()
     return PhaseNoteContext(
         guidancePointer = firstMissing?.guidance,
+        guidanceKey = firstMissing?.takeIf { it.guidance != null }?.key,
         skillPointer = firstMissing?.skill,
         missingKeys = missing.map { it.key },
         filled = required.size - missing.size,
