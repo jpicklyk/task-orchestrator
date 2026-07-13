@@ -90,6 +90,10 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
                     else -> null
                 }
 
+            // Populated only by the unscoped findByFilters branch below — findInScope has no
+            // ItemFetchResult/skipped-row tracking, so scoped requests always report null.
+            var skippedCount: Int? = null
+
             val items =
                 if (effectiveScopeRootIds != null) {
                     if (effectiveScopeRootIds.isEmpty()) {
@@ -116,8 +120,8 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
                     )
                 } else {
                     // Unwrap ItemFetchResult to List<WorkItem> here so both branches of this
-                    // if/else agree on Result<List<WorkItem>> — skipped-row visibility for this
-                    // endpoint is future work (see query_items list mode for the tool-layer version).
+                    // if/else agree on Result<List<WorkItem>>; skippedCount above carries the
+                    // dropped-row count forward for the response DTO.
                     when (
                         val r =
                             workItemRepo.findByFilters(
@@ -137,7 +141,10 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
                                 claimStatus = claimStatus,
                             )
                     ) {
-                        is Result.Success -> Result.Success(r.data.items)
+                        is Result.Success -> {
+                            skippedCount = r.data.skipped
+                            Result.Success(r.data.items)
+                        }
                         is Result.Error -> r
                     }
                 }
@@ -180,7 +187,7 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
                                 ).let { r -> if (r is Result.Success) r.data.toLong() else null }
                         }
                     val dtos = items.data.map { it.toDto() }
-                    call.respond(HttpStatusCode.OK, buildPageDto(dtos, pp, total))
+                    call.respond(HttpStatusCode.OK, buildPageDto(dtos, pp, total, skippedCount))
                 }
             }
         }
@@ -192,8 +199,10 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
             val scopeRootIds = principal?.scope?.rootIds
 
             if (scopeRootIds != null) {
-                // Scoped token: fetch only the specific root items the principal can see.
-                // This avoids the 200-cap correctness issue for tokens with many roots.
+                // Scoped token: fetch only the specific root items the principal can see. The
+                // token's scope set is the authoritative bound on visible roots, so `roots.size`
+                // here is already the TRUE total for this principal — no separate count call or
+                // 200-style cap applies to this branch.
                 val roots =
                     scopeRootIds
                         .mapNotNull { rid ->
@@ -204,18 +213,29 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
                 val dtos = page.map { it.toDto() }
                 call.respond(HttpStatusCode.OK, buildPageDto(dtos, pp, roots.size.toLong()))
             } else {
-                // Unscoped/admin: global scan (cap documented — full count may exceed 200).
-                val result = workItemRepo.findRootItems(limit = 200)
+                // Unscoped/admin: true total from countRootItems() (unaffected by limit/offset or
+                // validation drops) and real limit/offset pagination — replaces the old silent
+                // 200-row cap so callers can page through every root.
+                val totalResult = workItemRepo.countRootItems()
+                val total =
+                    when (totalResult) {
+                        is Result.Error -> {
+                            logger.warn("GET /items/roots DB error (count): {}", totalResult.error.message)
+                            call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Database query failed"))
+                            return@get
+                        }
+                        is Result.Success -> totalResult.data
+                    }
+
+                val result = workItemRepo.findRootItems(limit = pp.pageSize, offset = pp.offset)
                 when (result) {
                     is Result.Error -> {
                         logger.warn("GET /items/roots DB error: {}", result.error.message)
                         call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Database query failed"))
                     }
                     is Result.Success -> {
-                        val allRoots = result.data.items
-                        val page = allRoots.drop(pp.offset).take(pp.pageSize)
-                        val dtos = page.map { it.toDto() }
-                        call.respond(HttpStatusCode.OK, buildPageDto(dtos, pp, allRoots.size.toLong()))
+                        val dtos = result.data.items.map { it.toDto() }
+                        call.respond(HttpStatusCode.OK, buildPageDto(dtos, pp, total, result.data.skipped))
                     }
                 }
             }

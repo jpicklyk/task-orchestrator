@@ -124,6 +124,12 @@ data class DependencyEdgeDto(
  *
  * `totalItems` may be null when computing the exact count is expensive — callers should
  * use `hasMore` for pagination control in that case.
+ *
+ * `skipped` counts rows in this page's underlying query window that were dropped because they
+ * failed domain validation (see `ItemFetchResult.skipped`). Null/omitted when no rows were
+ * skipped. Invariant: `items.size == min(pageSize, totalItems - offset) - skipped` (clamped to
+ * the actual window), so a caller can derive whether the window itself was short without a
+ * separate `truncated` field.
  */
 @Serializable
 data class PageDto<T>(
@@ -132,6 +138,7 @@ data class PageDto<T>(
     val pageSize: Int,
     val totalItems: Long?,
     val hasMore: Boolean,
+    val skipped: Int? = null,
 )
 
 /**

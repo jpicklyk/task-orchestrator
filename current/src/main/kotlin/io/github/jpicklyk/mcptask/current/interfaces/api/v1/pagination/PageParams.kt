@@ -55,11 +55,15 @@ fun ApplicationCall.pageParams(): PageParams {
  * @param items The items on this page (already limited to [PageParams.pageSize] rows).
  * @param pageParams The parsed page/pageSize pair.
  * @param totalItems Optional exact total count; null when too expensive to compute.
+ * @param skipped Optional count of rows dropped from this page's window due to failed domain
+ *   validation (see [io.github.jpicklyk.mcptask.current.domain.repository.ItemFetchResult]).
+ *   Pass null or 0 when nothing was skipped — either way it is omitted from the serialized DTO.
  */
 fun <T> buildPageDto(
     items: List<T>,
     pageParams: PageParams,
     totalItems: Long?,
+    skipped: Int? = null,
 ): PageDto<T> {
     val hasMore =
         if (totalItems != null) {
@@ -73,5 +77,6 @@ fun <T> buildPageDto(
         pageSize = pageParams.pageSize,
         totalItems = totalItems,
         hasMore = hasMore,
+        skipped = skipped?.takeIf { it > 0 },
     )
 }

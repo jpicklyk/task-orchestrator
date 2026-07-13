@@ -309,8 +309,18 @@ components:
           type: integer
           format: int64
           nullable: true
+          description: May be null when computing an exact count is expensive.
         hasMore:
           type: boolean
+        skipped:
+          type: integer
+          nullable: true
+          description: >
+            Count of rows in this page's query window dropped for failing domain validation
+            (e.g. a corrupt/legacy row). Omitted when nothing was skipped. The row is still
+            counted in totalItems. Invariant: items.size == min(pageSize, totalItems - offset)
+            - skipped (clamped to the actual window). Currently populated on GET /items and
+            GET /items/roots.
 
     ItemCreateDto:
       type: object
@@ -827,6 +837,11 @@ paths:
   /items/roots:
     get:
       summary: List root items (depth=0)
+      description: >
+        Scoped tokens return only the specific root items within scope (totalItems is the exact
+        scoped root count). Unscoped/admin callers get standard page/pageSize pagination with
+        totalItems from an exact COUNT query — no cap; page through all roots with repeated
+        requests.
       operationId: listRootItems
       tags: [items]
       parameters:
