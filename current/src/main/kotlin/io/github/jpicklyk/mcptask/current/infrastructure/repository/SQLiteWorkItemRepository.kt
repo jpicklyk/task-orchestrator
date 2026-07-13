@@ -7,6 +7,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.ClaimResult
 import io.github.jpicklyk.mcptask.current.domain.repository.ClaimStatusCounts
+import io.github.jpicklyk.mcptask.current.domain.repository.ItemFetchResult
 import io.github.jpicklyk.mcptask.current.domain.repository.ReleaseResult
 import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
@@ -415,7 +416,7 @@ class SQLiteWorkItemRepository(
         offset: Int,
         type: String?,
         claimStatus: String?
-    ): Result<List<WorkItem>> {
+    ): Result<ItemFetchResult> {
         // Fetch DB-side now ONCE before opening the transaction so all claim-freshness
         // comparisons in buildFilteredQuery use the DB clock rather than the JVM clock, and to
         // avoid a nested transaction/savepoint (dbNow() opens its own suspendTransaction).
@@ -456,14 +457,17 @@ class SQLiteWorkItemRepository(
                     else -> SortOrder.DESC
                 }
 
-            val items =
+            // Fetch the raw rows first so a skipped count can be derived (rows.size - items.size)
+            // rather than threading a mutable counter through mapNotNull.
+            val rows =
                 baseQuery
                     .orderBy(sortColumn, order)
                     .limit(limit)
                     .offset(offset.coerceAtLeast(0).toLong()) // No upper bound needed — absurd values safely return empty results
-                    .mapNotNull { toWorkItemOrNull(it) }
+                    .toList()
+            val items = rows.mapNotNull { toWorkItemOrNull(it) }
 
-            Result.Success(items)
+            Result.Success(ItemFetchResult(items, skipped = rows.size - items.size))
         }
     }
 
@@ -523,15 +527,25 @@ class SQLiteWorkItemRepository(
             Result.Success(counts)
         }
 
-    override suspend fun findRootItems(limit: Int): Result<List<WorkItem>> =
+    override suspend fun findRootItems(limit: Int): Result<ItemFetchResult> =
         databaseManager.suspendedTransaction("Failed to find root items") {
-            val items =
+            // Ordered newest-first for deterministic, dashboard-relevant pagination — previously
+            // relied on SQLite's unordered natural (oldest-first) row order, which meant the
+            // oldest `limit` roots were always returned regardless of how many existed.
+            val rows =
                 WorkItemsTable
                     .selectAll()
                     .where { WorkItemsTable.parentId.isNull() }
+                    .orderBy(WorkItemsTable.createdAt, SortOrder.DESC)
                     .limit(limit)
-                    .mapNotNull { toWorkItemOrNull(it) }
-            Result.Success(items)
+                    .toList()
+            val items = rows.mapNotNull { toWorkItemOrNull(it) }
+            Result.Success(ItemFetchResult(items, skipped = rows.size - items.size))
+        }
+
+    override suspend fun countRootItems(): Result<Long> =
+        databaseManager.suspendedTransaction("Failed to count root items") {
+            Result.Success(WorkItemsTable.selectAll().where { WorkItemsTable.parentId.isNull() }.count())
         }
 
     override suspend fun findDescendants(id: UUID): Result<List<WorkItem>> =

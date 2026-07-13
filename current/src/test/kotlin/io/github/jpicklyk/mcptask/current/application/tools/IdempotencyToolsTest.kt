@@ -137,7 +137,7 @@ class IdempotencyToolsTest {
             // Verify only ONE item exists in the repository (no double creation)
             val allItems = context.workItemRepository().findRootItems()
             assertTrue(allItems is Result.Success)
-            assertEquals(1, (allItems as Result.Success).data.size, "Only one item should have been created")
+            assertEquals(1, (allItems as Result.Success).data.items.size, "Only one item should have been created")
         }
 
     @Test
@@ -218,7 +218,7 @@ class IdempotencyToolsTest {
 
             val allItems = context.workItemRepository().findRootItems()
             assertTrue(allItems is Result.Success)
-            assertEquals(2, (allItems as Result.Success).data.size, "Both items should have been created")
+            assertEquals(2, (allItems as Result.Success).data.items.size, "Both items should have been created")
         }
 
     @Test
@@ -256,7 +256,7 @@ class IdempotencyToolsTest {
 
             val allItems = context.workItemRepository().findRootItems()
             assertTrue(allItems is Result.Success)
-            assertEquals(2, (allItems as Result.Success).data.size, "Different actors must create separate items")
+            assertEquals(2, (allItems as Result.Success).data.items.size, "Different actors must create separate items")
         }
 
     // ──────────────────────────────────────────────
@@ -522,7 +522,7 @@ class IdempotencyToolsTest {
             // Verify only one root item was actually created
             val allItems = context.workItemRepository().findRootItems()
             assertTrue(allItems is Result.Success)
-            assertEquals(1, (allItems as Result.Success).data.size, "Cached call must not create a second tree")
+            assertEquals(1, (allItems as Result.Success).data.items.size, "Cached call must not create a second tree")
         }
 
     // ──────────────────────────────────────────────
@@ -605,7 +605,7 @@ class IdempotencyToolsTest {
 
             val allItems = context.workItemRepository().findRootItems()
             assertTrue(allItems is Result.Success)
-            assertEquals(2, (allItems as Result.Success).data.size, "Both agents' items should exist")
+            assertEquals(2, (allItems as Result.Success).data.items.size, "Both agents' items should exist")
         }
 
     // ──────────────────────────────────────────────
@@ -646,7 +646,7 @@ class IdempotencyToolsTest {
             assertEquals(0, idempotencyCache.size())
             val items = context.workItemRepository().findRootItems()
             assertTrue(items is Result.Success)
-            assertEquals(2, (items as Result.Success).data.size, "Invalid requestId must not enable caching")
+            assertEquals(2, (items as Result.Success).data.items.size, "Invalid requestId must not enable caching")
         }
 
     @Test
@@ -682,7 +682,7 @@ class IdempotencyToolsTest {
             assertEquals(0, idempotencyCache.size(), "Without actor, requestId must not enable caching")
             val items = context.workItemRepository().findRootItems()
             assertTrue(items is Result.Success)
-            assertEquals(2, (items as Result.Success).data.size)
+            assertEquals(2, (items as Result.Success).data.items.size)
         }
 
     // ──────────────────────────────────────────────
@@ -898,7 +898,7 @@ class IdempotencyToolsTest {
             assertTrue(allItems is Result.Success)
             assertEquals(
                 1,
-                (allItems as Result.Success).data.size,
+                (allItems as Result.Success).data.items.size,
                 "getOrCompute must ensure exactly one item is created under concurrent load"
             )
             // Cache should have exactly one entry
@@ -1177,7 +1177,7 @@ class IdempotencyToolsTest {
 
             val allItems = context.workItemRepository().findRootItems()
             assertTrue(allItems is Result.Success)
-            assertEquals(1, (allItems as Result.Success).data.size, "Only one tree root must have been created")
+            assertEquals(1, (allItems as Result.Success).data.items.size, "Only one tree root must have been created")
         }
 
     /**

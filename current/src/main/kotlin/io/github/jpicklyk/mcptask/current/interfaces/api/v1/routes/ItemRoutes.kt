@@ -115,22 +115,31 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
                         claimStatus = claimStatus,
                     )
                 } else {
-                    workItemRepo.findByFilters(
-                        parentId = parentId,
-                        role = role,
-                        priority = priority,
-                        tags = effectiveTags,
-                        createdAfter = createdAfter,
-                        createdBefore = createdBefore,
-                        modifiedAfter = modifiedAfter,
-                        modifiedBefore = modifiedBefore,
-                        sortBy = orderBy,
-                        sortOrder = orderDir,
-                        limit = pp.pageSize,
-                        offset = pp.offset,
-                        type = type,
-                        claimStatus = claimStatus,
-                    )
+                    // Unwrap ItemFetchResult to List<WorkItem> here so both branches of this
+                    // if/else agree on Result<List<WorkItem>> — skipped-row visibility for this
+                    // endpoint is future work (see query_items list mode for the tool-layer version).
+                    when (
+                        val r =
+                            workItemRepo.findByFilters(
+                                parentId = parentId,
+                                role = role,
+                                priority = priority,
+                                tags = effectiveTags,
+                                createdAfter = createdAfter,
+                                createdBefore = createdBefore,
+                                modifiedAfter = modifiedAfter,
+                                modifiedBefore = modifiedBefore,
+                                sortBy = orderBy,
+                                sortOrder = orderDir,
+                                limit = pp.pageSize,
+                                offset = pp.offset,
+                                type = type,
+                                claimStatus = claimStatus,
+                            )
+                    ) {
+                        is Result.Success -> Result.Success(r.data.items)
+                        is Result.Error -> r
+                    }
                 }
 
             when (items) {
@@ -203,7 +212,7 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
                         call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Database query failed"))
                     }
                     is Result.Success -> {
-                        val allRoots = result.data
+                        val allRoots = result.data.items
                         val page = allRoots.drop(pp.offset).take(pp.pageSize)
                         val dtos = page.map { it.toDto() }
                         call.respond(HttpStatusCode.OK, buildPageDto(dtos, pp, allRoots.size.toLong()))
@@ -460,7 +469,7 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
                     // token would see ALL children regardless of their tags.
                     val children =
                         if (tagsIncludeForChildren.isNotEmpty()) {
-                            childrenResult.data.filter { item ->
+                            childrenResult.data.items.filter { item ->
                                 val itemTags =
                                     item.tags
                                         ?.split(",")
@@ -471,7 +480,7 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
                                 itemTags.any { it in tagsIncludeForChildren }
                             }
                         } else {
-                            childrenResult.data
+                            childrenResult.data.items
                         }
 
                     val totalResult = workItemRepo.countByFilters(parentId = id)
