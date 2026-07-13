@@ -50,7 +50,7 @@ Parse the response and display a status card. Use this format:
 | `item.role` | Current role label |
 | `gateStatus.canAdvance` | ✓ open or ⊘ blocked |
 | `gateStatus.missing` | List each missing note key + role |
-| `guidancePointer` | Free text — show as "Guidance:" if present |
+| `guidanceKey` | Key of first unfilled required note with guidance; resolve its text via `query_items(operation="schema")` to show as "Guidance:" |
 | `noteSchema` | List all schema notes with `exists` status |
 
 If the item has no schema (no tags matching a schema key), `noteSchema` will be empty and the gate is always open.
@@ -63,7 +63,7 @@ If `gateStatus.canAdvance = false`, the item cannot advance until required notes
 
 For each missing note, check whether its content can be inferred from the conversation context. If yes, fill it directly. If not, ask the user what to capture.
 
-Use `guidancePointer` to prompt the user — it contains the guidance text for the first unfilled required note in the current phase. Only one `guidancePointer` is returned — for the first unfilled required note. See schema entries list for all unfilled notes.
+Use `guidanceKey` to prompt the user — resolve its guidance text via `query_items(operation="schema", itemId=...)`. Only one `guidanceKey` is returned — for the first unfilled required note. See schema entries list for all unfilled notes.
 
 Fill notes with:
 
@@ -110,7 +110,7 @@ Parse the response and report the transition result:
 
 | Response Field | What to Report |
 |---|---|
-| `previousRole` + `newRole` | The core transition |
+| `newRole` | The core transition (`previousRole` is omitted from success results) |
 | `cascadeEvents` | Parent or ancestor items that auto-transitioned |
 | `unblockedItems` | Sibling items that are now actionable |
 | `expectedNotes` | Notes for the next phase — show as "Next phase notes:" |

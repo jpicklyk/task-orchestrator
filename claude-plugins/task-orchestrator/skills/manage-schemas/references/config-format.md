@@ -26,9 +26,10 @@ work_item_schemas:
       - key: note-key          # Stable identifier; kebab-case
         role: queue            # Phase: "queue", "work", or "review"
         required: true         # true = blocks advance_item gate | false = shown but not enforced
-        description: "..."     # Short label — shown in expectedNotes response
-        guidance: "..."        # Optional — shown as guidancePointer in get_context()
+        description: "..."     # Short label — fetch via query_items(operation="schema"), not in expectedNotes
+        guidance: "..."        # Optional — fetch via query_items(operation="schema"); get_context/advance_item return guidanceKey (a reference)
         skill: "review-quality" # Optional — skill to invoke when filling this note (shown as skillPointer)
+        maxLength: 4000         # Optional — max body length (chars); enforced by manage_notes upsert per note_limits.mode
 
 traits:
 
@@ -79,9 +80,10 @@ When using `note_schemas`, the `lifecycle` field is not available — all schema
 | `key` | yes | string | kebab-case, unique within schema, stable after creation |
 | `role` | yes | string | `queue`, `work`, or `review` only |
 | `required` | yes | boolean | `true` = blocks gate, `false` = shown but not enforced |
-| `description` | yes | string | Keep under 80 chars — quick label agents scan |
-| `guidance` | no | string | Project-specific authoring instructions — shown as `guidancePointer` in `get_context` |
+| `description` | yes | string | Keep under 80 chars — quick label; fetched via `query_items(operation="schema")`, not in `expectedNotes` |
+| `guidance` | no | string | Project-specific authoring instructions — fetched via `query_items(operation="schema")`; `get_context`/`advance_item` return `guidanceKey` (a reference) |
 | `skill` | no | string | Reusable evaluation framework — shown as `skillPointer` in `get_context` |
+| `maxLength` | no | integer | Max note body length (chars). Enforced by `manage_notes` upsert (inline `body` or `bodyFromFile`) per top-level `note_limits.mode` |
 
 ### `guidance` vs `skill` — when to use which
 
@@ -311,6 +313,19 @@ actor_authentication:
 When `did_allowlist` or `did_pattern` is set, the verifier resolves the JWT's `iss` claim as a DID and validates the signing key against the resolved DID document's `verificationMethod` entries (subject to `did_strict_relationship`). See `current/docs/fleet-deployment.md` for the full deployment guide.
 
 > **Note:** `enabled` (client-side enforcement) and `verifier` (server-side validation) are independent concerns. A call can pass enforcement (actor present) but have verification fail (bad JWT).
+
+---
+
+## Note Body Length Limits
+
+Top-level `note_limits.mode` (`warn`, default, or `reject`) governs what happens when a note body exceeds its schema `maxLength`, checked at `manage_notes` upsert time against the resolved body (inline `body` or file-read via `bodyFromFile`): `warn` accepts the note with a `warning` field on its result; `reject` fails that note with `code: NOTE_BODY_TOO_LONG`.
+
+```yaml
+note_limits:
+  mode: warn   # warn | reject
+```
+
+Notes are a compression boundary: keep bodies distilled prose, and route verbatim artifacts (test output, diffs, logs) through `bodyFromFile` rather than pasting them inline.
 
 ---
 

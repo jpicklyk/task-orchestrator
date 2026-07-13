@@ -88,7 +88,7 @@ Omit this entire section if there are no blocked or stalled items.
 
 For blocked items, show what is blocking them. For stalled items, show which required notes are missing. When a stalled item's missing note key matches a trait's note key (e.g., `migration-assessment` from trait `needs-migration-review`), mention the trait in the Issue column: `Stalled: missing \`migration-assessment\` (trait: needs-migration-review)`
 
-If there is actionable context (e.g., blocker is not in active work, or a stalled item has a `guidancePointer`), add a brief observation line below the table — one sentence max.
+If there is actionable context (e.g., blocker is not in active work, or a stalled item has a `guidanceKey`), add a brief observation line below the table — one sentence max.
 
 Include the short ID so the user can reference items in follow-up commands.
 

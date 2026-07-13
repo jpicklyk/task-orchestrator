@@ -4,7 +4,7 @@
 
 - Phase gate enforcement — items cannot advance until required notes are filled
 - Per-tag documentation requirements (different schemas for features, bug fixes, tasks)
-- The `guidance` field — schema authors communicate authoring intent to agents via `guidancePointer`
+- The `guidance` field — schema authors communicate authoring intent; agents resolve it via `guidanceKey` (a reference) or `query_items(operation="schema")` (full text)
 - Universal fallback via the `default` schema for untagged items
 
 ## Prerequisites
@@ -110,8 +110,8 @@ note_schemas:
 | `key` | string | yes | Unique identifier for this note within the schema. Used as the `key` parameter in `manage_notes`. |
 | `role` | string | yes | Phase this note belongs to: `queue`, `work`, or `review`. |
 | `required` | boolean | yes | Whether this note must be filled before advancing past this phase. Optional notes never block transitions. |
-| `description` | string | yes | Short description of expected content. Shown in `get_context` gate status. |
-| `guidance` | string | no | Longer authoring hint. Surfaced as `guidancePointer` when this note is the next unfilled required note. |
+| `description` | string | yes | Short description of expected content. Fetched via `query_items(operation="schema")` — not included in `expectedNotes` (keys-only). |
+| `guidance` | string | no | Longer authoring hint. Full text via `query_items(operation="schema")` or `manage_notes(upsert)` `itemContext`; `get_context`/`advance_item` return only `guidanceKey` (a reference). |
 
 ---
 
@@ -170,7 +170,7 @@ This means every item gets at least `session-tracking` enforced, even items with
 
 ## The `guidance` Field
 
-The `guidance` field is a communication channel from the schema author to the agent. When an agent calls `advance_item` or `get_context`, the response includes a `guidancePointer` containing the guidance text for the first unfilled required note in the current phase.
+The `guidance` field is a communication channel from the schema author to the agent. `get_context` and `advance_item` return only a `guidanceKey` — the key of the first unfilled required note with guidance — not the guidance text itself.
 
 ```yaml
 - key: specification
@@ -180,18 +180,19 @@ The `guidance` field is a communication channel from the schema author to the ag
   guidance: "Cover: problem statement, who benefits, acceptance criteria, alternatives (min 2 + 'do nothing'), blast radius, and test strategy."
 ```
 
-The agent sees this guidance and knows exactly what to write. Guidance surfaces in four places:
+Full guidance text surfaces in two places; elsewhere agents get only a reference:
 
 | Tool | Field |
 |------|-------|
-| `get_context(itemId=...)` | `guidancePointer` (top-level) — first unfilled required note for current phase |
-| `advance_item` response | `guidancePointer` — first unfilled required note in the new phase |
-| `manage_notes(upsert)` response | `itemContext[itemId].guidancePointer` — updated after upsert |
-| `manage_items(create)` response | `expectedNotes[].guidance` — per-note, for all phases |
+| `get_context(itemId=...)` | `guidanceKey` (top-level, reference only) — first unfilled required note for current phase |
+| `advance_item` response | `guidanceKey` (reference only) — first unfilled required note in the new phase |
+| `manage_notes(upsert)` response | `itemContext[itemId].guidancePointer` — **full text**, updated after upsert |
+| `query_items(operation="schema")` | `notes[].guidance` — **full text**, for all phases (also the resolution target for any `guidanceKey`) |
+| Gate-failure error payload | `missingNotes[].guidance` — **full text**, for each missing note |
 
-`guidancePointer` is null when all required notes for the current phase are filled, or when no schema entry for the current phase defines a `guidance` value.
+`guidanceKey` is omitted when all required notes for the current phase are filled, or when no schema entry for the current phase defines a `guidance` value.
 
-See [Workflow Guide](../workflow-guide.md) Section 5.5 for full `guidancePointer` semantics.
+See [Workflow Guide](../workflow-guide.md) Section 5.5 for full guidance-resolution semantics.
 
 ---
 
@@ -231,7 +232,7 @@ manage_items(operation="create", items=[{
 }])
 ```
 
-Response includes `expectedNotes` listing the `diagnosis` note with its guidance.
+Response includes `expectedNotes` listing the `diagnosis` note (key/role/required/exists only — resolve its guidance via `query_items(operation="schema")`).
 
 **2. Check gate status:**
 
@@ -239,7 +240,7 @@ Response includes `expectedNotes` listing the `diagnosis` note with its guidance
 get_context(itemId="<uuid>")
 ```
 
-Response shows `gateStatus.canAdvance: false`, `missing: ["diagnosis"]`, and `guidancePointer` with the authoring instructions.
+Response shows `gateStatus.canAdvance: false`, `gateStatus.missing: ["diagnosis"]`, and `guidanceKey: "diagnosis"` (resolve the authoring instructions via `query_items(operation="schema", itemId=...)`).
 
 **3. Try to advance (rejected):**
 

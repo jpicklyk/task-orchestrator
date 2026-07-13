@@ -31,8 +31,8 @@ The response tells you everything needed to proceed:
 | `currentRole` | Which phase the item is in (queue, work, review, terminal) |
 | `canAdvance` | Whether the gate is satisfied for the next `start` trigger |
 | `missing` | Required notes not yet filled for the current phase |
-| `expectedNotes` | All notes defined by the schema, with `exists` and `filled` status |
-| `guidancePointer` | Authoring instructions for the first unfilled required note (from schema `guidance` field) |
+| `expectedNotes` | All notes defined by the schema, with `exists` and `filled` status (keys-only — no description/guidance/skill) |
+| `guidanceKey` | Key of the first unfilled required note with guidance; resolve its text via `query_items(operation="schema", itemId=...)` |
 | `noteSchema` | The full schema definition matching the item's tags |
 
 If `currentRole` is `terminal`, the item is already complete — nothing to do.
@@ -58,10 +58,10 @@ filled before the gate allows advancement.
 
 If `missing` is empty and `canAdvance` is true, skip to Step 3.
 
-### Step 2 — Fill notes using guidancePointer
+### Step 2 — Fill notes using guidanceKey
 
-For each missing note, the schema provides authoring guidance via `guidancePointer`. This
-is the schema author's instruction for what the note should contain — follow it.
+For each missing note, `guidanceKey` names the note with authoring guidance; resolve its text via
+`query_items(operation="schema", itemId=...)` and follow it.
 
 ```
 manage_notes(
@@ -70,28 +70,28 @@ manage_notes(
     itemId: "<uuid>",
     key: "<note-key>",
     role: "<note-role>",
-    body: "<content following guidancePointer instructions>"
+    body: "<content following the resolved guidance>"
   }]
 )
 ```
+Keep the body distilled prose; route verbatim artifacts (test output, diffs, logs) through `bodyFromFile` instead of pasting them inline.
 
-**How guidancePointer works:**
-- `get_context` returns `guidancePointer` for the first unfilled required note
-- After filling that note, call `get_context` again to get the pointer for the next one
-- The pointer comes from the `guidance` field in `.taskorchestrator/config.yaml`
-- If `guidancePointer` is null, the note has no specific authoring instructions — use the
-  note's `description` field as a general guide
+**How guidanceKey works:**
+- `get_context` returns `guidanceKey` (a note key) for the first unfilled required note
+- After filling that note, call `get_context` again to get the key for the next one
+- Resolve the key's `guidance` text via `query_items(operation="schema", itemId=...)`
+- If `guidanceKey` is null, no unfilled required note has guidance — use the note's `description` (also from the schema op) as a general guide
 
 **Skill-assisted note filling:**
 - If the `get_context` response includes `skillPointer` (a non-null string), invoke that skill via the Skill tool before filling the note
 - The skill provides a structured evaluation workflow — follow its steps, then use the output to fill the note
 - `skillPointer` is derived from the first unfilled required note's `skill` field in the schema
-- If `skillPointer` is null, use `guidancePointer` as the authoring guide (current behavior)
-- The `skill` field is also visible per-entry in `expectedNotes` for batch operations
+- If `skillPointer` is null, use the resolved `guidanceKey` text as the authoring guide
+- `description`/`guidance`/`skill` are not in `expectedNotes` (keys-only) — fetch them via `query_items(operation="schema", itemId=...)`
 
 **Batch filling:** If you already know the content for multiple notes (e.g., from a completed
 plan or implementation), fill them all in one `manage_notes` call. You only need to re-check
-`get_context` between notes when you need the next `guidancePointer` for authoring direction.
+`get_context` between notes when you need the next `guidanceKey` for authoring direction.
 
 ### Step 3 — Advance to the next phase
 
@@ -104,7 +104,7 @@ The response confirms the transition:
 | Field | Check |
 |-------|-------|
 | `applied` | Must be `true` — if `false`, the gate rejected (notes still missing) |
-| `previousRole` → `newRole` | Confirms which phase you moved from/to |
+| `newRole` | Phase you moved to (`previousRole` is omitted from success results) |
 | `expectedNotes` | Notes required for the new phase (fill these next) |
 | `unblockedItems` | Other items that were waiting on this one |
 
@@ -149,7 +149,7 @@ rather than assuming specific keys exist.
 **Implementation agents** (agent-owned-phase model):
 - Receive the full phase-aware protocol automatically via the `subagent-start` hook
 - Call `advance_item(start)` once to enter work phase (queue→work)
-- Fill work-phase notes using the JIT progression loop (guidancePointer + skillPointer)
+- Fill work-phase notes using the JIT progression loop (guidanceKey + skillPointer)
 - Return to the orchestrator — do NOT call `advance_item` again
 - The orchestrator advances the item to the next phase and handles all further routing
 

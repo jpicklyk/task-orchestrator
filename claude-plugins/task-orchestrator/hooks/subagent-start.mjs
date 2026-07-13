@@ -44,7 +44,7 @@ const output = {
 
 1. **Commit before returning.** Stage and commit all file changes with a descriptive message — the orchestrator squash-merges your branch.
 2. **Stay in scope.** Touch only files for your assigned task. No version bumps, shared config, or CI edits.
-3. **Notes are the report.** Write findings into your item's notes. Your final message to the orchestrator is 1-2 lines: item ID, outcome, and which note keys were filled. Do not restate note content.`
+3. **Notes are the report.** Write findings into your item's notes — distill inline; route verbatim artifacts (test output, diffs, logs) via \`bodyFromFile\`. Your final message to the orchestrator is 1-2 lines: item ID, outcome, and which note keys were filled. Do not restate note content.`
   }
 };
 process.stdout.write(JSON.stringify(output));

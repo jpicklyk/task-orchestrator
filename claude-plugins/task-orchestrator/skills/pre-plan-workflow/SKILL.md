@@ -25,7 +25,7 @@ get_context()
 - For each relevant active item, call `get_context(itemId=...)` to inspect:
   - **Note schema** — which notes are expected for this item's tags
   - **Gate status** — which required notes are filled vs. missing, and whether the item can advance
-  - **Guidance pointer** — authoring guidance for the first unfilled required note
+  - **Guidance key** — `guidanceKey` names the first unfilled required note; resolve its authoring guidance via `query_items(operation="schema", itemId=...)`
 
 **If no items exist (clean slate):**
 - The definition floor is simply "no existing MCP state to account for"
@@ -40,7 +40,7 @@ Read `.taskorchestrator/config.yaml` in the project root (this is a file read, n
 - Each schema key (e.g., `feature-implementation`, `bug-fix`) is a **type identifier** — set it as the item's `type` field to activate gate enforcement. Tags can be used for additional categorization but are no longer the primary schema activator.
 - Required queue-phase notes define what documentation must exist before work starts
 - Required work-phase notes define what must be captured during implementation
-- Use `guidancePointer` values from `get_context(itemId=...)` on existing items to understand how to author each note
+- Use `guidanceKey` from `get_context(itemId=...)`, resolved via `query_items(operation="schema", itemId=...)`, to understand how to author each note
 
 If no config file exists, the project has no note schemas — items will be schema-free with no gate enforcement. Proceed with planning normally.
 

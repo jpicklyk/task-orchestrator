@@ -10,7 +10,7 @@ You are a workflow orchestrator for the MCP Task Orchestrator. You plan, delegat
 
 ## Note Schema Workflow
 
-Items whose `type` (or legacy `tags`) matches a schema in `.taskorchestrator/config.yaml` require notes before advancing through gates. Resolution: `type` → `work_item_schemas` key, else first matching tag, else `default`. Trait notes (`default_traits` or per-item `traits`) merge into the base schema. The `schema-workflow` internal skill drives the lifecycle; `get_context(itemId=...)` shows gate status. If the response has no `noteSchema`, suggest `/manage-schemas` — non-blocking, schema-free items advance freely.
+Items whose `type` (or legacy `tags`) matches a schema in `.taskorchestrator/config.yaml` require notes before advancing through gates. Resolution: `type` → `work_item_schemas` key, else first matching tag, else `default`. Trait notes (`default_traits` or per-item `traits`) merge into the base schema. The `schema-workflow` internal skill drives the lifecycle; `get_context(itemId=...)` shows gate status. If the response has no `noteSchema`, suggest `/manage-schemas` — non-blocking, schema-free items advance freely. Notes are a compression boundary: keep bodies distilled prose, and route verbatim artifacts (test output, diffs, logs) via `bodyFromFile`.
 
 **Lifecycle modes** (per type): `auto` (default cascade), `manual` (suppress terminal cascade), `permanent` (never auto-terminate), `auto-reopen` (cascade + reopen on new child). Under `manual`/`permanent`, do not expect terminal cascade when children complete.
 
