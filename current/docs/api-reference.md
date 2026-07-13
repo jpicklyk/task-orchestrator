@@ -151,7 +151,7 @@ Setting `parentId` to JSON null moves the item to root.
       "priority": "high",
       "requiresVerification": false,
       "tags": "task-implementation",
-      "type": null,
+      "schemaMatch": true,
       "expectedNotes": [
         { "key": "requirements", "role": "queue", "required": true, "exists": false }
       ]
@@ -162,7 +162,7 @@ Setting `parentId` to JSON null moves the item to root.
 }
 ```
 
-`expectedNotes` is included only when a note schema is resolved for the item (via `type`, tag match, or default fallback), and is keys-only: `key`, `role`, `required`, `exists` (no `description`/`guidance`/`skill`). Resolve those via `query_items(operation="schema", itemId=...)` (see below). Check `expectedNotes` immediately after creation to know which notes to fill before calling `advance_item(trigger="start")`. Both full item responses (from `get`) and minimal responses (from `search` and `overview`) include `type` when it is non-null.
+`expectedNotes` is always present — an empty array when no schema resolves — and is keys-only: `key`, `role`, `required`, `exists` (no `description`/`guidance`/`skill`). The boolean `schemaMatch` indicates whether a note schema was resolved for the item (via `type`, tag match, or default fallback). Resolve full note text via `query_items(operation="schema", itemId=...)` (see below). Check `expectedNotes` immediately after creation to know which notes to fill before calling `advance_item(trigger="start")`. When the config defines traits, the create response also includes a top-level `availableTraits` string array naming the trait values accepted by the `traits` parameter (omitted when no traits are configured). Both full item responses (from `get`) and minimal responses (from `search` and `overview`) include `type` when it is non-null.
 
 ---
 
@@ -218,7 +218,7 @@ snippets, filtered list search, or hierarchical overview.
 | `roleChangedBefore` | string (ISO 8601) | No | Items whose role changed before this time |
 | `sortBy` | string | No | One of: `title`, `priority`, `complexity`, `createdAt`, `modifiedAt` |
 | `sortOrder` | string | No | `asc` or `desc` (default: `desc`) |
-| `limit` | integer | No | Max results (default: 50) |
+| `limit` | integer | No | Max results (default: 50, max: 100) |
 | `offset` | integer | No | Skip N items for pagination (default: 0) |
 | `includeAncestors` | boolean | No | Include `ancestors` array on each item (default: false) |
 | `claimStatus` | string | No | Filter by claim state: `claimed`, `unclaimed`, or `expired`. When provided, a boolean `isClaimed` is added to each result. `claimedBy` identity is never exposed here — use `get_context(itemId)` for full details. |
@@ -295,7 +295,7 @@ This is the **only** place that returns full note text (`description`, `guidance
 }
 ```
 
-`score` is the descending RRF fused value (higher = more relevant). `nextOffset` is `null` when the
+`snippet` is included by default; `explain` appears only when `explain=true` (default false). `score` is the descending RRF fused value (higher = more relevant). `nextOffset` is `null` when the
 last page is reached. `truncated` is `true` when the result was capped at the 100-row hard limit —
 refine the query or use `scope` filters to narrow results.
 
@@ -318,7 +318,7 @@ true database total. For large corpora, the actual match count may exceed `total
 ```
 
 List mode returns minimal fields (`id`, `parentId`, `title`, `role`, `statusLabel`, `priority`, `depth`, `tags`, `type`). Nullable fields are omitted when null.
-Use `get` for full item JSON including `description` and `summary`. `createdAt`, `modifiedAt`, and `roleChangedAt` are opt-in via `includeTimestamps` (absent by default).
+Use `get` for full item JSON including `description` and `summary`; on `get`, `createdAt`, `modifiedAt`, and `roleChangedAt` are opt-in via `includeTimestamps` (absent by default). List-mode results never include timestamps.
 
 When `claimStatus` filter is provided, each result item includes an additional `isClaimed` boolean:
 
@@ -343,12 +343,15 @@ When `claimStatus` filter is provided, each result item includes an additional `
   "item": { "id": "uuid", "title": "Auth Feature", "role": "work", "priority": "high", "depth": 1, ... },
   "childCounts": { "queue": 2, "work": 1, "review": 0, "blocked": 0, "terminal": 1 },
   "children": [
-    { "id": "uuid", "parentId": "uuid", "title": "Design login flow", "role": "terminal", "priority": "high", "depth": 2 }
+    {
+      "id": "uuid", "parentId": "uuid", "title": "Design login flow", "role": "terminal", "priority": "high", "depth": 2,
+      "childCounts": { "queue": 0, "work": 0, "review": 0, "blocked": 0, "terminal": 0 }
+    }
   ]
 }
 ```
 
-Scoped overview returns the full item JSON in `item`, a count per role in `childCounts`, and a minimal JSON list of direct children in `children` (using `toMinimalJson` fields). Note: scoped overview children do not include `childCounts` or `traits`.
+Scoped overview returns the full item JSON in `item`, a count per role in `childCounts`, and a list of direct children in `children` — each child carries the minimal fields plus its own `childCounts` (per-role counts of its children) and, when it has traits, a `traits` array (the same child shape global overview uses).
 
 **Response (overview — global mode, no `itemId`).**
 
@@ -401,14 +404,14 @@ under it at `existing.depth + 1`. Providing both `root.id` and `parentId` is rej
 |---|---|---|---|
 | `root` | object | Yes | Create mode: `{ title (required), priority?, tags?, type?, traits?, summary?, description?, requiresVerification? }`. Attach mode: `{ id? (UUID or hex prefix of existing item), title? (optional when id provided), priority?, tags?, type?, traits?, summary?, description?, requiresVerification? }`. When `id` is present, `title` is optional and ignored. |
 | `parentId` | string (UUID) | No | Existing parent; root depth = parent.depth + 1. Cannot be combined with `root.id`. |
-| `children` | array | No | Child item specs: `[{ ref, title, priority?, tags?, type?, traits?, summary?, description?, requiresVerification? }]`. `ref` is a local name used in `deps`. |
+| `children` | array | No | Child item specs: `[{ ref, title, parentRef?, priority?, tags?, type?, traits?, summary?, description?, requiresVerification? }]`. `ref` is a local name used to wire `deps`, `notes`, and other children's `parentRef`. `parentRef` (another child's `ref` or `"root"`, default `"root"`) sets the child's parent — nesting is expressed via `parentRef` only; a nested `children` key inside a child spec is rejected. |
 | `deps` | array | No | Dependency specs: `[{ from: ref, to: ref, type?: BLOCKS\|IS_BLOCKED_BY\|RELATES_TO, unblockAt?: queue\|work\|review\|terminal }]`. Use `"root"` to reference the root item. |
 | `createNotes` | boolean | No | Auto-create blank notes for each item from its resolved schema (looked up by `type` first, then by `tags`). Default: false. |
 | `notes` | array | No | Notes to create with bodies: `[{ itemRef (required, "root" or child ref), key (required), role (required: queue\|work\|review), body? (defaults to empty string) }]`. Explicit notes win over `createNotes=true` blanks per `(itemRef, key)`. **Strict role enforcement:** when an explicit note's `key` is declared in the resolved schema for the target item, the note's `role` must equal the schema role; mismatch returns `VALIDATION_ERROR`. Off-schema keys and items without a schema are unconstrained. |
 | `actor` | object | No | Actor claim `{ id, kind: orchestrator\|subagent\|user\|external, parent?, proof? }`. Used for idempotency keying AND propagated as the actor attribution on every persisted note (both explicit and `createNotes=true` blanks). |
 | `requestId` | string (UUID) | No | Client-generated UUID for idempotency. See [Idempotency](#idempotency). Requires `actor` to function. |
 
-Nesting depth is unbounded. The root item can be at any depth; children are always root.depth + 1. In attach mode, children derive depth from the existing root's depth. Cycle protection is enforced at the database level.
+Nesting depth is unbounded. The root item can be at any depth; each child's depth is its resolved parent's depth + 1 — root.depth + 1 for direct children (default `parentRef: "root"`), deeper when nested under another child via `parentRef`. In attach mode, children derive depth from the existing root's depth. `parentRef` cycles are rejected at validation; cycle protection is also enforced at the database level.
 
 **Example.**
 
@@ -493,7 +496,8 @@ missing, that item fails and its downstream dependents within the set are skippe
 | `itemIds` | array | Conditionally | Explicit list of item UUIDs to complete. Mutually exclusive with `rootId`. |
 | `trigger` | string | No | `complete` (default) or `cancel`. See gate enforcement note below. |
 | `includeRoot` | boolean | No | When using `rootId`, whether to include the root item itself (default: true). Ignored when `itemIds` is used. |
-| `requestId` | string (UUID) | No | Client-generated UUID for idempotency. See [Idempotency](#idempotency). |
+| `actor` | object | No | Actor claim `{ id, kind: orchestrator\|subagent\|user\|external, parent?, proof? }`. Used with `requestId` as the idempotency key. |
+| `requestId` | string (UUID) | No | Client-generated UUID for idempotency. See [Idempotency](#idempotency). Requires `actor` to function. |
 
 Exactly one of `rootId` or `itemIds` must be provided.
 
@@ -510,13 +514,15 @@ Exactly one of `rootId` or `itemIds` must be provided.
 ```json
 {
   "results": [
-    { "itemId": "uuid", "title": "Design login flow", "applied": true, "trigger": "complete" },
+    { "itemId": "uuid", "title": "Design login flow", "applied": true, "trigger": "complete", "statusLabel": "done" },
     { "itemId": "uuid", "title": "Implement handler", "applied": false, "gateErrors": ["missing: done-criteria"] },
     { "itemId": "uuid", "title": "Write tests", "applied": false, "skipped": true, "skippedReason": "dependency gate failed" }
   ],
   "summary": { "total": 3, "completed": 1, "skipped": 1, "gateFailures": 1 }
 }
 ```
+
+`statusLabel` is included on successfully transitioned items when the item ends up with a status label (config-driven via `status_labels`; defaults: `"done"` for `complete`, `"cancelled"` for `cancel`); omitted otherwise.
 
 **`skippedReason` values:** Items can be skipped for two reasons:
 - `"dependency gate failed"` — a blocker item in the same target set failed its gate check or failed to apply, and this item is a downstream dependent.
@@ -544,7 +550,8 @@ delete by IDs, by item, or by item and key.
 | `ids` | array | No (delete) | Array of note UUIDs to delete |
 | `itemId` | string (UUID) | No (delete) | Delete all notes for this WorkItem (or specific note with `key`) |
 | `key` | string | No (delete) | With `itemId`: delete the single note matching this key |
-| `requestId` | string (UUID) | No | Client-generated UUID for idempotency. See [Idempotency](#idempotency). |
+| `actor` | object | No | Top-level actor claim `{ id, kind: orchestrator\|subagent\|user\|external, parent?, proof? }`. Used with `requestId` as the idempotency key (distinct from the per-note `actor` field below). |
+| `requestId` | string (UUID) | No | Client-generated UUID for idempotency. See [Idempotency](#idempotency). Requires `actor` to function. |
 
 Providing both `ids` and `itemId` in the same delete call is an error — the server returns a validation error. Use one or the other. Deleting a non-existent note by `(itemId, key)` is not an error; it is reflected in the `notFound` count of the response.
 
@@ -624,6 +631,7 @@ Note that `itemContext[itemId].guidancePointer` here carries the **full** guidan
 
 The `itemContext` map is keyed by each `itemId` that had at least one successful upsert. For each item:
 - `guidancePointer` — the `guidance` text from the first unfilled required note in the item's current phase, or `null` if all required notes are filled (or no schema matches).
+- `skillPointer` — the skill name declared for the first unfilled required note; present only when that note's schema entry declares a `skill`, omitted otherwise.
 - `noteProgress` — `{ filled, remaining, total }` counts of required notes for the current phase, or `null` if the item has no matching schema or is in terminal state.
 
 This eliminates the need to call `get_context` after each `manage_notes` upsert to check remaining work.
@@ -756,7 +764,7 @@ the same as `query_items.search`.
 | `operation` | string | Yes | One of: `create`, `delete` |
 | `dependencies` | array | Cond. (create) | Explicit deps: `[{ fromItemId, toItemId, type?, unblockAt? }]`. Mutually exclusive with `pattern`. |
 | `pattern` | string | Cond. (create) | Shortcut: `linear`, `fan-out`, or `fan-in`. Mutually exclusive with `dependencies`. |
-| `type` | string | No | Shared default type: `BLOCKS` (default), `IS_BLOCKED_BY`, `RELATES_TO` |
+| `type` | string | No | Create: shared default type — `BLOCKS` (default), `IS_BLOCKED_BY`, `RELATES_TO`. Delete-by-relationship: optional filter — delete only edges of this type. |
 | `unblockAt` | string | No | Shared default threshold: `queue`, `work`, `review`, `terminal` (default: terminal) |
 | `itemIds` | array | Yes (linear) | Ordered UUIDs: A→B, B→C, C→D |
 | `source` | string (UUID) | Yes (fan-out) | Source item |
@@ -767,7 +775,8 @@ the same as `query_items.search`.
 | `fromItemId` | string (UUID) | Cond. (delete) | Source side for delete-by-relationship |
 | `toItemId` | string (UUID) | Cond. (delete) | Target side for delete-by-relationship |
 | `deleteAll` | boolean | No (delete) | Delete ALL deps for `fromItemId` or `toItemId` |
-| `requestId` | string (UUID) | No | Client-generated UUID for idempotency. See [Idempotency](#idempotency). |
+| `actor` | object | No | Actor claim `{ id, kind: orchestrator\|subagent\|user\|external, parent?, proof? }`. Used with `requestId` as the idempotency key. |
+| `requestId` | string (UUID) | No | Client-generated UUID for idempotency. See [Idempotency](#idempotency). Requires `actor` to function. |
 
 The `dependencies` array create is atomic: all succeed or all fail (cycle and duplicate detection
 spans the entire batch).
@@ -836,6 +845,8 @@ Note: atomicity is preserved — either all dependencies are created or none. On
 }
 ```
 
+Optionally pass `type` to delete only edges of that type between the two items; omit it to delete all edges between them regardless of type.
+
 **Response (delete all by item).**
 
 ```json
@@ -903,7 +914,8 @@ detail enrichment, BFS graph traversal, and reverse-edge backlink lookup.
       "type": "BLOCKS",
       "unblockAt": "terminal",
       "effectiveUnblockRole": "terminal",
-      "fromItem": { "title": "Design API", "role": "terminal", "priority": "high" }
+      "fromItem": { "title": "Design API", "role": "terminal", "priority": "high" },
+      "toItem": { "title": "Implement API", "role": "work", "priority": "high" }
     }
   ],
   "counts": { "incoming": 1, "outgoing": 0, "relatesTo": 0 },
@@ -911,7 +923,7 @@ detail enrichment, BFS graph traversal, and reverse-edge backlink lookup.
 }
 ```
 
-`graph` is only included when `neighborsOnly=false`.
+`graph` is only included when `neighborsOnly=false`. `fromItem` and `toItem` are included only when `includeItemInfo=true`, and each is present only if the referenced item still exists.
 
 **Response (backlinks).**
 
@@ -1027,6 +1039,7 @@ All cascade types are recorded in `cascadeEvents`.
     {
       "itemId": "uuid",
       "newRole": "work",
+      "statusLabel": "in-progress",
       "applied": true,
       "cascadeEvents": [
         { "itemId": "uuid-parent", "title": "Auth Feature", "previousRole": "queue", "targetRole": "work", "applied": true }
@@ -1043,13 +1056,13 @@ All cascade types are recorded in `cascadeEvents`.
 }
 ```
 
-`previousRole` and `trigger` are omitted from successful results — the caller supplied the trigger, and `newRole` is the outcome. Both remain present on `cascadeEvents` entries and on failed results (see below). `cascadeEvents` and `unblockedItems` are omitted entirely when empty (there is no top-level `allUnblockedItems` aggregate — sum `unblockedItems` across `results` if you need a batch total). `expectedNotes` is always present (`[]` when no schema matches the item's tags) and is keys-only: `key`, `role`, `required`, `exists`, and optionally `filled`.
+`previousRole` and `trigger` are omitted from successful results — the caller supplied the trigger, and `newRole` is the outcome. Both remain present on `cascadeEvents` entries and on failed results (see below). `cascadeEvents` and `unblockedItems` are omitted entirely when empty (there is no top-level `allUnblockedItems` aggregate — sum `unblockedItems` across `results` if you need a batch total). `expectedNotes` is always present (`[]` when no schema matches the item's tags) and is keys-only: `key`, `role`, `required`, `exists` (`filled` appears only in `get_context`'s item-mode `schema` entries, not here). `statusLabel` (string, optional) is present when the transition set a status label (config-driven via `status_labels`; defaults: `"in-progress"` for `start`, `"done"` for `complete`, `"blocked"` for `block`, `"cancelled"` for `cancel`; `resume`/`reopen` set none). `summary` (string, optional) echoes the transition's input annotation when one was supplied.
 
 `guidanceKey` (string, optional) names the first unfilled required note with guidance for the **new** role; omitted when no schema matches, no required notes exist for the new role, or all required notes are already filled. Resolve the full guidance text via `query_items(operation="schema", itemId=...)`.
 
 `skillPointer` (string, optional): Skill name to invoke for the first unfilled required note. Omitted when no skill is configured or all required notes are filled.
 
-`noteProgress` provides counts of required notes for the new role: `filled` (notes that exist with non-blank body), `remaining` (missing or blank), and `total` (filled + remaining). Omitted from the response when no schema matches the item's tags.
+`noteProgress` provides counts of required notes for the new role: `filled` (notes that exist with non-blank body), `remaining` (missing or blank), and `total` (filled + remaining). Omitted from the response when no schema matches the item's tags, or when the new role is terminal (e.g. after `complete`/`cancel`).
 
 **Response (failed transition).** When `applied: false`, the result shape differs from the success shape:
 
@@ -1092,6 +1105,8 @@ All cascade types are recorded in `cascadeEvents`.
 ```
 
 `guidance` and `skill` are omitted per-entry when unset.
+
+**Ownership / policy rejection.** When a transition is rejected because another agent holds a live claim, or by `degradedModePolicy=reject`, the failed result carries structured fields alongside `error`: `errorKind`, `errorCode` (`not_claim_holder` or `rejected_by_policy`), and — for ownership rejections — `contendedItemId`.
 
 ---
 
@@ -1251,7 +1266,7 @@ Each entry in the `schema` array is keys-only: `key`, `role`, `required`, `exist
 ```json
 {
   "mode": "health-check",
-  "activeItems": [{ "id": "uuid", "title": "...", "role": "work", "tags": null }],
+  "activeItems": [{ "id": "uuid", "title": "...", "role": "work" }],
   "blockedItems": [{ "id": "uuid", "title": "...", "role": "blocked" }],
   "stalledItems": [{ "id": "uuid", "title": "...", "role": "work", "missingNotes": ["done-criteria"] }],
   "claimSummary": { "active": 3, "expired": 1 }
@@ -1352,7 +1367,7 @@ FIFO queue drain — oldest unclaimed item first:
 { "orderBy": "oldest" }
 ```
 
-**Response (default — unclaimed items only).**
+**Response (unclaimed items only; request above with `includeDetails=true`).**
 
 ```json
 {
@@ -1371,6 +1386,8 @@ FIFO queue drain — oldest unclaimed item first:
   "total": 1
 }
 ```
+
+`summary`, `tags`, and `parentId` appear only when `includeDetails=true`; the default response includes `itemId`, `title`, `role`, `priority`, and `complexity`.
 
 **Response (with `includeClaimed=true` — adds `isClaimed` boolean per item).**
 
@@ -1466,6 +1483,7 @@ The selector filter shape is identical to the `get_next_item` filter parameters 
 | `not_found` | No item with that ID. |
 | `terminal_item` | Item is in TERMINAL role; cannot be claimed. |
 | `rejected_by_policy` | Actor verification rejected by `degradedModePolicy=reject`. All claims in the batch fail. |
+| `db_error` | Transient database error during the claim attempt (`kind=transient`, with `code`, `message`, `contendedItemId`). Safe to retry. |
 
 **Release outcome codes per item:**
 
@@ -1474,8 +1492,9 @@ The selector filter shape is identical to the `get_next_item` filter parameters 
 | `success` | Claim cleared. |
 | `not_claimed_by_you` | Item is not claimed by this agent (or is unclaimed). |
 | `not_found` | No item with that ID. |
+| `db_error` | Transient database error during the release attempt (`kind=transient`). Safe to retry. |
 
-**Tiered disclosure rule.** On `already_claimed`, the response includes only `retryAfterMs`. The competing agent's identity is never disclosed — this prevents claim sniping and jealousy patterns.
+**Tiered disclosure rule.** On `already_claimed`, the response includes `kind`, `contendedItemId`, and `retryAfterMs` — never the competing agent's identity. This prevents claim sniping and jealousy patterns.
 
 **Idempotency replay.** A `(actor, requestId)` cache hit replays the resolved response verbatim — including the same `itemId` for selector calls. The selector is **not** re-evaluated against fresh queue state on retry; the first-resolution result is what you get.
 
@@ -1583,6 +1602,8 @@ Selector mode resolves a filter+rank query and claims the top match in a single 
     {
       "itemId": "550e8400-e29b-41d4-a716-446655440001",
       "outcome": "already_claimed",
+      "kind": "transient",
+      "contendedItemId": "550e8400-e29b-41d4-a716-446655440001",
       "retryAfterMs": 420000
     }
   ],
