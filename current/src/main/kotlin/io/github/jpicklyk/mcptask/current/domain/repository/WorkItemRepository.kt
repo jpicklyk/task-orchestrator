@@ -131,6 +131,12 @@ interface WorkItemRepository {
      * Find work items matching multiple filter criteria.
      * All non-null filters are combined with AND logic. Tags use OR logic within the list.
      *
+     * Returns an [ItemFetchResult]: rows that fail domain validation (see [WorkItem.validate])
+     * are dropped rather than failing the whole query — [ItemFetchResult.skipped] reports how
+     * many were dropped. Combine with [countByFilters] (which counts at the raw-SQL level,
+     * unaffected by validation) to detect the divergence: `total = returned + skipped` when
+     * no rows beyond `limit`/`offset` remain unfetched.
+     *
      * @param claimStatus Optional claim-status filter: "claimed", "unclaimed", or "expired".
      *   - "claimed"   — items where `claimed_by IS NOT NULL AND claim_expires_at > now`
      *   - "unclaimed" — items where `claimed_by IS NULL`
@@ -155,7 +161,7 @@ interface WorkItemRepository {
         offset: Int = 0,
         type: String? = null,
         claimStatus: String? = null
-    ): Result<List<WorkItem>>
+    ): Result<ItemFetchResult>
 
     /**
      * Count work items matching multiple filter criteria (same filters as findByFilters, no pagination).
@@ -187,10 +193,22 @@ interface WorkItemRepository {
     suspend fun countChildrenByRole(parentId: UUID): Result<Map<Role, Int>>
 
     /**
-     * Find all root items (items with no parent).
+     * Find all root items (items with no parent), ordered newest-createdAt-first.
      * Unlike findRoot() which expects a single root, this returns all parentless items.
+     *
+     * Returns an [ItemFetchResult]: rows that fail domain validation are dropped rather than
+     * failing the whole query — [ItemFetchResult.skipped] reports how many were dropped. Use
+     * [countRootItems] (unaffected by [limit] or validation) for the true root count.
      */
-    suspend fun findRootItems(limit: Int = 50): Result<List<WorkItem>>
+    suspend fun findRootItems(limit: Int = 50): Result<ItemFetchResult>
+
+    /**
+     * True count of root items (items with `parentId IS NULL`), unaffected by any `limit` and
+     * computed at the raw-SQL level (not subject to the domain-validation drops that
+     * [findRootItems] applies). Pair with [findRootItems] to detect truncation:
+     * `truncated = returned < total` where `returned = findRootItems(limit).items.size`.
+     */
+    suspend fun countRootItems(): Result<Long>
 
     /**
      * Find all descendants of the given item (children, grandchildren, etc.) recursively.
@@ -447,4 +465,18 @@ data class ClaimStatusCounts(
     val active: Int,
     val expired: Int,
     val unclaimed: Int
+)
+
+/**
+ * Result of a bulk row-fetch whose mapping step may drop rows that fail domain validation
+ * (e.g. [WorkItem.validate] rejecting a corrupt/legacy row).
+ *
+ * @property items   Successfully mapped and validated work items.
+ * @property skipped Count of rows present in the underlying query that were dropped because
+ *   they failed domain validation. A drop is logged at WARN with the row's id and the
+ *   validation message so operators can locate and repair the corrupt row.
+ */
+data class ItemFetchResult(
+    val items: List<WorkItem>,
+    val skipped: Int
 )

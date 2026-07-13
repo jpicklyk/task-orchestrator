@@ -4,12 +4,17 @@ import io.github.jpicklyk.mcptask.current.domain.model.NextItemOrder
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.domain.repository.ItemFetchResult
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
+import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.WorkItemsTable
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
 import kotlinx.coroutines.runBlocking
+import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.jdbc.Database
+import org.jetbrains.exposed.v1.jdbc.transactions.transaction
+import org.jetbrains.exposed.v1.jdbc.update
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.time.Instant
@@ -43,8 +48,8 @@ class SQLiteWorkItemRepositoryFilterTest {
             repository.create(WorkItem(title = "Item 3"))
 
             val result = repository.findByFilters()
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            assertEquals(3, result.data.size)
+            assertIs<Result.Success<ItemFetchResult>>(result)
+            assertEquals(3, result.data.items.size)
         }
 
     @Test
@@ -55,9 +60,9 @@ class SQLiteWorkItemRepositoryFilterTest {
             repository.create(WorkItem(title = "Another queue", role = Role.QUEUE))
 
             val result = repository.findByFilters(role = Role.QUEUE)
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            assertEquals(2, result.data.size)
-            assertTrue(result.data.all { it.role == Role.QUEUE })
+            assertIs<Result.Success<ItemFetchResult>>(result)
+            assertEquals(2, result.data.items.size)
+            assertTrue(result.data.items.all { it.role == Role.QUEUE })
         }
 
     @Test
@@ -68,9 +73,9 @@ class SQLiteWorkItemRepositoryFilterTest {
             repository.create(WorkItem(title = "High prio 2", priority = Priority.HIGH))
 
             val result = repository.findByFilters(priority = Priority.HIGH)
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            assertEquals(2, result.data.size)
-            assertTrue(result.data.all { it.priority == Priority.HIGH })
+            assertIs<Result.Success<ItemFetchResult>>(result)
+            assertEquals(2, result.data.items.size)
+            assertTrue(result.data.items.all { it.priority == Priority.HIGH })
         }
 
     @Test
@@ -83,9 +88,9 @@ class SQLiteWorkItemRepositoryFilterTest {
             repository.create(WorkItem(title = "Orphan", depth = 0))
 
             val result = repository.findByFilters(parentId = parent.id)
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            assertEquals(2, result.data.size)
-            assertTrue(result.data.all { it.parentId == parent.id })
+            assertIs<Result.Success<ItemFetchResult>>(result)
+            assertEquals(2, result.data.items.size)
+            assertTrue(result.data.items.all { it.parentId == parent.id })
         }
 
     @Test
@@ -96,9 +101,9 @@ class SQLiteWorkItemRepositoryFilterTest {
             repository.create(WorkItem(title = "Depth 1", parentId = parent.id, depth = 1))
 
             val result = repository.findByFilters(depth = 0)
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            assertEquals(1, result.data.size)
-            assertEquals("Depth 0", result.data[0].title)
+            assertIs<Result.Success<ItemFetchResult>>(result)
+            assertEquals(1, result.data.items.size)
+            assertEquals("Depth 0", result.data.items[0].title)
         }
 
     @Test
@@ -108,9 +113,9 @@ class SQLiteWorkItemRepositoryFilterTest {
             repository.create(WorkItem(title = "Not tagged"))
 
             val result = repository.findByFilters(tags = listOf("bug"))
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            assertEquals(1, result.data.size)
-            assertEquals("Tagged", result.data[0].title)
+            assertIs<Result.Success<ItemFetchResult>>(result)
+            assertEquals(1, result.data.items.size)
+            assertEquals("Tagged", result.data.items[0].title)
         }
 
     @Test
@@ -121,9 +126,12 @@ class SQLiteWorkItemRepositoryFilterTest {
             repository.create(WorkItem(title = "No tags"))
 
             val result = repository.findByFilters(tags = listOf("bug", "feature"))
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            assertEquals(2, result.data.size)
-            val titles = result.data.map { it.title }.toSet()
+            assertIs<Result.Success<ItemFetchResult>>(result)
+            assertEquals(2, result.data.items.size)
+            val titles =
+                result.data.items
+                    .map { it.title }
+                    .toSet()
             assertTrue("Bug item" in titles)
             assertTrue("Feature item" in titles)
         }
@@ -138,9 +146,12 @@ class SQLiteWorkItemRepositoryFilterTest {
             repository.create(WorkItem(title = "No match", tags = "feature,alpha"))
 
             val result = repository.findByFilters(tags = listOf("bug"))
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            assertEquals(4, result.data.size)
-            val titles = result.data.map { it.title }.toSet()
+            assertIs<Result.Success<ItemFetchResult>>(result)
+            assertEquals(4, result.data.items.size)
+            val titles =
+                result.data.items
+                    .map { it.title }
+                    .toSet()
             assertTrue("Start" in titles)
             assertTrue("Middle" in titles)
             assertTrue("End" in titles)
@@ -155,9 +166,9 @@ class SQLiteWorkItemRepositoryFilterTest {
             repository.create(WorkItem(title = "Has debug", tags = "debug"))
 
             val result = repository.findByFilters(tags = listOf("bug"))
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            assertEquals(1, result.data.size)
-            assertEquals("Has bug", result.data[0].title)
+            assertIs<Result.Success<ItemFetchResult>>(result)
+            assertEquals(1, result.data.items.size)
+            assertEquals("Has bug", result.data.items[0].title)
         }
 
     @Test
@@ -176,9 +187,9 @@ class SQLiteWorkItemRepositoryFilterTest {
                     createdAfter = Instant.parse("2025-03-01T00:00:00Z"),
                     createdBefore = Instant.parse("2025-09-01T00:00:00Z")
                 )
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            assertEquals(1, result.data.size)
-            assertEquals("Mid", result.data[0].title)
+            assertIs<Result.Success<ItemFetchResult>>(result)
+            assertEquals(1, result.data.items.size)
+            assertEquals("Mid", result.data.items[0].title)
         }
 
     @Test
@@ -191,9 +202,9 @@ class SQLiteWorkItemRepositoryFilterTest {
             repository.create(WorkItem(title = "New mod", createdAt = t1, modifiedAt = t2, roleChangedAt = t1))
 
             val result = repository.findByFilters(modifiedAfter = Instant.parse("2025-06-01T00:00:00Z"))
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            assertEquals(1, result.data.size)
-            assertEquals("New mod", result.data[0].title)
+            assertIs<Result.Success<ItemFetchResult>>(result)
+            assertEquals(1, result.data.items.size)
+            assertEquals("New mod", result.data.items[0].title)
         }
 
     // The LIKE-based `query` filter on findByFilters was removed in T4 of the
@@ -213,11 +224,11 @@ class SQLiteWorkItemRepositoryFilterTest {
             repository.create(WorkItem(title = "New", createdAt = t3, modifiedAt = t3, roleChangedAt = t3))
 
             val result = repository.findByFilters(sortBy = "created", sortOrder = "asc")
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            assertEquals(3, result.data.size)
-            assertEquals("Old", result.data[0].title)
-            assertEquals("Mid", result.data[1].title)
-            assertEquals("New", result.data[2].title)
+            assertIs<Result.Success<ItemFetchResult>>(result)
+            assertEquals(3, result.data.items.size)
+            assertEquals("Old", result.data.items[0].title)
+            assertEquals("Mid", result.data.items[1].title)
+            assertEquals("New", result.data.items[2].title)
         }
 
     @Test
@@ -232,11 +243,11 @@ class SQLiteWorkItemRepositoryFilterTest {
             repository.create(WorkItem(title = "Mid mod", createdAt = t1, modifiedAt = t2, roleChangedAt = t1))
 
             val result = repository.findByFilters(sortBy = "modified", sortOrder = "desc")
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            assertEquals(3, result.data.size)
-            assertEquals("New mod", result.data[0].title)
-            assertEquals("Mid mod", result.data[1].title)
-            assertEquals("Old mod", result.data[2].title)
+            assertIs<Result.Success<ItemFetchResult>>(result)
+            assertEquals(3, result.data.items.size)
+            assertEquals("New mod", result.data.items[0].title)
+            assertEquals("Mid mod", result.data.items[1].title)
+            assertEquals("Old mod", result.data.items[2].title)
         }
 
     @Test
@@ -247,8 +258,8 @@ class SQLiteWorkItemRepositoryFilterTest {
             }
 
             val result = repository.findByFilters(limit = 3)
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            assertEquals(3, result.data.size)
+            assertIs<Result.Success<ItemFetchResult>>(result)
+            assertEquals(3, result.data.items.size)
         }
 
     @Test
@@ -299,9 +310,9 @@ class SQLiteWorkItemRepositoryFilterTest {
                     role = Role.WORK,
                     priority = Priority.HIGH
                 )
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            assertEquals(1, result.data.size)
-            assertEquals("Match", result.data[0].title)
+            assertIs<Result.Success<ItemFetchResult>>(result)
+            assertEquals(1, result.data.items.size)
+            assertEquals("Match", result.data.items[0].title)
         }
 
     // =====================================================================
@@ -357,9 +368,12 @@ class SQLiteWorkItemRepositoryFilterTest {
             repository.create(WorkItem(title = "Child", parentId = root1.id, depth = 1))
 
             val result = repository.findRootItems()
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            assertEquals(2, result.data.size)
-            val titles = result.data.map { it.title }.toSet()
+            assertIs<Result.Success<ItemFetchResult>>(result)
+            assertEquals(2, result.data.items.size)
+            val titles =
+                result.data.items
+                    .map { it.title }
+                    .toSet()
             assertTrue("Root 1" in titles)
             assertTrue("Root 2" in titles)
         }
@@ -372,8 +386,76 @@ class SQLiteWorkItemRepositoryFilterTest {
             }
 
             val result = repository.findRootItems(limit = 2)
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            assertEquals(2, result.data.size)
+            assertIs<Result.Success<ItemFetchResult>>(result)
+            assertEquals(2, result.data.items.size)
+        }
+
+    @Test
+    fun `findRootItems orders roots newest-createdAt-first`() =
+        runBlocking {
+            val t1 = Instant.parse("2025-01-01T00:00:00Z")
+            val t2 = Instant.parse("2025-06-01T00:00:00Z")
+            val t3 = Instant.parse("2025-12-01T00:00:00Z")
+
+            repository.create(WorkItem(title = "Oldest", depth = 0, createdAt = t1, modifiedAt = t1, roleChangedAt = t1))
+            repository.create(WorkItem(title = "Newest", depth = 0, createdAt = t3, modifiedAt = t3, roleChangedAt = t3))
+            repository.create(WorkItem(title = "Middle", depth = 0, createdAt = t2, modifiedAt = t2, roleChangedAt = t2))
+
+            val result = repository.findRootItems()
+            assertIs<Result.Success<ItemFetchResult>>(result)
+            val titles = result.data.items.map { it.title }
+            assertEquals(listOf("Newest", "Middle", "Oldest"), titles)
+        }
+
+    /**
+     * Directly blanks a row's title via Exposed, bypassing [WorkItem.validate]. Simulates a
+     * corrupt/legacy row that [SQLiteWorkItemRepository]'s `toWorkItemOrNull` must drop rather
+     * than fail the whole query. Same technique as
+     * [SQLiteWorkItemRepositoryAncestorCycleTest.forceSetParentId].
+     */
+    private fun forceBlankTitle(itemId: java.util.UUID) {
+        transaction(db = database) {
+            WorkItemsTable.update({ WorkItemsTable.id eq itemId }) {
+                it[WorkItemsTable.title] = ""
+            }
+        }
+    }
+
+    @Test
+    fun `findRootItems reports skipped for a row that fails domain validation`() =
+        runBlocking {
+            val good1 = (repository.create(WorkItem(title = "Good root 1", depth = 0)) as Result.Success).data
+            repository.create(WorkItem(title = "Good root 2", depth = 0))
+            val corrupt = (repository.create(WorkItem(title = "Will be corrupted", depth = 0)) as Result.Success).data
+            forceBlankTitle(corrupt.id)
+
+            val result = repository.findRootItems()
+            assertIs<Result.Success<ItemFetchResult>>(result)
+            assertEquals(2, result.data.items.size)
+            assertEquals(1, result.data.skipped)
+            assertTrue(result.data.items.none { it.id == corrupt.id })
+            assertTrue(result.data.items.any { it.id == good1.id })
+
+            val countResult = repository.countRootItems()
+            assertIs<Result.Success<Long>>(countResult)
+            assertEquals(3L, countResult.data, "countRootItems is unaffected by the validation drop")
+        }
+
+    @Test
+    fun `findByFilters reports skipped for a row that fails domain validation`() =
+        runBlocking {
+            repository.create(WorkItem(title = "Good item"))
+            val corrupt = (repository.create(WorkItem(title = "Will be corrupted")) as Result.Success).data
+            forceBlankTitle(corrupt.id)
+
+            val result = repository.findByFilters()
+            assertIs<Result.Success<ItemFetchResult>>(result)
+            assertEquals(1, result.data.items.size)
+            assertEquals(1, result.data.skipped)
+
+            val countResult = repository.countByFilters()
+            assertIs<Result.Success<Int>>(countResult)
+            assertEquals(2, countResult.data, "countByFilters is the raw SQL count, unaffected by the validation drop")
         }
 
     // =====================================================================
@@ -391,9 +473,9 @@ class SQLiteWorkItemRepositoryFilterTest {
             repository.create(WorkItem(title = "Recent role change", createdAt = t1, modifiedAt = t1, roleChangedAt = t3))
 
             val result = repository.findByFilters(roleChangedAfter = t2)
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            assertEquals(1, result.data.size)
-            assertEquals("Recent role change", result.data[0].title)
+            assertIs<Result.Success<ItemFetchResult>>(result)
+            assertEquals(1, result.data.items.size)
+            assertEquals("Recent role change", result.data.items[0].title)
         }
 
     @Test
@@ -407,9 +489,9 @@ class SQLiteWorkItemRepositoryFilterTest {
             repository.create(WorkItem(title = "Recent role change", createdAt = t1, modifiedAt = t1, roleChangedAt = t3))
 
             val result = repository.findByFilters(roleChangedBefore = t2)
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            assertEquals(1, result.data.size)
-            assertEquals("Old role change", result.data[0].title)
+            assertIs<Result.Success<ItemFetchResult>>(result)
+            assertEquals(1, result.data.items.size)
+            assertEquals("Old role change", result.data.items[0].title)
         }
 
     @Test
@@ -430,9 +512,9 @@ class SQLiteWorkItemRepositoryFilterTest {
                     roleChangedAfter = t2,
                     roleChangedBefore = t4
                 )
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            assertEquals(1, result.data.size)
-            assertEquals("In range", result.data[0].title)
+            assertIs<Result.Success<ItemFetchResult>>(result)
+            assertEquals(1, result.data.items.size)
+            assertEquals("In range", result.data.items[0].title)
         }
 
     // =====================================================================
@@ -447,9 +529,9 @@ class SQLiteWorkItemRepositoryFilterTest {
             repository.create(WorkItem(title = "No type item"))
 
             val result = repository.findByFilters(type = "feature")
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            assertEquals(1, result.data.size)
-            assertEquals("Feature item", result.data[0].title)
+            assertIs<Result.Success<ItemFetchResult>>(result)
+            assertEquals(1, result.data.items.size)
+            assertEquals("Feature item", result.data.items[0].title)
         }
 
     @Test
@@ -460,8 +542,8 @@ class SQLiteWorkItemRepositoryFilterTest {
             repository.create(WorkItem(title = "No type item"))
 
             val result = repository.findByFilters(type = null)
-            assertIs<Result.Success<List<WorkItem>>>(result)
-            assertEquals(3, result.data.size)
+            assertIs<Result.Success<ItemFetchResult>>(result)
+            assertEquals(3, result.data.items.size)
         }
 
     @Test

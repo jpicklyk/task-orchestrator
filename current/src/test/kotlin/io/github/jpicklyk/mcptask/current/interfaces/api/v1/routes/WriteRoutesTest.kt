@@ -145,7 +145,7 @@ class ItemCreateRouteTest {
             val items = runBlocking { repo.workItemRepository().findByFilters() }
             assertTrue(items is Result.Success)
             assertTrue(
-                (items as Result.Success).data.none { it.title == "Should Not Create" },
+                (items as Result.Success).data.items.none { it.title == "Should Not Create" },
                 "Item should NOT be created when capability is missing"
             )
         }
@@ -1344,7 +1344,7 @@ class IdempotencyTest {
 
             // Hard assertion: EXACTLY one item was created (not two)
             val items = runBlocking { repo.workItemRepository().findByFilters() }
-            val matching = (items as Result.Success).data.filter { it.title == "Idempotent Item" }
+            val matching = (items as Result.Success).data.items.filter { it.title == "Idempotent Item" }
             assertEquals(1, matching.size, "Idempotent POST should create exactly one item, got ${matching.size}")
         }
 
@@ -1370,7 +1370,7 @@ class IdempotencyTest {
 
             // Hard assertion: two items created (different keys = different operations)
             val items = runBlocking { repo.workItemRepository().findByFilters() }
-            val matching = (items as Result.Success).data.filter { it.title == "Separate Item" }
+            val matching = (items as Result.Success).data.items.filter { it.title == "Separate Item" }
             assertEquals(2, matching.size, "Different Idempotency-Keys should create 2 items, got ${matching.size}")
         }
 

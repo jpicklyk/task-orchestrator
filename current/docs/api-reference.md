@@ -288,6 +288,7 @@ true database total. For large corpora, the actual match count may exceed `total
   ],
   "total": 42,
   "returned": 20,
+  "skipped": 1,
   "limit": 20,
   "offset": 0
 }
@@ -295,6 +296,8 @@ true database total. For large corpora, the actual match count may exceed `total
 
 List mode returns minimal fields (`id`, `parentId`, `title`, `role`, `statusLabel`, `priority`, `depth`, `tags`, `type`). Nullable fields are omitted when null.
 Use `get` for full item JSON including `description`, `summary`, timestamps, and `roleChangedAt`.
+
+`total` is the raw SQL match count (unaffected by validation), `returned` is `items.length`. `skipped` is present only when > 0: it counts rows in this page's window that failed domain validation (e.g. a corrupt legacy row) and were dropped rather than returned — a WARN log identifies the row. Invariant: `total = returned + skipped + notFetched`, where `notFetched` is any rows beyond `limit`/`offset` never queried.
 
 When `claimStatus` filter is provided, each result item includes an additional `isClaimed` boolean:
 
@@ -328,7 +331,7 @@ Scoped overview returns the full item JSON in `item`, a count per role in `child
 
 **Response (overview — global mode, no `itemId`).**
 
-Global overview returns root items with the same minimal fields as search, plus `childCounts`, optional `traits`, and `claimSummary` per root item. When `includeChildren` is true, each root includes a `children` array where each child has the minimal fields plus its own `childCounts` and optional `traits`.
+Global overview returns root items with the same minimal fields as search, plus `childCounts`, optional `traits`, and `claimSummary` per root item. When `includeChildren` is true, each root includes a `children` array where each child has the minimal fields plus its own `childCounts` and optional `traits`. Root items are ordered newest-`createdAt`-first. `limit` defaults to 50 (same default as list-mode search).
 
 ```json
 {
@@ -348,11 +351,15 @@ Global overview returns root items with the same minimal fields as search, plus 
       ]
     }
   ],
-  "total": 5
+  "total": 55,
+  "truncated": true,
+  "skipped": 1
 }
 ```
 
-Nullable fields (`parentId`, `statusLabel`, `tags`, `type`) are omitted when null. `traits` is omitted when the item has no traits (never an empty array). `children` is only present when `includeChildren` is true. `total` reflects the count of root items returned (not a total-in-DB count).
+Nullable fields (`parentId`, `statusLabel`, `tags`, `type`) are omitted when null. `traits` is omitted when the item has no traits (never an empty array). `children` is only present when `includeChildren` is true.
+
+`total` is the **true count of all root items** in the database (via a dedicated `COUNT` query), independent of `limit` and of any validation drops — **not** the size of the `items` array. `truncated` is `true` when `items.length < total` for **any** reason — pagination (`total > limit`) or validation drops — which is broader than FTS search's `truncated` (that flag fires only at the FTS hit cap); use `skipped` to disambiguate the cause. `skipped` is present only when > 0: it counts root rows within this page's window that failed domain validation and were dropped rather than returned; a WARN log identifies the row so it can be repaired.
 
 `claimSummary` counts are scoped to the direct children of each root item. `active` = live non-expired claims; `expired` = claims past TTL; `unclaimed` = items with no claim record. `claimedBy` identity is never included at this level.
 

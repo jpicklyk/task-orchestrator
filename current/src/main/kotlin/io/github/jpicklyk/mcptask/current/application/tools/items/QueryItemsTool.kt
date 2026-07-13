@@ -865,7 +865,8 @@ Operations: get, search, overview
                 )
         ) {
             is Result.Success -> {
-                val items = result.data
+                val items = result.data.items
+                val skipped = result.data.skipped
 
                 val chains: Map<java.util.UUID, List<WorkItem>> =
                     if (includeAncestors && items.isNotEmpty()) {
@@ -885,8 +886,11 @@ Operations: get, search, overview
                                 }
                             )
                         )
+                        // total = raw SQL count (countByFilters), unaffected by validation drops.
+                        // Invariant: total = returned + skipped + notFetched (rows beyond limit/offset).
                         put("total", JsonPrimitive(totalCount))
                         put("returned", JsonPrimitive(items.size))
+                        if (skipped > 0) put("skipped", JsonPrimitive(skipped))
                         put("limit", JsonPrimitive(limit))
                         put("offset", JsonPrimitive(offset))
                     }
@@ -998,12 +1002,26 @@ Operations: get, search, overview
         params: JsonElement,
         context: ToolExecutionContext
     ): JsonElement {
-        val limit = optionalInt(params, "limit") ?: 20
+        // Default aligned with the shared `limit` parameterSchema description ("default: 50") —
+        // this operation previously hardcoded 20, silently truncating dashboards with 21-50 roots.
+        val limit = optionalInt(params, "limit") ?: 50
         val includeChildren = params.jsonObject["includeChildren"]?.jsonPrimitive?.booleanOrNull ?: false
 
-        // Fetch root items
-        val rootItems =
+        // Fetch root items (newest-createdAt-first; validation-failed rows dropped and counted)
+        val fetchResult =
             when (val result = context.workItemRepository().findRootItems(limit)) {
+                is Result.Success -> result.data
+                is Result.Error -> return errorResponse(
+                    result.error.message,
+                    ErrorCodes.DATABASE_ERROR
+                )
+            }
+        val rootItems = fetchResult.items
+        val skipped = fetchResult.skipped
+
+        // True root count — unaffected by `limit` or validation drops (see countRootItems KDoc).
+        val totalRoots =
+            when (val result = context.workItemRepository().countRootItems()) {
                 is Result.Success -> result.data
                 is Result.Error -> return errorResponse(
                     result.error.message,
@@ -1060,7 +1078,11 @@ Operations: get, search, overview
         val data =
             buildJsonObject {
                 put("items", JsonArray(itemsWithCounts))
-                put("total", JsonPrimitive(rootItems.size))
+                // total = true root count (countRootItems), not the returned-page size — matches
+                // the totalHits/truncated convention used by FTS search (executeFtsSearch).
+                put("total", JsonPrimitive(totalRoots))
+                put("truncated", JsonPrimitive(rootItems.size < totalRoots))
+                if (skipped > 0) put("skipped", JsonPrimitive(skipped))
             }
 
         return successResponse(data)
