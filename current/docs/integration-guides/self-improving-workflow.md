@@ -488,7 +488,7 @@ Place the file in `~/.claude/output-styles/` (personal, gitignored) and activate
 
 > **Note on the analyst output style:** The plugin ships only the orchestration core (`workflow-orchestrator`) at `claude-plugins/task-orchestrator/output-styles/workflow-orchestrator.md`. The TO project repo does not ship a layered "analyst" variant — users assemble their own by copying the orchestration core into Zone 1 of a personal output style and layering Zones 2 and 3 on top. This keeps the analysis layer customizable per project rather than imposing a one-size shape.
 
-**5.** Add a retrospective skill at `.claude/skills/session-retrospective/SKILL.md` in **your project repo**. It implements the pipeline documented in [Loop 3](#loop-3-session-retrospective--trend-graduation):
+**5.** Enable the retrospective skill. It ships with the plugin at `claude-plugins/task-orchestrator/skills/session-retrospective/SKILL.md` (invoked as `/task-orchestrator:session-retrospective`), so plugin users get it automatically. It implements the pipeline documented in [Loop 3](#loop-3-session-retrospective--trend-graduation):
 
 - Gather scope (root item or recently terminal items)
 - Collect distributed `session-tracking` notes
@@ -500,7 +500,7 @@ Place the file in `~/.claude/output-styles/` (personal, gitignored) and activate
 - Run meta-evaluation if 3+ prior retrospectives exist
 - Render a dashboard
 
-> **Reference implementation:** The TO project repo carries this skill at `.claude/skills/session-retrospective/SKILL.md`. Copy that file into your own project's `.claude/skills/session-retrospective/SKILL.md` and adapt as needed. Project-local skills are auto-discovered by Claude Code — no plugin activation required. Adapt freely: schema names, trend file paths, dimension definitions, and graduation thresholds may differ in your setup.
+> **Reference implementation:** The plugin carries this skill at `claude-plugins/task-orchestrator/skills/session-retrospective/SKILL.md`. If you prefer a project-local variant (no plugin activation required), copy that file into your own project's `.claude/skills/session-retrospective/SKILL.md` and adapt as needed — schema names, trend file paths, dimension definitions, and graduation thresholds may differ in your setup. After plugin updates, remove and re-add the marketplace to pick up skill changes (content is cached).
 
 **6.** Wire a retrospective nudge so the agent suggests `/session-retrospective` after implementation runs end. Two layered options — pick one or use both:
 
