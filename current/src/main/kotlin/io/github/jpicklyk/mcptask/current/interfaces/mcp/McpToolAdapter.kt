@@ -90,8 +90,16 @@ class McpToolAdapter {
                 // Generate user-facing summary
                 val summary = toolDefinition.userSummary(preprocessedParams, result, isError)
 
-                // Extract raw data for structuredContent (strip envelope)
-                val structuredData = resultObj?.let { ResponseUtil.extractDataPayload(it) } as? JsonObject
+                // Extract structuredContent: on success, the raw data payload (strip envelope);
+                // on error, the structured error object ({code, message, kind?, retryAfterMs?,
+                // contendedItemId?}) plus any error data (e.g. gate-failure details) so clients
+                // can act on structured fields without a diagnostic round-trip.
+                val structuredData =
+                    if (isError) {
+                        resultObj?.let { ResponseUtil.extractErrorPayload(it) }
+                    } else {
+                        resultObj?.let { ResponseUtil.extractDataPayload(it) } as? JsonObject
+                    }
 
                 CallToolResult(
                     content = listOf(TextContent(text = summary)),

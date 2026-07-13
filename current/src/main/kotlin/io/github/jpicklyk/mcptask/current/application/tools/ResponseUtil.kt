@@ -79,9 +79,14 @@ object ResponseUtil {
      * retry semantics. Fields are omitted from the JSON when null.
      *
      * @param toolError The structured error descriptor.
+     * @param additionalData Optional JSON payload with extra context about the error
+     *        (e.g., gate-failure `missingNotes` details); emitted as the envelope's `data` field.
      * @return A JsonObject with the standard error envelope format including structured fields.
      */
-    fun createErrorResponse(toolError: ToolError): JsonObject =
+    fun createErrorResponse(
+        toolError: ToolError,
+        additionalData: JsonElement? = null
+    ): JsonObject =
         buildJsonObject {
             put("success", JsonPrimitive(false))
             put(
@@ -94,6 +99,9 @@ object ResponseUtil {
                     toolError.contendedItemId?.let { put("contendedItemId", JsonPrimitive(it.toString())) }
                 }
             )
+            if (additionalData != null) {
+                put("data", additionalData)
+            }
             put("metadata", createMetadata())
         }
 
@@ -118,6 +126,28 @@ object ResponseUtil {
     fun extractDataPayload(response: JsonElement): JsonElement? {
         val obj = response as? JsonObject ?: return null
         return obj["data"]
+    }
+
+    /**
+     * Extracts the structured error payload from an error response envelope.
+     *
+     * Returns a JsonObject containing the envelope's `error` object
+     * (`{code, message, kind?, retryAfterMs?, contendedItemId?, details?}`) plus the
+     * envelope's `data` payload when present (e.g., gate-failure `missingNotes` details).
+     * Used by the MCP adapter to surface structured error fields through
+     * `structuredContent` so clients can make retry decisions without string-parsing
+     * the text summary.
+     *
+     * @param response The JSON response envelope
+     * @return `{error: {...}, data?: {...}}`, or null if the envelope has no error object
+     */
+    fun extractErrorPayload(response: JsonElement): JsonObject? {
+        val obj = response as? JsonObject ?: return null
+        val error = obj["error"] as? JsonObject ?: return null
+        return buildJsonObject {
+            put("error", error)
+            obj["data"]?.let { put("data", it) }
+        }
     }
 
     /**
