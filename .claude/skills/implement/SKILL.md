@@ -236,7 +236,9 @@ Agent(
 
   Format + compile self-check (REQUIRED before returning):
     ./gradlew -p <feature-worktree-path> :current:ktlintFormat :current:compileKotlin :current:compileTestKotlin > /tmp/agent-compile.log 2>&1; EXIT=$?
-  If EXIT != 0, fix the compile error before committing and returning.
+  If EXIT != 0, fix the reported error — a compile error OR a lint violation
+  ktlintFormat could not auto-correct (e.g. line >140 chars, colons in backticked
+  test names) — before committing and returning.
   Do NOT run :current:test or :current:ktlintCheck — orchestrator owns full build
   verification. ktlintFormat is formatting-only and idempotent; it prevents the
   recurring lint fix-up commits (proposal ee6f5d32). The compile self-check is
