@@ -547,7 +547,7 @@ Each upsert note element may include an optional `actor` object:
 - `parent` (optional string): ID of the dispatching agent (forms delegation chain)
 - `proof` (optional string): Opaque credential blob (persisted, unused by Stage 1)
 
-When provided, the upsert response includes `actor` and `verification` objects on each successfully upserted note, and the note is persisted with actor claim data that appears in subsequent `query_notes` responses.
+When provided, the upsert response includes an `actor` object on each successfully upserted note, and the note is persisted with actor claim data that appears in subsequent `query_notes` responses. A `verification` object is also included, *except* when no actor verifier is configured (the default `noop` verifier) — in that case `verification` is omitted entirely, since a no-op result carries no information beyond "no verifier is configured." See [Verification Record](#verification-record).
 
 The `(itemId, key)` pair is unique — upserting with an existing pair updates the note in place
 (preserving its UUID).
@@ -927,7 +927,7 @@ Each transition element may include an optional `actor` object:
 - `parent` (optional string): ID of the dispatching agent (forms delegation chain)
 - `proof` (optional string): Opaque credential blob (persisted, unused by Stage 1)
 
-When provided, the response includes `actor` and `verification` objects on each successful transition.
+When provided, the response includes an `actor` object on each successful transition. A `verification` object is also included, *except* when no actor verifier is configured (the default `noop` verifier) — in that case `verification` is omitted entirely. See [Verification Record](#verification-record).
 
 **Ownership enforcement.** When an item has an active (non-expired) claim, `advance_item` enforces ownership on **every** trigger value. The actor (resolved via `degradedModePolicy`) must match the `claimedBy` value on the item. If the item is unclaimed or the claim has expired, any actor can transition it. Cascade transitions (system-generated, parent promotions) are always allowed and bypass ownership checks — they are not reachable via this tool.
 
@@ -1685,7 +1685,16 @@ Actor attribution tracks *who* made changes to work items. Every `advance_item` 
 
 ### Verification Record
 
-Every persisted actor claim includes a verification record:
+Every persisted actor claim includes a verification record.
+
+**Output omission.** MCP tool responses (`manage_notes` upsert, `advance_item` transitions,
+`query_notes` get/list, `get_context` recent transitions) omit the `verification` object
+whenever `verifier == "noop"` — the default when no `actor_authentication.verifier` is
+configured. A no-op result carries no information beyond "no verifier is configured," which is
+a deployment-wide fact repeated on every attributed note and transition, so it is dropped from
+output rather than serialized. The record is still persisted in the database; only the MCP
+response representation omits it. Any other verifier result — including a future verifier that
+legitimately returns `unchecked` with a `reason` — serializes in full.
 
 | Field | Type | Description |
 |-------|------|-------------|

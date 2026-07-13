@@ -97,7 +97,7 @@ fun Note.toJson(includeBody: Boolean = true): JsonObject =
         put("createdAt", JsonPrimitive(createdAt.toString()))
         put("modifiedAt", JsonPrimitive(modifiedAt.toString()))
         actorClaim?.let { put("actor", it.toJson()) }
-        verification?.let { put("verification", it.toJson()) }
+        verification?.toJsonOrOmit()?.let { put("verification", it) }
     }
 
 // ──────────────────────────────────────────────
@@ -141,3 +141,13 @@ fun VerificationResult.toJson(): JsonObject =
             )
         }
     }
+
+/**
+ * JSON representation of a [VerificationResult] for attributed note/transition output, or
+ * `null` when the result came from a no-op verifier (`verifier == "noop"`). A no-op result
+ * carries no information beyond "no verifier is configured" — a deployment-wide fact repeated
+ * on every attributed note and transition — so it is omitted rather than serialized. Meaningful
+ * results (any other verifier, including a future one that legitimately returns UNCHECKED with
+ * a reason) still serialize in full via [toJson].
+ */
+fun VerificationResult.toJsonOrOmit(): JsonObject? = if (verifier == "noop") null else toJson()

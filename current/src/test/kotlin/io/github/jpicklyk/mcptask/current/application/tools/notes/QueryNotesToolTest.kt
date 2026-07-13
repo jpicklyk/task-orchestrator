@@ -324,7 +324,7 @@ class QueryNotesToolTest {
     }
 
     @Test
-    fun `get note with actor includes actor and verification in response`(): Unit =
+    fun `get note with actor includes actor but omits noop verification in response`(): Unit =
         runBlocking {
             val itemId = createTestItem()
             val noteId =
@@ -358,15 +358,13 @@ class QueryNotesToolTest {
             assertEquals("orch-1", actor["parent"]!!.jsonPrimitive.content)
             assertFalse(actor.containsKey("proof"), "proof should be absent when not provided")
 
-            // Verification should be present (NoOpActorVerifier marks as unchecked)
-            assertTrue(data.containsKey("verification"), "verification field should be present")
-            val verification = data["verification"]!!.jsonObject
-            assertEquals("unchecked", verification["status"]!!.jsonPrimitive.content)
-            assertEquals("noop", verification["verifier"]!!.jsonPrimitive.content)
+            // Verification is omitted for a no-op verifier (NoOpActorVerifier) — it carries no
+            // information beyond "no verifier is configured", which is a deployment-wide fact.
+            assertFalse(data.containsKey("verification"), "verification field should be omitted for a no-op verifier")
         }
 
     @Test
-    fun `list notes includes actor and verification on notes that have actor claim`(): Unit =
+    fun `list notes includes actor but omits noop verification on notes that have actor claim`(): Unit =
         runBlocking {
             val itemId = createTestItem()
             // Create two notes — one with actor, one without
@@ -399,7 +397,7 @@ class QueryNotesToolTest {
             assertTrue(planNote.containsKey("actor"), "plan note should have actor field")
             assertEquals("orch-1", planNote["actor"]!!.jsonObject["id"]!!.jsonPrimitive.content)
             assertEquals("orchestrator", planNote["actor"]!!.jsonObject["kind"]!!.jsonPrimitive.content)
-            assertTrue(planNote.containsKey("verification"), "plan note should have verification field")
+            assertFalse(planNote.containsKey("verification"), "verification should be omitted for a no-op verifier")
 
             // The note without actor should NOT have actor field
             val approachNote = notes.first { it.jsonObject["key"]!!.jsonPrimitive.content == "approach" }.jsonObject

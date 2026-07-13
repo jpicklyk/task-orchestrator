@@ -680,12 +680,12 @@ advance_item(transitions=[{
 }])
 ```
 
-The response echoes the actor claim and includes a verification record:
+The response echoes the actor claim. A `verification` record appears only when a real actor verifier (e.g. JWKS) is configured — with the default no-op verifier the field is omitted entirely:
 
 ```json
 {
   "actor": { "id": "impl-agent", "kind": "subagent", "parent": "orchestrator-1" },
-  "verification": { "status": "unchecked", "verifier": "noop" }
+  "verification": { "status": "verified", "verifier": "jwks" }
 }
 ```
 

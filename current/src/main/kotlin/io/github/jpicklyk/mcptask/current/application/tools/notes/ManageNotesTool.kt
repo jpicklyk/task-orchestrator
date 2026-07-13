@@ -348,7 +348,7 @@ Unified write operations for Notes (upsert, delete).
                                 put("key", JsonPrimitive(result.data.key))
                                 put("role", JsonPrimitive(result.data.role))
                                 actorClaim?.let { put("actor", it.toJson()) }
-                                verification?.let { put("verification", it.toJson()) }
+                                verification?.toJsonOrOmit()?.let { put("verification", it) }
                             }
                         )
                     }
