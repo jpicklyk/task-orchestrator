@@ -175,9 +175,12 @@ class WorkflowIntegrationTest {
             assertTransitionApplied(extractResults(completeChild1)[0].jsonObject)
             assertEquals("terminal", extractResults(completeChild1)[0].jsonObject["newRole"]!!.jsonPrimitive.content)
 
-            // Parent should NOT cascade yet (child2 still in QUEUE)
-            val cascadeEvents1 = extractResults(completeChild1)[0].jsonObject["cascadeEvents"]!!.jsonArray
-            assertEquals(0, cascadeEvents1.size, "No cascade should fire with one child still non-terminal")
+            // Parent should NOT cascade yet (child2 still in QUEUE).
+            // Empty cascadeEvents is omitted entirely for token efficiency.
+            assertNull(
+                extractResults(completeChild1)[0].jsonObject["cascadeEvents"],
+                "cascadeEvents should be omitted when no cascade fires"
+            )
 
             // Transition child2: QUEUE -> WORK -> TERMINAL
             val startChild2 =
@@ -378,7 +381,6 @@ class WorkflowIntegrationTest {
                 )
             val blockRes = extractResults(blockResult)[0].jsonObject
             assertTransitionApplied(blockRes)
-            assertEquals("work", blockRes["previousRole"]!!.jsonPrimitive.content)
             assertEquals("blocked", blockRes["newRole"]!!.jsonPrimitive.content)
 
             // Verify the item is blocked in the database with previousRole saved
@@ -394,7 +396,6 @@ class WorkflowIntegrationTest {
                 )
             val resumeRes = extractResults(resumeResult)[0].jsonObject
             assertTransitionApplied(resumeRes)
-            assertEquals("blocked", resumeRes["previousRole"]!!.jsonPrimitive.content)
             assertEquals("work", resumeRes["newRole"]!!.jsonPrimitive.content)
 
             // Verify item is back in WORK with previousRole cleared
@@ -419,7 +420,6 @@ class WorkflowIntegrationTest {
                 )
             val cancelRes = extractResults(cancelResult)[0].jsonObject
             assertTransitionApplied(cancelRes)
-            assertEquals("work", cancelRes["previousRole"]!!.jsonPrimitive.content)
             assertEquals("terminal", cancelRes["newRole"]!!.jsonPrimitive.content)
 
             // Verify the statusLabel is "cancelled" in the database
@@ -681,10 +681,9 @@ class WorkflowIntegrationTest {
             assertEquals(itemB.id.toString(), unblockedItems[0].jsonObject["itemId"]!!.jsonPrimitive.content)
             assertEquals("Item B", unblockedItems[0].jsonObject["title"]!!.jsonPrimitive.content)
 
-            // Check allUnblockedItems in top-level data
+            // Top-level allUnblockedItems aggregate was dropped (derivable from per-transition unblockedItems).
             val data = extractData(completeA)
-            val allUnblocked = data["allUnblockedItems"]!!.jsonArray
-            assertEquals(1, allUnblocked.size)
+            assertNull(data["allUnblockedItems"], "top-level allUnblockedItems aggregate dropped")
         }
 
     // ──────────────────────────────────────────────
@@ -794,7 +793,6 @@ class WorkflowIntegrationTest {
                 )
             val holdRes = extractResults(holdResult)[0].jsonObject
             assertTransitionApplied(holdRes)
-            assertEquals("review", holdRes["previousRole"]!!.jsonPrimitive.content)
             assertEquals("blocked", holdRes["newRole"]!!.jsonPrimitive.content)
 
             // Verify in DB

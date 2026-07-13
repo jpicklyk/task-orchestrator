@@ -64,16 +64,13 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
   "results": [
     {
       "itemId": "uuid",
-      "previousRole": "queue",
       "newRole": "work",
-      "trigger": "start",
       "applied": true,
       "actor": { "id": "agent-1", "kind": "subagent", "parent": "orch-1" },
       "verification": { "status": "unverified", "verifier": "noop" },
       "cascadeEvents": [
         { "itemId": "uuid", "title": "Parent Item Title", "previousRole": "work", "targetRole": "terminal", "applied": true }
       ],
-      "unblockedItems": [],
       "expectedNotes": [
         { "key": "acceptance-criteria", "role": "work", "required": true, "exists": false }
       ],
@@ -81,10 +78,11 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
       "noteProgress": { "filled": 0, "remaining": 2, "total": 2 }
     }
   ],
-  "summary": { "total": N, "succeeded": N, "failed": N },
-  "allUnblockedItems": [{ "itemId": "uuid", "title": "..." }]
+  "summary": { "total": N, "succeeded": N, "failed": N }
 }
 ```
+`cascadeEvents` and `unblockedItems` are omitted when empty. The per-transition `trigger` echo and
+`previousRole` are dropped (the caller supplied the trigger; `newRole` is the outcome).
         """.trimIndent()
 
     override val category = ToolCategory.WORKFLOW
@@ -291,7 +289,6 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
             )
 
         val resultsList = mutableListOf<JsonObject>()
-        val allUnblockedItems = mutableListOf<JsonObject>()
         var successCount = 0
         var failCount = 0
 
@@ -373,8 +370,6 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                     }
                 }
 
-            val previousRole = item.role
-
             // Delegate the full pipeline (ownership → resolve → validate → gate → apply → cascade →
             // unblock) to the shared AdvanceService. MCP enforces claim ownership.
             val outcome =
@@ -419,13 +414,13 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                     }
                 }
 
-            // Map unblocked items; mirror into the top-level allUnblockedItems aggregate.
+            // Map unblocked items (per-transition only; the top-level aggregate was dropped as derivable).
             val unblockedJsonList =
                 advanceResult.unblockedItems.map { unblocked ->
                     buildJsonObject {
                         put("itemId", JsonPrimitive(unblocked.itemId.toString()))
                         put("title", JsonPrimitive(unblocked.title))
-                    }.also { allUnblockedItems.add(it) }
+                    }
                 }
 
             // Schema-driven response fields: expectedNotes, guidanceKey, skillPointer, noteProgress
@@ -471,20 +466,19 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                     }
             }
 
-            // Build success result
+            // Build success result. previousRole + trigger echoes dropped (caller supplied the trigger;
+            // newRole is the outcome). Empty cascadeEvents/unblockedItems are omitted.
             resultsList.add(
                 buildJsonObject {
                     put("itemId", JsonPrimitive(itemId.toString()))
-                    put("previousRole", JsonPrimitive(previousRole.toJsonString()))
                     put("newRole", JsonPrimitive(targetRole.toJsonString()))
-                    put("trigger", JsonPrimitive(trigger))
                     advanceResult.statusLabel?.let { put("statusLabel", JsonPrimitive(it)) }
                     put("applied", JsonPrimitive(true))
                     if (summary != null) put("summary", JsonPrimitive(summary))
                     actorClaim?.let { put("actor", it.toJson()) }
                     verification?.let { put("verification", it.toJson()) }
-                    put("cascadeEvents", JsonArray(cascadeJsonList))
-                    put("unblockedItems", JsonArray(unblockedJsonList))
+                    if (cascadeJsonList.isNotEmpty()) put("cascadeEvents", JsonArray(cascadeJsonList))
+                    if (unblockedJsonList.isNotEmpty()) put("unblockedItems", JsonArray(unblockedJsonList))
                     put("expectedNotes", expectedNotesJson)
                     guidanceKey?.let { put("guidanceKey", JsonPrimitive(it)) }
                     skillPointer?.let { put("skillPointer", JsonPrimitive(it)) }
@@ -505,7 +499,6 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                         put("failed", JsonPrimitive(failCount))
                     }
                 )
-                put("allUnblockedItems", JsonArray(allUnblockedItems))
             }
 
         return successResponse(data)

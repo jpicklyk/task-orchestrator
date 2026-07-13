@@ -26,8 +26,11 @@ fun Priority.toJsonString(): String = this.name.lowercase()
 /**
  * Full JSON representation of a [WorkItem] with all fields.
  * Used for `get` operations and detailed single-item responses.
+ *
+ * @param includeTimestamps When true, includes `createdAt`, `modifiedAt`, and `roleChangedAt`.
+ *   Defaults to false for token efficiency — callers that need audit timestamps must opt in.
  */
-fun WorkItem.toFullJson(): JsonObject =
+fun WorkItem.toFullJson(includeTimestamps: Boolean = false): JsonObject =
     buildJsonObject {
         put("id", JsonPrimitive(id.toString()))
         parentId?.let { put("parentId", JsonPrimitive(it.toString())) }
@@ -44,9 +47,11 @@ fun WorkItem.toFullJson(): JsonObject =
         tags?.let { put("tags", JsonPrimitive(it)) }
         type?.let { put("type", JsonPrimitive(it)) }
         properties?.let { put("properties", JsonPrimitive(it)) }
-        put("createdAt", JsonPrimitive(createdAt.toString()))
-        put("modifiedAt", JsonPrimitive(modifiedAt.toString()))
-        put("roleChangedAt", JsonPrimitive(roleChangedAt.toString()))
+        if (includeTimestamps) {
+            put("createdAt", JsonPrimitive(createdAt.toString()))
+            put("modifiedAt", JsonPrimitive(modifiedAt.toString()))
+            put("roleChangedAt", JsonPrimitive(roleChangedAt.toString()))
+        }
     }
 
 /**
@@ -85,15 +90,25 @@ fun roleCountToJson(counts: Map<Role, Int>): JsonObject =
  * JSON representation of a [Note] with optional body inclusion.
  * Used for both single-note and list responses.
  *
- * @param includeBody When false, omits the `body` field (metadata-only queries).
+ * @param includeBody When false, omits the `body` field and includes `bodyLength` instead
+ *   so callers can decide whether to fetch the full body.
+ * @param includeItemId When false, omits the `itemId` echo — use in list contexts where
+ *   the caller already supplied the itemId. The note `id` is always included.
  */
-fun Note.toJson(includeBody: Boolean = true): JsonObject =
+fun Note.toJson(
+    includeBody: Boolean = true,
+    includeItemId: Boolean = true
+): JsonObject =
     buildJsonObject {
         put("id", JsonPrimitive(id.toString()))
-        put("itemId", JsonPrimitive(itemId.toString()))
+        if (includeItemId) put("itemId", JsonPrimitive(itemId.toString()))
         put("key", JsonPrimitive(key))
         put("role", JsonPrimitive(role))
-        if (includeBody) put("body", JsonPrimitive(body))
+        if (includeBody) {
+            put("body", JsonPrimitive(body))
+        } else {
+            put("bodyLength", JsonPrimitive(body.length))
+        }
         put("createdAt", JsonPrimitive(createdAt.toString()))
         put("modifiedAt", JsonPrimitive(modifiedAt.toString()))
         actorClaim?.let { put("actor", it.toJson()) }

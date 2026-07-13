@@ -35,15 +35,15 @@ class GetContextTool : BaseToolDefinition() {
 Read-only context snapshot. Three modes:
 
 **Item mode** — pass `mode: "item"` (or provide `itemId`):
-Returns the item's current role, note schema for its tags, existing notes with filled/exists status,
-gate status (canAdvance + missing required notes for current phase), and `noteProgress`
-(`{filled, remaining, total}` counts of required notes for the current role; null for terminal or schema-free items).
+Returns the item's current role, note schema for its tags (keys with exists/filled status), and
+gate status (`canAdvance` + missing required notes for current phase) — gateStatus is the canonical
+gate answer.
 Full claim detail when item is claimed: `claimedBy`, `claimedAt`, `claimExpiresAt` (UTC), `isExpired` (boolean).
 Use this mode to diagnose stalled/expired claims — this is the only mode that exposes claimedBy identity.
 
 **Session resume** — pass `mode: "session-resume"` (or provide `since`):
 Returns active items (role=work or review), recent role transitions since the timestamp
-(including actor/verification when present), and stalled items (active items with missing required notes).
+(each `{itemId, title, fromRole, toRole, at, actorId?}`), and stalled items (active items with missing required notes).
 No claim summary in this mode — use item mode or health-check mode for claim visibility.
 
 **Health check** — pass `mode: "health-check"` (or omit all mode-selecting params):
@@ -59,7 +59,7 @@ Parameters:
 - since (optional ISO 8601 string): transition window start; required when mode="session-resume"
 - includeAncestors (optional boolean, default false): when true, each listed item includes an
   `ancestors` array ordered root-first (direct parent last). Root items (depth=0) get `"ancestors": []`.
-- limit (optional integer, default 50, max 200): maximum number of role transitions returned in
+- limit (optional integer, default 10, max 200): maximum number of role transitions returned in
   session-resume mode
         """.trimIndent()
 
@@ -130,7 +130,7 @@ Parameters:
                             put("type", JsonPrimitive("integer"))
                             put(
                                 "description",
-                                JsonPrimitive("Maximum number of role transitions to return in session-resume mode. Default 50, max 200.")
+                                JsonPrimitive("Maximum number of role transitions to return in session-resume mode. Default 10, max 200.")
                             )
                         }
                     )
@@ -161,7 +161,7 @@ Parameters:
             params.jsonObject["limit"]
                 ?.jsonPrimitive
                 ?.intOrNull
-                ?.coerceIn(1, 200) ?: 50
+                ?.coerceIn(1, 200) ?: 10
 
         val explicitMode = optionalString(params, "mode")
 
@@ -260,22 +260,8 @@ Parameters:
                         put("missing", JsonArray(missingForPhase.map { JsonPrimitive(it) }))
                     }
                 )
-                if (guidanceKey != null) {
-                    put("guidanceKey", JsonPrimitive(guidanceKey))
-                } else {
-                    put("guidanceKey", JsonNull)
-                }
+                guidanceKey?.let { put("guidanceKey", JsonPrimitive(it)) }
                 skillPointer?.let { put("skillPointer", JsonPrimitive(it)) }
-                if (phaseContext != null) {
-                    put(
-                        "noteProgress",
-                        buildJsonObject {
-                            put("filled", JsonPrimitive(phaseContext.filled))
-                            put("remaining", JsonPrimitive(phaseContext.remaining))
-                            put("total", JsonPrimitive(phaseContext.total))
-                        }
-                    )
-                }
                 // Full claim detail — diagnostic tool, single-item, operators need identity to debug stalled work.
                 // claimedBy is intentionally included here; it must NOT appear in query_items results.
                 if (item.claimedBy != null) {
@@ -306,7 +292,7 @@ Parameters:
         since: java.time.Instant,
         context: ToolExecutionContext,
         includeAncestors: Boolean,
-        transitionLimit: Int = 50
+        transitionLimit: Int = 10
     ): JsonElement {
         val workItemRepo = context.workItemRepository()
 
@@ -329,6 +315,19 @@ Parameters:
                 .roleTransitionRepository()
                 .findSince(since, limit = transitionLimit)
                 .getOrElse(emptyList())
+
+        // Resolve titles for the transition items (may include items no longer active, e.g. terminal).
+        val transitionTitles: Map<java.util.UUID, String> =
+            recentTransitions.map { it.itemId }.toSet().let { ids ->
+                if (ids.isEmpty()) {
+                    emptyMap()
+                } else {
+                    when (val r = workItemRepo.findByIds(ids)) {
+                        is Result.Success -> r.data.associate { it.id to it.title }
+                        is Result.Error -> emptyMap()
+                    }
+                }
+            }
 
         // Stalled items: active items with missing required notes
         val stalledItems = findStalledItems(activeItems, context)
@@ -371,14 +370,15 @@ Parameters:
                     "recentTransitions",
                     JsonArray(
                         recentTransitions.map { t ->
+                            // Lean transition entries: {itemId, title, fromRole, toRole, at, actorId?}.
+                            // Full actor/verification detail is available via query-side tools.
                             buildJsonObject {
                                 put("itemId", JsonPrimitive(t.itemId.toString()))
+                                transitionTitles[t.itemId]?.let { put("title", JsonPrimitive(it)) }
                                 put("fromRole", JsonPrimitive(t.fromRole))
                                 put("toRole", JsonPrimitive(t.toRole))
-                                put("trigger", JsonPrimitive(t.trigger))
                                 put("at", JsonPrimitive(t.transitionedAt.toString()))
-                                t.actorClaim?.let { put("actor", it.toJson()) }
-                                t.verification?.let { put("verification", it.toJson()) }
+                                t.actorClaim?.let { put("actorId", JsonPrimitive(it.id)) }
                             }
                         }
                     )
@@ -393,12 +393,8 @@ Parameters:
                                 put("role", JsonPrimitive(entry.item.role.toJsonString()))
                                 put("missingNotes", JsonArray(entry.missingKeys.map { JsonPrimitive(it) }))
                                 // Reference-based: guidanceKey names the first missing note with guidance;
-                                // resolve to full text via query_items operation "schema".
-                                if (entry.guidanceKey != null) {
-                                    put("guidanceKey", JsonPrimitive(entry.guidanceKey))
-                                } else {
-                                    put("guidanceKey", JsonNull)
-                                }
+                                // resolve to full text via query_items operation "schema". Omitted when null.
+                                entry.guidanceKey?.let { put("guidanceKey", JsonPrimitive(it)) }
                                 entry.skillPointer?.let { put("skillPointer", JsonPrimitive(it)) }
                                 if (includeAncestors) put("ancestors", buildAncestorsArray(ancestorChains[entry.item.id] ?: emptyList()))
                             }
@@ -496,12 +492,8 @@ Parameters:
                                 put("role", JsonPrimitive(entry.item.role.toJsonString()))
                                 put("missingNotes", JsonArray(entry.missingKeys.map { JsonPrimitive(it) }))
                                 // Reference-based: guidanceKey names the first missing note with guidance;
-                                // resolve to full text via query_items operation "schema".
-                                if (entry.guidanceKey != null) {
-                                    put("guidanceKey", JsonPrimitive(entry.guidanceKey))
-                                } else {
-                                    put("guidanceKey", JsonNull)
-                                }
+                                // resolve to full text via query_items operation "schema". Omitted when null.
+                                entry.guidanceKey?.let { put("guidanceKey", JsonPrimitive(it)) }
                                 entry.skillPointer?.let { put("skillPointer", JsonPrimitive(it)) }
                                 if (includeAncestors) put("ancestors", buildAncestorsArray(ancestorChains[entry.item.id] ?: emptyList()))
                             }

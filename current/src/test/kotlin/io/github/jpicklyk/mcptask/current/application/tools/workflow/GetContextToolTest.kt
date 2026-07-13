@@ -568,7 +568,7 @@ class GetContextToolTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `session resume without limit uses default of 50`(): Unit =
+    fun `session resume without limit uses default of 10`(): Unit =
         runBlocking {
             val since = Instant.now().minusSeconds(3600)
             val capturedLimit = slot<Int>()
@@ -582,7 +582,7 @@ class GetContextToolTest {
                 context
             )
 
-            assertEquals(50, capturedLimit.captured, "Default limit should be 50 when not specified")
+            assertEquals(10, capturedLimit.captured, "Default limit should be 10 when not specified")
         }
 
     @Test
@@ -864,11 +864,10 @@ class GetContextToolTest {
                 )
 
             val data = extractData(result)
-            val guidanceKey = data["guidanceKey"]
-            // When all notes filled, guidanceKey should be JsonNull
-            assertTrue(
-                guidanceKey is JsonNull,
-                "Expected guidanceKey to be null when all required notes are filled, got: $guidanceKey"
+            // When all notes filled, guidanceKey is null → the field is omitted entirely.
+            assertNull(
+                data["guidanceKey"],
+                "guidanceKey should be omitted when all required notes are filled, got: ${data["guidanceKey"]}"
             )
         }
 
@@ -977,10 +976,9 @@ class GetContextToolTest {
             val data = extractData(result)
             val gateStatus = data["gateStatus"]!!.jsonObject
             assertTrue(gateStatus["canAdvance"]!!.jsonPrimitive.boolean, "canAdvance should be true when all work-phase notes filled")
-            val guidanceKey = data["guidanceKey"]
-            assertTrue(
-                guidanceKey is JsonNull,
-                "guidanceKey should be null when no work-phase notes missing, got: $guidanceKey"
+            assertNull(
+                data["guidanceKey"],
+                "guidanceKey should be omitted when no work-phase notes missing, got: ${data["guidanceKey"]}"
             )
         }
 
@@ -1046,8 +1044,7 @@ class GetContextToolTest {
                 "canAdvance must be false for terminal items regardless of schema"
             )
 
-            val guidanceKey = data["guidanceKey"]
-            assertTrue(guidanceKey is JsonNull, "guidanceKey should be null for terminal items")
+            assertNull(data["guidanceKey"], "guidanceKey should be omitted for terminal items")
         }
 
     // ──────────────────────────────────────────────
@@ -1131,10 +1128,9 @@ class GetContextToolTest {
             assertEquals(1, stalledItems.size)
 
             val stalledItem = stalledItems[0].jsonObject
-            val guidanceKey = stalledItem["guidanceKey"]
-            assertTrue(
-                guidanceKey is JsonNull,
-                "guidanceKey should be null when schema entry has no guidance, got: $guidanceKey"
+            assertNull(
+                stalledItem["guidanceKey"],
+                "guidanceKey should be omitted when schema entry has no guidance, got: ${stalledItem["guidanceKey"]}"
             )
         }
 
@@ -1441,20 +1437,20 @@ class GetContextToolTest {
                 )
 
             val data = extractData(result)
-            val guidanceKey = data["guidanceKey"]
-            // When the schema entry has no guidance, guidanceKey should be JsonNull
-            assertTrue(
-                guidanceKey is JsonNull,
-                "Expected guidanceKey to be null when schema entry has no guidance, got: $guidanceKey"
+            // When the schema entry has no guidance, guidanceKey is null → the field is omitted.
+            assertNull(
+                data["guidanceKey"],
+                "Expected guidanceKey to be omitted when schema entry has no guidance, got: ${data["guidanceKey"]}"
             )
         }
 
     // ──────────────────────────────────────────────
-    // noteProgress tests
+    // noteProgress dropped from get_context (t42) — verify absence.
+    // gateStatus is the canonical progress/gate signal now.
     // ──────────────────────────────────────────────
 
     @Test
-    fun `item mode returns noteProgress for current phase`(): Unit =
+    fun `item mode omits noteProgress even with missing required notes`(): Unit =
         runBlocking {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.WORK, tags = "feature-task")
@@ -1477,43 +1473,11 @@ class GetContextToolTest {
                 )
 
             val data = extractData(result)
-            val noteProgress = data["noteProgress"]!!.jsonObject
-            assertEquals(0, noteProgress["filled"]!!.jsonPrimitive.int)
-            assertEquals(3, noteProgress["remaining"]!!.jsonPrimitive.int)
-            assertEquals(3, noteProgress["total"]!!.jsonPrimitive.int)
-        }
-
-    @Test
-    fun `item mode noteProgress counts filled notes correctly`(): Unit =
-        runBlocking {
-            val itemId = UUID.randomUUID()
-            val item = makeItem(id = itemId, role = Role.WORK, tags = "feature-task")
-
-            val schemaEntries =
-                listOf(
-                    NoteSchemaEntry(key = "impl-notes", role = Role.WORK, required = true, description = "Impl notes"),
-                    NoteSchemaEntry(key = "design-notes", role = Role.WORK, required = true, description = "Design notes"),
-                    NoteSchemaEntry(key = "test-plan", role = Role.WORK, required = true, description = "Test plan")
-                )
-            every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
-
-            val note1 = Note(itemId = itemId, key = "impl-notes", role = "work", body = "Implementation approach described.")
-            val note2 = Note(itemId = itemId, key = "design-notes", role = "work", body = "Design decision recorded.")
-
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(listOf(note1, note2))
-
-            val result =
-                tool.execute(
-                    params("itemId" to JsonPrimitive(itemId.toString())),
-                    schemaContext
-                )
-
-            val data = extractData(result)
-            val noteProgress = data["noteProgress"]!!.jsonObject
-            assertEquals(2, noteProgress["filled"]!!.jsonPrimitive.int)
-            assertEquals(1, noteProgress["remaining"]!!.jsonPrimitive.int)
-            assertEquals(3, noteProgress["total"]!!.jsonPrimitive.int)
+            // noteProgress dropped — the remaining-note count is derivable from gateStatus.missing.
+            assertNull(data["noteProgress"], "noteProgress must be absent from get_context item mode")
+            val gateStatus = data["gateStatus"]!!.jsonObject
+            assertFalse(gateStatus["canAdvance"]!!.jsonPrimitive.boolean)
+            assertEquals(3, gateStatus["missing"]!!.jsonArray.size, "gateStatus.missing carries the remaining notes")
         }
 
     @Test
@@ -1558,96 +1522,6 @@ class GetContextToolTest {
 
             val data = extractData(result)
             assertNull(data["noteProgress"], "noteProgress should not be present for terminal items")
-        }
-
-    @Test
-    fun `item mode noteProgress counts only required notes`(): Unit =
-        runBlocking {
-            val itemId = UUID.randomUUID()
-            val item = makeItem(id = itemId, role = Role.WORK, tags = "feature-task")
-
-            val schemaEntries =
-                listOf(
-                    NoteSchemaEntry(key = "impl-notes", role = Role.WORK, required = true, description = "Impl notes"),
-                    NoteSchemaEntry(key = "design-notes", role = Role.WORK, required = true, description = "Design notes"),
-                    NoteSchemaEntry(key = "optional-context", role = Role.WORK, required = false, description = "Optional context")
-                )
-            every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
-
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
-
-            val result =
-                tool.execute(
-                    params("itemId" to JsonPrimitive(itemId.toString())),
-                    schemaContext
-                )
-
-            val data = extractData(result)
-            val noteProgress = data["noteProgress"]!!.jsonObject
-            assertEquals(0, noteProgress["filled"]!!.jsonPrimitive.int)
-            assertEquals(2, noteProgress["remaining"]!!.jsonPrimitive.int)
-            assertEquals(2, noteProgress["total"]!!.jsonPrimitive.int)
-        }
-
-    @Test
-    fun `item mode noteProgress counts only current role notes`(): Unit =
-        runBlocking {
-            val itemId = UUID.randomUUID()
-            val item = makeItem(id = itemId, role = Role.WORK, tags = "feature-task")
-
-            val schemaEntries =
-                listOf(
-                    NoteSchemaEntry(key = "impl-notes", role = Role.WORK, required = true, description = "Impl notes"),
-                    NoteSchemaEntry(key = "review-checklist", role = Role.REVIEW, required = true, description = "Review checklist"),
-                    NoteSchemaEntry(key = "review-feedback", role = Role.REVIEW, required = true, description = "Review feedback")
-                )
-            every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
-
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(emptyList())
-
-            val result =
-                tool.execute(
-                    params("itemId" to JsonPrimitive(itemId.toString())),
-                    schemaContext
-                )
-
-            val data = extractData(result)
-            val noteProgress = data["noteProgress"]!!.jsonObject
-            assertEquals(0, noteProgress["filled"]!!.jsonPrimitive.int)
-            assertEquals(1, noteProgress["remaining"]!!.jsonPrimitive.int)
-            assertEquals(1, noteProgress["total"]!!.jsonPrimitive.int)
-        }
-
-    @Test
-    fun `item mode noteProgress treats blank body as unfilled`(): Unit =
-        runBlocking {
-            val itemId = UUID.randomUUID()
-            val item = makeItem(id = itemId, role = Role.WORK, tags = "feature-task")
-
-            val schemaEntries =
-                listOf(
-                    NoteSchemaEntry(key = "impl-notes", role = Role.WORK, required = true, description = "Impl notes")
-                )
-            every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
-
-            val blankNote = Note(itemId = itemId, key = "impl-notes", role = "work", body = "")
-
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(listOf(blankNote))
-
-            val result =
-                tool.execute(
-                    params("itemId" to JsonPrimitive(itemId.toString())),
-                    schemaContext
-                )
-
-            val data = extractData(result)
-            val noteProgress = data["noteProgress"]!!.jsonObject
-            assertEquals(0, noteProgress["filled"]!!.jsonPrimitive.int)
-            assertEquals(1, noteProgress["remaining"]!!.jsonPrimitive.int)
-            assertEquals(1, noteProgress["total"]!!.jsonPrimitive.int)
         }
 
     // ──────────────────────────────────────────────
@@ -1702,46 +1576,6 @@ class GetContextToolTest {
                 entry["filled"]!!.jsonPrimitive.boolean,
                 "filled should be false — the note body is blank (whitespace only)"
             )
-        }
-
-    // ──────────────────────────────────────────────
-    // M4. noteProgress field values directly asserted
-    //     when 1 of 3 required notes is filled
-    // ──────────────────────────────────────────────
-
-    @Test
-    fun `noteProgress reports filled=1 remaining=2 total=3 when one of three required notes is filled`(): Unit =
-        runBlocking {
-            val itemId = UUID.randomUUID()
-            val item = makeItem(id = itemId, role = Role.WORK, tags = "feature-task")
-
-            // Schema with 3 required notes in the current (WORK) phase
-            val schemaEntries =
-                listOf(
-                    NoteSchemaEntry(key = "design-decisions", role = Role.WORK, required = true, description = "Design decisions"),
-                    NoteSchemaEntry(key = "implementation-notes", role = Role.WORK, required = true, description = "Implementation notes"),
-                    NoteSchemaEntry(key = "test-plan", role = Role.WORK, required = true, description = "Test plan")
-                )
-            every { noteSchemaService.getSchemaForTags(listOf("feature-task")) } returns schemaEntries
-
-            // Fill exactly 1 of the 3 notes with non-blank body
-            val filledNote = Note(itemId = itemId, key = "design-decisions", role = "work", body = "Chose approach A over B because of X.")
-
-            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
-            coEvery { noteRepo.findByItemId(itemId) } returns Result.Success(listOf(filledNote))
-
-            val result =
-                tool.execute(
-                    params("itemId" to JsonPrimitive(itemId.toString())),
-                    schemaContext
-                )
-
-            val data = extractData(result)
-            val noteProgress = data["noteProgress"]!!.jsonObject
-
-            assertEquals(1, noteProgress["filled"]!!.jsonPrimitive.int, "filled should be 1")
-            assertEquals(2, noteProgress["remaining"]!!.jsonPrimitive.int, "remaining should be 2")
-            assertEquals(3, noteProgress["total"]!!.jsonPrimitive.int, "total should be 3")
         }
 
     // ──────────────────────────────────────────────
@@ -1862,7 +1696,7 @@ class GetContextToolTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `session resume includes actor on recent transitions when actorClaim is set`(): Unit =
+    fun `session resume includes actorId and title on recent transitions when actorClaim is set`(): Unit =
         runBlocking {
             val since = Instant.now().minusSeconds(3600)
             val itemId = UUID.randomUUID()
@@ -1882,6 +1716,9 @@ class GetContextToolTest {
             coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns Result.Success(emptyList())
             coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns Result.Success(emptyList())
             coEvery { roleTransitionRepo.findSince(any(), any()) } returns Result.Success(listOf(transition))
+            // Titles for transition items are resolved via findByIds.
+            coEvery { workItemRepo.findByIds(setOf(itemId)) } returns
+                Result.Success(listOf(makeItem(id = itemId, title = "Started Task", role = Role.WORK)))
 
             val result =
                 tool.execute(
@@ -1897,26 +1734,19 @@ class GetContextToolTest {
 
             val t = recentTransitions[0].jsonObject
             assertEquals(itemId.toString(), t["itemId"]!!.jsonPrimitive.content)
+            assertEquals("Started Task", t["title"]!!.jsonPrimitive.content)
             assertEquals("queue", t["fromRole"]!!.jsonPrimitive.content)
             assertEquals("work", t["toRole"]!!.jsonPrimitive.content)
 
-            // Actor should be present
-            assertTrue(t.containsKey("actor"), "actor field should be present when actorClaim is set")
-            val actorObj = t["actor"]!!.jsonObject
-            assertEquals("orch-1", actorObj["id"]!!.jsonPrimitive.content)
-            assertEquals("orchestrator", actorObj["kind"]!!.jsonPrimitive.content)
-            assertFalse(actorObj.containsKey("parent"), "parent should be absent when null")
-            assertFalse(actorObj.containsKey("proof"), "proof should be absent when null")
-
-            // Verification should be present
-            assertTrue(t.containsKey("verification"), "verification field should be present")
-            val verObj = t["verification"]!!.jsonObject
-            assertEquals("unchecked", verObj["status"]!!.jsonPrimitive.content)
-            assertEquals("noop", verObj["verifier"]!!.jsonPrimitive.content)
+            // Lean shape: actorId string (not a full actor object); verification + trigger echoes dropped.
+            assertEquals("orch-1", t["actorId"]!!.jsonPrimitive.content)
+            assertFalse(t.containsKey("actor"), "full actor object replaced by actorId")
+            assertFalse(t.containsKey("verification"), "verification dropped from lean transition entry")
+            assertFalse(t.containsKey("trigger"), "trigger dropped from lean transition entry")
         }
 
     @Test
-    fun `session resume transition without actor has no actor field`(): Unit =
+    fun `session resume transition without actor has no actorId field but keeps title`(): Unit =
         runBlocking {
             val since = Instant.now().minusSeconds(3600)
             val itemId = UUID.randomUUID()
@@ -1934,6 +1764,8 @@ class GetContextToolTest {
             coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns Result.Success(emptyList())
             coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns Result.Success(emptyList())
             coEvery { roleTransitionRepo.findSince(any(), any()) } returns Result.Success(listOf(transition))
+            coEvery { workItemRepo.findByIds(setOf(itemId)) } returns
+                Result.Success(listOf(makeItem(id = itemId, title = "Completed Task", role = Role.TERMINAL)))
 
             val result =
                 tool.execute(
@@ -1947,8 +1779,10 @@ class GetContextToolTest {
 
             val t = recentTransitions[0].jsonObject
             assertEquals(itemId.toString(), t["itemId"]!!.jsonPrimitive.content)
+            assertEquals("Completed Task", t["title"]!!.jsonPrimitive.content)
+            assertFalse(t.containsKey("actorId"), "actorId should be absent when actorClaim is null")
             assertFalse(t.containsKey("actor"), "actor field should be absent when actorClaim is null")
-            assertFalse(t.containsKey("verification"), "verification field should be absent when verification is null")
+            assertFalse(t.containsKey("verification"), "verification field should be absent")
         }
 
     // ──────────────────────────────────────────────

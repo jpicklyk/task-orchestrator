@@ -135,9 +135,12 @@ class AdvanceItemToolTest {
 
             val r = results[0].jsonObject
             assertTrue(r["applied"]!!.jsonPrimitive.boolean)
-            assertEquals("queue", r["previousRole"]!!.jsonPrimitive.content)
             assertEquals("work", r["newRole"]!!.jsonPrimitive.content)
-            assertEquals("start", r["trigger"]!!.jsonPrimitive.content)
+            // previousRole + trigger echoes dropped; empty cascadeEvents/unblockedItems omitted.
+            assertNull(r["previousRole"], "previousRole echo dropped from per-transition result")
+            assertNull(r["trigger"], "trigger echo dropped from per-transition result")
+            assertNull(r["cascadeEvents"], "empty cascadeEvents should be omitted")
+            assertNull(r["unblockedItems"], "empty unblockedItems should be omitted")
 
             val summary = extractSummary(result)
             assertEquals(1, summary["total"]!!.jsonPrimitive.int)
@@ -167,7 +170,6 @@ class AdvanceItemToolTest {
             val results = extractResults(result)
             val r = results[0].jsonObject
             assertTrue(r["applied"]!!.jsonPrimitive.boolean)
-            assertEquals("queue", r["previousRole"]!!.jsonPrimitive.content)
             assertEquals("terminal", r["newRole"]!!.jsonPrimitive.content)
         }
 
@@ -193,7 +195,6 @@ class AdvanceItemToolTest {
             val results = extractResults(result)
             val r = results[0].jsonObject
             assertTrue(r["applied"]!!.jsonPrimitive.boolean)
-            assertEquals("work", r["previousRole"]!!.jsonPrimitive.content)
             assertEquals("blocked", r["newRole"]!!.jsonPrimitive.content)
         }
 
@@ -219,7 +220,6 @@ class AdvanceItemToolTest {
             val results = extractResults(result)
             val r = results[0].jsonObject
             assertTrue(r["applied"]!!.jsonPrimitive.boolean)
-            assertEquals("blocked", r["previousRole"]!!.jsonPrimitive.content)
             assertEquals("work", r["newRole"]!!.jsonPrimitive.content)
         }
 
@@ -247,8 +247,8 @@ class AdvanceItemToolTest {
             assertTrue(r["applied"]!!.jsonPrimitive.boolean)
             assertEquals("terminal", r["newRole"]!!.jsonPrimitive.content)
             // The statusLabel is set on the persisted item, not directly in the result JSON.
-            // But we can verify it reached TERMINAL, which is the cancel behavior.
-            assertEquals("work", r["previousRole"]!!.jsonPrimitive.content)
+            // previousRole echo dropped; reaching TERMINAL is the observable cancel behavior.
+            assertNull(r["previousRole"], "previousRole echo dropped from per-transition result")
         }
 
     // ──────────────────────────────────────────────
@@ -722,10 +722,9 @@ class AdvanceItemToolTest {
             assertEquals(downstreamId.toString(), unblockedItems[0].jsonObject["itemId"]!!.jsonPrimitive.content)
             assertEquals("Downstream Task", unblockedItems[0].jsonObject["title"]!!.jsonPrimitive.content)
 
-            // Also check allUnblockedItems in the top-level data
+            // Top-level allUnblockedItems aggregate was dropped (derivable from per-transition unblockedItems).
             val data = extractData(result)
-            val allUnblocked = data["allUnblockedItems"]!!.jsonArray
-            assertEquals(1, allUnblocked.size)
+            assertNull(data["allUnblockedItems"], "top-level allUnblockedItems aggregate dropped")
         }
 
     // ──────────────────────────────────────────────
@@ -840,7 +839,6 @@ class AdvanceItemToolTest {
             val results = extractResults(result)
             val r = results[0].jsonObject
             assertTrue(r["applied"]!!.jsonPrimitive.boolean)
-            assertEquals("review", r["previousRole"]!!.jsonPrimitive.content)
             assertEquals("blocked", r["newRole"]!!.jsonPrimitive.content)
         }
 
@@ -1365,8 +1363,8 @@ class AdvanceItemToolTest {
             val first = results[0].jsonObject
 
             assertEquals(true, first["applied"]?.jsonPrimitive?.boolean)
-            assertEquals("terminal", first["previousRole"]?.jsonPrimitive?.content)
             assertEquals("queue", first["newRole"]?.jsonPrimitive?.content)
+            assertNull(first["previousRole"], "previousRole echo dropped from per-transition result")
         }
 
     @Test
@@ -2892,7 +2890,6 @@ class AdvanceItemToolTest {
                 "Claim holder should be able to block a claimed item: ${results[0]}"
             )
             assertEquals("blocked", results[0].jsonObject["newRole"]!!.jsonPrimitive.content)
-            assertEquals("work", results[0].jsonObject["previousRole"]!!.jsonPrimitive.content)
         }
 
     @Test
@@ -2916,7 +2913,6 @@ class AdvanceItemToolTest {
                 "Claim holder should be able to hold a claimed item: ${results[0]}"
             )
             assertEquals("blocked", results[0].jsonObject["newRole"]!!.jsonPrimitive.content)
-            assertEquals("work", results[0].jsonObject["previousRole"]!!.jsonPrimitive.content)
         }
 
     @Test

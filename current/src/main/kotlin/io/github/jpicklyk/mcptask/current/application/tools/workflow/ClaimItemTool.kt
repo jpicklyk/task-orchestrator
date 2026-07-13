@@ -129,10 +129,11 @@ Releases array (`releases`) continues to support N entries — only `claims` is 
   ],
   "releaseResults": [
     { "itemId": "uuid", "outcome": "success" }
-  ],
-  "summary": { "claimsTotal": 1, "claimsSucceeded": 1, "claimsFailed": 0, "releasesTotal": 0, "releasesSucceeded": 0, "releasesFailed": 0 }
+  ]
 }
 ```
+`originalClaimedAt` is omitted when it equals `claimedAt` (a fresh claim with no prior claim to preserve).
+No `summary` block is returned — counts are derivable from the two result arrays.
         """.trimIndent()
 
     override val category = ToolCategory.WORKFLOW
@@ -563,8 +564,9 @@ Releases array (`releases`) continues to support N entries — only `claims` is 
                                         put("claimedBy", JsonPrimitive(item.claimedBy ?: trustedAgentId))
                                         item.claimedAt?.let { put("claimedAt", JsonPrimitive(it.toString())) }
                                         item.claimExpiresAt?.let { put("claimExpiresAt", JsonPrimitive(it.toString())) }
+                                        // Omit originalClaimedAt when it equals claimedAt (fresh claim — no prior claim to preserve).
                                         item.originalClaimedAt?.let {
-                                            put("originalClaimedAt", JsonPrimitive(it.toString()))
+                                            if (it != item.claimedAt) put("originalClaimedAt", JsonPrimitive(it.toString()))
                                         }
                                     }
                                 )
@@ -693,8 +695,9 @@ Releases array (`releases`) continues to support N entries — only `claims` is 
                                 put("claimedBy", JsonPrimitive(item.claimedBy ?: trustedAgentId))
                                 item.claimedAt?.let { put("claimedAt", JsonPrimitive(it.toString())) }
                                 item.claimExpiresAt?.let { put("claimExpiresAt", JsonPrimitive(it.toString())) }
+                                // Omit originalClaimedAt when it equals claimedAt (fresh claim — no prior claim to preserve).
                                 item.originalClaimedAt?.let {
-                                    put("originalClaimedAt", JsonPrimitive(it.toString()))
+                                    if (it != item.claimedAt) put("originalClaimedAt", JsonPrimitive(it.toString()))
                                 }
                             }
                         )
@@ -844,21 +847,12 @@ Releases array (`releases`) continues to support N entries — only `claims` is 
             }
         }
 
+        // Summary counters dropped: every count is derivable from claimResults/releaseResults
+        // (total = array size; succeeded = count of outcome=="success"; failed = the remainder).
         val data =
             buildJsonObject {
                 put("claimResults", JsonArray(claimResultsList))
                 put("releaseResults", JsonArray(releaseResultsList))
-                put(
-                    "summary",
-                    buildJsonObject {
-                        put("claimsTotal", JsonPrimitive(claimsArray.size))
-                        put("claimsSucceeded", JsonPrimitive(claimsSucceeded))
-                        put("claimsFailed", JsonPrimitive(claimsFailed))
-                        put("releasesTotal", JsonPrimitive(releasesArray.size))
-                        put("releasesSucceeded", JsonPrimitive(releasesSucceeded))
-                        put("releasesFailed", JsonPrimitive(releasesFailed))
-                    }
-                )
             }
 
         return successResponse(data)
@@ -927,11 +921,15 @@ Releases array (`releases`) continues to support N entries — only `claims` is 
     ): String {
         if (isError) return "claim_item failed"
         val data = (result as? JsonObject)?.get("data") as? JsonObject
-        val summary = data?.get("summary") as? JsonObject
-        val claimsSucceeded = summary?.get("claimsSucceeded")?.let { (it as? JsonPrimitive)?.intOrNull } ?: 0
-        val releasesSucceeded = summary?.get("releasesSucceeded")?.let { (it as? JsonPrimitive)?.intOrNull } ?: 0
-        val claimsFailed = summary?.get("claimsFailed")?.let { (it as? JsonPrimitive)?.intOrNull } ?: 0
-        val releasesFailed = summary?.get("releasesFailed")?.let { (it as? JsonPrimitive)?.intOrNull } ?: 0
+        // Counts are derived from the result arrays — the summary block was dropped as redundant.
+        val claimResults = (data?.get("claimResults") as? JsonArray).orEmpty()
+        val releaseResults = (data?.get("releaseResults") as? JsonArray).orEmpty()
+        fun JsonElement.isSuccessOutcome(): Boolean =
+            ((this as? JsonObject)?.get("outcome") as? JsonPrimitive)?.content == "success"
+        val claimsSucceeded = claimResults.count { it.isSuccessOutcome() }
+        val claimsFailed = claimResults.size - claimsSucceeded
+        val releasesSucceeded = releaseResults.count { it.isSuccessOutcome() }
+        val releasesFailed = releaseResults.size - releasesSucceeded
         return buildString {
             if (claimsSucceeded > 0 || claimsFailed > 0) {
                 append("Claimed $claimsSucceeded")

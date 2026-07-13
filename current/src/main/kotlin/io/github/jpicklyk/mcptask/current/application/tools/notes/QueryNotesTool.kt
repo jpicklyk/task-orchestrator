@@ -39,8 +39,11 @@ Read-only query operations for Notes (get, list, search).
 **list** - List notes for a WorkItem.
 - Required: `itemId` (UUID)
 - Optional: `role` — filter by role: "queue", "work", "review"
-- Optional: `includeBody` (boolean, default true) — set false to omit body for token efficiency
-- Response: `{ notes: [...], total: N }` — each note includes `actor` and `verification` fields when attribution was provided at write time
+- Optional: `keys` (array of strings) — filter to notes with these keys
+- Optional: `includeBody` (boolean, default false) — set true to include full note bodies.
+  When bodies are omitted, each note includes `bodyLength` so you can decide what to fetch.
+- Response: `{ notes: [...], total: N }` — notes omit the `itemId` echo (you supplied it);
+  each note includes `actor` and `verification` fields when attribution was provided at write time
 
 **search** - Full-text search over note bodies via FTS5 (RRF fusion of trigram + porter tokenizer tables).
 Returns ranked hits with ~32-token snippets. Use this to find notes mentioning a specific phrase,
@@ -113,10 +116,23 @@ concept, or identifier across all note bodies.
                         }
                     )
                     put(
+                        "keys",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("array"))
+                            put("items", buildJsonObject { put("type", JsonPrimitive("string")) })
+                            put("description", JsonPrimitive("Filter list results to notes with these keys (optional)"))
+                        }
+                    )
+                    put(
                         "includeBody",
                         buildJsonObject {
                             put("type", JsonPrimitive("boolean"))
-                            put("description", JsonPrimitive("Include note body (default: true)"))
+                            put(
+                                "description",
+                                JsonPrimitive(
+                                    "Include full note bodies (default: false). When false, each note includes bodyLength instead."
+                                )
+                            )
                         }
                     )
                     // ── FTS search parameters (used when operation=search) ──
@@ -253,6 +269,18 @@ concept, or identifier across all note bodies.
                         )
                     }
                 }
+                val keysElement = (params as? JsonObject)?.get("keys")
+                if (keysElement != null) {
+                    val keysArray =
+                        keysElement as? JsonArray
+                            ?: throw ToolValidationException("keys must be an array of note-key strings")
+                    keysArray.forEachIndexed { index, element ->
+                        val prim = element as? JsonPrimitive
+                        if (prim == null || !prim.isString || prim.content.isBlank()) {
+                            throw ToolValidationException("keys[$index] must be a non-blank string")
+                        }
+                    }
+                }
             }
             "search" -> {
                 requireString(params, "query") // query is required for search
@@ -357,15 +385,25 @@ concept, or identifier across all note bodies.
         if (idError != null) return idError
         val itemId = resolvedItemId!!
         val role = optionalString(params, "role")
-        val includeBody = optionalBoolean(params, "includeBody", defaultValue = true)
+        val includeBody = optionalBoolean(params, "includeBody", defaultValue = false)
+        val keyFilter: Set<String>? =
+            ((params as? JsonObject)?.get("keys") as? JsonArray)
+                ?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+                ?.toSet()
         val noteRepo = context.noteRepository()
 
         return when (val result = noteRepo.findByItemId(itemId, role)) {
             is Result.Success -> {
-                val notes = result.data
+                val notes =
+                    if (keyFilter != null) {
+                        result.data.filter { it.key in keyFilter }
+                    } else {
+                        result.data
+                    }
                 val data =
                     buildJsonObject {
-                        put("notes", JsonArray(notes.map { it.toJson(includeBody) }))
+                        // itemId echo omitted per note — the caller supplied it for this list.
+                        put("notes", JsonArray(notes.map { it.toJson(includeBody = includeBody, includeItemId = false) }))
                         put("total", JsonPrimitive(notes.size))
                     }
                 successResponse(data)
