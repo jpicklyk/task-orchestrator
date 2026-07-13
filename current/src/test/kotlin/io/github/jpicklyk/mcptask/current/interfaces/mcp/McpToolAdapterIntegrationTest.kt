@@ -1,5 +1,9 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
+import ch.qos.logback.classic.Level
+import ch.qos.logback.classic.Logger
+import ch.qos.logback.classic.spi.ILoggingEvent
+import ch.qos.logback.core.read.ListAppender
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.model.ErrorKind
 import io.github.jpicklyk.mcptask.current.domain.model.ToolError
@@ -14,6 +18,7 @@ import kotlinx.serialization.json.*
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.slf4j.LoggerFactory
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -505,5 +510,97 @@ class McpToolAdapterIntegrationTest {
             assertEquals("structured", structured["echoed"]?.jsonPrimitive?.content)
             assertTrue("error" !in structured.keys, "Success structuredContent must not contain an error object")
             assertTrue("success" !in structured.keys, "Success structuredContent must stay unwrapped (no envelope)")
+        }
+
+    // ──────────────────────────────────────────────
+    // Response-size telemetry (t63): one INFO log line per tool call, naming the tool,
+    // success/error, and a response char count — no argument or response bodies.
+    // ──────────────────────────────────────────────
+
+    /** Attaches a Logback ListAppender to McpToolAdapter's logger, runs [block], then detaches it. */
+    private fun captureAdapterLogs(block: () -> Unit): List<ILoggingEvent> {
+        val logbackLogger = LoggerFactory.getLogger(McpToolAdapter::class.java) as Logger
+        val listAppender =
+            ListAppender<ILoggingEvent>().also {
+                it.start()
+                logbackLogger.addAppender(it)
+            }
+        val savedLevel = logbackLogger.level
+        logbackLogger.level = Level.INFO
+        try {
+            block()
+            return listAppender.list.toList()
+        } finally {
+            logbackLogger.detachAppender(listAppender)
+            logbackLogger.level = savedLevel
+        }
+    }
+
+    @Test
+    fun `successful call logs one INFO response-size line naming the tool and a char count`(): Unit =
+        runBlocking {
+            adapter.registerToolWithServer(server, echoTool(), dummyContext)
+
+            var result: CallToolResult? = null
+            val events =
+                captureAdapterLogs {
+                    result =
+                        runBlocking {
+                            client.callTool(name = "echo", arguments = mapOf("message" to "hello world"))
+                        }
+                }
+
+            val infoEvents = events.filter { it.level == Level.INFO && it.formattedMessage.contains("tool call") }
+            assertEquals(1, infoEvents.size, "Expected exactly one tool-call telemetry line, got: ${events.map { it.formattedMessage }}")
+            val line = infoEvents[0].formattedMessage
+            assertTrue(line.contains("echo"), "Telemetry line should name the tool: $line")
+            assertTrue(line.contains("success=true"), "Telemetry line should report success=true: $line")
+
+            // The logged char count must match text content + structuredContent, exactly what
+            // McpToolAdapter actually returned to the client — no separate re-derivation.
+            val textLen = result!!.content.filterIsInstance<TextContent>().sumOf { it.text.length }
+            val structuredLen = result!!.structuredContent?.toString()?.length ?: 0
+            val expectedChars = textLen + structuredLen
+            assertTrue(
+                line.contains("responseChars=$expectedChars"),
+                "Telemetry line should report responseChars=$expectedChars (text=$textLen + structuredContent=$structuredLen): $line"
+            )
+
+            // No argument or response bodies leak into the log line.
+            assertTrue(!line.contains("hello world"), "Telemetry must not log argument bodies: $line")
+        }
+
+    @Test
+    fun `validation error call logs one INFO response-size line with success=false`(): Unit =
+        runBlocking {
+            adapter.registerToolWithServer(server, echoTool(), dummyContext)
+
+            val events =
+                captureAdapterLogs {
+                    runBlocking { client.callTool(name = "echo", arguments = emptyMap()) }
+                }
+
+            val infoEvents = events.filter { it.level == Level.INFO && it.formattedMessage.contains("tool call") }
+            assertEquals(1, infoEvents.size, "Expected exactly one tool-call telemetry line, got: ${events.map { it.formattedMessage }}")
+            val line = infoEvents[0].formattedMessage
+            assertTrue(line.contains("echo"), "Telemetry line should name the tool: $line")
+            assertTrue(line.contains("success=false"), "Telemetry line should report success=false: $line")
+        }
+
+    @Test
+    fun `internal error call logs one INFO response-size line with success=false`(): Unit =
+        runBlocking {
+            adapter.registerToolWithServer(server, failingTool(), dummyContext)
+
+            val events =
+                captureAdapterLogs {
+                    runBlocking { client.callTool(name = "failing_tool", arguments = emptyMap()) }
+                }
+
+            val infoEvents = events.filter { it.level == Level.INFO && it.formattedMessage.contains("tool call") }
+            assertEquals(1, infoEvents.size, "Expected exactly one tool-call telemetry line, got: ${events.map { it.formattedMessage }}")
+            val line = infoEvents[0].formattedMessage
+            assertTrue(line.contains("failing_tool"), "Telemetry line should name the tool: $line")
+            assertTrue(line.contains("success=false"), "Telemetry line should report success=false: $line")
         }
 }
