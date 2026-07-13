@@ -62,7 +62,11 @@ class YamlWorkItemSchemaService(
         val schemas: Map<String, List<NoteSchemaEntry>>,
         val workItemSchemas: Map<String, WorkItemSchema>,
         val traits: Map<String, List<NoteSchemaEntry>>,
-        val warnings: MutableList<String>
+        val warnings: MutableList<String>,
+        // Mirrors the companion's DEFAULT_NOTE_LIMITS_MODE constant ("warn") — kept as a literal
+        // here since a nested class default parameter cannot forward-reference the outer
+        // companion object during initialization.
+        val noteLimitsMode: String = "warn"
     )
 
     /** Lazily loaded schema cache and warnings. Initialized once on first access. */
@@ -108,6 +112,13 @@ class YamlWorkItemSchemaService(
     override fun getAllTraits(): Map<String, List<NoteSchemaEntry>> = traitDefs
 
     /**
+     * Returns the configured `note_limits.mode` ("warn" or "reject"), defaulting to "warn"
+     * when the config file is absent, the `note_limits` block is absent, or the value is
+     * invalid (a load warning is recorded in the latter case — see [parseNoteLimitsMode]).
+     */
+    override fun getNoteLimitsMode(): String = loadResult.noteLimitsMode
+
+    /**
      * Returns a SHA-256 fingerprint of the config file bytes, or
      * `"${lastModified}-${size}"` if reading the file fails.
      * Returns `null` when no config file is present.
@@ -144,17 +155,18 @@ class YamlWorkItemSchemaService(
                         ?: return@use SchemaLoadResult(emptyMap(), emptyMap(), emptyMap(), warnings)
 
                 val parsedTraits = parseTraits(root, warnings)
+                val parsedNoteLimitsMode = parseNoteLimitsMode(root, warnings)
 
                 when {
                     root.containsKey("work_item_schemas") -> {
-                        parseWorkItemSchemas(root, warnings).copy(traits = parsedTraits)
+                        parseWorkItemSchemas(root, warnings).copy(traits = parsedTraits, noteLimitsMode = parsedNoteLimitsMode)
                     }
                     root.containsKey("note_schemas") -> {
-                        parseLegacyNoteSchemas(root, warnings).copy(traits = parsedTraits)
+                        parseLegacyNoteSchemas(root, warnings).copy(traits = parsedTraits, noteLimitsMode = parsedNoteLimitsMode)
                     }
                     else -> {
                         warnings.add("Config file is missing 'note_schemas' key; no schemas loaded")
-                        SchemaLoadResult(emptyMap(), emptyMap(), parsedTraits, warnings)
+                        SchemaLoadResult(emptyMap(), emptyMap(), parsedTraits, warnings, parsedNoteLimitsMode)
                     }
                 }
             }
@@ -319,6 +331,18 @@ class YamlWorkItemSchemaService(
         val description = raw["description"] as? String ?: ""
         val guidance = raw["guidance"] as? String
         val skill = raw["skill"] as? String
+
+        val maxLengthRaw = raw["maxLength"]
+        val maxLength =
+            if (maxLengthRaw != null && maxLengthRaw !is Number) {
+                warnings.add(
+                    "Schema '$schemaName' entry (key='$key') has non-numeric 'maxLength' value '$maxLengthRaw'; ignoring"
+                )
+                null
+            } else {
+                (maxLengthRaw as? Number)?.toInt()
+            }
+
         return NoteSchemaEntry(
             key = key,
             role = parsedRole,
@@ -326,7 +350,30 @@ class YamlWorkItemSchemaService(
             description = description,
             guidance = guidance,
             skill = skill,
+            maxLength = maxLength,
         )
+    }
+
+    /**
+     * Parses the top-level `note_limits.mode` key, defaulting to [DEFAULT_NOTE_LIMITS_MODE]
+     * ("warn") when the block is absent or the value is not one of [VALID_NOTE_LIMITS_MODES].
+     * An invalid (non-empty, unrecognized) value is recorded as a load warning.
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun parseNoteLimitsMode(
+        root: Map<String, Any>,
+        warnings: MutableList<String>
+    ): String {
+        val noteLimits = root["note_limits"] as? Map<String, Any> ?: return DEFAULT_NOTE_LIMITS_MODE
+        val modeRaw = noteLimits["mode"] as? String ?: return DEFAULT_NOTE_LIMITS_MODE
+        if (modeRaw !in VALID_NOTE_LIMITS_MODES) {
+            warnings.add(
+                "Invalid note_limits.mode value '$modeRaw'; defaulting to '$DEFAULT_NOTE_LIMITS_MODE' " +
+                    "(valid: $VALID_NOTE_LIMITS_MODES)"
+            )
+            return DEFAULT_NOTE_LIMITS_MODE
+        }
+        return modeRaw
     }
 
     companion object {
@@ -336,6 +383,12 @@ class YamlWorkItemSchemaService(
                 "work" to Role.WORK,
                 "review" to Role.REVIEW,
             )
+
+        /** Default `note_limits.mode` when unconfigured: accept notes over maxLength, just warn. */
+        const val DEFAULT_NOTE_LIMITS_MODE = "warn"
+
+        /** Recognized `note_limits.mode` values. */
+        private val VALID_NOTE_LIMITS_MODES = setOf("warn", "reject")
 
         fun resolveDefaultConfigPath(): java.nio.file.Path {
             val projectRoot =

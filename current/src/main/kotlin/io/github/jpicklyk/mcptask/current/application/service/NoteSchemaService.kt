@@ -109,6 +109,16 @@ interface WorkItemSchemaService {
      * Default implementation returns `null`.
      */
     fun getConfigFingerprint(): String? = null
+
+    /**
+     * Returns the configured note-length enforcement mode for `manage_notes` upsert:
+     * `"warn"` (accept the note, attach a warning field naming the limit and actual size) or
+     * `"reject"` (fail that note with a structured error).
+     *
+     * Declared via the top-level `note_limits.mode` key in `.taskorchestrator/config.yaml`.
+     * Default implementation returns `"warn"` (schema-free / unconfigured mode).
+     */
+    fun getNoteLimitsMode(): String = "warn"
 }
 
 /**

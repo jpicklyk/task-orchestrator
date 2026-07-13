@@ -102,7 +102,7 @@ Operations: get, search, overview, schema
 - Default limit: 20 root items
 - includeChildren (boolean, default false): When true (global overview only), each root item includes a `children` array of its direct child items
 
-**schema** - Full note schema (descriptions + guidance) by `type` or `itemId` (exactly one). Returns { type, configFingerprint, notes: [{key, role, required, description, guidance?, skill?}] }. Use this to resolve keys-only expectedNotes / guidanceKey references.
+**schema** - Full note schema (descriptions + guidance) by `type` or `itemId` (exactly one). Returns { type, configFingerprint, notes: [{key, role, required, description, guidance?, skill?, maxLength?}] }. `maxLength`, when present, is the max note body length (chars) enforced by `manage_notes` upsert. Use this to resolve keys-only expectedNotes / guidanceKey references.
         """.trimIndent()
 
     override val category = ToolCategory.ITEM_MANAGEMENT
@@ -565,16 +565,16 @@ Operations: get, search, overview, schema
     // ──────────────────────────────────────────────
 
     /**
-     * Returns the FULL note schema (description + guidance + skill per entry) for a work-item
-     * type or a specific item. This is the reference target for the keys-only `expectedNotes`
-     * and `guidanceKey` fields emitted elsewhere.
+     * Returns the FULL note schema (description + guidance + skill + maxLength per entry) for a
+     * work-item type or a specific item. This is the reference target for the keys-only
+     * `expectedNotes` and `guidanceKey` fields emitted elsewhere.
      *
      * - `type`: direct lookup via [NoteSchemaService.getSchemaForType] (base schema as configured;
      *   no per-item trait merging since there is no item).
      * - `itemId`: resolves the item, then uses the standard resolution logic
      *   ([ToolExecutionContext.resolveSchema]: type-first, tag fallback, trait merging).
      *
-     * Response: `{ type, configFingerprint, notes: [{key, role, required, description, guidance?, skill?}] }`.
+     * Response: `{ type, configFingerprint, notes: [{key, role, required, description, guidance?, skill?, maxLength?}] }`.
      */
     private suspend fun executeSchema(
         params: JsonElement,

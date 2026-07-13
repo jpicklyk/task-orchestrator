@@ -61,10 +61,13 @@ fun buildExpectedNotesJson(
 }
 
 /**
- * Build the FULL schema-entry JSON array: {key, role, required, description, guidance?, skill?}.
+ * Build the FULL schema-entry JSON array: {key, role, required, description, guidance?, skill?, maxLength?}.
  *
  * This is the reference target for the keys-only default above. Used by the `query_items`
  * operation "schema" (get_schema), which is the one place agents fetch complete schema text.
+ *
+ * `maxLength` is included only when set on the entry — it is NOT part of the keys-only
+ * default shape produced by [buildExpectedNotesJson].
  */
 fun buildFullSchemaEntriesJson(entries: List<NoteSchemaEntry>): JsonArray =
     JsonArray(
@@ -76,6 +79,7 @@ fun buildFullSchemaEntriesJson(entries: List<NoteSchemaEntry>): JsonArray =
                 put("description", JsonPrimitive(entry.description))
                 entry.guidance?.let { put("guidance", JsonPrimitive(it)) }
                 entry.skill?.let { put("skill", JsonPrimitive(it)) }
+                entry.maxLength?.let { put("maxLength", JsonPrimitive(it)) }
             }
         }
     )

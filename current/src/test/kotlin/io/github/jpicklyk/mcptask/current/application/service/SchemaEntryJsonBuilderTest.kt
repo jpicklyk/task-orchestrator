@@ -365,4 +365,50 @@ class SchemaEntryJsonBuilderTest {
     fun `buildFullSchemaEntriesJson with empty list returns empty array`() {
         assertEquals(0, buildFullSchemaEntriesJson(emptyList()).size)
     }
+
+    // ──────────────────────────────────────────────
+    // t45: maxLength serialization
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `buildFullSchemaEntriesJson includes maxLength when set`() {
+        val entries =
+            listOf(
+                NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, description = "Spec", maxLength = 500)
+            )
+
+        val result = buildFullSchemaEntriesJson(entries)
+
+        assertEquals(1, result.size)
+        val entry = result[0].jsonObject
+        assertEquals(500, entry["maxLength"]!!.jsonPrimitive.int)
+    }
+
+    @Test
+    fun `buildFullSchemaEntriesJson omits maxLength when absent`() {
+        val entries =
+            listOf(
+                NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, description = "Spec")
+            )
+
+        val result = buildFullSchemaEntriesJson(entries)
+
+        assertEquals(1, result.size)
+        assertFalse(result[0].jsonObject.containsKey("maxLength"), "maxLength should be absent when null")
+    }
+
+    @Test
+    fun `buildExpectedNotesJson keys-only shape never includes maxLength even when set`() {
+        val schema =
+            listOf(
+                NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, description = "Spec", maxLength = 500)
+            )
+
+        val result = buildExpectedNotesJson(schema = schema)
+
+        assertEquals(1, result.size)
+        val entry = result[0].jsonObject
+        assertFalse(entry.containsKey("maxLength"), "maxLength must be absent from keys-only default shape")
+        assertEquals(setOf("key", "role", "required", "exists"), entry.keys)
+    }
 }

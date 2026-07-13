@@ -1522,6 +1522,53 @@ class QueryItemsToolTest {
         }
 
     @Test
+    fun `schema operation includes maxLength when set on an entry`(): Unit =
+        runBlocking {
+            val entries =
+                listOf(
+                    NoteSchemaEntry(
+                        key = "acceptance-criteria",
+                        role = Role.QUEUE,
+                        required = true,
+                        description = "Acceptance criteria",
+                        maxLength = 500
+                    ),
+                    NoteSchemaEntry(
+                        key = "implementation-notes",
+                        role = Role.WORK,
+                        required = false,
+                        description = "Implementation notes"
+                        // no maxLength
+                    )
+                )
+            val schema = WorkItemSchema(type = "limited-task", notes = entries)
+            val schemaService =
+                object : NoteSchemaService {
+                    override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? = null
+
+                    override fun getSchemaForType(type: String?): WorkItemSchema? = if (type == "limited-task") schema else null
+                }
+            val schemaContext = ToolExecutionContext(repositoryProvider, schemaService)
+
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("schema"),
+                        "type" to JsonPrimitive("limited-task")
+                    ),
+                    schemaContext
+                ) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val notes = ((result["data"] as JsonObject)["notes"] as JsonArray)
+            val withLimit = notes[0].jsonObject
+            assertEquals(500, withLimit["maxLength"]!!.jsonPrimitive.int)
+
+            val withoutLimit = notes[1].jsonObject
+            assertFalse(withoutLimit.containsKey("maxLength"), "maxLength absent when not configured on the entry")
+        }
+
+    @Test
     fun `schema operation requires exactly one of type or itemId`() {
         assertFailsWith<ToolValidationException> {
             tool.validateParams(params("operation" to JsonPrimitive("schema")))
