@@ -229,7 +229,9 @@ snippets, filtered list search, or hierarchical overview.
 | `operation` | string | Yes | `"overview"` |
 | `itemId` | string (UUID) | No | Scope overview to a specific item; omit for global root overview |
 | `includeChildren` | boolean | No | Include direct children on each root item (global mode only, default: false) |
-| `limit` | integer | No | Max root items (default: 20) |
+| `limit` | integer | No | Max root items (default: 50; global mode only) |
+| `offset` | integer | No | Skip N root items for pagination (default: 0; global mode only — scoped overview always returns all direct children, unpaginated) |
+| `excludeTerminal` | boolean | No | Default false. Global mode: drop terminal-role roots from `items` before their children/counts are even fetched, and `total`/`truncated` reflect the filtered set. Scoped mode: drop terminal-role items from `children` only — the parent is always returned regardless of its own role, and `childCounts` stays unfiltered. |
 
 **Examples.**
 
@@ -327,11 +329,13 @@ When `claimStatus` filter is provided, each result item includes an additional `
 }
 ```
 
-Scoped overview returns the full item JSON in `item`, a count per role in `childCounts`, and a minimal JSON list of direct children in `children` (using `toMinimalJson` fields). Note: scoped overview children do not include `childCounts` or `traits`.
+Scoped overview returns the full item JSON in `item`, a count per role in `childCounts`, and a minimal JSON list of direct children in `children` (using `toMinimalJson` fields, each also enriched with its own `childCounts` and optional `traits` — same enrichment as global-mode `includeChildren`). `childCounts` on the parent is always the full, unfiltered role breakdown, even when `excludeTerminal` hides some of those children from the `children` array below it.
 
 **Response (overview — global mode, no `itemId`).**
 
-Global overview returns root items with the same minimal fields as search, plus `childCounts`, optional `traits`, and `claimSummary` per root item. When `includeChildren` is true, each root includes a `children` array where each child has the minimal fields plus its own `childCounts` and optional `traits`. Root items are ordered newest-`createdAt`-first. `limit` defaults to 50 (same default as list-mode search).
+Global overview returns root items with the same minimal fields as search, plus `childCounts`, optional `traits`, and `claimSummary` per root item. When `includeChildren` is true, each root includes a `children` array where each child has the minimal fields plus its own `childCounts` and optional `traits`. Root items are ordered newest-`createdAt`-first (ties broken by `id` for stable pagination). `limit` defaults to 50 (same default as list-mode search); `offset` pages through roots beyond the first page, same convention as list-mode search.
+
+When `excludeTerminal` is true, terminal-role roots are filtered at the SQL level before pagination — they never appear in `items`, their `children`/`childCounts`/`claimSummary` are never fetched, and `total`/`truncated` are computed against the filtered (non-terminal) set rather than the unconditional root count.
 
 ```json
 {
@@ -353,13 +357,14 @@ Global overview returns root items with the same minimal fields as search, plus 
   ],
   "total": 55,
   "truncated": true,
+  "offset": 0,
   "skipped": 1
 }
 ```
 
 Nullable fields (`parentId`, `statusLabel`, `tags`, `type`) are omitted when null. `traits` is omitted when the item has no traits (never an empty array). `children` is only present when `includeChildren` is true.
 
-`total` is the **true count of all root items** in the database (via a dedicated `COUNT` query), independent of `limit` and of any validation drops — **not** the size of the `items` array. `truncated` is `true` when `items.length < total` for **any** reason — pagination (`total > limit`) or validation drops — which is broader than FTS search's `truncated` (that flag fires only at the FTS hit cap); use `skipped` to disambiguate the cause. `skipped` is present only when > 0: it counts root rows within this page's window that failed domain validation and were dropped rather than returned; a WARN log identifies the row so it can be repaired.
+`total` is the **true count of matching root items** (via a dedicated `COUNT` query) — the unconditional root count when `excludeTerminal` is false/omitted, or the count of non-terminal roots when `excludeTerminal` is true. Either way it is independent of `limit`/`offset` and of any validation drops, and is **not** the size of the `items` array. `offset` echoes the request's `offset` (0 if omitted). `truncated` is `true` when `offset + items.length < total` for **any** reason — more pages remain, or validation drops shrank this page — which is broader than FTS search's `truncated` (that flag fires only at the FTS hit cap); use `skipped` to disambiguate the cause. `skipped` is present only when > 0: it counts root rows within this page's window that failed domain validation and were dropped rather than returned; a WARN log identifies the row so it can be repaired.
 
 `claimSummary` counts are scoped to the direct children of each root item. `active` = live non-expired claims; `expired` = claims past TTL; `unclaimed` = items with no claim record. `claimedBy` identity is never included at this level.
 

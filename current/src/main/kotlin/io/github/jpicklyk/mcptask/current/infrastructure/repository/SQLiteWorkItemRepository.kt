@@ -34,6 +34,7 @@ import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.core.java.UUIDColumnType
 import org.jetbrains.exposed.v1.core.lessEq
 import org.jetbrains.exposed.v1.core.like
+import org.jetbrains.exposed.v1.core.neq
 import org.jetbrains.exposed.v1.core.or
 import org.jetbrains.exposed.v1.core.vendors.H2Dialect
 import org.jetbrains.exposed.v1.core.vendors.currentDialect
@@ -530,16 +531,20 @@ class SQLiteWorkItemRepository(
     override suspend fun findRootItems(
         limit: Int,
         offset: Int,
+        excludeTerminal: Boolean,
     ): Result<ItemFetchResult> =
         databaseManager.suspendedTransaction("Failed to find root items") {
             // Ordered newest-first for deterministic, dashboard-relevant pagination — previously
             // relied on SQLite's unordered natural (oldest-first) row order, which meant the
-            // oldest `limit` roots were always returned regardless of how many existed.
+            // oldest `limit` roots were always returned regardless of how many existed. `id` is a
+            // secondary sort key so rows sharing a `createdAt` millisecond still get a stable,
+            // total order — required for offset-based paging to return disjoint pages.
             val rows =
                 WorkItemsTable
                     .selectAll()
-                    .where { WorkItemsTable.parentId.isNull() }
+                    .where { rootItemsCondition(excludeTerminal) }
                     .orderBy(WorkItemsTable.createdAt, SortOrder.DESC)
+                    .orderBy(WorkItemsTable.id, SortOrder.ASC)
                     .limit(limit)
                     .offset(offset.coerceAtLeast(0).toLong())
                     .toList()
@@ -547,10 +552,16 @@ class SQLiteWorkItemRepository(
             Result.Success(ItemFetchResult(items, skipped = rows.size - items.size))
         }
 
-    override suspend fun countRootItems(): Result<Long> =
+    override suspend fun countRootItems(excludeTerminal: Boolean): Result<Long> =
         databaseManager.suspendedTransaction("Failed to count root items") {
-            Result.Success(WorkItemsTable.selectAll().where { WorkItemsTable.parentId.isNull() }.count())
+            Result.Success(WorkItemsTable.selectAll().where { rootItemsCondition(excludeTerminal) }.count())
         }
+
+    /** Shared WHERE condition for root-item queries: `parentId IS NULL`, optionally excluding terminal-role rows. */
+    private fun rootItemsCondition(excludeTerminal: Boolean): Op<Boolean> {
+        val isRoot = WorkItemsTable.parentId.isNull()
+        return if (excludeTerminal) isRoot and (WorkItemsTable.role neq Role.TERMINAL.name.lowercase()) else isRoot
+    }
 
     override suspend fun findDescendants(id: UUID): Result<List<WorkItem>> =
         try {
