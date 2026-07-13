@@ -359,7 +359,7 @@ Global overview returns root items with the same minimal fields as search, plus 
 
 Nullable fields (`parentId`, `statusLabel`, `tags`, `type`) are omitted when null. `traits` is omitted when the item has no traits (never an empty array). `children` is only present when `includeChildren` is true.
 
-`total` is the **true count of all root items** in the database (via a dedicated `COUNT` query), independent of `limit` and of any validation drops — **not** the size of the `items` array. `truncated` is `true` when `items.length < total` (mirrors the `totalHits`/`truncated` convention used by FTS search — see `query_items.search`). `skipped` is present only when > 0: it counts root rows within this page's window that failed domain validation and were dropped rather than returned; a WARN log identifies the row so it can be repaired.
+`total` is the **true count of all root items** in the database (via a dedicated `COUNT` query), independent of `limit` and of any validation drops — **not** the size of the `items` array. `truncated` is `true` when `items.length < total` for **any** reason — pagination (`total > limit`) or validation drops — which is broader than FTS search's `truncated` (that flag fires only at the FTS hit cap); use `skipped` to disambiguate the cause. `skipped` is present only when > 0: it counts root rows within this page's window that failed domain validation and were dropped rather than returned; a WARN log identifies the row so it can be repaired.
 
 `claimSummary` counts are scoped to the direct children of each root item. `active` = live non-expired claims; `expired` = claims past TTL; `unclaimed` = items with no claim record. `claimedBy` identity is never included at this level.
 
