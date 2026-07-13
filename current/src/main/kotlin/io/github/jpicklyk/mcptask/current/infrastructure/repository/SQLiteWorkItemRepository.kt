@@ -527,7 +527,10 @@ class SQLiteWorkItemRepository(
             Result.Success(counts)
         }
 
-    override suspend fun findRootItems(limit: Int): Result<ItemFetchResult> =
+    override suspend fun findRootItems(
+        limit: Int,
+        offset: Int,
+    ): Result<ItemFetchResult> =
         databaseManager.suspendedTransaction("Failed to find root items") {
             // Ordered newest-first for deterministic, dashboard-relevant pagination — previously
             // relied on SQLite's unordered natural (oldest-first) row order, which meant the
@@ -538,6 +541,7 @@ class SQLiteWorkItemRepository(
                     .where { WorkItemsTable.parentId.isNull() }
                     .orderBy(WorkItemsTable.createdAt, SortOrder.DESC)
                     .limit(limit)
+                    .offset(offset.coerceAtLeast(0).toLong())
                     .toList()
             val items = rows.mapNotNull { toWorkItemOrNull(it) }
             Result.Success(ItemFetchResult(items, skipped = rows.size - items.size))

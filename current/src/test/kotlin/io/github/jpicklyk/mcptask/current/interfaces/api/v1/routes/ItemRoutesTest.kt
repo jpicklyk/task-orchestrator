@@ -3,16 +3,29 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.WorkItemsTable
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.testing.testApplication
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.long
+import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.jdbc.Database
+import org.jetbrains.exposed.v1.jdbc.transactions.transaction
+import org.jetbrains.exposed.v1.jdbc.update
 import org.junit.jupiter.api.Test
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -605,5 +618,128 @@ class ItemRoutesTest {
             val body = response.bodyAsText()
             assertTrue(body.contains("InScopeRoot"), "Expected in-scope root: $body")
             assertFalse(body.contains("OutOfScopeRoot"), "Out-of-scope root must be excluded: $body")
+        }
+
+    // ─── /items/roots accuracy: true total, real pagination, skipped visibility ─
+
+    /**
+     * Directly blanks a row's title via Exposed, bypassing [WorkItem.validate]. Simulates a
+     * corrupt/legacy row that the repository's row mapper must drop rather than fail the whole
+     * query. Same technique as `SQLiteWorkItemRepositoryFilterTest.forceBlankTitle`.
+     */
+    private fun forceBlankTitle(
+        database: Database,
+        itemId: UUID,
+    ) {
+        transaction(db = database) {
+            WorkItemsTable.update({ WorkItemsTable.id eq itemId }) {
+                it[WorkItemsTable.title] = ""
+            }
+        }
+    }
+
+    @Test
+    fun `GET items roots unscoped reports true total and pages through all roots`() =
+        testApplication {
+            val repo = buildH2RepositoryProvider()
+            runBlocking {
+                repeat(5) { i -> repo.workItemRepository().create(WorkItem(title = "Root $i", depth = 0)) }
+            }
+            application {
+                configureTestApp { itemRoutes(repo) }
+            }
+
+            val page1 =
+                client.get("/api/v1/items/roots?page=1&pageSize=2") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                }
+            assertEquals(HttpStatusCode.OK, page1.status)
+            val page1Json = Json.parseToJsonElement(page1.bodyAsText()).jsonObject
+            assertEquals(5L, page1Json["totalItems"]!!.jsonPrimitive.long, "totalItems must be the true root count")
+            assertEquals(2, page1Json["items"]!!.jsonArray.size, "page 1 of pageSize=2 must return exactly 2 items")
+            assertTrue(page1Json["hasMore"]!!.jsonPrimitive.boolean, "5 roots over pageSize=2 must have more pages")
+
+            val page3 =
+                client.get("/api/v1/items/roots?page=3&pageSize=2") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                }
+            assertEquals(HttpStatusCode.OK, page3.status)
+            val page3Json = Json.parseToJsonElement(page3.bodyAsText()).jsonObject
+            assertEquals(5L, page3Json["totalItems"]!!.jsonPrimitive.long)
+            assertFalse(page3Json["hasMore"]!!.jsonPrimitive.boolean, "last page (5 roots, offset 4) has no more")
+        }
+
+    @Test
+    fun `GET items roots unscoped surfaces skipped for a row that fails domain validation`() =
+        testApplication {
+            val (repo, database) = buildH2RepositoryProviderWithDatabase()
+            val good1 =
+                runBlocking {
+                    repo.workItemRepository().create(WorkItem(title = "Good root 1", depth = 0)).getOrNull()!!
+                }
+            runBlocking { repo.workItemRepository().create(WorkItem(title = "Good root 2", depth = 0)) }
+            val corrupt =
+                runBlocking {
+                    repo.workItemRepository().create(WorkItem(title = "Will be corrupted", depth = 0)).getOrNull()!!
+                }
+            forceBlankTitle(database, corrupt.id)
+
+            application {
+                configureTestApp { itemRoutes(repo) }
+            }
+            val response =
+                client.get("/api/v1/items/roots") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                }
+            assertEquals(HttpStatusCode.OK, response.status)
+            val json = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+            assertEquals(3L, json["totalItems"]!!.jsonPrimitive.long, "corrupt row still counted in totalItems")
+            assertEquals(1, json["skipped"]!!.jsonPrimitive.int)
+            val body = response.bodyAsText()
+            assertTrue(body.contains(good1.title), "Expected good root present: $body")
+            assertFalse(body.contains("Will be corrupted"), "Corrupt root must be dropped from items: $body")
+        }
+
+    @Test
+    fun `GET items roots omits skipped field when nothing was dropped`() =
+        testApplication {
+            val repo = buildH2RepositoryProvider()
+            runBlocking {
+                repo.workItemRepository().create(WorkItem(title = "Clean root", depth = 0))
+            }
+            application {
+                configureTestApp { itemRoutes(repo) }
+            }
+            val response =
+                client.get("/api/v1/items/roots") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                }
+            assertEquals(HttpStatusCode.OK, response.status)
+            val json = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+            assertNull(json["skipped"], "skipped must be omitted when nothing was dropped")
+        }
+
+    @Test
+    fun `GET items surfaces skipped for a row that fails domain validation`() =
+        testApplication {
+            val (repo, database) = buildH2RepositoryProviderWithDatabase()
+            runBlocking { repo.workItemRepository().create(WorkItem(title = "Good item", depth = 0)) }
+            val corrupt =
+                runBlocking {
+                    repo.workItemRepository().create(WorkItem(title = "Will be corrupted", depth = 0)).getOrNull()!!
+                }
+            forceBlankTitle(database, corrupt.id)
+
+            application {
+                configureTestApp { itemRoutes(repo) }
+            }
+            val response =
+                client.get("/api/v1/items") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                }
+            assertEquals(HttpStatusCode.OK, response.status)
+            val json = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+            assertEquals(2L, json["totalItems"]!!.jsonPrimitive.long, "corrupt row still counted in totalItems")
+            assertEquals(1, json["skipped"]!!.jsonPrimitive.int)
         }
 }

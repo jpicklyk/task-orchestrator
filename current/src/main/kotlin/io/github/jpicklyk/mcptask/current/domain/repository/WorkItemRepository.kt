@@ -198,9 +198,15 @@ interface WorkItemRepository {
      *
      * Returns an [ItemFetchResult]: rows that fail domain validation are dropped rather than
      * failing the whole query — [ItemFetchResult.skipped] reports how many were dropped. Use
-     * [countRootItems] (unaffected by [limit] or validation) for the true root count.
+     * [countRootItems] (unaffected by [limit]/[offset] or validation) for the true root count.
+     *
+     * @param offset Zero-based row offset applied at the SQL level, for paging through roots
+     *   beyond the first [limit] rows.
      */
-    suspend fun findRootItems(limit: Int = 50): Result<ItemFetchResult>
+    suspend fun findRootItems(
+        limit: Int = 50,
+        offset: Int = 0,
+    ): Result<ItemFetchResult>
 
     /**
      * True count of root items (items with `parentId IS NULL`), unaffected by any `limit` and

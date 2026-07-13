@@ -64,6 +64,19 @@ fun buildH2RepositoryProvider(): DefaultRepositoryProvider {
 fun buildH2RepositoryProviderScoped(): DefaultRepositoryProvider = buildH2RepositoryProvider()
 
 /**
+ * Like [buildH2RepositoryProvider] but also returns the raw [Database] handle, for tests that
+ * need to bypass the repository layer (e.g. writing a corrupt/invalid-domain row directly via
+ * Exposed to simulate validation-drop scenarios — see [WorkItemsTable] usage in repository tests).
+ */
+fun buildH2RepositoryProviderWithDatabase(): Pair<DefaultRepositoryProvider, Database> {
+    val dbName = "api_test_${System.nanoTime()}"
+    val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
+    val databaseManager = DatabaseManager(database)
+    DirectDatabaseSchemaManager().updateSchema()
+    return DefaultRepositoryProvider(databaseManager) to database
+}
+
+/**
  * Returns a [ApiAuthConfig.Bearer] with two principals:
  * - [TEST_TOKEN] → `read` capability, unrestricted scope (optionally scoped by [scopeRootIds] and/or [tagsInclude])
  * - [ADMIN_TOKEN] → `admin` + `read` capabilities, unrestricted scope
