@@ -159,6 +159,15 @@ If `ktlintCheck` fails, run `./gradlew :current:ktlintFormat` to auto-fix
 formatting violations, then verify with `ktlintCheck` again and re-run tests.
 Include both commands in every implementation-agent and review-agent prompt.
 
+**Who runs the lint cycle** (proposal `ee6f5d32`, ~9 sessions of evidence):
+- **Delegated tier** (agent owns gradle): the implementation agent runs the
+  `ktlintCheck` → `ktlintFormat` → re-verify cycle itself before committing.
+  Validated 2026-07-13 (PRs #213/#214/#215): zero orchestrator fix-up commits.
+- **Parallel tier** (orchestrator owns gradle): agents include `:current:ktlintFormat`
+  in their compile self-check (see the dispatch template below); the orchestrator
+  additionally runs `ktlintFormat` before `ktlintCheck` after each commit batch —
+  historically 3-5 fix-up commits per multi-phase run when skipped.
+
 **Capturing gradle's real exit code (use this pattern, not `2>&1 | tail -N`).**
 Piping gradle into `tail` discards gradle's exit code — `tail` always exits 0
 on a successful read of the log, so `BUILD FAILED` at the end of the gradle
@@ -170,10 +179,15 @@ followup audit caught it).
 The reliable pattern, especially when running in `run_in_background`:
 
 ```bash
-./gradlew :current:test 2>&1 > /tmp/gradle-out.log; EXIT=$?
+./gradlew :current:test > /tmp/gradle-out.log 2>&1; EXIT=$?
 echo "EXIT=$EXIT"
 tail -30 /tmp/gradle-out.log
 ```
+
+**Redirect ordering matters:** use `> /tmp/log 2>&1`, NOT `2>&1 > /tmp/log` — the
+latter is evaluated left-to-right and leaks stderr (where gradle writes compile
+errors) to the terminal instead of the log (retro `ac25db89`: a compileTestKotlin
+failure was invisible in the captured log until the ordering was fixed).
 
 `EXIT=$?` captures gradle's actual exit code before any pipe consumes it.
 Read the captured exit code AND the tail of the log; never trust the tail
@@ -220,11 +234,15 @@ Agent(
   Branch (already checked out): feat/<feature-slug>
   Scope (modify ONLY these files): <explicit list>
 
-  Compile self-check (REQUIRED before returning):
-    ./gradlew -p <feature-worktree-path> :current:compileKotlin 2>&1 > /tmp/agent-compile.log; EXIT=$?
-  If EXIT != 0, fix the compile error before committing and returning.
+  Format + compile self-check (REQUIRED before returning):
+    ./gradlew -p <feature-worktree-path> :current:ktlintFormat :current:compileKotlin :current:compileTestKotlin > /tmp/agent-compile.log 2>&1; EXIT=$?
+  If EXIT != 0, fix the reported error — a compile error OR a lint violation
+  ktlintFormat could not auto-correct (e.g. line >140 chars, colons in backticked
+  test names) — before committing and returning.
   Do NOT run :current:test or :current:ktlintCheck — orchestrator owns full build
-  verification. The compile self-check is fast (~3s) and catches type-mismatch /
+  verification. ktlintFormat is formatting-only and idempotent; it prevents the
+  recurring lint fix-up commits (proposal ee6f5d32). The compile self-check is
+  fast (~3s) and catches type-mismatch /
   signature errors that gradle's incremental cache may otherwise mask in the
   orchestrator's later test run (retro `568a8584`: H3's `dbNow()` shipped with a
   Result<T> vs Instant return type mismatch that was hidden for ~6 hours).
@@ -262,6 +280,11 @@ For each contract-tightening change in this run:
 3. Verify every usage is consistent with the new contract. Update any that are not.
 4. Re-run the full `:current:test` suite (orchestrator-owned, not the agent) to
    confirm no fixture-vs-contract conflicts surfaced elsewhere.
+5. **Doc-claims sweep after behavior-changing fixes:** when an orchestrator-owned
+   bug-fix changes shipped behavior after documentation was authored (e.g. a
+   tokenizer or default flips mid-run), grep all changed docs for claims about
+   the OLD behavior before finalizing (retro `ac25db89`: "case-insensitive"
+   survived in 3 places after the fix made search case-sensitive).
 
 This sweep is part of the orchestrator's verification step between waves, not the
 implementing agent's responsibility — agents are file-scoped and can't see the full
