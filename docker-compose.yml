@@ -76,3 +76,4 @@ services:
 
 volumes:
   mcp-task-data:
+    external: true
