@@ -1819,7 +1819,7 @@ class GetContextToolTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `session resume includes actor on recent transitions when actorClaim is set`(): Unit =
+    fun `session resume includes actor but omits noop verification on recent transitions`(): Unit =
         runBlocking {
             val since = Instant.now().minusSeconds(3600)
             val itemId = UUID.randomUUID()
@@ -1865,11 +1865,53 @@ class GetContextToolTest {
             assertFalse(actorObj.containsKey("parent"), "parent should be absent when null")
             assertFalse(actorObj.containsKey("proof"), "proof should be absent when null")
 
-            // Verification should be present
-            assertTrue(t.containsKey("verification"), "verification field should be present")
+            // Verification is omitted for a no-op verifier — it carries no information beyond
+            // "no verifier is configured".
+            assertFalse(t.containsKey("verification"), "verification field should be omitted for a no-op verifier")
+        }
+
+    @Test
+    fun `session resume includes full verification on recent transitions for a non-noop verifier`(): Unit =
+        runBlocking {
+            val since = Instant.now().minusSeconds(3600)
+            val itemId = UUID.randomUUID()
+
+            val actor = ActorClaim(id = "orch-1", kind = ActorKind.ORCHESTRATOR, parent = null)
+            val verification =
+                VerificationResult(
+                    status = VerificationStatus.VERIFIED,
+                    verifier = "jwks",
+                    reason = "signature and claims valid"
+                )
+            val transition =
+                RoleTransition(
+                    itemId = itemId,
+                    fromRole = "queue",
+                    toRole = "work",
+                    trigger = "start",
+                    actorClaim = actor,
+                    verification = verification
+                )
+
+            coEvery { workItemRepo.findByRole(Role.WORK, any()) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.findByRole(Role.REVIEW, any()) } returns Result.Success(emptyList())
+            coEvery { roleTransitionRepo.findSince(any(), any()) } returns Result.Success(listOf(transition))
+
+            val result =
+                tool.execute(
+                    params("since" to JsonPrimitive(since.toString())),
+                    context
+                )
+
+            val data = extractData(result)
+            val recentTransitions = data["recentTransitions"]!!.jsonArray
+            val t = recentTransitions[0].jsonObject
+
+            assertTrue(t.containsKey("verification"), "verification should be present for a non-noop verifier")
             val verObj = t["verification"]!!.jsonObject
-            assertEquals("unchecked", verObj["status"]!!.jsonPrimitive.content)
-            assertEquals("noop", verObj["verifier"]!!.jsonPrimitive.content)
+            assertEquals("verified", verObj["status"]!!.jsonPrimitive.content)
+            assertEquals("jwks", verObj["verifier"]!!.jsonPrimitive.content)
+            assertEquals("signature and claims valid", verObj["reason"]!!.jsonPrimitive.content)
         }
 
     @Test

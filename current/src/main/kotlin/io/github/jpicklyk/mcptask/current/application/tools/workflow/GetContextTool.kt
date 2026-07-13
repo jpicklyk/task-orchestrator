@@ -378,7 +378,7 @@ Parameters:
                                 put("trigger", JsonPrimitive(t.trigger))
                                 put("at", JsonPrimitive(t.transitionedAt.toString()))
                                 t.actorClaim?.let { put("actor", it.toJson()) }
-                                t.verification?.let { put("verification", it.toJson()) }
+                                t.verification?.toJsonOrOmit()?.let { put("verification", it) }
                             }
                         }
                     )

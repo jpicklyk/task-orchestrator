@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.tools.workflow
 
+import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
 import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
@@ -62,6 +63,10 @@ class AdvanceItemToolTest {
     /** Build a custom context with a specific StatusLabelService, reusing existing mocked repos. */
     private fun contextWithLabels(labelService: StatusLabelService): ToolExecutionContext =
         ToolExecutionContext(repoProvider, statusLabelService = labelService)
+
+    /** Build a custom context with a specific ActorVerifier, reusing existing mocked repos. */
+    private fun contextWithVerifier(verifier: ActorVerifier): ToolExecutionContext =
+        ToolExecutionContext(repoProvider, actorVerifier = verifier)
 
     private fun makeItem(
         id: UUID = UUID.randomUUID(),
@@ -2109,7 +2114,7 @@ class AdvanceItemToolTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `transition with actor claim includes actor and verification in response`(): Unit =
+    fun `transition with actor claim includes actor but omits noop verification in response`(): Unit =
         runBlocking {
             val itemId = UUID.randomUUID()
             val item = makeItem(id = itemId, role = Role.QUEUE)
@@ -2149,10 +2154,57 @@ class AdvanceItemToolTest {
             assertEquals("session-abc", actor["parent"]!!.jsonPrimitive.content)
             assertFalse(actor.containsKey("proof"), "proof should be absent when not provided")
 
-            // Verification should be present (NoOpActorVerifier returns UNCHECKED)
+            // Verification is omitted for a no-op verifier (NoOpActorVerifier) — it carries no
+            // information beyond "no verifier is configured".
+            assertFalse(r.containsKey("verification"), "verification field should be omitted for a no-op verifier")
+        }
+
+    @Test
+    fun `transition with actor claim includes full verification when a non-noop verifier is configured`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            val item = makeItem(id = itemId, role = Role.QUEUE)
+
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            every { depRepo.findByToItemId(itemId) } returns emptyList()
+            every { depRepo.findByFromItemId(itemId) } returns emptyList()
+
+            val jwksVerifier =
+                object : ActorVerifier {
+                    override suspend fun verify(actor: ActorClaim): VerificationResult =
+                        VerificationResult(
+                            status = VerificationStatus.VERIFIED,
+                            verifier = "jwks",
+                            reason = "signature and claims valid",
+                            metadata = mapOf("verifiedFromCache" to "false")
+                        )
+                }
+
+            val actorJson =
+                buildJsonObject {
+                    put("id", "orchestrator-001")
+                    put("kind", "orchestrator")
+                }
+            val params =
+                buildParams(
+                    buildJsonObject {
+                        put("itemId", itemId.toString())
+                        put("trigger", "start")
+                        put("actor", actorJson)
+                    }
+                )
+            val result = tool.execute(params, contextWithVerifier(jwksVerifier))
+
+            val results = extractResults(result)
+            val r = results[0].jsonObject
+            assertTrue(r.containsKey("verification"), "verification should be present for a non-noop verifier")
             val verification = r["verification"]!!.jsonObject
-            assertEquals("unchecked", verification["status"]!!.jsonPrimitive.content)
-            assertEquals("noop", verification["verifier"]!!.jsonPrimitive.content)
+            assertEquals("verified", verification["status"]!!.jsonPrimitive.content)
+            assertEquals("jwks", verification["verifier"]!!.jsonPrimitive.content)
+            assertEquals("signature and claims valid", verification["reason"]!!.jsonPrimitive.content)
+            assertEquals("false", verification["metadata"]!!.jsonObject["verifiedFromCache"]!!.jsonPrimitive.content)
         }
 
     @Test
@@ -2233,7 +2285,7 @@ class AdvanceItemToolTest {
             assertTrue(r1.containsKey("actor"), "First transition should have actor")
             assertEquals("agent-xyz", r1["actor"]!!.jsonObject["id"]!!.jsonPrimitive.content)
             assertEquals("subagent", r1["actor"]!!.jsonObject["kind"]!!.jsonPrimitive.content)
-            assertTrue(r1.containsKey("verification"))
+            assertFalse(r1.containsKey("verification"), "First transition should omit noop verification")
 
             assertTrue(r2["applied"]!!.jsonPrimitive.boolean)
             assertFalse(r2.containsKey("actor"), "Second transition should not have actor")

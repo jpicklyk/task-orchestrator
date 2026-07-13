@@ -69,7 +69,7 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
       "trigger": "start",
       "applied": true,
       "actor": { "id": "agent-1", "kind": "subagent", "parent": "orch-1" },
-      "verification": { "status": "unverified", "verifier": "noop" },
+      "verification": { "status": "verified", "verifier": "jwks" },
       "cascadeEvents": [
         { "itemId": "uuid", "title": "Parent Item Title", "previousRole": "work", "targetRole": "terminal", "applied": true }
       ],
@@ -482,7 +482,7 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                     put("applied", JsonPrimitive(true))
                     if (summary != null) put("summary", JsonPrimitive(summary))
                     actorClaim?.let { put("actor", it.toJson()) }
-                    verification?.let { put("verification", it.toJson()) }
+                    verification?.toJsonOrOmit()?.let { put("verification", it) }
                     put("cascadeEvents", JsonArray(cascadeJsonList))
                     put("unblockedItems", JsonArray(unblockedJsonList))
                     put("expectedNotes", expectedNotesJson)

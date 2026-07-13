@@ -955,7 +955,7 @@ class ManageNotesToolTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `upsert with actor claim includes actor and verification in response`(): Unit =
+    fun `upsert with actor claim includes actor but omits noop verification in response`(): Unit =
         runBlocking {
             val itemId = createTestItem()
 
@@ -996,9 +996,7 @@ class ManageNotesToolTest {
             assertEquals("agent-001", actor["id"]!!.jsonPrimitive.content)
             assertEquals("subagent", actor["kind"]!!.jsonPrimitive.content)
 
-            assertNotNull(note["verification"], "verification field should be present in response")
-            val verification = note["verification"] as JsonObject
-            assertNotNull(verification["status"]!!.jsonPrimitive.content)
+            assertFalse(note.containsKey("verification"), "verification field should be omitted for a no-op verifier")
         }
 
     @Test
@@ -1142,7 +1140,7 @@ class ManageNotesToolTest {
         }
 
     @Test
-    fun `batch upsert with mixed actor presence both succeed with correct actor presence`(): Unit =
+    fun `batch upsert with mixed actor presence both succeed with correct actor presence and omit noop verification`(): Unit =
         runBlocking {
             val itemId = createTestItem()
 
@@ -1191,7 +1189,7 @@ class ManageNotesToolTest {
 
             assertTrue(noteWithActor.containsKey("actor"), "note with actor should have actor in response")
             assertEquals("agent-batch", (noteWithActor["actor"] as JsonObject)["id"]!!.jsonPrimitive.content)
-            assertTrue(noteWithActor.containsKey("verification"), "note with actor should have verification in response")
+            assertFalse(noteWithActor.containsKey("verification"), "verification should be omitted for a no-op verifier")
 
             assertFalse(noteWithoutActor.containsKey("actor"), "note without actor should not have actor key")
             assertFalse(noteWithoutActor.containsKey("verification"), "note without actor should not have verification key")
