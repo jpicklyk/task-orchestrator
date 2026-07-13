@@ -104,7 +104,7 @@ Items in TERMINAL role are never included.
             val items =
                 if (parentId != null) {
                     when (val result = workItemRepo.findByFilters(parentId = parentId, role = role, limit = 500)) {
-                        is Result.Success -> result.data
+                        is Result.Success -> result.data.items
                         is Result.Error -> {
                             logger.warn("Failed to query items for role $role: ${result.error.message}")
                             emptyList()

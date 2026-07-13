@@ -348,7 +348,8 @@ field naming the limit and actual size; `mode: reject` fails that note with `cod
                 // file-sourced `bodyFromFile` content alike.
                 var lengthWarning: String? = null
                 val maxLength =
-                    context.resolveSchema(validatedItems.getValue(itemId))
+                    context
+                        .resolveSchema(validatedItems.getValue(itemId))
                         ?.notes
                         ?.firstOrNull { it.key == key }
                         ?.maxLength
@@ -398,7 +399,7 @@ field naming the limit and actual size; `mode: reject` fails that note with `cod
                                 put("key", JsonPrimitive(result.data.key))
                                 put("role", JsonPrimitive(result.data.role))
                                 actorClaim?.let { put("actor", it.toJson()) }
-                                verification?.let { put("verification", it.toJson()) }
+                                verification?.toJsonOrOmit()?.let { put("verification", it) }
                                 lengthWarning?.let { put("warning", JsonPrimitive(it)) }
                             }
                         )

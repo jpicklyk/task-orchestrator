@@ -117,8 +117,7 @@ class LifecycleResponseBudgetTest {
             object : NoteSchemaService {
                 override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? = null
 
-                override fun getSchemaForType(type: String?): WorkItemSchema? =
-                    if (type == "feature-task") featureTaskSchema else null
+                override fun getSchemaForType(type: String?): WorkItemSchema? = if (type == "feature-task") featureTaskSchema else null
             }
 
         context = ToolExecutionContext(repositoryProvider, schemaService)
@@ -275,7 +274,14 @@ class LifecycleResponseBudgetTest {
                     )
                     put("createNotes", JsonPrimitive(true))
                     put("actor", actor())
-                    put("requestId", JsonPrimitive(java.util.UUID.randomUUID().toString()))
+                    put(
+                        "requestId",
+                        JsonPrimitive(
+                            java.util.UUID
+                                .randomUUID()
+                                .toString()
+                        )
+                    )
                 }
             val createResult = measureCall("create_work_tree", createWorkTreeTool, createParams)
             val createData = createResult["data"] as JsonObject

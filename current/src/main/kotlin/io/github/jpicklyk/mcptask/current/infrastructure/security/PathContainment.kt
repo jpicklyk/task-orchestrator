@@ -31,10 +31,14 @@ object PathContainment {
     /** Result of a containment resolution: exactly one of [Allowed] or [Rejected]. */
     sealed class Result {
         /** The requested path is contained within the base directory and exists. */
-        data class Allowed(val realPath: Path) : Result()
+        data class Allowed(
+            val realPath: Path
+        ) : Result()
 
         /** The requested path was rejected; [reason] names why (used directly in tool errors). */
-        data class Rejected(val reason: String) : Result()
+        data class Rejected(
+            val reason: String
+        ) : Result()
     }
 
     private val DRIVE_LETTER_PATTERN = Regex("^[A-Za-z]:.*")

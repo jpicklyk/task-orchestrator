@@ -870,8 +870,8 @@ Each `claims` entry uses exactly one of `itemId` (ID mode) or `selector` (find-a
         // Counts are derived from the result arrays — the summary block was dropped as redundant.
         val claimResults = (data?.get("claimResults") as? JsonArray).orEmpty()
         val releaseResults = (data?.get("releaseResults") as? JsonArray).orEmpty()
-        fun JsonElement.isSuccessOutcome(): Boolean =
-            ((this as? JsonObject)?.get("outcome") as? JsonPrimitive)?.content == "success"
+
+        fun JsonElement.isSuccessOutcome(): Boolean = ((this as? JsonObject)?.get("outcome") as? JsonPrimitive)?.content == "success"
         val claimsSucceeded = claimResults.count { it.isSuccessOutcome() }
         val claimsFailed = claimResults.size - claimsSucceeded
         val releasesSucceeded = releaseResults.count { it.isSuccessOutcome() }

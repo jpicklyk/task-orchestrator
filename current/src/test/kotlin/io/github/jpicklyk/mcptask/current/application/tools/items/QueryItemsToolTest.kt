@@ -8,17 +8,22 @@ import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
+import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.WorkItemsTable
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
+import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.jdbc.Database
+import org.jetbrains.exposed.v1.jdbc.transactions.transaction
+import org.jetbrains.exposed.v1.jdbc.update
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.util.UUID
 import kotlin.test.*
 
 class QueryItemsToolTest {
+    private lateinit var database: Database
     private lateinit var context: ToolExecutionContext
     private lateinit var repositoryProvider: DefaultRepositoryProvider
     private lateinit var tool: QueryItemsTool
@@ -28,7 +33,7 @@ class QueryItemsToolTest {
     @BeforeEach
     fun setUp() {
         val dbName = "test_${System.nanoTime()}"
-        val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
+        database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
         val databaseManager = DatabaseManager(database)
         DirectDatabaseSchemaManager().updateSchema()
         repositoryProvider = DefaultRepositoryProvider(databaseManager)
@@ -39,6 +44,19 @@ class QueryItemsToolTest {
     }
 
     private fun params(vararg pairs: Pair<String, JsonElement>) = JsonObject(mapOf(*pairs))
+
+    /**
+     * Directly blanks a row's title via Exposed, bypassing [io.github.jpicklyk.mcptask.current.domain.model.WorkItem.validate].
+     * Simulates a corrupt/legacy row that the repository's `toWorkItemOrNull` must drop rather
+     * than fail the whole query — used to exercise the `skipped` field on tool responses.
+     */
+    private fun forceBlankTitle(itemId: String) {
+        transaction(db = database) {
+            WorkItemsTable.update({ WorkItemsTable.id eq UUID.fromString(itemId) }) {
+                it[WorkItemsTable.title] = ""
+            }
+        }
+    }
 
     /**
      * Helper to create a work item via ManageItemsTool and return its ID.
@@ -550,6 +568,73 @@ class QueryItemsToolTest {
             val data = result["data"] as JsonObject
             assertEquals(3, data["total"]!!.jsonPrimitive.int)
             assertEquals(3, data["items"]!!.jsonArray.size)
+            assertEquals(false, data["truncated"]!!.jsonPrimitive.boolean)
+            assertFalse(data.containsKey("skipped"), "skipped should be omitted when nothing was dropped")
+        }
+
+    @Test
+    fun `global overview truncates when root count exceeds default limit`(): Unit =
+        runBlocking {
+            repeat(55) { i -> createItem("Root $i") }
+
+            val result =
+                tool.execute(
+                    params("operation" to JsonPrimitive("overview")),
+                    context
+                ) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val data = result["data"] as JsonObject
+            // Default limit is 50 (aligned with the shared `limit` parameterSchema description).
+            assertEquals(50, data["items"]!!.jsonArray.size)
+            assertEquals(55, data["total"]!!.jsonPrimitive.int)
+            assertEquals(true, data["truncated"]!!.jsonPrimitive.boolean)
+        }
+
+    @Test
+    fun `global overview reports skipped and true total when a root fails validation`(): Unit =
+        runBlocking {
+            createItem("Good Root 1")
+            createItem("Good Root 2")
+            val corruptId = createItem("Will be corrupted")
+            forceBlankTitle(corruptId)
+
+            val result =
+                tool.execute(
+                    params("operation" to JsonPrimitive("overview")),
+                    context
+                ) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val data = result["data"] as JsonObject
+            // Corrupt row is dropped from the returned page but still counted in `total`.
+            assertEquals(2, data["items"]!!.jsonArray.size)
+            assertEquals(3, data["total"]!!.jsonPrimitive.int)
+            assertEquals(1, data["skipped"]!!.jsonPrimitive.int)
+            assertEquals(true, data["truncated"]!!.jsonPrimitive.boolean)
+        }
+
+    @Test
+    fun `list mode search reports skipped and unchanged total when a row fails validation`(): Unit =
+        runBlocking {
+            createItem("Good Item 1")
+            createItem("Good Item 2")
+            val corruptId = createItem("Will be corrupted")
+            forceBlankTitle(corruptId)
+
+            val result =
+                tool.execute(
+                    params("operation" to JsonPrimitive("search")),
+                    context
+                ) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val data = result["data"] as JsonObject
+            // total is the raw SQL count (still includes the corrupt row); returned/items exclude it.
+            assertEquals(3, data["total"]!!.jsonPrimitive.int)
+            assertEquals(2, data["returned"]!!.jsonPrimitive.int)
+            assertEquals(2, data["items"]!!.jsonArray.size)
+            assertEquals(1, data["skipped"]!!.jsonPrimitive.int)
         }
 
     @Test
@@ -1402,8 +1487,7 @@ class QueryItemsToolTest {
             )
         val schema = WorkItemSchema(type = "feature-task", notes = entries)
         return object : NoteSchemaService {
-            override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
-                if (tags.contains("feature-task")) entries else null
+            override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? = if (tags.contains("feature-task")) entries else null
 
             override fun getSchemaForType(type: String?): WorkItemSchema? = if (type == "feature-task") schema else null
 

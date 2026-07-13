@@ -70,6 +70,17 @@ Delegation prompts must include entity IDs and full context — subagents start 
 
 **Notes are the report.** Subagents write findings into their work item's notes; their final message back is 1-2 lines (item ID, outcome, note keys filled). Never ask agents to restate note content in replies.
 
+## Delegation Metadata
+
+**Required for every Parallel and Delegated tier dispatch.** After a subagent returns, the orchestrator fills a `delegation-metadata` note on the work item via `manage_notes(operation="upsert")`. Direct tier skips this — there is no delegation to record.
+
+- **key:** `delegation-metadata`, **role:** `work`
+- **body:** Model used (`haiku` / `sonnet` / `opus`); isolation mode (`inline` or `worktree:<path>`); one-line rationale (why this model for this work); one-line outcome (success / partial / failure plus key result).
+
+The orchestrator fills this — not the subagent — because the orchestrator alone has accurate dispatch metadata (the subagent doesn't know which model it ran on, why it was chosen, or how its return compared to expectation). Fill in the same response that processes the subagent's return, batched alongside other note writes for that item where possible.
+
+Without these notes, `/session-retrospective` loses cross-session signal on whether model assignments matched task complexity.
+
 ## Action Items
 
 **Cross-session → MCP items** via `/task-orchestrator:create-item` — handles container anchoring, tag inference, and note pre-population. Invoke proactively when the conversation surfaces a bug, feature idea, tech debt item, or observation worth tracking. Feature work: child items under the active parent feature; bugs/observations/tech debt: anchored to their category container.

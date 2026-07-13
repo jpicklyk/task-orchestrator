@@ -312,6 +312,7 @@ true database total. For large corpora, the actual match count may exceed `total
   ],
   "total": 42,
   "returned": 20,
+  "skipped": 1,
   "limit": 20,
   "offset": 0
 }
@@ -319,6 +320,8 @@ true database total. For large corpora, the actual match count may exceed `total
 
 List mode returns minimal fields (`id`, `parentId`, `title`, `role`, `statusLabel`, `priority`, `depth`, `tags`, `type`). Nullable fields are omitted when null.
 Use `get` for full item JSON including `description` and `summary`; on `get`, `createdAt`, `modifiedAt`, and `roleChangedAt` are opt-in via `includeTimestamps` (absent by default). List-mode results never include timestamps.
+
+`total` is the raw SQL match count (unaffected by validation), `returned` is `items.length`. `skipped` is present only when > 0: it counts rows in this page's window that failed domain validation (e.g. a corrupt legacy row) and were dropped rather than returned — a WARN log identifies the row. Invariant: `total = returned + skipped + notFetched`, where `notFetched` is any rows beyond `limit`/`offset` never queried.
 
 When `claimStatus` filter is provided, each result item includes an additional `isClaimed` boolean:
 
@@ -355,7 +358,7 @@ Scoped overview returns the full item JSON in `item`, a count per role in `child
 
 **Response (overview — global mode, no `itemId`).**
 
-Global overview returns root items with the same minimal fields as search, plus `childCounts`, optional `traits`, and `claimSummary` per root item. When `includeChildren` is true, each root includes a `children` array where each child has the minimal fields plus its own `childCounts` and optional `traits`.
+Global overview returns root items with the same minimal fields as search, plus `childCounts`, optional `traits`, and `claimSummary` per root item. When `includeChildren` is true, each root includes a `children` array where each child has the minimal fields plus its own `childCounts` and optional `traits`. Root items are ordered newest-`createdAt`-first. `limit` defaults to 50 (same default as list-mode search).
 
 ```json
 {
@@ -375,11 +378,15 @@ Global overview returns root items with the same minimal fields as search, plus 
       ]
     }
   ],
-  "total": 5
+  "total": 55,
+  "truncated": true,
+  "skipped": 1
 }
 ```
 
-Nullable fields (`parentId`, `statusLabel`, `tags`, `type`) are omitted when null. `traits` is omitted when the item has no traits (never an empty array). `children` is only present when `includeChildren` is true. `total` reflects the count of root items returned (not a total-in-DB count).
+Nullable fields (`parentId`, `statusLabel`, `tags`, `type`) are omitted when null. `traits` is omitted when the item has no traits (never an empty array). `children` is only present when `includeChildren` is true.
+
+`total` is the **true count of all root items** in the database (via a dedicated `COUNT` query), independent of `limit` and of any validation drops — **not** the size of the `items` array. `truncated` is `true` when `items.length < total` for **any** reason — pagination (`total > limit`) or validation drops — which is broader than FTS search's `truncated` (that flag fires only at the FTS hit cap); use `skipped` to disambiguate the cause. `skipped` is present only when > 0: it counts root rows within this page's window that failed domain validation and were dropped rather than returned; a WARN log identifies the row so it can be repaired.
 
 `claimSummary` counts are scoped to the direct children of each root item. `active` = live non-expired claims; `expired` = claims past TTL; `unclaimed` = items with no claim record. `claimedBy` identity is never included at this level.
 
@@ -574,7 +581,7 @@ Each upsert note element may include an optional `actor` object:
 - `parent` (optional string): ID of the dispatching agent (forms delegation chain)
 - `proof` (optional string): Opaque credential blob (persisted, unused by Stage 1)
 
-When provided, the upsert response includes `actor` and `verification` objects on each successfully upserted note, and the note is persisted with actor claim data that appears in subsequent `query_notes` responses.
+When provided, the upsert response includes an `actor` object on each successfully upserted note, and the note is persisted with actor claim data that appears in subsequent `query_notes` responses. A `verification` object is also included, *except* when no actor verifier is configured (the default `noop` verifier) — in that case `verification` is omitted entirely, since a no-op result carries no information beyond "no verifier is configured." See [Verification Record](#verification-record).
 
 The `(itemId, key)` pair is unique — upserting with an existing pair updates the note in place
 (preserving its UUID).
@@ -976,7 +983,7 @@ Each transition element may include an optional `actor` object:
 - `parent` (optional string): ID of the dispatching agent (forms delegation chain)
 - `proof` (optional string): Opaque credential blob (persisted, unused by Stage 1)
 
-When provided, the response includes `actor` and `verification` objects on each successful transition.
+When provided, the response includes an `actor` object on each successful transition. A `verification` object is also included, *except* when no actor verifier is configured (the default `noop` verifier) — in that case `verification` is omitted entirely. See [Verification Record](#verification-record).
 
 **Ownership enforcement.** When an item has an active (non-expired) claim, `advance_item` enforces ownership on **every** trigger value. The actor (resolved via `degradedModePolicy`) must match the `claimedBy` value on the item. If the item is unclaimed or the claim has expired, any actor can transition it. Cascade transitions (system-generated, parent promotions) are always allowed and bypass ownership checks — they are not reachable via this tool.
 
@@ -1772,7 +1779,16 @@ Actor attribution tracks *who* made changes to work items. Every `advance_item` 
 
 ### Verification Record
 
-Every persisted actor claim includes a verification record:
+Every persisted actor claim includes a verification record.
+
+**Output omission.** MCP tool responses (`manage_notes` upsert, `advance_item` transitions,
+`query_notes` get/list, `get_context` recent transitions) omit the `verification` object
+whenever `verifier == "noop"` — the default when no `actor_authentication.verifier` is
+configured. A no-op result carries no information beyond "no verifier is configured," which is
+a deployment-wide fact repeated on every attributed note and transition, so it is dropped from
+output rather than serialized. The record is still persisted in the database; only the MCP
+response representation omits it. Any other verifier result — including a future verifier that
+legitimately returns `unchecked` with a `reason` — serializes in full.
 
 | Field | Type | Description |
 |-------|------|-------------|

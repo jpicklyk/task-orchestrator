@@ -446,7 +446,7 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                     put("applied", JsonPrimitive(true))
                     if (summary != null) put("summary", JsonPrimitive(summary))
                     actorClaim?.let { put("actor", it.toJson()) }
-                    verification?.let { put("verification", it.toJson()) }
+                    verification?.toJsonOrOmit()?.let { put("verification", it) }
                     if (cascadeJsonList.isNotEmpty()) put("cascadeEvents", JsonArray(cascadeJsonList))
                     if (unblockedJsonList.isNotEmpty()) put("unblockedItems", JsonArray(unblockedJsonList))
                     put("expectedNotes", expectedNotesJson)

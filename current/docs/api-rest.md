@@ -216,13 +216,16 @@ List endpoints return a `PageDto<T>`:
   "page": 1,
   "pageSize": 20,
   "totalItems": 42,   // may be null when count is expensive
-  "hasMore": true
+  "hasMore": true,
+  "skipped": 1         // omitted when 0/null — see below
 }
 ```
 
 Query parameters: `?page=<int>` (default 1) and `?pageSize=<int>` (default 20, max typically 100).
 
 `totalItems` may be `null` for endpoints where computing an exact count is expensive; use `hasMore` for continuation.
+
+`skipped` counts rows in this page's underlying query window that were dropped because they failed domain validation (e.g. a corrupt/legacy row) — the row is excluded from `items` but still counted in `totalItems`. The field is omitted entirely when nothing was skipped. Invariant: `items.size == min(pageSize, totalItems - offset) - skipped` (clamped to the actual window), so truncation is always derivable from `totalItems`/`pageSize`/`page` without a separate `truncated` field. Currently populated on `GET /items` and `GET /items/roots`; other list endpoints report `skipped: null`.
 
 ---
 
@@ -481,16 +484,18 @@ Paginated list of work items with optional filters.
 | `orderBy` | string | Sort field |
 | `orderDir` | string | Sort direction: `asc`, `desc` |
 
-**Response:** `200 OK` → `PageDto<ItemDto>`
+**Response:** `200 OK` → `PageDto<ItemDto>` (see §7 for `skipped` semantics; populated on the unscoped branch)
 
 ### GET /items/roots
 
 Root-level items (depth=0) accessible to the caller.
 
-- Scoped tokens: returns only the specific root items within scope (efficient, not capped)
-- Unscoped/admin: scans up to 200 root items (documented cap)
+- Scoped tokens: returns only the specific root items within scope (efficient, not capped); `totalItems` is the exact scoped root count.
+- Unscoped/admin: fully paginated via standard `page`/`pageSize` params — `totalItems` comes from an exact `COUNT` query, unaffected by `pageSize` or by rows dropped for failing domain validation. There is no cap; page through all roots with repeated requests.
 
-**Response:** `200 OK` → `PageDto<ItemDto>`
+**Query parameters:** Standard pagination params (`page`, `pageSize`).
+
+**Response:** `200 OK` → `PageDto<ItemDto>` (see §7 for `skipped` semantics; populated on the unscoped branch)
 
 ### GET /items/{id}
 
@@ -1035,7 +1040,5 @@ The `"<previousRole>"` sentinel in `blocked.resume` is a literal string — reso
 **SSE dependency-event scoping depends on a warm ancestor cache.** Live root-filtering and `Last-Event-ID` replay are both correctly root-scoped — ring-buffer entries carry `affectedRoots` metadata and the replay path applies the same root-intersection filter as the live fan-out. One residual caveat remains for dependency events: `dependency.added` / `dependency.removed` resolve their affected roots from an in-memory ancestor cache populated by prior item create/update writes. On a cache miss (e.g., a dependency change with no preceding item write on that subtree during the connection's lifetime), the event falls back to an unscoped broadcast. This is a deliberate tradeoff; root-scoped subscribers that require exact dependency-event scoping should re-fetch state rather than relying solely on the event stream.
 
 **SSE is bearer-mode only.** The pre-flight auth plugin for the SSE route only supports bearer token authentication. JWKS JWT authentication for SSE is not implemented (the pre-flight plugin does not invoke the JWKS verifier).
-
-**`GET /items/roots` unscoped cap.** Unscoped/admin callers on `GET /items/roots` receive at most 200 root items. Scoped callers are not subject to this cap.
 
 **FTS5 requires SQLite.** Search endpoints (`GET /search`, `GET /notes/search`) return empty results when the repository is H2-backed (test/embedded environments). FTS5 is only available against the production SQLite database.

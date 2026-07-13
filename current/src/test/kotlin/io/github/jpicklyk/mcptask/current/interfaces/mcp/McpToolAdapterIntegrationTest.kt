@@ -488,7 +488,11 @@ class McpToolAdapterIntegrationTest {
             val error = assertNotNull(structured["error"]?.jsonObject, "structuredContent must contain the error object")
             assertEquals(ErrorCodes.RESOURCE_NOT_FOUND, error["code"]?.jsonPrimitive?.content)
             assertTrue(
-                error["message"]?.jsonPrimitive?.content.orEmpty().contains("deadbeef"),
+                error["message"]
+                    ?.jsonPrimitive
+                    ?.content
+                    .orEmpty()
+                    .contains("deadbeef"),
                 "Error message should reference the unresolved prefix"
             )
         }
