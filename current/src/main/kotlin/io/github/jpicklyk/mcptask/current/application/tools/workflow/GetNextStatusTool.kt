@@ -22,16 +22,9 @@ class GetNextStatusTool : BaseToolDefinition() {
 
     override val description =
         """
-Read-only status progression recommendation for a WorkItem.
-
-**Parameters:**
-- `itemId` (required, UUID): WorkItem to analyze
-
-**Response:**
-- recommendation: "Ready", "Blocked", or "Terminal"
-- If Ready: currentRole, nextRole, trigger ("start"), progressionPosition
-- If Blocked: currentRole, blockers[] (each with fromItemId, currentRole, requiredRole), or resume suggestion if BLOCKED role
-- If Terminal: currentRole, reason
+Read-only status progression recommendation for a WorkItem: "Ready" (can advance via the "start"
+trigger), "Blocked" (unsatisfied dependencies, or explicit BLOCKED role — use "resume" to return to
+its previous role), or "Terminal" (workflow already complete).
         """.trimIndent()
 
     override val category = ToolCategory.WORKFLOW
@@ -52,7 +45,7 @@ Read-only status progression recommendation for a WorkItem.
                         "itemId",
                         buildJsonObject {
                             put("type", JsonPrimitive("string"))
-                            put("description", JsonPrimitive("UUID or hex prefix (4+ chars) of the WorkItem to analyze"))
+                            put("description", JsonPrimitive("WorkItem UUID or hex prefix (4+ chars)"))
                         }
                     )
                 },

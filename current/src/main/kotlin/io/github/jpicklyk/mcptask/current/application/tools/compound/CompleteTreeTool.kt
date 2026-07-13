@@ -35,34 +35,15 @@ class CompleteTreeTool :
         """
 Complete or cancel all descendants of a root item (or an explicit list of items) in topological dependency order.
 
-**Idempotency:** Pass `requestId` (client-generated UUID) together with a top-level `actor.id` to enable idempotent retries. Repeated calls with the same (actor, requestId) within ~10 minutes return the cached response without re-executing.
-
-**Parameters:**
-- `rootId` (optional UUID string): complete all descendants of this item (exclusive with itemIds)
-- `itemIds` (optional array of UUID strings): explicit list of items to complete
-- `trigger` (optional string, default "complete"): "complete" (enforces all required note gates) or "cancel" (bypasses gate enforcement — use when cancelling items that were never fully worked).
-- `includeRoot` (optional boolean, default true): when rootId is used, also include the root item itself in the completion scope. Ignored when itemIds is used.
-
 **Validation:** Exactly one of `rootId` or `itemIds` must be provided.
 
 **Behavior:**
 - Items are processed in topological order (respecting dependency edges within the target set).
-- Gate check: if an item's tags match a note schema, all required notes must be filled before completing.
-  Gate failures cause downstream dependents (within the target set) to be skipped.
+- Gate check: if an item's tags match a note schema, all required notes must be filled before completing
+  (trigger "cancel" bypasses this). Gate failures cause downstream dependents (within the target set)
+  to be skipped.
 - Items already in TERMINAL role are recorded as skipped.
 - When rootId is used with includeRoot=true (the default), the root item is processed last, after all its descendants.
-
-**Response:**
-```json
-{
-  "results": [
-    { "itemId": "uuid", "title": "...", "applied": true, "trigger": "complete" },
-    { "itemId": "uuid", "title": "...", "applied": false, "skipped": true, "skippedReason": "dependency gate failed" },
-    { "itemId": "uuid", "title": "...", "applied": false, "gateErrors": ["missing: acceptance-criteria"] }
-  ],
-  "summary": { "total": 3, "completed": 1, "skipped": 2, "gateFailures": 1 }
-}
-```
         """.trimIndent()
 
     override val category = ToolCategory.WORKFLOW
@@ -142,9 +123,8 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Client-generated UUID for idempotency. Repeated calls with the same (actor, requestId) " +
-                                        "within ~10 minutes return the cached response without re-executing. " +
-                                        "Requires a top-level actor parameter to function."
+                                    "Client-generated UUID for idempotency (10 min cache, keyed by actor+requestId). " +
+                                        "Requires actor."
                                 )
                             )
                         }
@@ -156,9 +136,8 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Top-level actor for idempotency key resolution: " +
-                                        "{ id (required string), kind (required: orchestrator|subagent|user|external), " +
-                                        "parent? (optional string), proof? (optional string) }"
+                                    "Top-level actor: { id (required), " +
+                                        "kind (required: orchestrator|subagent|user|external), parent?, proof? }"
                                 )
                             )
                         }

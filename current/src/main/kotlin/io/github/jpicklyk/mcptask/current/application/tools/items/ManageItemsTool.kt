@@ -37,33 +37,11 @@ class ManageItemsTool :
         """
 Unified write operations for WorkItems (create, update, delete).
 
-**Idempotency:** Pass `requestId` (client-generated UUID) to enable idempotent retries. Repeated calls with the same (actor, requestId) within ~10 minutes return the cached response without re-executing.
+**create** - Each item: `{ title (required), description?, summary?, role?, statusLabel?, priority?, complexity?, parentId?, metadata?, tags?, type?, properties?, requiresVerification? }`. Shared top-level `parentId` is the default for all items (per-item parentId overrides). Depth is auto-computed from parent (root=0, child=parent.depth+1, unbounded). Defaults: role=queue, priority=medium; complexity has no default.
 
-**Operations:**
+**update** - Each item: `{ id (required, UUID or hex prefix 4+ chars), title?, description?, summary?, statusLabel?, priority?, complexity?, parentId?, metadata?, tags?, type?, properties? }`. Role changes are not allowed — use `advance_item` instead. Only provided fields change; if parentId changes, depth is recomputed from the new parent.
 
-**create** - Create WorkItems from `items` array.
-- Each item: `{ title (required), description?, summary?, role?, statusLabel?, priority?, complexity?, parentId?, metadata?, tags?, type?, properties?, requiresVerification? }`
-- Shared `parentId` at top level serves as default for all items (per-item parentId overrides)
-- Top-level `traits` (optional string): comma-separated trait names applied to all items in this operation
-  (e.g., `"needs-migration-review,needs-security-review"`). Traits augment each item's note schema with
-  additional required notes.
-- Top-level `requiresVerification` is ignored — set it on individual items in the `items` array instead.
-- Depth auto-computed from parent (root=0, child=parent.depth+1, unbounded)
-- Defaults: role=queue, priority=medium; complexity has no default (null if not provided)
-- Response: `{ items: [{id, title, depth, role, priority, requiresVerification, tags, schemaMatch, expectedNotes}], created: N, failed: N, failures: [{index, error}] }`
-- `tags` is always included (null if not set). `expectedNotes` is always included (empty array when no schema matches). `schemaMatch` indicates whether the item's tags matched a configured note schema.
-
-**update** - Partial update from `items` array.
-- Each item: `{ id (required, UUID or hex prefix 4+ chars), title?, description?, summary?, statusLabel?, priority?, complexity?, parentId? (UUID or hex prefix 4+ chars), metadata?, tags?, type?, properties? }`
-- Note: role changes are not allowed in update operations. Use advance_item with triggers (start, complete, block, hold, resume, cancel, reopen) instead.
-- Only provided fields are changed; omitted fields retain existing values
-- If parentId changes, depth is recomputed from new parent
-- Response: `{ items: [{id, modifiedAt, requiresVerification}], updated: N, failed: N, failures: [{id, error}] }` (failures omitted when empty)
-
-**delete** - Delete by `ids` array (UUIDs or hex prefixes 4+ chars).
-- Response: `{ ids: [...], deleted: N, failed: N, failures: [{id, error}] }`
-- Use `recursive: true` to recursively delete all descendant items before deleting the specified items.
-  Without this flag, deleting an item with children will fail with a constraint error.
+**delete** - Delete by `ids` array (UUIDs or hex prefixes 4+ chars); see `recursive` param.
         """.trimIndent()
 
     override val category = ToolCategory.ITEM_MANAGEMENT
@@ -109,8 +87,8 @@ Unified write operations for WorkItems (create, update, delete).
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "When true, recursively deletes all descendant items before deleting the specified items. " +
-                                        "Default false — without this flag, deleting an item with children will fail with a constraint error."
+                                    "Default false (children block delete with a constraint error); true deletes " +
+                                        "descendants first."
                                 )
                             )
                         }
@@ -126,7 +104,13 @@ Unified write operations for WorkItems (create, update, delete).
                         "requiresVerification",
                         buildJsonObject {
                             put("type", JsonPrimitive("boolean"))
-                            put("description", JsonPrimitive("Whether this item requires explicit verification before completion"))
+                            put(
+                                "description",
+                                JsonPrimitive(
+                                    "Ignored at the top level for create — set requiresVerification on each item in " +
+                                        "the items array instead."
+                                )
+                            )
                         }
                     )
                     put(
@@ -136,8 +120,8 @@ Unified write operations for WorkItems (create, update, delete).
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Schema type identifier for this work item. Determines which work_item_schema applies " +
-                                        "(lifecycle mode, required notes). One-to-one lookup — unlike tags, only one type per item."
+                                    "Schema type identifier; determines lifecycle mode and required notes. One type " +
+                                        "per item (unlike tags)."
                                 )
                             )
                         }
@@ -149,8 +133,8 @@ Unified write operations for WorkItems (create, update, delete).
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "JSON string containing extensible item properties (e.g., lifecycle overrides, traits). " +
-                                        "Stored as-is; validated by consuming code."
+                                    "JSON string of extensible item properties (e.g. lifecycle overrides, traits); " +
+                                        "stored as-is."
                                 )
                             )
                         }
@@ -162,9 +146,8 @@ Unified write operations for WorkItems (create, update, delete).
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Comma-separated list of trait names to apply (e.g., 'needs-security-review,needs-perf-review'). " +
-                                        "Traits add additional note requirements from the traits: config section. " +
-                                        "Merged into the properties JSON automatically."
+                                    "Comma-separated trait names adding note requirements from the traits: config; " +
+                                        "merged into properties automatically."
                                 )
                             )
                         }
@@ -176,8 +159,8 @@ Unified write operations for WorkItems (create, update, delete).
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Client-generated UUID for idempotency. Repeated calls with the same (actor, requestId) " +
-                                        "within ~10 minutes return the cached response without re-executing."
+                                    "Client-generated UUID for idempotency (10 min cache, keyed by actor+requestId). " +
+                                        "Requires actor."
                                 )
                             )
                         }
@@ -189,10 +172,8 @@ Unified write operations for WorkItems (create, update, delete).
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Actor for idempotency key resolution: { id (required string), " +
-                                        "kind (required: orchestrator|subagent|user|external), " +
-                                        "parent? (optional string), proof? (optional string) }. " +
-                                        "Required when requestId is provided."
+                                    "Actor: { id (required), kind (required: orchestrator|subagent|user|external), " +
+                                        "parent?, proof? }. Required when requestId is provided."
                                 )
                             )
                         }

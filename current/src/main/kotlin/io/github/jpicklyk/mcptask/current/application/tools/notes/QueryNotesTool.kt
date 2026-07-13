@@ -28,48 +28,16 @@ class QueryNotesTool : BaseToolDefinition() {
 
     override val description =
         """
-Read-only query operations for Notes (get, list, search).
+Read-only query operations for Notes.
 
-**Operations:**
+Operations: get, list, search
 
-**get** - Get a single Note by ID.
-- Required: `id` (UUID)
-- Response: full Note JSON (includes `actor` and `verification` when present)
+**get** requires `id`.
 
-**list** - List notes for a WorkItem.
-- Required: `itemId` (UUID)
-- Optional: `role` — filter by role: "queue", "work", "review"
-- Optional: `keys` (array of strings) — filter to notes with these keys
-- Optional: `includeBody` (boolean, default false) — set true to include full note bodies.
-  When bodies are omitted, each note includes `bodyLength` so you can decide what to fetch.
-- Response: `{ notes: [...], total: N }` — notes omit the `itemId` echo (you supplied it);
-  each note includes `actor` and `verification` fields when attribution was provided at write time
+**list** requires `itemId`. Optional `role`/`keys` filters.
 
-**search** - Full-text search over note bodies via FTS5 (RRF fusion of trigram + porter tokenizer tables).
-Returns ranked hits with ~32-token snippets. Use this to find notes mentioning a specific phrase,
-concept, or identifier across all note bodies.
-- Required: `query` (string) — the search terms. Multiple words produce implicit AND.
-  Special FTS5 characters are automatically escaped; you do not need to quote terms.
-- Optional: `scope` (object) — structural scope filter:
-    - scope.itemId (UUID): Narrow to notes on this single work item only.
-    - scope.ancestorId (UUID): Narrow to notes whose owning item is in that subtree (descendants
-      at any depth via recursive CTE). Use this to scope a search to a feature or container.
-    - Note: to filter by note role (queue/work/review), use the `list` operation instead — it
-      supports direct role filtering and returns complete note content without needing a query.
-- Optional: `matchMode` (string, default "auto"):
-    - "auto" — query both trigram and text tables, fuse via RRF (best coverage, recommended)
-    - "substring" — trigram table only (substring/case-insensitive; requires ≥3-char token)
-    - "text" — porter+unicode61 table only (stemming/natural language)
-- Optional: `snippet` (boolean, default true) — include ~32-token snippet with <mark>…</mark> highlights.
-  Markdown formatting in snippet bodies is preserved.
-- Optional: `explain` (boolean, default false) — include raw FTS5 ranks (trigramRank, textRank, rrfK=60)
-  per hit. Off by default — only enable when debugging ranking.
-- Optional: `limit` (integer, default 20, max 100)
-- Optional: `offset` (integer, default 0)
-- Response: `{ hits: [...], totalHits, nextOffset, truncated }`
-  Each hit: `{ kind: "note", itemId, noteKey, field: "body", snippet, score, matchedIn: ["trigram","text"],
-              explain?: { trigramRank, textRank, rrfK } }`
-  score is the descending RRF fused value; higher = more relevant.
+**search** requires `query`; full-text search over note bodies, returning ranked snippets. To filter
+by note role (queue/work/review), use `list` instead — `search`'s `scope` has no role field.
         """.trimIndent()
 
     override val category = ToolCategory.NOTE_MANAGEMENT
@@ -143,9 +111,8 @@ concept, or identifier across all note bodies.
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Full-text search query (FTS5, required for search operation). " +
-                                        "Multiple words = implicit AND. " +
-                                        "FTS5 special characters are automatically escaped — pass plain terms."
+                                    "Search terms (required for search). Multiple words = implicit AND; special " +
+                                        "characters are auto-escaped — pass plain terms."
                                 )
                             )
                         }
@@ -167,12 +134,7 @@ concept, or identifier across all note bodies.
                                         "itemId",
                                         buildJsonObject {
                                             put("type", JsonPrimitive("string"))
-                                            put(
-                                                "description",
-                                                JsonPrimitive(
-                                                    "When set, search only notes on this single work item."
-                                                )
-                                            )
+                                            put("description", JsonPrimitive("Limit to notes on this single work item."))
                                         }
                                     )
                                     put(
@@ -182,9 +144,8 @@ concept, or identifier across all note bodies.
                                             put(
                                                 "description",
                                                 JsonPrimitive(
-                                                    "When set, search only notes whose owning item is in this item's subtree " +
-                                                        "(descendants at any depth via recursive CTE). Use this to scope a search " +
-                                                        "to a feature or container. E.g. scope.ancestorId = UUID of the feature root."
+                                                    "Limit to notes whose owning item is in this item's subtree (any depth) " +
+                                                        "— scope a search to a feature or container."
                                                 )
                                             )
                                         }
@@ -200,9 +161,8 @@ concept, or identifier across all note bodies.
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "FTS table selection: \"auto\" (default — both trigram + text tables fused via RRF, " +
-                                        "best coverage), \"substring\" (trigram only, requires ≥3-char tokens), " +
-                                        "\"text\" (porter+unicode61 only, stemming/natural language)."
+                                    "Search strategy: auto (default, broadest coverage), substring (case-insensitive " +
+                                        "exact match, token 3+ chars), text (stemmed natural-language match)."
                                 )
                             )
                             put("enum", JsonArray(listOf("auto", "substring", "text").map { JsonPrimitive(it) }))
@@ -215,8 +175,8 @@ concept, or identifier across all note bodies.
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "When true (default), each hit includes a ~32-token snippet with <mark>…</mark> " +
-                                        "highlights. Markdown formatting in snippet bodies is preserved."
+                                    "When true (default), each hit includes a ~32-token snippet with <mark> highlights; " +
+                                        "markdown is preserved."
                                 )
                             )
                         }
@@ -228,8 +188,8 @@ concept, or identifier across all note bodies.
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "When true, each hit includes an `explain` object with raw FTS5 component scores " +
-                                        "(trigramRank, textRank, rrfK=60). Off by default — only enable when debugging ranking."
+                                    "When true, each hit includes an explain object with trigramRank, textRank, and " +
+                                        "rrfK. Off by default — only for debugging."
                                 )
                             )
                         }

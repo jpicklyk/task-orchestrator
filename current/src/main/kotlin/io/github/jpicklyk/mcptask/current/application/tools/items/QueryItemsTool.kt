@@ -49,60 +49,21 @@ Unified read operations for work items.
 
 Operations: get, search, overview, schema
 
-**get** - Retrieve a single item by ID or short prefix
-- Required: itemId (UUID or hex prefix, minimum 4 characters)
-- Full 36-char UUID: exact match (existing behavior)
-- Short hex prefix (4-35 chars): resolves to unique item; errors if ambiguous or not found
-- Returns full item JSON
-- includeAncestors (boolean, default false): When true, each item includes an `ancestors` array showing the full path from root to direct parent
+**get** requires `itemId`.
 
-**search** - Two modes depending on whether `query` is provided:
+**search** has two modes: FTS mode when `query` is provided (ranked full-text hits over titles and
+summaries); list mode (structured filters) when `query` is omitted — see each parameter's schema
+description for the available filters. `claimedBy` identity is NEVER included in search results
+(list mode's `claimStatus` filter only adds a boolean `isClaimed`) — use `get_context(itemId)` for
+full claim details.
 
-  *FTS mode* (when `query` is set): Full-text search via FTS5 (RRF fusion of trigram + porter tokenizer tables).
-  Returns ranked hits with ~32-token snippets. Use this to find items mentioning a concept,
-  phrase, or identifier across all titles and summaries.
-  - Required: query (string) — the search terms. Multiple words produce implicit AND.
-    Special FTS5 characters are automatically escaped; you do not need to quote terms.
-  - Optional: scope (object) — structural scope filter:
-      - scope.ancestorId (UUID): Limit search to items in this item's subtree (descendants at any depth).
-        Use this to scope a search to a feature or container. E.g. scope={ancestorId: "uuid-of-feature"}.
-      - scope.itemId (UUID): Search only this single item's content.
-      - scope.tags (string[]): Only include items that have at least one of these tags.
-      - scope.role (string): Only include items in this role (queue/work/review/terminal/blocked).
-  - Optional: matchMode (string, default "auto"):
-      - "auto" — query both trigram and text tables, fuse via RRF (best coverage, recommended)
-      - "substring" — trigram table only (substring/case-insensitive; requires ≥3-char token)
-      - "text" — porter+unicode61 table only (stemming/natural language)
-  - Optional: snippet (boolean, default true) — include ~32-token snippet with <mark>…</mark> highlights
-  - Optional: explain (boolean, default false) — include raw FTS5 ranks (trigramRank, textRank, rrfK) per hit
-  - Optional: limit (integer, default 20, max 100)
-  - Optional: offset (integer, default 0)
-  - Response: { hits: [...], totalHits, nextOffset, truncated }
-    Each hit: { kind: "item", itemId, field ("title"|"summary"), snippet, score, matchedIn: ["trigram","text"],
-                explain?: { trigramRank, textRank, rrfK } }
-    score is the descending RRF fused value; higher = more relevant.
-    Markdown formatting in snippets is preserved as-is.
+**overview** without `itemId` returns a global summary of all root items; with `itemId` it returns
+that item's metadata, child counts by role, and direct children.
 
-  *List mode* (when `query` is omitted): Filter items by structured criteria.
-  - Optional: parentId, depth, role, priority, tags, type,
-              createdAfter, createdBefore, modifiedAfter, modifiedBefore,
-              roleChangedAfter, roleChangedBefore,
-              sortBy, sortOrder, limit, offset, claimStatus, includeAncestors
-  - claimStatus: "claimed" (active live claim), "unclaimed" (never claimed), "expired" (TTL elapsed).
-    When provided, a boolean `isClaimed` field is added to each result.
-  - Returns minimal fields: id, parentId, title, role, priority, depth, tags
-  - Note: claimedBy identity is NEVER included in search results (use get_context(itemId) for full details)
-  - Wrapped in { items: [...], total: N, returned: N, limit: N, offset: N }
-  - total is the full count of all matching rows (regardless of limit/offset)
-
-**overview** - Hierarchical summary view
-- With itemId: Item metadata + child counts by role + direct children list
-- Without itemId: Global overview of all root items with per-root child counts and claimSummary { active, expired, unclaimed }
-- claimSummary counts are per root-item's subtree (or global when no itemId)
-- Default limit: 20 root items
-- includeChildren (boolean, default false): When true (global overview only), each root item includes a `children` array of its direct child items
-
-**schema** - Full note schema (descriptions + guidance) by `type` or `itemId` (exactly one). Returns { type, configFingerprint, notes: [{key, role, required, description, guidance?, skill?, maxLength?}] }. `maxLength`, when present, is the max note body length (chars) enforced by `manage_notes` upsert. Use this to resolve keys-only expectedNotes / guidanceKey references.
+**schema** requires exactly one of `type` or `itemId`. Returns the full note schema (description +
+guidance + skill + maxLength per entry) — the reference target for keys-only `expectedNotes` /
+`guidanceKey` values returned elsewhere. `maxLength`, when present, is the max note body length
+(chars) enforced by `manage_notes` upsert.
         """.trimIndent()
 
     override val category = ToolCategory.ITEM_MANAGEMENT
@@ -133,7 +94,7 @@ Operations: get, search, overview, schema
                             put("type", JsonPrimitive("string"))
                             put(
                                 "description",
-                                JsonPrimitive("Item UUID or hex prefix (minimum 4 characters) for get operation; UUID for scoped overview")
+                                JsonPrimitive("UUID or hex prefix (4+ chars) for get; UUID for scoped overview")
                             )
                         }
                     )
@@ -180,9 +141,8 @@ Operations: get, search, overview, schema
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Full-text search query (FTS5). When present, triggers FTS mode: returns ranked hits " +
-                                        "with snippets from titles and summaries. Multiple words = implicit AND. " +
-                                        "FTS5 special characters are automatically escaped — pass plain terms."
+                                    "Search terms (triggers FTS mode: ranked hits with snippets). Multiple words = " +
+                                        "implicit AND; special characters are auto-escaped — pass plain terms."
                                 )
                             )
                         }
@@ -207,9 +167,8 @@ Operations: get, search, overview, schema
                                             put(
                                                 "description",
                                                 JsonPrimitive(
-                                                    "When set, search only matches items within this item's subtree " +
-                                                        "(descendants at any depth via recursive CTE). Use this to scope a search " +
-                                                        "to a feature or container. E.g. scope.ancestorId = UUID of the feature root."
+                                                    "Limit to this item's subtree (any depth) — scope a search to a " +
+                                                        "feature or container."
                                                 )
                                             )
                                         }
@@ -220,9 +179,7 @@ Operations: get, search, overview, schema
                                             put("type", JsonPrimitive("string"))
                                             put(
                                                 "description",
-                                                JsonPrimitive(
-                                                    "When set, search only this single item's content (title + summary)."
-                                                )
+                                                JsonPrimitive("Limit to this single item's content (title + summary).")
                                             )
                                         }
                                     )
@@ -231,12 +188,7 @@ Operations: get, search, overview, schema
                                         buildJsonObject {
                                             put("type", JsonPrimitive("array"))
                                             put("items", buildJsonObject { put("type", JsonPrimitive("string")) })
-                                            put(
-                                                "description",
-                                                JsonPrimitive(
-                                                    "OR-match: only include items that have at least one of these tags."
-                                                )
-                                            )
+                                            put("description", JsonPrimitive("OR-match: item must have at least one of these tags."))
                                         }
                                     )
                                     put(
@@ -245,9 +197,7 @@ Operations: get, search, overview, schema
                                             put("type", JsonPrimitive("string"))
                                             put(
                                                 "description",
-                                                JsonPrimitive(
-                                                    "Only include items in this role: queue, work, review, terminal, blocked."
-                                                )
+                                                JsonPrimitive("Limit to items in this role: queue, work, review, terminal, blocked.")
                                             )
                                         }
                                     )
@@ -262,9 +212,8 @@ Operations: get, search, overview, schema
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "FTS table selection: \"auto\" (default — both trigram + text tables fused via RRF, " +
-                                        "best coverage), \"substring\" (trigram only, requires ≥3-char tokens), " +
-                                        "\"text\" (porter+unicode61 only, stemming/natural language)."
+                                    "Search strategy: auto (default, broadest coverage), substring (case-insensitive " +
+                                        "exact match, token 3+ chars), text (stemmed natural-language match)."
                                 )
                             )
                             put("enum", JsonArray(listOf("auto", "substring", "text").map { JsonPrimitive(it) }))
@@ -277,8 +226,8 @@ Operations: get, search, overview, schema
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "When true (default), each hit includes a ~32-token snippet with <mark>…</mark> " +
-                                        "highlights. Markdown formatting in snippet bodies is preserved."
+                                    "When true (default), each hit includes a ~32-token snippet with <mark> highlights; " +
+                                        "markdown is preserved."
                                 )
                             )
                         }
@@ -290,8 +239,8 @@ Operations: get, search, overview, schema
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "When true, each hit includes an `explain` object with raw FTS5 component scores " +
-                                        "(trigramRank, textRank, rrfK=60). Off by default — only enable when debugging ranking."
+                                    "When true, each hit includes an explain object with trigramRank, textRank, and " +
+                                        "rrfK. Off by default — only for debugging."
                                 )
                             )
                         }
@@ -328,14 +277,14 @@ Operations: get, search, overview, schema
                         "roleChangedAfter",
                         buildJsonObject {
                             put("type", JsonPrimitive("string"))
-                            put("description", JsonPrimitive("ISO 8601 timestamp — items whose role changed after this time"))
+                            put("description", JsonPrimitive("ISO 8601 timestamp filter (role's last-changed time)"))
                         }
                     )
                     put(
                         "roleChangedBefore",
                         buildJsonObject {
                             put("type", JsonPrimitive("string"))
-                            put("description", JsonPrimitive("ISO 8601 timestamp — items whose role changed before this time"))
+                            put("description", JsonPrimitive("ISO 8601 timestamp filter (role's last-changed time)"))
                         }
                     )
                     put(
@@ -363,7 +312,7 @@ Operations: get, search, overview, schema
                         "offset",
                         buildJsonObject {
                             put("type", JsonPrimitive("integer"))
-                            put("description", JsonPrimitive("Number of items to skip (for pagination). Use with limit. Default: 0."))
+                            put("description", JsonPrimitive("Pagination offset (default: 0)."))
                         }
                     )
                     put(
@@ -372,8 +321,19 @@ Operations: get, search, overview, schema
                             put("type", JsonPrimitive("boolean"))
                             put(
                                 "description",
+                                JsonPrimitive("get/search only: adds an ancestors array to each item.")
+                            )
+                        }
+                    )
+                    put(
+                        "includeTimestamps",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("boolean"))
+                            put(
+                                "description",
                                 JsonPrimitive(
-                                    "When true, each item in search/get results includes an `ancestors` array (get and search operations only)"
+                                    "get operation only. When true, the item includes createdAt, modifiedAt, and " +
+                                        "roleChangedAt. Default false (omitted) for token efficiency."
                                 )
                             )
                         }
@@ -384,9 +344,7 @@ Operations: get, search, overview, schema
                             put("type", JsonPrimitive("boolean"))
                             put(
                                 "description",
-                                JsonPrimitive(
-                                    "When true, each root item in global overview includes a `children` array of direct child items (overview operation, global mode only)"
-                                )
+                                JsonPrimitive("Global overview only: adds each root's direct children array.")
                             )
                         }
                     )
@@ -394,7 +352,7 @@ Operations: get, search, overview, schema
                         "type",
                         buildJsonObject {
                             put("type", JsonPrimitive("string"))
-                            put("description", JsonPrimitive("Filter by type identifier (exact match); for operation=schema, the schema type to fetch"))
+                            put("description", JsonPrimitive("Type filter (exact match); for the schema operation, the type to fetch"))
                         }
                     )
                     put(
@@ -404,7 +362,8 @@ Operations: get, search, overview, schema
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Filter by claim state (search operation only): \"claimed\" (active live claim), \"unclaimed\" (claimed_by IS NULL), or \"expired\" (claim placed but TTL elapsed). When used, each result includes a boolean isClaimed field. claimedBy identity is NEVER exposed in search results."
+                                    "Claim-state filter (search only): claimed, unclaimed, or expired (TTL elapsed). " +
+                                        "Adds isClaimed per result; claimedBy is never exposed here."
                                 )
                             )
                             put("enum", JsonArray(listOf("claimed", "unclaimed", "expired").map { JsonPrimitive(it) }))
@@ -626,6 +585,7 @@ Operations: get, search, overview, schema
         if (idError != null) return idError
         val itemId = resolvedId!!
         val includeAncestors = optionalBoolean(params, "includeAncestors", false)
+        val includeTimestamps = optionalBoolean(params, "includeTimestamps", false)
 
         val item =
             when (val result = context.workItemRepository().getById(itemId)) {
@@ -640,7 +600,7 @@ Operations: get, search, overview, schema
                 )
             }
 
-        val itemJson = item.toFullJson()
+        val itemJson = item.toFullJson(includeTimestamps = includeTimestamps)
 
         return if (includeAncestors) {
             val chains = context.workItemRepository().findAncestorChains(setOf(item.id))

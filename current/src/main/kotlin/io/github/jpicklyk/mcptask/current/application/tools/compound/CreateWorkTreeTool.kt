@@ -35,42 +35,15 @@ class CreateWorkTreeTool :
     override val description =
         """
 Atomically create a hierarchical work tree: root item, child items, dependencies, and optional notes.
+Eliminates the round-trips of calling manage_items + manage_dependencies + manage_notes separately.
 
-**Attach mode:** Pass `root.id` (UUID or hex prefix of an existing item) to attach children/deps/notes directly to an existing item instead of creating a new root. When `root.id` is provided, `root.title` is optional (ignored if both are given). Providing both `root.id` and `parentId` is rejected (contradictory). The existing item is NOT re-inserted; children are created under it at existing.depth+1.
+**Attach mode:** pass `root.id` to attach children/deps/notes to an existing item instead of creating
+a new root; `root.title` is then optional. `root.id` and `parentId` cannot both be given (contradictory
+— attach vs. new root under a parent). The existing item is NOT re-inserted; children are created
+under it at existing.depth + 1.
 
-**Idempotency:** Pass `requestId` (client-generated UUID) together with a top-level `actor.id` to enable idempotent retries. Repeated calls with the same (actor, requestId) within ~10 minutes return the cached response without re-executing.
-
-**Actor attribution:** A single top-level `actor` is applied to **every** persisted note in the tree (both explicit `notes` entries and `createNotes=true` schema blanks). This differs from `manage_notes`, which accepts a per-note `actor` block. If the top-level `actor` is malformed (e.g., missing `kind`), idempotency is disabled and attribution is dropped to `null` on each note — the call still proceeds and items/notes are created without an audit identity.
-
-**Parameters:**
-- `root` (required): Root item spec. In create mode: `{ title (required), priority?, tags?, traits?, summary?, description?, requiresVerification?, type? }`. In attach mode: `{ id? (UUID or hex prefix of existing item), title? (optional, ignored when id is provided), priority?, tags?, traits?, summary?, description?, requiresVerification?, type? }`. `traits` is a comma-separated string of trait keys merged into properties.
-- `parentId` (optional): UUID of existing parent item. If provided, root depth = parent.depth + 1; otherwise depth = 0. Cannot be combined with `root.id`.
-- `children` (optional): Array of child item specs `[{ ref (required), title (required), parentRef (optional, defaults to "root"), priority?, tags?, traits?, summary?, description?, requiresVerification?, type? }]`. `ref` is a local name used in `deps` to wire dependencies. `parentRef` specifies this child's parent: either `"root"` or another child's `ref`. Children can be provided in any order; a topological sort ensures parents are created before children. Item specs must NOT embed their own nested `children` array — express nesting via this flat array plus `parentRef`; a nested `children` key is rejected with a validation error rather than silently dropped.
-- `deps` (optional): Array of dependency specs `[{ from: ref, to: ref, type?: BLOCKS|IS_BLOCKED_BY|RELATES_TO, unblockAt?: queue|work|review|terminal }]`. Use `"root"` to reference the root item.
-- `createNotes` (optional, default false): Auto-create blank notes for each item based on its resolved schema (looked up by `type` first, then by `tags`).
-- `notes` (optional): Notes to create with bodies: `[{ itemRef (required, "root" or child ref), key (required), role (required: queue|work|review), body (optional, defaults to empty string) }]`. Explicit notes win over `createNotes=true` blanks per `(itemRef, key)`. **Strict role enforcement:** when an explicit note's `key` is declared in the resolved schema for the target item, the note's `role` must equal the schema role; mismatch is rejected with `VALIDATION_ERROR`. Off-schema keys and items without a schema are unconstrained.
-- `actor` (optional): Actor claim `{ id (required), kind (required: orchestrator|subagent|user|external), parent?, proof? }`. See **Idempotency** and **Actor attribution** above for the two effects.
-- `requestId` (optional): Client-generated UUID. With `actor`, enables idempotent retries (see Idempotency above).
-
-**Depth:** Root depth = parent.depth + 1 when parentId is provided, otherwise 0. In attach mode, children's depth derives from the existing root item's depth. Children's depth = their parent's depth + 1 (root or sibling via parentRef). No application-layer depth cap; cycle protection is enforced by the database.
-
-**Response:**
-```json
-{
-  "root": {
-    "id": "uuid", "title": "...", "role": "queue", "depth": 0, "tags": "...",
-    "schemaMatch": true, "expectedNotes": [{ "key": "...", "role": "queue", "required": true, "exists": false }]
-  },
-  "children": [{
-    "ref": "t1", "id": "uuid", "title": "...", "role": "queue", "depth": 1,
-    "schemaMatch": false, "expectedNotes": []
-  }],
-  "dependencies": [{ "id": "uuid", "fromRef": "t1", "toRef": "t2", "type": "BLOCKS", "unblockAt": "work" }],
-  "notes": [{ "itemRef": "t1", "key": "acceptance-criteria", "role": "queue", "id": "uuid" }]
-}
-```
-
-`tags` on items and `unblockAt` on dependencies are omitted (not null) when not set. `schemaMatch` and `expectedNotes` are always present; `expectedNotes` is `[]` when no schema matches.
+**Depth:** root depth = parent.depth + 1 when `parentId` is given, otherwise 0 (or the existing root's
+depth in attach mode). No depth cap.
         """.trimIndent()
 
     override val category = ToolCategory.ITEM_MANAGEMENT
@@ -94,12 +67,10 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Root item spec. Create mode: { title (required), priority?, tags?, traits?, summary?, " +
-                                        "description?, requiresVerification?, type? }. " +
-                                        "Attach mode: { id? (UUID or hex prefix of existing item), title? (optional when id provided), " +
-                                        "priority?, tags?, traits?, summary?, description?, requiresVerification?, type? }. " +
-                                        "When id is present, title is optional and ignored if both are given. " +
-                                        "traits is a comma-separated string of trait keys merged into properties."
+                                    "Root item spec: { id? (attach mode: UUID or hex prefix of an existing item — " +
+                                        "makes title optional/ignored), title (required unless id given), priority?, " +
+                                        "tags?, traits? (comma-separated, merged into properties), summary?, " +
+                                        "description?, requiresVerification?, type? }"
                                 )
                             )
                         }
@@ -123,16 +94,12 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Child item specs: [{ ref (required local name), title (required), " +
-                                        "parentRef (optional, defaults to \"root\"), priority?, " +
-                                        "tags?, traits?, summary?, description?, requiresVerification?, type? }]. " +
-                                        "parentRef sets the parent of this child: either \"root\" or another child's ref. " +
-                                        "Children may be listed in any order; a topological sort ensures parents are " +
-                                        "created before children. Cycle detection runs at validation time. " +
-                                        "Item specs must not embed their own nested 'children' array — a nested " +
-                                        "'children' key is rejected rather than silently dropped; express nesting via " +
-                                        "this flat array plus parentRef. " +
-                                        "traits is a comma-separated string of trait keys merged into properties."
+                                    "Child item specs: [{ ref (required local name, used to wire deps/notes/parentRef), " +
+                                        "title (required), parentRef? (parent's ref or \"root\", default \"root\"), " +
+                                        "priority?, tags?, traits? (comma-separated, merged into properties), summary?, " +
+                                        "description?, requiresVerification?, type? }]. Order-independent (topologically " +
+                                        "sorted); nesting is expressed via parentRef only — a nested 'children' key " +
+                                        "inside an item spec is rejected, not silently dropped."
                                 )
                             )
                         }
@@ -169,12 +136,11 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Notes to create with bodies: [{ itemRef (required, \"root\" or child ref), key (required), " +
-                                        "role (required: queue|work|review), body (optional, defaults to empty string) }]. " +
-                                        "Explicit notes win over createNotes=true blanks per (itemRef, key). " +
-                                        "Strict role enforcement: when an explicit key is declared in the resolved schema " +
-                                        "for the target item, the role must match the schema role; mismatch is rejected. " +
-                                        "Off-schema keys and items without a schema are unconstrained."
+                                    "Notes to create with bodies: [{ itemRef (required, \"root\" or child ref), " +
+                                        "key (required), role (required: queue|work|review), body? (default empty) }]. " +
+                                        "Wins over createNotes=true blanks per (itemRef, key). When a key is declared " +
+                                        "in the item's resolved schema, role must match the schema role (mismatch " +
+                                        "rejected); off-schema keys and schema-free items are unconstrained."
                                 )
                             )
                         }
@@ -186,9 +152,8 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Client-generated UUID for idempotency. Repeated calls with the same (actor, requestId) " +
-                                        "within ~10 minutes return the cached response without re-executing. " +
-                                        "Requires a top-level actor parameter to function."
+                                    "Client-generated UUID for idempotency (10 min cache, keyed by actor+requestId). " +
+                                        "Requires actor."
                                 )
                             )
                         }
@@ -200,14 +165,11 @@ Atomically create a hierarchical work tree: root item, child items, dependencies
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Top-level actor used for two purposes: (1) idempotency key resolution and " +
-                                        "(2) audit attribution on every persisted note in the tree (both explicit " +
-                                        "and createNotes=true schema blanks). A single actor applies to the whole " +
-                                        "tree — unlike manage_notes, this tool does NOT accept a per-note actor. " +
-                                        "If the actor is malformed (e.g., missing kind), idempotency is disabled " +
-                                        "and attribution silently drops to null; the call still succeeds. " +
-                                        "Shape: { id (required string), kind (required: orchestrator|subagent|user|external), " +
-                                        "parent? (optional string), proof? (optional string) }"
+                                    "Top-level actor for (1) idempotency and (2) note attribution across the whole " +
+                                        "tree (explicit and createNotes=true blanks alike) — unlike manage_notes, no " +
+                                        "per-note actor. If malformed, idempotency is disabled and attribution drops " +
+                                        "to null; the call still succeeds. Shape: { id (required), " +
+                                        "kind (required: orchestrator|subagent|user|external), parent?, proof? }"
                                 )
                             )
                         }

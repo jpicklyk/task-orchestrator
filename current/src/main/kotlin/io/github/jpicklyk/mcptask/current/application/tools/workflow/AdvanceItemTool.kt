@@ -40,12 +40,6 @@ class AdvanceItemTool :
         """
 Trigger-based role transitions for WorkItems with validation, cascade detection, and unblock reporting.
 
-**Parameters:**
-- `transitions` (required array): Each element: `{ itemId (required UUID or short hex prefix, min 4 chars), trigger (required string), summary? (optional string), actor? (optional object) }`
-- Valid triggers: start, complete, block, hold, resume, cancel, reopen
-- `actor` (optional): `{ id (required string), kind (required: orchestrator|subagent|user|external), parent? (optional string), proof? (optional string) }` — records who performed the transition. Cascade transitions always have null actor. All transitions in a batch must either all omit actor or all use the same actor.id.
-- `requestId` (optional UUID): Client-generated UUID for idempotency. Repeated calls with the same (actor, requestId) within ~10 minutes return the cached response without re-executing. Uses the first transition's actor.id as the idempotency key actor.
-
 **Trigger effects:**
 - start: QUEUE->WORK, WORK->REVIEW (or TERMINAL if no review phase in schema), REVIEW->TERMINAL
 - complete: any non-TERMINAL/BLOCKED -> TERMINAL
@@ -58,31 +52,8 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
 - start: required notes for the current phase must be filled before advancing
 - complete: all required notes across all phases must be filled
 
-**Response:**
-```json
-{
-  "results": [
-    {
-      "itemId": "uuid",
-      "newRole": "work",
-      "applied": true,
-      "actor": { "id": "agent-1", "kind": "subagent", "parent": "orch-1" },
-      "verification": { "status": "unverified", "verifier": "noop" },
-      "cascadeEvents": [
-        { "itemId": "uuid", "title": "Parent Item Title", "previousRole": "work", "targetRole": "terminal", "applied": true }
-      ],
-      "expectedNotes": [
-        { "key": "acceptance-criteria", "role": "work", "required": true, "exists": false }
-      ],
-      "guidanceKey": "key of the first unfilled required note that has guidance (omitted if none); fetch text via query_items operation=schema",
-      "noteProgress": { "filled": 0, "remaining": 2, "total": 2 }
-    }
-  ],
-  "summary": { "total": N, "succeeded": N, "failed": N }
-}
-```
-`cascadeEvents` and `unblockedItems` are omitted when empty. The per-transition `trigger` echo and
-`previousRole` are dropped (the caller supplied the trigger; `newRole` is the outcome).
+**Batch actor constraint:** all transitions in a call must either all omit `actor` or all use the same
+`actor.id`; cascade-triggered transitions always have a null actor.
         """.trimIndent()
 
     override val category = ToolCategory.WORKFLOW
@@ -106,9 +77,9 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Array of transition objects: { itemId, trigger, summary?, actor? }. " +
-                                        "actor (optional): { id (required string), kind (required: orchestrator|subagent|user|external), " +
-                                        "parent (optional string), proof (optional string) }"
+                                    "Array of transition objects: { itemId (required, UUID or hex prefix), " +
+                                        "trigger (required), summary?, actor? ({ id (required), " +
+                                        "kind (required: orchestrator|subagent|user|external), parent?, proof? }) }"
                                 )
                             )
                         }
@@ -120,9 +91,8 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Client-generated UUID for idempotency. Repeated calls with the same (actor, requestId) " +
-                                        "within ~10 minutes return the cached response without re-executing. " +
-                                        "Uses the first transition's actor.id as the idempotency key actor."
+                                    "Client-generated UUID for idempotency (10 min cache), keyed on the first " +
+                                        "transition's actor.id."
                                 )
                             )
                         }

@@ -32,39 +32,9 @@ class GetNextItemTool : BaseToolDefinition() {
         """
 Recommends next work item(s) based on role, dependencies, priority, and complexity.
 
-Finds items in the requested role (default: queue), filters out those blocked by
-unsatisfied dependencies and those with active claims (unless includeClaimed=true),
-and ranks by priority (high first) then complexity (low first = quick wins) by default.
-
-Parameters:
-- role (optional string, default "queue"): Role to query — "queue", "work", "review", or "blocked"
-- parentId (optional UUID): Scope to items under this parent
-- limit (optional int, default 1, max 20): Number of recommendations
-- includeDetails (optional boolean, default false): Include summary, tags, parentId
-- includeAncestors (optional boolean, default false): when true, each recommended item includes an
-  `ancestors` array ordered root-first (direct parent last). Root items (depth=0) get `"ancestors": []`.
-- includeClaimed (optional boolean, default false): When false (default), items with an active
-  (non-expired) claim are filtered out, AND ancestor-claim sub-tree isolation applies (children
-  of items claimed by another agent are excluded). When true, claimed items are included AND the
-  ancestor-claim filter is NOT applied — admin/inspection callers see the full set, and only a
-  boolean `isClaimed` field is exposed (the claiming agent's identity is never disclosed). Fleet
-  callers should leave this `false` so sub-tree isolation continues to protect in-progress features.
-
-Filter parameters (all optional, any-match semantics where applicable):
-- tags (string, comma-separated): Return only items whose tags contain any of the given values
-- priority (string: high|medium|low): Return only items with this exact priority
-- type (string): Return only items of this type
-- complexityMax (integer 1..10): Return only items with complexity <= this value
-- createdAfter (string, ISO 8601): Return only items created after this timestamp
-- createdBefore (string, ISO 8601): Return only items created before this timestamp
-- modifiedAfter (string, ISO 8601): Return only items last modified after this timestamp
-- modifiedBefore (string, ISO 8601): Return only items last modified before this timestamp
-- roleChangedAfter (string, ISO 8601): Return only items whose role last changed after this timestamp
-- roleChangedBefore (string, ISO 8601): Return only items whose role last changed before this timestamp
-- orderBy (string: priority|oldest|newest, default "priority"): Ordering strategy —
-  "priority" = HIGH first then complexity ascending (quick wins),
-  "oldest" = createdAt ascending (FIFO / queue drain),
-  "newest" = createdAt descending (recency-biased)
+Selection pipeline: finds items in the requested role, filters out dependency-blocked items and
+(by default) actively-claimed items, then ranks by `orderBy` and returns the top `limit`. See each
+parameter's schema description for field-level semantics.
         """.trimIndent()
 
     override val category = ToolCategory.WORKFLOW
@@ -87,9 +57,7 @@ Filter parameters (all optional, any-match semantics where applicable):
                             put("type", JsonPrimitive("string"))
                             put(
                                 "description",
-                                JsonPrimitive(
-                                    "Role to query (default: \"queue\"). Valid values: \"queue\", \"work\", \"review\", \"blocked\""
-                                )
+                                JsonPrimitive("Role to query: queue, work, review, or blocked (default: queue)")
                             )
                         }
                     )
@@ -123,9 +91,7 @@ Filter parameters (all optional, any-match semantics where applicable):
                             put("type", JsonPrimitive("boolean"))
                             put(
                                 "description",
-                                JsonPrimitive(
-                                    "When true, each recommended item includes an ancestors array ordered root-first (default: false)"
-                                )
+                                JsonPrimitive("Adds an ancestors array (root-first) to each recommended item (default: false)")
                             )
                         }
                     )
@@ -136,7 +102,10 @@ Filter parameters (all optional, any-match semantics where applicable):
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "When true, include items with active claims (shows isClaimed boolean only — identity never disclosed). Default: false."
+                                    "Default false: excludes actively-claimed items and, via sub-tree isolation, " +
+                                        "children of items claimed by another agent. When true: claimed items are " +
+                                        "included, sub-tree isolation is off, and each item exposes only a boolean " +
+                                        "isClaimed (identity never disclosed). Fleet callers should leave this false."
                                 )
                             )
                         }
@@ -176,48 +145,42 @@ Filter parameters (all optional, any-match semantics where applicable):
                         "createdAfter",
                         buildJsonObject {
                             put("type", JsonPrimitive("string"))
-                            put("description", JsonPrimitive("ISO 8601 timestamp — return only items created after this point"))
+                            put("description", JsonPrimitive("ISO 8601 timestamp filter"))
                         }
                     )
                     put(
                         "createdBefore",
                         buildJsonObject {
                             put("type", JsonPrimitive("string"))
-                            put("description", JsonPrimitive("ISO 8601 timestamp — return only items created before this point"))
+                            put("description", JsonPrimitive("ISO 8601 timestamp filter"))
                         }
                     )
                     put(
                         "modifiedAfter",
                         buildJsonObject {
                             put("type", JsonPrimitive("string"))
-                            put("description", JsonPrimitive("ISO 8601 timestamp — return only items last modified after this point"))
+                            put("description", JsonPrimitive("ISO 8601 timestamp filter"))
                         }
                     )
                     put(
                         "modifiedBefore",
                         buildJsonObject {
                             put("type", JsonPrimitive("string"))
-                            put("description", JsonPrimitive("ISO 8601 timestamp — return only items last modified before this point"))
+                            put("description", JsonPrimitive("ISO 8601 timestamp filter"))
                         }
                     )
                     put(
                         "roleChangedAfter",
                         buildJsonObject {
                             put("type", JsonPrimitive("string"))
-                            put(
-                                "description",
-                                JsonPrimitive("ISO 8601 timestamp — return only items whose role last changed after this point")
-                            )
+                            put("description", JsonPrimitive("ISO 8601 timestamp filter (role's last-changed time)"))
                         }
                     )
                     put(
                         "roleChangedBefore",
                         buildJsonObject {
                             put("type", JsonPrimitive("string"))
-                            put(
-                                "description",
-                                JsonPrimitive("ISO 8601 timestamp — return only items whose role last changed before this point")
-                            )
+                            put("description", JsonPrimitive("ISO 8601 timestamp filter (role's last-changed time)"))
                         }
                     )
                     put(

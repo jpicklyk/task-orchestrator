@@ -34,33 +34,20 @@ class GetContextTool : BaseToolDefinition() {
         """
 Read-only context snapshot. Three modes:
 
-**Item mode** — pass `mode: "item"` (or provide `itemId`):
-Returns the item's current role, note schema for its tags (keys with exists/filled status), and
-gate status (`canAdvance` + missing required notes for current phase) — gateStatus is the canonical
-gate answer.
-Full claim detail when item is claimed: `claimedBy`, `claimedAt`, `claimExpiresAt` (UTC), `isExpired` (boolean).
-Use this mode to diagnose stalled/expired claims — this is the only mode that exposes claimedBy identity.
+**Item mode** — pass `mode: "item"` (or provide `itemId`): item role, note schema status, and the
+canonical gate status (`canAdvance` + missing required notes). Includes full claim detail
+(`claimedBy`, `claimedAt`, `claimExpiresAt`, `isExpired`) when claimed — the only mode exposing
+claimedBy identity; use it to diagnose stalled/expired claims.
 
-**Session resume** — pass `mode: "session-resume"` (or provide `since`):
-Returns active items (role=work or review), recent role transitions since the timestamp
-(each `{itemId, title, fromRole, toRole, at, actorId?}`), and stalled items (active items with missing required notes).
-No claim summary in this mode — use item mode or health-check mode for claim visibility.
+**Session resume** — pass `mode: "session-resume"` (or provide `since`): active items (role=work or
+review), recent role transitions since the timestamp, and stalled items (active items with missing
+required notes). No claim summary in this mode — use item mode or health-check for claim visibility.
 
-**Health check** — pass `mode: "health-check"` (or omit all mode-selecting params):
-Returns all active items (work/review), blocked items, stalled items, and
-`claimSummary: { active: N, expired: N }` — lightweight fleet health signal (counts only, no identity).
+**Health check** — pass `mode: "health-check"` (or omit all mode-selecting params): all active items,
+blocked items, stalled items, and a claim-count summary (no identity).
 
-When `mode` is omitted, the mode is inferred from which parameters are provided (`itemId` → item, `since` → session-resume, neither → health-check).
-
-Parameters:
-- mode (optional string: "item", "session-resume", "health-check"): explicit mode selection; takes
-  precedence over implicit detection when provided
-- itemId (optional UUID): item to inspect; required when mode="item"
-- since (optional ISO 8601 string): transition window start; required when mode="session-resume"
-- includeAncestors (optional boolean, default false): when true, each listed item includes an
-  `ancestors` array ordered root-first (direct parent last). Root items (depth=0) get `"ancestors": []`.
-- limit (optional integer, default 10, max 200): maximum number of role transitions returned in
-  session-resume mode
+When `mode` is omitted, it is inferred from which parameters are provided (`itemId` → item, `since` →
+session-resume, neither → health-check); explicit `mode` takes precedence.
         """.trimIndent()
 
     override val category = ToolCategory.WORKFLOW
@@ -84,10 +71,8 @@ Parameters:
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Explicit mode selection: 'item' (requires itemId), " +
-                                        "'session-resume' (requires since), " +
-                                        "'health-check' (no other params). " +
-                                        "When omitted, mode is inferred from which parameters are provided."
+                                    "Explicit mode: item, session-resume, or health-check. See tool description for " +
+                                        "the inference rule used when omitted."
                                 )
                             )
                             put(

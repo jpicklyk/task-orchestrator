@@ -113,6 +113,28 @@ class QueryItemsToolTest {
         }
 
     @Test
+    fun `get with includeTimestamps true returns createdAt, modifiedAt, roleChangedAt`(): Unit =
+        runBlocking {
+            val itemId = createItem("Test Item")
+
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("get"),
+                        "itemId" to JsonPrimitive(itemId),
+                        "includeTimestamps" to JsonPrimitive(true)
+                    ),
+                    context
+                ) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val data = result["data"] as JsonObject
+            assertNotNull(data["createdAt"])
+            assertNotNull(data["modifiedAt"])
+            assertNotNull(data["roleChangedAt"])
+        }
+
+    @Test
     fun `get nonexistent item returns error`(): Unit =
         runBlocking {
             val randomId = UUID.randomUUID().toString()

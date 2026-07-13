@@ -30,45 +30,11 @@ class GetBlockedItemsTool : BaseToolDefinition() {
         """
 Identifies WorkItems blocked by dependencies or explicitly in BLOCKED role.
 
-**Parameters:**
-- `parentId` (optional UUID): scope results to items under this parent
-- `includeDetails` (optional boolean, default false): include summary and tags for each blocked item
-- `includeAncestors` (optional boolean, default false): when true, each blocked item includes an
-  `ancestors` array ordered root-first (direct parent last). Root items (depth=0) get `"ancestors": []`.
-
 **What counts as blocked:**
 1. Items explicitly in BLOCKED role (blockType = "explicit")
 2. Items in QUEUE/WORK/REVIEW with unsatisfied blocking dependencies (blockType = "dependency")
 
 Items in TERMINAL role are never included.
-
-**Response shape:**
-```json
-{
-  "blockedItems": [
-    {
-      "itemId": "uuid",
-      "title": "...",
-      "role": "blocked",
-      "priority": "high",
-      "complexity": 5,
-      "blockType": "explicit",
-      "blockedBy": [
-        {
-          "itemId": "uuid",
-          "title": "...",
-          "role": "queue",
-          "unblockAt": "terminal",
-          "effectiveUnblockRole": "terminal",
-          "satisfied": false
-        }
-      ],
-      "blockerCount": 2
-    }
-  ],
-  "total": N
-}
-```
         """.trimIndent()
 
     override val category = ToolCategory.WORKFLOW

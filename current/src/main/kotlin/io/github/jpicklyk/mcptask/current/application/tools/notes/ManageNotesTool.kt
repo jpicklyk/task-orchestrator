@@ -38,24 +38,13 @@ class ManageNotesTool(
         """
 Unified write operations for Notes (upsert, delete).
 
-**Operations:**
+**upsert** — upsert notes from the `notes` array (see its schema description for the per-note shape).
+`(itemId, key)` is unique — an existing pair is updated in place; `itemId` must reference an existing
+WorkItem. If the matched note schema declares `maxLength` for a note's key, the resolved body is
+checked after resolution: `note_limits.mode: warn` (default) accepts the note and adds a `warning`
+field naming the limit and actual size; `mode: reject` fails that note with `code: NOTE_BODY_TOO_LONG`.
 
-**upsert** - Upsert notes from `notes` array.
-- Each note: `{ itemId (required), key (required), role (required: "queue"|"work"|"review"), body?, bodyFromFile?, actor? }`
-- `body` (inline text) and `bodyFromFile` (a path read server-side) are mutually exclusive — provide at most one per note; providing both fails that note.
-- `bodyFromFile`: resolved strictly relative to the agent config root (`AGENT_CONFIG_DIR`, falling back to the server's working directory). Absolute paths, `..` escapes, and symlink escapes are rejected; the file must exist and be at most 65536 bytes. CRLF line endings are normalized to LF on read.
-- `actor` (optional): `{ id (required string), kind (required: orchestrator|subagent|user|external), parent? (optional string), proof? (optional string) }` — records who wrote the note. Re-upsert replaces the actor (last-writer-wins).
-- (itemId, key) is unique — existing notes with same pair are updated
-- Validates that itemId references an existing WorkItem
-- If the matched note schema declares `maxLength` for `key`, the resolved body (inline or from file) is checked against it after resolution: `note_limits.mode: warn` (default) accepts the note and adds a `warning` field on that note's result naming the limit and actual size; `mode: reject` fails that note with a structured error (`code: NOTE_BODY_TOO_LONG`).
-- Response: `{ notes: [{id, itemId, key, role, actor?, verification?, warning?}], upserted: N, failed: N, failures: [{index, error, code?, key?, maxLength?, actualLength?}], itemContext: { "<itemId>": { guidancePointer: "...|null", noteProgress: { filled: N, remaining: N, total: N }|null } } }`
-
-**delete** - Delete notes.
-- By `ids` array: delete each note by UUID
-- By `itemId` + optional `key`: delete all notes for item, or specific note by key
-- Response: `{ deleted: N, notFound: N, failed: N, failures: [{id, error}] }` — `notFound` counts keys that did not exist (not an error)
-
-**Idempotency:** Pass `requestId` (client-generated UUID) together with a top-level `actor.id` to enable idempotent retries. Repeated calls with the same (actor, requestId) within ~10 minutes return the cached response without re-executing.
+**delete** — delete by `ids` array, or by `itemId` (optionally scoped by `key`).
         """.trimIndent()
 
     override val category = ToolCategory.NOTE_MANAGEMENT
@@ -87,12 +76,15 @@ Unified write operations for Notes (upsert, delete).
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Array of note objects for upsert. Each note: " +
-                                        "{ itemId (required), key (required), role (required: queue|work|review), body?, " +
-                                        "bodyFromFile? (path read server-side, relative to the agent config root; " +
-                                        "mutually exclusive with body), " +
-                                        "actor? (optional: { id (required string), kind (required: orchestrator|subagent|user|external), " +
-                                        "parent (optional string), proof (optional string) }) }"
+                                    "Array of note objects for upsert. Each: " +
+                                        "{ itemId (required), key (required), role (required: queue|work|review), " +
+                                        "body? (inline text), " +
+                                        "bodyFromFile? (server-side path; mutually exclusive with body — providing both " +
+                                        "fails that note; resolved strictly relative to the agent config root, or the " +
+                                        "server's cwd; rejects absolute paths, '..', and symlink escapes; file must " +
+                                        "exist, <=65536 bytes; CRLF normalized to LF), " +
+                                        "actor? ({ id (required), kind (required: orchestrator|subagent|user|external), " +
+                                        "parent?, proof? } — who wrote the note; last-writer-wins on re-upsert) }"
                                 )
                             )
                         }
@@ -128,9 +120,8 @@ Unified write operations for Notes (upsert, delete).
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Client-generated UUID for idempotency. Repeated calls with the same (actor, requestId) " +
-                                        "within ~10 minutes return the cached response without re-executing. " +
-                                        "Requires a top-level actor parameter to function."
+                                    "Client-generated UUID for idempotency (10 min cache, keyed by actor+requestId). " +
+                                        "Requires actor."
                                 )
                             )
                         }
@@ -142,9 +133,8 @@ Unified write operations for Notes (upsert, delete).
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Top-level actor for idempotency key resolution: " +
-                                        "{ id (required string), kind (required: orchestrator|subagent|user|external), " +
-                                        "parent? (optional string), proof? (optional string) }"
+                                    "Top-level actor: { id (required), " +
+                                        "kind (required: orchestrator|subagent|user|external), parent?, proof? }"
                                 )
                             )
                         }
