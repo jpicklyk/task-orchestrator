@@ -122,7 +122,7 @@ This is **the project board side** — these items track progress. The plan file
 
 ## Step 5: The Role Lifecycle
 
-Every MCP item moves through roles: **queue** (planned) → **work** (active) → **review** (verifying) → **terminal** (done). This is how the MCP knows what's in progress and what's finished.
+Items move queue → work → review → terminal via `advance_item` triggers — see the `advance_item` tool description for full trigger semantics.
 
 **5a. Start the design task:**
 
@@ -130,10 +130,7 @@ Every MCP item moves through roles: **queue** (planned) → **work** (active) �
 advance_item(transitions=[{ itemId: "<design-UUID>", trigger: "start" }])
 ```
 
-Point out in the response:
-- Design moved from `queue` → `work`
-- Check `cascadeEvents` — the container likely cascaded from `queue` → `work` automatically (first child started)
-- In a real workflow, **each subagent calls this** when it begins working on its assigned item
+Point out in the response: `cascadeEvents` shows the container cascading `queue` → `work` (first child started). In a real workflow, **each subagent calls this** when it begins its assigned item.
 
 **5b. Complete the design task:**
 
@@ -141,10 +138,7 @@ Point out in the response:
 advance_item(transitions=[{ itemId: "<design-UUID>", trigger: "complete" }])
 ```
 
-Point out in the response:
-- Design moved from `work` → `terminal`
-- Check `unblockedItems` — implement should now be unblocked
-- The container stays in `work` because siblings are still active
+Point out in the response: `unblockedItems` shows implement is now unblocked; the container stays in `work` because siblings are still active.
 
 **5c. Confirm what's next:**
 

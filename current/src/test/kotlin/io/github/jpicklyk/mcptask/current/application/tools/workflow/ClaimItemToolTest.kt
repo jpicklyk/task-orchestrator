@@ -127,6 +127,23 @@ class ClaimItemToolTest {
         claimedBy: String = agentId
     ): WorkItem {
         val now = Instant.now()
+        // Represents a re-claim: originalClaimedAt precedes claimedAt, so it is surfaced in the response.
+        return WorkItem(
+            id = id,
+            title = "Test Item",
+            claimedBy = claimedBy,
+            claimedAt = now,
+            claimExpiresAt = now.plusSeconds(900),
+            originalClaimedAt = now.minusSeconds(300),
+        )
+    }
+
+    /** A fresh claim where originalClaimedAt == claimedAt (nothing prior to preserve). */
+    private fun makeFreshClaimItem(
+        id: UUID = itemId1,
+        claimedBy: String = agentId
+    ): WorkItem {
+        val now = Instant.now()
         return WorkItem(
             id = id,
             title = "Test Item",
@@ -275,7 +292,25 @@ class ClaimItemToolTest {
             assertEquals("success", first["outcome"]?.jsonPrimitive?.content)
             assertEquals(agentId, first["claimedBy"]?.jsonPrimitive?.content)
             assertNotNull(first["claimExpiresAt"])
+            // makeSuccessItem is a re-claim (originalClaimedAt != claimedAt) so it is present.
             assertNotNull(first["originalClaimedAt"])
+        }
+
+    @Test
+    fun `execute fresh claim omits originalClaimedAt when equal to claimedAt`(): Unit =
+        runBlocking {
+            coEvery { workItemRepo.claim(itemId1, agentId, 900) } returns ClaimResult.Success(makeFreshClaimItem())
+
+            val result = tool.execute(params(claims = listOf(claimEntry(itemId1))), defaultContext())
+
+            val data = (result as JsonObject)["data"] as JsonObject
+            val first = (data["claimResults"] as JsonArray)[0] as JsonObject
+            assertEquals("success", first["outcome"]?.jsonPrimitive?.content)
+            assertNotNull(first["claimedAt"], "claimedAt should still be present")
+            assertNull(
+                first["originalClaimedAt"],
+                "originalClaimedAt must be omitted when it equals claimedAt (fresh claim)"
+            )
         }
 
     @Test
@@ -367,11 +402,11 @@ class ClaimItemToolTest {
         }
 
     // -----------------------------------------------------------------------
-    // Execute — summary counts
+    // Execute — no summary block (counts are derivable from the result arrays)
     // -----------------------------------------------------------------------
 
     @Test
-    fun `execute summary reflects correct counts for claim success and release`(): Unit =
+    fun `execute claim and release omits summary block, outcomes visible in arrays`(): Unit =
         runBlocking {
             coEvery { workItemRepo.claim(itemId1, agentId, 900) } returns ClaimResult.Success(makeSuccessItem())
             coEvery { workItemRepo.release(itemId1, agentId) } returns ReleaseResult.Success(WorkItem(id = itemId1, title = "R"))
@@ -386,13 +421,16 @@ class ClaimItemToolTest {
                 )
 
             val data = (result as JsonObject)["data"] as JsonObject
-            val summary = data["summary"] as JsonObject
-            assertEquals(1, summary["claimsTotal"]?.jsonPrimitive?.intOrNull)
-            assertEquals(1, summary["claimsSucceeded"]?.jsonPrimitive?.intOrNull)
-            assertEquals(0, summary["claimsFailed"]?.jsonPrimitive?.intOrNull)
-            assertEquals(1, summary["releasesTotal"]?.jsonPrimitive?.intOrNull)
-            assertEquals(1, summary["releasesSucceeded"]?.jsonPrimitive?.intOrNull)
-            assertEquals(0, summary["releasesFailed"]?.jsonPrimitive?.intOrNull)
+            // Summary block dropped for token efficiency — every counter is derivable from the arrays.
+            assertNull(data["summary"], "summary block must be omitted from claim_item responses")
+
+            val claimResults = data["claimResults"] as JsonArray
+            assertEquals(1, claimResults.size)
+            assertEquals("success", (claimResults[0] as JsonObject)["outcome"]?.jsonPrimitive?.content)
+
+            val releaseResults = data["releaseResults"] as JsonArray
+            assertEquals(1, releaseResults.size)
+            assertEquals("success", (releaseResults[0] as JsonObject)["outcome"]?.jsonPrimitive?.content)
         }
 
     @Test
@@ -792,10 +830,11 @@ class ClaimItemToolTest {
         }
 
     /**
-     * H1-T3: claim DBError increments claimsFailed (not claimsSucceeded) in summary.
+     * H1-T3: claim DBError surfaces as a db_error outcome in claimResults (the single claim failed).
+     * The summary block is gone; failure is observable directly in the result entry.
      */
     @Test
-    fun `claim DBError increments claimsFailed in summary`(): Unit =
+    fun `claim DBError surfaces as failed outcome without a summary block`(): Unit =
         runBlocking {
             val cause = SQLException("db error for summary test")
             coEvery { workItemRepo.claim(itemId1, agentId, 900) } returns ClaimResult.DBError(itemId1, cause)
@@ -803,10 +842,10 @@ class ClaimItemToolTest {
             val result = tool.execute(params(claims = listOf(claimEntry(itemId1))), defaultContext())
 
             val data = (result as JsonObject)["data"] as JsonObject
-            val summary = data["summary"] as JsonObject
-            assertEquals(1, summary["claimsTotal"]?.jsonPrimitive?.intOrNull)
-            assertEquals(0, summary["claimsSucceeded"]?.jsonPrimitive?.intOrNull)
-            assertEquals(1, summary["claimsFailed"]?.jsonPrimitive?.intOrNull)
+            assertNull(data["summary"], "summary block must be omitted")
+            val claimResults = data["claimResults"] as JsonArray
+            assertEquals(1, claimResults.size)
+            assertEquals("db_error", (claimResults[0] as JsonObject)["outcome"]?.jsonPrimitive?.content)
         }
 
     // -----------------------------------------------------------------------
@@ -1286,10 +1325,8 @@ class ClaimItemToolTest {
             assertNull(first["retryAfterMs"], "no_match must not have retryAfterMs")
             // no itemId for no_match (nothing was resolved)
             assertNull(first["itemId"], "no_match must not have itemId")
-            // claimsSucceeded should be 0
-            val summary = data["summary"] as JsonObject
-            assertEquals(0, summary["claimsSucceeded"]?.jsonPrimitive?.intOrNull)
-            assertEquals(1, summary["claimsFailed"]?.jsonPrimitive?.intOrNull)
+            // Summary block dropped; the single failed outcome is visible in claimResults above.
+            assertNull(data["summary"], "summary block must be omitted")
         }
 
     @Test
@@ -1447,9 +1484,8 @@ class ClaimItemToolTest {
                 assertEquals("success", (r as JsonObject)["outcome"]?.jsonPrimitive?.content)
             }
 
-            val summary = data["summary"] as JsonObject
-            assertEquals(1, summary["claimsSucceeded"]?.jsonPrimitive?.intOrNull)
-            assertEquals(2, summary["releasesSucceeded"]?.jsonPrimitive?.intOrNull)
+            // Summary block dropped; the outcome counts are evident from the arrays above.
+            assertNull(data["summary"], "summary block must be omitted")
         }
 
     // -----------------------------------------------------------------------

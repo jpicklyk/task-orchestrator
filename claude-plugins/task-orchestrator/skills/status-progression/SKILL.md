@@ -12,26 +12,7 @@ Guides role transitions for a WorkItem: identify the item, check gate status, fi
 
 ## Step 1: Identify the Item
 
-Determine which item to work with before calling anything else.
-
-**If `$ARGUMENTS` looks like a UUID** (8-4-4-4-12 hex pattern), use it directly as the item ID in Step 2.
-
-**If `$ARGUMENTS` is a text string** (title fragment or keyword), search for it:
-
-```
-query_items(operation="search", query="$ARGUMENTS", limit=5)
-```
-
-If the search returns exactly one result, use that item ID. If it returns multiple results, present them to the user via `AskUserQuestion`:
-
-```
-◆ Multiple items matched "$ARGUMENTS" — which did you mean?
-  1. "Implement authentication module" (work) — uuid-1
-  2. "Implement caching layer" (queue) — uuid-2
-  3. "Implement rate limiting" (queue) — uuid-3
-```
-
-**If `$ARGUMENTS` is empty**, ask via `AskUserQuestion`: "Which item do you want to advance? Provide a UUID or title fragment."
+Resolve `$ARGUMENTS` to a UUID via `query_items` search (`operation="search"`, `query=$ARGUMENTS`, `limit=5`); if ambiguous, present matches via `AskUserQuestion`. If `$ARGUMENTS` is empty, ask for a UUID or title fragment.
 
 ---
 
@@ -69,7 +50,7 @@ Parse the response and display a status card. Use this format:
 | `item.role` | Current role label |
 | `gateStatus.canAdvance` | ✓ open or ⊘ blocked |
 | `gateStatus.missing` | List each missing note key + role |
-| `guidancePointer` | Free text — show as "Guidance:" if present |
+| `guidanceKey` | Key of first unfilled required note with guidance; resolve its text via `query_items(operation="schema")` to show as "Guidance:" |
 | `noteSchema` | List all schema notes with `exists` status |
 
 If the item has no schema (no tags matching a schema key), `noteSchema` will be empty and the gate is always open.
@@ -82,7 +63,7 @@ If `gateStatus.canAdvance = false`, the item cannot advance until required notes
 
 For each missing note, check whether its content can be inferred from the conversation context. If yes, fill it directly. If not, ask the user what to capture.
 
-Use `guidancePointer` to prompt the user — it contains the guidance text for the first unfilled required note in the current phase. Only one `guidancePointer` is returned — for the first unfilled required note. See schema entries list for all unfilled notes.
+Use `guidanceKey` to prompt the user — resolve its guidance text via `query_items(operation="schema", itemId=...)`. Only one `guidanceKey` is returned — for the first unfilled required note. See schema entries list for all unfilled notes.
 
 Fill notes with:
 
@@ -108,7 +89,7 @@ Confirm `gateStatus.canAdvance = true` before proceeding to Step 4. If notes are
 
 ## Step 4: Advance the Item
 
-With the gate open, call `advance_item` using the appropriate trigger (see Trigger Reference below):
+With the gate open, call `advance_item` with the appropriate trigger (trigger semantics are documented in the `advance_item` tool description):
 
 ```
 advance_item(transitions=[{ itemId: "<uuid>", trigger: "start" }])
@@ -129,37 +110,12 @@ Parse the response and report the transition result:
 
 | Response Field | What to Report |
 |---|---|
-| `previousRole` + `newRole` | The core transition |
+| `newRole` | The core transition (`previousRole` is omitted from success results) |
 | `cascadeEvents` | Parent or ancestor items that auto-transitioned |
 | `unblockedItems` | Sibling items that are now actionable |
 | `expectedNotes` | Notes for the next phase — show as "Next phase notes:" |
 
 If `cascadeEvents` is empty, omit the cascade line. If `unblockedItems` is empty, omit the unblocked line. If `expectedNotes` is empty or absent (no schema), omit the next phase notes line.
-
----
-
-## Trigger Reference
-
-Choose the trigger based on the item's current role and the desired outcome:
-
-| Trigger | Transition | When to Use |
-|---------|-----------|-------------|
-| `start` | QUEUE → WORK | Begin working on a planned item |
-| `start` | WORK → REVIEW (or TERMINAL if no review schema) | Implementation complete, ready for verification |
-| `start` | REVIEW → TERMINAL | Review passed, close the item |
-| `complete` | Any non-terminal → TERMINAL | Jump straight to done — skips remaining phases |
-| `cancel` | Any non-terminal → TERMINAL | Abandon the item — no note gates enforced |
-| `block` | Any non-terminal → BLOCKED | Pause work — saves `previousRole` for later resume |
-| `resume` | BLOCKED → previousRole | Return to the role the item was in before blocking |
-
-**Important notes:**
-
-- `start` checks gates for the **current phase only** — missing notes for the current phase block the transition; future-phase notes are not checked
-- `complete` checks gates across **all phases** — all required notes across queue, work, and review must be filled before terminal is reached; because it jumps directly to terminal, skipping intermediate phases, all prior phase notes are verified up front
-- `cancel` does **not** check gates — items can be cancelled at any time regardless of missing notes; `statusLabel` is set to `"cancelled"`; allowing cleanup regardless of state is intentional so a blocked or incomplete item can always be abandoned
-- `block` and `resume` are a paired workflow — `block` saves `previousRole` internally so `resume` always returns to the exact role before blocking; do not use `start` to resume a blocked item; this pairing is what guarantees resume returns to exact pre-block role rather than restarting from queue
-- When an item reaches TERMINAL, any items that had a `BLOCKS` dependency on it become unblocked — they appear in `unblockedItems` in the advance response
-- Cascade events: the **first child** to start from queue triggers its parent to cascade queue → work; the **last child** to reach terminal triggers its parent to cascade → terminal
 
 ---
 
@@ -169,7 +125,7 @@ Choose the trigger based on the item's current role and the desired outcome:
 
 Cause: The current phase has required notes that have not been upserted yet. Gate enforcement runs before the transition executes.
 
-Solution: Call `get_context(itemId="<uuid>")` to see exactly which notes are missing. Fill each one with `manage_notes(operation="upsert")`, then retry `advance_item`.
+Solution: The gate-failure error already lists the missing note keys. Fill each one with `manage_notes(operation="upsert")`, then retry `advance_item`. Call `get_context` only if you need broader item state.
 
 ---
 

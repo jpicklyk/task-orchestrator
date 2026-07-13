@@ -25,35 +25,15 @@ class QueryDependenciesTool : BaseToolDefinition() {
         """
 Read-only dependency queries with filtering support.
 
-## Operations
+Operations: get, backlinks
 
-### get
-Query outgoing/incoming/all dependencies for a WorkItem.
+**get** — query outgoing/incoming/all dependencies for a WorkItem. `direction=incoming` means deps
+where this item is the toItemId (things blocking it); `outgoing` means it's the fromItemId (things
+it blocks); `all` is both. Returns a counts breakdown and, optionally, BFS graph traversal (see
+`neighborsOnly`).
 
-Parameters:
-- operation (required string): "get"
-- itemId (required UUID): WorkItem to query dependencies for
-- direction (optional): "incoming", "outgoing", "all" (default: "all")
-  - incoming: deps where this item is the toItemId (things that block this item)
-  - outgoing: deps where this item is the fromItemId (things this item blocks)
-  - all: both directions
-- type (optional): filter by dependency type — "BLOCKS", "IS_BLOCKED_BY", "RELATES_TO"
-- includeItemInfo (optional boolean, default false): include WorkItem details (title, role, priority)
-- neighborsOnly (optional boolean, default true): when false, perform BFS graph traversal
-
-Returns dependencies with counts breakdown and optional graph traversal data.
-
-### backlinks
-Find all items that reference (point at) the given item — i.e., reverse-direction edges.
-Practical use: "find all items that block REQ-42", "what references FEAT-7?".
-A backlink row means another item has an edge with toItemId = your itemId.
-
-Parameters:
-- operation (required string): "backlinks"
-- itemId (required UUID): target item to find backlinks for
-- type (optional): narrow to one dependency type — "BLOCKS", "IS_BLOCKED_BY", "RELATES_TO"
-
-Returns: { backlinks: [{ fromItemId, type, fromTitle }], total: N }
+**backlinks** — find items that reference (point at) the given item, i.e. reverse-direction edges:
+a backlink row means another item has an edge with toItemId = your itemId. E.g. "what blocks REQ-42?".
         """.trimIndent()
 
     override val category = ToolCategory.DEPENDENCY_MANAGEMENT
@@ -91,10 +71,8 @@ Returns: { backlinks: [{ fromItemId, type, fromTitle }], total: N }
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "WorkItem UUID or hex prefix (4+ chars). " +
-                                        "For 'get': query deps for this item. " +
-                                        "For 'backlinks': the item whose incoming edges you want to find " +
-                                        "(i.e., other items that point AT this item)."
+                                    "WorkItem UUID or hex prefix (4+ chars). For 'get': the item to query deps for. " +
+                                        "For 'backlinks': the item whose incoming edges to find."
                                 )
                             )
                         }

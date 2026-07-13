@@ -1175,12 +1175,12 @@ class SchemaGatedLifecycleTest {
             val expectedNotes = r["expectedNotes"]!!.jsonArray
             assertTrue(expectedNotes.isNotEmpty(), "expectedNotes should be non-empty after entering work phase")
 
-            // Each entry must have the required structural fields
+            // Each entry must have the keys-only structural fields (no schema text)
             val firstEntry = expectedNotes[0].jsonObject
             assertNotNull(firstEntry["key"], "expectedNotes entry must have 'key' field")
             assertNotNull(firstEntry["role"], "expectedNotes entry must have 'role' field")
             assertNotNull(firstEntry["required"], "expectedNotes entry must have 'required' field")
-            assertNotNull(firstEntry["description"], "expectedNotes entry must have 'description' field")
+            assertNull(firstEntry["description"], "expectedNotes entry must NOT carry 'description' (keys-only)")
 
             // No notes filled yet, so 'exists' must be false
             assertFalse(
@@ -1188,9 +1188,9 @@ class SchemaGatedLifecycleTest {
                 "exists should be false — no notes have been filled in the new work phase"
             )
 
-            // The feature-implementation schema has guidance on work-phase notes; verify it's present
+            // Static guidance text is never in expectedNotes — fetch via query_items operation=schema
             val hasGuidance = expectedNotes.any { it.jsonObject.containsKey("guidance") }
-            assertTrue(hasGuidance, "At least one expectedNotes entry should carry a 'guidance' field when the schema defines it")
+            assertFalse(hasGuidance, "expectedNotes entries must not carry 'guidance' text (keys-only contract)")
 
             // Verify all entries are scoped to the work role
             expectedNotes.forEach { entry ->

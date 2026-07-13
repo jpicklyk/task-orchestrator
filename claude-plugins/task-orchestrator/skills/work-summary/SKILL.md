@@ -12,10 +12,7 @@ Generate a PM-ready project dashboard. The goal is to show the full project stat
 
 ## Step 0 — Scope Check
 
-If `$ARGUMENTS` is provided:
-- If it looks like a UUID, use it directly as `parentId` for all queries below
-- If it's text, search: `query_items(operation="search", query="<text>")` — pick the best-matching root or container item and use its UUID as `parentId`
-- If multiple matches, pick the closest title match; if ambiguous, use `AskUserQuestion` to clarify
+If `$ARGUMENTS` is provided, resolve it to a UUID via `query_items` search (`operation="search"`, `query=$ARGUMENTS`, `limit=5`) — prefer the best-matching root or container item; if ambiguous, present matches via `AskUserQuestion`. Use the resolved UUID as `parentId` for all queries below.
 
 When scoped to a `parentId`, modify the data collection calls:
 1. `query_items(operation="overview", itemId="<parentId>")` — scoped overview of that subtree
@@ -91,7 +88,7 @@ Omit this entire section if there are no blocked or stalled items.
 
 For blocked items, show what is blocking them. For stalled items, show which required notes are missing. When a stalled item's missing note key matches a trait's note key (e.g., `migration-assessment` from trait `needs-migration-review`), mention the trait in the Issue column: `Stalled: missing \`migration-assessment\` (trait: needs-migration-review)`
 
-If there is actionable context (e.g., blocker is not in active work, or a stalled item has a `guidancePointer`), add a brief observation line below the table — one sentence max.
+If there is actionable context (e.g., blocker is not in active work, or a stalled item has a `guidanceKey`), add a brief observation line below the table — one sentence max.
 
 Include the short ID so the user can reference items in follow-up commands.
 

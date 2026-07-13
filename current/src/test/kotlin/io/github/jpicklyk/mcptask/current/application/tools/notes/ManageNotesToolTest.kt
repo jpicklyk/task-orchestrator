@@ -13,8 +13,10 @@ import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepos
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
 import org.jetbrains.exposed.v1.jdbc.Database
+import org.junit.jupiter.api.Assumptions.assumeTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import java.nio.file.Files
 import java.util.UUID
 import kotlin.test.*
 
@@ -133,12 +135,14 @@ class ManageNotesToolTest {
             assertEquals(1, (result["data"] as JsonObject)["upserted"]!!.jsonPrimitive.int)
 
             // Verify via query that only one note exists and body is updated
+            // (includeBody: true — query_notes list omits bodies by default)
             val queryTool = QueryNotesTool()
             val listResult =
                 queryTool.execute(
                     params(
                         "operation" to JsonPrimitive("list"),
-                        "itemId" to JsonPrimitive(itemId)
+                        "itemId" to JsonPrimitive(itemId),
+                        "includeBody" to JsonPrimitive(true)
                     ),
                     context
                 ) as JsonObject
@@ -1337,5 +1341,464 @@ class ManageNotesToolTest {
             assertEquals(1, data["deleted"]!!.jsonPrimitive.int)
             assertEquals(0, data["notFound"]!!.jsonPrimitive.int)
             assertEquals(0, data["failed"]!!.jsonPrimitive.int)
+        }
+
+    // ──────────────────────────────────────────────
+    // t31: bodyFromFile
+    // ──────────────────────────────────────────────
+
+    private fun tempBaseDir() = Files.createTempDirectory("manage-notes-bodyfromfile-test").also { it.toFile().deleteOnExit() }
+
+    /** Fetches the persisted `body` for (itemId, key) via QueryNotesTool, since manage_notes's own response omits body. */
+    private suspend fun fetchNoteBody(
+        itemId: String,
+        key: String
+    ): String? {
+        val queryTool = QueryNotesTool()
+        val listResult =
+            queryTool.execute(
+                params(
+                    "operation" to JsonPrimitive("list"),
+                    "itemId" to JsonPrimitive(itemId),
+                    "includeBody" to JsonPrimitive(true)
+                ),
+                context
+            ) as JsonObject
+        val notes = (listResult["data"] as JsonObject)["notes"]!!.jsonArray
+        return notes.map { it.jsonObject }.firstOrNull { it["key"]!!.jsonPrimitive.content == key }
+            ?.get("body")?.jsonPrimitive?.content
+    }
+
+    private fun upsertBodyFromFileParams(
+        itemId: String,
+        key: String,
+        relativePath: String,
+        role: String = "work"
+    ) = params(
+        "operation" to JsonPrimitive("upsert"),
+        "notes" to
+            JsonArray(
+                listOf(
+                    buildJsonObject {
+                        put("itemId", JsonPrimitive(itemId))
+                        put("key", JsonPrimitive(key))
+                        put("role", JsonPrimitive(role))
+                        put("bodyFromFile", JsonPrimitive(relativePath))
+                    }
+                )
+            )
+    )
+
+    @Test
+    fun `bodyFromFile happy path reads file content into note body`(): Unit =
+        runBlocking {
+            val baseDir = tempBaseDir()
+            baseDir.resolve("note.txt").toFile().writeText("Body sourced from a file")
+            val fileTool = ManageNotesTool(agentConfigBaseDir = baseDir)
+            val itemId = createTestItem()
+
+            val result =
+                fileTool.execute(upsertBodyFromFileParams(itemId, "from-file", "note.txt"), context) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val data = result["data"] as JsonObject
+            assertEquals(1, data["upserted"]!!.jsonPrimitive.int)
+            assertEquals(0, data["failed"]!!.jsonPrimitive.int)
+            assertEquals("Body sourced from a file", fetchNoteBody(itemId, "from-file"))
+        }
+
+    @Test
+    fun `bodyFromFile round-trips exact file content`(): Unit =
+        runBlocking {
+            val baseDir = tempBaseDir()
+            val exactContent = "Line one\nLine two with punctuation! And unicode: café.\nLine three."
+            baseDir.resolve("exact.txt").toFile().writeText(exactContent, Charsets.UTF_8)
+            val fileTool = ManageNotesTool(agentConfigBaseDir = baseDir)
+            val itemId = createTestItem()
+
+            val result =
+                fileTool.execute(upsertBodyFromFileParams(itemId, "exact", "exact.txt"), context) as JsonObject
+
+            assertEquals(1, (result["data"] as JsonObject)["upserted"]!!.jsonPrimitive.int)
+            assertEquals(exactContent, fetchNoteBody(itemId, "exact"))
+        }
+
+    @Test
+    fun `bodyFromFile normalizes CRLF line endings to LF`(): Unit =
+        runBlocking {
+            val baseDir = tempBaseDir()
+            baseDir.resolve("crlf.txt").toFile().writeBytes("Line1\r\nLine2\r\nLine3".toByteArray(Charsets.UTF_8))
+            val fileTool = ManageNotesTool(agentConfigBaseDir = baseDir)
+            val itemId = createTestItem()
+
+            val result =
+                fileTool.execute(upsertBodyFromFileParams(itemId, "crlf", "crlf.txt"), context) as JsonObject
+
+            assertEquals(1, (result["data"] as JsonObject)["upserted"]!!.jsonPrimitive.int)
+            val storedBody = fetchNoteBody(itemId, "crlf")
+            assertEquals("Line1\nLine2\nLine3", storedBody)
+            assertFalse(storedBody!!.contains("\r"), "CRLF must be normalized to LF")
+        }
+
+    @Test
+    fun `bodyFromFile rejects a relative dot-dot escape`(): Unit =
+        runBlocking {
+            val outerDir = tempBaseDir()
+            val baseDir = Files.createDirectory(outerDir.resolve("root"))
+            outerDir.resolve("secret.txt").toFile().writeText("outside content")
+            val fileTool = ManageNotesTool(agentConfigBaseDir = baseDir)
+            val itemId = createTestItem()
+
+            val result =
+                fileTool.execute(upsertBodyFromFileParams(itemId, "escape", "../secret.txt"), context) as JsonObject
+
+            val data = result["data"] as JsonObject
+            assertEquals(0, data["upserted"]!!.jsonPrimitive.int)
+            assertEquals(1, data["failed"]!!.jsonPrimitive.int)
+            val failure = data["failures"]!!.jsonArray[0] as JsonObject
+            assertTrue(failure["error"]!!.jsonPrimitive.content.contains("escapes"), failure["error"]!!.jsonPrimitive.content)
+        }
+
+    @Test
+    fun `bodyFromFile rejects an absolute path`(): Unit =
+        runBlocking {
+            val baseDir = tempBaseDir()
+            val fileTool = ManageNotesTool(agentConfigBaseDir = baseDir)
+            val itemId = createTestItem()
+
+            val result =
+                fileTool.execute(upsertBodyFromFileParams(itemId, "absolute", "/etc/passwd"), context) as JsonObject
+
+            val data = result["data"] as JsonObject
+            assertEquals(0, data["upserted"]!!.jsonPrimitive.int)
+            assertEquals(1, data["failed"]!!.jsonPrimitive.int)
+            val failure = data["failures"]!!.jsonArray[0] as JsonObject
+            assertTrue(failure["error"]!!.jsonPrimitive.content.contains("absolute"), failure["error"]!!.jsonPrimitive.content)
+        }
+
+    @Test
+    fun `bodyFromFile rejects a missing file`(): Unit =
+        runBlocking {
+            val baseDir = tempBaseDir()
+            val fileTool = ManageNotesTool(agentConfigBaseDir = baseDir)
+            val itemId = createTestItem()
+
+            val result =
+                fileTool.execute(upsertBodyFromFileParams(itemId, "missing", "does-not-exist.txt"), context) as JsonObject
+
+            val data = result["data"] as JsonObject
+            assertEquals(0, data["upserted"]!!.jsonPrimitive.int)
+            assertEquals(1, data["failed"]!!.jsonPrimitive.int)
+            val failure = data["failures"]!!.jsonArray[0] as JsonObject
+            assertTrue(failure["error"]!!.jsonPrimitive.content.contains("not found"), failure["error"]!!.jsonPrimitive.content)
+        }
+
+    @Test
+    fun `bodyFromFile rejects a file over the 64KB cap`(): Unit =
+        runBlocking {
+            val baseDir = tempBaseDir()
+            val oversized = "a".repeat(65536 + 1)
+            baseDir.resolve("big.txt").toFile().writeText(oversized)
+            val fileTool = ManageNotesTool(agentConfigBaseDir = baseDir)
+            val itemId = createTestItem()
+
+            val result =
+                fileTool.execute(upsertBodyFromFileParams(itemId, "big", "big.txt"), context) as JsonObject
+
+            val data = result["data"] as JsonObject
+            assertEquals(0, data["upserted"]!!.jsonPrimitive.int)
+            assertEquals(1, data["failed"]!!.jsonPrimitive.int)
+            val failure = data["failures"]!!.jsonArray[0] as JsonObject
+            assertTrue(failure["error"]!!.jsonPrimitive.content.contains("65536"), failure["error"]!!.jsonPrimitive.content)
+        }
+
+    @Test
+    fun `body and bodyFromFile together fails that note with a conflict error`(): Unit =
+        runBlocking {
+            val baseDir = tempBaseDir()
+            baseDir.resolve("note.txt").toFile().writeText("file content")
+            val fileTool = ManageNotesTool(agentConfigBaseDir = baseDir)
+            val itemId = createTestItem()
+
+            val result =
+                fileTool.execute(
+                    params(
+                        "operation" to JsonPrimitive("upsert"),
+                        "notes" to
+                            JsonArray(
+                                listOf(
+                                    buildJsonObject {
+                                        put("itemId", JsonPrimitive(itemId))
+                                        put("key", JsonPrimitive("conflict"))
+                                        put("role", JsonPrimitive("work"))
+                                        put("body", JsonPrimitive("inline content"))
+                                        put("bodyFromFile", JsonPrimitive("note.txt"))
+                                    }
+                                )
+                            )
+                    ),
+                    context
+                ) as JsonObject
+
+            val data = result["data"] as JsonObject
+            assertEquals(0, data["upserted"]!!.jsonPrimitive.int)
+            assertEquals(1, data["failed"]!!.jsonPrimitive.int)
+            val failure = data["failures"]!!.jsonArray[0] as JsonObject
+            assertTrue(
+                failure["error"]!!.jsonPrimitive.content.contains("mutually exclusive"),
+                failure["error"]!!.jsonPrimitive.content
+            )
+        }
+
+    @Test
+    fun `bodyFromFile rejects a symlink that escapes the base directory`(): Unit =
+        runBlocking {
+            val baseDir = tempBaseDir()
+            val outsideDir = tempBaseDir()
+            val outsideFile = outsideDir.resolve("secret.txt")
+            outsideFile.toFile().writeText("outside content")
+            val link = baseDir.resolve("escape-link.txt")
+            try {
+                Files.createSymbolicLink(link, outsideFile)
+            } catch (e: Exception) {
+                assumeTrue(false, "symlink creation unsupported in this environment: ${e.message}")
+                return@runBlocking
+            }
+            val fileTool = ManageNotesTool(agentConfigBaseDir = baseDir)
+            val itemId = createTestItem()
+
+            val result =
+                fileTool.execute(upsertBodyFromFileParams(itemId, "symlink", "escape-link.txt"), context) as JsonObject
+
+            val data = result["data"] as JsonObject
+            assertEquals(0, data["upserted"]!!.jsonPrimitive.int)
+            assertEquals(1, data["failed"]!!.jsonPrimitive.int)
+            val failure = data["failures"]!!.jsonArray[0] as JsonObject
+            assertTrue(failure["error"]!!.jsonPrimitive.content.contains("symlink"), failure["error"]!!.jsonPrimitive.content)
+        }
+
+    @Test
+    fun `bodyFromFile idempotent replay returns cached result without re-reading the file`(): Unit =
+        runBlocking {
+            val baseDir = tempBaseDir()
+            val file = baseDir.resolve("note.txt").toFile()
+            file.writeText("Idempotent content")
+            val fileTool = ManageNotesTool(agentConfigBaseDir = baseDir)
+            val itemId = createTestItem()
+            val requestId = UUID.randomUUID().toString()
+
+            val requestParams =
+                params(
+                    "operation" to JsonPrimitive("upsert"),
+                    "requestId" to JsonPrimitive(requestId),
+                    "actor" to
+                        buildJsonObject {
+                            put("id", JsonPrimitive("agent-idem-bff"))
+                            put("kind", JsonPrimitive("subagent"))
+                        },
+                    "notes" to
+                        JsonArray(
+                            listOf(
+                                buildJsonObject {
+                                    put("itemId", JsonPrimitive(itemId))
+                                    put("key", JsonPrimitive("from-file-idem"))
+                                    put("role", JsonPrimitive("work"))
+                                    put("bodyFromFile", JsonPrimitive("note.txt"))
+                                }
+                            )
+                        )
+                )
+
+            val result1 = fileTool.execute(requestParams, context) as JsonObject
+            val data1 = result1["data"] as JsonObject
+            assertEquals(1, data1["upserted"]!!.jsonPrimitive.int)
+            val noteId1 = (data1["notes"]!!.jsonArray[0] as JsonObject)["id"]!!.jsonPrimitive.content
+
+            // Delete the source file: if the replay re-read it, this call would now fail with
+            // a "file not found" failure instead of returning the original cached success.
+            file.delete()
+
+            val result2 = fileTool.execute(requestParams, context) as JsonObject
+            val data2 = result2["data"] as JsonObject
+            assertEquals(1, data2["upserted"]!!.jsonPrimitive.int, "replay must return the cached success, not re-execute")
+            assertEquals(0, data2["failed"]!!.jsonPrimitive.int)
+            val noteId2 = (data2["notes"]!!.jsonArray[0] as JsonObject)["id"]!!.jsonPrimitive.content
+            assertEquals(noteId1, noteId2, "replay must return the exact cached note")
+        }
+
+    // ──────────────────────────────────────────────
+    // t45: schema maxLength enforcement at upsert
+    // ──────────────────────────────────────────────
+
+    private fun contextWithSchemaAndLimitsMode(
+        entries: List<NoteSchemaEntry>,
+        matchTag: String,
+        noteLimitsMode: String = "warn"
+    ): ToolExecutionContext {
+        val noteSchemaService =
+            object : NoteSchemaService {
+                override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? = if (tags.contains(matchTag)) entries else null
+
+                override fun getNoteLimitsMode(): String = noteLimitsMode
+            }
+        return ToolExecutionContext(repositoryProvider, noteSchemaService)
+    }
+
+    @Test
+    fun `upsert warns when body exceeds maxLength in default warn mode`(): Unit =
+        runBlocking {
+            val schemaEntries = listOf(NoteSchemaEntry(key = "limited", role = Role.WORK, maxLength = 10))
+            val schemaContext = contextWithSchemaAndLimitsMode(schemaEntries, "limited-schema")
+            val itemId = createTestItemWithTags(tags = "limited-schema")
+
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("upsert"),
+                        "notes" to
+                            JsonArray(
+                                listOf(
+                                    buildJsonObject {
+                                        put("itemId", JsonPrimitive(itemId))
+                                        put("key", JsonPrimitive("limited"))
+                                        put("role", JsonPrimitive("work"))
+                                        put("body", JsonPrimitive("this body is way over the limit"))
+                                    }
+                                )
+                            )
+                    ),
+                    schemaContext
+                ) as JsonObject
+
+            val data = result["data"] as JsonObject
+            assertEquals(1, data["upserted"]!!.jsonPrimitive.int, "warn mode still accepts the note")
+            assertEquals(0, data["failed"]!!.jsonPrimitive.int)
+            val note = data["notes"]!!.jsonArray[0] as JsonObject
+            assertTrue(note.containsKey("warning"), "warning field should be present when over maxLength in warn mode")
+            val warning = note["warning"]!!.jsonPrimitive.content
+            assertTrue(warning.contains("10"), "warning should name the limit: $warning")
+            assertTrue(warning.contains("limited"), "warning should name the key: $warning")
+        }
+
+    @Test
+    fun `upsert body exactly at maxLength boundary passes without warning`(): Unit =
+        runBlocking {
+            val schemaEntries = listOf(NoteSchemaEntry(key = "limited", role = Role.WORK, maxLength = 10))
+            val schemaContext = contextWithSchemaAndLimitsMode(schemaEntries, "limited-schema")
+            val itemId = createTestItemWithTags(tags = "limited-schema")
+
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("upsert"),
+                        "notes" to
+                            JsonArray(
+                                listOf(
+                                    buildJsonObject {
+                                        put("itemId", JsonPrimitive(itemId))
+                                        put("key", JsonPrimitive("limited"))
+                                        put("role", JsonPrimitive("work"))
+                                        put("body", JsonPrimitive("1234567890")) // exactly 10 chars
+                                    }
+                                )
+                            )
+                    ),
+                    schemaContext
+                ) as JsonObject
+
+            val data = result["data"] as JsonObject
+            assertEquals(1, data["upserted"]!!.jsonPrimitive.int)
+            val note = data["notes"]!!.jsonArray[0] as JsonObject
+            assertFalse(note.containsKey("warning"), "body exactly at the limit must not warn")
+        }
+
+    @Test
+    fun `upsert rejects body exceeding maxLength in reject mode`(): Unit =
+        runBlocking {
+            val schemaEntries = listOf(NoteSchemaEntry(key = "limited", role = Role.WORK, maxLength = 10))
+            val schemaContext = contextWithSchemaAndLimitsMode(schemaEntries, "limited-schema", noteLimitsMode = "reject")
+            val itemId = createTestItemWithTags(tags = "limited-schema")
+
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("upsert"),
+                        "notes" to
+                            JsonArray(
+                                listOf(
+                                    buildJsonObject {
+                                        put("itemId", JsonPrimitive(itemId))
+                                        put("key", JsonPrimitive("limited"))
+                                        put("role", JsonPrimitive("work"))
+                                        put("body", JsonPrimitive("this body is way over the limit"))
+                                    }
+                                )
+                            )
+                    ),
+                    schemaContext
+                ) as JsonObject
+
+            val data = result["data"] as JsonObject
+            assertEquals(0, data["upserted"]!!.jsonPrimitive.int, "reject mode must not persist the note")
+            assertEquals(1, data["failed"]!!.jsonPrimitive.int)
+            val failure = data["failures"]!!.jsonArray[0] as JsonObject
+            assertEquals("NOTE_BODY_TOO_LONG", failure["code"]!!.jsonPrimitive.content)
+            assertEquals("limited", failure["key"]!!.jsonPrimitive.content)
+            assertEquals(10, failure["maxLength"]!!.jsonPrimitive.int)
+            assertEquals("this body is way over the limit".length, failure["actualLength"]!!.jsonPrimitive.int)
+
+            // Verify nothing was actually persisted
+            assertNull(fetchNoteBody(itemId, "limited"))
+        }
+
+    @Test
+    fun `upsert enforces maxLength on bodyFromFile-sourced content too`(): Unit =
+        runBlocking {
+            val baseDir = tempBaseDir()
+            baseDir.resolve("long.txt").toFile().writeText("this body is way over the limit")
+            val schemaEntries = listOf(NoteSchemaEntry(key = "limited", role = Role.WORK, maxLength = 10))
+            val schemaContext = contextWithSchemaAndLimitsMode(schemaEntries, "limited-schema")
+            val fileTool = ManageNotesTool(agentConfigBaseDir = baseDir)
+            val itemId = createTestItemWithTags(tags = "limited-schema")
+
+            val result =
+                fileTool.execute(upsertBodyFromFileParams(itemId, "limited", "long.txt"), schemaContext) as JsonObject
+
+            val data = result["data"] as JsonObject
+            assertEquals(1, data["upserted"]!!.jsonPrimitive.int, "warn mode still accepts the note")
+            val note = data["notes"]!!.jsonArray[0] as JsonObject
+            assertTrue(note.containsKey("warning"), "maxLength must be enforced on bodyFromFile content as well as inline body")
+        }
+
+    @Test
+    fun `upsert with no maxLength configured never warns regardless of body length`(): Unit =
+        runBlocking {
+            val schemaEntries = listOf(NoteSchemaEntry(key = "unlimited", role = Role.WORK))
+            val schemaContext = contextWithSchemaAndLimitsMode(schemaEntries, "unlimited-schema")
+            val itemId = createTestItemWithTags(tags = "unlimited-schema")
+
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("upsert"),
+                        "notes" to
+                            JsonArray(
+                                listOf(
+                                    buildJsonObject {
+                                        put("itemId", JsonPrimitive(itemId))
+                                        put("key", JsonPrimitive("unlimited"))
+                                        put("role", JsonPrimitive("work"))
+                                        put("body", JsonPrimitive("a".repeat(10_000)))
+                                    }
+                                )
+                            )
+                    ),
+                    schemaContext
+                ) as JsonObject
+
+            val data = result["data"] as JsonObject
+            assertEquals(1, data["upserted"]!!.jsonPrimitive.int)
+            val note = data["notes"]!!.jsonArray[0] as JsonObject
+            assertFalse(note.containsKey("warning"))
         }
 }

@@ -67,72 +67,25 @@ class ClaimItemTool :
     override val description =
         """
 Atomically claim or release work items. One claim per agent: claiming a new item auto-releases
-any prior claim held by the same agent.
+any prior claim held by the same agent. At least one of `claims` or `releases` must be non-empty.
 
-**Parameters:**
-- `claims` (optional array): Items to claim. Each element supports two mutually exclusive modes:
-  - ID mode: `{ itemId (required UUID or short hex), ttlSeconds? (optional int, default 900, max 86400), agentId? (optional string, overridden by verified actor), claimRef? (optional string, max 64 chars — echoed in result) }`
-  - Selector mode: `{ selector (required object — see below), ttlSeconds? (optional int, default 900, max 86400), claimRef? (optional string, max 64 chars — echoed in result) }`
-  - Each entry must have exactly one of `itemId` or `selector`.
-  - **Single-claim-per-call:** `claims` array must contain at most 1 entry. Use one call per item.
-- `releases` (optional array): Items to release. Each element: `{ itemId (required UUID or short hex) }`
-- `actor` (required): `{ id (required string), kind (required: orchestrator|subagent|user|external), parent? (optional string), proof? (optional string) }` — identity used as the claim holder. Verified identity overrides self-reported agentId.
-- `requestId` (required UUID): Client-generated UUID for idempotency. Required — `claim_item` is a fleet-mode tool and idempotency is a hard contract. Repeated calls with the same (actor, requestId) within ~10 minutes return the cached response without re-executing.
+Each `claims` entry uses exactly one of `itemId` (ID mode) or `selector` (find-and-claim mode).
 
-**Selector object fields** (all optional except the parent `selector` key itself):
-- `role` (string, default "queue"): role to search in — queue|work|review|blocked
-- `parentId` (string UUID): filter to items under this parent
-- `tags` (string, comma-separated): filter by tags
-- `priority` (string): HIGH|MEDIUM|LOW
-- `type` (string): item type
-- `complexityMax` (int, 1–10): maximum complexity
-- `createdAfter` (string, ISO 8601): items created after this timestamp
-- `createdBefore` (string, ISO 8601): items created before this timestamp
-- `roleChangedAfter` (string, ISO 8601): items whose role changed after this timestamp
-- `roleChangedBefore` (string, ISO 8601): items whose role changed before this timestamp
-- `orderBy` (string): priority|oldest|newest (default: priority)
+**Selector object fields** (all optional; this shape is not expressible in JSON Schema below):
+- `role` (default "queue"): queue|work|review|blocked
+- `parentId` (UUID or hex prefix): filter to items under this parent
+- `tags` (comma-separated): filter by tags
+- `priority`: high|medium|low
+- `type`: item type
+- `complexityMax` (1-10): maximum complexity
+- `createdAfter`/`createdBefore`/`roleChangedAfter`/`roleChangedBefore` (ISO 8601): timestamp filters
+- `orderBy` (default "priority"): priority|oldest|newest
 
-At least one of `claims` or `releases` must be non-empty.
+**Claim outcomes:** `success`, `no_match` (selector found nothing; kind=permanent), `already_claimed`
+(returns `retryAfterMs`, never the competing agent's identity), `not_found`, `terminal_item`,
+`rejected_by_policy`.
 
-**Single-claim-per-call:** `claims` array must contain at most 1 entry. Use one call per item.
-The cap derives from the heartbeat write-budget assumption (one TTL refresh per agent per cycle).
-A future `claim_heartbeats` table mitigation could remove the constraint.
-Releases array (`releases`) continues to support N entries — only `claims` is restricted.
-
-**Claim outcomes per item:**
-- `success` — claim placed or TTL refreshed (same agent re-claim). Response includes own claim metadata. Selector claims also include `selectorResolved: true`.
-- `no_match` — selector found no eligible items; kind=permanent. No claim attempted, no retryAfterMs.
-- `already_claimed` — another agent holds a live claim. Response includes `retryAfterMs` (no competing agent identity).
-- `not_found` — no item with that ID.
-- `terminal_item` — item is in TERMINAL role; cannot be claimed.
-- `rejected_by_policy` — actor verification rejected by `degradedModePolicy=reject`.
-
-**Release outcomes per item:**
-- `success` — claim cleared.
-- `not_claimed_by_you` — item is not claimed by this agent (or is unclaimed).
-- `not_found` — no item with that ID.
-
-**Response:**
-```json
-{
-  "claimResults": [
-    {
-      "itemId": "uuid",
-      "outcome": "success",
-      "selectorResolved": true,
-      "claimRef": "my-ref",
-      "claimedBy": "agent-id",
-      "claimedAt": "2026-01-01T00:00:00Z",
-      "claimExpiresAt": "2026-01-01T00:15:00Z",
-      "originalClaimedAt": "2026-01-01T00:00:00Z"
-    }
-  ],
-  "releaseResults": [
-    { "itemId": "uuid", "outcome": "success" }
-  ],
-  "summary": { "claimsTotal": 1, "claimsSucceeded": 1, "claimsFailed": 0, "releasesTotal": 0, "releasesSucceeded": 0, "releasesFailed": 0 }
-}
-```
+**Release outcomes:** `success`, `not_claimed_by_you`, `not_found`.
         """.trimIndent()
 
     override val category = ToolCategory.WORKFLOW
@@ -156,15 +109,11 @@ Releases array (`releases`) continues to support N entries — only `claims` is 
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Array of claim requests. Max 1 entry per call — use one call per item. " +
-                                        "Each entry uses either ID mode: " +
-                                        "{ itemId (required UUID or hex prefix), " +
-                                        "ttlSeconds? (optional int, default 900, min 1, max 86400 — 24 h cap), " +
-                                        "agentId? (optional string, overridden by verified actor), " +
-                                        "claimRef? (optional string, max 64 chars) } " +
-                                        "or Selector mode: { selector (required object with filter fields), " +
-                                        "ttlSeconds? (optional int), claimRef? (optional string, max 64 chars) }. " +
-                                        "Exactly one of itemId or selector must be present per entry."
+                                    "Claim requests, max 1 entry per call (use one call per item). Each entry has " +
+                                        "exactly one of: itemId (UUID or hex prefix) for ID mode, or selector (object, " +
+                                        "see below) for find-and-claim mode. Both modes also accept ttlSeconds " +
+                                        "(default 900, max 86400), claimRef (max 64 chars, echoed in result); ID mode " +
+                                        "also accepts agentId (overridden by the verified actor)."
                                 )
                             )
                         }
@@ -186,9 +135,8 @@ Releases array (`releases`) continues to support N entries — only `claims` is 
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Required actor claim: { id (required string), " +
-                                        "kind (required: orchestrator|subagent|user|external), " +
-                                        "parent? (optional string), proof? (optional string) }"
+                                    "Required actor claim: { id (required), " +
+                                        "kind (required: orchestrator|subagent|user|external), parent?, proof? }"
                                 )
                             )
                         }
@@ -200,9 +148,8 @@ Releases array (`releases`) continues to support N entries — only `claims` is 
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Client-generated UUID for idempotency. Required — claim_item is a fleet-mode tool " +
-                                        "and idempotency is a hard contract. Repeated calls with the same (actor, requestId) " +
-                                        "within ~10 minutes return the cached response without re-executing."
+                                    "Client-generated UUID for idempotency (10 min cache, keyed by actor+requestId). " +
+                                        "Required — claim_item is fleet-mode; idempotency is a hard contract."
                                 )
                             )
                         }
@@ -563,8 +510,9 @@ Releases array (`releases`) continues to support N entries — only `claims` is 
                                         put("claimedBy", JsonPrimitive(item.claimedBy ?: trustedAgentId))
                                         item.claimedAt?.let { put("claimedAt", JsonPrimitive(it.toString())) }
                                         item.claimExpiresAt?.let { put("claimExpiresAt", JsonPrimitive(it.toString())) }
+                                        // Omit originalClaimedAt when it equals claimedAt (fresh claim — no prior claim to preserve).
                                         item.originalClaimedAt?.let {
-                                            put("originalClaimedAt", JsonPrimitive(it.toString()))
+                                            if (it != item.claimedAt) put("originalClaimedAt", JsonPrimitive(it.toString()))
                                         }
                                     }
                                 )
@@ -693,8 +641,9 @@ Releases array (`releases`) continues to support N entries — only `claims` is 
                                 put("claimedBy", JsonPrimitive(item.claimedBy ?: trustedAgentId))
                                 item.claimedAt?.let { put("claimedAt", JsonPrimitive(it.toString())) }
                                 item.claimExpiresAt?.let { put("claimExpiresAt", JsonPrimitive(it.toString())) }
+                                // Omit originalClaimedAt when it equals claimedAt (fresh claim — no prior claim to preserve).
                                 item.originalClaimedAt?.let {
-                                    put("originalClaimedAt", JsonPrimitive(it.toString()))
+                                    if (it != item.claimedAt) put("originalClaimedAt", JsonPrimitive(it.toString()))
                                 }
                             }
                         )
@@ -844,21 +793,12 @@ Releases array (`releases`) continues to support N entries — only `claims` is 
             }
         }
 
+        // Summary counters dropped: every count is derivable from claimResults/releaseResults
+        // (total = array size; succeeded = count of outcome=="success"; failed = the remainder).
         val data =
             buildJsonObject {
                 put("claimResults", JsonArray(claimResultsList))
                 put("releaseResults", JsonArray(releaseResultsList))
-                put(
-                    "summary",
-                    buildJsonObject {
-                        put("claimsTotal", JsonPrimitive(claimsArray.size))
-                        put("claimsSucceeded", JsonPrimitive(claimsSucceeded))
-                        put("claimsFailed", JsonPrimitive(claimsFailed))
-                        put("releasesTotal", JsonPrimitive(releasesArray.size))
-                        put("releasesSucceeded", JsonPrimitive(releasesSucceeded))
-                        put("releasesFailed", JsonPrimitive(releasesFailed))
-                    }
-                )
             }
 
         return successResponse(data)
@@ -927,11 +867,15 @@ Releases array (`releases`) continues to support N entries — only `claims` is 
     ): String {
         if (isError) return "claim_item failed"
         val data = (result as? JsonObject)?.get("data") as? JsonObject
-        val summary = data?.get("summary") as? JsonObject
-        val claimsSucceeded = summary?.get("claimsSucceeded")?.let { (it as? JsonPrimitive)?.intOrNull } ?: 0
-        val releasesSucceeded = summary?.get("releasesSucceeded")?.let { (it as? JsonPrimitive)?.intOrNull } ?: 0
-        val claimsFailed = summary?.get("claimsFailed")?.let { (it as? JsonPrimitive)?.intOrNull } ?: 0
-        val releasesFailed = summary?.get("releasesFailed")?.let { (it as? JsonPrimitive)?.intOrNull } ?: 0
+        // Counts are derived from the result arrays — the summary block was dropped as redundant.
+        val claimResults = (data?.get("claimResults") as? JsonArray).orEmpty()
+        val releaseResults = (data?.get("releaseResults") as? JsonArray).orEmpty()
+        fun JsonElement.isSuccessOutcome(): Boolean =
+            ((this as? JsonObject)?.get("outcome") as? JsonPrimitive)?.content == "success"
+        val claimsSucceeded = claimResults.count { it.isSuccessOutcome() }
+        val claimsFailed = claimResults.size - claimsSucceeded
+        val releasesSucceeded = releaseResults.count { it.isSuccessOutcome() }
+        val releasesFailed = releaseResults.size - releasesSucceeded
         return buildString {
             if (claimsSucceeded > 0 || claimsFailed > 0) {
                 append("Claimed $claimsSucceeded")

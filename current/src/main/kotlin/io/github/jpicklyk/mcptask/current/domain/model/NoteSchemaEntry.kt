@@ -30,6 +30,9 @@ package io.github.jpicklyk.mcptask.current.domain.model
  * @property required Whether this note must be filled before advancing past its phase
  * @property description Human-readable description of what the note should contain
  * @property guidance Optional detailed instructions for filling the note
+ * @property maxLength Optional maximum note body length in characters. When set, `manage_notes`
+ *   enforces it at upsert time (after body/bodyFromFile resolution) per the configured
+ *   `note_limits.mode` (warn or reject). Null means no limit is enforced.
  */
 data class NoteSchemaEntry(
     val key: String,
@@ -37,5 +40,6 @@ data class NoteSchemaEntry(
     val required: Boolean = false,
     val description: String = "",
     val guidance: String? = null,
-    val skill: String? = null
+    val skill: String? = null,
+    val maxLength: Int? = null
 )

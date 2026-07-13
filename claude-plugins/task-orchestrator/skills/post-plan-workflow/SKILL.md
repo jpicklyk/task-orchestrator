@@ -1,6 +1,6 @@
 ---
 name: post-plan-workflow
-description: Internal workflow for post-plan materialization — creates MCP items from the approved plan and dispatches implementation. Triggered automatically after plan approval when MCP tracking is active.
+description: "Internal, hook-triggered: materializes MCP items from the approved plan and dispatches implementation."
 user-invocable: false
 ---
 
@@ -26,8 +26,8 @@ Do NOT dispatch implementation agents until materialization is complete. Agents 
 Dispatch subagents to execute the plan:
 
 - Each subagent **owns one MCP item** — include the item UUID in the delegation prompt
-- If `expectedNotes` entries include `guidance`, embed it in the delegation prompt as authoring instructions when filling notes
-- If `expectedNotes` entries include a `skill` field, include in the delegation prompt: "Before filling the `<key>` note, invoke `/<skill>` and follow its framework." This ensures subagents receive deterministic skill routing rather than relying on guidance prose
+- Resolve each note's `guidance`/`skill` via `query_items(operation="schema", itemId=...)` (`expectedNotes` itself is keys-only); embed `guidance` in the delegation prompt as authoring instructions
+- When a note's `skill` is set, include in the delegation prompt: "Before filling the `<key>` note, invoke `/<skill>` and follow its framework." This ensures subagents receive deterministic skill routing rather than relying on guidance prose
 - **Agents own phase entry only** — each agent calls `advance_item(trigger="start")` once to enter work phase, fills work-phase notes, and returns. The orchestrator handles all further transitions (work→review or work→terminal depending on schema). Agents do NOT call `advance_item` a second time
 - Fill work-phase notes (`implementation-notes`, `test-results`, etc.) as the agent works
 - Respect dependency ordering — do not dispatch an agent for a blocked item until its blockers complete

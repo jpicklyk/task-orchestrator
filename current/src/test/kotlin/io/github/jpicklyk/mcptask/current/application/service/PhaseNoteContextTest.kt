@@ -138,6 +138,48 @@ class PhaseNoteContextTest {
     }
 
     @Test
+    fun `guidanceKey is key of first missing note with guidance`() {
+        val schema =
+            listOf(
+                NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, guidance = "Write spec"),
+                NoteSchemaEntry(key = "design", role = Role.QUEUE, required = true, guidance = "Write design")
+            )
+        val result = computePhaseNoteContext(Role.QUEUE, schema, emptyMap())
+
+        assertNotNull(result)
+        assertEquals("spec", result.guidanceKey)
+
+        val partial = computePhaseNoteContext(Role.QUEUE, schema, mapOf("spec" to note("spec")))
+        assertNotNull(partial)
+        assertEquals("design", partial.guidanceKey)
+    }
+
+    @Test
+    fun `guidanceKey null when first missing note has no guidance`() {
+        val schema =
+            listOf(
+                NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, guidance = null)
+            )
+        val result = computePhaseNoteContext(Role.QUEUE, schema, emptyMap())
+
+        assertNotNull(result)
+        assertNull(result.guidanceKey, "guidanceKey mirrors guidancePointer null-semantics")
+        assertNull(result.guidancePointer)
+    }
+
+    @Test
+    fun `guidanceKey null when all required notes filled`() {
+        val schema =
+            listOf(
+                NoteSchemaEntry(key = "spec", role = Role.QUEUE, required = true, guidance = "Write spec")
+            )
+        val result = computePhaseNoteContext(Role.QUEUE, schema, mapOf("spec" to note("spec")))
+
+        assertNotNull(result)
+        assertNull(result.guidanceKey)
+    }
+
+    @Test
     fun `empty schema returns zero counts with null guidance`() {
         val result = computePhaseNoteContext(Role.QUEUE, emptyList(), emptyMap())
 

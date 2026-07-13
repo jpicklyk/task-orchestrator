@@ -14,20 +14,31 @@ import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetBlockedI
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetNextItemTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetNextStatusTool
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Test
 import kotlin.test.fail
 
 /**
- * Verifies that every parameter named in a tool's [ToolDefinition.parameterSchema] is
- * mentioned somewhere in the tool's [ToolDefinition.description] string.
+ * Verifies the token-efficiency-era documentation contract (see the "MCP Token-Efficiency
+ * Program" t21-t23 work): every parameter is documented ONCE, in its own `parameterSchema`
+ * field description — the single source of truth MCP clients and LLMs both see via
+ * `tools/list`. The prose `description` string is reserved for what a flat JSON Schema
+ * can't express: operation/mode enum selection, mode-selection rules, trigger effects,
+ * gate semantics, and mutual-exclusion/XOR constraints.
  *
- * There are three independent documentation surfaces that must stay in sync:
- *   1. description string  — what LLMs see via tools/list
- *   2. parameterSchema     — what MCP clients validate against
- *   3. api-reference.md    — what humans read
+ * This deliberately supersedes the older "every schema param name must literally appear in
+ * the description string" invariant: that policy forced per-field prose that duplicated the
+ * schema on every tool, which is exactly the token bloat the efficiency program removed
+ * (baseline tools/list payload 56,984 chars; budget <= 30,000). See CLAUDE.md
+ * "Tool Documentation Surfaces" for the current policy.
  *
- * This test guards the description↔schema surface automatically on every CI run.
- * The api-reference.md surface requires human review; see CLAUDE.md "Documentation surfaces" note.
+ * Guards two things instead:
+ *   1. Every parameterSchema property has a non-blank field-level `description`.
+ *   2. Every operation/mode-selecting enum value is still named in the prose description,
+ *      so a caller can discover what operations exist without parsing the full schema.
  */
 class ToolDocumentationConsistencyTest {
     private val allTools: List<ToolDefinition> =
@@ -49,49 +60,55 @@ class ToolDocumentationConsistencyTest {
         )
 
     @Test
-    fun `all schema parameter names appear in tool description string`() {
+    fun `every schema parameter has a non-blank field-level description`() {
         val failures = mutableListOf<String>()
 
         for (tool in allTools) {
-            val description = tool.description
             val schemaProps = tool.parameterSchema.properties ?: continue
 
             for (paramName in schemaProps.keys) {
-                if (!description.contains(paramName)) {
-                    failures.add("${tool.name}: schema param '$paramName' not mentioned in description")
+                val paramSchema = schemaProps[paramName] as? JsonObject
+                val desc = paramSchema?.get("description")?.jsonPrimitive?.contentOrNull
+                if (desc.isNullOrBlank()) {
+                    failures.add("${tool.name}: schema param '$paramName' has no field-level description")
                 }
             }
         }
 
         if (failures.isNotEmpty()) {
             fail(
-                "Tool description/schema mismatches found. " +
-                    "Add each param to the tool's description string:\n" +
+                "Schema params missing a field-level description (single-source-of-truth violation). " +
+                    "Add a 'description' to each in its parameterSchema entry:\n" +
                     failures.joinToString("\n") { "  - $it" }
             )
         }
     }
 
     @Test
-    fun `all required schema parameters are marked required in tool description`() {
+    fun `operation and mode enum values are named in the tool description`() {
         val failures = mutableListOf<String>()
 
         for (tool in allTools) {
-            val description = tool.description
-            val required = tool.parameterSchema.required ?: continue
+            val schemaProps = tool.parameterSchema.properties ?: continue
 
-            for (paramName in required) {
-                // Required params must appear AND should not be described as optional-only.
-                // We check presence here; callers can verify the "required" framing manually.
-                if (!description.contains(paramName)) {
-                    failures.add("${tool.name}: required param '$paramName' not mentioned in description")
+            for (paramName in listOf("operation", "mode")) {
+                val paramSchema = schemaProps[paramName] as? JsonObject ?: continue
+                val enumValues =
+                    paramSchema["enum"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull }
+                        ?: continue
+
+                for (value in enumValues) {
+                    if (!tool.description.contains(value)) {
+                        failures.add("${tool.name}: $paramName value '$value' not mentioned in description")
+                    }
                 }
             }
         }
 
         if (failures.isNotEmpty()) {
             fail(
-                "Required schema params absent from description strings:\n" +
+                "Operation/mode enum values missing from the tool's prose description — callers " +
+                    "should be able to discover available operations without reading the full schema:\n" +
                     failures.joinToString("\n") { "  - $it" }
             )
         }
