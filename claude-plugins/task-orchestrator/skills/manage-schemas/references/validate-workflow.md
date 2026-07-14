@@ -15,6 +15,7 @@ Parse the file. If YAML is invalid, report the parse error with line number (if 
 - At least one of `work_item_schemas` or `note_schemas` must exist at the top level
 - Each must be a mapping (not a list or scalar)
 - `traits` is an optional top-level key — if present, must be a mapping
+- `project` is an optional top-level key — recognized, not schema-related; if present, must be a mapping containing `rootId` (string, required) and optionally `name` (string). Do not flag as unknown and do not modify it. See `references/config-format.md` → Project Scoping
 - `actor_authentication` is an optional top-level key — if present, must be a mapping containing `enabled` (boolean)
 - `actor_authentication.verifier` (if present) must be a mapping
 - `verifier.type` must be one of: `noop`, `jwks` (warn on unknown type)
@@ -81,6 +82,7 @@ For each note in each schema (and trait):
   note_schemas: 1 schema (legacy)
   traits: 2 traits
   actor_authentication: enabled, verifier: jwks
+  project: "Task Orchestrator" (rootId set)
 
   Errors (must fix):
     ✗ bug-fix.fix-summary: missing "required" field

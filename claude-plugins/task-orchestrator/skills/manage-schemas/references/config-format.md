@@ -316,6 +316,56 @@ When `did_allowlist` or `did_pattern` is set, the verifier resolves the JWT's `i
 
 ---
 
+## Project Scoping
+
+The `project:` section is a top-level key alongside `work_item_schemas`, `traits`, and `actor_authentication`. It anchors this repository's work to a single depth-0 MCP item.
+
+```yaml
+project:
+  rootId: "<uuid>"
+  name: "<project name>"
+
+work_item_schemas:
+  # ...
+```
+
+Default: absent — a workspace with no `project:` block is unscoped.
+
+### Fields
+
+| Field | Required | Type | Notes |
+|-------|----------|------|-------|
+| `rootId` | yes | string (UUID) | UUID of the depth-0 item tagged `type: "project"` that anchors this repo's work |
+| `name` | no | string | Human-readable project name shown in dashboards and skill output |
+
+### Behavior
+
+- **Client-side only.** The MCP server never reads this block from `config.yaml` — not in stdio mode, not in HTTP mode. It exists purely for Claude Code: the SessionStart hook and plugin skills read it to scope their output to `rootId`.
+- **Created by** the `quick-start` bootstrap flow or `/adopt-project-scope` when the user opts into anchoring session context to a single project root item.
+- **Opt-in convention.** Scoping is not enforced — its absence just means skills operate without a default root anchor, falling back to unscoped behavior.
+- The same scoping can also be pushed server-side via `manage_project_config` so it's visible beyond this local config file; see the project-scoping integration docs for the full push mechanism.
+
+**Example:**
+
+```yaml
+project:
+  rootId: "3f9a1c2e-8b4d-4a11-9c3f-2d6e7a8b9c0d"
+  name: "Task Orchestrator"
+
+work_item_schemas:
+  feature-task:
+    lifecycle: auto
+    notes:
+      - key: implementation-notes
+        role: work
+        required: true
+        description: "What was built and why"
+```
+
+> **manage-schemas write operations must preserve this block untouched** — see the create/edit/delete workflow docs in this skill folder.
+
+---
+
 ## Note Body Length Limits
 
 Top-level `note_limits.mode` (`warn`, default, or `reject`) governs what happens when a note body exceeds its schema `maxLength`, checked at `manage_notes` upsert time against the resolved body (inline `body` or file-read via `bodyFromFile`): `warn` accepts the note with a `warning` field on its result; `reject` fails that note with `code: NOTE_BODY_TOO_LONG`.
