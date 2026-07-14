@@ -91,7 +91,7 @@ class ToolTokenBudgetTest {
      */
     private val perToolCeilings: Map<String, Int> =
         mapOf(
-            "query_items" to 6150, // was 4815; grew from the `schema` operation + `excludeTerminal` param merge
+            "query_items" to 7350, // was 6150; T2.5 added the overview `ancestorId` anchored mode
             "create_work_tree" to 3080,
             "get_next_item" to 3150, // was 2500; T2.3 added the `ancestorId` scope parameter
             "manage_dependencies" to 2585,
@@ -108,7 +108,7 @@ class ToolTokenBudgetTest {
         )
 
     /** Sum of the (unrounded) measured-per-tool-values * 1.15; see BUDGET PHILOSOPHY point 2. */
-    private val totalCeiling = 36_450
+    private val totalCeiling = 37_650
 
     // explicitNulls = false mirrors the compact-wire-shape convention already used elsewhere
     // in this codebase (see EventRoutes.kt / ItemWriteRoutes.kt / NoteWriteRoutes.kt) — a

@@ -497,6 +497,15 @@ interface WorkItemRepository {
         type: String? = null,
         claimStatus: String? = null,
     ): Result<Int>
+
+    /**
+     * Count work items within the subtree rooted at any of [rootIds] (roots included), grouped by
+     * role. Mirrors [countChildrenByRole]'s per-role breakdown, but scoped to the full subtree
+     * (any depth) instead of direct children only. Roles with zero matches are omitted.
+     *
+     * When [rootIds] is empty, returns an empty map immediately.
+     */
+    suspend fun countInScopeByRole(rootIds: Set<UUID>): Result<Map<Role, Int>>
 }
 
 /**

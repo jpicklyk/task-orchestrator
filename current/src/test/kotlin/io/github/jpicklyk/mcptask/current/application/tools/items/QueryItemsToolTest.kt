@@ -1678,6 +1678,168 @@ class QueryItemsToolTest {
         }
 
     // ──────────────────────────────────────────────
+    // Anchored overview (ancestorId) — T2.5
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `anchored overview renders ancestor's direct children as roots with full-subtree childCounts`(): Unit =
+        runBlocking {
+            // 3-level tree: anchor -> child -> 2 grandchildren (1 queue, 1 work).
+            // The child itself has no direct children of its own — the grandchildren are two
+            // levels below the anchor, so a scoped overview on `child` would show childCounts
+            // {queue: 1, work: 1} too, but here we assert the anchor's children array itself
+            // (i.e. `child`) carries a full-subtree roll-up, which is the point of this mode.
+            val anchorId = createItem("Project Anchor")
+            val childId = createItem("Feature Child", parentId = anchorId, role = "queue")
+            createItem("Grandchild Queue", parentId = childId, role = "queue")
+            val grandchildWorkId = createItem("Grandchild Work", parentId = childId, role = "queue")
+
+            advanceTool.execute(
+                buildJsonObject {
+                    put(
+                        "transitions",
+                        JsonArray(
+                            listOf(
+                                buildJsonObject {
+                                    put("itemId", JsonPrimitive(grandchildWorkId))
+                                    put("trigger", JsonPrimitive("start"))
+                                }
+                            )
+                        )
+                    )
+                },
+                context
+            )
+
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("overview"),
+                        "ancestorId" to JsonPrimitive(anchorId)
+                    ),
+                    context
+                ) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val data = result["data"] as JsonObject
+
+            val anchor = data["anchor"]!!.jsonObject
+            assertEquals(anchorId, anchor["id"]!!.jsonPrimitive.content)
+            assertEquals("Project Anchor", anchor["title"]!!.jsonPrimitive.content)
+
+            val items = data["items"]!!.jsonArray
+            assertEquals(1, items.size, "Anchor's direct child (Feature Child) is the sole root")
+            val childItem = items[0].jsonObject
+            assertEquals(childId, childItem["id"]!!.jsonPrimitive.content)
+
+            // Key difference from scoped overview: childCounts here is a FULL-SUBTREE roll-up
+            // (any depth), not direct-children-only — and must not include the child's own role.
+            val childCounts = childItem["childCounts"]!!.jsonObject
+            assertEquals(1, childCounts["queue"]!!.jsonPrimitive.int, "1 grandchild in queue (child's own queue role excluded)")
+            assertEquals(1, childCounts["work"]!!.jsonPrimitive.int, "1 grandchild in work")
+
+            assertEquals(1, data["total"]!!.jsonPrimitive.int)
+            assertFalse(data["truncated"]!!.jsonPrimitive.boolean)
+            assertEquals(0, data["offset"]!!.jsonPrimitive.int)
+        }
+
+    @Test
+    fun `anchored overview excludeTerminal true hides terminal children from items and total`(): Unit =
+        runBlocking {
+            val anchorId = createItem("Anchor With Terminal Child")
+            val activeChildId = createItem("Active Child", parentId = anchorId, role = "queue")
+            val terminalChildId = createItem("Terminal Child", parentId = anchorId, role = "queue")
+
+            advanceTool.execute(
+                buildJsonObject {
+                    put(
+                        "transitions",
+                        JsonArray(
+                            listOf(
+                                buildJsonObject {
+                                    put("itemId", JsonPrimitive(terminalChildId))
+                                    put("trigger", JsonPrimitive("complete"))
+                                }
+                            )
+                        )
+                    )
+                },
+                context
+            )
+
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("overview"),
+                        "ancestorId" to JsonPrimitive(anchorId),
+                        "excludeTerminal" to JsonPrimitive(true)
+                    ),
+                    context
+                ) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val data = result["data"] as JsonObject
+            val items = data["items"]!!.jsonArray
+            assertEquals(1, items.size)
+            assertEquals(activeChildId, items[0].jsonObject["id"]!!.jsonPrimitive.content)
+            // total/truncated reflect the filtered set — same layer the global path applies
+            // excludeTerminal (unlike scoped overview, where childCounts stays unfiltered but
+            // here the roots set itself is what's filtered).
+            assertEquals(1, data["total"]!!.jsonPrimitive.int)
+        }
+
+    @Test
+    fun `anchored overview resolves ancestorId via hex prefix`(): Unit =
+        runBlocking {
+            val anchorId = createItem("Prefix Anchor")
+            createItem("Only Child", parentId = anchorId, role = "queue")
+
+            val prefix = anchorId.replace("-", "").take(8)
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("overview"),
+                        "ancestorId" to JsonPrimitive(prefix)
+                    ),
+                    context
+                ) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val data = result["data"] as JsonObject
+            assertEquals(anchorId, data["anchor"]!!.jsonObject["id"]!!.jsonPrimitive.content)
+            assertEquals(1, data["items"]!!.jsonArray.size)
+        }
+
+    @Test
+    fun `overview rejects itemId and ancestorId supplied together`() {
+        assertFailsWith<ToolValidationException> {
+            tool.validateParams(
+                params(
+                    "operation" to JsonPrimitive("overview"),
+                    "itemId" to JsonPrimitive(UUID.randomUUID().toString()),
+                    "ancestorId" to JsonPrimitive(UUID.randomUUID().toString())
+                )
+            )
+        }
+    }
+
+    @Test
+    fun `global overview response omits the anchor envelope`(): Unit =
+        runBlocking {
+            createItem("Some Root")
+
+            val result =
+                tool.execute(
+                    params("operation" to JsonPrimitive("overview")),
+                    context
+                ) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val data = result["data"] as JsonObject
+            assertFalse(data.containsKey("anchor"), "Global overview must remain byte-identical — no anchor envelope")
+        }
+
+    // ──────────────────────────────────────────────
     // Schema operation (get_schema)
     // ──────────────────────────────────────────────
 

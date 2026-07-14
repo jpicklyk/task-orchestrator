@@ -1626,6 +1626,30 @@ class SQLiteWorkItemRepository(
         }
     }
 
+    override suspend fun countInScopeByRole(rootIds: Set<UUID>): Result<Map<Role, Int>> {
+        if (rootIds.isEmpty()) return Result.Success(emptyMap())
+
+        return try {
+            suspendTransaction(db = databaseManager.getDatabase()) {
+                val scopeIds = resolveScopeIds(rootIds)
+                if (scopeIds.isEmpty()) return@suspendTransaction Result.Success(emptyMap())
+
+                val scopeEntityIds = scopeIds.map { EntityID(it, WorkItemsTable) }
+                val counts =
+                    WorkItemsTable
+                        .selectAll()
+                        .where { WorkItemsTable.id inList scopeEntityIds }
+                        .mapNotNull { toWorkItemOrNull(it) }
+                        .groupBy { it.role }
+                        .mapValues { (_, items) -> items.size }
+                Result.Success(counts)
+            }
+        } catch (e: Exception) {
+            logger.error("Failed to countInScopeByRole for roots ${rootIds.size}: ${e.message}", e)
+            Result.Error(RepositoryError.DatabaseError("Failed to countInScopeByRole: ${e.message}", e))
+        }
+    }
+
     /**
      * Resolve a set of root UUIDs into the full set of UUIDs (roots + all descendants).
      *

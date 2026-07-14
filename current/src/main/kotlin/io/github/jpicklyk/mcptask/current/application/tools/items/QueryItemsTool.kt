@@ -57,8 +57,11 @@ description for the available filters. `claimedBy` identity is NEVER included in
 (list mode's `claimStatus` filter only adds a boolean `isClaimed`) — use `get_context(itemId)` for
 full claim details.
 
-**overview** without `itemId` returns a global summary of all root items; with `itemId` it returns
-that item's metadata, child counts by role, and direct children.
+**overview** without `itemId`/`ancestorId` returns a global summary of all root items; with `itemId`
+it returns that item's metadata, child counts by role, and direct children (scoped overview). With
+`ancestorId` instead, that item's direct children become the roots set (each enriched with
+full-subtree role-count roll-ups) — the anchored/project-dashboard entry point. `itemId` and
+`ancestorId` are mutually exclusive for this operation; supplying both is a validation error.
 
 **schema** requires exactly one of `type` or `itemId`. Returns the full note schema (description +
 guidance + skill + maxLength per entry) — the reference target for keys-only `expectedNotes` /
@@ -119,10 +122,15 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "List mode only (search without `query`): UUID or hex prefix (4+ chars) of an " +
-                                        "item whose subtree (any depth, inclusive) results are limited to. Mirrors " +
-                                        "scope.ancestorId's semantics but for list-mode filtering; omitted = " +
-                                        "unscoped, byte-identical to current behavior. Not used in FTS mode — use " +
+                                    "UUID or hex prefix (4+ chars) of an item whose subtree scopes the operation. " +
+                                        "In list mode (search without `query`): results are limited to this item's " +
+                                        "subtree (any depth, inclusive) — mirrors scope.ancestorId's semantics as a " +
+                                        "top-level list-mode param; omitted = unscoped, byte-identical to current " +
+                                        "behavior. In the overview operation: this item's direct children become " +
+                                        "the roots set (instead of true depth-0 items), each enriched with " +
+                                        "full-subtree role-count roll-ups — overview's counterpart of list-mode " +
+                                        "ancestorId, for anchoring a dashboard on a project/feature container; " +
+                                        "mutually exclusive with itemId there. Not used in FTS mode — use " +
                                         "scope.ancestorId there instead."
                                 )
                             )
@@ -434,7 +442,17 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
                     throw ToolValidationException("offset must be non-negative")
                 }
             }
-            "overview" -> { /* all parameters are optional */ }
+            "overview" -> {
+                validateIdOrPrefix(params, "ancestorId", required = false)
+                val itemIdStr = optionalString(params, "itemId")
+                val ancestorIdStr = optionalString(params, "ancestorId")
+                if (itemIdStr != null && ancestorIdStr != null) {
+                    throw ToolValidationException(
+                        "operation=overview accepts at most one of: itemId, ancestorId — they select " +
+                            "mutually exclusive overview modes (scoped vs. anchored)"
+                    )
+                }
+            }
             "schema" -> {
                 val type = optionalString(params, "type")
                 val itemIdStr = optionalString(params, "itemId")
@@ -528,18 +546,23 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
                             if (it is JsonPrimitive && it.isString) it.content else null
                         }
                     }
-                if (title != null) {
-                    val children =
-                        data?.get("children")?.let {
-                            (it as? JsonArray)?.size
-                        } ?: 0
-                    "Overview: $title -- $children children"
-                } else {
-                    val total =
-                        data?.get("total")?.let {
-                            if (it is JsonPrimitive) it.intOrNull else null
-                        } ?: 0
-                    "Overview: root items -- $total items"
+                val anchorTitle =
+                    data?.get("anchor")?.let { anchorObj ->
+                        (anchorObj as? JsonObject)?.get("title")?.let {
+                            if (it is JsonPrimitive && it.isString) it.content else null
+                        }
+                    }
+                val total =
+                    data?.get("total")?.let {
+                        if (it is JsonPrimitive) it.intOrNull else null
+                    } ?: 0
+                when {
+                    title != null -> {
+                        val children = data?.get("children")?.let { (it as? JsonArray)?.size } ?: 0
+                        "Overview: $title -- $children children"
+                    }
+                    anchorTitle != null -> "Overview: $anchorTitle -- $total root(s)"
+                    else -> "Overview: root items -- $total items"
                 }
             }
             "schema" -> {
@@ -1077,11 +1100,15 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
     ): JsonElement {
         val (itemId, itemIdError) = resolveItemId(params, "itemId", context, required = false)
         if (itemIdError != null) return itemIdError
+        val (ancestorId, ancestorIdError) = resolveItemId(params, "ancestorId", context, required = false)
+        if (ancestorIdError != null) return ancestorIdError
 
-        return if (itemId != null) {
-            executeScopedOverview(itemId, params, context)
-        } else {
-            executeGlobalOverview(params, context)
+        // validateParams rejects itemId+ancestorId together for real callers (McpToolAdapter);
+        // itemId takes priority here as a defensive fallback for direct execute() calls.
+        return when {
+            itemId != null -> executeScopedOverview(itemId, params, context)
+            ancestorId != null -> executeAnchoredOverview(ancestorId, params, context)
+            else -> executeGlobalOverview(params, context)
         }
     }
 
@@ -1130,6 +1157,103 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
                 put("item", item.toFullJson())
                 put("childCounts", roleCountToJson(childCounts))
                 put("children", JsonArray(visibleChildren.map { enrichChildJson(it, context) }))
+            }
+
+        return successResponse(data)
+    }
+
+    /**
+     * Anchored overview: [ancestorId]'s DIRECT CHILDREN act as the roots set (instead of true
+     * depth-0 items) — the project-dashboard entry point when [ancestorId] is a project/feature
+     * anchor. Distinct from [executeScopedOverview] (`itemId`), which returns the item itself plus
+     * its children with DIRECT childCounts: here each child is enriched with a FULL-SUBTREE
+     * role-count roll-up via [WorkItemRepository.countInScopeByRole], one call per child.
+     *
+     * `countInScopeByRole` is roots-inclusive (mirrors the `InScope` family's contract), so the
+     * child's own role is subtracted from its roll-up here — `childCounts` stays "descendants
+     * only", consistent with every other `childCounts` field this tool emits (never self-inclusive).
+     *
+     * `excludeTerminal` is applied at the same layer the global path applies it: filtered children
+     * are excluded from both `items` and the `total`/`truncated` basis (unlike scoped overview,
+     * where `excludeTerminal` only trims the `children` array and `childCounts` stays unfiltered).
+     */
+    private suspend fun executeAnchoredOverview(
+        ancestorId: java.util.UUID,
+        params: JsonElement,
+        context: ToolExecutionContext
+    ): JsonElement {
+        val limit = optionalInt(params, "limit") ?: 50
+        val offset = (optionalInt(params, "offset") ?: 0).coerceAtLeast(0)
+        val excludeTerminal = optionalBoolean(params, "excludeTerminal", false)
+
+        val anchorItem =
+            when (val result = context.workItemRepository().getById(ancestorId)) {
+                is Result.Success -> result.data
+                is Result.Error -> return errorResponse(
+                    result.error.message,
+                    ErrorCodes.RESOURCE_NOT_FOUND
+                )
+            }
+
+        // Direct children of the anchor act as the roots set for this view.
+        val allChildren =
+            when (val result = context.workItemRepository().findChildren(ancestorId)) {
+                is Result.Success -> result.data
+                is Result.Error -> return errorResponse(
+                    result.error.message,
+                    ErrorCodes.DATABASE_ERROR
+                )
+            }
+        // findChildren has no SQL-level excludeTerminal or ordering — filter and sort in memory.
+        // excludeTerminal narrows the roots set itself (same layer as the global path), so
+        // total/truncated below reflect the filtered count, not the raw direct-children count.
+        val visibleChildren =
+            (if (excludeTerminal) allChildren.filterNot { it.role == Role.TERMINAL } else allChildren)
+                .sortedByDescending { it.createdAt }
+        val totalChildren = visibleChildren.size
+        val pagedChildren = visibleChildren.drop(offset).take(limit)
+
+        val itemsWithCounts =
+            pagedChildren.map { child ->
+                val subtreeCounts =
+                    when (
+                        val result =
+                            context.workItemRepository().countInScopeByRole(rootIds = setOf(child.id))
+                    ) {
+                        is Result.Success -> result.data
+                        is Result.Error -> emptyMap()
+                    }
+                // Subtract the child's own role — countInScopeByRole is roots-inclusive, but
+                // childCounts here should represent descendants only (see KDoc above).
+                val descendantCounts =
+                    subtreeCounts.toMutableMap().apply {
+                        val withoutSelf = (this[child.role] ?: 0) - 1
+                        if (withoutSelf > 0) this[child.role] = withoutSelf else remove(child.role)
+                    }
+
+                buildJsonObject {
+                    child.toMinimalJson().forEach { (k, v) -> put(k, v) }
+                    val childTraits = PropertiesHelper.extractTraits(child.properties)
+                    if (childTraits.isNotEmpty()) {
+                        put("traits", JsonArray(childTraits.map { JsonPrimitive(it) }))
+                    }
+                    put("childCounts", roleCountToJson(descendantCounts))
+                }
+            }
+
+        val data =
+            buildJsonObject {
+                put(
+                    "anchor",
+                    buildJsonObject {
+                        put("id", JsonPrimitive(anchorItem.id.toString()))
+                        put("title", JsonPrimitive(anchorItem.title))
+                    }
+                )
+                put("items", JsonArray(itemsWithCounts))
+                put("total", JsonPrimitive(totalChildren))
+                put("truncated", JsonPrimitive(offset + pagedChildren.size < totalChildren))
+                put("offset", JsonPrimitive(offset))
             }
 
         return successResponse(data)

@@ -229,11 +229,12 @@ snippets, filtered list search, or hierarchical overview.
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `operation` | string | Yes | `"overview"` |
-| `itemId` | string (UUID) | No | Scope overview to a specific item; omit for global root overview |
+| `itemId` | string (UUID) | No | Scope overview to a specific item (scoped mode); omit for global root overview. Mutually exclusive with `ancestorId`. |
+| `ancestorId` | string (UUID or 4+ char prefix) | No | Anchored mode: renders this item's DIRECT CHILDREN as the roots set, each with a full-subtree role-count roll-up. Mutually exclusive with `itemId` — supplying both is a validation error. |
 | `includeChildren` | boolean | No | Include direct children on each root item (global mode only, default: false) |
-| `limit` | integer | No | Max root items (default: 50; global mode only) |
-| `offset` | integer | No | Skip N root items for pagination (default: 0; global mode only — scoped overview always returns all direct children, unpaginated) |
-| `excludeTerminal` | boolean | No | Default false. Global mode: drop terminal-role roots from `items` before their children/counts are even fetched, and `total`/`truncated` reflect the filtered set. Scoped mode: drop terminal-role items from `children` only — the parent is always returned regardless of its own role, and `childCounts` stays unfiltered. |
+| `limit` | integer | No | Max root items (default: 50; global and anchored modes only) |
+| `offset` | integer | No | Skip N root items for pagination (default: 0; global and anchored modes only — scoped overview always returns all direct children, unpaginated) |
+| `excludeTerminal` | boolean | No | Default false. Global and anchored modes: drop terminal-role roots from `items` before their children/counts are even fetched, and `total`/`truncated` reflect the filtered set. Scoped mode: drop terminal-role items from `children` only — the parent is always returned regardless of its own role, and `childCounts` stays unfiltered. |
 
 #### Key Parameters — schema
 
@@ -395,6 +396,35 @@ Nullable fields (`parentId`, `statusLabel`, `tags`, `type`) are omitted when nul
 `total` is the **true count of matching root items** (via a dedicated `COUNT` query) — the unconditional root count when `excludeTerminal` is false/omitted, or the count of non-terminal roots when `excludeTerminal` is true. Either way it is independent of `limit`/`offset` and of any validation drops, and is **not** the size of the `items` array. `offset` echoes the request's `offset` (0 if omitted). `truncated` is `true` when `offset + items.length < total` for **any** reason — more pages remain, or validation drops shrank this page — which is broader than FTS search's `truncated` (that flag fires only at the FTS hit cap); use `skipped` to disambiguate the cause. `skipped` is present only when > 0: it counts root rows within this page's window that failed domain validation and were dropped rather than returned; a WARN log identifies the row so it can be repaired.
 
 `claimSummary` counts are scoped to the direct children of each root item. `active` = live non-expired claims; `expired` = claims past TTL; `unclaimed` = items with no claim record. `claimedBy` identity is never included at this level.
+
+**Response (overview — anchored mode, with `ancestorId`).**
+
+```json
+{
+  "anchor": { "id": "uuid", "title": "Q3 Platform Project" },
+  "items": [
+    {
+      "id": "uuid", "parentId": "uuid", "title": "Auth Feature", "role": "work",
+      "priority": "high", "depth": 1, "tags": "backend", "type": "feature-implementation",
+      "traits": ["needs-migration-review"],
+      "childCounts": { "queue": 2, "work": 1, "review": 0, "blocked": 0, "terminal": 1 }
+    }
+  ],
+  "total": 6,
+  "truncated": false,
+  "offset": 0
+}
+```
+
+Anchored overview renders `ancestorId`'s **direct children** as the roots set (instead of true
+depth-0 items) — the project-dashboard entry point when `ancestorId` is a project/feature anchor.
+The `anchor` envelope names the item whose children are being rendered. Each item uses the same
+minimal fields as global overview, but its `childCounts` is a **full-subtree** role roll-up
+(descendants at any depth), not the direct-children-only breakdown that global/scoped overview use
+— this is the key semantic difference from scoped overview (`itemId`), which returns direct
+childCounts. `claimSummary` and `includeChildren` are not supported in anchored mode (kept to one
+repository call per child). `total`/`truncated`/`offset`/`excludeTerminal` follow the same
+conventions as global mode, applied to the anchor's direct-children set rather than true roots.
 
 ---
 
