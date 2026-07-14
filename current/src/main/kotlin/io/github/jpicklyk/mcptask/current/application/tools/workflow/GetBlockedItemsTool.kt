@@ -62,6 +62,20 @@ Items in TERMINAL role are never included.
                         }
                     )
                     put(
+                        "ancestorId",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("string"))
+                            put(
+                                "description",
+                                JsonPrimitive(
+                                    "UUID or hex prefix (4+ chars) of an item whose subtree (any depth, inclusive) " +
+                                        "candidate items are limited to. Composes with `parentId` (both applied). " +
+                                        "Omitted = unscoped, byte-identical to current behavior."
+                                )
+                            )
+                        }
+                    )
+                    put(
                         "includeDetails",
                         buildJsonObject {
                             put("type", JsonPrimitive("boolean"))
@@ -90,6 +104,8 @@ Items in TERMINAL role are never included.
     ): JsonElement {
         val (parentId, parentIdError) = resolveItemId(params, "parentId", context, required = false)
         if (parentIdError != null) return parentIdError
+        val (ancestorId, ancestorIdError) = resolveItemId(params, "ancestorId", context, required = false)
+        if (ancestorIdError != null) return ancestorIdError
         val includeDetails = optionalBoolean(params, "includeDetails", false)
         val includeAncestors = optionalBoolean(params, "includeAncestors", false)
 
@@ -102,7 +118,20 @@ Items in TERMINAL role are never included.
 
         for (role in candidateRoles) {
             val items =
-                if (parentId != null) {
+                if (ancestorId != null) {
+                    // Scoped path: findInScope composes ancestorId's subtree restriction with the
+                    // existing optional parentId filter in a single call.
+                    when (
+                        val result =
+                            workItemRepo.findInScope(rootIds = setOf(ancestorId), parentId = parentId, role = role, limit = 500)
+                    ) {
+                        is Result.Success -> result.data
+                        is Result.Error -> {
+                            logger.warn("Failed to query items for role $role: ${result.error.message}")
+                            emptyList()
+                        }
+                    }
+                } else if (parentId != null) {
                     when (val result = workItemRepo.findByFilters(parentId = parentId, role = role, limit = 500)) {
                         is Result.Success -> result.data.items
                         is Result.Error -> {

@@ -205,6 +205,7 @@ snippets, filtered list search, or hierarchical overview.
 |---|---|---|---|
 | `operation` | string | Yes | `"search"` |
 | `parentId` | string (UUID) | No | Filter by parent |
+| `ancestorId` | string (UUID or 4+ char prefix) | No | List mode only: limit to items in this item's subtree (any depth, inclusive). Mirrors `scope.ancestorId`'s semantics but for list-mode filtering; omitted = unscoped, byte-identical to prior behavior. Not used in FTS mode — use `scope.ancestorId` there. |
 | `depth` | integer | No | Filter by depth level |
 | `role` | string | No | Filter by role: `queue`, `work`, `review`, `blocked`, `terminal` |
 | `priority` | string | No | Filter: `high`, `medium`, `low` |
@@ -1196,6 +1197,7 @@ When `mode` is omitted, the mode is inferred from which parameters are present (
 | `mode` | string | No | Explicit mode: `"item"`, `"session-resume"`, or `"health-check"`. When provided, takes precedence over implicit detection. |
 | `itemId` | string (UUID) | No | Item UUID for item mode. Required when `mode="item"`. |
 | `since` | string (ISO 8601) | No | Timestamp for session-resume mode. Required when `mode="session-resume"`. |
+| `ancestorId` | string (UUID or 4+ char prefix) | No | Limit health-check and session-resume results (active/blocked/stalled items, claim summary) to this item's subtree (any depth, inclusive). Ignored in item mode. Omitted = unscoped. Does NOT scope `recentTransitions` in session-resume mode — see note below. |
 | `includeAncestors` | boolean | No | Include `ancestors` array on each listed item (default: false) |
 | `limit` | integer (1–200) | No | Max role transitions in session-resume mode (default: 10) |
 
@@ -1273,6 +1275,8 @@ Each entry in the `schema` array is keys-only: `key`, `role`, `required`, `exist
 
 `limit` caps `recentTransitions` (default 10, max 200). Each transition entry is `{ itemId, title, fromRole, toRole, at, actorId? }` — `actorId` is omitted when the transition had no actor claim. There is no claim summary in this mode — use item mode or health-check mode for claim visibility. `stalledItems` entries may include `guidanceKey`/`skillPointer` for the first missing note, same semantics as item mode.
 
+**Known limitation:** when `ancestorId` is set, `activeItems` and `stalledItems` are scoped to the subtree, but `recentTransitions` is NOT — it always reflects transitions across the whole tree. Scoping transitions would require resolving the subtree set and filtering the transition-item lookup by it, which was flagged as invasive for the initial implementation.
+
 **Response (health-check mode).**
 
 ```json
@@ -1311,6 +1315,7 @@ and is intentionally inclusive.
 |---|---|---|---|
 | `role` | string | No | Role to query: `queue`, `work`, `review`, or `blocked` (default: `queue`) |
 | `parentId` | string (UUID) | No | Scope recommendations to items under this parent |
+| `ancestorId` | string (UUID or 4+ char prefix) | No | Limit recommendations to this item's subtree (any depth, inclusive). Composes with `parentId` (both applied). Omitted = unscoped, byte-identical to prior behavior. |
 | `limit` | integer (1–20) | No | Number of recommendations (default: 1) |
 | `includeDetails` | boolean | No | Include `summary`, `tags`, and `parentId` in each recommendation (default: false) |
 | `includeAncestors` | boolean | No | Include `ancestors` array on each recommendation (default: false) |
@@ -1640,6 +1645,7 @@ dependency edges). Terminal items are never included.
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `parentId` | string (UUID) | No | Scope results to items under this parent |
+| `ancestorId` | string (UUID or 4+ char prefix) | No | Limit candidate items to this item's subtree (any depth, inclusive). Composes with `parentId` (both applied). Omitted = unscoped, byte-identical to prior behavior. |
 | `includeDetails` | boolean | No | Include `summary` and `tags` for each blocked item (default: false) |
 | `includeAncestors` | boolean | No | Include `ancestors` array on each blocked item (default: false) |
 

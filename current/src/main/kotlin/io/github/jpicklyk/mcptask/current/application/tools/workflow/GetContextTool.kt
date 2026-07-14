@@ -100,6 +100,22 @@ session-resume, neither → health-check); explicit `mode` takes precedence.
                         }
                     )
                     put(
+                        "ancestorId",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("string"))
+                            put(
+                                "description",
+                                JsonPrimitive(
+                                    "UUID or hex prefix (4+ chars) of an item whose subtree (any depth, inclusive) " +
+                                        "scopes health-check and session-resume results (active/blocked/stalled items " +
+                                        "and the claim summary). Ignored in item mode. Omitted = unscoped. In " +
+                                        "session-resume mode, `recentTransitions` is NOT scoped by this parameter " +
+                                        "even when set — it always reflects transitions across the whole tree."
+                                )
+                            )
+                        }
+                    )
+                    put(
                         "includeAncestors",
                         buildJsonObject {
                             put("type", JsonPrimitive("boolean"))
@@ -130,6 +146,7 @@ session-resume, neither → health-check); explicit `mode` takes precedence.
         }
         // Validate itemId if present — accepts full UUID or short hex prefix
         validateIdOrPrefix(params, "itemId", required = false)
+        validateIdOrPrefix(params, "ancestorId", required = false)
         // Validate since if present
         parseInstant(params, "since")
     }
@@ -140,6 +157,8 @@ session-resume, neither → health-check); explicit `mode` takes precedence.
     ): JsonElement {
         val (itemId, idError) = resolveItemId(params, "itemId", context, required = false)
         if (idError != null) return idError
+        val (ancestorId, ancestorIdError) = resolveItemId(params, "ancestorId", context, required = false)
+        if (ancestorIdError != null) return ancestorIdError
         val sinceInstant = parseInstant(params, "since")
         val includeAncestors = optionalBoolean(params, "includeAncestors", false)
         val transitionLimit =
@@ -157,9 +176,9 @@ session-resume, neither → health-check); explicit `mode` takes precedence.
             }
             explicitMode == "session-resume" || (explicitMode == null && sinceInstant != null) -> {
                 if (sinceInstant == null) return errorResponse("mode=session-resume requires since parameter", ErrorCodes.VALIDATION_ERROR)
-                executeSessionResumeMode(sinceInstant, context, includeAncestors, transitionLimit)
+                executeSessionResumeMode(sinceInstant, context, includeAncestors, transitionLimit, ancestorId)
             }
-            else -> executeHealthCheckMode(context, includeAncestors)
+            else -> executeHealthCheckMode(context, includeAncestors, ancestorId)
         }
     }
 
@@ -277,15 +296,17 @@ session-resume, neither → health-check); explicit `mode` takes precedence.
         since: java.time.Instant,
         context: ToolExecutionContext,
         includeAncestors: Boolean,
-        transitionLimit: Int = 10
+        transitionLimit: Int = 10,
+        ancestorId: java.util.UUID? = null
     ): JsonElement {
         val workItemRepo = context.workItemRepository()
+        val scopeIds = ancestorId?.let { setOf(it) }
 
         // Fetch work and review items in parallel, merge results
         val (workItems, reviewItems) =
             coroutineScope {
-                val workDeferred = async { workItemRepo.findByRole(Role.WORK, limit = 200) }
-                val reviewDeferred = async { workItemRepo.findByRole(Role.REVIEW, limit = 200) }
+                val workDeferred = async { workItemRepo.findByRole(Role.WORK, limit = 200, rootIds = scopeIds) }
+                val reviewDeferred = async { workItemRepo.findByRole(Role.REVIEW, limit = 200, rootIds = scopeIds) }
 
                 Pair(
                     workDeferred.await().getOrElse(emptyList()),
@@ -294,7 +315,10 @@ session-resume, neither → health-check); explicit `mode` takes precedence.
             }
         val activeItems = workItems + reviewItems
 
-        // Recent transitions since the given timestamp
+        // Recent transitions since the given timestamp — NOT scoped by ancestorId (see field
+        // description on the `ancestorId` parameterSchema): scoping transitions would require
+        // plumbing the resolved scope set through the transition-item lookup, which the task
+        // scope note flagged as invasive; documented as a known limitation instead.
         val recentTransitions =
             context
                 .roleTransitionRepository()
@@ -397,9 +421,11 @@ session-resume, neither → health-check); explicit `mode` takes precedence.
 
     private suspend fun executeHealthCheckMode(
         context: ToolExecutionContext,
-        includeAncestors: Boolean
+        includeAncestors: Boolean,
+        ancestorId: java.util.UUID? = null
     ): JsonElement {
         val workItemRepo = context.workItemRepository()
+        val scopeIds = ancestorId?.let { setOf(it) }
 
         // Fetch work, review, and blocked items in parallel; also compute claim summary
         val workItems: List<io.github.jpicklyk.mcptask.current.domain.model.WorkItem>
@@ -407,10 +433,10 @@ session-resume, neither → health-check); explicit `mode` takes precedence.
         val blockedItems: List<io.github.jpicklyk.mcptask.current.domain.model.WorkItem>
         val claimCounts: io.github.jpicklyk.mcptask.current.domain.repository.ClaimStatusCounts?
         coroutineScope {
-            val workDeferred = async { workItemRepo.findByRole(Role.WORK, limit = 200) }
-            val reviewDeferred = async { workItemRepo.findByRole(Role.REVIEW, limit = 200) }
-            val blockedDeferred = async { workItemRepo.findByRole(Role.BLOCKED, limit = 200) }
-            val claimDeferred = async { workItemRepo.countByClaimStatus(parentId = null) }
+            val workDeferred = async { workItemRepo.findByRole(Role.WORK, limit = 200, rootIds = scopeIds) }
+            val reviewDeferred = async { workItemRepo.findByRole(Role.REVIEW, limit = 200, rootIds = scopeIds) }
+            val blockedDeferred = async { workItemRepo.findByRole(Role.BLOCKED, limit = 200, rootIds = scopeIds) }
+            val claimDeferred = async { workItemRepo.countByClaimStatus(parentId = null, rootIds = scopeIds) }
 
             workItems = workDeferred.await().getOrElse(emptyList())
             reviewItems = reviewDeferred.await().getOrElse(emptyList())
