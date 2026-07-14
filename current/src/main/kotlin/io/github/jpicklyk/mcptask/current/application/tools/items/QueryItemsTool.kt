@@ -102,10 +102,7 @@ Operations: get, search, overview
   all direct children of the given item)
 - truncated (global overview only) = offset + returned root count < total
 - includeChildren (boolean, default false): When true (global overview only), each root item includes a `children` array of its direct child items
-- excludeTerminal (boolean, default false): global overview drops terminal-role roots from `items`
-  before fetching their children/counts, and total/truncated reflect the filtered set; scoped
-  overview drops terminal-role items from `children` only (the parent itself and childCounts are
-  unaffected)
+- excludeTerminal (boolean, default false): hide terminal-role items from overview results (global vs scoped semantics in the parameter schema)
         """.trimIndent()
 
     override val category = ToolCategory.ITEM_MANAGEMENT
