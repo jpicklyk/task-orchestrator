@@ -207,26 +207,33 @@ class SQLiteWorkItemRepositoryTest : BaseRepositoryTest() {
             assertEquals("Child", depthOne.data[0].title)
         }
 
-    // --- findRoot ---
+    // --- findProjectRoots ---
 
     @Test
-    fun `findRoot returns root item`() =
+    fun `findProjectRoots returns only depth-0 project-typed items`() =
         runBlocking {
-            val root = WorkItem(title = "Root", depth = 0, parentId = null)
-            repository.create(root)
+            val projectA = WorkItem(title = "Project A", depth = 0, type = "project")
+            val projectB = WorkItem(title = "Project B", depth = 0, type = "project")
+            val plainRoot = WorkItem(title = "Plain root", depth = 0)
+            repository.create(projectA)
+            repository.create(projectB)
+            repository.create(plainRoot)
+            // project-typed child must not match (depth filter)
+            repository.create(WorkItem(title = "Nested", parentId = projectA.id, depth = 1, type = "project"))
 
-            val result = repository.findRoot()
-            assertIs<Result.Success<WorkItem?>>(result)
-            assertNotNull(result.data)
-            assertEquals("Root", result.data.title)
+            val result = repository.findProjectRoots()
+            assertIs<Result.Success<List<WorkItem>>>(result)
+            assertEquals(setOf("Project A", "Project B"), result.data.map { it.title }.toSet())
         }
 
     @Test
-    fun `findRoot returns null when no root exists`() =
+    fun `findProjectRoots returns empty when no project anchors exist`() =
         runBlocking {
-            val result = repository.findRoot()
-            assertIs<Result.Success<WorkItem?>>(result)
-            assertEquals(null, result.data)
+            repository.create(WorkItem(title = "Plain root", depth = 0))
+
+            val result = repository.findProjectRoots()
+            assertIs<Result.Success<List<WorkItem>>>(result)
+            assertEquals(emptyList(), result.data)
         }
 
     // --- search ---

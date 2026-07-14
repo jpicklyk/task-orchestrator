@@ -368,14 +368,17 @@ class SQLiteWorkItemRepository(
             Result.Success(items)
         }
 
-    override suspend fun findRoot(): Result<WorkItem?> =
-        databaseManager.suspendedTransaction("Failed to find root WorkItem") {
-            val row =
+    override suspend fun findProjectRoots(): Result<List<WorkItem>> =
+        databaseManager.suspendedTransaction("Failed to find project root WorkItems") {
+            val items =
                 WorkItemsTable
                     .selectAll()
-                    .where { WorkItemsTable.parentId.isNull() and (WorkItemsTable.depth eq 0) }
-                    .singleOrNull()
-            Result.Success(row?.let { toWorkItemOrNull(it) })
+                    .where {
+                        WorkItemsTable.parentId.isNull() and
+                            (WorkItemsTable.depth eq 0) and
+                            (WorkItemsTable.type eq "project")
+                    }.mapNotNull { toWorkItemOrNull(it) }
+            Result.Success(items)
         }
 
     override suspend fun search(

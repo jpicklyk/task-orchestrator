@@ -123,7 +123,14 @@ interface WorkItemRepository {
         limit: Int = 50
     ): Result<List<WorkItem>>
 
-    suspend fun findRoot(): Result<WorkItem?>
+    /**
+     * Find all project anchor items: depth-0 roots with `type = "project"`.
+     *
+     * Project anchors partition a shared database into per-project subtrees (see the
+     * project-root scoping convention). Returns an empty list when the workspace has no
+     * project anchors — e.g. a legacy single-project database that has not been adopted.
+     */
+    suspend fun findProjectRoots(): Result<List<WorkItem>>
 
     suspend fun search(
         query: String,
@@ -201,7 +208,8 @@ interface WorkItemRepository {
 
     /**
      * Find all root items (items with no parent), ordered newest-createdAt-first.
-     * Unlike findRoot() which expects a single root, this returns all parentless items.
+     * Unlike findProjectRoots() which returns only `type = "project"` anchors, this
+     * returns all parentless items regardless of type.
      *
      * Returns an [ItemFetchResult]: rows that fail domain validation are dropped rather than
      * failing the whole query — [ItemFetchResult.skipped] reports how many were dropped. Use
