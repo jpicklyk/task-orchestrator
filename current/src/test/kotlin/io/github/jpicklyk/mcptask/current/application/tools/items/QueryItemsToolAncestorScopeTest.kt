@@ -155,7 +155,10 @@ class QueryItemsToolAncestorScopeTest {
             assertEquals(1, data["total"]!!.jsonPrimitive.int, "Leaf's own subtree is just itself")
             assertEquals(
                 leaf.toString(),
-                data["items"]!!.jsonArray[0].jsonObject["id"]!!.jsonPrimitive.content
+                data["items"]!!
+                    .jsonArray[0]
+                    .jsonObject["id"]!!
+                    .jsonPrimitive.content
             )
         }
 

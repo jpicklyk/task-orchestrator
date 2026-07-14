@@ -1426,7 +1426,10 @@ class SQLiteWorkItemRepository(
         }
     }
 
-    override suspend fun countByClaimStatus(parentId: UUID?, rootIds: Set<UUID>?): Result<ClaimStatusCounts> {
+    override suspend fun countByClaimStatus(
+        parentId: UUID?,
+        rootIds: Set<UUID>?
+    ): Result<ClaimStatusCounts> {
         // Read DB-side clock ONCE before opening the transaction to avoid a nested
         // transaction/savepoint (dbNow() opens its own suspendTransaction internally).
         // Use DB-side clock so counts are consistent with the DB's view of claim freshness.

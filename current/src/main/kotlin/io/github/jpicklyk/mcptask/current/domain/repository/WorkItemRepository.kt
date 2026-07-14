@@ -433,7 +433,10 @@ interface WorkItemRepository {
      *   way as [findInScope]. [rootIds] and [parentId] compose with AND. An empty (non-null)
      *   [rootIds] set yields all-zero counts.
      */
-    suspend fun countByClaimStatus(parentId: UUID? = null, rootIds: Set<UUID>? = null): Result<ClaimStatusCounts>
+    suspend fun countByClaimStatus(
+        parentId: UUID? = null,
+        rootIds: Set<UUID>? = null
+    ): Result<ClaimStatusCounts>
 
     /**
      * Find work items that are within the subtree rooted at any of [rootIds] (roots included).

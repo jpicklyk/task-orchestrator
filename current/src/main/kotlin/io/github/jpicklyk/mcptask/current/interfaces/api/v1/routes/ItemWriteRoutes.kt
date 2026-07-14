@@ -793,4 +793,6 @@ fun Route.itemWriteRoutes(
  * write succeeded. Caught immediately around the `inTransaction` call and converted into a 500
  * response; never surfaced to the client as a raw exception.
  */
-private class DepthCascadeException(message: String) : Exception(message)
+private class DepthCascadeException(
+    message: String
+) : Exception(message)

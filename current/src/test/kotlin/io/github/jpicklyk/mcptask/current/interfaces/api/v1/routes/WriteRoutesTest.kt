@@ -508,11 +508,13 @@ class ItemPatchRouteTest {
                     val aWithRoot =
                         repo.workItemRepository().update(a.copy(rootId = a.id)).getOrNull()!!
                     val b =
-                        repo.workItemRepository()
+                        repo
+                            .workItemRepository()
                             .create(WorkItem(title = "B", parentId = aWithRoot.id, depth = 1, rootId = aWithRoot.id))
                             .getOrNull()!!
                     val c =
-                        repo.workItemRepository()
+                        repo
+                            .workItemRepository()
                             .create(WorkItem(title = "C", parentId = b.id, depth = 2, rootId = aWithRoot.id))
                             .getOrNull()!!
                     val d =
@@ -551,7 +553,8 @@ class ItemPatchRouteTest {
                     val p = repo.workItemRepository().create(WorkItem(title = "Parent", depth = 0)).getOrNull()!!
                     val pWithRoot = repo.workItemRepository().update(p.copy(rootId = p.id)).getOrNull()!!
                     val c =
-                        repo.workItemRepository()
+                        repo
+                            .workItemRepository()
                             .create(WorkItem(title = "Child", parentId = pWithRoot.id, depth = 1, rootId = pWithRoot.id))
                             .getOrNull()!!
                     Pair(pWithRoot, c)

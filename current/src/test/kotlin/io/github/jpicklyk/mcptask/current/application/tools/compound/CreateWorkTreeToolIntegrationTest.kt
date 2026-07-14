@@ -461,7 +461,12 @@ class CreateWorkTreeToolIntegrationTest {
                     put(
                         "children",
                         buildJsonArray {
-                            add(buildJsonObject { put("ref", JsonPrimitive("child")); put("title", JsonPrimitive("Child")) })
+                            add(
+                                buildJsonObject {
+                                    put("ref", JsonPrimitive("child"))
+                                    put("title", JsonPrimitive("Child"))
+                                }
+                            )
                         }
                     )
                 }
@@ -504,7 +509,12 @@ class CreateWorkTreeToolIntegrationTest {
                     put(
                         "children",
                         buildJsonArray {
-                            add(buildJsonObject { put("ref", JsonPrimitive("c1")); put("title", JsonPrimitive("Attach Child")) })
+                            add(
+                                buildJsonObject {
+                                    put("ref", JsonPrimitive("c1"))
+                                    put("title", JsonPrimitive("Attach Child"))
+                                }
+                            )
                             add(
                                 buildJsonObject {
                                     put("ref", JsonPrimitive("gc1"))

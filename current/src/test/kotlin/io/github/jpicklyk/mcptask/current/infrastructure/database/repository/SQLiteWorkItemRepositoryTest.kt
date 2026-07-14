@@ -13,7 +13,6 @@ import org.junit.jupiter.api.Test
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
-import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class SQLiteWorkItemRepositoryTest : BaseRepositoryTest() {

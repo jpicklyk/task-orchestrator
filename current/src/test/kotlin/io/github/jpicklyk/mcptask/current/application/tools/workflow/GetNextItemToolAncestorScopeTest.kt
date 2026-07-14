@@ -120,7 +120,11 @@ class GetNextItemToolAncestorScopeTest {
             val r2 = createItem("Root 2")
             createItem("Queue child of R2", parentId = r2.id)
 
-            val prefix = r1.id.toString().replace("-", "").take(8)
+            val prefix =
+                r1.id
+                    .toString()
+                    .replace("-", "")
+                    .take(8)
             val result =
                 tool.execute(
                     params(

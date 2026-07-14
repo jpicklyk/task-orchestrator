@@ -111,7 +111,11 @@ class GetBlockedItemsToolAncestorScopeTest {
             val r2 = createItem("Root 2")
             createBlockedItem("Blocked child of R2", parentId = r2.id)
 
-            val prefix = r1.id.toString().replace("-", "").take(8)
+            val prefix =
+                r1.id
+                    .toString()
+                    .replace("-", "")
+                    .take(8)
             val result = tool.execute(params("ancestorId" to JsonPrimitive(prefix)), context)
 
             assertEquals(1, extractTotal(result))

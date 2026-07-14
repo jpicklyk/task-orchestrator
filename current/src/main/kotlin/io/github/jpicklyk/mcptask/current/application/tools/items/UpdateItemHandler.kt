@@ -253,5 +253,7 @@ class UpdateItemHandler(
      * Caught by the per-item `catch (e: Exception)` block above and converted into a failure entry;
      * never surfaced past [execute].
      */
-    private class DepthCascadeException(message: String) : Exception(message)
+    private class DepthCascadeException(
+        message: String
+    ) : Exception(message)
 }
