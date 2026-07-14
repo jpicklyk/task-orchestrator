@@ -1,9 +1,7 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.config
 
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
-import io.github.jpicklyk.mcptask.current.domain.model.LifecycleMode
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
-import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import org.slf4j.LoggerFactory
 import org.yaml.snakeyaml.Yaml
@@ -55,22 +53,8 @@ class YamlWorkItemSchemaService(
 ) : WorkItemSchemaService {
     private val logger = LoggerFactory.getLogger(YamlWorkItemSchemaService::class.java)
 
-    /**
-     * Holds the result of a schema load: the parsed schemas and any warnings collected.
-     */
-    private data class SchemaLoadResult(
-        val schemas: Map<String, List<NoteSchemaEntry>>,
-        val workItemSchemas: Map<String, WorkItemSchema>,
-        val traits: Map<String, List<NoteSchemaEntry>>,
-        val warnings: MutableList<String>,
-        // Mirrors the companion's DEFAULT_NOTE_LIMITS_MODE constant ("warn") — kept as a literal
-        // here since a nested class default parameter cannot forward-reference the outer
-        // companion object during initialization.
-        val noteLimitsMode: String = "warn"
-    )
-
     /** Lazily loaded schema cache and warnings. Initialized once on first access. */
-    private val loadResult: SchemaLoadResult by lazy { loadSchemas() }
+    private val loadResult: YamlSchemaParser.ParsedConfig by lazy { loadSchemas() }
 
     /** Lazily loaded tag→entries schema cache. */
     private val schemas: Map<String, List<NoteSchemaEntry>> get() = loadResult.schemas
@@ -114,7 +98,7 @@ class YamlWorkItemSchemaService(
     /**
      * Returns the configured `note_limits.mode` ("warn" or "reject"), defaulting to "warn"
      * when the config file is absent, the `note_limits` block is absent, or the value is
-     * invalid (a load warning is recorded in the latter case — see [parseNoteLimitsMode]).
+     * invalid (a load warning is recorded in the latter case — see [YamlSchemaParser]).
      */
     override fun getNoteLimitsMode(): String = loadResult.noteLimitsMode
 
@@ -138,43 +122,33 @@ class YamlWorkItemSchemaService(
         }
     }
 
-    @Suppress("UNCHECKED_CAST")
-    private fun loadSchemas(): SchemaLoadResult {
-        val warnings = mutableListOf<String>()
-
+    /**
+     * Reads and parses the config file, delegating the "root map -> schemas/traits/warnings"
+     * step to [YamlSchemaParser.parseRoot] (shared with [PerRootConfigService]). This method
+     * retains only the file-specific concerns: existence check, IO, YAML syntax-error handling,
+     * and the summary log line.
+     */
+    private fun loadSchemas(): YamlSchemaParser.ParsedConfig {
         if (!configPath.toFile().exists()) {
             logger.debug("No config file found at {}; running in schema-free mode", configPath)
-            return SchemaLoadResult(emptyMap(), emptyMap(), emptyMap(), warnings)
+            return YamlSchemaParser.ParsedConfig(emptyMap(), emptyMap(), emptyMap(), emptyList())
         }
 
         return try {
             val yaml = Yaml()
             FileReader(configPath.toFile()).use { reader ->
-                val root =
-                    yaml.load<Map<String, Any>>(reader)
-                        ?: return@use SchemaLoadResult(emptyMap(), emptyMap(), emptyMap(), warnings)
-
-                val parsedTraits = parseTraits(root, warnings)
-                val parsedNoteLimitsMode = parseNoteLimitsMode(root, warnings)
-
-                when {
-                    root.containsKey("work_item_schemas") -> {
-                        parseWorkItemSchemas(root, warnings).copy(traits = parsedTraits, noteLimitsMode = parsedNoteLimitsMode)
-                    }
-                    root.containsKey("note_schemas") -> {
-                        parseLegacyNoteSchemas(root, warnings).copy(traits = parsedTraits, noteLimitsMode = parsedNoteLimitsMode)
-                    }
-                    else -> {
-                        warnings.add("Config file is missing 'note_schemas' key; no schemas loaded")
-                        SchemaLoadResult(emptyMap(), emptyMap(), parsedTraits, warnings, parsedNoteLimitsMode)
-                    }
+                @Suppress("UNCHECKED_CAST")
+                val root = yaml.load<Map<String, Any>>(reader)
+                if (root == null) {
+                    YamlSchemaParser.ParsedConfig(emptyMap(), emptyMap(), emptyMap(), emptyList())
+                } else {
+                    YamlSchemaParser.parseRoot(root)
                 }
             }
         } catch (e: Exception) {
             val msg = "Failed to load note schemas from '$configPath': ${e.message}"
-            warnings.add(msg)
             logger.warn(msg)
-            SchemaLoadResult(emptyMap(), emptyMap(), emptyMap(), warnings)
+            YamlSchemaParser.ParsedConfig(emptyMap(), emptyMap(), emptyMap(), listOf(msg))
         }.also { result ->
             result.warnings.forEach { w -> logger.warn(w) }
             val totalEntries = result.schemas.values.sumOf { it.size }
@@ -187,209 +161,7 @@ class YamlWorkItemSchemaService(
         }
     }
 
-    @Suppress("UNCHECKED_CAST")
-    private fun parseWorkItemSchemas(
-        root: Map<String, Any>,
-        warnings: MutableList<String>
-    ): SchemaLoadResult {
-        val rawSchemas =
-            root["work_item_schemas"] as? Map<String, Any>
-                ?: return SchemaLoadResult(emptyMap(), emptyMap(), emptyMap(), warnings)
-
-        val schemasMap = mutableMapOf<String, List<NoteSchemaEntry>>()
-        val workItemSchemasMap = mutableMapOf<String, WorkItemSchema>()
-
-        for ((schemaName, rawValue) in rawSchemas) {
-            val schemaMap = rawValue as? Map<String, Any> ?: continue
-
-            val lifecycleRaw = schemaMap["lifecycle"] as? String
-            val lifecycleMode =
-                if (lifecycleRaw != null) {
-                    val parsed = LifecycleMode.fromString(lifecycleRaw)
-                    if (parsed == null) {
-                        warnings.add(
-                            "Schema '$schemaName' has invalid lifecycle value '$lifecycleRaw'; defaulting to AUTO"
-                        )
-                        LifecycleMode.AUTO
-                    } else {
-                        parsed
-                    }
-                } else {
-                    LifecycleMode.AUTO
-                }
-
-            @Suppress("UNCHECKED_CAST")
-            val defaultTraits = (schemaMap["default_traits"] as? List<String>) ?: emptyList()
-
-            val rawNotes = schemaMap["notes"] as? List<Map<String, Any>> ?: emptyList()
-            val entries =
-                rawNotes.mapIndexedNotNull { index, raw ->
-                    parseEntry(raw, schemaName, index, warnings)
-                }
-
-            schemasMap[schemaName] = entries
-            workItemSchemasMap[schemaName] =
-                WorkItemSchema(
-                    type = schemaName,
-                    lifecycleMode = lifecycleMode,
-                    notes = entries,
-                    defaultTraits = defaultTraits
-                )
-        }
-
-        return SchemaLoadResult(schemasMap, workItemSchemasMap, emptyMap(), warnings)
-    }
-
-    @Suppress("UNCHECKED_CAST")
-    private fun parseLegacyNoteSchemas(
-        root: Map<String, Any>,
-        warnings: MutableList<String>
-    ): SchemaLoadResult {
-        val noteSchemas =
-            root["note_schemas"] as? Map<String, Any>
-                ?: return SchemaLoadResult(emptyMap(), emptyMap(), emptyMap(), warnings)
-
-        val schemasMap = mutableMapOf<String, List<NoteSchemaEntry>>()
-        val workItemSchemasMap = mutableMapOf<String, WorkItemSchema>()
-
-        for ((schemaName, rawEntries) in noteSchemas) {
-            val entryList = rawEntries as? List<Map<String, Any>> ?: emptyList()
-            val entries =
-                entryList.mapIndexedNotNull { index, raw ->
-                    parseEntry(raw, schemaName, index, warnings)
-                }
-            schemasMap[schemaName] = entries
-            // Wrap into WorkItemSchema with AUTO lifecycle for backward compat
-            workItemSchemasMap[schemaName] =
-                WorkItemSchema(
-                    type = schemaName,
-                    lifecycleMode = LifecycleMode.AUTO,
-                    notes = entries
-                )
-        }
-
-        return SchemaLoadResult(schemasMap, workItemSchemasMap, emptyMap(), warnings)
-    }
-
-    @Suppress("UNCHECKED_CAST")
-    private fun parseTraits(
-        root: Map<String, Any>,
-        warnings: MutableList<String>
-    ): Map<String, List<NoteSchemaEntry>> {
-        val traitsRaw = root["traits"] as? Map<String, Any> ?: return emptyMap()
-        return traitsRaw.entries.associate { (traitName, rawValue) ->
-            val rawMap = rawValue as? Map<String, Any> ?: emptyMap()
-            val notesList = rawMap["notes"] as? List<Map<String, Any>> ?: emptyList()
-            val entries =
-                notesList.mapIndexedNotNull { index, raw ->
-                    parseEntry(raw, "trait:$traitName", index, warnings)
-                }
-            traitName to entries
-        }
-    }
-
-    private fun parseEntry(
-        raw: Map<String, Any>,
-        schemaName: String,
-        index: Int,
-        warnings: MutableList<String>
-    ): NoteSchemaEntry? {
-        val key = raw["key"] as? String
-        if (key == null) {
-            warnings.add("Schema '$schemaName' entry[$index] is missing required field 'key'; skipping")
-            return null
-        }
-
-        val roleRaw = raw["role"] as? String
-        if (roleRaw == null) {
-            warnings.add("Schema '$schemaName' entry[$index] (key='$key') is missing required field 'role'; skipping")
-            return null
-        }
-
-        val parsedRole = VALID_SCHEMA_ROLES[roleRaw]
-        if (parsedRole == null) {
-            logger.warn(
-                "Skipping schema entry '{}': invalid role '{}' (valid: {})",
-                key,
-                roleRaw,
-                VALID_SCHEMA_ROLES.keys
-            )
-            return null
-        }
-
-        val requiredRaw = raw["required"]
-        val required =
-            if (requiredRaw != null && requiredRaw !is Boolean) {
-                warnings.add(
-                    "Schema '$schemaName' entry (key='$key') has non-boolean 'required' value '$requiredRaw'; defaulting to false"
-                )
-                false
-            } else {
-                requiredRaw as? Boolean ?: false
-            }
-
-        val description = raw["description"] as? String ?: ""
-        val guidance = raw["guidance"] as? String
-        val skill = raw["skill"] as? String
-
-        val maxLengthRaw = raw["maxLength"]
-        val maxLength =
-            if (maxLengthRaw != null && maxLengthRaw !is Number) {
-                warnings.add(
-                    "Schema '$schemaName' entry (key='$key') has non-numeric 'maxLength' value '$maxLengthRaw'; ignoring"
-                )
-                null
-            } else {
-                (maxLengthRaw as? Number)?.toInt()
-            }
-
-        return NoteSchemaEntry(
-            key = key,
-            role = parsedRole,
-            required = required,
-            description = description,
-            guidance = guidance,
-            skill = skill,
-            maxLength = maxLength,
-        )
-    }
-
-    /**
-     * Parses the top-level `note_limits.mode` key, defaulting to [DEFAULT_NOTE_LIMITS_MODE]
-     * ("warn") when the block is absent or the value is not one of [VALID_NOTE_LIMITS_MODES].
-     * An invalid (non-empty, unrecognized) value is recorded as a load warning.
-     */
-    @Suppress("UNCHECKED_CAST")
-    private fun parseNoteLimitsMode(
-        root: Map<String, Any>,
-        warnings: MutableList<String>
-    ): String {
-        val noteLimits = root["note_limits"] as? Map<String, Any> ?: return DEFAULT_NOTE_LIMITS_MODE
-        val modeRaw = noteLimits["mode"] as? String ?: return DEFAULT_NOTE_LIMITS_MODE
-        if (modeRaw !in VALID_NOTE_LIMITS_MODES) {
-            warnings.add(
-                "Invalid note_limits.mode value '$modeRaw'; defaulting to '$DEFAULT_NOTE_LIMITS_MODE' " +
-                    "(valid: $VALID_NOTE_LIMITS_MODES)"
-            )
-            return DEFAULT_NOTE_LIMITS_MODE
-        }
-        return modeRaw
-    }
-
     companion object {
-        private val VALID_SCHEMA_ROLES =
-            mapOf(
-                "queue" to Role.QUEUE,
-                "work" to Role.WORK,
-                "review" to Role.REVIEW,
-            )
-
-        /** Default `note_limits.mode` when unconfigured: accept notes over maxLength, just warn. */
-        const val DEFAULT_NOTE_LIMITS_MODE = "warn"
-
-        /** Recognized `note_limits.mode` values. */
-        private val VALID_NOTE_LIMITS_MODES = setOf("warn", "reject")
-
         fun resolveDefaultConfigPath(): java.nio.file.Path {
             val projectRoot =
                 Paths.get(

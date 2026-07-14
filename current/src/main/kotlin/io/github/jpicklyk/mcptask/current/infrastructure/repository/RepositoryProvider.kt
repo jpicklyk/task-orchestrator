@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.infrastructure.repository
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeExecutor
 import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
+import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 
@@ -18,6 +19,8 @@ interface RepositoryProvider {
     fun dependencyRepository(): DependencyRepository
 
     fun roleTransitionRepository(): RoleTransitionRepository
+
+    fun projectConfigRepository(): ProjectConfigRepository
 
     fun database(): org.jetbrains.exposed.v1.jdbc.Database?
 

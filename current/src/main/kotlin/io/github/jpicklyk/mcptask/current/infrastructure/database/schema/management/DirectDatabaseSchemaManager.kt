@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.infrastructure.database.schema.manage
 
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.DependenciesTable
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.NotesTable
+import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.ProjectConfigTable
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.RoleTransitionsTable
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.WorkItemsTable
 import org.jetbrains.exposed.v1.core.vendors.H2Dialect
@@ -16,15 +17,16 @@ import org.slf4j.LoggerFactory
  *
  * Table dependency graph:
  * 1. WorkItemsTable (no external dependencies, self-referencing parentId)
- * 2. NotesTable (depends on WorkItemsTable)
- * 3. DependenciesTable (depends on WorkItemsTable)
- * 4. RoleTransitionsTable (depends on WorkItemsTable)
+ * 2. ProjectConfigTable (depends on WorkItemsTable)
+ * 3. NotesTable (depends on WorkItemsTable)
+ * 4. DependenciesTable (depends on WorkItemsTable)
+ * 5. RoleTransitionsTable (depends on WorkItemsTable)
  *
  * Virtual tables (FTS5, follow their backing tables):
- * 5. work_items_fts_trigram (external-content over WorkItemsTable)
- * 6. work_items_fts_text    (external-content over WorkItemsTable)
- * 7. notes_fts_trigram      (external-content over NotesTable)
- * 8. notes_fts_text         (external-content over NotesTable)
+ * 6. work_items_fts_trigram (external-content over WorkItemsTable)
+ * 7. work_items_fts_text    (external-content over WorkItemsTable)
+ * 8. notes_fts_trigram      (external-content over NotesTable)
+ * 9. notes_fts_text         (external-content over NotesTable)
  *
  * Triggers (registered after their backing tables):
  * - work_items_cycle_check, work_items_cycle_check_update (cycle detection on parent_id)
@@ -38,6 +40,7 @@ class DirectDatabaseSchemaManager : DatabaseSchemaManager {
     private val tables =
         arrayOf(
             WorkItemsTable,
+            ProjectConfigTable,
             NotesTable,
             DependenciesTable,
             RoleTransitionsTable,
