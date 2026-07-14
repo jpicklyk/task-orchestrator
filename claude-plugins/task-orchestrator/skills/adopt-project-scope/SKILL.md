@@ -80,21 +80,24 @@ Build a probe where a grandchild's depth MUST change when a middle node is re-pa
    manage_items(operation="update", items=[{ id: M, parentId: A }])
    ```
    Post-fix, M becomes depth 2 and G becomes depth 3.
-4. Read the grandchild's depth:
+4. Read the grandchild's depth and capture it:
    ```
    query_items(operation="get", id=G)
    ```
+5. Delete the probe **immediately, before acting on the result** — this runs on every path, pass or fail:
+   ```
+   manage_items(operation="delete", ids=[P], recursive=true)
+   ```
+6. Now evaluate the captured depth:
    - `depth == 3` → fix is present. Continue.
-   - `depth == 2` (stale) → **abort**:
+   - `depth == 2` (stale) → **abort** (probe already deleted):
      ```
      ⊘ Server is missing the reparent depth-sweep fix (bug 99a3e642).
        Bulk re-parenting on this server would corrupt subtree depths.
        Upgrade the Task Orchestrator server (PR #219/#220 or later) and retry.
      ```
-5. **Always** delete the probe, pass or fail, before continuing or aborting:
-   ```
-   manage_items(operation="delete", ids=[P], recursive=true)
-   ```
+
+**`--dry-run` skips this probe entirely** — no execution will happen, so the capability check is unnecessary and the dry run stays genuinely mutation-free. The probe runs only on the real-execution path, after the user confirms in Step 3.
 
 ### 1d — Config-push capability (tolerant)
 
@@ -232,7 +235,7 @@ Render a before/after table:
 
 |                     | Before | After |
 |---------------------|--------|-------|
-| Depth-0 roots       | 5      | 3     |
+| Depth-0 roots       | 5      | 4     |
 | Under project anchor| 0      | 2     |
 | Global containers   | 2      | 2     |
 | Cleanup candidates  | 1      | 1 (flagged, not moved) |
