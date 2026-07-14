@@ -45,6 +45,7 @@ import org.junit.jupiter.api.Test
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -165,6 +166,54 @@ class ItemCreateRouteTest {
             assertEquals(HttpStatusCode.BadRequest, response.status)
             val body = response.bodyAsText()
             assertTrue(body.contains("validation_error") || body.contains("not blank"), "Should have error: $body")
+        }
+
+    @Test
+    fun `POST items with parentId stamps rootId inherited from the parent`(): Unit =
+        testApplication {
+            val repo = buildH2RepositoryProvider()
+            val parent =
+                runBlocking {
+                    repo.workItemRepository().create(WorkItem(title = "Root", depth = 0)).getOrNull()!!
+                }
+            application { configureWriteTestApp(repo) }
+
+            // Root itself was created directly via the repository (not through this route), so
+            // it has no rootId yet — the create route must fall back to the parent's own id.
+            val response =
+                client.post("/api/v1/items") {
+                    header("Authorization", "Bearer $WRITE_TOKEN")
+                    contentType(ContentType.Application.Json)
+                    setBody("""{"title":"Child","parentId":"${parent.id}"}""")
+                }
+            assertEquals(HttpStatusCode.Created, response.status)
+            val childId = extractId(response.bodyAsText())
+            assertNotNull(childId)
+
+            val persistedChild = runBlocking { repo.workItemRepository().getById(UUID.fromString(childId)) }
+            assertIs<Result.Success<WorkItem>>(persistedChild)
+            assertEquals(parent.id, persistedChild.data.rootId, "Child must inherit the root's id")
+        }
+
+    @Test
+    fun `POST items without parentId stamps rootId as its own id`(): Unit =
+        testApplication {
+            val repo = buildH2RepositoryProvider()
+            application { configureWriteTestApp(repo) }
+
+            val response =
+                client.post("/api/v1/items") {
+                    header("Authorization", "Bearer $WRITE_TOKEN")
+                    contentType(ContentType.Application.Json)
+                    setBody("""{"title":"New Root"}""")
+                }
+            assertEquals(HttpStatusCode.Created, response.status)
+            val itemId = extractId(response.bodyAsText())
+            assertNotNull(itemId)
+
+            val persisted = runBlocking { repo.workItemRepository().getById(UUID.fromString(itemId)) }
+            assertIs<Result.Success<WorkItem>>(persisted)
+            assertEquals(UUID.fromString(itemId), persisted.data.rootId, "A root-level item must be its own root")
         }
 }
 
@@ -444,6 +493,84 @@ class ItemPatchRouteTest {
             // C must cascade from depth 2 to depth 3 even though this PATCH only targeted B.
             val persistedC = runBlocking { repo.workItemRepository().getById(c.id) }
             assertEquals(3, (persistedC as Result.Success).data.depth, "C's depth must cascade with B's move")
+        }
+
+    @Test
+    fun `PATCH items parentId change to a different root restamps rootId for item and descendants`(): Unit =
+        testApplication {
+            val repo = buildH2RepositoryProvider()
+            // Root A -> B -> C, plus an independent Root D — both created directly via the
+            // repository with an explicit rootId, mirroring what the create route would stamp.
+            val (_, b, c, rootD) =
+                runBlocking {
+                    val a =
+                        repo.workItemRepository().create(WorkItem(title = "Root A", depth = 0)).getOrNull()!!
+                    val aWithRoot =
+                        repo.workItemRepository().update(a.copy(rootId = a.id)).getOrNull()!!
+                    val b =
+                        repo.workItemRepository()
+                            .create(WorkItem(title = "B", parentId = aWithRoot.id, depth = 1, rootId = aWithRoot.id))
+                            .getOrNull()!!
+                    val c =
+                        repo.workItemRepository()
+                            .create(WorkItem(title = "C", parentId = b.id, depth = 2, rootId = aWithRoot.id))
+                            .getOrNull()!!
+                    val d =
+                        repo.workItemRepository().create(WorkItem(title = "Root D", depth = 0)).getOrNull()!!
+                    val dWithRoot =
+                        repo.workItemRepository().update(d.copy(rootId = d.id)).getOrNull()!!
+                    listOf(aWithRoot, b, c, dWithRoot)
+                }
+            application { configureWriteTestApp(repo) }
+
+            // Move B under Root D: same depth (1), but rootId must flip for B and cascade to C.
+            val etag = "\"v1-${b.modifiedAt.toEpochMilli()}\""
+            val response =
+                client.patch("/api/v1/items/${b.id}") {
+                    header("Authorization", "Bearer $WRITE_TOKEN")
+                    header(HttpHeaders.IfMatch, etag)
+                    contentType(ContentType.Application.Json)
+                    setBody("""{"parentId":"${rootD.id}"}""")
+                }
+            assertEquals(HttpStatusCode.OK, response.status)
+
+            val persistedB = runBlocking { repo.workItemRepository().getById(b.id) }
+            val persistedC = runBlocking { repo.workItemRepository().getById(c.id) }
+            assertIs<Result.Success<WorkItem>>(persistedB)
+            assertIs<Result.Success<WorkItem>>(persistedC)
+            assertEquals(rootD.id, persistedB.data.rootId, "B's rootId must flip to Root D after reparent")
+            assertEquals(rootD.id, persistedC.data.rootId, "C must cascade to Root D even though depth didn't change")
+        }
+
+    @Test
+    fun `PATCH items parentId null restamps rootId to the item's own id`(): Unit =
+        testApplication {
+            val repo = buildH2RepositoryProvider()
+            val (parent, child) =
+                runBlocking {
+                    val p = repo.workItemRepository().create(WorkItem(title = "Parent", depth = 0)).getOrNull()!!
+                    val pWithRoot = repo.workItemRepository().update(p.copy(rootId = p.id)).getOrNull()!!
+                    val c =
+                        repo.workItemRepository()
+                            .create(WorkItem(title = "Child", parentId = pWithRoot.id, depth = 1, rootId = pWithRoot.id))
+                            .getOrNull()!!
+                    Pair(pWithRoot, c)
+                }
+            application { configureWriteTestApp(repo) }
+
+            val etag = "\"v1-${child.modifiedAt.toEpochMilli()}\""
+            val response =
+                client.patch("/api/v1/items/${child.id}") {
+                    header("Authorization", "Bearer $WRITE_TOKEN")
+                    header(HttpHeaders.IfMatch, etag)
+                    contentType(ContentType.Application.Json)
+                    setBody("""{"parentId":null}""")
+                }
+            assertEquals(HttpStatusCode.OK, response.status)
+
+            val persistedChild = runBlocking { repo.workItemRepository().getById(child.id) }
+            assertIs<Result.Success<WorkItem>>(persistedChild)
+            assertEquals(child.id, persistedChild.data.rootId, "Child must become its own root after moving to root level")
         }
 
     @Test

@@ -247,7 +247,12 @@ fun Route.itemWriteRoutes(
                             ?: return errorCaptured(HttpStatusCode.BadRequest, "validation_error", "Invalid parentId UUID: $pid")
                     }
 
+                // Pre-generate the id so a root-level create (parentId == null) can stamp
+                // rootId = own id without a second round trip.
+                val itemId = UUID.randomUUID()
+
                 val depth: Int
+                val rootId: UUID
                 if (parentId != null) {
                     val parentResult = workItemRepo.getById(parentId)
                     if (parentResult is Result.Error) {
@@ -256,9 +261,14 @@ fun Route.itemWriteRoutes(
                     if (!enforceScopeForItem(call, parentId, workItemRepo)) {
                         return errorCaptured(HttpStatusCode.Forbidden, "scope_forbidden", "Access denied for parent $parentId")
                     }
-                    depth = (parentResult as Result.Success).data.depth + 1
+                    val parentData = (parentResult as Result.Success).data
+                    depth = parentData.depth + 1
+                    // Inherit the parent's root (or the parent's own id, if the parent predates
+                    // the root_id backfill and has no rootId yet).
+                    rootId = parentData.rootId ?: parentData.id
                 } else {
                     depth = 0
+                    rootId = itemId
                 }
 
                 val priority =
@@ -273,10 +283,12 @@ fun Route.itemWriteRoutes(
                 val item =
                     try {
                         WorkItem(
+                            id = itemId,
                             title = dto.title,
                             description = dto.description,
                             summary = dto.summary ?: "",
                             parentId = parentId,
+                            rootId = rootId,
                             depth = depth,
                             type = dto.type,
                             priority = priority,
@@ -470,18 +482,26 @@ fun Route.itemWriteRoutes(
                             ?: return errorCaptured(HttpStatusCode.BadRequest, "validation_error", "Invalid parentId UUID: $pid")
                     }
 
-                val newDepth =
-                    if (newParentId == existing.parentId) {
-                        existing.depth
-                    } else if (newParentId == null) {
-                        0
-                    } else {
-                        val parentResult = workItemRepo.getById(newParentId)
-                        if (parentResult is Result.Error) {
-                            return errorCaptured(HttpStatusCode.BadRequest, "not_found", "Parent item $newParentId not found")
-                        }
-                        (parentResult as Result.Success).data.depth + 1
+                val newDepth: Int
+                val newRootId: UUID?
+                if (newParentId == existing.parentId) {
+                    newDepth = existing.depth
+                    newRootId = existing.rootId
+                } else if (newParentId == null) {
+                    // Move to root — the item becomes its own root.
+                    newDepth = 0
+                    newRootId = id
+                } else {
+                    val parentResult = workItemRepo.getById(newParentId)
+                    if (parentResult is Result.Error) {
+                        return errorCaptured(HttpStatusCode.BadRequest, "not_found", "Parent item $newParentId not found")
                     }
+                    val parentData = (parentResult as Result.Success).data
+                    newDepth = parentData.depth + 1
+                    // Inherit the new parent's root (or the parent's own id, if the parent
+                    // predates the root_id backfill and has no rootId yet).
+                    newRootId = parentData.rootId ?: parentData.id
+                }
 
                 val updated =
                     try {
@@ -499,6 +519,7 @@ fun Route.itemWriteRoutes(
                                 properties = patchDto.properties,
                                 metadata = patchDto.metadata,
                                 parentId = newParentId,
+                                rootId = newRootId,
                                 depth = newDepth,
                             )
                         }
@@ -506,20 +527,31 @@ fun Route.itemWriteRoutes(
                         return errorCaptured(HttpStatusCode.BadRequest, "validation_error", e.message ?: "Validation failed")
                     }
 
-                // When the depth actually changes, the item's own write and the descendant-depth
-                // cascade must succeed or fail together — wrap both in a shared transaction so a
-                // cascade failure (e.g. a version-mismatch conflict on a descendant) rolls back the
-                // parent's own depth write too, rather than leaving the tree half-updated.
+                // When the parent actually changes, the item's own write and the
+                // descendant-depth/rootId cascade must succeed or fail together — wrap both in a
+                // shared transaction so a cascade failure (e.g. a version-mismatch conflict on a
+                // descendant) rolls back the parent's own write too, rather than leaving the tree
+                // half-updated. Gated on parentId change rather than depthDelta != 0: moving an
+                // item between two different root subtrees at the same depth leaves depth
+                // unchanged but still requires a rootId cascade over every descendant.
                 val depthDelta = newDepth - existing.depth
+                val parentChanged = newParentId != existing.parentId
                 var updateResult: Result<WorkItem>? = null
                 var cascadeErrorMessage: String? = null
-                if (depthDelta != 0) {
+                if (parentChanged) {
                     try {
                         workItemRepo.inTransaction {
                             val txResult = workItemRepo.update(updated)
                             updateResult = txResult
                             if (txResult is Result.Success) {
-                                when (val cascadeResult = hierarchyValidator.recomputeDescendantDepths(id, depthDelta, workItemRepo)) {
+                                // newRootId is always non-null on this branch (see the if/else
+                                // above — only the unchanged-parent branch, which implies
+                                // parentChanged == false, can leave it null); `?: id` only
+                                // satisfies the nullable type.
+                                when (
+                                    val cascadeResult =
+                                        hierarchyValidator.recomputeDescendantDepths(id, depthDelta, newRootId ?: id, workItemRepo)
+                                ) {
                                     is Result.Success -> {}
                                     is Result.Error -> {
                                         cascadeErrorMessage = cascadeResult.error.message

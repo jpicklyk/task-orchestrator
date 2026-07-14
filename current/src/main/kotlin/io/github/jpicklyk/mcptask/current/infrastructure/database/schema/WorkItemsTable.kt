@@ -6,6 +6,7 @@ import org.jetbrains.exposed.v1.javatime.timestamp
 
 object WorkItemsTable : UUIDTable("work_items") {
     val parentId = javaUUID("parent_id").nullable()
+    val rootId = javaUUID("root_id").nullable()
     val title = text("title")
     val description = text("description").nullable()
     val summary = text("summary").default("")
@@ -32,6 +33,7 @@ object WorkItemsTable : UUIDTable("work_items") {
     init {
         foreignKey(parentId to WorkItemsTable.id)
         index(isUnique = false, parentId)
+        index(isUnique = false, rootId)
         index(isUnique = false, role)
         index(isUnique = false, depth)
         index(isUnique = false, priority)

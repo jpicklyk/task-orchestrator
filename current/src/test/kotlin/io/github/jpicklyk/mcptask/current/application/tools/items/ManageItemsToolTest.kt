@@ -5,6 +5,8 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
+import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
@@ -2238,5 +2240,168 @@ class ManageItemsToolTest {
                 )
             val summary = tool.userSummary(params("operation" to JsonPrimitive("delete")), deleteResult, isError = false)
             assertEquals("Deleted 1 item(s)", summary)
+        }
+
+    // ──────────────────────────────────────────────
+    // root_id stamping (create + reparent)
+    // ──────────────────────────────────────────────
+    // rootId is not exposed in the tool's JSON response yet (EntityJsonSerializers.toFullJson /
+    // toMinimalJson), so these assert against the repository directly rather than the response.
+
+    @Test
+    fun `create with parentId stamps rootId inherited from the parent chain`() =
+        runBlocking {
+            suspend fun createItem(
+                title: String,
+                parentId: String? = null,
+            ): String {
+                val obj =
+                    buildJsonObject {
+                        put("title", JsonPrimitive(title))
+                        if (parentId != null) put("parentId", JsonPrimitive(parentId))
+                    }
+                val result =
+                    tool.execute(
+                        params("operation" to JsonPrimitive("create"), "items" to JsonArray(listOf(obj))),
+                        context
+                    ) as JsonObject
+                return (result["data"] as JsonObject)["items"]!!
+                    .jsonArray[0]
+                    .jsonObject["id"]!!
+                    .jsonPrimitive.content
+            }
+
+            suspend fun rootIdOf(itemId: String): UUID? {
+                val repo = repositoryProvider.workItemRepository()
+                val result = repo.getById(UUID.fromString(itemId))
+                assertIs<Result.Success<WorkItem>>(result)
+                return result.data.rootId
+            }
+
+            val rootId = createItem("Root")
+            val childId = createItem("Child", parentId = rootId)
+            val grandchildId = createItem("Grandchild", parentId = childId)
+
+            val rootUuid = UUID.fromString(rootId)
+            assertEquals(rootUuid, rootIdOf(rootId), "Root's rootId must be its own id")
+            assertEquals(rootUuid, rootIdOf(childId), "Child must inherit the root's id")
+            assertEquals(rootUuid, rootIdOf(grandchildId), "Grandchild must inherit the same root id")
+        }
+
+    @Test
+    fun `update parentId to a different root restamps rootId for item and descendants`() =
+        runBlocking {
+            suspend fun createItem(
+                title: String,
+                parentId: String? = null,
+            ): String {
+                val obj =
+                    buildJsonObject {
+                        put("title", JsonPrimitive(title))
+                        if (parentId != null) put("parentId", JsonPrimitive(parentId))
+                    }
+                val result =
+                    tool.execute(
+                        params("operation" to JsonPrimitive("create"), "items" to JsonArray(listOf(obj))),
+                        context
+                    ) as JsonObject
+                return (result["data"] as JsonObject)["items"]!!
+                    .jsonArray[0]
+                    .jsonObject["id"]!!
+                    .jsonPrimitive.content
+            }
+
+            suspend fun rootIdOf(itemId: String): UUID? {
+                val repo = repositoryProvider.workItemRepository()
+                val result = repo.getById(UUID.fromString(itemId))
+                assertIs<Result.Success<WorkItem>>(result)
+                return result.data.rootId
+            }
+
+            // Root A -> B -> C, plus an independent Root D.
+            val rootAId = createItem("Root A")
+            val bId = createItem("B", parentId = rootAId)
+            val cId = createItem("C", parentId = bId)
+            val rootDId = createItem("Root D")
+
+            // Move B under Root D: same depth (1), but rootId must flip for B and cascade to C.
+            val moveResult =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("update"),
+                        "items" to
+                            JsonArray(
+                                listOf(
+                                    buildJsonObject {
+                                        put("id", JsonPrimitive(bId))
+                                        put("parentId", JsonPrimitive(rootDId))
+                                    }
+                                )
+                            )
+                    ),
+                    context
+                ) as JsonObject
+            assertTrue(moveResult["success"]!!.jsonPrimitive.boolean)
+
+            val rootDUuid = UUID.fromString(rootDId)
+            assertEquals(rootDUuid, rootIdOf(bId), "B's rootId must flip to Root D after reparent")
+            assertEquals(rootDUuid, rootIdOf(cId), "C must cascade to Root D even though its depth didn't change")
+        }
+
+    @Test
+    fun `update parentId to null restamps rootId to the item's own id`() =
+        runBlocking {
+            suspend fun createItem(
+                title: String,
+                parentId: String? = null,
+            ): String {
+                val obj =
+                    buildJsonObject {
+                        put("title", JsonPrimitive(title))
+                        if (parentId != null) put("parentId", JsonPrimitive(parentId))
+                    }
+                val result =
+                    tool.execute(
+                        params("operation" to JsonPrimitive("create"), "items" to JsonArray(listOf(obj))),
+                        context
+                    ) as JsonObject
+                return (result["data"] as JsonObject)["items"]!!
+                    .jsonArray[0]
+                    .jsonObject["id"]!!
+                    .jsonPrimitive.content
+            }
+
+            suspend fun rootIdOf(itemId: String): UUID? {
+                val repo = repositoryProvider.workItemRepository()
+                val result = repo.getById(UUID.fromString(itemId))
+                assertIs<Result.Success<WorkItem>>(result)
+                return result.data.rootId
+            }
+
+            val rootAId = createItem("Root A")
+            val bId = createItem("B", parentId = rootAId)
+            val cId = createItem("C", parentId = bId)
+
+            val moveResult =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("update"),
+                        "items" to
+                            JsonArray(
+                                listOf(
+                                    buildJsonObject {
+                                        put("id", JsonPrimitive(bId))
+                                        put("parentId", JsonNull)
+                                    }
+                                )
+                            )
+                    ),
+                    context
+                ) as JsonObject
+            assertTrue(moveResult["success"]!!.jsonPrimitive.boolean)
+
+            val bUuid = UUID.fromString(bId)
+            assertEquals(bUuid, rootIdOf(bId), "B must become its own root after moving to root level")
+            assertEquals(bUuid, rootIdOf(cId), "C must cascade to B's new root id (B itself)")
         }
 }

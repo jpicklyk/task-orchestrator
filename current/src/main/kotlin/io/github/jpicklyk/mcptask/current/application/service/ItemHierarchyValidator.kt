@@ -72,32 +72,34 @@ class ItemHierarchyValidator {
     }
 
     /**
-     * Recomputes the stored `depth` for every descendant of [itemId] after the item's own depth
-     * changed by [delta] (`newDepth - oldDepth`).
+     * Recomputes the stored `depth` and `rootId` for every descendant of [itemId] after the
+     * item's own depth changed by [delta] (`newDepth - oldDepth`) and its own root ancestor
+     * changed to [newRootId].
      *
-     * No-op when [delta] is zero — callers may invoke this unconditionally. Fetches the full
+     * Unlike the depth-only cascade this replaced, this is NOT a no-op when [delta] is zero:
+     * reparenting an item to a different root subtree at the *same* depth (e.g. moving a
+     * depth-1 leaf from one root's children to another root's children) leaves depth
+     * unchanged but must still restamp `rootId` on every descendant. Fetches the full
      * descendant set via [WorkItemRepository.findDescendants] and applies [delta] to each
-     * descendant's depth, persisting through [WorkItemRepository.update] (the update builder keeps
-     * `modifiedAt` monotonic, and `update` enforces the same optimistic-version check used for any
-     * other item write).
+     * descendant's depth while overwriting `rootId` with [newRootId], persisting through
+     * [WorkItemRepository.update] (the update builder keeps `modifiedAt` monotonic, and
+     * `update` enforces the same optimistic-version check used for any other item write).
      *
      * This issues one `update` per descendant — there is no bulk-update primitive on
      * [WorkItemRepository] to batch these into a single statement. Callers that need the parent's
-     * own depth write and this cascade to be atomic (all-or-nothing) MUST invoke both inside a
-     * shared [WorkItemRepository.inTransaction] block.
+     * own depth/rootId write and this cascade to be atomic (all-or-nothing) MUST invoke both
+     * inside a shared [WorkItemRepository.inTransaction] block.
      *
      * @return [Result.Success] once every descendant has been updated (including the trivial case
-     *   of zero descendants or a zero [delta]); [Result.Error] on the first failure encountered —
-     *   either the descendant fetch or a single descendant's update (e.g. a version-mismatch
-     *   conflict).
+     *   of zero descendants); [Result.Error] on the first failure encountered — either the
+     *   descendant fetch or a single descendant's update (e.g. a version-mismatch conflict).
      */
     suspend fun recomputeDescendantDepths(
         itemId: UUID,
         delta: Int,
+        newRootId: UUID,
         repo: WorkItemRepository
     ): Result<Unit> {
-        if (delta == 0) return Result.Success(Unit)
-
         val descendants =
             when (val descendantsResult = repo.findDescendants(itemId)) {
                 is Result.Success -> descendantsResult.data
@@ -105,7 +107,7 @@ class ItemHierarchyValidator {
             }
 
         for (descendant in descendants) {
-            val updatedDescendant = descendant.update { d -> d.copy(depth = d.depth + delta) }
+            val updatedDescendant = descendant.update { d -> d.copy(depth = d.depth + delta, rootId = newRootId) }
             when (val updateResult = repo.update(updatedDescendant)) {
                 is Result.Success -> {}
                 is Result.Error -> return updateResult

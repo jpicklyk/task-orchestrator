@@ -234,6 +234,7 @@ class SQLiteWorkItemRepository(
         WorkItemsTable.insert {
             it[id] = item.id
             it[parentId] = item.parentId
+            it[rootId] = item.rootId
             it[title] = item.title
             it[description] = item.description
             it[summary] = item.summary
@@ -273,6 +274,7 @@ class SQLiteWorkItemRepository(
                     (WorkItemsTable.id eq item.id) and (WorkItemsTable.version eq item.version)
                 }) {
                     it[parentId] = item.parentId
+                    it[rootId] = item.rootId
                     it[title] = item.title
                     it[description] = item.description
                     it[summary] = item.summary
@@ -1875,6 +1877,7 @@ class SQLiteWorkItemRepository(
         WorkItem(
             id = row[WorkItemsTable.id].value,
             parentId = row[WorkItemsTable.parentId],
+            rootId = row[WorkItemsTable.rootId],
             title = row[WorkItemsTable.title],
             description = row[WorkItemsTable.description],
             summary = row[WorkItemsTable.summary],

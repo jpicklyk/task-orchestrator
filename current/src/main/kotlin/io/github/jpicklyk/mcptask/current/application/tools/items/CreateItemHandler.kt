@@ -88,6 +88,20 @@ class CreateItemHandler(
                         errorPrefix = "Item at index $index"
                     )
 
+                // rootId: inherit the parent's root (or the parent's own id, if the parent
+                // predates the root_id backfill and has no rootId yet); own id at depth 0.
+                val rootId =
+                    if (parentId == null) {
+                        itemId
+                    } else {
+                        when (val parentResult = repo.getById(parentId)) {
+                            is Result.Success -> parentResult.data.rootId ?: parentResult.data.id
+                            is Result.Error -> throw ToolValidationException(
+                                "Item at index $index: parent '$parentId' not found"
+                            )
+                        }
+                    }
+
                 // Parse role with default
                 val role =
                     if (roleStr != null) {
@@ -119,6 +133,7 @@ class CreateItemHandler(
                     WorkItem(
                         id = itemId,
                         parentId = parentId,
+                        rootId = rootId,
                         title = title,
                         description = description,
                         summary = summary,

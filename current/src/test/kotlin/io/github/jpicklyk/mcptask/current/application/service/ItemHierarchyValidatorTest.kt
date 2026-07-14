@@ -25,6 +25,11 @@ import kotlin.test.assertTrue
  * descendant kept its stale absolute depth. These tests cover the cascade helper directly; the
  * MCP (`ManageItemsToolTest`) and REST (`WriteRoutesTest`) paths cover the two call sites that
  * wire this helper in.
+ *
+ * root_id context: the helper was later extended (denormalized root_id column) to also restamp
+ * `rootId` on every descendant in the same sweep as the depth delta — moving a subtree to a
+ * different root changes every descendant's root ancestor even when depth is unaffected (see the
+ * "restamps rootId ... same depth" test below).
  */
 class ItemHierarchyValidatorTest {
     private lateinit var repo: WorkItemRepository
@@ -54,16 +59,26 @@ class ItemHierarchyValidatorTest {
             result.data.depth
         }
 
+    private fun rootIdOf(id: UUID): UUID? =
+        runBlocking {
+            val result = repo.getById(id)
+            assertIs<Result.Success<WorkItem>>(result)
+            result.data.rootId
+        }
+
     @Test
-    fun `delta zero is a no-op`(): Unit =
+    fun `delta zero still restamps rootId when the root subtree changes`(): Unit =
         runBlocking {
             val root = create(WorkItem(title = "root", depth = 0))
             val child = create(WorkItem(title = "child", parentId = root.id, depth = 1))
 
-            val result = validator.recomputeDescendantDepths(root.id, 0, repo)
+            // Depth is unaffected (delta = 0), but the caller has determined the item's root
+            // changed (e.g. moved between two same-depth subtrees) — rootId must still restamp.
+            val result = validator.recomputeDescendantDepths(root.id, 0, root.id, repo)
 
             assertIs<Result.Success<Unit>>(result)
             assertEquals(1, depthOf(child.id), "Child depth must be untouched when delta is 0")
+            assertEquals(root.id, rootIdOf(child.id), "Child rootId must be stamped even when delta is 0")
         }
 
     @Test
@@ -76,11 +91,13 @@ class ItemHierarchyValidatorTest {
 
             // Simulate root having just moved one level deeper (delta = +1); recompute root's
             // descendants only (child, grandchild) — the root's own depth write is the caller's job.
-            val result = validator.recomputeDescendantDepths(root.id, 1, repo)
+            val result = validator.recomputeDescendantDepths(root.id, 1, root.id, repo)
 
             assertIs<Result.Success<Unit>>(result)
             assertEquals(2, depthOf(child.id), "Child should shift from depth 1 to 2")
             assertEquals(3, depthOf(grandchild.id), "Grandchild should shift from depth 2 to 3")
+            assertEquals(root.id, rootIdOf(child.id))
+            assertEquals(root.id, rootIdOf(grandchild.id))
         }
 
     @Test
@@ -95,12 +112,31 @@ class ItemHierarchyValidatorTest {
             val c = create(WorkItem(title = "c", parentId = b.id, depth = 2))
             val d = create(WorkItem(title = "d", parentId = c.id, depth = 3))
 
-            // B moved from depth 1 to depth 0 (became root): delta = -1.
-            val result = validator.recomputeDescendantDepths(b.id, -1, repo)
+            // B moved from depth 1 to depth 0 (became root): delta = -1, B becomes its own root.
+            val result = validator.recomputeDescendantDepths(b.id, -1, b.id, repo)
 
             assertIs<Result.Success<Unit>>(result)
             assertEquals(1, depthOf(c.id), "C should shift from depth 2 to 1")
             assertEquals(2, depthOf(d.id), "D should shift from depth 3 to 2")
+            assertEquals(b.id, rootIdOf(c.id), "C's root should now be B (B became its own root)")
+            assertEquals(b.id, rootIdOf(d.id), "D's root should now be B")
+        }
+
+    @Test
+    fun `restamps rootId for every descendant when moving between two roots at the same depth`(): Unit =
+        runBlocking {
+            // rootA(0) -> b(1) -> c(2). B moves to rootB (also depth 0): depth is unchanged
+            // (delta = 0) but every descendant's rootId must flip from rootA to rootB.
+            val rootA = create(WorkItem(title = "rootA", depth = 0))
+            val rootB = create(WorkItem(title = "rootB", depth = 0))
+            val b = create(WorkItem(title = "b", parentId = rootA.id, depth = 1))
+            val c = create(WorkItem(title = "c", parentId = b.id, depth = 2))
+
+            val result = validator.recomputeDescendantDepths(b.id, 0, rootB.id, repo)
+
+            assertIs<Result.Success<Unit>>(result)
+            assertEquals(2, depthOf(c.id), "C's depth is unaffected by a same-depth root swap")
+            assertEquals(rootB.id, rootIdOf(c.id), "C's rootId must flip to rootB even though depth didn't change")
         }
 
     @Test
@@ -108,7 +144,7 @@ class ItemHierarchyValidatorTest {
         runBlocking {
             val leaf = create(WorkItem(title = "leaf", depth = 0))
 
-            val result = validator.recomputeDescendantDepths(leaf.id, 2, repo)
+            val result = validator.recomputeDescendantDepths(leaf.id, 2, leaf.id, repo)
 
             assertIs<Result.Success<Unit>>(result)
         }
@@ -119,7 +155,7 @@ class ItemHierarchyValidatorTest {
             val root = create(WorkItem(title = "root", depth = 0))
             val child = create(WorkItem(title = "child", parentId = root.id, depth = 1))
 
-            validator.recomputeDescendantDepths(root.id, 1, repo)
+            validator.recomputeDescendantDepths(root.id, 1, root.id, repo)
 
             val updated = (repo.getById(child.id) as Result.Success<WorkItem>).data
             assertEquals(2, updated.depth)
