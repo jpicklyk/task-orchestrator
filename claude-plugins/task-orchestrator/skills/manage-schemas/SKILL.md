@@ -41,6 +41,8 @@ Check if `.taskorchestrator/config.yaml` exists by reading it.
 
 **If the file exists:** Read and parse it. Proceed to Step 3.
 
+> **Note:** `project:` is a recognized top-level key alongside `work_item_schemas`, `traits`, and `actor_authentication` — it anchors this repo to a project root item and is read only by other skills (`quick-start`, `/adopt-project-scope`), never by this skill. Do not treat it as unknown, and never drop or rewrite it — every write operation in Step 3 (CREATE/EDIT/DELETE) must carry it through unchanged. See `references/config-format.md` → Project Scoping for its fields.
+
 ---
 
 ## Step 3 — Route to Operation
@@ -127,7 +129,14 @@ For detailed workflow, see `references/validate-workflow.md` in this skill folde
 
 **For write operations (CREATE, EDIT, DELETE):**
 - Show what changed in the config file
-- Remind: **MCP reconnect required** (`/mcp`) for schema changes to take effect — the server caches schemas on first access
+- **Sync to server (if project-scoped):** Check whether the config has a top-level `project.rootId` (see Step 2's note and `references/config-format.md` → Project Scoping). If present, check the tool list for `manage_project_config` — older servers may not expose it, in which case note this to the user and skip (the config.yaml write above is authoritative locally; the server picks it up on its normal read path once the tool becomes available). If the tool is available, call:
+  ```
+  manage_project_config(operation="push", rootItemId="<project.rootId>", configYaml="<full current file text>")
+  ```
+  - Success → report the returned `fingerprint`. Re-pushing identical content later returns the same fingerprint (idempotent) — safe to call after every write without pre-checking.
+  - `VALIDATION_ERROR` → the server rejected the YAML (e.g. a construct its parser can't accept). The local file is already saved — tell the user the parse error from the response and to fix `.taskorchestrator/config.yaml`, then re-run VALIDATE and retry the push.
+  - A `warning` field on a successful response → relay it to the user as-is (non-fatal — e.g. the root item's `type` isn't `"project"`).
+- Remind: **MCP reconnect required** (`/mcp`) for schema changes to take effect on the *global* config path — the server caches `.taskorchestrator/config.yaml` on first access. A successful per-root push above takes effect immediately for items scoped to that root, without needing reconnect.
 
 **For VIEW and VALIDATE:** The output from Step 3 is the deliverable — no additional report needed.
 

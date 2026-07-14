@@ -95,6 +95,8 @@ Require explicit confirmation before applying.
 
 ## Write Back
 
+**Preserve all other top-level keys verbatim.** Only the schema being edited may change — carry through `project`, `actor_authentication`, `note_limits`, `traits`, and any other top-level key exactly as read. Do not regenerate the whole file from a parsed-and-reserialized model; splice the edited schema back into the existing text rather than reconstructing the file from scratch.
+
 Write the modified config back to `.taskorchestrator/config.yaml`. Show a diff-style summary of what changed:
 
 ```

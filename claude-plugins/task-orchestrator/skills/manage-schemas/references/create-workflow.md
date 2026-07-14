@@ -176,6 +176,8 @@ Check if `.taskorchestrator/config.yaml` exists:
 - **Exists:** Read it, merge the new schema under `work_item_schemas:`, write back
 - **Doesn't exist:** Create `.taskorchestrator/` directory and write the file with the new schema under `work_item_schemas:`
 
+**Preserve all other top-level keys verbatim.** Only the `work_item_schemas:` (or `note_schemas:`) section may change. Every other top-level key present in the file — `project`, `actor_authentication`, `note_limits`, `traits`, and any key not recognized by this skill — must be carried through unchanged. Do not reconstruct the file from a parsed-and-regenerated schema model, since that silently drops blocks this skill doesn't know about; splice the new schema into the existing text (or reproduce every other top-level block exactly as read).
+
 After writing, remind the user: **MCP reconnect required** (`/mcp`) for the schema to take effect.
 
 ---

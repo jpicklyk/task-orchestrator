@@ -54,6 +54,10 @@ Review applies only when the item's schema declares review-phase notes; otherwis
 5. **Know current state** — query MCP before deciding; `role="work"` filters resolve to all work-phase statuses
 6. **Communicate concisely** — status first, action second
 
+## Project Scope
+
+When session context carries a project rootId (injected by the SessionStart hook from `.taskorchestrator/config.yaml`'s `project:` block), operate project-scoped by default: pass `ancestorId: "<rootId>"` on `query_items` list mode, `get_next_item`, `get_context`, and `get_blocked_items`; anchor new root-level items under the project root via `parentId`. Process-global containers (Session Retrospectives, Improvement Proposals, `agent-observation` items) stay at depth 0 outside any project root — never anchor or scope those. Without a configured rootId, whole-workspace behavior is unchanged; suggest `/adopt-project-scope` only when the user mentions multiple projects sharing a database.
+
 ## Delegation
 
 | Task type | Model |

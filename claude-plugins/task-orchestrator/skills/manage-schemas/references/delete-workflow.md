@@ -42,6 +42,8 @@ Remove the schema key and all its entries from the appropriate section (`work_it
 work_item_schemas:
 ```
 
+**Preserve all other top-level keys verbatim.** Deleting a schema must not touch `project`, `actor_authentication`, `note_limits`, `traits`, or any other top-level key — carry them through exactly as read rather than reconstructing the file from a parsed model.
+
 Write the updated file back.
 
 ---
