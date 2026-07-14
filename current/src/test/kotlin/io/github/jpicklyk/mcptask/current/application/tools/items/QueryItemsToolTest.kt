@@ -913,6 +913,221 @@ class QueryItemsToolTest {
         }
 
     // ──────────────────────────────────────────────
+    // excludeTerminal — overview operation
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `global overview excludeTerminal true hides terminal roots and keeps non-terminal roots intact`(): Unit =
+        runBlocking {
+            val activeRootId = createItem("Active Root")
+            createItem("Active Child", parentId = activeRootId, role = "queue")
+            createItem("Done Root", role = "terminal")
+
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("overview"),
+                        "excludeTerminal" to JsonPrimitive(true)
+                    ),
+                    context
+                ) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val data = result["data"] as JsonObject
+            val items = data["items"]!!.jsonArray
+
+            val titles = items.map { it.jsonObject["title"]!!.jsonPrimitive.content }
+            assertTrue(titles.contains("Active Root"), "Non-terminal root should still be present")
+            assertFalse(titles.contains("Done Root"), "Terminal root should be excluded from items")
+
+            // total reflects the filtered (non-terminal) root count, not the unconditional count.
+            assertEquals(1, data["total"]!!.jsonPrimitive.int)
+            assertEquals(false, data["truncated"]!!.jsonPrimitive.boolean)
+
+            // childCounts/children on the surviving root are unaffected by the filter.
+            val activeRoot = items.first { it.jsonObject["title"]!!.jsonPrimitive.content == "Active Root" }.jsonObject
+            val childCounts = activeRoot["childCounts"] as JsonObject
+            assertEquals(1, childCounts["queue"]!!.jsonPrimitive.int)
+        }
+
+    @Test
+    fun `global overview excludeTerminal true with includeChildren also hides terminal children under surviving roots`(): Unit =
+        runBlocking {
+            val rootId = createItem("Root With Mixed Children")
+            createItem("Live Child", parentId = rootId, role = "work")
+            createItem("Done Child", parentId = rootId, role = "terminal")
+
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("overview"),
+                        "excludeTerminal" to JsonPrimitive(true),
+                        "includeChildren" to JsonPrimitive(true)
+                    ),
+                    context
+                ) as JsonObject
+
+            val data = result["data"] as JsonObject
+            val rootItem =
+                data["items"]!!
+                    .jsonArray
+                    .first { it.jsonObject["title"]!!.jsonPrimitive.content == "Root With Mixed Children" }
+                    .jsonObject
+            val children = rootItem["children"]!!.jsonArray
+            assertEquals(1, children.size)
+            assertEquals("Live Child", children[0].jsonObject["title"]!!.jsonPrimitive.content)
+        }
+
+    @Test
+    fun `scoped overview excludeTerminal true filters terminal children but always returns the parent`(): Unit =
+        runBlocking {
+            val parentId = createItem("Parent In Progress")
+            createItem("Live Child", parentId = parentId, role = "work")
+            createItem("Done Child", parentId = parentId, role = "terminal")
+
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("overview"),
+                        "itemId" to JsonPrimitive(parentId),
+                        "excludeTerminal" to JsonPrimitive(true)
+                    ),
+                    context
+                ) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val data = result["data"] as JsonObject
+
+            // Parent is always returned regardless of its own role.
+            val item = data["item"] as JsonObject
+            assertEquals("Parent In Progress", item["title"]!!.jsonPrimitive.content)
+
+            val children = data["children"]!!.jsonArray
+            assertEquals(1, children.size)
+            assertEquals("Live Child", children[0].jsonObject["title"]!!.jsonPrimitive.content)
+
+            // childCounts still reflects the full, unfiltered role breakdown.
+            val childCounts = data["childCounts"] as JsonObject
+            assertEquals(1, childCounts["work"]!!.jsonPrimitive.int)
+            assertEquals(1, childCounts["terminal"]!!.jsonPrimitive.int)
+        }
+
+    @Test
+    fun `scoped overview excludeTerminal true still returns a terminal parent itself`(): Unit =
+        runBlocking {
+            val parentId = createItem("Finished Parent", role = "terminal")
+            createItem("Leftover Child", parentId = parentId, role = "terminal")
+
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("overview"),
+                        "itemId" to JsonPrimitive(parentId),
+                        "excludeTerminal" to JsonPrimitive(true)
+                    ),
+                    context
+                ) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val data = result["data"] as JsonObject
+            val item = data["item"] as JsonObject
+            assertEquals("Finished Parent", item["title"]!!.jsonPrimitive.content)
+            assertEquals(0, data["children"]!!.jsonArray.size)
+        }
+
+    @Test
+    fun `overview excludeTerminal omitted defaults to false and preserves current behavior`(): Unit =
+        runBlocking {
+            val parentId = createItem("Parent")
+            createItem("Live Child", parentId = parentId, role = "work")
+            createItem("Done Child", parentId = parentId, role = "terminal")
+            createItem("Done Root", role = "terminal")
+
+            // Global overview: no excludeTerminal param at all.
+            val globalResult =
+                tool.execute(
+                    params("operation" to JsonPrimitive("overview")),
+                    context
+                ) as JsonObject
+            val globalData = globalResult["data"] as JsonObject
+            val globalTitles = globalData["items"]!!.jsonArray.map { it.jsonObject["title"]!!.jsonPrimitive.content }
+            assertTrue(globalTitles.contains("Done Root"), "Terminal root should still appear when excludeTerminal is omitted")
+            assertEquals(2, globalData["total"]!!.jsonPrimitive.int)
+
+            // Scoped overview: no excludeTerminal param at all.
+            val scopedResult =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("overview"),
+                        "itemId" to JsonPrimitive(parentId)
+                    ),
+                    context
+                ) as JsonObject
+            val scopedData = scopedResult["data"] as JsonObject
+            assertEquals(2, scopedData["children"]!!.jsonArray.size)
+        }
+
+    // ──────────────────────────────────────────────
+    // limit/offset pagination — global overview operation
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `global overview offset pages through roots beyond the first page`(): Unit =
+        runBlocking {
+            // Created oldest-first; overview orders newest-createdAt-first, so item 0 is last.
+            val ids = (0 until 5).map { i -> createItem("Root $i") }
+
+            val firstPage =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("overview"),
+                        "limit" to JsonPrimitive(2),
+                        "offset" to JsonPrimitive(0)
+                    ),
+                    context
+                ) as JsonObject
+            val firstData = firstPage["data"] as JsonObject
+            assertEquals(2, firstData["items"]!!.jsonArray.size)
+            assertEquals(5, firstData["total"]!!.jsonPrimitive.int)
+            assertEquals(true, firstData["truncated"]!!.jsonPrimitive.boolean)
+            assertEquals(0, firstData["offset"]!!.jsonPrimitive.int)
+
+            val secondPage =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("overview"),
+                        "limit" to JsonPrimitive(2),
+                        "offset" to JsonPrimitive(2)
+                    ),
+                    context
+                ) as JsonObject
+            val secondData = secondPage["data"] as JsonObject
+            assertEquals(2, secondData["items"]!!.jsonArray.size)
+            assertEquals(true, secondData["truncated"]!!.jsonPrimitive.boolean)
+
+            val thirdPage =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("overview"),
+                        "limit" to JsonPrimitive(2),
+                        "offset" to JsonPrimitive(4)
+                    ),
+                    context
+                ) as JsonObject
+            val thirdData = thirdPage["data"] as JsonObject
+            assertEquals(1, thirdData["items"]!!.jsonArray.size)
+            assertEquals(false, thirdData["truncated"]!!.jsonPrimitive.boolean, "Last page should not be truncated")
+
+            // No overlap between pages.
+            val firstTitles = firstData["items"]!!.jsonArray.map { it.jsonObject["title"]!!.jsonPrimitive.content }.toSet()
+            val secondTitles = secondData["items"]!!.jsonArray.map { it.jsonObject["title"]!!.jsonPrimitive.content }.toSet()
+            val thirdTitles = thirdData["items"]!!.jsonArray.map { it.jsonObject["title"]!!.jsonPrimitive.content }.toSet()
+            assertEquals(emptySet(), firstTitles intersect secondTitles)
+            assertEquals(emptySet(), secondTitles intersect thirdTitles)
+            assertEquals(ids.size, (firstTitles + secondTitles + thirdTitles).size)
+        }
+
+    // ──────────────────────────────────────────────
     // statusLabel coverage
     // ──────────────────────────────────────────────
 

@@ -198,23 +198,32 @@ interface WorkItemRepository {
      *
      * Returns an [ItemFetchResult]: rows that fail domain validation are dropped rather than
      * failing the whole query — [ItemFetchResult.skipped] reports how many were dropped. Use
-     * [countRootItems] (unaffected by [limit]/[offset] or validation) for the true root count.
+     * [countRootItems] (unaffected by [limit]/[offset] or validation, with the same
+     * [excludeTerminal] value) for the true root count.
      *
      * @param offset Zero-based row offset applied at the SQL level, for paging through roots
      *   beyond the first [limit] rows.
+     * @param excludeTerminal When true, roots whose `role` is `terminal` are filtered out at the
+     *   SQL level (applied before `limit`/`offset`), so a terminal root is never fetched and
+     *   never counts against the page.
      */
     suspend fun findRootItems(
         limit: Int = 50,
         offset: Int = 0,
+        excludeTerminal: Boolean = false,
     ): Result<ItemFetchResult>
 
     /**
      * True count of root items (items with `parentId IS NULL`), unaffected by any `limit` and
      * computed at the raw-SQL level (not subject to the domain-validation drops that
-     * [findRootItems] applies). Pair with [findRootItems] to detect truncation:
-     * `truncated = returned < total` where `returned = findRootItems(limit).items.size`.
+     * [findRootItems] applies). Pair with [findRootItems] (same [excludeTerminal] value) to
+     * detect truncation: `truncated = offset + returned < total` where
+     * `returned = findRootItems(limit, offset).items.size`.
+     *
+     * @param excludeTerminal When true, counts only roots whose `role` is not `terminal` —
+     *   i.e. the count matches the filtered set [findRootItems] returns with the same flag.
      */
-    suspend fun countRootItems(): Result<Long>
+    suspend fun countRootItems(excludeTerminal: Boolean = false): Result<Long>
 
     /**
      * Find all descendants of the given item (children, grandchildren, etc.) recursively.

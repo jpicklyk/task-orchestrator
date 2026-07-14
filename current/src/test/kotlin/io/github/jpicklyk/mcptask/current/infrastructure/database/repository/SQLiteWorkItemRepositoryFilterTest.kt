@@ -407,6 +407,44 @@ class SQLiteWorkItemRepositoryFilterTest {
             assertEquals(listOf("Newest", "Middle", "Oldest"), titles)
         }
 
+    @Test
+    fun `findRootItems with excludeTerminal true omits terminal roots`() =
+        runBlocking {
+            repository.create(WorkItem(title = "Active Root", depth = 0, role = Role.QUEUE))
+            repository.create(WorkItem(title = "Done Root", depth = 0, role = Role.TERMINAL))
+
+            val result = repository.findRootItems(excludeTerminal = true)
+            assertIs<Result.Success<ItemFetchResult>>(result)
+            assertEquals(listOf("Active Root"), result.data.items.map { it.title })
+        }
+
+    @Test
+    fun `findRootItems with excludeTerminal false preserves current behavior`() =
+        runBlocking {
+            repository.create(WorkItem(title = "Active Root", depth = 0, role = Role.QUEUE))
+            repository.create(WorkItem(title = "Done Root", depth = 0, role = Role.TERMINAL))
+
+            val result = repository.findRootItems()
+            assertIs<Result.Success<ItemFetchResult>>(result)
+            assertEquals(2, result.data.items.size)
+        }
+
+    @Test
+    fun `countRootItems with excludeTerminal true counts only non-terminal roots`() =
+        runBlocking {
+            repository.create(WorkItem(title = "Active Root 1", depth = 0, role = Role.QUEUE))
+            repository.create(WorkItem(title = "Active Root 2", depth = 0, role = Role.WORK))
+            repository.create(WorkItem(title = "Done Root", depth = 0, role = Role.TERMINAL))
+
+            val filteredCount = repository.countRootItems(excludeTerminal = true)
+            assertIs<Result.Success<Long>>(filteredCount)
+            assertEquals(2L, filteredCount.data)
+
+            val unfilteredCount = repository.countRootItems()
+            assertIs<Result.Success<Long>>(unfilteredCount)
+            assertEquals(3L, unfilteredCount.data)
+        }
+
     /**
      * Directly blanks a row's title via Exposed, bypassing [WorkItem.validate]. Simulates a
      * corrupt/legacy row that [SQLiteWorkItemRepository]'s `toWorkItemOrNull` must drop rather

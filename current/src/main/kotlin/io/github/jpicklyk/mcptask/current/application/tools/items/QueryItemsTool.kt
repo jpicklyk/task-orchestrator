@@ -97,8 +97,12 @@ Operations: get, search, overview
 - With itemId: Item metadata + child counts by role + direct children list
 - Without itemId: Global overview of all root items with per-root child counts and claimSummary { active, expired, unclaimed }
 - claimSummary counts are per root-item's subtree (or global when no itemId)
-- Default limit: 20 root items
+- Default limit: 50 root items; offset paginates through roots beyond the first page
+  (global overview only — limit/offset are not applied to scoped overview, which always returns
+  all direct children of the given item)
+- truncated (global overview only) = offset + returned root count < total
 - includeChildren (boolean, default false): When true (global overview only), each root item includes a `children` array of its direct child items
+- excludeTerminal (boolean, default false): hide terminal-role items from overview results (global vs scoped semantics in the parameter schema)
         """.trimIndent()
 
     override val category = ToolCategory.ITEM_MANAGEMENT
@@ -382,6 +386,24 @@ Operations: get, search, overview
                                 "description",
                                 JsonPrimitive(
                                     "When true, each root item in global overview includes a `children` array of direct child items (overview operation, global mode only)"
+                                )
+                            )
+                        }
+                    )
+                    put(
+                        "excludeTerminal",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("boolean"))
+                            put(
+                                "description",
+                                JsonPrimitive(
+                                    "Overview operation only, default false. Global overview (no itemId): excludes " +
+                                        "terminal-role roots from `items` — they are filtered at the SQL level before " +
+                                        "child counts/claim summaries are fetched, and `total`/`truncated` reflect the " +
+                                        "filtered (non-terminal) root count. Scoped overview (itemId set): excludes " +
+                                        "terminal-role items from the `children` array only — the parent item is always " +
+                                        "returned regardless of its own role, and `childCounts` still reflects the full, " +
+                                        "unfiltered role breakdown."
                                 )
                             )
                         }
@@ -948,7 +970,7 @@ Operations: get, search, overview
         if (itemIdError != null) return itemIdError
 
         return if (itemId != null) {
-            executeScopedOverview(itemId, context)
+            executeScopedOverview(itemId, params, context)
         } else {
             executeGlobalOverview(params, context)
         }
@@ -956,8 +978,11 @@ Operations: get, search, overview
 
     private suspend fun executeScopedOverview(
         itemId: java.util.UUID,
+        params: JsonElement,
         context: ToolExecutionContext
     ): JsonElement {
+        val excludeTerminal = optionalBoolean(params, "excludeTerminal", false)
+
         // Fetch the item itself
         val item =
             when (val result = context.workItemRepository().getById(itemId)) {
@@ -968,7 +993,7 @@ Operations: get, search, overview
                 )
             }
 
-        // Count children by role
+        // Count children by role — always the full breakdown, unaffected by excludeTerminal.
         val childCounts =
             when (val result = context.workItemRepository().countChildrenByRole(itemId)) {
                 is Result.Success -> result.data
@@ -987,12 +1012,15 @@ Operations: get, search, overview
                     ErrorCodes.DATABASE_ERROR
                 )
             }
+        // excludeTerminal filters the emitted list only — childCounts above stays unfiltered so
+        // callers can still see how many terminal children exist even when they're hidden here.
+        val visibleChildren = if (excludeTerminal) children.filterNot { it.role == Role.TERMINAL } else children
 
         val data =
             buildJsonObject {
                 put("item", item.toFullJson())
                 put("childCounts", roleCountToJson(childCounts))
-                put("children", JsonArray(children.map { enrichChildJson(it, context) }))
+                put("children", JsonArray(visibleChildren.map { enrichChildJson(it, context) }))
             }
 
         return successResponse(data)
@@ -1005,11 +1033,16 @@ Operations: get, search, overview
         // Default aligned with the shared `limit` parameterSchema description ("default: 50") —
         // this operation previously hardcoded 20, silently truncating dashboards with 21-50 roots.
         val limit = optionalInt(params, "limit") ?: 50
+        val offset = (optionalInt(params, "offset") ?: 0).coerceAtLeast(0)
         val includeChildren = params.jsonObject["includeChildren"]?.jsonPrimitive?.booleanOrNull ?: false
+        val excludeTerminal = optionalBoolean(params, "excludeTerminal", false)
 
-        // Fetch root items (newest-createdAt-first; validation-failed rows dropped and counted)
+        // Fetch root items (newest-createdAt-first; validation-failed rows dropped and counted).
+        // When excludeTerminal is set, terminal-role roots are filtered at the SQL level — they
+        // are never fetched, so the enrichment loop below never pays for their child counts,
+        // claim summaries, or children payload.
         val fetchResult =
-            when (val result = context.workItemRepository().findRootItems(limit)) {
+            when (val result = context.workItemRepository().findRootItems(limit, offset, excludeTerminal)) {
                 is Result.Success -> result.data
                 is Result.Error -> return errorResponse(
                     result.error.message,
@@ -1019,9 +1052,12 @@ Operations: get, search, overview
         val rootItems = fetchResult.items
         val skipped = fetchResult.skipped
 
-        // True root count — unaffected by `limit` or validation drops (see countRootItems KDoc).
+        // True (filtered, when excludeTerminal) root count — unaffected by `limit`/`offset` or
+        // validation drops (see countRootItems KDoc). `total` reflects the same excludeTerminal
+        // value passed to findRootItems above, so it is the count of the set being paged through,
+        // not the unconditional root count.
         val totalRoots =
-            when (val result = context.workItemRepository().countRootItems()) {
+            when (val result = context.workItemRepository().countRootItems(excludeTerminal)) {
                 is Result.Success -> result.data
                 is Result.Error -> return errorResponse(
                     result.error.message,
@@ -1070,7 +1106,10 @@ Operations: get, search, overview
                                 is Result.Success -> result.data
                                 is Result.Error -> emptyList()
                             }
-                        put("children", JsonArray(children.map { enrichChildJson(it, context) }))
+                        // Same excludeTerminal semantics as the scoped-overview `children` array.
+                        val visibleChildren =
+                            if (excludeTerminal) children.filterNot { it.role == Role.TERMINAL } else children
+                        put("children", JsonArray(visibleChildren.map { enrichChildJson(it, context) }))
                     }
                 }
             }
@@ -1078,10 +1117,12 @@ Operations: get, search, overview
         val data =
             buildJsonObject {
                 put("items", JsonArray(itemsWithCounts))
-                // total = true root count (countRootItems), not the returned-page size — matches
-                // the totalHits/truncated convention used by FTS search (executeFtsSearch).
+                // total = root count for the queried set (countRootItems, same excludeTerminal
+                // value as findRootItems above) — not the returned-page size. Matches the
+                // totalHits/truncated convention used by FTS search (executeFtsSearch).
                 put("total", JsonPrimitive(totalRoots))
-                put("truncated", JsonPrimitive(rootItems.size < totalRoots))
+                put("truncated", JsonPrimitive(offset + rootItems.size < totalRoots))
+                put("offset", JsonPrimitive(offset))
                 if (skipped > 0) put("skipped", JsonPrimitive(skipped))
             }
 
