@@ -1,241 +1,168 @@
 ---
 name: work-summary
-description: "Generates a hierarchical project dashboard showing all work items organized by container, with IDs, tags, status, and priority visible. Use when the user says: project status, what's active, show me the dashboard, work summary, what should I work on, project health, what's blocked, where did I leave off, show items, what's in the backlog, overview, or any request to see or review the current state of work items. Also use at session start when gathering current project context."
-argument-hint: "[optional: container UUID or title to scope the summary]"
+description: "Generates a project dashboard from MCP work items. Default is a lean, attention-first view: what's in flight, what's blocked, what to do next, what's queued. Use when the user says: project status, what's active, show me the dashboard, work summary, what should I work on, project health, what's blocked, where did I leave off, show items, what's in the backlog, overview, or any request to see or review the current state of work items. Also use at session start when gathering current project context."
+argument-hint: "[full | container UUID or title to scope the summary]"
 ---
 
 # Work Summary — Current (v3)
 
-Generate a PM-ready project dashboard. The goal is to show the full project state in one view — every container, every item, with enough detail (IDs, tags, priority, status) to make decisions and take action. Supplement the data with brief observations only when there is a genuine anomaly or actionable insight.
+Attention-first project dashboard. The default (lean) mode answers four questions — what's moving, what's stuck, what's next, what's queued — in a bounded view (~45 lines) regardless of workspace size. The exhaustive inventory is available as an explicit mode, not the default: mature workspaces accumulate hundreds of terminal items, and rendering them all buries the actionable content.
+
+Supplement the data with brief observations only when there is a genuine anomaly or actionable insight.
 
 ---
 
-## Step 0 — Scope Check
+## Step 0 — Mode Selection
 
-If `$ARGUMENTS` is provided:
-- If it looks like a UUID, use it directly as `parentId` for all queries below
-- If it's text, search: `query_items(operation="search", query="<text>")` — pick the best-matching root or container item and use its UUID as `parentId`
-- If multiple matches, pick the closest title match; if ambiguous, use `AskUserQuestion` to clarify
-
-When scoped to a `parentId`, modify the data collection calls:
-1. `query_items(operation="overview", itemId="<parentId>")` — scoped overview of that subtree
-2. `get_context()` — still global (filter to scope in analysis phase)
-3. `get_next_item(limit=5, parentId="<parentId>")` — scoped recommendations
-
-If no `$ARGUMENTS`, proceed with the global (unscoped) data collection as written below.
-
-## Data Collection (3 calls, run in parallel)
-
-1. `query_items(operation="overview", includeChildren=true)` — all root items with childCounts per role and direct children
-2. `get_context()` — active (work/review), blocked, and stalled items
-3. `get_next_item(limit=5)` — dependency-aware ranked recommendations
-
-**Why 3 calls:** Overview gives hierarchy structure, child counts, tags, priority, type, and traits for all items. get_context gives active/blocked/stalled signals. get_next_item gives dependency-aware recommendations.
+| `$ARGUMENTS` | Mode |
+|--------------|------|
+| empty | **Lean** (default) |
+| the literal word `full` | **Full Inventory** |
+| anything else | **Scoped** — resolve to a UUID via `query_items(operation="search", query=$ARGUMENTS, limit=5)`; prefer the best-matching root or container item; if ambiguous, present matches via `AskUserQuestion` |
 
 ---
 
-## Enrichment Phase
+## Lean Mode (default)
 
-Before rendering, cross-reference the data sources:
+### Data collection (all parallel)
 
-1. **Build lookup map from overview data:** Iterate overview root items and their children arrays. Each child in the overview includes `id, parentId, title, role, statusLabel, priority, depth, tags, type, childCounts, traits`. Build `overviewMap[id] = { priority, tags, type, traits, role, childCounts }`.
-2. **Build child count map:** Use the `childCounts` object directly from each child in the overview (no grouping needed). `childRoleCounts[id] = item.childCounts`.
-3. **Extract traits:** For items with `traits` arrays in the overview, note them for display in the Tags column.
-4. **Build active/blocked/stalled sets:** From get_context, create sets of item IDs that are active, blocked, or stalled
-5. **Classify root items:** Use the classification table below
-6. **Group standalone items by tag:** For root items classified as "Standalone item", group by their `tags` value (first tag if multiple). Items with no tag go into an "Uncategorized" group.
+1. `query_items(operation="overview", includeChildren=true, excludeTerminal=true)` — non-terminal roots with their children arrays and childCounts. **Fallback for older servers:** if `excludeTerminal` is rejected as an unknown parameter, call `query_items(operation="overview")` *without* `includeChildren`, then fetch children only where needed: for each non-terminal root whose `childCounts` show non-terminal children, `query_items(operation="search", parentId="<id>")` in parallel. Never fetch children of terminal roots.
+2. `get_context()` — health-check: active items, blocked items, stalled items, claim summary.
+3. `get_context(mode="session-resume", since="<now minus 48h, ISO 8601>")` — recent role transitions (the "where did I leave off" signal).
+4. `get_next_item(limit=5, includeDetails=true)` — ranked recommendations with parentId/tags.
+5. `query_items(operation="search", role="queue", limit=1)` — read `total` for the true queued count.
+6. `query_items(operation="search", role="terminal", limit=1)` — read `total` for the true done count.
 
-### Root Item Classification
+**Headline counts must come from these sources, never from eyeballing the overview payload** — overview covers roots + direct children only and may be truncated.
 
-| Pattern | Classification | Rendering |
-|---------|---------------|-----------|
-| Has non-terminal children | **Active container** | Full section with children table |
-| All children terminal | **Completed container** | Done footer |
-| No children, non-terminal role | **Standalone item** | Standalone Items table |
-| No children, terminal role | **Completed standalone** | Done footer |
+### Enrichment
 
-> **Note:** Overview `childCounts` reflects **direct children only**. Active grandchildren can exist under a terminal root. Cross-reference with `get_context` results.
+- **Containers are shelves, not work.** Items with tag or `type` = `container` never count as active; exclude them from the active/In Flight lists.
+- **Active** = health-check `activeItems` minus containers. **Blocked/stalled** = health-check lists as-is.
+- **Workstreams** = non-terminal roots with children. Progress fraction = `terminal / total` from `childCounts`; "next up" = the highest-priority queue-role child from the children array.
+- **Standalone queue roots** group by kind: the `type` field if set; else the first tag *not* in {`agent-observation`, `feature`, `container`}; else "Uncategorized".
+- **Rollup threshold:** any group with more than 5 items renders as a count line broken down by kind, listing individual items only when priority ≥ medium or tagged `action-item`.
+- **Hygiene candidates:** empty non-terminal containers; evident test artifacts (probe/smoke/depth-test titles, `mtest-*` tags).
 
----
+### Dashboard format
 
-## Dashboard Format
-
-Render the dashboard in this exact section order. Omit any section that has no data.
-
-### Section 1: Health Headline
+Render in this order; omit any section with no data.
 
 ```
 ## ◆ Work Summary
 
-[One sentence assessing project health and momentum.]
+[One sentence: health and momentum.]
 
-**X active · Y blocked · Z stalled · W queued · V done**
-```
+**N active · N blocked · N stalled · N queued · N done**
 
-Counts come from the search results grouped by role. "active" = work + review roles. "done" = terminal role.
+### ◉ In Flight
+| ID | Item | Container | Status | Pri |
+|----|------|-----------|--------|-----|
+| `xxxxxxxx` | <title> | <parent title or —> | ◉ work | high |
 
----
+↳ Recent: <up to 3 one-line transition summaries from session-resume, newest first — omit line if none in 48h>
 
-### Section 2: Attention Required
-
-Omit this entire section if there are no blocked or stalled items.
-
-```
 ### ⊘ Attention Required
-
 | ID | Item | Container | Issue |
 |----|------|-----------|-------|
-| `short-id` | <title> | <parent title or —> | Blocked by: `<blocker-id>` <blocker-title> |
-| `short-id` | <title> | <parent title or —> | Stalled: missing `<note-key>`, `<note-key>` |
-```
+| `xxxxxxxx` | <title> | <parent or —> | Blocked by: `<blocker-id>` <blocker-title> |
+| `yyyyyyyy` | <title> | <parent or —> | Stalled: missing `<note-key>` (trait: <trait-name> if applicable) |
 
-For blocked items, show what is blocking them. For stalled items, show which required notes are missing. When a stalled item's missing note key matches a trait's note key (e.g., `migration-assessment` from trait `needs-migration-review`), mention the trait in the Issue column: `Stalled: missing \`migration-assessment\` (trait: needs-migration-review)`
-
-If there is actionable context (e.g., blocker is not in active work, or a stalled item has a `guidancePointer`), add a brief observation line below the table — one sentence max.
-
-Include the short ID so the user can reference items in follow-up commands.
-
----
-
-### Section 3: Project Inventory
-
-This is the core of the dashboard. Show every active container with its children.
-
-For each active container (has non-terminal children), render:
-
-```
-#### <Container Title> `<8-char-id>`
-<role-symbol> <role> · <N open> · <N done>
-
-| ID | Title | Status | Pri | Tags | Children |
-|----|-------|--------|-----|------|----------|
-| `xxxxxxxx` | <child title> | ◉ work | high | feature-task ▸migration | — |
-| `yyyyyyyy` | <child title> | ○ queue | med | — | 2○ 1◉ |
-| `zzzzzzzz` | <child title> | ⊘ blocked | high | bug-fix ▸security | — |
-
-✓ N completed: <comma-separated titles of terminal children>
-```
-
-**Rendering rules for container sections:**
-- Sort children: ◉ active (work/review) first, then ⊘ blocked, then ○ queue, then ✓ terminal
-- Non-terminal children get full table rows with all columns
-- Terminal children are collapsed into the `✓ N completed` line below the table. If 0 completed, omit the line. If more than 5 completed, show first 3 titles then `(+N more)`.
-- The container header shows the short ID for user reference
-- `<N open>` = queue + work + review + blocked children count
-- **Children column:** If an item itself has children (detected from search results where other items have this item's ID as `parentId`), show a compact role summary using the format `N○ N◉ N⊘ N✓` (omit roles with zero count). If the item has no children, show `—`.
-- Tags column: show tag value or `—` if none. When an item has traits, append them after the tag using a `▸` prefix with shortened trait names (strip `needs-` prefix). Example: `feature-task ▸migration-review` or `bug-fix ▸security`. If no tag but has traits, show `▸<trait-name>` only.
-- Priority column: show `high`, `med`, `low`, or `—` if default/unset
-
-**If a container itself is in work/review role**, prefix its header with the role symbol: `#### ◉ Tech Debt \`89d02e32\``
-
----
-
-### Section 4: Standalone Items
-
-Root items (depth 0) that have no children and are non-terminal. Omit section if none.
-
-**Grouping strategy — adaptive, hierarchy-first:**
-
-Items with a `parentId` are always shown under their container in Section 3 — hierarchy wins over tags. Standalone items (no parent) are grouped by tag in this section. This adapts to how the user organizes work:
-
-- **Hierarchy users** (containers with children): most items appear in Section 3, few standalones here
-- **Tag users** (flat items with schema tags, no containers): Section 3 is empty, this section becomes the primary view with tag-based groupings
-- **Mixed users**: containers in Section 3, orphaned tagged items grouped here by tag
-
-**Rendering rules:**
-
-1. Collect all non-terminal root items with no children
-2. Group them by tag value. Items with multiple tags: use the first tag. Items with no tag: group under "Uncategorized"
-3. If only one tag group exists (or all items are uncategorized), render as a flat table without tag subheadings
-4. If multiple tag groups exist, render each as a subheading with its own table
-
-**Multi-group format:**
-```
-### Standalone Items
-
-#### feature-implementation
-
-| ID | Title | Status | Pri | Children |
-|----|-------|--------|-----|----------|
-| `xxxxxxxx` | <title> | ○ queue | med | — |
-
-#### bug-fix
-
-| ID | Title | Status | Pri | Children |
-|----|-------|--------|-----|----------|
-| `yyyyyyyy` | <title> | ○ queue | high | — |
-
-#### Uncategorized
-
-| ID | Title | Status | Pri | Children |
-|----|-------|--------|-----|----------|
-| `zzzzzzzz` | <title> | ○ queue | med | — |
-```
-
-**Single-group format** (all same tag or all uncategorized):
-```
-### Standalone Items
-
-| ID | Title | Status | Pri | Tags | Children |
-|----|-------|--------|-----|------|----------|
-| `xxxxxxxx` | <title> | ○ queue | med | — | — |
-```
-
-Note: when items are grouped by tag, the Tags column is omitted from the table (the tag subheading already conveys it). When rendered as a flat table, include the Tags column.
-
----
-
-### Section 5: Recommended Next
-
-From `get_next_item` results. Omit if no recommendations.
-
-```
 ### ▸ Recommended Next
-
 | ID | Title | Container | Pri |
 |----|-------|-----------|-----|
-| `xxxxxxxx` | <title> | <parent title or —> | high |
+
+### ○ Backlog
+**Workstreams**
+| ID | Workstream | Progress | Next up | Pri |
+|----|-----------|----------|---------|-----|
+| `xxxxxxxx` | <root title> | 2/5 done | <queue child title> | high |
+
+**<Kind>** (N): `id` <title> (pri) · `id` <title> (pri) · ...        ← groups of ≤5
+**<Kind>** (N): X bug · Y optimization · Z friction — highest: `id` <title> (pri)   ← groups of >5
+
+### ✓ Done — N terminal items
+
+↳ Hygiene: <N> test artifacts, <N> empty containers — candidates for /batch-complete
 ```
 
-These items are queue-role, not blocked by dependencies, ranked by priority then complexity. Brief observation (one sentence) only if there's a parallelization opportunity or if all recommendations come from the same container.
+**Lean-mode rules:**
+- Total output target is ~45 lines; rollups are how you hold that budget.
+- The Done section is a single line (count from the role-total query). No titles, no done/cancelled split in lean mode — the terminal statusLabels aren't fetched. Use `full` mode for the breakdown.
+- The Hygiene line appears only when candidates exist.
+- If all of In Flight / Attention / Recommended Next are empty, say so in the health sentence ("Quiet board — nothing in flight...") rather than rendering empty sections.
 
 ---
 
-### Section 6: Done
+## Full Inventory Mode (`$ARGUMENTS` = `full`)
 
-Compact footer for completed work. Omit if nothing is terminal.
+Everything lean mode shows, plus the complete per-container inventory.
 
-```
-### ✓ Done (N total)
+### Data collection (all parallel)
 
-**Completed containers:** <title> (N children) · <title> (N children)
-**Completed standalone:** <title> · <title> · (+N more if >5)
-```
+1. `query_items(operation="overview", includeChildren=true)` — all roots. **If the response has `truncated: true`, re-issue with `limit=<total>`** so nothing is silently missing.
+2. `get_context()` — health-check.
+3. `get_next_item(limit=5, includeDetails=true)`.
+4. Role-total queries as in lean mode (queue + terminal, `limit=1`).
 
-N total = count of all terminal root items (containers + standalone).
+### Sections, in order
+
+1. **Health Headline** — same as lean mode; counts from health-check + role-total queries, containers excluded from active.
+2. **Attention Required** — same as lean mode.
+3. **Recommended Next** — same as lean mode (deliberately above the inventory).
+4. **Project Inventory** — for each **active container** (root with non-terminal children):
+
+   ```
+   #### <Container Title> `<8-char-id>`
+   <role-symbol> <role> · <N open> · <N done>
+
+   | ID | Title | Status | Pri | Tags | Children |
+   |----|-------|--------|-----|------|----------|
+
+   ✓ N completed: <first 3 titles> (+N more)
+   ```
+
+   - Sort children: ◉ active first, then ⊘ blocked, then ○ queue; terminal children collapse into the `✓ N completed` footer line (omit if 0; if >5, first 3 titles then `(+N more)`).
+   - `<N open>` = queue + work + review + blocked children.
+   - **Children column** = compact role summary `N○ N◉ N⊘ N✓` built from the child's own `childCounts` in the overview payload (omit zero roles; `—` if childless).
+   - **Tags column** = tag value or `—`; traits append with `▸` prefix, `needs-` stripped (`feature-task ▸migration-review`).
+   - If the container itself is work/review role, prefix its header with the role symbol.
+5. **Standalone Items** — non-terminal childless roots, grouped by the shared grouping key (below). One tag group → flat table with Tags column; multiple groups → subheading per group, Tags column omitted.
+6. **Done** — `### ✓ Done (N done · N cancelled)` with `**Completed containers:** <title> (N children) · ...` and `**Completed standalone:** <title> · ... (+N more if >5)`. **Cancelled items are counted and listed separately — never presented as completed work.**
+7. **Empty containers** — `**Empty (no items):** <title>, <title>` at the end of the inventory if any exist.
 
 ---
 
-### Internal: Short ID → Full UUID Mapping
+## Scoped Mode (`$ARGUMENTS` = UUID or title)
 
-Do NOT render a UUID reference table in the dashboard output. The user references items by short ID only.
+Use the resolved UUID as the scope for full-inventory-style rendering of one subtree:
 
-Instead, retain the short→full UUID mapping as internal agent context. When the user references a short ID in a follow-up command (e.g., "start `0499a6aa`"), resolve it to the full UUID silently for the MCP tool call. The search results from data collection provide all the full UUIDs needed.
+1. `query_items(operation="overview", itemId="<parentId>")` — scoped overview.
+2. `get_context()` — global; filter to the scope during enrichment.
+3. `get_next_item(limit=5, parentId="<parentId>", includeDetails=true)` — scoped recommendations.
+
+Render the Full Inventory sections for that subtree only. All shared rules apply.
 
 ---
 
-## Formatting Conventions
+## Shared Rendering Rules
 
 **Status symbols:** `✓` terminal · `◉` work/review · `⊘` blocked/stalled · `○` queue
 
-**Short IDs:** First 8 characters of the UUID, rendered in backticks: `` `af21ed9a` ``
+**Short IDs:** first 8 chars of the UUID in backticks: `` `af21ed9a` ``. Use `—` for empty values, not `0` or blank. Priority renders as `high` / `med` / `low`.
 
-**Use `—`** for empty/null values, not `0` or blank.
+**Grouping key** (standalone items, all modes): `type` field if set; else first tag not in {`agent-observation`, `feature`, `container`}; else "Uncategorized". The generic tag is never the group — the specific one is.
 
-**Priority abbreviations:** `high`, `med`, `low` in tables.
+**Containers** (tag or type `container`) are never counted as active work in any headline or In Flight list, regardless of their role.
 
-**Observations:** Write them sparingly — only when there is a genuine anomaly, bottleneck, or actionable insight. A healthy project needs zero observations. Do not fill space with "work is progressing normally" — the data speaks for itself.
+**statusLabel:** the item's *role* drives the status symbol. Print the statusLabel text only when the item is non-terminal AND the label differs from the role's default. Never print statusLabels on terminal items — stale `in-progress` labels on terminal items are a known artifact (bug `100da214`).
 
-**Empty containers:** Root items where ALL childCounts are zero and role is non-terminal. If any exist, note them at the end of the inventory section: `**Empty (no items):** <title>, <title>`
+**Cancelled ≠ done:** wherever terminal items are broken down, count `statusLabel: "cancelled"` separately.
 
-**Trait abbreviations:** Strip `needs-` prefix for display: `needs-migration-review` → `▸migration-review`
+**Truncation:** if any data-collection response had `truncated: true` that you could not resolve by re-fetching, end the dashboard with `⚠ showing X of Y root items` — never silently drop data.
+
+**Observations:** write them sparingly — only for a genuine anomaly, bottleneck, or actionable insight. A healthy project needs zero observations.
+
+### Internal: Short ID → Full UUID Mapping
+
+Do NOT render a UUID reference table. Retain the short→full UUID mapping as internal context; when the user references a short ID in a follow-up (e.g., "start `0499a6aa`"), resolve it silently for the MCP call from the data already collected.
