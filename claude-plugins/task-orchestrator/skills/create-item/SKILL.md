@@ -24,6 +24,15 @@ If title or type cannot be inferred with confidence, use `AskUserQuestion` with 
 
 ## Step 2 — Scan containers
 
+Resolve the project rootId first: check session context for a rootId injected by the SessionStart hook, or read `.taskorchestrator/config.yaml`'s top-level `project.rootId` (a file read, not an MCP call).
+
+**If a rootId is known:**
+```
+query_items(operation="overview", ancestorId="<rootId>", includeChildren=true)
+```
+Category containers (Bugs, Features, Tech Debt, etc.) are expected as direct children of the project root — anchor new items there. **Exception:** `agent-observation` items always stay at global depth 0, outside any project root, regardless of whether a rootId is known — they're process-global, not project-scoped.
+
+**If no rootId is known**, fall back to an unscoped scan and the classification below (this is also the exact behavior from before project scoping existed):
 ```
 query_items(operation="overview", includeChildren=true)
 ```
@@ -68,6 +77,8 @@ Empty (no project root exists):
   → Yes: create project root → create category under it → create item
   → No: create category container at depth 0 → create item under it
 ```
+
+**Exception (all branches):** `agent-observation` items never anchor under a project root or category container — they are process-global containers that live at depth 0 alongside (not under) any project root, per Step 2.
 
 ---
 

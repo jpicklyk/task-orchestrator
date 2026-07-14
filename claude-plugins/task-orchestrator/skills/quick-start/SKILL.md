@@ -10,14 +10,45 @@ Interactive onboarding that teaches by doing. Detects your workspace state and a
 
 ## Step 1: Detect Workspace State
 
+Resolve the project rootId first: check session context for a rootId injected by the SessionStart hook, or read `.taskorchestrator/config.yaml`'s top-level `project.rootId` (a file read, not an MCP call).
+
 Call the health check to determine which path to follow:
 
 ```
 get_context()
 ```
 
+When a rootId is known, pass it to scope the check to this project: `get_context(ancestorId="<rootId>")`. When no rootId is known — the common case for a truly fresh workspace, or one that hasn't been bootstrapped yet — call unscoped exactly as shown.
+
 **If no active or stalled items exist** — follow the **Fresh-Start Path** (Steps 2-8).
 **If active items exist** — follow the **Orientation Path** (Steps A-C).
+
+---
+
+## Step 1.5: Project Anchor Bootstrap (if needed)
+
+Before following either path, check whether this workspace has a project anchor yet:
+
+- If `.taskorchestrator/config.yaml` does not exist at all, skip this step — that's the truly fresh workspace covered by the Fresh-Start Path below. Bootstrap can happen on a later run once a config file exists (e.g., after `/manage-schemas` creates one).
+- If `.taskorchestrator/config.yaml` exists and already has a top-level `project:` block, read its `rootId` and use it for scoping throughout this session — no bootstrap needed.
+- If `.taskorchestrator/config.yaml` exists but has **no** `project:` block, offer to create one via `AskUserQuestion`: *"This workspace doesn't have a project anchor yet — want me to create one? It lets `/work-summary`, `/create-item`, and other skills scope to just this project if multiple projects ever share the same database."*
+
+If the user accepts:
+
+1. Determine a project name — from `$ARGUMENTS`, conversation context, or by asking.
+2. Create the anchor item at depth 0:
+   ```
+   manage_items(operation="create", items=[{title: "<project name>", type: "project", priority: "low"}])
+   ```
+3. Write the canonical block into `.taskorchestrator/config.yaml`:
+   ```yaml
+   project:
+     rootId: "<created-item-uuid>"
+     name: "<project name>"
+   ```
+4. Older servers may not expose it, so check the tool list before calling — if a `manage_project_config` tool is available, also push the same block server-side so it takes effect immediately without waiting on a config reload. If the tool isn't available, the config.yaml write from step 3 is authoritative on its own; the server will pick it up on its normal config read path.
+
+If the user declines, proceed unscoped — nothing else in this skill requires an anchor.
 
 ---
 
@@ -210,12 +241,14 @@ get_context()
 query_items(operation="overview", includeChildren=true)
 ```
 
+Add `ancestorId="<rootId>"` to both when a rootId is known (resolved in Step 1) — this keeps the orientation dashboard scoped to the current project in multi-project workspaces. Call unscoped exactly as shown when no rootId is known.
+
 Present a condensed dashboard with these sections:
 
 - **Active Work** (role=work or review): items currently in progress — show title, role, and ancestor path
 - **Blocked / Stalled**: items that cannot advance — either dependency-blocked or missing required notes
 - **Containers**: root items with child counts by role
-- **Recommendations**: from `get_next_item(limit=3, includeDetails=true)`
+- **Recommendations**: from `get_next_item(limit=3, includeDetails=true)` — add `ancestorId="<rootId>"` when known
 
 Use status symbols: `◉` in-progress, `⊘` blocked, `○` pending, `✓` completed
 

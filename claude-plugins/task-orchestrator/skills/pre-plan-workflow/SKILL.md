@@ -14,11 +14,15 @@ The definition floor is the baseline of existing work, documentation requirement
 
 ## Step 1: Check Existing MCP State
 
+Resolve the project rootId first: check session context for a rootId injected by the SessionStart hook, or read `.taskorchestrator/config.yaml`'s top-level `project.rootId` (a file read, not an MCP call).
+
 Call the health check to see what's already tracked:
 
 ```
 get_context()
 ```
+
+When a rootId is known, pass it to scope the check to this project: `get_context(ancestorId="<rootId>")`. When no rootId is known, call unscoped exactly as shown — this is the same behavior as before project scoping existed.
 
 **If active or stalled items exist:**
 - Identify items related to the current request — avoid planning work that duplicates what's already tracked

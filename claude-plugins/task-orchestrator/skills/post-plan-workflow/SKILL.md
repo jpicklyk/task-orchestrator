@@ -13,6 +13,7 @@ Plan approval is the green light for the full pipeline. Proceed through all thre
 Complete materialization **before** any implementation begins.
 
 1. **Create MCP items** from the approved plan using `create_work_tree` (preferred for structured work with dependencies) or `manage_items` (for individual items). Apply appropriate schema tags based on the plan and the project's `.taskorchestrator/config.yaml` — this activates gate enforcement for each item. If the config defines separate schemas for containers vs. child tasks, apply the appropriate tag at each level.
+   - **Anchor the root under the project when known:** resolve the project rootId from session context (injected by the SessionStart hook) or `.taskorchestrator/config.yaml`'s `project.rootId`. When known, set the new root item's `parentId` to that rootId (directly, or to the appropriate category container beneath it if one already exists) so materialized work lands inside the project's tree instead of at a bare depth 0. When no rootId is known, create at depth 0 as before.
 2. **Wire dependency edges** between items — use `BLOCKS` for sequencing, `fan-out`/`fan-in` patterns for parallel work
 3. **Check `expectedNotes` in create responses** — if the item's tags match a schema, the response includes the expected note keys and phases. Fill required queue-phase notes (`requirements`, `acceptance-criteria`, etc.) with content from the plan before advancing.
 4. **Verify all item UUIDs exist** — confirm the full item graph is materialized before proceeding
@@ -31,7 +32,7 @@ Dispatch subagents to execute the plan:
 - **Agents own phase entry only** — each agent calls `advance_item(trigger="start")` once to enter work phase, fills work-phase notes, and returns. The orchestrator handles all further transitions (work→review or work→terminal depending on schema). Agents do NOT call `advance_item` a second time
 - Fill work-phase notes (`implementation-notes`, `test-results`, etc.) as the agent works
 - Respect dependency ordering — do not dispatch an agent for a blocked item until its blockers complete
-- **Between waves:** call `get_blocked_items(parentId=...)` to confirm upstream items completed — dependency gating implicitly verifies agents transitioned their items. If downstream items are still blocked, investigate the upstream blocker
+- **Between waves:** call `get_blocked_items(ancestorId="<featureRootId>")` to confirm upstream items completed — dependency gating implicitly verifies agents transitioned their items. `ancestorId` catches blockers anywhere in the feature's subtree (not just direct children, which `parentId` alone would miss). If downstream items are still blocked, investigate the upstream blocker
 - **Do not** call `advance_item` or `complete_tree` for terminal transitions on items delegated to agents — the orchestrator reviews and advances to terminal after agents return
 
 Do NOT use `AskUserQuestion` between phases — proceed autonomously.
