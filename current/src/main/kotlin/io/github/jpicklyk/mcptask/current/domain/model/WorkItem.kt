@@ -7,6 +7,20 @@ import java.util.UUID
 data class WorkItem(
     val id: UUID = UUID.randomUUID(),
     val parentId: UUID? = null,
+    /**
+     * Denormalized id of this item's depth-0 ancestor (its own [id] when [depth] is 0).
+     * Maintained by the application layer: stamped on create (CreateItemHandler,
+     * ItemWriteRoutes POST /items) and restamped on reparent, for the moved item and every
+     * descendant, in the same sweep as the depth cascade (ItemHierarchyValidator, and its
+     * call sites in UpdateItemHandler / ItemWriteRoutes PATCH).
+     *
+     * Nullable and NOT validated against [depth] or [parentId] here — rows written before
+     * the root_id backfill migration (or in H2 test fixtures that construct [WorkItem]
+     * directly without going through the create/reparent paths) may legitimately have a
+     * null or stale value. Treat this as a best-effort denormalization for read-path scope
+     * filtering, not a structural invariant enforced at the domain layer.
+     */
+    val rootId: UUID? = null,
     val title: String,
     val description: String? = null,
     val summary: String = "",

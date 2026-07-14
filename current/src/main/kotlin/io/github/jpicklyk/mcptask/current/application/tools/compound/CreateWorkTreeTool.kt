@@ -427,26 +427,38 @@ depth in attach mode). No depth cap.
                 )
             }
         } else {
-            // Create mode: compute root depth from parent, then build a new WorkItem.
-            val rootDepth =
-                if (parentId != null) {
-                    val parentResult = context.workItemRepository().getById(parentId)
-                    when (parentResult) {
-                        is Result.Success -> parentResult.data.depth + 1
-                        is Result.Error -> return errorResponse(
-                            "Parent item '$parentId' not found: ${parentResult.error.message}",
-                            ErrorCodes.RESOURCE_NOT_FOUND
-                        )
+            // Create mode: compute root depth + rootId from parent, then build a new WorkItem.
+            // rootId: a new root with no parentId is its own root; a new root created under
+            // parentId inherits that parent's root (or the parent's own id, if the parent
+            // predates the root_id backfill and has no rootId yet) — same idiom as
+            // CreateItemHandler.
+            val rootItemId = UUID.randomUUID()
+            val rootDepth: Int
+            val rootRootId: UUID
+            if (parentId != null) {
+                val parentResult = context.workItemRepository().getById(parentId)
+                when (parentResult) {
+                    is Result.Success -> {
+                        rootDepth = parentResult.data.depth + 1
+                        rootRootId = parentResult.data.rootId ?: parentResult.data.id
                     }
-                } else {
-                    0
+                    is Result.Error -> return errorResponse(
+                        "Parent item '$parentId' not found: ${parentResult.error.message}",
+                        ErrorCodes.RESOURCE_NOT_FOUND
+                    )
                 }
+            } else {
+                rootDepth = 0
+                rootRootId = rootItemId
+            }
             rootItem =
                 buildWorkItem(
                     obj = rootObj,
                     parentId = parentId,
                     depth = rootDepth,
-                    contextLabel = "root"
+                    rootId = rootRootId,
+                    contextLabel = "root",
+                    id = rootItemId
                 ) ?: return errorResponse("Failed to build root item", ErrorCodes.VALIDATION_ERROR)
             isExistingRoot = false
         }
@@ -504,11 +516,18 @@ depth in attach mode). No depth cap.
             val parentRef = refToParentRef[ref]!!
             val parentItem = refToItem[parentRef]!! // root or already-built sibling
             val depth = parentItem.depth + 1
+            // rootId: inherit the parent's root (or the parent's own id, if the parent predates
+            // the root_id backfill and has no rootId yet). Works uniformly in both modes — in
+            // attach mode, refToItem[ROOT_REF] is the fetched *existing* root item, so its
+            // direct children correctly inherit its rootId ?: its id; deeper descendants inherit
+            // through their already-built parent, which by then carries the resolved rootId.
+            val childRootId = parentItem.rootId ?: parentItem.id
             val childItem =
                 buildWorkItem(
                     obj = childObj,
                     parentId = parentItem.id,
                     depth = depth,
+                    rootId = childRootId,
                     contextLabel = "child '$ref'"
                 ) ?: return errorResponse("Failed to build child item '$ref'", ErrorCodes.VALIDATION_ERROR)
             refToItem[ref] = childItem
@@ -812,7 +831,9 @@ depth in attach mode). No depth cap.
         obj: JsonObject,
         parentId: UUID?,
         depth: Int,
-        contextLabel: String
+        rootId: UUID,
+        contextLabel: String,
+        id: UUID = UUID.randomUUID()
     ): WorkItem? {
         val title =
             (obj["title"] as? JsonPrimitive)?.takeIf { it.isString }?.content
@@ -836,8 +857,9 @@ depth in attach mode). No depth cap.
 
         return try {
             WorkItem(
-                id = UUID.randomUUID(),
+                id = id,
                 parentId = parentId,
+                rootId = rootId,
                 title = title,
                 description = description,
                 summary = summary,

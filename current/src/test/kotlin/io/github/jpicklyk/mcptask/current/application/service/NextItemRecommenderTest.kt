@@ -227,6 +227,100 @@ class NextItemRecommenderTest {
         }
 
     // -----------------------------------------------------------------------
+    // Subtree scope (ancestorIds -> rootIds) forwarding
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun `criteria ancestorIds is forwarded to findClaimable as rootIds`(): Unit =
+        runBlocking {
+            val scopeRoot = UUID.randomUUID()
+            val criteria = NextItemRecommender.Criteria(role = Role.WORK, ancestorIds = setOf(scopeRoot))
+            val item = workItem(role = Role.WORK)
+
+            coEvery {
+                workItemRepo.findClaimable(
+                    role = Role.WORK,
+                    parentId = null,
+                    tags = null,
+                    priority = null,
+                    type = null,
+                    complexityMax = null,
+                    createdAfter = null,
+                    createdBefore = null,
+                    modifiedAfter = null,
+                    modifiedBefore = null,
+                    roleChangedAfter = null,
+                    roleChangedBefore = null,
+                    orderBy = NextItemOrder.PRIORITY_THEN_COMPLEXITY,
+                    limit = 200,
+                    requestingAgentId = null,
+                    rootIds = setOf(scopeRoot),
+                )
+            } returns Result.Success(listOf(item))
+            stubNoDependencies()
+
+            val result = recommender.recommend(criteria, limit = 1)
+            assertIs<Result.Success<List<WorkItem>>>(result)
+            assertEquals(1, result.data.size)
+
+            coVerify(exactly = 1) {
+                workItemRepo.findClaimable(
+                    role = Role.WORK,
+                    parentId = null,
+                    tags = null,
+                    priority = null,
+                    type = null,
+                    complexityMax = null,
+                    createdAfter = null,
+                    createdBefore = null,
+                    modifiedAfter = null,
+                    modifiedBefore = null,
+                    roleChangedAfter = null,
+                    roleChangedBefore = null,
+                    orderBy = NextItemOrder.PRIORITY_THEN_COMPLEXITY,
+                    limit = 200,
+                    requestingAgentId = null,
+                    rootIds = setOf(scopeRoot),
+                )
+            }
+        }
+
+    @Test
+    fun `default criteria ancestorIds is null - findClaimable called with rootIds null`(): Unit =
+        runBlocking {
+            val criteria = NextItemRecommender.Criteria()
+            val item = workItem()
+
+            stubFindClaimable(listOf(item))
+            stubNoDependencies()
+
+            val result = recommender.recommend(criteria, limit = 1)
+            assertIs<Result.Success<List<WorkItem>>>(result)
+            assertEquals(1, result.data.size)
+
+            coVerify(exactly = 1) {
+                workItemRepo.findClaimable(
+                    role = Role.QUEUE,
+                    parentId = null,
+                    tags = null,
+                    priority = null,
+                    type = null,
+                    complexityMax = null,
+                    createdAfter = null,
+                    createdBefore = null,
+                    modifiedAfter = null,
+                    modifiedBefore = null,
+                    roleChangedAfter = null,
+                    roleChangedBefore = null,
+                    orderBy = NextItemOrder.PRIORITY_THEN_COMPLEXITY,
+                    limit = 200,
+                    requestingAgentId = null,
+                    rootIds = null,
+                )
+            }
+        }
+
+    // -----------------------------------------------------------------------
     // Dependency-blocked items excluded
     // -----------------------------------------------------------------------
 

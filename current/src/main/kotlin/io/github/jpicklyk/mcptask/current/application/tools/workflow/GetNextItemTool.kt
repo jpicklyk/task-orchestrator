@@ -72,6 +72,20 @@ parameter's schema description for field-level semantics.
                         }
                     )
                     put(
+                        "ancestorId",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("string"))
+                            put(
+                                "description",
+                                JsonPrimitive(
+                                    "UUID or hex prefix (4+ chars) of an item whose subtree (any depth, inclusive) " +
+                                        "recommendations are limited to. Composes with `parentId` (both applied). " +
+                                        "Omitted = unscoped, byte-identical to current behavior."
+                                )
+                            )
+                        }
+                    )
+                    put(
                         "limit",
                         buildJsonObject {
                             put("type", JsonPrimitive("integer"))
@@ -210,6 +224,7 @@ parameter's schema description for field-level semantics.
         }
 
         validateIdOrPrefix(params, "parentId", required = false)
+        validateIdOrPrefix(params, "ancestorId", required = false)
         val limit = optionalInt(params, "limit")
         if (limit != null && (limit < 1 || limit > 20)) {
             throw ToolValidationException("limit must be between 1 and 20, got: $limit")
@@ -271,6 +286,8 @@ parameter's schema description for field-level semantics.
 
         val (parentId, parentIdError) = resolveItemId(params, "parentId", context, required = false)
         if (parentIdError != null) return parentIdError
+        val (ancestorId, ancestorIdError) = resolveItemId(params, "ancestorId", context, required = false)
+        if (ancestorIdError != null) return ancestorIdError
 
         val limit = optionalInt(params, "limit") ?: 1
         val includeDetails = optionalBoolean(params, "includeDetails", defaultValue = false)
@@ -308,6 +325,7 @@ parameter's schema description for field-level semantics.
                 roleChangedAfter = parsedRoleChangedAfter,
                 roleChangedBefore = parsedRoleChangedBefore,
                 orderBy = parsedOrderBy,
+                ancestorIds = ancestorId?.let { setOf(it) },
             )
 
         val workItemRepo = context.workItemRepository()
@@ -330,7 +348,8 @@ parameter's schema description for field-level semantics.
                         role = targetRole,
                         parentId = parentId,
                         excludeActiveClaims = false,
-                        limit = NextItemRecommender.OVER_FETCH_LIMIT
+                        limit = NextItemRecommender.OVER_FETCH_LIMIT,
+                        rootIds = ancestorId?.let { setOf(it) }
                     )
 
                 val candidates =

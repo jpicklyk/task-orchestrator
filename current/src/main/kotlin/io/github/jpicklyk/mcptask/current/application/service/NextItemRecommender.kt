@@ -50,6 +50,12 @@ class NextItemRecommender(
          * exclusion for callers without actor context, such as [GetNextItemTool]).
          */
         val requestingAgentId: String? = null,
+        /**
+         * Optional subtree scope forwarded to [WorkItemRepository.findClaimable]. When null
+         * (default), unscoped. When non-null, candidates are restricted to the subtree(s)
+         * rooted at these UUIDs (roots included) — same resolution as [WorkItemRepository.findInScope].
+         */
+        val ancestorIds: Set<UUID>? = null,
     )
 
     /**
@@ -83,6 +89,7 @@ class NextItemRecommender(
                 orderBy = criteria.orderBy,
                 limit = OVER_FETCH_LIMIT,
                 requestingAgentId = criteria.requestingAgentId,
+                rootIds = criteria.ancestorIds,
             )
 
         if (candidatesResult is Result.Error) {

@@ -76,6 +76,7 @@ class SearchRoutesIntegrationTest {
                     CREATE TABLE IF NOT EXISTS work_items (
                         id BLOB PRIMARY KEY DEFAULT (randomblob(16)),
                         parent_id BLOB REFERENCES work_items(id),
+                        root_id BLOB,
                         title TEXT NOT NULL,
                         description TEXT,
                         summary TEXT NOT NULL DEFAULT '',

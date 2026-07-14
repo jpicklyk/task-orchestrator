@@ -234,6 +234,7 @@ class SQLiteWorkItemRepository(
         WorkItemsTable.insert {
             it[id] = item.id
             it[parentId] = item.parentId
+            it[rootId] = item.rootId
             it[title] = item.title
             it[description] = item.description
             it[summary] = item.summary
@@ -273,6 +274,7 @@ class SQLiteWorkItemRepository(
                     (WorkItemsTable.id eq item.id) and (WorkItemsTable.version eq item.version)
                 }) {
                     it[parentId] = item.parentId
+                    it[rootId] = item.rootId
                     it[title] = item.title
                     it[description] = item.description
                     it[summary] = item.summary
@@ -330,13 +332,23 @@ class SQLiteWorkItemRepository(
 
     override suspend fun findByRole(
         role: Role,
-        limit: Int
+        limit: Int,
+        rootIds: Set<UUID>?
     ): Result<List<WorkItem>> =
         databaseManager.suspendedTransaction("Failed to find WorkItems by role") {
+            val conditions = mutableListOf<Op<Boolean>>()
+            conditions.add(WorkItemsTable.role eq role.name.lowercase())
+
+            if (rootIds != null) {
+                val scopeIds = resolveScopeIds(rootIds)
+                if (scopeIds.isEmpty()) return@suspendedTransaction Result.Success(emptyList())
+                conditions.add(WorkItemsTable.id inList scopeIds.map { EntityID(it, WorkItemsTable) })
+            }
+
             val items =
                 WorkItemsTable
                     .selectAll()
-                    .where { WorkItemsTable.role eq role.name.lowercase() }
+                    .where { conditions.reduce { acc, op -> acc and op } }
                     .limit(limit)
                     .mapNotNull { toWorkItemOrNull(it) }
             Result.Success(items)
@@ -356,14 +368,17 @@ class SQLiteWorkItemRepository(
             Result.Success(items)
         }
 
-    override suspend fun findRoot(): Result<WorkItem?> =
-        databaseManager.suspendedTransaction("Failed to find root WorkItem") {
-            val row =
+    override suspend fun findProjectRoots(): Result<List<WorkItem>> =
+        databaseManager.suspendedTransaction("Failed to find project root WorkItems") {
+            val items =
                 WorkItemsTable
                     .selectAll()
-                    .where { WorkItemsTable.parentId.isNull() and (WorkItemsTable.depth eq 0) }
-                    .singleOrNull()
-            Result.Success(row?.let { toWorkItemOrNull(it) })
+                    .where {
+                        WorkItemsTable.parentId.isNull() and
+                            (WorkItemsTable.depth eq 0) and
+                            (WorkItemsTable.type eq "project")
+                    }.mapNotNull { toWorkItemOrNull(it) }
+            Result.Success(items)
         }
 
     override suspend fun search(
@@ -1187,7 +1202,8 @@ class SQLiteWorkItemRepository(
         role: Role,
         parentId: UUID?,
         excludeActiveClaims: Boolean,
-        limit: Int
+        limit: Int,
+        rootIds: Set<UUID>?
     ): Result<List<WorkItem>> {
         // Read DB-side clock ONCE before opening the transaction to avoid a nested
         // transaction/savepoint (dbNow() opens its own suspendTransaction internally).
@@ -1201,6 +1217,13 @@ class SQLiteWorkItemRepository(
 
             // Optional parent scope
             parentId?.let { conditions.add(WorkItemsTable.parentId eq it) }
+
+            // Optional subtree scope — expand rootIds to the full descendant set (roots included).
+            if (rootIds != null) {
+                val scopeIds = resolveScopeIds(rootIds)
+                if (scopeIds.isEmpty()) return@suspendedTransaction Result.Success(emptyList())
+                conditions.add(WorkItemsTable.id inList scopeIds.map { EntityID(it, WorkItemsTable) })
+            }
 
             // Claim filter: exclude items with an active (non-expired) claim.
             // An item is "actively claimed" when claimed_by IS NOT NULL AND claim_expires_at > now.
@@ -1242,6 +1265,7 @@ class SQLiteWorkItemRepository(
         orderBy: NextItemOrder,
         limit: Int,
         requestingAgentId: String?,
+        rootIds: Set<UUID>?,
     ): Result<List<WorkItem>> {
         // Read DB-side clock ONCE before opening the transaction to avoid a nested
         // transaction/savepoint (dbNow() opens its own suspendTransaction internally).
@@ -1255,6 +1279,13 @@ class SQLiteWorkItemRepository(
 
             // Optional parent scope
             parentId?.let { conditions.add(WorkItemsTable.parentId eq it) }
+
+            // Optional subtree scope — expand rootIds to the full descendant set (roots included).
+            if (rootIds != null) {
+                val scopeIds = resolveScopeIds(rootIds)
+                if (scopeIds.isEmpty()) return@suspendedTransaction Result.Success(emptyList())
+                conditions.add(WorkItemsTable.id inList scopeIds.map { EntityID(it, WorkItemsTable) })
+            }
 
             // Tag any-match — reuse buildTagFilter (OR logic within list)
             tags?.takeIf { it.isNotEmpty() }?.let { conditions.add(buildTagFilter(it)) }
@@ -1395,17 +1426,29 @@ class SQLiteWorkItemRepository(
         }
     }
 
-    override suspend fun countByClaimStatus(parentId: UUID?): Result<ClaimStatusCounts> {
+    override suspend fun countByClaimStatus(
+        parentId: UUID?,
+        rootIds: Set<UUID>?
+    ): Result<ClaimStatusCounts> {
         // Read DB-side clock ONCE before opening the transaction to avoid a nested
         // transaction/savepoint (dbNow() opens its own suspendTransaction internally).
         // Use DB-side clock so counts are consistent with the DB's view of claim freshness.
         val now = dbNow()
 
         return databaseManager.suspendedTransaction("Failed to count WorkItems by claim status") {
-            // Helper to build a base condition list optionally scoped to a parent
+            // Optional subtree scope — expand rootIds to the full descendant set (roots included).
+            // Resolved once and reused across all three claim-status conditions below.
+            val scopeIds = rootIds?.let { resolveScopeIds(it) }
+            if (scopeIds != null && scopeIds.isEmpty()) {
+                return@suspendedTransaction Result.Success(ClaimStatusCounts(active = 0, expired = 0, unclaimed = 0))
+            }
+            val scopeEntityIds = scopeIds?.map { EntityID(it, WorkItemsTable) }
+
+            // Helper to build a base condition list optionally scoped to a parent and/or subtree
             fun baseConditions(): MutableList<Op<Boolean>> {
                 val conds = mutableListOf<Op<Boolean>>()
                 parentId?.let { conds.add(WorkItemsTable.parentId eq it) }
+                scopeEntityIds?.let { conds.add(WorkItemsTable.id inList it) }
                 return conds
             }
 
@@ -1583,6 +1626,30 @@ class SQLiteWorkItemRepository(
         } catch (e: Exception) {
             logger.error("Failed to countInScope for roots ${rootIds.size}: ${e.message}", e)
             Result.Error(RepositoryError.DatabaseError("Failed to countInScope: ${e.message}", e))
+        }
+    }
+
+    override suspend fun countInScopeByRole(rootIds: Set<UUID>): Result<Map<Role, Int>> {
+        if (rootIds.isEmpty()) return Result.Success(emptyMap())
+
+        return try {
+            suspendTransaction(db = databaseManager.getDatabase()) {
+                val scopeIds = resolveScopeIds(rootIds)
+                if (scopeIds.isEmpty()) return@suspendTransaction Result.Success(emptyMap())
+
+                val scopeEntityIds = scopeIds.map { EntityID(it, WorkItemsTable) }
+                val counts =
+                    WorkItemsTable
+                        .selectAll()
+                        .where { WorkItemsTable.id inList scopeEntityIds }
+                        .mapNotNull { toWorkItemOrNull(it) }
+                        .groupBy { it.role }
+                        .mapValues { (_, items) -> items.size }
+                Result.Success(counts)
+            }
+        } catch (e: Exception) {
+            logger.error("Failed to countInScopeByRole for roots ${rootIds.size}: ${e.message}", e)
+            Result.Error(RepositoryError.DatabaseError("Failed to countInScopeByRole: ${e.message}", e))
         }
     }
 
@@ -1875,6 +1942,7 @@ class SQLiteWorkItemRepository(
         WorkItem(
             id = row[WorkItemsTable.id].value,
             parentId = row[WorkItemsTable.parentId],
+            rootId = row[WorkItemsTable.rootId],
             title = row[WorkItemsTable.title],
             description = row[WorkItemsTable.description],
             summary = row[WorkItemsTable.summary],

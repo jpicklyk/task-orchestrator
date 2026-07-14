@@ -104,10 +104,11 @@ class UpdateItemHandler(
                     throw ToolValidationException("Item '$itemId': complexity must be between 1 and 10")
                 }
 
-                // Handle parentId change and depth recomputation
+                // Handle parentId change and depth/rootId recomputation
                 val parentIdStr = extractItemString(itemObj, "parentId")
                 val newParentId: UUID?
                 val newDepth: Int
+                val newRootId: UUID?
                 if (parentIdStr != null) {
                     newParentId = resolveWorkItemIdString(parentIdStr, context, "Item '$itemId': 'parentId'")
 
@@ -118,14 +119,26 @@ class UpdateItemHandler(
                             repo = repo,
                             errorPrefix = "Item '$itemId'"
                         )
+
+                    // rootId: inherit the new parent's root (or the parent's own id, if the
+                    // parent predates the root_id backfill and has no rootId yet).
+                    newRootId =
+                        when (val parentResult = repo.getById(newParentId)) {
+                            is Result.Success -> parentResult.data.rootId ?: parentResult.data.id
+                            is Result.Error -> throw ToolValidationException(
+                                "Item '$itemId': parent '$newParentId' not found"
+                            )
+                        }
                 } else if (itemObj.containsKey("parentId") && itemObj["parentId"] is JsonNull) {
-                    // Explicitly set parentId to null (move to root)
+                    // Explicitly set parentId to null (move to root) — the item becomes its own root.
                     newParentId = null
                     newDepth = 0
+                    newRootId = id
                 } else {
                     // No parentId change
                     newParentId = existing.parentId
                     newDepth = existing.depth
+                    newRootId = existing.rootId
                 }
 
                 // Apply partial update using the update builder for monotonic modifiedAt
@@ -133,6 +146,7 @@ class UpdateItemHandler(
                     existing.update { item ->
                         item.copy(
                             parentId = newParentId,
+                            rootId = newRootId,
                             title = newTitle ?: item.title,
                             description = newDescription,
                             summary = newSummary ?: item.summary,
@@ -149,18 +163,30 @@ class UpdateItemHandler(
                         )
                     }
 
-                // When the depth actually changes, the item's own write and the descendant-depth
-                // cascade must succeed or fail together — wrap both in a shared transaction so a
-                // cascade failure (e.g. a version-mismatch conflict on a descendant) rolls back the
-                // parent's own depth write too, rather than leaving the tree half-updated.
+                // When the parent actually changes, the item's own write and the
+                // descendant-depth/rootId cascade must succeed or fail together — wrap both in a
+                // shared transaction so a cascade failure (e.g. a version-mismatch conflict on a
+                // descendant) rolls back the parent's own write too, rather than leaving the tree
+                // half-updated. Gated on parentId change rather than depthDelta != 0: moving an
+                // item between two different root subtrees at the same depth leaves depth
+                // unchanged but still requires a rootId cascade over every descendant.
                 val depthDelta = newDepth - existing.depth
+                val parentChanged = newParentId != existing.parentId
                 var updateResult: Result<WorkItem>? = null
-                if (depthDelta != 0) {
+                if (parentChanged) {
                     repo.inTransaction {
                         val txResult = repo.update(updatedItem)
                         updateResult = txResult
                         if (txResult is Result.Success) {
-                            when (val cascadeResult = hierarchyValidator.recomputeDescendantDepths(id, depthDelta, repo)) {
+                            // newRootId is always non-null on this branch: parentChanged is only
+                            // true when either the parent-lookup branch (always non-null) or the
+                            // move-to-root branch (= id) set it — never the unchanged branch. The
+                            // `?: id` fallback exists only to satisfy the nullable type, not as a
+                            // reachable behavior.
+                            when (
+                                val cascadeResult =
+                                    hierarchyValidator.recomputeDescendantDepths(id, depthDelta, newRootId ?: id, repo)
+                            ) {
                                 is Result.Success -> {}
                                 is Result.Error -> throw DepthCascadeException(
                                     "Item '$itemId': failed to update descendant depths: ${cascadeResult.error.message}"
@@ -227,5 +253,7 @@ class UpdateItemHandler(
      * Caught by the per-item `catch (e: Exception)` block above and converted into a failure entry;
      * never surfaced past [execute].
      */
-    private class DepthCascadeException(message: String) : Exception(message)
+    private class DepthCascadeException(
+        message: String
+    ) : Exception(message)
 }

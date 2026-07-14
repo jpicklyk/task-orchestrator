@@ -205,6 +205,7 @@ snippets, filtered list search, or hierarchical overview.
 |---|---|---|---|
 | `operation` | string | Yes | `"search"` |
 | `parentId` | string (UUID) | No | Filter by parent |
+| `ancestorId` | string (UUID or 4+ char prefix) | No | List mode only: limit to items in this item's subtree (any depth, inclusive). Mirrors `scope.ancestorId`'s semantics but for list-mode filtering; omitted = unscoped, byte-identical to prior behavior. Not used in FTS mode — use `scope.ancestorId` there. |
 | `depth` | integer | No | Filter by depth level |
 | `role` | string | No | Filter by role: `queue`, `work`, `review`, `blocked`, `terminal` |
 | `priority` | string | No | Filter: `high`, `medium`, `low` |
@@ -228,11 +229,12 @@ snippets, filtered list search, or hierarchical overview.
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `operation` | string | Yes | `"overview"` |
-| `itemId` | string (UUID) | No | Scope overview to a specific item; omit for global root overview |
+| `itemId` | string (UUID) | No | Scope overview to a specific item (scoped mode); omit for global root overview. Mutually exclusive with `ancestorId`. |
+| `ancestorId` | string (UUID or 4+ char prefix) | No | Anchored mode: renders this item's DIRECT CHILDREN as the roots set, each with a full-subtree role-count roll-up. Mutually exclusive with `itemId` — supplying both is a validation error. |
 | `includeChildren` | boolean | No | Include direct children on each root item (global mode only, default: false) |
-| `limit` | integer | No | Max root items (default: 50; global mode only) |
-| `offset` | integer | No | Skip N root items for pagination (default: 0; global mode only — scoped overview always returns all direct children, unpaginated) |
-| `excludeTerminal` | boolean | No | Default false. Global mode: drop terminal-role roots from `items` before their children/counts are even fetched, and `total`/`truncated` reflect the filtered set. Scoped mode: drop terminal-role items from `children` only — the parent is always returned regardless of its own role, and `childCounts` stays unfiltered. |
+| `limit` | integer | No | Max root items (default: 50; global and anchored modes only) |
+| `offset` | integer | No | Skip N root items for pagination (default: 0; global and anchored modes only — scoped overview always returns all direct children, unpaginated) |
+| `excludeTerminal` | boolean | No | Default false. Global and anchored modes: drop terminal-role roots from `items` before their children/counts are even fetched, and `total`/`truncated` reflect the filtered set. Scoped mode: drop terminal-role items from `children` only — the parent is always returned regardless of its own role, and `childCounts` stays unfiltered. |
 
 #### Key Parameters — schema
 
@@ -394,6 +396,35 @@ Nullable fields (`parentId`, `statusLabel`, `tags`, `type`) are omitted when nul
 `total` is the **true count of matching root items** (via a dedicated `COUNT` query) — the unconditional root count when `excludeTerminal` is false/omitted, or the count of non-terminal roots when `excludeTerminal` is true. Either way it is independent of `limit`/`offset` and of any validation drops, and is **not** the size of the `items` array. `offset` echoes the request's `offset` (0 if omitted). `truncated` is `true` when `offset + items.length < total` for **any** reason — more pages remain, or validation drops shrank this page — which is broader than FTS search's `truncated` (that flag fires only at the FTS hit cap); use `skipped` to disambiguate the cause. `skipped` is present only when > 0: it counts root rows within this page's window that failed domain validation and were dropped rather than returned; a WARN log identifies the row so it can be repaired.
 
 `claimSummary` counts are scoped to the direct children of each root item. `active` = live non-expired claims; `expired` = claims past TTL; `unclaimed` = items with no claim record. `claimedBy` identity is never included at this level.
+
+**Response (overview — anchored mode, with `ancestorId`).**
+
+```json
+{
+  "anchor": { "id": "uuid", "title": "Q3 Platform Project" },
+  "items": [
+    {
+      "id": "uuid", "parentId": "uuid", "title": "Auth Feature", "role": "work",
+      "priority": "high", "depth": 1, "tags": "backend", "type": "feature-implementation",
+      "traits": ["needs-migration-review"],
+      "childCounts": { "queue": 2, "work": 1, "review": 0, "blocked": 0, "terminal": 1 }
+    }
+  ],
+  "total": 6,
+  "truncated": false,
+  "offset": 0
+}
+```
+
+Anchored overview renders `ancestorId`'s **direct children** as the roots set (instead of true
+depth-0 items) — the project-dashboard entry point when `ancestorId` is a project/feature anchor.
+The `anchor` envelope names the item whose children are being rendered. Each item uses the same
+minimal fields as global overview, but its `childCounts` is a **full-subtree** role roll-up
+(descendants at any depth), not the direct-children-only breakdown that global/scoped overview use
+— this is the key semantic difference from scoped overview (`itemId`), which returns direct
+childCounts. `claimSummary` and `includeChildren` are not supported in anchored mode (kept to one
+repository call per child). `total`/`truncated`/`offset`/`excludeTerminal` follow the same
+conventions as global mode, applied to the anchor's direct-children set rather than true roots.
 
 ---
 
@@ -1196,6 +1227,7 @@ When `mode` is omitted, the mode is inferred from which parameters are present (
 | `mode` | string | No | Explicit mode: `"item"`, `"session-resume"`, or `"health-check"`. When provided, takes precedence over implicit detection. |
 | `itemId` | string (UUID) | No | Item UUID for item mode. Required when `mode="item"`. |
 | `since` | string (ISO 8601) | No | Timestamp for session-resume mode. Required when `mode="session-resume"`. |
+| `ancestorId` | string (UUID or 4+ char prefix) | No | Limit health-check and session-resume results (active/blocked/stalled items, claim summary) to this item's subtree (any depth, inclusive). Ignored in item mode. Omitted = unscoped. Does NOT scope `recentTransitions` in session-resume mode — see note below. |
 | `includeAncestors` | boolean | No | Include `ancestors` array on each listed item (default: false) |
 | `limit` | integer (1–200) | No | Max role transitions in session-resume mode (default: 10) |
 
@@ -1273,6 +1305,8 @@ Each entry in the `schema` array is keys-only: `key`, `role`, `required`, `exist
 
 `limit` caps `recentTransitions` (default 10, max 200). Each transition entry is `{ itemId, title, fromRole, toRole, at, actorId? }` — `actorId` is omitted when the transition had no actor claim. There is no claim summary in this mode — use item mode or health-check mode for claim visibility. `stalledItems` entries may include `guidanceKey`/`skillPointer` for the first missing note, same semantics as item mode.
 
+**Known limitation:** when `ancestorId` is set, `activeItems` and `stalledItems` are scoped to the subtree, but `recentTransitions` is NOT — it always reflects transitions across the whole tree. Scoping transitions would require resolving the subtree set and filtering the transition-item lookup by it, which was flagged as invasive for the initial implementation.
+
 **Response (health-check mode).**
 
 ```json
@@ -1311,6 +1345,7 @@ and is intentionally inclusive.
 |---|---|---|---|
 | `role` | string | No | Role to query: `queue`, `work`, `review`, or `blocked` (default: `queue`) |
 | `parentId` | string (UUID) | No | Scope recommendations to items under this parent |
+| `ancestorId` | string (UUID or 4+ char prefix) | No | Limit recommendations to this item's subtree (any depth, inclusive). Composes with `parentId` (both applied). Omitted = unscoped, byte-identical to prior behavior. |
 | `limit` | integer (1–20) | No | Number of recommendations (default: 1) |
 | `includeDetails` | boolean | No | Include `summary`, `tags`, and `parentId` in each recommendation (default: false) |
 | `includeAncestors` | boolean | No | Include `ancestors` array on each recommendation (default: false) |
@@ -1640,6 +1675,7 @@ dependency edges). Terminal items are never included.
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `parentId` | string (UUID) | No | Scope results to items under this parent |
+| `ancestorId` | string (UUID or 4+ char prefix) | No | Limit candidate items to this item's subtree (any depth, inclusive). Composes with `parentId` (both applied). Omitted = unscoped, byte-identical to prior behavior. |
 | `includeDetails` | boolean | No | Include `summary` and `tags` for each blocked item (default: false) |
 | `includeAncestors` | boolean | No | Include `ancestors` array on each blocked item (default: false) |
 
