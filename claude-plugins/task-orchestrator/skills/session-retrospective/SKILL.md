@@ -32,6 +32,17 @@ This returns the root item and its children. Collect all item UUIDs from the ove
 
 **If no root item ID provided:**
 
+Check for a known project root: session context injected by the SessionStart hook, or a `project.rootId` entry in `.taskorchestrator/config.yaml`.
+
+**If a project rootId is known**, scope both fallback calls to that subtree so concurrent runs in other projects sharing the same DB aren't conflated into this retrospective:
+
+```
+get_context(ancestorId="<rootId>") — active, blocked, stalled items within the project subtree
+query_items(operation="search", role="terminal", sortBy="modifiedAt", sortOrder="desc", limit=20, ancestorId="<rootId>")
+```
+
+**If no project rootId is configured**, fall back to the prior global behavior (unchanged):
+
 ```
 get_context() — active, blocked, stalled items
 query_items(operation="search", role="terminal", sortBy="modifiedAt", sortOrder="desc", limit=20)
@@ -150,6 +161,8 @@ Read the trend memory file `memory/retrospectives.md` from the auto memory direc
 
 ### 5a. Find or create container
 
+This container is process-global by design — it is the shared, cross-project learning layer, so it deliberately lives outside any project root and this search stays unscoped even when a project rootId is known.
+
 ```
 query_items(operation="search", query="Session Retrospectives", depth=0, limit=5)
 ```
@@ -160,20 +173,26 @@ If no match with that exact title at depth 0, create it:
 manage_items(operation="create", items=[{
   title: "Session Retrospectives",
   summary: "Container for structured post-implementation analyses.",
+  type: "container",
+  tags: "container",
   priority: "low"
 }])
 ```
 
 ### 5b. Create retrospective item
 
+If a project rootId (or project name from `.taskorchestrator/config.yaml` `project.name`) is known, include it in the title so a shared-DB container holding retrospectives from multiple projects stays attributable:
+
 ```
 manage_items(operation="create", items=[{
-  title: "Retrospective — <root-item-title> — <YYYY-MM-DD>",
+  title: "Retrospective — <project-name> — <root-item-title> — <YYYY-MM-DD>",
   summary: "<one-sentence summary of key findings>",
   tags: "session-retrospective",
   parentId: "<container-uuid>"
 }])
 ```
+
+If no project name is known, omit that segment: `"Retrospective — <root-item-title> — <YYYY-MM-DD>"`.
 
 ### 5c. Fill schema notes
 
@@ -235,11 +254,13 @@ Check the updated trend memory (from step 6). For each trend with **Sessions >= 
 
 ### 7a. Find or create proposals container
 
+This container is also process-global by design (same rationale as 5a) — it stays outside any project root, and this search stays unscoped even when a project rootId is known.
+
 ```
 query_items(operation="search", query="Improvement Proposals", depth=0, limit=5)
 ```
 
-Create if missing (same pattern as 5a).
+Create if missing (same pattern as 5a — include `type: "container"` and `tags: "container"`).
 
 ### 7b. Create proposal items
 
@@ -348,3 +369,12 @@ Omit sections with no data (e.g., no improvement proposals -> omit that table). 
 **Container not found**
 - Cause: First time creating retrospectives or improvement proposals
 - Solution: Skill creates containers lazily at steps 5a and 7a. No action needed.
+
+**Retrospective pulled in another project's items**
+- Cause: Shared multi-project DB with no project scope configured, so the step 1a fallback scan searched globally instead of within the current project's subtree.
+- Solution: Configure `project.rootId` in `.taskorchestrator/config.yaml`, or pass the root item UUID as an argument to the skill:
+```yaml
+project:
+  rootId: "<uuid>"
+  name: "<project name>"
+```
