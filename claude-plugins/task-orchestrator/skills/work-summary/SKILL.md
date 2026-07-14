@@ -39,7 +39,7 @@ When a rootId is known, Lean and Full mode calls pass it as `ancestorId="<rootId
 
 ### Data collection (all parallel)
 
-1. `query_items(operation="overview", includeChildren=true, excludeTerminal=true)` — non-terminal roots with their children arrays and childCounts. Add `ancestorId="<rootId>"` when a rootId is known, to anchor the overview to this project. **Fallback for older servers:** if `excludeTerminal` is rejected as an unknown parameter, call `query_items(operation="overview")` *without* `includeChildren` (still pass `ancestorId` if known), then fetch children only where needed: for each non-terminal root whose `childCounts` show non-terminal children, `query_items(operation="search", parentId="<id>")` in parallel. Never fetch children of terminal roots.
+1. `query_items(operation="overview", includeChildren=true, excludeTerminal=true)` — non-terminal roots with their children arrays and childCounts. Add `ancestorId="<rootId>"` when a rootId is known, to anchor the overview to this project. **Detecting an older server:** MCP servers **silently ignore** unknown parameters (they return `200` with the full unfiltered payload) rather than rejecting them — so a server predating `excludeTerminal` will *not* error. Detect the no-op by inspecting the payload: **if any returned root has `role: "terminal"`, the filter was not applied.** When that happens, (a) drop terminal roots client-side during enrichment, and (b) if the response is also `truncated: true`, re-issue with `limit=<total>` (still passing `ancestorId` if known) so non-terminal roots in the tail (e.g. active containers) are not silently dropped — a truncated *unfiltered* payload can hide real workstreams. Headline counts never come from this payload regardless (see the role-total queries below), so correctness holds either way; this only recovers the workstream/backlog completeness the filter was meant to guarantee.
 2. `get_context()` — health-check: active items, blocked items, stalled items, claim summary. Add `ancestorId="<rootId>"` when known.
 3. `get_context(mode="session-resume", since="<now minus 48h, ISO 8601>")` — recent role transitions (the "where did I leave off" signal). Add `ancestorId="<rootId>"` when known — but note the **known limitation**: `recentTransitions` is NOT scoped by `ancestorId` even when passed; it always reflects the whole tree, not just this project.
 4. `get_next_item(limit=5, includeDetails=true)` — ranked recommendations with parentId/tags. Add `ancestorId="<rootId>"` when known.
@@ -111,21 +111,22 @@ Render in this order; omit any section with no data.
 
 Everything lean mode shows, plus the complete per-container inventory.
 
-### Data collection (all parallel)
+### Data collection
 
-1. `query_items(operation="overview", includeChildren=true)` — all roots. Add `ancestorId="<rootId>"` when a rootId is known, to anchor the roots list to this project. **If the response has `truncated: true`, re-issue with `limit=<total>`** so nothing is silently missing.
-2. `get_context()` — health-check. Add `ancestorId="<rootId>"` when known.
-3. `get_next_item(limit=5, includeDetails=true)`. Add `ancestorId="<rootId>"` when known.
-4. Role-total queries as in lean mode (queue + terminal, `limit=1`, same `ancestorId` rule).
+1. `query_items(operation="overview", limit=<total>)` — the compact roots list, **without** `includeChildren`. Add `ancestorId="<rootId>"` when a rootId is known, to anchor the roots list to this project. It carries each root's role, `statusLabel`, `childCounts`, tags, and type but pulls **no** subtree, so it stays under the tool-result token ceiling even on mature workspaces. If the first call reports `truncated: true`, re-issue once with `limit=<total>`.
+2. **Per active container** (a non-terminal root whose `childCounts` show non-terminal children), in parallel: `query_items(operation="overview", itemId="<root-id>", excludeTerminal=true)` — returns that container plus **only its non-terminal children** (scoped `excludeTerminal` filters the children array; `childCounts` stays full). Each call is bounded to one container's open work. These are already `itemId`-scoped and need no `ancestorId`.
+3. `get_context()` — health-check. Add `ancestorId="<rootId>"` when known.
+4. `get_next_item(limit=5, includeDetails=true)`. Add `ancestorId="<rootId>"` when known.
+5. Role-total queries as in lean mode (queue + terminal, `limit=1`, same `ancestorId` rule).
 
-Per-container fetches within the inventory (below) are already `itemId`-scoped and need no change.
+**Never fetch every root's children in one call** (`overview includeChildren=true` across the whole tree). On a mature workspace the combined terminal subtrees exceed the tool-result token ceiling — the per-container scoped fetch in step 2 is what keeps full mode bounded. Terminal children are **counted, not enumerated**: the `✓ N done` footer comes from `childCounts`, never from pulling the terminal subtree. To see a specific container's completed items, run Scoped mode on that container (one bounded subtree).
 
 ### Sections, in order
 
 1. **Health Headline** — same as lean mode; counts from health-check + role-total queries, containers excluded from active.
 2. **Attention Required** — same as lean mode.
 3. **Recommended Next** — same as lean mode (deliberately above the inventory).
-4. **Project Inventory** — for each **active container** (root with non-terminal children):
+4. **Project Inventory** — for each **active container** (root with non-terminal children), rendered from its step-2 scoped fetch:
 
    ```
    #### <Container Title> `<8-char-id>`
@@ -134,16 +135,16 @@ Per-container fetches within the inventory (below) are already `itemId`-scoped a
    | ID | Title | Status | Pri | Tags | Children |
    |----|-------|--------|-----|------|----------|
 
-   ✓ N completed: <first 3 titles> (+N more)
+   ✓ N done — terminal children are counted (from childCounts), not listed
    ```
 
-   - Sort children: ◉ active first, then ⊘ blocked, then ○ queue; terminal children collapse into the `✓ N completed` footer line (omit if 0; if >5, first 3 titles then `(+N more)`).
-   - `<N open>` = queue + work + review + blocked children.
-   - **Children column** = compact role summary `N○ N◉ N⊘ N✓` built from the child's own `childCounts` in the overview payload (omit zero roles; `—` if childless).
+   - The table lists only the container's **open** children (queue/work/review/blocked) — the step-2 scoped `excludeTerminal` fetch returns exactly these. Sort: ◉ active first, then ⊘ blocked, then ○ queue.
+   - `<N open>` = queue + work + review + blocked from `childCounts`; `<N done>` = terminal from `childCounts`. Terminal children are never fetched — run Scoped mode on this container to see them.
+   - **Children column** = compact role summary `N○ N◉ N⊘ N✓` built from the child's own `childCounts` in the scoped payload (omit zero roles; `—` if childless).
    - **Tags column** = tag value or `—`; traits append with `▸` prefix, `needs-` stripped (`feature-task ▸migration-review`).
    - If the container itself is work/review role, prefix its header with the role symbol.
 5. **Standalone Items** — non-terminal childless roots, grouped by the shared grouping key (below). One tag group → flat table with Tags column; multiple groups → subheading per group, Tags column omitted.
-6. **Done** — `### ✓ Done (N done · N cancelled)` with `**Completed containers:** <title> (N children) · ...` and `**Completed standalone:** <title> · ... (+N more if >5)`. **Cancelled items are counted and listed separately — never presented as completed work.**
+6. **Done** — header `### ✓ Done — N terminal` (N from the terminal role-total query). Split **root-level** terminal items by their `statusLabel` (present in the step-1 roots list): `**Completed containers:** <title> (N children) · ...`, `**Completed standalone:** <title> · ... (+N more if >5)`, and `**Cancelled:** <title> · ...`. **Cancelled roots are listed separately — never presented as completed work.** Child-level terminal items are accounted by count via `childCounts` (not enumerated); their done/cancelled split is available through Scoped mode on the owning container.
 7. **Empty containers** — `**Empty (no items):** <title>, <title>` at the end of the inventory if any exist.
 
 ---
