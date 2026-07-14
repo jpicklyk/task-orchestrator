@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.application.tools
 
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
+import io.github.jpicklyk.mcptask.current.application.tools.config.ManageProjectConfigTool
 import io.github.jpicklyk.mcptask.current.application.tools.dependency.ManageDependenciesTool
 import io.github.jpicklyk.mcptask.current.application.tools.dependency.QueryDependenciesTool
 import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
@@ -74,6 +75,7 @@ class ToolTokenBudgetTest {
             GetNextStatusTool(),
             CompleteTreeTool(),
             CreateWorkTreeTool(),
+            ManageProjectConfigTool(),
         )
 
     /**
@@ -105,10 +107,11 @@ class ToolTokenBudgetTest {
             "advance_item" to 1450, // was 1407; see note above
             "get_blocked_items" to 1250, // was 830; T2.3 added the `ancestorId` scope parameter
             "get_next_status" to 470,
+            "manage_project_config" to 1900, // T3.3: new tool, measured 1609 chars
         )
 
     /** Sum of the (unrounded) measured-per-tool-values * 1.15; see BUDGET PHILOSOPHY point 2. */
-    private val totalCeiling = 37_650
+    private val totalCeiling = 39_550
 
     // explicitNulls = false mirrors the compact-wire-shape convention already used elsewhere
     // in this codebase (see EventRoutes.kt / ItemWriteRoutes.kt / NoteWriteRoutes.kt) — a

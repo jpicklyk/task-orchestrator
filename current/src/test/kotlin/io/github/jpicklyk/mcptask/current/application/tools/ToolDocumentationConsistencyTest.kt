@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.application.tools
 
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
+import io.github.jpicklyk.mcptask.current.application.tools.config.ManageProjectConfigTool
 import io.github.jpicklyk.mcptask.current.application.tools.dependency.ManageDependenciesTool
 import io.github.jpicklyk.mcptask.current.application.tools.dependency.QueryDependenciesTool
 import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
@@ -57,6 +58,7 @@ class ToolDocumentationConsistencyTest {
             GetNextStatusTool(),
             CompleteTreeTool(),
             CreateWorkTreeTool(),
+            ManageProjectConfigTool(),
         )
 
     @Test

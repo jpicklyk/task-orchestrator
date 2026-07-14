@@ -17,6 +17,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
+import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
@@ -73,6 +74,9 @@ class ToolExecutionContext(
 
     /** Access to the atomic work-tree creation executor. */
     fun workTreeExecutor(): WorkTreeExecutor = repositoryProvider.workTreeExecutor()
+
+    /** Access to per-root config (raw YAML document) CRUD operations. */
+    fun projectConfigRepository(): ProjectConfigRepository = repositoryProvider.projectConfigRepository()
 
     /**
      * Resolves the effective [WorkItemSchema] for a [WorkItem], including trait note merging.
