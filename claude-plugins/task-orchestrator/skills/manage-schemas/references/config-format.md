@@ -343,7 +343,7 @@ Default: absent — a workspace with no `project:` block is unscoped.
 - **Client-side only.** The MCP server never reads this block from `config.yaml` — not in stdio mode, not in HTTP mode. It exists purely for Claude Code: the SessionStart hook and plugin skills read it to scope their output to `rootId`.
 - **Created by** the `quick-start` bootstrap flow or `/adopt-project-scope` when the user opts into anchoring session context to a single project root item.
 - **Opt-in convention.** Scoping is not enforced — its absence just means skills operate without a default root anchor, falling back to unscoped behavior.
-- The same scoping can also be pushed server-side via `manage_project_config` so it's visible beyond this local config file; see the project-scoping integration docs for the full push mechanism.
+- The same scoping can also be pushed server-side via `manage_project_config` so it's visible beyond this local config file; see the project-scoping integration docs for the full push mechanism. In practice this push is triggered automatically by `manage-schemas`' write-operation report step (Step 4) and by `quick-start`'s bootstrap step (Step 1.5) whenever a `project.rootId` is present — both push the full config file text, not just this block, since the server itself never reads `project:`.
 
 **Example:**
 

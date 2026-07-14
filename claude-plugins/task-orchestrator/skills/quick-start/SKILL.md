@@ -46,7 +46,15 @@ If the user accepts:
      rootId: "<created-item-uuid>"
      name: "<project name>"
    ```
-4. Older servers may not expose it, so check the tool list before calling — if a `manage_project_config` tool is available, also push the same block server-side so it takes effect immediately without waiting on a config reload. If the tool isn't available, the config.yaml write from step 3 is authoritative on its own; the server will pick it up on its normal config read path.
+4. Older servers may not expose it, so check the tool list before calling — if a `manage_project_config` tool is available, push the full current file text (not just the `project:` block — the server never reads that block itself; see `references/config-format.md` → Project Scoping) so per-root schema resolution picks it up immediately without waiting on a config reload:
+   ```
+   manage_project_config(operation="push", rootItemId="<created-item-uuid>", configYaml="<full current file text from step 3>")
+   ```
+   - Success → the returned `fingerprint` confirms the push landed; re-pushing identical content later returns the same fingerprint (idempotent).
+   - `VALIDATION_ERROR` → surface the parse error to the user; the config.yaml write from step 3 is already saved locally, so nothing is lost — tell them to fix the file and retry the push (or run `/manage-schemas validate`).
+   - A `warning` field → relay it to the user (non-fatal).
+
+   If the tool isn't available, note this and skip — the config.yaml write from step 3 is authoritative on its own; the server will pick it up on its normal config read path.
 
 If the user declines, proceed unscoped — nothing else in this skill requires an anchor.
 
