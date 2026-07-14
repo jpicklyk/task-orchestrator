@@ -162,7 +162,7 @@ class AdvanceService(
     private val dependencyRepository: DependencyRepository,
     private val noteRepository: NoteRepository,
     private val statusLabelService: StatusLabelService,
-    private val schemaResolver: (WorkItem) -> WorkItemSchema?
+    private val schemaResolver: suspend (WorkItem) -> WorkItemSchema?
 ) {
     private val handler = RoleTransitionHandler()
     private val cascadeDetector = CascadeDetector()

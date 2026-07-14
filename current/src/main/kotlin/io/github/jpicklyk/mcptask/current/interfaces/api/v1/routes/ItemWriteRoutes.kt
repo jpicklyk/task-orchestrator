@@ -16,6 +16,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.UserTrigger
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
+import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.audit.ApiAuditBridge
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
@@ -208,7 +209,15 @@ fun Route.itemWriteRoutes(
     // Schema-resolution context — reuses the EXACT trait-merging + review-phase logic from
     // AdvanceItemTool (via ToolExecutionContext.resolveHasReviewPhase). Repository access is shared;
     // no MCP behavior is affected since this context is read-only for schema resolution here.
-    val schemaResolutionContext = ToolExecutionContext(repositoryProvider, schemaService)
+    // perRootConfigService is passed by name (all other trailing ToolExecutionContext params keep
+    // their defaults) so REST advances get the SAME per-root schema layering as MCP tool calls —
+    // otherwise this independently-constructed context would silently resolve global-only.
+    val schemaResolutionContext =
+        ToolExecutionContext(
+            repositoryProvider,
+            schemaService,
+            perRootConfigService = PerRootConfigService(repositoryProvider.projectConfigRepository()),
+        )
 
     // ─── POST /items ─────────────────────────────────────────────────────────
     requireCapability(ApiCapability.WRITE_ITEMS) {
