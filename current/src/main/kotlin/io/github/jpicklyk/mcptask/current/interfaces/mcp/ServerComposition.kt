@@ -12,6 +12,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.config.ApiAuthConfigLoa
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.config.DefaultJwksKeySetProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksActorVerifier
+import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlActorAuthenticationConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlNoteSchemaService
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlStatusLabelService
@@ -121,6 +122,10 @@ class ServerComposition(
                 effectiveProvider.workItemRepository(),
                 effectiveProvider.dependencyRepository(),
             )
+        // Per-root schema layer (T3.2): resolveSchema() consults this root's pushed config before
+        // falling back to the global noteSchemaService above. Shares effectiveProvider so MCP tools
+        // and REST routes see the same (possibly event-publishing-decorated) project_config access.
+        val perRootConfigService = PerRootConfigService(effectiveProvider.projectConfigRepository())
         val toolContext =
             ToolExecutionContext(
                 effectiveProvider,
@@ -131,6 +136,7 @@ class ServerComposition(
                 degradedModePolicy,
                 idempotencyCache,
                 nextItemRecommender,
+                perRootConfigService,
             )
         logger.info(
             "Repository provider and tool context initialized (API {})",

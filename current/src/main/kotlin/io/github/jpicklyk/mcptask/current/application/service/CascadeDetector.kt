@@ -95,7 +95,7 @@ class CascadeDetector {
     suspend fun detectCascades(
         item: WorkItem,
         workItemRepository: WorkItemRepository,
-        schemaResolver: ((WorkItem) -> WorkItemSchema?)? = null
+        schemaResolver: (suspend (WorkItem) -> WorkItemSchema?)? = null
     ): List<CascadeEvent> {
         val parentId = item.parentId ?: return emptyList()
         return detectCascadesRecursive(parentId, workItemRepository, depth = 0, schemaResolver = schemaResolver)
@@ -105,7 +105,7 @@ class CascadeDetector {
         parentId: UUID,
         workItemRepository: WorkItemRepository,
         depth: Int,
-        schemaResolver: ((WorkItem) -> WorkItemSchema?)? = null
+        schemaResolver: (suspend (WorkItem) -> WorkItemSchema?)? = null
     ): List<CascadeEvent> {
         // Get role counts for all children of the parent
         val countsResult = workItemRepository.countChildrenByRole(parentId)
@@ -227,7 +227,7 @@ class CascadeDetector {
     suspend fun detectReopenCascades(
         item: WorkItem,
         workItemRepository: WorkItemRepository,
-        schemaResolver: ((WorkItem) -> WorkItemSchema?)? = null
+        schemaResolver: (suspend (WorkItem) -> WorkItemSchema?)? = null
     ): List<CascadeEvent> {
         // Only applies to items that just entered QUEUE via reopen
         if (item.role != Role.QUEUE) return emptyList()

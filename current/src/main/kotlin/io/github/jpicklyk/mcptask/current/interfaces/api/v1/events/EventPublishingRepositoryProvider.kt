@@ -7,6 +7,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
+import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
@@ -351,6 +352,8 @@ class EventPublishingRepositoryProvider(
     override fun dependencyRepository(): DependencyRepository = wrappedDependencyRepo
 
     override fun roleTransitionRepository(): RoleTransitionRepository = delegate.roleTransitionRepository()
+
+    override fun projectConfigRepository(): ProjectConfigRepository = delegate.projectConfigRepository()
 
     override fun database() = delegate.database()
 

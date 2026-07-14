@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaServ
 import io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
+import io.github.jpicklyk.mcptask.current.application.tools.config.ManageProjectConfigTool
 import io.github.jpicklyk.mcptask.current.application.tools.dependency.ManageDependenciesTool
 import io.github.jpicklyk.mcptask.current.application.tools.dependency.QueryDependenciesTool
 import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
@@ -391,6 +392,8 @@ internal fun buildMcpTools(): List<ToolDefinition> =
         CreateWorkTreeTool(),
         // Phase 3: Context
         GetContextTool(),
+        // Per-root schema layering: transport-agnostic config sync
+        ManageProjectConfigTool(),
     )
 
 /**

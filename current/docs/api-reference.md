@@ -2,7 +2,7 @@
 
 ## Overview
 
-The v3 server exposes 14 MCP tools organized around a single **WorkItem** graph model. Every
+The v3 server exposes 15 MCP tools organized around a single **WorkItem** graph model. Every
 entity — whether a project, feature, or task — is a WorkItem with a `role` (queue, work, review,
 blocked, terminal), optional `parentId`, a `type` field that selects a work-item schema (lifecycle
 mode + required notes), optional `tags` for categorization, and optional `traits` that compose
@@ -30,6 +30,7 @@ FTS5 search (two-tokenizer design, RRF fusion, scope filtering, backlinks, score
 | `get_next_item` | Workflow | Read | Priority-ranked recommendation of next actionable item |
 | `get_blocked_items` | Workflow | Read | All items blocked by dependency or explicit block trigger |
 | `claim_item` | Workflow | Write | Atomically claim or release work items for exclusive ownership |
+| `manage_project_config` | System | Write/Read | Push or read back per-root config YAML for the layered schema resolver |
 
 ---
 
@@ -1723,6 +1724,124 @@ dependency edges). Terminal items are never included.
 `satisfied` is true when the blocker has reached its `effectiveUnblockRole`.
 
 `blockerCount` reflects only the number of **unsatisfied** blockers (not total blockers). For `"explicit"` items with no dependency blockers, `blockerCount` is 0.
+
+---
+
+## Category: System
+
+### manage_project_config
+
+**Purpose.** Transport-agnostic config sync: a client pushes its repo's `.taskorchestrator/config.yaml`
+text keyed by a project root's WorkItem UUID; `ToolExecutionContext.resolveSchema()` layers this
+per-root config over the global config on every schema-resolving read (see `PerRootConfigService` —
+hot-reload is a property of that read path, so no separate reload call is needed after a push).
+
+Supports two operations, selected via `operation`:
+
+#### `push`
+
+Validates, in order:
+1. `configYaml` must not exceed **128 KiB** (131,072 bytes, UTF-8) — rejected before any parse
+   attempt (CWE-770: bounds parse cost and storage growth against a hostile or oversized payload).
+2. `rootItemId` must resolve to an existing WorkItem.
+3. That WorkItem must be depth 0 (a project root) — configs anchor to roots only.
+4. If the root's `type` is not `"project"`, the push still succeeds but the response includes a
+   non-fatal `warning` field (a naming convention, not an enforced constraint).
+5. `configYaml` is parsed via the same parser `PerRootConfigService` uses on every read, using a
+   YAML *safe* constructor that only ever builds plain maps/lists/scalars (see **Parse safety**
+   below). Unparseable or unsafe YAML is rejected here — nothing is stored — so a broken or
+   malicious config can never silently exist server-side and fall through to the global schema on
+   a later read.
+
+On success, stores the document and returns its fingerprint. Pushing byte-identical content is
+naturally idempotent: the fingerprint returned is unchanged, so a caller can `get` first and skip
+the push when fingerprints already match — no separate idempotency-key machinery is needed.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `operation` | string (`"push"` \| `"get"`) | Yes | Selects the operation |
+| `rootItemId` | string (UUID or 4+ char hex prefix) | Yes | Project root WorkItem — must be depth 0 for `push` |
+| `configYaml` | string | Yes (push only) | Raw config.yaml text to store for this root; max 128 KiB |
+
+**Parse safety.** `configYaml` is parsed with SnakeYAML's `SafeConstructor` rather than its default
+`Constructor`. The default constructor will instantiate an arbitrary Java type named by a YAML
+`!!`-tag — a well-known deserialization-RCE class of vulnerability (CWE-502) — which matters here
+specifically because `configYaml` is attacker-reachable input pushed over the MCP protocol, not a
+trusted local file read from disk. `SafeConstructor` only ever builds plain maps, lists, and
+scalars, which is everything a config document legitimately needs; any `!!`-tagged custom type is
+rejected as a parse failure instead of being instantiated. The same fix applies everywhere per-root
+config bytes are parsed (`PerRootConfigService`, on every schema-resolving read) and to the global
+`.taskorchestrator/config.yaml` loader.
+
+**Example.**
+
+```json
+{
+  "operation": "push",
+  "rootItemId": "3f9c2b10-...",
+  "configYaml": "work_item_schemas:\n  feature-task:\n    notes:\n      - key: spec\n        role: queue\n        required: true\n"
+}
+```
+
+**Response (success).**
+
+```json
+{
+  "rootItemId": "3f9c2b10-...",
+  "fingerprint": "a94a8fe5cc...",
+  "updatedAt": "2026-07-14T18:40:00Z",
+  "warning": "Root item type is 'null', not 'project' — config pushed anyway (a naming convention, not an enforced constraint)"
+}
+```
+
+`warning` is only present when the root's `type` is not `"project"`.
+
+**Error cases.**
+
+| Condition | `error.code` |
+|---|---|
+| `configYaml` exceeds 128 KiB | `VALIDATION_ERROR` (message names the limit and the actual size) |
+| `rootItemId` does not resolve to an existing WorkItem | `RESOURCE_NOT_FOUND` |
+| Root WorkItem has `depth != 0` | `VALIDATION_ERROR` |
+| `configYaml` fails to parse (invalid/unsafe YAML syntax or shape, including `!!`-tagged custom types — see **Parse safety** above) | `VALIDATION_ERROR` (message includes the parse detail) |
+| Storage failure | `DATABASE_ERROR` |
+
+#### `get`
+
+Reads back the stored config for a root.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `operation` | string (`"push"` \| `"get"`) | Yes | Selects the operation |
+| `rootItemId` | string (UUID or 4+ char hex prefix) | Yes | Project root WorkItem to read the config for |
+
+**Response (success).**
+
+```json
+{
+  "rootItemId": "3f9c2b10-...",
+  "configYaml": "work_item_schemas:\n  ...\n",
+  "fingerprint": "a94a8fe5cc...",
+  "updatedAt": "2026-07-14T18:40:00Z"
+}
+```
+
+**Response (no config pushed for this root).** `error.code` is `RESOURCE_NOT_FOUND`.
+
+**Note on actor attribution.** Unlike `manage_notes`/`manage_items`, this tool does not accept an
+`actor` parameter — its writes aren't part of the per-note/per-item attribution model (a config
+document has no "author" note field to stamp), so mirroring the actor-claim/verification machinery
+would add complexity with no corresponding read surface to expose it through.
+
+**Trust-model caveat.** `manage_project_config` can silently rewrite a project's gate configuration
+(required notes, review phases, trait routing) for every item under a root. Under
+`MCP_TRANSPORT=http`, the `/mcp` endpoint is **unauthenticated regardless of REST API auth mode** —
+any client that can reach the port can call `push` for any root. This is not a gap introduced by
+this tool; it's the existing MCP transport trust model (see
+[`fleet-deployment.md`](./fleet-deployment.md), "MCP HTTP Transport (`/mcp`) Is Unauthenticated —
+Read First") applying to config data the same way it already applies to every other MCP tool.
+Fence `/mcp` at the network layer per that guidance before exposing `MCP_TRANSPORT=http` beyond a
+single trusted process.
 
 ---
 
