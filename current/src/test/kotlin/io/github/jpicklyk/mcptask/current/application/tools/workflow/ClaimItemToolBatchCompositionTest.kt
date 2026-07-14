@@ -15,7 +15,6 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.jupiter.api.BeforeEach
@@ -134,14 +133,8 @@ class ClaimItemToolBatchCompositionTest : SQLiteRepositoryTestBase() {
                 "Explicit release of an item already auto-released by claim() in the same batch must return not_claimed_by_you, not success."
             )
 
-            // --- summary counts reflect the actual outcomes ---
-            val summary = data["summary"] as JsonObject
-            assertEquals(1, summary["claimsTotal"]!!.jsonPrimitive.intOrNull)
-            assertEquals(1, summary["claimsSucceeded"]!!.jsonPrimitive.intOrNull)
-            assertEquals(0, summary["claimsFailed"]!!.jsonPrimitive.intOrNull)
-            assertEquals(1, summary["releasesTotal"]!!.jsonPrimitive.intOrNull)
-            assertEquals(0, summary["releasesSucceeded"]!!.jsonPrimitive.intOrNull)
-            assertEquals(1, summary["releasesFailed"]!!.jsonPrimitive.intOrNull)
+            // --- summary block dropped; outcomes are visible in the arrays asserted above ---
+            assertNull(data["summary"], "summary block must be omitted from claim_item responses")
 
             // --- End-state: ITEM_C is unclaimed, ITEM_MIXED is claimed by agent-alpha ---
             val itemCAfter = repository.getById(itemC.id)
@@ -241,11 +234,8 @@ class ClaimItemToolBatchCompositionTest : SQLiteRepositoryTestBase() {
                 "ITEM_B was auto-released by claim(ITEM_C) Step 2 — explicit release must report not_claimed_by_you"
             )
 
-            // --- summary: 1 claim succeeded, 0 releases succeeded ---
-            val summary = data["summary"] as JsonObject
-            assertEquals(1, summary["claimsSucceeded"]!!.jsonPrimitive.intOrNull)
-            assertEquals(0, summary["releasesSucceeded"]!!.jsonPrimitive.intOrNull)
-            assertEquals(2, summary["releasesFailed"]!!.jsonPrimitive.intOrNull)
+            // --- summary block dropped; the outcomes are asserted directly on the arrays above ---
+            assertNull(data["summary"], "summary block must be omitted from claim_item responses")
 
             // --- End-state: ITEM_C held by agent-alpha, ITEM_A still by agent-other, ITEM_B unclaimed ---
             val itemCAfter = repository.getById(itemC.id)

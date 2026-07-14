@@ -40,12 +40,6 @@ class AdvanceItemTool :
         """
 Trigger-based role transitions for WorkItems with validation, cascade detection, and unblock reporting.
 
-**Parameters:**
-- `transitions` (required array): Each element: `{ itemId (required UUID or short hex prefix, min 4 chars), trigger (required string), summary? (optional string), actor? (optional object) }`
-- Valid triggers: start, complete, block, hold, resume, cancel, reopen
-- `actor` (optional): `{ id (required string), kind (required: orchestrator|subagent|user|external), parent? (optional string), proof? (optional string) }` — records who performed the transition. Cascade transitions always have null actor. All transitions in a batch must either all omit actor or all use the same actor.id.
-- `requestId` (optional UUID): Client-generated UUID for idempotency. Repeated calls with the same (actor, requestId) within ~10 minutes return the cached response without re-executing. Uses the first transition's actor.id as the idempotency key actor.
-
 **Trigger effects:**
 - start: QUEUE->WORK, WORK->REVIEW (or TERMINAL if no review phase in schema), REVIEW->TERMINAL
 - complete: any non-TERMINAL/BLOCKED -> TERMINAL
@@ -58,33 +52,8 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
 - start: required notes for the current phase must be filled before advancing
 - complete: all required notes across all phases must be filled
 
-**Response:**
-```json
-{
-  "results": [
-    {
-      "itemId": "uuid",
-      "previousRole": "queue",
-      "newRole": "work",
-      "trigger": "start",
-      "applied": true,
-      "actor": { "id": "agent-1", "kind": "subagent", "parent": "orch-1" },
-      "verification": { "status": "verified", "verifier": "jwks" },
-      "cascadeEvents": [
-        { "itemId": "uuid", "title": "Parent Item Title", "previousRole": "work", "targetRole": "terminal", "applied": true }
-      ],
-      "unblockedItems": [],
-      "expectedNotes": [
-        { "key": "acceptance-criteria", "role": "work", "required": true, "description": "...", "exists": false }
-      ],
-      "guidancePointer": "Guidance text for the first unfilled required note in the new role (null if all filled or no schema)",
-      "noteProgress": { "filled": 0, "remaining": 2, "total": 2 }
-    }
-  ],
-  "summary": { "total": N, "succeeded": N, "failed": N },
-  "allUnblockedItems": [{ "itemId": "uuid", "title": "..." }]
-}
-```
+**Batch actor constraint:** all transitions in a call must either all omit `actor` or all use the same
+`actor.id`; cascade-triggered transitions always have a null actor.
         """.trimIndent()
 
     override val category = ToolCategory.WORKFLOW
@@ -108,9 +77,9 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Array of transition objects: { itemId, trigger, summary?, actor? }. " +
-                                        "actor (optional): { id (required string), kind (required: orchestrator|subagent|user|external), " +
-                                        "parent (optional string), proof (optional string) }"
+                                    "Array of transition objects: { itemId (required, UUID or hex prefix), " +
+                                        "trigger (required), summary?, actor? ({ id (required), " +
+                                        "kind (required: orchestrator|subagent|user|external), parent?, proof? }) }"
                                 )
                             )
                         }
@@ -122,9 +91,8 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Client-generated UUID for idempotency. Repeated calls with the same (actor, requestId) " +
-                                        "within ~10 minutes return the cached response without re-executing. " +
-                                        "Uses the first transition's actor.id as the idempotency key actor."
+                                    "Client-generated UUID for idempotency (10 min cache), keyed on the first " +
+                                        "transition's actor.id."
                                 )
                             )
                         }
@@ -291,7 +259,6 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
             )
 
         val resultsList = mutableListOf<JsonObject>()
-        val allUnblockedItems = mutableListOf<JsonObject>()
         var successCount = 0
         var failCount = 0
 
@@ -373,8 +340,6 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                     }
                 }
 
-            val previousRole = item.role
-
             // Delegate the full pipeline (ownership → resolve → validate → gate → apply → cascade →
             // unblock) to the shared AdvanceService. MCP enforces claim ownership.
             val outcome =
@@ -419,25 +384,25 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                     }
                 }
 
-            // Map unblocked items; mirror into the top-level allUnblockedItems aggregate.
+            // Map unblocked items (per-transition only; the top-level aggregate was dropped as derivable).
             val unblockedJsonList =
                 advanceResult.unblockedItems.map { unblocked ->
                     buildJsonObject {
                         put("itemId", JsonPrimitive(unblocked.itemId.toString()))
                         put("title", JsonPrimitive(unblocked.title))
-                    }.also { allUnblockedItems.add(it) }
+                    }
                 }
 
-            // Schema-driven response fields: expectedNotes, guidancePointer, skillPointer, noteProgress
+            // Schema-driven response fields: expectedNotes, guidanceKey, skillPointer, noteProgress
             val resolvedSchema = advanceResult.resolvedSchema
             val expectedNotesJson: JsonArray
-            val guidancePointer: String?
+            val guidanceKey: String?
             val skillPointer: String?
             val noteProgress: JsonObject?
 
             if (resolvedSchema == null) {
                 expectedNotesJson = JsonArray(emptyList())
-                guidancePointer = null
+                guidanceKey = null
                 skillPointer = null
                 noteProgress = null
             } else {
@@ -457,9 +422,9 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                         filterRole = targetRole
                     )
 
-                // Use shared PhaseNoteContext for guidancePointer, skillPointer, and noteProgress
+                // Use shared PhaseNoteContext for guidanceKey, skillPointer, and noteProgress
                 val phaseContext = computePhaseNoteContext(targetRole, resolvedSchema, notesByKey)
-                guidancePointer = phaseContext?.guidancePointer
+                guidanceKey = phaseContext?.guidanceKey
                 skillPointer = phaseContext?.skillPointer
                 noteProgress =
                     phaseContext?.let {
@@ -471,22 +436,21 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                     }
             }
 
-            // Build success result
+            // Build success result. previousRole + trigger echoes dropped (caller supplied the trigger;
+            // newRole is the outcome). Empty cascadeEvents/unblockedItems are omitted.
             resultsList.add(
                 buildJsonObject {
                     put("itemId", JsonPrimitive(itemId.toString()))
-                    put("previousRole", JsonPrimitive(previousRole.toJsonString()))
                     put("newRole", JsonPrimitive(targetRole.toJsonString()))
-                    put("trigger", JsonPrimitive(trigger))
                     advanceResult.statusLabel?.let { put("statusLabel", JsonPrimitive(it)) }
                     put("applied", JsonPrimitive(true))
                     if (summary != null) put("summary", JsonPrimitive(summary))
                     actorClaim?.let { put("actor", it.toJson()) }
                     verification?.toJsonOrOmit()?.let { put("verification", it) }
-                    put("cascadeEvents", JsonArray(cascadeJsonList))
-                    put("unblockedItems", JsonArray(unblockedJsonList))
+                    if (cascadeJsonList.isNotEmpty()) put("cascadeEvents", JsonArray(cascadeJsonList))
+                    if (unblockedJsonList.isNotEmpty()) put("unblockedItems", JsonArray(unblockedJsonList))
                     put("expectedNotes", expectedNotesJson)
-                    guidancePointer?.let { put("guidancePointer", JsonPrimitive(it)) }
+                    guidanceKey?.let { put("guidanceKey", JsonPrimitive(it)) }
                     skillPointer?.let { put("skillPointer", JsonPrimitive(it)) }
                     noteProgress?.let { put("noteProgress", it) }
                 }
@@ -505,7 +469,6 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                         put("failed", JsonPrimitive(failCount))
                     }
                 )
-                put("allUnblockedItems", JsonArray(allUnblockedItems))
             }
 
         return successResponse(data)

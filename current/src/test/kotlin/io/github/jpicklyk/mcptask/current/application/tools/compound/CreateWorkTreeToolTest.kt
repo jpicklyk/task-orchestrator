@@ -836,16 +836,15 @@ class CreateWorkTreeToolTest {
             assertEquals("acceptance-criteria", first["key"]!!.jsonPrimitive.content)
             assertEquals("queue", first["role"]!!.jsonPrimitive.content)
             assertTrue(first["required"]!!.jsonPrimitive.boolean)
-            assertEquals("Criteria for acceptance", first["description"]!!.jsonPrimitive.content)
-            assertEquals("List each criterion as a bullet", first["guidance"]!!.jsonPrimitive.content)
+            assertFalse(first.containsKey("description"), "description absent in keys-only expectedNotes")
+            assertFalse(first.containsKey("guidance"), "guidance absent in keys-only expectedNotes")
             assertFalse(first["exists"]!!.jsonPrimitive.boolean)
 
             val second = expectedNotes[1].jsonObject
             assertEquals("implementation-notes", second["key"]!!.jsonPrimitive.content)
             assertEquals("work", second["role"]!!.jsonPrimitive.content)
             assertFalse(second["required"]!!.jsonPrimitive.boolean)
-            assertEquals("Notes on implementation approach", second["description"]!!.jsonPrimitive.content)
-            assertFalse(second.containsKey("guidance"), "guidance should be absent when null")
+            assertEquals(setOf("key", "role", "required", "exists"), second.keys, "expectedNotes entries are keys-only")
             assertFalse(second["exists"]!!.jsonPrimitive.boolean)
         }
 
@@ -927,7 +926,7 @@ class CreateWorkTreeToolTest {
             assertEquals("test-plan", note["key"]!!.jsonPrimitive.content)
             assertEquals("review", note["role"]!!.jsonPrimitive.content)
             assertTrue(note["required"]!!.jsonPrimitive.boolean)
-            assertEquals("Test plan for this child", note["description"]!!.jsonPrimitive.content)
+            assertFalse(note.containsKey("description"), "description absent in keys-only expectedNotes")
             assertFalse(note["exists"]!!.jsonPrimitive.boolean)
         }
 

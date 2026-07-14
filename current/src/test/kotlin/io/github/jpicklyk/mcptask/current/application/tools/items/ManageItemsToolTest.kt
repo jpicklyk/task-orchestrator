@@ -426,7 +426,7 @@ class ManageItemsToolTest {
             assertEquals("requirements", first["key"]!!.jsonPrimitive.content)
             assertEquals("queue", first["role"]!!.jsonPrimitive.content)
             assertTrue(first["required"]!!.jsonPrimitive.boolean)
-            assertEquals("Requirements for this item", first["description"]!!.jsonPrimitive.content)
+            assertFalse(first.containsKey("description"), "description absent in keys-only expectedNotes")
             assertFalse(first["exists"]!!.jsonPrimitive.boolean)
 
             val second = expectedNotes[1] as JsonObject
@@ -1349,7 +1349,7 @@ class ManageItemsToolTest {
         }
 
     @Test
-    fun `create item with schema includes guidance in expectedNotes`(): Unit =
+    fun `create item with schema returns keys-only expectedNotes without guidance text`(): Unit =
         runBlocking {
             val mockSchema =
                 object : NoteSchemaService {
@@ -1397,8 +1397,11 @@ class ManageItemsToolTest {
 
             val entry = expectedNotes[0] as JsonObject
             assertEquals("requirements", entry["key"]!!.jsonPrimitive.content)
-            assertTrue(entry.containsKey("guidance"), "expectedNotes entry should contain 'guidance' key")
-            assertEquals("List all functional and non-functional requirements", entry["guidance"]!!.jsonPrimitive.content)
+            assertEquals(
+                setOf("key", "role", "required", "exists"),
+                entry.keys,
+                "expectedNotes entries are keys-only even when the schema defines guidance"
+            )
         }
 
     @Test

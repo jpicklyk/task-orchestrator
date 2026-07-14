@@ -1337,4 +1337,231 @@ work_item_schemas:
         assertEquals(1, schema.size)
         assertNull(schema[0].skill)
     }
+
+    // ──────────────────────────────────────────────
+    // t45: maxLength parsing
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `parses maxLength field from note schema entry`() {
+        val tempDir = createTempConfigDir()
+        writeConfig(
+            tempDir,
+            """
+note_schemas:
+  my-schema:
+    - key: acceptance-criteria
+      role: queue
+      required: true
+      description: "Acceptance criteria"
+      maxLength: 500
+            """.trimIndent()
+        )
+
+        val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
+        val service = YamlNoteSchemaService(configPath)
+
+        val schema = service.getSchemaForTags(listOf("my-schema"))
+        assertNotNull(schema)
+        assertEquals(500, schema[0].maxLength)
+    }
+
+    @Test
+    fun `maxLength defaults to null when absent`() {
+        val tempDir = createTempConfigDir()
+        writeConfig(
+            tempDir,
+            """
+note_schemas:
+  my-schema:
+    - key: acceptance-criteria
+      role: queue
+      required: true
+      description: "Acceptance criteria"
+            """.trimIndent()
+        )
+
+        val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
+        val service = YamlNoteSchemaService(configPath)
+
+        val schema = service.getSchemaForTags(listOf("my-schema"))
+        assertNotNull(schema)
+        assertNull(schema[0].maxLength)
+    }
+
+    @Test
+    fun `non-numeric maxLength produces warning and defaults to null`() {
+        val tempDir = createTempConfigDir()
+        writeConfig(
+            tempDir,
+            """
+note_schemas:
+  my-schema:
+    - key: acceptance-criteria
+      role: queue
+      required: true
+      description: "Acceptance criteria"
+      maxLength: "not-a-number"
+            """.trimIndent()
+        )
+
+        val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
+        val service = YamlNoteSchemaService(configPath)
+
+        val schema = service.getSchemaForTags(listOf("my-schema"))
+        assertNotNull(schema)
+        assertNull(schema[0].maxLength)
+        assertTrue(service.getLoadWarnings().any { it.contains("maxLength") })
+    }
+
+    @Test
+    fun `maxLength parses on work_item_schemas note entry`() {
+        val tempDir = createTempConfigDir()
+        writeConfig(
+            tempDir,
+            """
+work_item_schemas:
+  feature-task:
+    lifecycle: auto
+    notes:
+      - key: specification
+        role: queue
+        required: true
+        description: "Feature specification"
+        maxLength: 2000
+            """.trimIndent()
+        )
+
+        val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
+        val service = YamlNoteSchemaService(configPath)
+
+        val schema = service.getSchemaForType("feature-task")
+        assertNotNull(schema)
+        assertEquals(2000, schema.notes[0].maxLength)
+    }
+
+    // ──────────────────────────────────────────────
+    // t45: note_limits.mode parsing
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `note_limits mode defaults to warn when block absent`() {
+        val tempDir = createTempConfigDir()
+        writeConfig(
+            tempDir,
+            """
+note_schemas:
+  my-schema:
+    - key: spec
+      role: queue
+      required: true
+            """.trimIndent()
+        )
+
+        val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
+        val service = YamlNoteSchemaService(configPath)
+
+        assertEquals("warn", service.getNoteLimitsMode())
+    }
+
+    @Test
+    fun `note_limits mode defaults to warn when config file absent`() {
+        val tempDir = createTempConfigDir()
+        val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
+        val service = YamlNoteSchemaService(configPath)
+
+        assertEquals("warn", service.getNoteLimitsMode())
+    }
+
+    @Test
+    fun `note_limits mode parses reject`() {
+        val tempDir = createTempConfigDir()
+        writeConfig(
+            tempDir,
+            """
+note_limits:
+  mode: reject
+
+note_schemas:
+  my-schema:
+    - key: spec
+      role: queue
+      required: true
+            """.trimIndent()
+        )
+
+        val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
+        val service = YamlNoteSchemaService(configPath)
+
+        assertEquals("reject", service.getNoteLimitsMode())
+    }
+
+    @Test
+    fun `invalid note_limits mode produces warning and defaults to warn`() {
+        val tempDir = createTempConfigDir()
+        writeConfig(
+            tempDir,
+            """
+note_limits:
+  mode: bogus-mode
+
+note_schemas:
+  my-schema:
+    - key: spec
+      role: queue
+      required: true
+            """.trimIndent()
+        )
+
+        val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
+        val service = YamlNoteSchemaService(configPath)
+
+        assertEquals("warn", service.getNoteLimitsMode())
+        assertTrue(service.getLoadWarnings().any { it.contains("note_limits.mode") })
+    }
+
+    // ──────────────────────────────────────────────
+    // t45: configFingerprint reacts to maxLength changes
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `configFingerprint changes when a maxLength value changes`() {
+        val tempDir = createTempConfigDir()
+        val configFile =
+            writeConfig(
+                tempDir,
+                """
+note_schemas:
+  my-schema:
+    - key: spec
+      role: queue
+      required: true
+      maxLength: 100
+                """.trimIndent()
+            )
+
+        val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
+        val service = YamlNoteSchemaService(configPath)
+
+        val fingerprintBefore = service.getConfigFingerprint()
+
+        // configFingerprint hashes the raw config file bytes (SHA-256) on every call — it is not
+        // cached alongside the lazily-loaded schema map — so rewriting the file with a different
+        // maxLength changes the fingerprint without needing a new service instance.
+        configFile.writeText(
+            """
+note_schemas:
+  my-schema:
+    - key: spec
+      role: queue
+      required: true
+      maxLength: 999
+            """.trimIndent()
+        )
+        val fingerprintAfter = service.getConfigFingerprint()
+
+        assertNotNull(fingerprintBefore)
+        assertNotNull(fingerprintAfter)
+        assertTrue(fingerprintBefore != fingerprintAfter, "fingerprint must change when maxLength changes")
+    }
 }

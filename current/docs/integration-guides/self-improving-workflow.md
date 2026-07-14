@@ -148,11 +148,11 @@ The first loop runs in real time as the agent uses MCP tools. It surfaces issues
 |---------|-----------------|----------------------|
 | Over-fetching | `query_items(get)` for a status check | `query_items(overview)` — 85-90% fewer tokens |
 | Missing batch | 3+ individual `manage_items`/`manage_dependencies`/`advance_item` calls in one turn | Use `items`/`dependencies`/`transitions` arrays for bulk operations |
-| Note body waste | `query_notes(includeBody=true)` when only keys/roles needed | Use `includeBody=false` for metadata-only reads |
+| Note body waste | `query_notes(includeBody=true)` when only keys/roles needed | `includeBody` now defaults to `false` — only pass `true` when bodies are actually needed |
 | Redundant queries | Same entity queried twice in a turn | Cache the first result or combine into one call |
 | Unfiltered search | `query_items(search)` with no filters | Add `role`, `tags`, `priority`, or `parentId` to narrow |
 | Multi-status role query | Listing specific statuses when a role would suffice | Use `role="work"` — resolves to all work-phase statuses |
-| Full notes for partial read | `query_notes(includeBody=true)` for all notes when one is needed | Scope with `query_notes(role=...)` |
+| Full notes for partial read | `query_notes(includeBody=true)` for all notes when one is needed | Scope with `query_notes(role=..., keys=[...])` |
 
 **Friction patterns:**
 

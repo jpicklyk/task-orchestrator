@@ -14,15 +14,7 @@ Manage BLOCKS, IS_BLOCKED_BY, and RELATES_TO edges between work items. Handles a
 
 Classify the user request before making any tool calls.
 
-**If `$ARGUMENTS` looks like a UUID** (8-4-4-4-12 hex pattern), default intent to VIEW for that item.
-
-**If `$ARGUMENTS` is a text string** (title fragment or action phrase), search for matching items:
-
-```
-query_items(operation="search", query="$ARGUMENTS", limit=5)
-```
-
-If multiple results are returned, present them and ask which item the user means.
+Resolve `$ARGUMENTS` to a UUID via `query_items` search (`operation="search"`, `query=$ARGUMENTS`, `limit=5`); if ambiguous, present matches via `AskUserQuestion`. If `$ARGUMENTS` is already a UUID, default intent to VIEW for that item.
 
 **If `$ARGUMENTS` is empty**, infer intent from the surrounding conversation. If intent is still unclear, ask via `AskUserQuestion`: "What would you like to do with dependencies? Options: view, create, delete, diagnose."
 

@@ -218,6 +218,66 @@ class QueryNotesToolTest {
             assertTrue(result["success"]!!.jsonPrimitive.boolean)
             val note = (result["data"] as JsonObject)["notes"]!!.jsonArray[0] as JsonObject
             assertEquals("This body should appear", note["body"]!!.jsonPrimitive.content)
+            // With bodies present, bodyLength is not emitted.
+            assertNull(note["bodyLength"], "bodyLength should be absent when the body is included")
+        }
+
+    @Test
+    fun `list notes omits body by default and reports bodyLength`() =
+        runBlocking {
+            val itemId = createTestItem()
+            val body = "This body should be summarized by length only"
+            createNote(itemId, "plan", "queue", body)
+
+            // No includeBody param → defaults to false (lean).
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("list"),
+                        "itemId" to JsonPrimitive(itemId)
+                    ),
+                    context
+                ) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val note = (result["data"] as JsonObject)["notes"]!!.jsonArray[0] as JsonObject
+            assertNull(note["body"], "body should be omitted by default (includeBody defaults to false)")
+            assertEquals(
+                body.length,
+                note["bodyLength"]!!.jsonPrimitive.int,
+                "bodyLength should equal the note body length when the body is omitted"
+            )
+            // The itemId echo is omitted in list context (the caller supplied it); note id is kept.
+            assertNull(note["itemId"], "itemId echo should be omitted per note in list responses")
+            assertNotNull(note["id"], "note id should still be present")
+        }
+
+    @Test
+    fun `list notes with keys filter returns only matching keys`() =
+        runBlocking {
+            val itemId = createTestItem()
+            createNote(itemId, "plan", "queue", "Plan body")
+            createNote(itemId, "approach", "work", "Approach body")
+            createNote(itemId, "verification", "review", "Verification body")
+
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("list"),
+                        "itemId" to JsonPrimitive(itemId),
+                        "keys" to
+                            JsonArray(
+                                listOf(JsonPrimitive("plan"), JsonPrimitive("verification"))
+                            )
+                    ),
+                    context
+                ) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val data = result["data"] as JsonObject
+            assertEquals(2, data["total"]!!.jsonPrimitive.int)
+            val keys = data["notes"]!!.jsonArray.map { it.jsonObject["key"]!!.jsonPrimitive.content }.toSet()
+            assertEquals(setOf("plan", "verification"), keys)
         }
 
     @Test

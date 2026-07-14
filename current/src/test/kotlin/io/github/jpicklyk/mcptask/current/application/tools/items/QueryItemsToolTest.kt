@@ -1,8 +1,12 @@
 package io.github.jpicklyk.mcptask.current.application.tools.items
 
+import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
+import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
+import io.github.jpicklyk.mcptask.current.domain.model.Role
+import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.WorkItemsTable
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
@@ -21,6 +25,7 @@ import kotlin.test.*
 class QueryItemsToolTest {
     private lateinit var database: Database
     private lateinit var context: ToolExecutionContext
+    private lateinit var repositoryProvider: DefaultRepositoryProvider
     private lateinit var tool: QueryItemsTool
     private lateinit var manageTool: ManageItemsTool
     private lateinit var advanceTool: AdvanceItemTool
@@ -31,7 +36,7 @@ class QueryItemsToolTest {
         database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
         val databaseManager = DatabaseManager(database)
         DirectDatabaseSchemaManager().updateSchema()
-        val repositoryProvider = DefaultRepositoryProvider(databaseManager)
+        repositoryProvider = DefaultRepositoryProvider(databaseManager)
         context = ToolExecutionContext(repositoryProvider)
         tool = QueryItemsTool()
         manageTool = ManageItemsTool()
@@ -119,6 +124,29 @@ class QueryItemsToolTest {
             assertEquals("queue", data["role"]!!.jsonPrimitive.content)
             assertEquals("medium", data["priority"]!!.jsonPrimitive.content)
             assertEquals(0, data["depth"]!!.jsonPrimitive.int)
+            // timestamps are opt-in (includeTimestamps) since t43 — absent by default
+            assertNull(data["createdAt"])
+            assertNull(data["modifiedAt"])
+            assertNull(data["roleChangedAt"])
+        }
+
+    @Test
+    fun `get with includeTimestamps true returns createdAt, modifiedAt, roleChangedAt`(): Unit =
+        runBlocking {
+            val itemId = createItem("Test Item")
+
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("get"),
+                        "itemId" to JsonPrimitive(itemId),
+                        "includeTimestamps" to JsonPrimitive(true)
+                    ),
+                    context
+                ) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val data = result["data"] as JsonObject
             assertNotNull(data["createdAt"])
             assertNotNull(data["modifiedAt"])
             assertNotNull(data["roleChangedAt"])
@@ -1648,6 +1676,235 @@ class QueryItemsToolTest {
                     }.jsonObject
             assertFalse(withoutTraits.containsKey("traits"), "Child without traits should omit traits key")
         }
+
+    // ──────────────────────────────────────────────
+    // Schema operation (get_schema)
+    // ──────────────────────────────────────────────
+
+    /** Schema service exposing one full schema for type/tag "feature-task" and a stable fingerprint. */
+    private fun schemaServiceForSchemaOp(fingerprint: String? = "fp-123"): NoteSchemaService {
+        val entries =
+            listOf(
+                NoteSchemaEntry(
+                    key = "acceptance-criteria",
+                    role = Role.QUEUE,
+                    required = true,
+                    description = "Acceptance criteria for this task",
+                    guidance = "List each criterion as a bullet point",
+                    skill = "criteria-quality"
+                ),
+                NoteSchemaEntry(
+                    key = "implementation-notes",
+                    role = Role.WORK,
+                    required = false,
+                    description = "Notes on the implementation approach"
+                )
+            )
+        val schema = WorkItemSchema(type = "feature-task", notes = entries)
+        return object : NoteSchemaService {
+            override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? = if (tags.contains("feature-task")) entries else null
+
+            override fun getSchemaForType(type: String?): WorkItemSchema? = if (type == "feature-task") schema else null
+
+            override fun getConfigFingerprint(): String? = fingerprint
+        }
+    }
+
+    @Test
+    fun `schema operation by type returns full entries and fingerprint`(): Unit =
+        runBlocking {
+            val schemaContext = ToolExecutionContext(repositoryProvider, schemaServiceForSchemaOp())
+
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("schema"),
+                        "type" to JsonPrimitive("feature-task")
+                    ),
+                    schemaContext
+                ) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val data = result["data"] as JsonObject
+            assertEquals("feature-task", data["type"]!!.jsonPrimitive.content)
+            assertEquals("fp-123", data["configFingerprint"]!!.jsonPrimitive.content)
+
+            val notes = data["notes"]!!.jsonArray
+            assertEquals(2, notes.size)
+
+            val first = notes[0].jsonObject
+            assertEquals("acceptance-criteria", first["key"]!!.jsonPrimitive.content)
+            assertEquals("queue", first["role"]!!.jsonPrimitive.content)
+            assertTrue(first["required"]!!.jsonPrimitive.boolean)
+            assertEquals("Acceptance criteria for this task", first["description"]!!.jsonPrimitive.content)
+            assertEquals("List each criterion as a bullet point", first["guidance"]!!.jsonPrimitive.content)
+            assertEquals("criteria-quality", first["skill"]!!.jsonPrimitive.content)
+
+            val second = notes[1].jsonObject
+            assertEquals("implementation-notes", second["key"]!!.jsonPrimitive.content)
+            assertEquals("Notes on the implementation approach", second["description"]!!.jsonPrimitive.content)
+            assertFalse(second.containsKey("guidance"), "guidance absent when null")
+            assertFalse(second.containsKey("skill"), "skill absent when null")
+        }
+
+    @Test
+    fun `schema operation by itemId resolves schema via item tags`(): Unit =
+        runBlocking {
+            val schemaContext = ToolExecutionContext(repositoryProvider, schemaServiceForSchemaOp())
+            val itemId = createItem("Tagged item", tags = "feature-task")
+
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("schema"),
+                        "itemId" to JsonPrimitive(itemId)
+                    ),
+                    schemaContext
+                ) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val data = result["data"] as JsonObject
+            assertEquals("feature-task", data["type"]!!.jsonPrimitive.content)
+            val notes = data["notes"]!!.jsonArray
+            assertEquals(2, notes.size)
+            assertEquals("Acceptance criteria for this task", notes[0].jsonObject["description"]!!.jsonPrimitive.content)
+        }
+
+    @Test
+    fun `schema operation fingerprint is stable across calls`(): Unit =
+        runBlocking {
+            val schemaContext = ToolExecutionContext(repositoryProvider, schemaServiceForSchemaOp())
+            val schemaParams =
+                params(
+                    "operation" to JsonPrimitive("schema"),
+                    "type" to JsonPrimitive("feature-task")
+                )
+
+            val fp1 =
+                ((tool.execute(schemaParams, schemaContext) as JsonObject)["data"] as JsonObject)["configFingerprint"]!!
+                    .jsonPrimitive.content
+            val fp2 =
+                ((tool.execute(schemaParams, schemaContext) as JsonObject)["data"] as JsonObject)["configFingerprint"]!!
+                    .jsonPrimitive.content
+            assertEquals(fp1, fp2, "configFingerprint must be stable while the config is unchanged")
+        }
+
+    @Test
+    fun `schema operation with unknown type returns error`(): Unit =
+        runBlocking {
+            val schemaContext = ToolExecutionContext(repositoryProvider, schemaServiceForSchemaOp())
+
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("schema"),
+                        "type" to JsonPrimitive("no-such-type")
+                    ),
+                    schemaContext
+                ) as JsonObject
+
+            assertFalse(result["success"]!!.jsonPrimitive.boolean)
+        }
+
+    @Test
+    fun `schema operation for schema-free item returns error`(): Unit =
+        runBlocking {
+            val schemaContext = ToolExecutionContext(repositoryProvider, schemaServiceForSchemaOp())
+            val itemId = createItem("Untagged item")
+
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("schema"),
+                        "itemId" to JsonPrimitive(itemId)
+                    ),
+                    schemaContext
+                ) as JsonObject
+
+            assertFalse(result["success"]!!.jsonPrimitive.boolean)
+        }
+
+    @Test
+    fun `schema operation null fingerprint serializes as JsonNull`(): Unit =
+        runBlocking {
+            val schemaContext = ToolExecutionContext(repositoryProvider, schemaServiceForSchemaOp(fingerprint = null))
+
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("schema"),
+                        "type" to JsonPrimitive("feature-task")
+                    ),
+                    schemaContext
+                ) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val data = result["data"] as JsonObject
+            assertTrue(data["configFingerprint"] is JsonNull)
+        }
+
+    @Test
+    fun `schema operation includes maxLength when set on an entry`(): Unit =
+        runBlocking {
+            val entries =
+                listOf(
+                    NoteSchemaEntry(
+                        key = "acceptance-criteria",
+                        role = Role.QUEUE,
+                        required = true,
+                        description = "Acceptance criteria",
+                        maxLength = 500
+                    ),
+                    NoteSchemaEntry(
+                        key = "implementation-notes",
+                        role = Role.WORK,
+                        required = false,
+                        description = "Implementation notes"
+                        // no maxLength
+                    )
+                )
+            val schema = WorkItemSchema(type = "limited-task", notes = entries)
+            val schemaService =
+                object : NoteSchemaService {
+                    override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? = null
+
+                    override fun getSchemaForType(type: String?): WorkItemSchema? = if (type == "limited-task") schema else null
+                }
+            val schemaContext = ToolExecutionContext(repositoryProvider, schemaService)
+
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("schema"),
+                        "type" to JsonPrimitive("limited-task")
+                    ),
+                    schemaContext
+                ) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val notes = ((result["data"] as JsonObject)["notes"] as JsonArray)
+            val withLimit = notes[0].jsonObject
+            assertEquals(500, withLimit["maxLength"]!!.jsonPrimitive.int)
+
+            val withoutLimit = notes[1].jsonObject
+            assertFalse(withoutLimit.containsKey("maxLength"), "maxLength absent when not configured on the entry")
+        }
+
+    @Test
+    fun `schema operation requires exactly one of type or itemId`() {
+        assertFailsWith<ToolValidationException> {
+            tool.validateParams(params("operation" to JsonPrimitive("schema")))
+        }
+        assertFailsWith<ToolValidationException> {
+            tool.validateParams(
+                params(
+                    "operation" to JsonPrimitive("schema"),
+                    "type" to JsonPrimitive("feature-task"),
+                    "itemId" to JsonPrimitive(UUID.randomUUID().toString())
+                )
+            )
+        }
+    }
 
     // ──────────────────────────────────────────────
     // Validation

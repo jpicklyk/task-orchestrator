@@ -74,6 +74,7 @@ class McpToolAdapter {
                         )
                     } catch (_: Exception) {
                     }
+                    logResponseSize(toolDefinition.name, success = false, responseChars = message.length)
                     return@addTool CallToolResult(
                         content = listOf(TextContent(text = message)),
                         isError = true
@@ -90,8 +91,24 @@ class McpToolAdapter {
                 // Generate user-facing summary
                 val summary = toolDefinition.userSummary(preprocessedParams, result, isError)
 
-                // Extract raw data for structuredContent (strip envelope)
-                val structuredData = resultObj?.let { ResponseUtil.extractDataPayload(it) } as? JsonObject
+                // Extract structuredContent: on success, the raw data payload (strip envelope);
+                // on error, the structured error object ({code, message, kind?, retryAfterMs?,
+                // contendedItemId?}) plus any error data (e.g. gate-failure details) so clients
+                // can act on structured fields without a diagnostic round-trip.
+                val structuredData =
+                    if (isError) {
+                        resultObj?.let { ResponseUtil.extractErrorPayload(it) }
+                    } else {
+                        resultObj?.let { ResponseUtil.extractDataPayload(it) } as? JsonObject
+                    }
+
+                // Response size telemetry: reuse the summary/structuredData strings already
+                // computed above (JsonElement.toString() is the same compact-JSON rendering the
+                // MCP SDK serializes for structuredContent — no extra serialization pass). Logs
+                // only the tool name, success/error, and a char count — never argument or
+                // response bodies — so this is safe at INFO on every call.
+                val responseChars = summary.length + (structuredData?.toString()?.length ?: 0)
+                logResponseSize(toolDefinition.name, success = !isError, responseChars = responseChars)
 
                 CallToolResult(
                     content = listOf(TextContent(text = summary)),
@@ -113,6 +130,7 @@ class McpToolAdapter {
                     )
                 } catch (_: Exception) {
                 }
+                logResponseSize(toolDefinition.name, success = false, responseChars = message.length)
                 CallToolResult(
                     content = listOf(TextContent(text = message)),
                     isError = true
@@ -138,6 +156,21 @@ class McpToolAdapter {
         logger.info("Registering {} tools with MCP server", tools.size)
         tools.forEach { tool -> registerToolWithServer(server, tool, context) }
         logger.info("All {} tools registered with MCP server", tools.size)
+    }
+
+    /**
+     * Logs one INFO line of response-size telemetry per tool call: tool name, success/error,
+     * and the char count of what the client actually receives (text content + serialized
+     * structuredContent, when present). Deliberately excludes argument and response bodies —
+     * this is a token-budget signal for spotting regressions in aggregate/log tooling, not a
+     * diagnostic dump.
+     */
+    private fun logResponseSize(
+        toolName: String,
+        success: Boolean,
+        responseChars: Int
+    ) {
+        logger.info("tool call: name={}, success={}, responseChars={}", toolName, success, responseChars)
     }
 
     /**

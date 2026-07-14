@@ -29,24 +29,14 @@ class ManageDependenciesTool :
         """
 Unified write operations for WorkItem dependencies (create, delete).
 
-**Idempotency:** Pass `requestId` (client-generated UUID) together with a top-level `actor.id` to enable idempotent retries. Repeated calls with the same (actor, requestId) within ~10 minutes return the cached response without re-executing.
+**Create via dependencies array:** each entry may override the shared `type`/`unblockAt` defaults.
+ATOMIC — all succeed or all fail (cycle/duplicate detection across the whole batch).
 
-**Create via dependencies array:**
-- `dependencies` array: each object has `fromItemId` (required), `toItemId` (required), `type` (optional), `unblockAt` (optional)
-- Shared `type` at top level defaults all deps (per-dep type overrides). Default: BLOCKS
-- Shared `unblockAt` at top level defaults all deps (per-dep unblockAt overrides). Default: null (terminal)
-- ATOMIC: all succeed or all fail (cycle/duplicate detection across entire batch)
-- Response: `{ dependencies: [{id, fromItemId, toItemId, type}], created: N }`
+**Pattern shortcuts** (exclusive with dependencies array): `linear`+itemIds chains A→B→C→D;
+`fan-out`+source+targets fans one item out to many; `fan-in`+sources+target fans many into one.
 
-**Create via pattern shortcut** (mutually exclusive with dependencies array):
-- `linear` + `itemIds=[A,B,C,D]` → A→B, B→C, C→D
-- `fan-out` + `source=A` + `targets=[B,C,D]` → A→B, A→C, A→D
-- `fan-in` + `sources=[B,C,D]` + `target=E` → B→E, C→E, D→E
-
-**Delete modes:**
-- By `id`: delete single dependency by its UUID
-- By `fromItemId` + `toItemId` (+ optional `type`): find and delete matching deps
-- By `fromItemId` or `toItemId` with `deleteAll=true`: delete ALL deps for that item
+**Delete:** by `id`; by `fromItemId`+`toItemId` (+ optional `type`); or by `fromItemId`/`toItemId`
+with `deleteAll=true` for every dependency on that item.
         """.trimIndent()
 
     override val category = ToolCategory.DEPENDENCY_MANAGEMENT
@@ -156,7 +146,7 @@ Unified write operations for WorkItem dependencies (create, delete).
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Shared default unblockAt threshold: queue, work, review, terminal (default: null = terminal)"
+                                    "Shared default unblockAt: queue, work, review, or terminal (default: terminal)"
                                 )
                             )
                         }
@@ -202,9 +192,8 @@ Unified write operations for WorkItem dependencies (create, delete).
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Client-generated UUID for idempotency. Repeated calls with the same (actor, requestId) " +
-                                        "within ~10 minutes return the cached response without re-executing. " +
-                                        "Requires a top-level actor parameter to function."
+                                    "Client-generated UUID for idempotency (10 min cache, keyed by actor+requestId). " +
+                                        "Requires actor."
                                 )
                             )
                         }
@@ -216,9 +205,8 @@ Unified write operations for WorkItem dependencies (create, delete).
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Top-level actor for idempotency key resolution: " +
-                                        "{ id (required string), kind (required: orchestrator|subagent|user|external), " +
-                                        "parent? (optional string), proof? (optional string) }"
+                                    "Top-level actor: { id (required), " +
+                                        "kind (required: orchestrator|subagent|user|external), parent?, proof? }"
                                 )
                             )
                         }

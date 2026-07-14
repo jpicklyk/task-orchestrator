@@ -150,7 +150,7 @@ Default to single item when scope is unclear. Use `create_work_tree` only when t
 
 Check `expectedNotes` in the create response. For each note where `required: true` and `role: "queue"`:
 - Extract relevant content from the conversation
-- Check each `expectedNotes` entry for a `guidance` field — use it as the authoring instruction for note content. Guidance takes precedence over free-form inference.
+- Resolve guidance via `query_items(operation="schema", itemId="<uuid>")` (`expectedNotes` itself is keys-only) — use its `guidance` field as the authoring instruction, taking precedence over free-form inference.
 - Batch all notes into a single call rather than one call per note:
   ```
   manage_notes(operation="upsert", notes=[

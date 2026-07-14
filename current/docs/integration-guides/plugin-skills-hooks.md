@@ -65,7 +65,7 @@ Hooks fire automatically — no invocation needed after installation.
 
 **What it injects:** The full Agent-Owned-Phase Protocol (see below).
 
-**Effect:** Every subagent knows to call `advance_item(trigger="start")` to enter its phase, fill notes using the `guidancePointer` loop, commit changes, and return without calling `complete`. The orchestrator handles terminal transitions.
+**Effect:** Every subagent knows to call `advance_item(trigger="start")` to enter its phase, fill notes using the `guidanceKey` loop, commit changes, and return without calling `complete`. The orchestrator handles terminal transitions.
 
 ---
 
@@ -143,13 +143,13 @@ When a subagent is dispatched via the `Agent` tool, the subagent-start hook inje
 advance_item(transitions=[{ "itemId": "<item-UUID>", "trigger": "start" }])
 ```
 
-This moves the item into the subagent's phase (queue→work or work→review). The response includes `guidancePointer` (authoring instructions for the first required note) and `noteProgress { filled, remaining, total }`.
+This moves the item into the subagent's phase (queue→work or work→review). The response includes `guidanceKey` (reference to the first required note with guidance) and `noteProgress { filled, remaining, total }`.
 
 If the item is already in the target phase (`applied: false` in the response), call `get_context(itemId="<item-UUID>")` instead to get the guidance.
 
 **2. Read guidance:**
 
-`guidancePointer` is the schema author's instruction for the first unfilled required note. If it references a skill, load it via the `Skill` tool.
+`guidanceKey` names the first unfilled required note with guidance; resolve its text via `query_items(operation="schema", itemId=...)`. If `skillPointer` is set, load that skill via the `Skill` tool first.
 
 **3. Do work and fill the note:**
 
@@ -170,11 +170,11 @@ If `noteProgress.total` is 1 (or absent), this was the only note — skip to ste
 get_context(itemId="<item-UUID>")
 ```
 
-Returns updated `guidancePointer` and `noteProgress`.
+Returns updated `guidanceKey` and `gateStatus` (get_context has no `noteProgress` — that field is advance_item/manage_notes-only).
 
 **5. Check if done:**
 
-If `guidancePointer` is null, all required notes are filled. Proceed to step 6. Otherwise go back to step 2.
+If `guidanceKey` is absent, all required notes are filled. Proceed to step 6. Otherwise go back to step 2.
 
 **6. Return results:**
 
@@ -222,7 +222,7 @@ Queue-phase notes (specification / task-scope) are filled before dispatching.
 
 **6. Each subagent:**
 - Calls `advance_item(trigger="start")` — queue→work
-- Reads `guidancePointer` — fills `implementation-notes` and `session-tracking` notes
+- Reads `guidanceKey` (resolved via `query_items(operation="schema")`) — fills `implementation-notes` and `session-tracking` notes
 - Commits changes
 - Returns to the orchestrator
 
@@ -234,7 +234,7 @@ Queue-phase notes (specification / task-scope) are filled before dispatching.
 
 ## Note Schema Integration
 
-The plugin works best when combined with note schemas (Tier 3). The pre-plan hook reads your `config.yaml` schemas to inform the definition floor. The subagent-start protocol uses `guidancePointer` from those schemas to tell agents exactly what to write.
+The plugin works best when combined with note schemas (Tier 3). The pre-plan hook reads your `config.yaml` schemas to inform the definition floor. The subagent-start protocol uses `guidanceKey` (resolved via `query_items(operation="schema")`) from those schemas to tell agents exactly what to write.
 
 See [Note Schemas](note-schemas.md) for schema setup.
 

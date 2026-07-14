@@ -140,9 +140,12 @@ class AdvanceItemToolTest {
 
             val r = results[0].jsonObject
             assertTrue(r["applied"]!!.jsonPrimitive.boolean)
-            assertEquals("queue", r["previousRole"]!!.jsonPrimitive.content)
             assertEquals("work", r["newRole"]!!.jsonPrimitive.content)
-            assertEquals("start", r["trigger"]!!.jsonPrimitive.content)
+            // previousRole + trigger echoes dropped; empty cascadeEvents/unblockedItems omitted.
+            assertNull(r["previousRole"], "previousRole echo dropped from per-transition result")
+            assertNull(r["trigger"], "trigger echo dropped from per-transition result")
+            assertNull(r["cascadeEvents"], "empty cascadeEvents should be omitted")
+            assertNull(r["unblockedItems"], "empty unblockedItems should be omitted")
 
             val summary = extractSummary(result)
             assertEquals(1, summary["total"]!!.jsonPrimitive.int)
@@ -172,7 +175,6 @@ class AdvanceItemToolTest {
             val results = extractResults(result)
             val r = results[0].jsonObject
             assertTrue(r["applied"]!!.jsonPrimitive.boolean)
-            assertEquals("queue", r["previousRole"]!!.jsonPrimitive.content)
             assertEquals("terminal", r["newRole"]!!.jsonPrimitive.content)
         }
 
@@ -198,7 +200,6 @@ class AdvanceItemToolTest {
             val results = extractResults(result)
             val r = results[0].jsonObject
             assertTrue(r["applied"]!!.jsonPrimitive.boolean)
-            assertEquals("work", r["previousRole"]!!.jsonPrimitive.content)
             assertEquals("blocked", r["newRole"]!!.jsonPrimitive.content)
         }
 
@@ -224,7 +225,6 @@ class AdvanceItemToolTest {
             val results = extractResults(result)
             val r = results[0].jsonObject
             assertTrue(r["applied"]!!.jsonPrimitive.boolean)
-            assertEquals("blocked", r["previousRole"]!!.jsonPrimitive.content)
             assertEquals("work", r["newRole"]!!.jsonPrimitive.content)
         }
 
@@ -252,8 +252,8 @@ class AdvanceItemToolTest {
             assertTrue(r["applied"]!!.jsonPrimitive.boolean)
             assertEquals("terminal", r["newRole"]!!.jsonPrimitive.content)
             // The statusLabel is set on the persisted item, not directly in the result JSON.
-            // But we can verify it reached TERMINAL, which is the cancel behavior.
-            assertEquals("work", r["previousRole"]!!.jsonPrimitive.content)
+            // previousRole echo dropped; reaching TERMINAL is the observable cancel behavior.
+            assertNull(r["previousRole"], "previousRole echo dropped from per-transition result")
         }
 
     // ──────────────────────────────────────────────
@@ -727,10 +727,9 @@ class AdvanceItemToolTest {
             assertEquals(downstreamId.toString(), unblockedItems[0].jsonObject["itemId"]!!.jsonPrimitive.content)
             assertEquals("Downstream Task", unblockedItems[0].jsonObject["title"]!!.jsonPrimitive.content)
 
-            // Also check allUnblockedItems in the top-level data
+            // Top-level allUnblockedItems aggregate was dropped (derivable from per-transition unblockedItems).
             val data = extractData(result)
-            val allUnblocked = data["allUnblockedItems"]!!.jsonArray
-            assertEquals(1, allUnblocked.size)
+            assertNull(data["allUnblockedItems"], "top-level allUnblockedItems aggregate dropped")
         }
 
     // ──────────────────────────────────────────────
@@ -845,7 +844,6 @@ class AdvanceItemToolTest {
             val results = extractResults(result)
             val r = results[0].jsonObject
             assertTrue(r["applied"]!!.jsonPrimitive.boolean)
-            assertEquals("review", r["previousRole"]!!.jsonPrimitive.content)
             assertEquals("blocked", r["newRole"]!!.jsonPrimitive.content)
         }
 
@@ -1370,8 +1368,8 @@ class AdvanceItemToolTest {
             val first = results[0].jsonObject
 
             assertEquals(true, first["applied"]?.jsonPrimitive?.boolean)
-            assertEquals("terminal", first["previousRole"]?.jsonPrimitive?.content)
             assertEquals("queue", first["newRole"]?.jsonPrimitive?.content)
+            assertNull(first["previousRole"], "previousRole echo dropped from per-transition result")
         }
 
     @Test
@@ -1434,11 +1432,11 @@ class AdvanceItemToolTest {
         }
 
     // ──────────────────────────────────────────────
-    // guidancePointer + noteProgress tests
+    // guidanceKey + noteProgress tests
     // ──────────────────────────────────────────────
 
     @Test
-    fun `advance with schema returns guidancePointer for first unfilled required note`(): Unit =
+    fun `advance with schema returns guidanceKey for first unfilled required note`(): Unit =
         runBlocking {
             val itemId = UUID.randomUUID()
             val item = WorkItem(id = itemId, title = "Gated item", role = Role.QUEUE, tags = "feature-task")
@@ -1497,8 +1495,20 @@ class AdvanceItemToolTest {
             assertTrue(r["applied"]!!.jsonPrimitive.boolean)
             assertEquals("work", r["newRole"]!!.jsonPrimitive.content)
 
-            // guidancePointer should be the guidance of the first unfilled required work note
-            assertEquals("Do X", r["guidancePointer"]!!.jsonPrimitive.content)
+            // guidanceKey should be the key of the first unfilled required work note
+            assertEquals("design-notes", r["guidanceKey"]!!.jsonPrimitive.content)
+            assertFalse(r.containsKey("guidancePointer"), "guidancePointer (full text) replaced by guidanceKey")
+
+            // expectedNotes must be keys-only (no description/guidance/skill text)
+            val expectedNotes = r["expectedNotes"]!!.jsonArray
+            assertTrue(expectedNotes.isNotEmpty(), "expectedNotes should list new-role schema entries")
+            for (element in expectedNotes) {
+                assertEquals(
+                    setOf("key", "role", "required", "exists"),
+                    element.jsonObject.keys,
+                    "expectedNotes entries must be keys-only"
+                )
+            }
 
             // noteProgress should show 0 filled, 2 remaining, 2 total
             val progress = r["noteProgress"]!!.jsonObject
@@ -1508,7 +1518,7 @@ class AdvanceItemToolTest {
         }
 
     @Test
-    fun `advance with partially filled notes returns correct guidancePointer`(): Unit =
+    fun `advance with partially filled notes returns correct guidanceKey`(): Unit =
         runBlocking {
             val itemId = UUID.randomUUID()
             val item = WorkItem(id = itemId, title = "Gated item", role = Role.QUEUE, tags = "feature-task")
@@ -1573,8 +1583,8 @@ class AdvanceItemToolTest {
             val r = results[0].jsonObject
             assertTrue(r["applied"]!!.jsonPrimitive.boolean)
 
-            // guidancePointer should be the second note's guidance (first is filled)
-            assertEquals("Do Y", r["guidancePointer"]!!.jsonPrimitive.content)
+            // guidanceKey should be the second note's key (first is filled)
+            assertEquals("implementation-notes", r["guidanceKey"]!!.jsonPrimitive.content)
 
             val progress = r["noteProgress"]!!.jsonObject
             assertEquals(1, progress["filled"]!!.jsonPrimitive.int)
@@ -1583,7 +1593,7 @@ class AdvanceItemToolTest {
         }
 
     @Test
-    fun `advance with all notes filled returns null guidancePointer`(): Unit =
+    fun `advance with all notes filled returns null guidanceKey`(): Unit =
         runBlocking {
             val itemId = UUID.randomUUID()
             val item = WorkItem(id = itemId, title = "Gated item", role = Role.QUEUE, tags = "feature-task")
@@ -1640,8 +1650,8 @@ class AdvanceItemToolTest {
             val r = results[0].jsonObject
             assertTrue(r["applied"]!!.jsonPrimitive.boolean)
 
-            // guidancePointer should be null (all required notes filled) — omitted from JSON
-            assertNull(r["guidancePointer"], "guidancePointer should not be present when all notes are filled")
+            // guidanceKey should be null (all required notes filled) — omitted from JSON
+            assertNull(r["guidanceKey"], "guidanceKey should not be present when all notes are filled")
 
             val progress = r["noteProgress"]!!.jsonObject
             assertEquals(1, progress["filled"]!!.jsonPrimitive.int)
@@ -1650,7 +1660,7 @@ class AdvanceItemToolTest {
         }
 
     @Test
-    fun `advance without schema returns null guidancePointer and null noteProgress`(): Unit =
+    fun `advance without schema returns null guidanceKey and null noteProgress`(): Unit =
         runBlocking {
             // Use default context (NoOpNoteSchemaService) — no schema
             val itemId = UUID.randomUUID()
@@ -1670,7 +1680,7 @@ class AdvanceItemToolTest {
             assertTrue(r["applied"]!!.jsonPrimitive.boolean)
 
             // No schema means both fields should be absent
-            assertNull(r["guidancePointer"], "guidancePointer should not be present without a schema")
+            assertNull(r["guidanceKey"], "guidanceKey should not be present without a schema")
             assertNull(r["noteProgress"], "noteProgress should not be present without a schema")
         }
 
@@ -1711,8 +1721,8 @@ class AdvanceItemToolTest {
             val r = results[0].jsonObject
             assertTrue(r["applied"]!!.jsonPrimitive.boolean)
 
-            // guidancePointer should be null (no required notes)
-            assertNull(r["guidancePointer"], "guidancePointer should not be present with only optional notes")
+            // guidanceKey should be null (no required notes)
+            assertNull(r["guidanceKey"], "guidanceKey should not be present with only optional notes")
 
             // noteProgress should show 0/0/0 (only required notes counted)
             val progress = r["noteProgress"]!!.jsonObject
@@ -1772,7 +1782,7 @@ class AdvanceItemToolTest {
             assertTrue(r["applied"]!!.jsonPrimitive.boolean)
             assertEquals("work", r["newRole"]!!.jsonPrimitive.content)
 
-            assertEquals("Write review", r["guidancePointer"]!!.jsonPrimitive.content)
+            assertEquals("review-notes", r["guidanceKey"]!!.jsonPrimitive.content)
             assertTrue(r.containsKey("skillPointer"), "skillPointer should be present when note has skill")
             assertEquals("review-quality", r["skillPointer"]!!.jsonPrimitive.content)
         }
@@ -2932,7 +2942,6 @@ class AdvanceItemToolTest {
                 "Claim holder should be able to block a claimed item: ${results[0]}"
             )
             assertEquals("blocked", results[0].jsonObject["newRole"]!!.jsonPrimitive.content)
-            assertEquals("work", results[0].jsonObject["previousRole"]!!.jsonPrimitive.content)
         }
 
     @Test
@@ -2956,7 +2965,6 @@ class AdvanceItemToolTest {
                 "Claim holder should be able to hold a claimed item: ${results[0]}"
             )
             assertEquals("blocked", results[0].jsonObject["newRole"]!!.jsonPrimitive.content)
-            assertEquals("work", results[0].jsonObject["previousRole"]!!.jsonPrimitive.content)
         }
 
     @Test

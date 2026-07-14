@@ -4,10 +4,14 @@ import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteCo
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
+import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
+import io.github.jpicklyk.mcptask.current.infrastructure.security.PathContainment
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
+import java.nio.file.Path
+import java.nio.file.Paths
 import java.util.UUID
 
 /**
@@ -17,9 +21,16 @@ import java.util.UUID
  * - **upsert**: Batch-upsert Notes from a `notes` array. Each note requires itemId, key, and role.
  *   The (itemId, key) pair is unique — upserting with an existing pair updates the note in place.
  * - **delete**: Delete notes by `ids` array, or by `itemId` (optionally scoped by `key`).
+ *
+ * @param agentConfigBaseDir The trusted root that `bodyFromFile` paths are resolved strictly
+ *   relative to (see [PathContainment]). Defaults to the same `AGENT_CONFIG_DIR` → `user.dir`
+ *   resolution used elsewhere in the codebase (e.g. [io.github.jpicklyk.mcptask.current.infrastructure.config.YamlWorkItemSchemaService]).
+ *   Overridable for tests.
  */
-class ManageNotesTool :
-    BaseToolDefinition(),
+class ManageNotesTool(
+    private val agentConfigBaseDir: Path =
+        Paths.get(AppConfig.resolveConfigBaseDir(System.getenv("AGENT_CONFIG_DIR")))
+) : BaseToolDefinition(),
     ActorAware {
     override val name = "manage_notes"
 
@@ -27,21 +38,13 @@ class ManageNotesTool :
         """
 Unified write operations for Notes (upsert, delete).
 
-**Operations:**
+**upsert** — upsert notes from the `notes` array (see its schema description for the per-note shape).
+`(itemId, key)` is unique — an existing pair is updated in place; `itemId` must reference an existing
+WorkItem. If the matched note schema declares `maxLength` for a note's key, the resolved body is
+checked after resolution: `note_limits.mode: warn` (default) accepts the note and adds a `warning`
+field naming the limit and actual size; `mode: reject` fails that note with `code: NOTE_BODY_TOO_LONG`.
 
-**upsert** - Upsert notes from `notes` array.
-- Each note: `{ itemId (required), key (required), role (required: "queue"|"work"|"review"), body?, actor? }`
-- `actor` (optional): `{ id (required string), kind (required: orchestrator|subagent|user|external), parent? (optional string), proof? (optional string) }` — records who wrote the note. Re-upsert replaces the actor (last-writer-wins).
-- (itemId, key) is unique — existing notes with same pair are updated
-- Validates that itemId references an existing WorkItem
-- Response: `{ notes: [{id, itemId, key, role, actor?, verification?}], upserted: N, failed: N, failures: [{index, error}], itemContext: { "<itemId>": { guidancePointer: "...|null", noteProgress: { filled: N, remaining: N, total: N }|null } } }`
-
-**delete** - Delete notes.
-- By `ids` array: delete each note by UUID
-- By `itemId` + optional `key`: delete all notes for item, or specific note by key
-- Response: `{ deleted: N, notFound: N, failed: N, failures: [{id, error}] }` — `notFound` counts keys that did not exist (not an error)
-
-**Idempotency:** Pass `requestId` (client-generated UUID) together with a top-level `actor.id` to enable idempotent retries. Repeated calls with the same (actor, requestId) within ~10 minutes return the cached response without re-executing.
+**delete** — delete by `ids` array, or by `itemId` (optionally scoped by `key`).
         """.trimIndent()
 
     override val category = ToolCategory.NOTE_MANAGEMENT
@@ -73,10 +76,15 @@ Unified write operations for Notes (upsert, delete).
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Array of note objects for upsert. Each note: " +
-                                        "{ itemId (required), key (required), role (required: queue|work|review), body?, " +
-                                        "actor? (optional: { id (required string), kind (required: orchestrator|subagent|user|external), " +
-                                        "parent (optional string), proof (optional string) }) }"
+                                    "Array of note objects for upsert. Each: " +
+                                        "{ itemId (required), key (required), role (required: queue|work|review), " +
+                                        "body? (inline text), " +
+                                        "bodyFromFile? (server-side path; mutually exclusive with body — providing both " +
+                                        "fails that note; resolved strictly relative to the agent config root, or the " +
+                                        "server's cwd; rejects absolute paths, '..', and symlink escapes; file must " +
+                                        "exist, <=65536 bytes; CRLF normalized to LF), " +
+                                        "actor? ({ id (required), kind (required: orchestrator|subagent|user|external), " +
+                                        "parent?, proof? } — who wrote the note; last-writer-wins on re-upsert) }"
                                 )
                             )
                         }
@@ -112,9 +120,8 @@ Unified write operations for Notes (upsert, delete).
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Client-generated UUID for idempotency. Repeated calls with the same (actor, requestId) " +
-                                        "within ~10 minutes return the cached response without re-executing. " +
-                                        "Requires a top-level actor parameter to function."
+                                    "Client-generated UUID for idempotency (10 min cache, keyed by actor+requestId). " +
+                                        "Requires actor."
                                 )
                             )
                         }
@@ -126,9 +133,8 @@ Unified write operations for Notes (upsert, delete).
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Top-level actor for idempotency key resolution: " +
-                                        "{ id (required string), kind (required: orchestrator|subagent|user|external), " +
-                                        "parent? (optional string), proof? (optional string) }"
+                                    "Top-level actor: { id (required), " +
+                                        "kind (required: orchestrator|subagent|user|external), parent?, proof? }"
                                 )
                             )
                         }
@@ -281,7 +287,23 @@ Unified write operations for Notes (upsert, delete).
                 val role =
                     extractNoteString(noteObj, "role")
                         ?: throw ToolValidationException("Note at index $index: 'role' is required")
-                val body = extractNoteString(noteObj, "body") ?: ""
+
+                // Resolve body: `body` (inline) and `bodyFromFile` (server-side path) are
+                // mutually exclusive. bodyFromFile is read and validated eagerly here so the
+                // remaining validation (schema maxLength, etc.) sees the final resolved text.
+                val bodyInline = extractNoteString(noteObj, "body")
+                val bodyFromFilePath = extractNoteString(noteObj, "bodyFromFile")
+                if (bodyInline != null && bodyFromFilePath != null) {
+                    throw ToolValidationException(
+                        "Note at index $index: 'body' and 'bodyFromFile' are mutually exclusive — provide only one"
+                    )
+                }
+                val body: String =
+                    if (bodyFromFilePath != null) {
+                        readBodyFromFile(bodyFromFilePath, index)
+                    } else {
+                        bodyInline ?: ""
+                    }
 
                 // Extract optional actor claim
                 val actorResult = parseActorClaim(noteObj["actor"] as? JsonObject, context)
@@ -321,6 +343,35 @@ Unified write operations for Notes (upsert, delete).
                     }
                 }
 
+                // Enforce the configured note-body length limit (schema maxLength), evaluated
+                // AFTER body resolution so it applies uniformly to inline `body` and
+                // file-sourced `bodyFromFile` content alike.
+                var lengthWarning: String? = null
+                val maxLength =
+                    context
+                        .resolveSchema(validatedItems.getValue(itemId))
+                        ?.notes
+                        ?.firstOrNull { it.key == key }
+                        ?.maxLength
+                if (maxLength != null && body.length > maxLength) {
+                    val detail = "body length ${body.length} exceeds maxLength $maxLength for key '$key'"
+                    if (context.noteSchemaService().getNoteLimitsMode() == "reject") {
+                        failures.add(
+                            buildJsonObject {
+                                put("index", JsonPrimitive(index))
+                                put("error", JsonPrimitive("Note at index $index: $detail"))
+                                put("code", JsonPrimitive("NOTE_BODY_TOO_LONG"))
+                                put("key", JsonPrimitive(key))
+                                put("maxLength", JsonPrimitive(maxLength))
+                                put("actualLength", JsonPrimitive(body.length))
+                            }
+                        )
+                        continue
+                    } else {
+                        lengthWarning = detail
+                    }
+                }
+
                 // Check for existing note with same (itemId, key) to preserve its ID
                 val existingNote =
                     when (val findResult = noteRepo.findByItemIdAndKey(itemId, key)) {
@@ -349,6 +400,7 @@ Unified write operations for Notes (upsert, delete).
                                 put("role", JsonPrimitive(result.data.role))
                                 actorClaim?.let { put("actor", it.toJson()) }
                                 verification?.toJsonOrOmit()?.let { put("verification", it) }
+                                lengthWarning?.let { put("warning", JsonPrimitive(it)) }
                             }
                         )
                     }
@@ -575,6 +627,42 @@ Unified write operations for Notes (upsert, delete).
     }
 
     // ──────────────────────────────────────────────
+    // bodyFromFile resolution
+    // ──────────────────────────────────────────────
+
+    /**
+     * Reads and returns the note body from [relativePath], resolved strictly relative to
+     * [agentConfigBaseDir] via [PathContainment].
+     *
+     * Throws [ToolValidationException] (caught by the per-note try/catch in [executeUpsert] and
+     * turned into a per-note failure) when the path is rejected, the file is missing, or the
+     * file exceeds [MAX_BODY_FILE_BYTES].
+     */
+    private fun readBodyFromFile(
+        relativePath: String,
+        index: Int
+    ): String {
+        when (val result = PathContainment.resolveWithinBase(agentConfigBaseDir, relativePath)) {
+            is PathContainment.Result.Rejected ->
+                throw ToolValidationException("Note at index $index: bodyFromFile rejected — ${result.reason}")
+            is PathContainment.Result.Allowed -> {
+                val file = result.realPath.toFile()
+                val size = file.length()
+                if (size > MAX_BODY_FILE_BYTES) {
+                    throw ToolValidationException(
+                        "Note at index $index: bodyFromFile '$relativePath' is $size bytes, " +
+                            "exceeds the $MAX_BODY_FILE_BYTES byte cap"
+                    )
+                }
+                val raw = file.readText(Charsets.UTF_8)
+                // Normalize CRLF line endings to LF: note bodies are stored and compared as
+                // LF-only, and files authored or edited on Windows commonly contain CRLF.
+                return raw.replace("\r\n", "\n")
+            }
+        }
+    }
+
+    // ──────────────────────────────────────────────
     // JSON note field extraction helpers
     // ──────────────────────────────────────────────
 
@@ -589,5 +677,10 @@ Unified write operations for Notes (upsert, delete).
         if (!value.isString) return null
         val content = value.content
         return if (content.isBlank()) null else content
+    }
+
+    companion object {
+        /** Maximum size, in bytes, of a file readable via `bodyFromFile`. */
+        private const val MAX_BODY_FILE_BYTES = 65536
     }
 }

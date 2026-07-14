@@ -1,6 +1,12 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
+import ch.qos.logback.classic.Level
+import ch.qos.logback.classic.Logger
+import ch.qos.logback.classic.spi.ILoggingEvent
+import ch.qos.logback.core.read.ListAppender
 import io.github.jpicklyk.mcptask.current.application.tools.*
+import io.github.jpicklyk.mcptask.current.domain.model.ErrorKind
+import io.github.jpicklyk.mcptask.current.domain.model.ToolError
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.ClientOptions
 import io.modelcontextprotocol.kotlin.sdk.server.Server
@@ -12,7 +18,10 @@ import kotlinx.serialization.json.*
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.slf4j.LoggerFactory
+import java.util.UUID
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
@@ -115,6 +124,29 @@ class McpToolAdapterIntegrationTest {
                     )
                 }
             }
+        }
+
+    /** A tool that returns a fixed response envelope, for driving adapter envelope handling. */
+    private fun envelopeTool(
+        toolName: String,
+        envelope: JsonObject
+    ): ToolDefinition =
+        object : ToolDefinition {
+            override val name = toolName
+            override val description = "Returns a fixed response envelope"
+            override val parameterSchema = ToolSchema()
+            override val category = ToolCategory.SYSTEM
+
+            override suspend fun execute(
+                params: JsonElement,
+                context: ToolExecutionContext
+            ): JsonElement = envelope
+
+            override fun userSummary(
+                params: JsonElement,
+                result: JsonElement,
+                isError: Boolean
+            ): String = if (isError) "$toolName failed" else "$toolName succeeded"
         }
 
     /** A tool that always throws an exception during execution. */
@@ -351,5 +383,228 @@ class McpToolAdapterIntegrationTest {
                     textContent[0].text.contains("1", ignoreCase = true),
                 "Summary should indicate item creation: ${textContent[0].text}"
             )
+        }
+
+    // ──────────────────────────────────────────────
+    // Structured error propagation via structuredContent
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `gate-failure error carries structured code kind and missingNotes through structuredContent`(): Unit =
+        runBlocking {
+            // Shape mirrors an advance_item gate-failure error envelope:
+            // structured ToolError fields plus gate details in the data payload.
+            val envelope =
+                ResponseUtil.createErrorResponse(
+                    ToolError.permanent(
+                        code = "gate_blocked",
+                        message = "Cannot complete: 1 required note(s) missing"
+                    ),
+                    additionalData =
+                        buildJsonObject {
+                            put(
+                                "missingNotes",
+                                JsonArray(
+                                    listOf(
+                                        buildJsonObject {
+                                            put("key", JsonPrimitive("acceptance-criteria"))
+                                            put("phase", JsonPrimitive("review"))
+                                        }
+                                    )
+                                )
+                            )
+                        }
+                )
+            adapter.registerToolWithServer(server, envelopeTool("advance_item", envelope), dummyContext)
+
+            val result = client.callTool(name = "advance_item", arguments = emptyMap())
+
+            assertEquals(true, result.isError)
+            val structured =
+                assertNotNull(result.structuredContent, "Error response must carry structuredContent")
+            val error = assertNotNull(structured["error"]?.jsonObject, "structuredContent must contain the error object")
+            assertEquals("gate_blocked", error["code"]?.jsonPrimitive?.content)
+            assertEquals("permanent", error["kind"]?.jsonPrimitive?.content)
+            val missingNotes =
+                assertNotNull(
+                    structured["data"]?.jsonObject?.get("missingNotes")?.jsonArray,
+                    "Gate-failure details (missingNotes) must ride along in structuredContent"
+                )
+            assertEquals("acceptance-criteria", missingNotes[0].jsonObject["key"]?.jsonPrimitive?.content)
+        }
+
+    @Test
+    fun `claim contention error carries retryAfterMs through structuredContent`(): Unit =
+        runBlocking {
+            val contendedId = UUID.randomUUID()
+            val envelope =
+                ResponseUtil.createErrorResponse(
+                    ToolError(
+                        kind = ErrorKind.TRANSIENT,
+                        code = "already_claimed",
+                        message = "Item $contendedId is already claimed by another agent",
+                        retryAfterMs = 1500L,
+                        contendedItemId = contendedId
+                    )
+                )
+            adapter.registerToolWithServer(server, envelopeTool("claim_item", envelope), dummyContext)
+
+            val result = client.callTool(name = "claim_item", arguments = emptyMap())
+
+            assertEquals(true, result.isError)
+            val structured =
+                assertNotNull(result.structuredContent, "Error response must carry structuredContent")
+            val error = assertNotNull(structured["error"]?.jsonObject, "structuredContent must contain the error object")
+            assertEquals("already_claimed", error["code"]?.jsonPrimitive?.content)
+            assertEquals("transient", error["kind"]?.jsonPrimitive?.content)
+            assertEquals(1500L, error["retryAfterMs"]?.jsonPrimitive?.long)
+            assertEquals(contendedId.toString(), error["contendedItemId"]?.jsonPrimitive?.content)
+        }
+
+    @Test
+    fun `not_found error carries its code through structuredContent`(): Unit =
+        runBlocking {
+            // Real tool, real DB: an unresolvable parentId prefix produces a top-level
+            // RESOURCE_NOT_FOUND error envelope.
+            val manageTool =
+                io.github.jpicklyk.mcptask.current.application.tools.items
+                    .ManageItemsTool()
+            adapter.registerToolWithServer(server, manageTool, dummyContext)
+
+            val result =
+                client.callTool(
+                    name = "manage_items",
+                    arguments =
+                        mapOf(
+                            "operation" to "create",
+                            "parentId" to "deadbeef", // valid hex prefix, matches nothing
+                            "items" to listOf(mapOf("title" to "Orphan item"))
+                        )
+                )
+
+            assertEquals(true, result.isError)
+            val structured =
+                assertNotNull(result.structuredContent, "not_found error must carry structuredContent")
+            val error = assertNotNull(structured["error"]?.jsonObject, "structuredContent must contain the error object")
+            assertEquals(ErrorCodes.RESOURCE_NOT_FOUND, error["code"]?.jsonPrimitive?.content)
+            assertTrue(
+                error["message"]
+                    ?.jsonPrimitive
+                    ?.content
+                    .orEmpty()
+                    .contains("deadbeef"),
+                "Error message should reference the unresolved prefix"
+            )
+        }
+
+    @Test
+    fun `success response structuredContent stays the raw data payload without envelope fields`(): Unit =
+        runBlocking {
+            adapter.registerToolWithServer(server, echoTool(), dummyContext)
+
+            val result =
+                client.callTool(
+                    name = "echo",
+                    arguments = mapOf("message" to "structured")
+                )
+
+            assertTrue(result.isError != true, "Expected successful result")
+            val structured =
+                assertNotNull(result.structuredContent, "Success response should carry structuredContent")
+            assertEquals("structured", structured["echoed"]?.jsonPrimitive?.content)
+            assertTrue("error" !in structured.keys, "Success structuredContent must not contain an error object")
+            assertTrue("success" !in structured.keys, "Success structuredContent must stay unwrapped (no envelope)")
+        }
+
+    // ──────────────────────────────────────────────
+    // Response-size telemetry (t63): one INFO log line per tool call, naming the tool,
+    // success/error, and a response char count — no argument or response bodies.
+    // ──────────────────────────────────────────────
+
+    /** Attaches a Logback ListAppender to McpToolAdapter's logger, runs [block], then detaches it. */
+    private fun captureAdapterLogs(block: () -> Unit): List<ILoggingEvent> {
+        val logbackLogger = LoggerFactory.getLogger(McpToolAdapter::class.java) as Logger
+        val listAppender =
+            ListAppender<ILoggingEvent>().also {
+                it.start()
+                logbackLogger.addAppender(it)
+            }
+        val savedLevel = logbackLogger.level
+        logbackLogger.level = Level.INFO
+        try {
+            block()
+            return listAppender.list.toList()
+        } finally {
+            logbackLogger.detachAppender(listAppender)
+            logbackLogger.level = savedLevel
+        }
+    }
+
+    @Test
+    fun `successful call logs one INFO response-size line naming the tool and a char count`(): Unit =
+        runBlocking {
+            adapter.registerToolWithServer(server, echoTool(), dummyContext)
+
+            var result: CallToolResult? = null
+            val events =
+                captureAdapterLogs {
+                    result =
+                        runBlocking {
+                            client.callTool(name = "echo", arguments = mapOf("message" to "hello world"))
+                        }
+                }
+
+            val infoEvents = events.filter { it.level == Level.INFO && it.formattedMessage.contains("tool call") }
+            assertEquals(1, infoEvents.size, "Expected exactly one tool-call telemetry line, got: ${events.map { it.formattedMessage }}")
+            val line = infoEvents[0].formattedMessage
+            assertTrue(line.contains("echo"), "Telemetry line should name the tool: $line")
+            assertTrue(line.contains("success=true"), "Telemetry line should report success=true: $line")
+
+            // The logged char count must match text content + structuredContent, exactly what
+            // McpToolAdapter actually returned to the client — no separate re-derivation.
+            val textLen = result!!.content.filterIsInstance<TextContent>().sumOf { it.text.length }
+            val structuredLen = result!!.structuredContent?.toString()?.length ?: 0
+            val expectedChars = textLen + structuredLen
+            assertTrue(
+                line.contains("responseChars=$expectedChars"),
+                "Telemetry line should report responseChars=$expectedChars (text=$textLen + structuredContent=$structuredLen): $line"
+            )
+
+            // No argument or response bodies leak into the log line.
+            assertTrue(!line.contains("hello world"), "Telemetry must not log argument bodies: $line")
+        }
+
+    @Test
+    fun `validation error call logs one INFO response-size line with success=false`(): Unit =
+        runBlocking {
+            adapter.registerToolWithServer(server, echoTool(), dummyContext)
+
+            val events =
+                captureAdapterLogs {
+                    runBlocking { client.callTool(name = "echo", arguments = emptyMap()) }
+                }
+
+            val infoEvents = events.filter { it.level == Level.INFO && it.formattedMessage.contains("tool call") }
+            assertEquals(1, infoEvents.size, "Expected exactly one tool-call telemetry line, got: ${events.map { it.formattedMessage }}")
+            val line = infoEvents[0].formattedMessage
+            assertTrue(line.contains("echo"), "Telemetry line should name the tool: $line")
+            assertTrue(line.contains("success=false"), "Telemetry line should report success=false: $line")
+        }
+
+    @Test
+    fun `internal error call logs one INFO response-size line with success=false`(): Unit =
+        runBlocking {
+            adapter.registerToolWithServer(server, failingTool(), dummyContext)
+
+            val events =
+                captureAdapterLogs {
+                    runBlocking { client.callTool(name = "failing_tool", arguments = emptyMap()) }
+                }
+
+            val infoEvents = events.filter { it.level == Level.INFO && it.formattedMessage.contains("tool call") }
+            assertEquals(1, infoEvents.size, "Expected exactly one tool-call telemetry line, got: ${events.map { it.formattedMessage }}")
+            val line = infoEvents[0].formattedMessage
+            assertTrue(line.contains("failing_tool"), "Telemetry line should name the tool: $line")
+            assertTrue(line.contains("success=false"), "Telemetry line should report success=false: $line")
         }
 }
