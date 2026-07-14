@@ -397,6 +397,139 @@ class CreateWorkTreeToolIntegrationTest {
         }
 
     // ──────────────────────────────────────────────────────────────────────────
+    // root_id stamping (create_work_tree is the third WorkItem-insert call site,
+    // alongside CreateItemHandler and the REST POST /items route)
+    // ──────────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `create mode without parentId stamps rootId as the root's own id, inherited by children and grandchildren`(): Unit =
+        runBlocking {
+            val params =
+                buildJsonObject {
+                    put("root", buildJsonObject { put("title", JsonPrimitive("New Root")) })
+                    put(
+                        "children",
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("ref", JsonPrimitive("child"))
+                                    put("title", JsonPrimitive("Child"))
+                                }
+                            )
+                            add(
+                                buildJsonObject {
+                                    put("ref", JsonPrimitive("grandchild"))
+                                    put("parentRef", JsonPrimitive("child"))
+                                    put("title", JsonPrimitive("Grandchild"))
+                                }
+                            )
+                        }
+                    )
+                }
+            val result = tool.execute(params, context) as JsonObject
+            assertTrue(result["success"]!!.jsonPrimitive.boolean, "Create should succeed: $result")
+
+            val data = result["data"] as JsonObject
+            val rootId = UUID.fromString((data["root"] as JsonObject)["id"]!!.jsonPrimitive.content)
+            val childrenArr = data["children"] as JsonArray
+            val childId = UUID.fromString(childrenArr[0].jsonObject["id"]!!.jsonPrimitive.content)
+            val grandchildId = UUID.fromString(childrenArr[1].jsonObject["id"]!!.jsonPrimitive.content)
+
+            val root = (workItemRepository.getById(rootId) as Result.Success).data
+            val child = (workItemRepository.getById(childId) as Result.Success).data
+            val grandchild = (workItemRepository.getById(grandchildId) as Result.Success).data
+
+            assertEquals(rootId, root.rootId, "A newly created root with no parentId must be its own root")
+            assertEquals(rootId, child.rootId, "Child must inherit the new root's id")
+            assertEquals(rootId, grandchild.rootId, "Grandchild must inherit the same root id transitively")
+        }
+
+    @Test
+    fun `create mode with parentId stamps rootId inherited from the parent chain`(): Unit =
+        runBlocking {
+            // Pre-create an existing root to hang the new tree's root under.
+            val existingRootParams =
+                buildJsonObject { put("root", buildJsonObject { put("title", JsonPrimitive("Existing Root")) }) }
+            val existingRootResult = tool.execute(existingRootParams, context) as JsonObject
+            val existingRootId =
+                UUID.fromString((existingRootResult["data"] as JsonObject)["root"]!!.jsonObject["id"]!!.jsonPrimitive.content)
+
+            val params =
+                buildJsonObject {
+                    put("root", buildJsonObject { put("title", JsonPrimitive("New Root Under Parent")) })
+                    put("parentId", JsonPrimitive(existingRootId.toString()))
+                    put(
+                        "children",
+                        buildJsonArray {
+                            add(buildJsonObject { put("ref", JsonPrimitive("child")); put("title", JsonPrimitive("Child")) })
+                        }
+                    )
+                }
+            val result = tool.execute(params, context) as JsonObject
+            assertTrue(result["success"]!!.jsonPrimitive.boolean, "Create under parentId should succeed: $result")
+
+            val data = result["data"] as JsonObject
+            val newRootId = UUID.fromString((data["root"] as JsonObject)["id"]!!.jsonPrimitive.content)
+            val childId = UUID.fromString((data["children"] as JsonArray)[0].jsonObject["id"]!!.jsonPrimitive.content)
+
+            val newRoot = (workItemRepository.getById(newRootId) as Result.Success).data
+            val child = (workItemRepository.getById(childId) as Result.Success).data
+
+            assertEquals(
+                existingRootId,
+                newRoot.rootId,
+                "A new root created under parentId must inherit the parent's root (or the parent's own id)"
+            )
+            assertEquals(existingRootId, child.rootId, "Child must inherit the same inherited root id")
+        }
+
+    @Test
+    fun `attach mode - children inherit the existing root's effective rootId`(): Unit =
+        runBlocking {
+            // 1. Create an existing item at depth 0 that will become the attach root.
+            //    Its rootId is whatever CreateWorkTreeTool's own create-mode path stamps it
+            //    with — own id, since it has no parentId.
+            val existingItemParams =
+                buildJsonObject { put("root", buildJsonObject { put("title", JsonPrimitive("Attach Root")) }) }
+            val createResult = tool.execute(existingItemParams, context) as JsonObject
+            val existingRootId =
+                UUID.fromString((createResult["data"] as JsonObject)["root"]!!.jsonObject["id"]!!.jsonPrimitive.content)
+            val existingRoot = (workItemRepository.getById(existingRootId) as Result.Success).data
+            assertEquals(existingRootId, existingRoot.rootId, "Pre-created root should be its own root")
+
+            // 2. Attach two children (one direct, one grandchild) to the existing root.
+            val attachParams =
+                buildJsonObject {
+                    put("root", buildJsonObject { put("id", JsonPrimitive(existingRootId.toString())) })
+                    put(
+                        "children",
+                        buildJsonArray {
+                            add(buildJsonObject { put("ref", JsonPrimitive("c1")); put("title", JsonPrimitive("Attach Child")) })
+                            add(
+                                buildJsonObject {
+                                    put("ref", JsonPrimitive("gc1"))
+                                    put("parentRef", JsonPrimitive("c1"))
+                                    put("title", JsonPrimitive("Attach Grandchild"))
+                                }
+                            )
+                        }
+                    )
+                }
+            val attachResult = tool.execute(attachParams, context) as JsonObject
+            assertTrue(attachResult["success"]!!.jsonPrimitive.boolean, "Attach should succeed: $attachResult")
+
+            val childrenArr = (attachResult["data"] as JsonObject)["children"] as JsonArray
+            val c1Id = UUID.fromString(childrenArr[0].jsonObject["id"]!!.jsonPrimitive.content)
+            val gc1Id = UUID.fromString(childrenArr[1].jsonObject["id"]!!.jsonPrimitive.content)
+
+            val c1 = (workItemRepository.getById(c1Id) as Result.Success).data
+            val gc1 = (workItemRepository.getById(gc1Id) as Result.Success).data
+
+            assertEquals(existingRootId, c1.rootId, "Direct child must inherit the existing root's effective rootId")
+            assertEquals(existingRootId, gc1.rootId, "Grandchild must inherit the same root id transitively")
+        }
+
+    // ──────────────────────────────────────────────────────────────────────────
     // Top-level actor attribution persists on the DB row for every note
     //
     // Verifies the audit trail is intact end-to-end: actor.id, actor.kind, and
