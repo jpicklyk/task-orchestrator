@@ -837,6 +837,197 @@ class ManageItemsToolTest {
         }
 
     @Test
+    fun `update parentId cascades depth to all descendants of a 3-level tree`() =
+        runBlocking {
+            suspend fun createItem(
+                title: String,
+                parentId: String? = null,
+            ): String {
+                val obj =
+                    buildJsonObject {
+                        put("title", JsonPrimitive(title))
+                        if (parentId != null) put("parentId", JsonPrimitive(parentId))
+                    }
+                val result =
+                    tool.execute(
+                        params("operation" to JsonPrimitive("create"), "items" to JsonArray(listOf(obj))),
+                        context
+                    ) as JsonObject
+                return (result["data"] as JsonObject)["items"]!!
+                    .jsonArray[0]
+                    .jsonObject["id"]!!
+                    .jsonPrimitive.content
+            }
+
+            suspend fun depthOf(itemId: String): Int {
+                val queryTool = QueryItemsTool()
+                val getResult =
+                    queryTool.execute(
+                        params("operation" to JsonPrimitive("get"), "itemId" to JsonPrimitive(itemId)),
+                        context
+                    ) as JsonObject
+                return (getResult["data"] as JsonObject)["depth"]!!.jsonPrimitive.int
+            }
+
+            // Build root A -> B -> C (3 levels), plus a sibling item D (depth 1, child of A)
+            // that B will be reparented under — a depth-increasing move.
+            val rootAId = createItem("Root A")
+            val bId = createItem("B", parentId = rootAId)
+            val cId = createItem("C", parentId = bId)
+            val dId = createItem("D", parentId = rootAId) // depth 1, sibling of B
+            assertEquals(1, depthOf(bId))
+            assertEquals(2, depthOf(cId))
+
+            val moveResult =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("update"),
+                        "items" to
+                            JsonArray(
+                                listOf(
+                                    buildJsonObject {
+                                        put("id", JsonPrimitive(bId))
+                                        put("parentId", JsonPrimitive(dId))
+                                    }
+                                )
+                            )
+                    ),
+                    context
+                ) as JsonObject
+            assertTrue(moveResult["success"]!!.jsonPrimitive.boolean)
+            assertEquals(1, (moveResult["data"] as JsonObject)["updated"]!!.jsonPrimitive.int)
+
+            // B moved from depth 1 (child of Root A) to depth 2 (child of D, itself depth 1).
+            // C, previously at depth 2, must cascade to depth 3.
+            assertEquals(2, depthOf(bId), "B should be at depth 2 after moving under D")
+            assertEquals(3, depthOf(cId), "C's depth must cascade with B's move (was 2, now 3)")
+        }
+
+    @Test
+    fun `update parentId to root cascades descendant depths down`() =
+        runBlocking {
+            suspend fun createItem(
+                title: String,
+                parentId: String? = null,
+            ): String {
+                val obj =
+                    buildJsonObject {
+                        put("title", JsonPrimitive(title))
+                        if (parentId != null) put("parentId", JsonPrimitive(parentId))
+                    }
+                val result =
+                    tool.execute(
+                        params("operation" to JsonPrimitive("create"), "items" to JsonArray(listOf(obj))),
+                        context
+                    ) as JsonObject
+                return (result["data"] as JsonObject)["items"]!!
+                    .jsonArray[0]
+                    .jsonObject["id"]!!
+                    .jsonPrimitive.content
+            }
+
+            suspend fun depthOf(itemId: String): Int {
+                val queryTool = QueryItemsTool()
+                val getResult =
+                    queryTool.execute(
+                        params("operation" to JsonPrimitive("get"), "itemId" to JsonPrimitive(itemId)),
+                        context
+                    ) as JsonObject
+                return (getResult["data"] as JsonObject)["depth"]!!.jsonPrimitive.int
+            }
+
+            // Root A -> B -> C
+            val rootAId = createItem("Root A")
+            val bId = createItem("B", parentId = rootAId)
+            val cId = createItem("C", parentId = bId)
+            assertEquals(1, depthOf(bId))
+            assertEquals(2, depthOf(cId))
+
+            // Move B to root: depth 1 -> 0, delta = -1. C must cascade 2 -> 1.
+            val moveResult =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("update"),
+                        "items" to
+                            JsonArray(
+                                listOf(
+                                    buildJsonObject {
+                                        put("id", JsonPrimitive(bId))
+                                        put("parentId", JsonNull)
+                                    }
+                                )
+                            )
+                    ),
+                    context
+                ) as JsonObject
+            assertTrue(moveResult["success"]!!.jsonPrimitive.boolean)
+
+            assertEquals(0, depthOf(bId), "B should now be a root item")
+            assertEquals(1, depthOf(cId), "C's depth must cascade down with B's move to root (was 2, now 1)")
+        }
+
+    @Test
+    fun `update without parentId change leaves descendant depths unchanged`() =
+        runBlocking {
+            suspend fun createItem(
+                title: String,
+                parentId: String? = null,
+            ): String {
+                val obj =
+                    buildJsonObject {
+                        put("title", JsonPrimitive(title))
+                        if (parentId != null) put("parentId", JsonPrimitive(parentId))
+                    }
+                val result =
+                    tool.execute(
+                        params("operation" to JsonPrimitive("create"), "items" to JsonArray(listOf(obj))),
+                        context
+                    ) as JsonObject
+                return (result["data"] as JsonObject)["items"]!!
+                    .jsonArray[0]
+                    .jsonObject["id"]!!
+                    .jsonPrimitive.content
+            }
+
+            suspend fun depthOf(itemId: String): Int {
+                val queryTool = QueryItemsTool()
+                val getResult =
+                    queryTool.execute(
+                        params("operation" to JsonPrimitive("get"), "itemId" to JsonPrimitive(itemId)),
+                        context
+                    ) as JsonObject
+                return (getResult["data"] as JsonObject)["depth"]!!.jsonPrimitive.int
+            }
+
+            val rootAId = createItem("Root A")
+            val bId = createItem("B", parentId = rootAId)
+            val cId = createItem("C", parentId = bId)
+
+            // Update B's title only — no parentId field present, so newDepth == existing.depth
+            // and the cascade must be a no-op.
+            val updateResult =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("update"),
+                        "items" to
+                            JsonArray(
+                                listOf(
+                                    buildJsonObject {
+                                        put("id", JsonPrimitive(bId))
+                                        put("title", JsonPrimitive("B renamed"))
+                                    }
+                                )
+                            )
+                    ),
+                    context
+                ) as JsonObject
+            assertTrue(updateResult["success"]!!.jsonPrimitive.boolean)
+
+            assertEquals(1, depthOf(bId), "B's own depth should be unaffected by a non-parent update")
+            assertEquals(2, depthOf(cId), "C's depth should remain unchanged when B's parent doesn't change")
+        }
+
+    @Test
     fun `update with null parentId moves to root`() =
         runBlocking {
             // Create parent and child

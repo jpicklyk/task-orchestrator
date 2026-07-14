@@ -70,4 +70,48 @@ class ItemHierarchyValidator {
             )
         }
     }
+
+    /**
+     * Recomputes the stored `depth` for every descendant of [itemId] after the item's own depth
+     * changed by [delta] (`newDepth - oldDepth`).
+     *
+     * No-op when [delta] is zero — callers may invoke this unconditionally. Fetches the full
+     * descendant set via [WorkItemRepository.findDescendants] and applies [delta] to each
+     * descendant's depth, persisting through [WorkItemRepository.update] (the update builder keeps
+     * `modifiedAt` monotonic, and `update` enforces the same optimistic-version check used for any
+     * other item write).
+     *
+     * This issues one `update` per descendant — there is no bulk-update primitive on
+     * [WorkItemRepository] to batch these into a single statement. Callers that need the parent's
+     * own depth write and this cascade to be atomic (all-or-nothing) MUST invoke both inside a
+     * shared [WorkItemRepository.inTransaction] block.
+     *
+     * @return [Result.Success] once every descendant has been updated (including the trivial case
+     *   of zero descendants or a zero [delta]); [Result.Error] on the first failure encountered —
+     *   either the descendant fetch or a single descendant's update (e.g. a version-mismatch
+     *   conflict).
+     */
+    suspend fun recomputeDescendantDepths(
+        itemId: UUID,
+        delta: Int,
+        repo: WorkItemRepository
+    ): Result<Unit> {
+        if (delta == 0) return Result.Success(Unit)
+
+        val descendants =
+            when (val descendantsResult = repo.findDescendants(itemId)) {
+                is Result.Success -> descendantsResult.data
+                is Result.Error -> return descendantsResult
+            }
+
+        for (descendant in descendants) {
+            val updatedDescendant = descendant.update { d -> d.copy(depth = d.depth + delta) }
+            when (val updateResult = repo.update(updatedDescendant)) {
+                is Result.Success -> {}
+                is Result.Error -> return updateResult
+            }
+        }
+
+        return Result.Success(Unit)
+    }
 }

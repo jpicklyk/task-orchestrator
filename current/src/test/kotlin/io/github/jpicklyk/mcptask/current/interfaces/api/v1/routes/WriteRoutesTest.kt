@@ -414,6 +414,39 @@ class ItemPatchRouteTest {
         }
 
     @Test
+    fun `PATCH items parentId change cascades depth to descendants`(): Unit =
+        testApplication {
+            val repo = buildH2RepositoryProvider()
+            // root A(0) -> b(1) -> c(2), plus sibling target d(1) under root A.
+            val (_, b, c, d) =
+                runBlocking {
+                    val a = repo.workItemRepository().create(WorkItem(title = "Root A", depth = 0)).getOrNull()!!
+                    val b = repo.workItemRepository().create(WorkItem(title = "B", parentId = a.id, depth = 1)).getOrNull()!!
+                    val c = repo.workItemRepository().create(WorkItem(title = "C", parentId = b.id, depth = 2)).getOrNull()!!
+                    val d = repo.workItemRepository().create(WorkItem(title = "D", parentId = a.id, depth = 1)).getOrNull()!!
+                    listOf(a, b, c, d)
+                }
+            application { configureWriteTestApp(repo) }
+
+            val etag = "\"v1-${b.modifiedAt.toEpochMilli()}\""
+            val response =
+                client.patch("/api/v1/items/${b.id}") {
+                    header("Authorization", "Bearer $WRITE_TOKEN")
+                    header(HttpHeaders.IfMatch, etag)
+                    contentType(ContentType.Application.Json)
+                    setBody("""{"parentId":"${d.id}"}""") // B moves under D (depth 1 -> 2)
+                }
+
+            assertEquals(HttpStatusCode.OK, response.status)
+            val body = response.bodyAsText()
+            assertTrue(body.contains("\"depth\":2"), "B should be at depth 2 after moving under D: $body")
+
+            // C must cascade from depth 2 to depth 3 even though this PATCH only targeted B.
+            val persistedC = runBlocking { repo.workItemRepository().getById(c.id) }
+            assertEquals(3, (persistedC as Result.Success).data.depth, "C's depth must cascade with B's move")
+        }
+
+    @Test
     fun `PATCH items with nested object in properties merges recursively`(): Unit =
         testApplication {
             val repo = buildH2RepositoryProvider()

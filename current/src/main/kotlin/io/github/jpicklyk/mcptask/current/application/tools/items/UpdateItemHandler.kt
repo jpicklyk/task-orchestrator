@@ -7,6 +7,7 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.application.tools.resolveWorkItemIdString
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
+import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import kotlinx.serialization.json.*
 import java.util.UUID
@@ -148,7 +149,30 @@ class UpdateItemHandler(
                         )
                     }
 
-                when (val result = repo.update(updatedItem)) {
+                // When the depth actually changes, the item's own write and the descendant-depth
+                // cascade must succeed or fail together — wrap both in a shared transaction so a
+                // cascade failure (e.g. a version-mismatch conflict on a descendant) rolls back the
+                // parent's own depth write too, rather than leaving the tree half-updated.
+                val depthDelta = newDepth - existing.depth
+                var updateResult: Result<WorkItem>? = null
+                if (depthDelta != 0) {
+                    repo.inTransaction {
+                        val txResult = repo.update(updatedItem)
+                        updateResult = txResult
+                        if (txResult is Result.Success) {
+                            when (val cascadeResult = hierarchyValidator.recomputeDescendantDepths(id, depthDelta, repo)) {
+                                is Result.Success -> {}
+                                is Result.Error -> throw DepthCascadeException(
+                                    "Item '$itemId': failed to update descendant depths: ${cascadeResult.error.message}"
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    updateResult = repo.update(updatedItem)
+                }
+
+                when (val result = updateResult!!) {
                     is Result.Success -> {
                         updatedItems.add(
                             buildJsonObject {
@@ -196,4 +220,12 @@ class UpdateItemHandler(
 
         return ResponseUtil.createSuccessResponse(data)
     }
+
+    /**
+     * Internal marker exception used to abort the shared [io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository.inTransaction]
+     * block when the descendant-depth cascade fails after the parent's own depth write succeeded.
+     * Caught by the per-item `catch (e: Exception)` block above and converted into a failure entry;
+     * never surfaced past [execute].
+     */
+    private class DepthCascadeException(message: String) : Exception(message)
 }

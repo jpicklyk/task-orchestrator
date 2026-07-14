@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.application.service.AdvanceFailure
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceService
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
+import io.github.jpicklyk.mcptask.current.application.service.ItemHierarchyValidator
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.rest.MergePatchApplier
@@ -202,6 +203,7 @@ fun Route.itemWriteRoutes(
     val workItemRepo = repositoryProvider.workItemRepository()
     val roleTransitionRepo = repositoryProvider.roleTransitionRepository()
     val depRepo = repositoryProvider.dependencyRepository()
+    val hierarchyValidator = ItemHierarchyValidator()
 
     // Schema-resolution context — reuses the EXACT trait-merging + review-phase logic from
     // AdvanceItemTool (via ToolExecutionContext.resolveHasReviewPhase). Repository access is shared;
@@ -504,7 +506,42 @@ fun Route.itemWriteRoutes(
                         return errorCaptured(HttpStatusCode.BadRequest, "validation_error", e.message ?: "Validation failed")
                     }
 
-                return when (val result = workItemRepo.update(updated)) {
+                // When the depth actually changes, the item's own write and the descendant-depth
+                // cascade must succeed or fail together — wrap both in a shared transaction so a
+                // cascade failure (e.g. a version-mismatch conflict on a descendant) rolls back the
+                // parent's own depth write too, rather than leaving the tree half-updated.
+                val depthDelta = newDepth - existing.depth
+                var updateResult: Result<WorkItem>? = null
+                var cascadeErrorMessage: String? = null
+                if (depthDelta != 0) {
+                    try {
+                        workItemRepo.inTransaction {
+                            val txResult = workItemRepo.update(updated)
+                            updateResult = txResult
+                            if (txResult is Result.Success) {
+                                when (val cascadeResult = hierarchyValidator.recomputeDescendantDepths(id, depthDelta, workItemRepo)) {
+                                    is Result.Success -> {}
+                                    is Result.Error -> {
+                                        cascadeErrorMessage = cascadeResult.error.message
+                                        throw DepthCascadeException(cascadeResult.error.message)
+                                    }
+                                }
+                            }
+                        }
+                    } catch (e: DepthCascadeException) {
+                        // Expected abort path — cascadeErrorMessage already holds the detail and the
+                        // transaction has rolled back, so no partial writes remain.
+                    }
+                } else {
+                    updateResult = workItemRepo.update(updated)
+                }
+
+                if (cascadeErrorMessage != null) {
+                    writeLogger.warn("PATCH /items/{} descendant depth cascade failed: {}", id, cascadeErrorMessage)
+                    return errorCaptured(HttpStatusCode.InternalServerError, "db_error", "Failed to update item")
+                }
+
+                return when (val result = updateResult!!) {
                     is Result.Error -> {
                         writeLogger.warn("PATCH /items/{} DB error: {}", id, result.error.message)
                         errorCaptured(HttpStatusCode.InternalServerError, "db_error", "Failed to update item")
@@ -717,3 +754,11 @@ fun Route.itemWriteRoutes(
         }
     }
 }
+
+/**
+ * Internal marker exception used to abort the shared `workItemRepo.inTransaction` block in the
+ * PATCH `/items/{id}` handler when the descendant-depth cascade fails after the item's own depth
+ * write succeeded. Caught immediately around the `inTransaction` call and converted into a 500
+ * response; never surfaced to the client as a raw exception.
+ */
+private class DepthCascadeException(message: String) : Exception(message)
