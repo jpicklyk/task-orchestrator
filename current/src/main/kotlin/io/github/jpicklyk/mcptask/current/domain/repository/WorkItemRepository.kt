@@ -106,9 +106,16 @@ interface WorkItemRepository {
         limit: Int = 50
     ): Result<List<WorkItem>>
 
+    /**
+     * @param rootIds Optional subtree scope. When null (default), unscoped — behavior is
+     *   identical to omitting the parameter. When non-null, results are additionally restricted
+     *   to items within the subtree(s) rooted at [rootIds] (roots included), resolved the same
+     *   way as [findInScope]. An empty (non-null) set yields an empty result — no matching rows.
+     */
     suspend fun findByRole(
         role: Role,
-        limit: Int = 50
+        limit: Int = 50,
+        rootIds: Set<UUID>? = null
     ): Result<List<WorkItem>>
 
     suspend fun findByDepth(
@@ -308,12 +315,17 @@ interface WorkItemRepository {
      * @param parentId        Optional parent UUID to scope results to direct children only.
      * @param excludeActiveClaims When true, omit items with a live (non-expired) claim.
      * @param limit           Maximum number of rows to return.
+     * @param rootIds Optional subtree scope. When null (default), unscoped — behavior is
+     *   identical to the pre-scoping contract. When non-null, results are additionally
+     *   restricted to items within the subtree(s) rooted at [rootIds] (roots included),
+     *   resolved the same way as [findInScope]. An empty (non-null) set yields an empty result.
      */
     suspend fun findForNextItem(
         role: Role,
         parentId: UUID? = null,
         excludeActiveClaims: Boolean = true,
-        limit: Int = 200
+        limit: Int = 200,
+        rootIds: Set<UUID>? = null
     ): Result<List<WorkItem>>
 
     /**
@@ -367,6 +379,10 @@ interface WorkItemRepository {
      *                          only ancestor claims held by a *different* agent disqualify a
      *                          candidate. When null, any live ancestor claim disqualifies the
      *                          candidate (strict exclusion for callers without actor context).
+     * @param rootIds Optional subtree scope. When null (default), unscoped — behavior is
+     *   identical to the pre-scoping contract. When non-null, candidates are additionally
+     *   restricted to items within the subtree(s) rooted at [rootIds] (roots included),
+     *   resolved the same way as [findInScope]. An empty (non-null) set yields an empty result.
      * @return [Result.Success] with the list of matching, claimable items (may be empty), or
      *         [Result.Error] on a database failure.
      */
@@ -386,6 +402,7 @@ interface WorkItemRepository {
         orderBy: NextItemOrder = NextItemOrder.PRIORITY_THEN_COMPLEXITY,
         limit: Int = 200,
         requestingAgentId: String? = null,
+        rootIds: Set<UUID>? = null,
     ): Result<List<WorkItem>>
 
     /**
@@ -402,8 +419,13 @@ interface WorkItemRepository {
      * Counts are computed at the DB level (SQL aggregation) — not load-all-rows-then-count.
      *
      * @param parentId Optional parent UUID to scope the aggregation.
+     * @param rootIds Optional subtree scope. When null (default), unscoped — behavior is
+     *   identical to the pre-scoping contract. When non-null, counts are additionally restricted
+     *   to items within the subtree(s) rooted at [rootIds] (roots included), resolved the same
+     *   way as [findInScope]. [rootIds] and [parentId] compose with AND. An empty (non-null)
+     *   [rootIds] set yields all-zero counts.
      */
-    suspend fun countByClaimStatus(parentId: UUID? = null): Result<ClaimStatusCounts>
+    suspend fun countByClaimStatus(parentId: UUID? = null, rootIds: Set<UUID>? = null): Result<ClaimStatusCounts>
 
     /**
      * Find work items that are within the subtree rooted at any of [rootIds] (roots included).
