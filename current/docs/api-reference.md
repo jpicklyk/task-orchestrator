@@ -1741,13 +1741,17 @@ Supports two operations, selected via `operation`:
 #### `push`
 
 Validates, in order:
-1. `rootItemId` must resolve to an existing WorkItem.
-2. That WorkItem must be depth 0 (a project root) — configs anchor to roots only.
-3. If the root's `type` is not `"project"`, the push still succeeds but the response includes a
+1. `configYaml` must not exceed **128 KiB** (131,072 bytes, UTF-8) — rejected before any parse
+   attempt (CWE-770: bounds parse cost and storage growth against a hostile or oversized payload).
+2. `rootItemId` must resolve to an existing WorkItem.
+3. That WorkItem must be depth 0 (a project root) — configs anchor to roots only.
+4. If the root's `type` is not `"project"`, the push still succeeds but the response includes a
    non-fatal `warning` field (a naming convention, not an enforced constraint).
-4. `configYaml` is parsed via the same parser `PerRootConfigService` uses on every read. Unparseable
-   YAML is rejected here — nothing is stored — so a broken config can never silently exist server-side
-   and fall through to the global schema on a later read.
+5. `configYaml` is parsed via the same parser `PerRootConfigService` uses on every read, using a
+   YAML *safe* constructor that only ever builds plain maps/lists/scalars (see **Parse safety**
+   below). Unparseable or unsafe YAML is rejected here — nothing is stored — so a broken or
+   malicious config can never silently exist server-side and fall through to the global schema on
+   a later read.
 
 On success, stores the document and returns its fingerprint. Pushing byte-identical content is
 naturally idempotent: the fingerprint returned is unchanged, so a caller can `get` first and skip
@@ -1757,7 +1761,17 @@ the push when fingerprints already match — no separate idempotency-key machine
 |---|---|---|---|
 | `operation` | string (`"push"` \| `"get"`) | Yes | Selects the operation |
 | `rootItemId` | string (UUID or 4+ char hex prefix) | Yes | Project root WorkItem — must be depth 0 for `push` |
-| `configYaml` | string | Yes (push only) | Raw config.yaml text to store for this root |
+| `configYaml` | string | Yes (push only) | Raw config.yaml text to store for this root; max 128 KiB |
+
+**Parse safety.** `configYaml` is parsed with SnakeYAML's `SafeConstructor` rather than its default
+`Constructor`. The default constructor will instantiate an arbitrary Java type named by a YAML
+`!!`-tag — a well-known deserialization-RCE class of vulnerability (CWE-502) — which matters here
+specifically because `configYaml` is attacker-reachable input pushed over the MCP protocol, not a
+trusted local file read from disk. `SafeConstructor` only ever builds plain maps, lists, and
+scalars, which is everything a config document legitimately needs; any `!!`-tagged custom type is
+rejected as a parse failure instead of being instantiated. The same fix applies everywhere per-root
+config bytes are parsed (`PerRootConfigService`, on every schema-resolving read) and to the global
+`.taskorchestrator/config.yaml` loader.
 
 **Example.**
 
@@ -1786,9 +1800,10 @@ the push when fingerprints already match — no separate idempotency-key machine
 
 | Condition | `error.code` |
 |---|---|
+| `configYaml` exceeds 128 KiB | `VALIDATION_ERROR` (message names the limit and the actual size) |
 | `rootItemId` does not resolve to an existing WorkItem | `RESOURCE_NOT_FOUND` |
 | Root WorkItem has `depth != 0` | `VALIDATION_ERROR` |
-| `configYaml` fails to parse (invalid YAML syntax/shape) | `VALIDATION_ERROR` (message includes the parse detail) |
+| `configYaml` fails to parse (invalid/unsafe YAML syntax or shape, including `!!`-tagged custom types — see **Parse safety** above) | `VALIDATION_ERROR` (message includes the parse detail) |
 | Storage failure | `DATABASE_ERROR` |
 
 #### `get`
@@ -1817,6 +1832,16 @@ Reads back the stored config for a root.
 `actor` parameter — its writes aren't part of the per-note/per-item attribution model (a config
 document has no "author" note field to stamp), so mirroring the actor-claim/verification machinery
 would add complexity with no corresponding read surface to expose it through.
+
+**Trust-model caveat.** `manage_project_config` can silently rewrite a project's gate configuration
+(required notes, review phases, trait routing) for every item under a root. Under
+`MCP_TRANSPORT=http`, the `/mcp` endpoint is **unauthenticated regardless of REST API auth mode** —
+any client that can reach the port can call `push` for any root. This is not a gap introduced by
+this tool; it's the existing MCP transport trust model (see
+[`fleet-deployment.md`](./fleet-deployment.md), "MCP HTTP Transport (`/mcp`) Is Unauthenticated —
+Read First") applying to config data the same way it already applies to every other MCP tool.
+Fence `/mcp` at the network layer per that guidance before exposing `MCP_TRANSPORT=http` beyond a
+single trusted process.
 
 ---
 

@@ -5,7 +5,9 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import org.slf4j.LoggerFactory
+import org.yaml.snakeyaml.LoaderOptions
 import org.yaml.snakeyaml.Yaml
+import org.yaml.snakeyaml.constructor.SafeConstructor
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
@@ -117,6 +119,13 @@ class PerRootConfigService(
      * document legitimately may carry no `work_item_schemas:`/`note_schemas:` section at all (it
      * might exist purely for other per-root settings), so this must NOT emit the global loader's
      * "no schemas loaded" warning.
+     *
+     * Parses via [SafeConstructor] rather than SnakeYAML's default `Constructor`: [configYaml]
+     * originates from [ProjectConfigRepository], which stores whatever a caller pushed over the
+     * MCP protocol (see `ManageProjectConfigTool`) — attacker-reachable input, not a trusted local
+     * file. The default `Constructor` will instantiate an arbitrary Java type named by a `!!`-tag
+     * (CWE-502); `SafeConstructor` only ever builds plain maps/lists/scalars, which is all this
+     * document format needs, and rejects anything else as a parse failure (caught below).
      */
     private fun parseYaml(
         rootItemId: UUID,
@@ -124,7 +133,7 @@ class PerRootConfigService(
     ): YamlSchemaParser.ParsedConfig? =
         try {
             @Suppress("UNCHECKED_CAST")
-            val root = Yaml().load<Map<String, Any>>(configYaml)
+            val root = Yaml(SafeConstructor(LoaderOptions())).load<Map<String, Any>>(configYaml)
             if (root == null) {
                 YamlSchemaParser.ParsedConfig(emptyMap(), emptyMap(), emptyMap(), emptyList())
             } else {

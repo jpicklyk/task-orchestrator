@@ -4,7 +4,9 @@ import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaServ
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import org.slf4j.LoggerFactory
+import org.yaml.snakeyaml.LoaderOptions
 import org.yaml.snakeyaml.Yaml
+import org.yaml.snakeyaml.constructor.SafeConstructor
 import java.io.FileReader
 import java.nio.file.Paths
 import java.security.MessageDigest
@@ -127,6 +129,11 @@ class YamlWorkItemSchemaService(
      * step to [YamlSchemaParser.parseRoot] (shared with [PerRootConfigService]). This method
      * retains only the file-specific concerns: existence check, IO, YAML syntax-error handling,
      * and the summary log line.
+     *
+     * Parses via [SafeConstructor] rather than SnakeYAML's default `Constructor` — matching
+     * [PerRootConfigService]'s parse of the same shared format, so a `!!`-tagged arbitrary-Java-type
+     * payload (CWE-502) is rejected the same way regardless of whether it arrived via a locally
+     * edited `.taskorchestrator/config.yaml` or a pushed per-root document.
      */
     private fun loadSchemas(): YamlSchemaParser.ParsedConfig {
         if (!configPath.toFile().exists()) {
@@ -135,7 +142,7 @@ class YamlWorkItemSchemaService(
         }
 
         return try {
-            val yaml = Yaml()
+            val yaml = Yaml(SafeConstructor(LoaderOptions()))
             FileReader(configPath.toFile()).use { reader ->
                 @Suppress("UNCHECKED_CAST")
                 val root = yaml.load<Map<String, Any>>(reader)

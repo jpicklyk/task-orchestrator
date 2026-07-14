@@ -6,7 +6,9 @@ import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlSchemaParser
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.*
+import org.yaml.snakeyaml.LoaderOptions
 import org.yaml.snakeyaml.Yaml
+import org.yaml.snakeyaml.constructor.SafeConstructor
 
 /**
  * MCP tool for pushing and reading back per-root config YAML — the transport-agnostic sync path
@@ -31,13 +33,16 @@ Push or read back per-root config YAML for the layered schema resolver — a cli
 `.taskorchestrator/config.yaml` document keyed by a project root's WorkItem UUID, which the
 resolver layers over the global config on every schema-resolving read (no separate reload step).
 
-**push** — validates, in order: the root item must exist; it must be depth 0 (configs anchor to
-project roots only, error otherwise); if the root's `type` is not "project", the response includes
-a non-fatal `warning` field (a naming convention, not an enforced constraint) but the push still
-succeeds. `configYaml` is parse-validated BEFORE storing — unparseable YAML is rejected with the
-parse error and never written, so a broken config can never silently fall through to the global
-schema on a later read. Pushing byte-identical content is naturally idempotent: the returned
-`fingerprint` is unchanged, so callers can `get` first and skip the push when fingerprints match.
+**push** — validates, in order: `configYaml` must not exceed 128 KiB (rejected before any parse
+attempt); the root item must exist; it must be depth 0 (configs anchor to project roots only, error
+otherwise); if the root's `type` is not "project", the response includes a non-fatal `warning` field
+(a naming convention, not an enforced constraint) but the push still succeeds. `configYaml` is then
+parse-validated BEFORE storing, using a safe YAML constructor that only builds plain maps/lists/
+scalars (arbitrary `!!`-tagged Java type construction is rejected, not silently ignored) —
+unparseable or unsafe YAML is rejected with the parse error and never written, so a broken or
+malicious config can never silently exist server-side. Pushing byte-identical content is naturally
+idempotent: the returned `fingerprint` is unchanged, so callers can `get` first and skip the push
+when fingerprints match.
 
 **get** — returns the stored `configYaml` + `fingerprint` + `updatedAt` for a root, or a
 not-found error when no config has been pushed for it.
@@ -84,7 +89,8 @@ not-found error when no config has been pushed for it.
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Raw config.yaml text to store for this root (push only); parse-validated before storing"
+                                    "Raw config.yaml text to store for this root (push only); max 128 KiB, " +
+                                        "parse-validated before storing"
                                 )
                             )
                         }
@@ -142,6 +148,15 @@ not-found error when no config has been pushed for it.
         val (rootItemId, idError) = resolveItemId(params, "rootItemId", context)
         if (idError != null) return idError
         val configYaml = requireString(params, "configYaml")
+
+        val sizeBytes = configYaml.toByteArray(Charsets.UTF_8).size
+        if (sizeBytes > MAX_CONFIG_YAML_BYTES) {
+            return errorResponse(
+                "configYaml is $sizeBytes bytes, exceeds the $MAX_CONFIG_YAML_BYTES byte " +
+                    "($MAX_CONFIG_YAML_KIB KiB) limit",
+                ErrorCodes.VALIDATION_ERROR
+            )
+        }
 
         val itemResult = context.workItemRepository().getById(rootItemId!!)
         val item =
@@ -243,6 +258,14 @@ not-found error when no config has been pushed for it.
      * every future read, a confusing failure mode discovered only much later. Returns the parse
      * failure message, or null when [configYaml] parses cleanly.
      *
+     * Uses [SafeConstructor] rather than SnakeYAML's default `Constructor` — `configYaml` is
+     * attacker-reachable input (pushed over the MCP protocol by a caller, not read from a trusted
+     * local file), and the default `Constructor` will happily instantiate an arbitrary Java type
+     * named by a `!!`-tag (the SnakeYAML deserialization-RCE gadget class, CWE-502). `SafeConstructor`
+     * only ever builds plain maps/lists/scalars, which is all a config document legitimately needs;
+     * any `!!`-tagged custom type throws [org.yaml.snakeyaml.constructor.ConstructorException] before
+     * anything is instantiated, and that exception is caught below like any other parse failure.
+     *
      * Soft validation warnings collected by [YamlSchemaParser.parseRoot] (e.g. a note entry
      * missing `key`, an invalid `lifecycle` value) are NOT treated as rejection here — only a hard
      * YAML syntax/shape failure (invalid syntax, or a non-map document) is. Those soft warnings
@@ -251,7 +274,7 @@ not-found error when no config has been pushed for it.
     private fun validateYaml(configYaml: String): String? =
         try {
             @Suppress("UNCHECKED_CAST")
-            val root = Yaml().load<Map<String, Any>>(configYaml)
+            val root = Yaml(SafeConstructor(LoaderOptions())).load<Map<String, Any>>(configYaml)
             if (root != null) {
                 YamlSchemaParser.parseRoot(root, warnOnMissingSchemas = false)
             }
@@ -261,4 +284,16 @@ not-found error when no config has been pushed for it.
         ) {
             e.message ?: e.javaClass.simpleName
         }
+
+    companion object {
+        /** `configYaml` size limit for `push`, in KiB — see [MAX_CONFIG_YAML_BYTES]. */
+        private const val MAX_CONFIG_YAML_KIB = 128
+
+        /**
+         * Hard cap on a pushed `configYaml` document's UTF-8 byte size (CWE-770: uncontrolled
+         * resource consumption). Enforced before any parse attempt, well above any legitimate
+         * config document, and small enough to bound parse cost against a hostile payload.
+         */
+        const val MAX_CONFIG_YAML_BYTES = MAX_CONFIG_YAML_KIB * 1024
+    }
 }

@@ -194,6 +194,43 @@ class ManageProjectConfigToolTest {
     }
 
     @Test
+    fun `push with a SnakeYAML type-tag payload is rejected as a parse error and stores nothing`() {
+        // A `!!`-tag payload attempting arbitrary Java object instantiation — the class of
+        // deserialization-RCE gadget SnakeYAML's unsafe default Constructor would build (CWE-502).
+        // With SafeConstructor wired in, this must be rejected at the tag-resolution stage, before
+        // any object is ever instantiated — proven here by asserting nothing gets stored, exactly
+        // like the "unparseable YAML" case above.
+        val maliciousYaml = "!!java.net.URL [\"http://169.254.169.254/latest/meta-data/\"]"
+
+        val result = push(rootId.toString(), maliciousYaml)
+
+        assertFalse(isSuccess(result))
+        assertEquals(ErrorCodes.VALIDATION_ERROR, errorOf(result)["code"]!!.jsonPrimitive.content)
+
+        val getResult = get(rootId.toString())
+        assertFalse(isSuccess(getResult))
+        assertEquals(ErrorCodes.RESOURCE_NOT_FOUND, errorOf(getResult)["code"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `push with oversized configYaml is rejected before any parse attempt`() {
+        val oversized = "x".repeat(ManageProjectConfigTool.MAX_CONFIG_YAML_BYTES + 1)
+
+        val result = push(rootId.toString(), oversized)
+
+        assertFalse(isSuccess(result))
+        val error = errorOf(result)
+        assertEquals(ErrorCodes.VALIDATION_ERROR, error["code"]!!.jsonPrimitive.content)
+        val message = error["message"]!!.jsonPrimitive.content
+        assertTrue(message.contains(ManageProjectConfigTool.MAX_CONFIG_YAML_BYTES.toString()))
+        assertTrue(message.contains((ManageProjectConfigTool.MAX_CONFIG_YAML_BYTES + 1).toString()))
+
+        val getResult = get(rootId.toString())
+        assertFalse(isSuccess(getResult))
+        assertEquals(ErrorCodes.RESOURCE_NOT_FOUND, errorOf(getResult)["code"]!!.jsonPrimitive.content)
+    }
+
+    @Test
     fun `idempotent re-push of identical content returns the same fingerprint`() {
         val first = push(rootId.toString(), validYaml)
         val second = push(rootId.toString(), validYaml)
