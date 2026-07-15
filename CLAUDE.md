@@ -138,6 +138,7 @@ private fun getConfigPath(): Path {
 - In Docker: `-e AGENT_CONFIG_DIR=/project` (where config is mounted)
 - In local dev: not needed (uses working directory)
 - Currently used by: `YamlWorkItemSchemaService`
+- **This is the GLOBAL/fallback config.** `AGENT_CONFIG_DIR` locates the single, server-wide `.taskorchestrator/config.yaml`, read once at startup (restart to reload). Per-**project** config is stored per-root in the DB — pushed via `manage_project_config` or `PUT /api/v1/roots/{rootId}/config`, synced from the workspace file by the `config-sync` SessionStart hook — and hot-reloads without a restart, layering over this global file per item `rootId`. See `claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md` → "Global vs Per-Project Config".
 
 ## Adding New Components
 
