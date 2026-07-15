@@ -121,7 +121,7 @@ work_item_schemas:
 
 ### `delegation-metadata` (optional) — model alignment data
 
-When the orchestrator dispatches a subagent, it can record the model used and isolation mode as a `delegation-metadata` note on the work item:
+When the orchestrator dispatches a subagent, it can record the model used and isolation mode as a `delegation-metadata` note on the work item. Projects that want this consistently can define a `delegated` trait (see the `/manage-schemas` reference) and apply it to delegated items:
 
 ```
 manage_notes(operation="upsert", notes=[{

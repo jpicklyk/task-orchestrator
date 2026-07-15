@@ -82,16 +82,7 @@ Delegation prompts must include entity IDs and full context — subagents start 
 
 **Notes are the report.** Subagents write findings into their work item's notes; their final message back is 1-2 lines (item ID, outcome, note keys filled). Never ask agents to restate note content in replies.
 
-## Delegation Metadata
-
-**Required for every Parallel and Delegated tier dispatch.** After a subagent returns, the orchestrator fills a `delegation-metadata` note on the work item via `manage_notes(operation="upsert")`. Direct tier skips this — there is no delegation to record.
-
-- **key:** `delegation-metadata`, **role:** `work`
-- **body:** Model used (`haiku` / `sonnet` / `opus`); isolation mode (`inline` or `worktree:<path>`); one-line rationale (why this model for this work); one-line outcome (success / partial / failure plus key result).
-
-The orchestrator fills this — not the subagent — because the orchestrator alone has accurate dispatch metadata (the subagent doesn't know which model it ran on, why it was chosen, or how its return compared to expectation). Fill in the same response that processes the subagent's return, batched alongside other note writes for that item where possible.
-
-Without these notes, `/session-retrospective` loses cross-session signal on whether model assignments matched task complexity.
+**Delegation metadata (opt-in).** If your project defines a `delegated` trait (see your schema config), apply it to Delegated/Parallel items and, after each subagent returns, fill its `delegation-metadata` work note — model · isolation · one-line rationale · one-line outcome. The orchestrator fills this, not the subagent (only the orchestrator knows the dispatch details). It feeds `/session-retrospective`'s delegation-alignment scoring; projects that don't define the trait simply skip it.
 
 ## Action Items
 
