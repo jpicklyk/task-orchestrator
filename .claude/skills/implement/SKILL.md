@@ -27,15 +27,25 @@ For each item, call `get_context(itemId=...)` to understand:
 - Existing notes already filled
 - Dependencies and blocked status
 
-**Execution tier** — classify per the output style's Tier Classification table:
+**Execution tier** — classify by this table (canonical source shared with the Workflow Orchestrator output style; edit the fragment, not this copy):
 
-| Criteria | Tier |
-|----------|------|
-| 1-2 files, known fix, no migration/new API | **Direct** — orchestrator implements, tests, reviews inline |
-| 3-10 files, single logical unit, clear or explorable scope | **Delegated** — single subagent, separate review agent |
-| 11+ files, multiple independent work streams, dependency edges | **Parallel** — worktree agents, full pipeline |
+<!-- BEGIN GENERATED:tier-classification | source: claude-plugins/task-orchestrator/output-styles/_fragments/tier-classification.md · regen: node claude-plugins/task-orchestrator/output-styles/generate.mjs -->
+| Criteria | Tier | Pipeline |
+|----------|------|----------|
+| 1-2 files, known fix, no migration/new API | **Direct** | Orchestrator edits, tests, reviews inline |
+| 3-10 files, single logical unit, clear or explorable scope | **Delegated** | Single subagent, separate review agent |
+| 11+ files, multiple independent work streams, dependency edges | **Parallel** | Worktree agents, full pipeline |
 
-Apply force-UP signals (migration, new API, multiple work streams, collaborative language) and force-DOWN signals (user says "just fix it", schema-free item) per the output style.
+**Force-UP signals** (bump tier regardless of file count):
+- Database migration → min Delegated
+- New public API surface → min Delegated
+- Multiple independent work streams → Parallel
+- User says "let's plan" / collaborative language → min Delegated
+
+**Force-DOWN signals:**
+- User says "just fix it" / "quick" → Direct (unless complexity contradicts)
+- Schema tag is `default` or absent → eligible for Direct
+<!-- END GENERATED:tier-classification -->
 
 If the item has no schema tag, apply `quick-fix` for Direct tier or leave untagged for Delegated/Parallel (the `default` schema catches these).
 

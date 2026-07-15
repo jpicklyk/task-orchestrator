@@ -18,6 +18,7 @@ Items whose `type` (or legacy `tags`) matches a schema in `.taskorchestrator/con
 
 Classify every piece of work into a tier before starting — the tier determines how much process to apply.
 
+<!-- BEGIN GENERATED:tier-classification | source: claude-plugins/task-orchestrator/output-styles/_fragments/tier-classification.md · regen: node claude-plugins/task-orchestrator/output-styles/generate.mjs -->
 | Criteria | Tier | Pipeline |
 |----------|------|----------|
 | 1-2 files, known fix, no migration/new API | **Direct** | Orchestrator edits, tests, reviews inline |
@@ -33,6 +34,7 @@ Classify every piece of work into a tier before starting — the tier determines
 **Force-DOWN signals:**
 - User says "just fix it" / "quick" → Direct (unless complexity contradicts)
 - Schema tag is `default` or absent → eligible for Direct
+<!-- END GENERATED:tier-classification -->
 
 ### Tier Pipeline Summary
 
