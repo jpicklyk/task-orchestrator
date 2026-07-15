@@ -176,6 +176,26 @@ class ProjectConfigPutRouteTest {
         }
 
     @Test
+    fun `PUT roots rootId config with a YAML type tag (CWE-502) is rejected with 422 and stores nothing`(): Unit =
+        testApplication {
+            val repo = buildH2RepositoryProvider()
+            val root = createRoot(repo)
+            application { configureProjectConfigTestApp(repo) }
+
+            // A !!-tagged non-standard type — SafeConstructor must refuse to instantiate it (CWE-502).
+            val response =
+                client.put("/api/v1/roots/${root.id}/config") {
+                    header("Authorization", "Bearer $WRITE_TOKEN")
+                    contentType(ContentType.Text.Plain)
+                    setBody("work_item_schemas: !!java.net.URL [\"http://evil.example\"]")
+                }
+
+            assertEquals(HttpStatusCode.UnprocessableEntity, response.status)
+            val persisted = runBlocking { repo.projectConfigRepository().get(root.id) }
+            assertTrue((persisted as Result.Success).data == null, "A type-tagged payload must never be stored")
+        }
+
+    @Test
     fun `PUT roots rootId config over the size cap returns 413`(): Unit =
         testApplication {
             val repo = buildH2RepositoryProvider()
@@ -320,6 +340,22 @@ class ProjectConfigGetRouteTest {
         }
 
     @Test
+    fun `GET roots rootId config with token scope lacking the root returns 403`(): Unit =
+        testApplication {
+            val repo = buildH2RepositoryProvider()
+            val root = createRoot(repo)
+            val otherRoot = createRoot(repo, title = "Other Root")
+            application { configureProjectConfigTestApp(repo, authConfig = makeWriteAuthConfig(scopeRootIds = setOf(otherRoot.id))) }
+
+            val response =
+                client.get("/api/v1/roots/${root.id}/config") {
+                    header("Authorization", "Bearer $PROJECT_CONFIG_READ_ONLY_TOKEN")
+                }
+
+            assertEquals(HttpStatusCode.Forbidden, response.status)
+        }
+
+    @Test
     fun `GET roots rootId config for a root with no pushed config returns 404`(): Unit =
         testApplication {
             val repo = buildH2RepositoryProvider()
@@ -357,6 +393,37 @@ class ProjectConfigDeleteRouteTest {
             assertEquals(HttpStatusCode.NoContent, response.status)
             val persisted = runBlocking { repo.projectConfigRepository().get(root.id) }
             assertTrue((persisted as Result.Success).data == null, "Config row should be deleted")
+        }
+
+    @Test
+    fun `DELETE roots rootId config with token scope lacking the root returns 403`(): Unit =
+        testApplication {
+            val repo = buildH2RepositoryProvider()
+            val root = createRoot(repo)
+            val otherRoot = createRoot(repo, title = "Other Root")
+            application { configureProjectConfigTestApp(repo, authConfig = makeWriteAuthConfig(scopeRootIds = setOf(otherRoot.id))) }
+
+            val response =
+                client.delete("/api/v1/roots/${root.id}/config") {
+                    header("Authorization", "Bearer $WRITE_TOKEN")
+                }
+
+            assertEquals(HttpStatusCode.Forbidden, response.status)
+        }
+
+    @Test
+    fun `DELETE roots rootId config for a root with no pushed config returns 404`(): Unit =
+        testApplication {
+            val repo = buildH2RepositoryProvider()
+            val root = createRoot(repo)
+            application { configureProjectConfigTestApp(repo) }
+
+            val response =
+                client.delete("/api/v1/roots/${root.id}/config") {
+                    header("Authorization", "Bearer $WRITE_TOKEN")
+                }
+
+            assertEquals(HttpStatusCode.NotFound, response.status)
         }
 }
 
