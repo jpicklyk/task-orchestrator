@@ -86,6 +86,10 @@ class ApiAuthPluginConfig {
  *
  * When [ApiAuthConfig.Disabled] is configured, the plugin is a no-op (every call passes through
  * without a principal — routes must not call [apiPrincipal] in this case).
+ *
+ * When [ApiAuthConfig.Unauthenticated] is configured (opt-in: `API_AUTH_MODE=none` +
+ * `API_ALLOW_UNAUTHENTICATED=true`), every call is attached [LOCAL_UNAUTH_PRINCIPAL] with no
+ * credential check at all — see [LOCAL_UNAUTH_PRINCIPAL] for the ADMIN/unrestricted rationale.
  */
 val ApiBearerAuth =
     createApplicationPlugin(
@@ -100,6 +104,14 @@ val ApiBearerAuth =
 
             // When API is disabled, skip authentication entirely.
             if (authConfig is ApiAuthConfig.Disabled) return@onCall
+
+            // Opt-in unauthenticated mode (API_AUTH_MODE=none + API_ALLOW_UNAUTHENTICATED=true):
+            // attach the synthetic ADMIN/unrestricted principal and skip the Authorization-header
+            // check entirely -- this MUST run before that check so a token-less request isn't 401'd.
+            if (authConfig is ApiAuthConfig.Unauthenticated) {
+                call.attributes.put(ApiPrincipalKey, LOCAL_UNAUTH_PRINCIPAL)
+                return@onCall
+            }
 
             // Skip authentication for public endpoints (health, well-known discovery, etc.)
             val uri = call.request.local.uri
@@ -158,6 +170,7 @@ val ApiBearerAuth =
                     }
 
                     is ApiAuthConfig.Disabled -> null // unreachable due to guard above
+                    is ApiAuthConfig.Unauthenticated -> null // unreachable due to guard above
                 }
 
             if (principal == null) {

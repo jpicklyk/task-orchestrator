@@ -14,7 +14,8 @@ import java.net.URL
  * | Variable | Required when | Default | Description |
  * |----------|--------------|---------|-------------|
  * | `API_ENABLED` | optional | `false` | Master API switch. Unset or `false` → [ApiAuthConfig.Disabled]. `true` opts in (then `API_AUTH_MODE` is required). |
- * | `API_AUTH_MODE` | `API_ENABLED=true` | — | `bearer` or `jwks`. Unset / `none` / invalid → startup failure. |
+ * | `API_AUTH_MODE` | `API_ENABLED=true` | — | `bearer` or `jwks`. Also accepts `none` when `API_ALLOW_UNAUTHENTICATED=true` (see below) → [ApiAuthConfig.Unauthenticated]. Unset / invalid / `none` without the confirm flag → startup failure. |
+ * | `API_ALLOW_UNAUTHENTICATED` | optional | `false` | Confirm flag required alongside `API_AUTH_MODE=none` to opt into [ApiAuthConfig.Unauthenticated]. Parsed like `API_ENABLED`. Ignored when `API_AUTH_MODE` is not `none`. |
  * | `API_TOKENS_PATH` | bearer mode | `/run/secrets/api-tokens.yaml` | Path to the bearer token secret file. |
  * | `API_JWKS_URL` | jwks mode | — | JWKS endpoint URL. Required; startup fails if absent. |
  * | `API_JWKS_ISSUER` | jwks mode | — | Expected `iss` claim. Required. |
@@ -48,10 +49,18 @@ class ApiAuthConfigLoader(
             return ApiAuthConfig.Disabled
         }
 
-        val authMode = resolveAuthMode()
+        val allowUnauthenticated = resolveApiAllowUnauthenticated()
+        val authMode = resolveAuthMode(allowUnauthenticated)
         return when (authMode) {
             "bearer" -> loadBearer()
             "jwks" -> loadJwks()
+            "none" -> {
+                logger.warn(
+                    "API_AUTH_MODE=none with API_ALLOW_UNAUTHENTICATED=true: the REST API will run " +
+                        "UNAUTHENTICATED. This must only be used on a loopback-bound local server.",
+                )
+                ApiAuthConfig.Unauthenticated
+            }
             else -> throw IllegalArgumentException(
                 "API_AUTH_MODE='$authMode' is not supported. Valid values: bearer, jwks.",
             )
@@ -77,25 +86,44 @@ class ApiAuthConfigLoader(
         }
     }
 
-    private fun resolveAuthMode(): String {
+    private fun resolveApiAllowUnauthenticated(): Boolean {
+        // Confirm flag for API_AUTH_MODE=none — parsed exactly like resolveApiEnabled. Two
+        // independent keys must both be set to reach Unauthenticated: this key alone (with any
+        // other API_AUTH_MODE) is a no-op, and API_AUTH_MODE=none alone (without this key) still
+        // fails fast in resolveAuthMode below.
+        val raw = envResolver("API_ALLOW_UNAUTHENTICATED") ?: return false
+        return when (raw.lowercase().trim()) {
+            "true", "1", "yes" -> true
+            "false", "0", "no" -> false
+            else -> throw IllegalArgumentException(
+                "API_ALLOW_UNAUTHENTICATED has invalid value '$raw'. Expected: true or false.",
+            )
+        }
+    }
+
+    private fun resolveAuthMode(allowUnauthenticated: Boolean): String {
         val raw = envResolver("API_AUTH_MODE")
         if (raw.isNullOrBlank()) {
             throw IllegalArgumentException(
                 "API_AUTH_MODE is required when API_ENABLED=true. " +
-                    "Valid values: bearer, jwks. " +
-                    "There is no 'none' mode — the API always requires authentication.",
+                    "Valid values: bearer, jwks (or none, with API_ALLOW_UNAUTHENTICATED=true).",
             )
         }
         val normalised = raw.lowercase().trim()
         if (normalised == "none") {
-            throw IllegalArgumentException(
-                "API_AUTH_MODE=none is not allowed. The API always requires authentication. " +
-                    "Valid values: bearer, jwks.",
-            )
+            if (!allowUnauthenticated) {
+                throw IllegalArgumentException(
+                    "API_AUTH_MODE=none requires API_ALLOW_UNAUTHENTICATED=true to confirm this opt-in " +
+                        "(the REST API would otherwise run unauthenticated). Valid values: bearer, jwks, " +
+                        "or none with API_ALLOW_UNAUTHENTICATED=true.",
+                )
+            }
+            return normalised
         }
         if (normalised !in listOf("bearer", "jwks")) {
             throw IllegalArgumentException(
-                "API_AUTH_MODE='$raw' is not valid. Valid values: bearer, jwks.",
+                "API_AUTH_MODE='$raw' is not valid. Valid values: bearer, jwks, none " +
+                    "(requires API_ALLOW_UNAUTHENTICATED=true).",
             )
         }
         return normalised

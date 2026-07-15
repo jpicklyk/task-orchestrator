@@ -64,12 +64,20 @@ API_JWKS_ALGORITHMS=RS256,EdDSA
 API_JWKS_CACHE_TTL_SECONDS=300   # optional, default 300
 ```
 
+```bash
+# Unauthenticated mode — opt-in, loopback-only (see "Unauthenticated mode" below)
+API_ENABLED=true
+API_AUTH_MODE=none
+API_ALLOW_UNAUTHENTICATED=true
+```
+
 ### REST API env vars
 
 | Variable | Required when | Default | Description |
 |----------|--------------|---------|-------------|
 | `API_ENABLED` | optional | `false` | Master API switch. Unset or `false` skips all `/api/v1/*` route registration; set `true` to opt in. |
-| `API_AUTH_MODE` | API enabled | — | `bearer` or `jwks`. Required; no `none` mode. |
+| `API_AUTH_MODE` | API enabled | — | `bearer` or `jwks`. Also accepts `none` when `API_ALLOW_UNAUTHENTICATED=true` (see below). Required. |
+| `API_ALLOW_UNAUTHENTICATED` | opting into `none` | `false` | Confirm flag required alongside `API_AUTH_MODE=none`. Ignored with `bearer`/`jwks`. |
 | `API_TOKENS_PATH` | bearer mode | `/run/secrets/api-tokens.yaml` | Path to bearer token YAML secret file. |
 | `API_JWKS_URL` | jwks mode | — | JWKS endpoint URL (fully-qualified HTTP/HTTPS). |
 | `API_JWKS_ISSUER` | jwks mode | — | Expected `iss` claim value in JWTs. |
@@ -97,6 +105,12 @@ See [api-rest.md §1](api-rest.md#1-authentication) for the full YAML format. Ke
 - Token rotation requires a server restart (no live reload)
 - `admin` capability unlocks attribution fields in responses (subject to `API_REDACT_*` env flags)
 
+### Unauthenticated mode
+
+`API_AUTH_MODE=none` + `API_ALLOW_UNAUTHENTICATED=true` (both required — see the env var table above) disables authentication on `/api/v1/*` entirely: every request, with or without an `Authorization` header, is attached a synthetic `ADMIN`/unrestricted-scope principal. This exists for a **single-user, loopback-bound local server** — e.g. so the `config-sync.mjs` hook (below) can push per-project config without minting a bearer token, the same friction-free posture the `/mcp` endpoint already has.
+
+**This mode carries the same fence requirement as `/mcp`:** bind the HTTP transport to `127.0.0.1` (`MCP_HTTP_HOST=127.0.0.1`), or otherwise ensure the port is unreachable from any untrusted network, before setting both keys. Do not combine this mode with a `0.0.0.0` bind or a port published outside a trusted host. The server logs a `SECURITY:` WARN at startup whenever this mode is active, mirroring the existing `/mcp`-is-unauthenticated warning.
+
 ### `degradedModePolicy` and the REST API
 
 When `API_AUTH_MODE=jwks` and `DEGRADED_MODE_POLICY=reject`, write endpoints (`POST`, `PATCH`, `PUT`, `DELETE`, advance) return `401 verification_failed` if JWKS verification fails. **Bearer mode is always trusted** — the REST API bearer token was validated at the HTTP layer and has no JWKS verification chain.
@@ -107,14 +121,14 @@ This is different from the MCP actor `reject` policy, which governs MCP tool cal
 
 In a shared HTTP deployment, per-project config lives in the DB per root (hot-reloaded, no restart), while the mounted global `.taskorchestrator/config.yaml` is only a fallback. The plugin's `config-sync.mjs` SessionStart hook keeps a project's DB config in sync with its workspace file: on session start it fingerprints the local file and, if it differs from the server's stored config, PUTs it to `PUT /api/v1/roots/{rootId}/config`. **The file is the source of truth; the DB row is a synced replica** (a byte-identical file is a no-op via `If-Match`/fingerprint).
 
-The hook is **fail-open and opt-in** — it no-ops silently (exit 0) unless BOTH client env vars below are set, so stdio/local deployments (which read the file directly) are unaffected:
+The hook is **fail-open and opt-in** — it no-ops silently (exit 0) unless `TASK_ORCHESTRATOR_API_URL` is set, so stdio/local deployments (which read the file directly) are unaffected:
 
 | Variable | Required for sync | Description |
 |----------|-------------------|-------------|
 | `TASK_ORCHESTRATOR_API_URL` | yes | Base URL of the REST API, e.g. `http://orchestrator.internal:3001` (the hook appends `/api/v1/roots/{rootId}/config`). |
-| `TASK_ORCHESTRATOR_API_TOKEN` | yes | Bearer token with the `write-config` capability, scoped (`scope.root_ids`) to this workspace's project root. |
+| `TASK_ORCHESTRATOR_API_TOKEN` | no | Bearer token with the `write-config` capability, scoped (`scope.root_ids`) to this workspace's project root. **Optional** — omit it entirely when the server runs in [unauthenticated mode](#unauthenticated-mode); the hook then sends the request with no `Authorization` header at all. |
 
-Set these per-workspace (e.g. in `.claude/settings.json`'s `env` block, or the shell environment). The token needs only `write-config` for its own root — not `admin` — and the server must have `API_ENABLED=true`. If the API is unreachable or returns an error, the hook logs a one-line note and continues; it never blocks session start.
+Set these per-workspace (e.g. in `.claude/settings.json`'s `env` block, or the shell environment). Against a bearer/jwks server the token needs only `write-config` for its own root — not `admin`. Against an unauthenticated server, no token is needed at all. Either way the server must have `API_ENABLED=true`. If the API is unreachable or returns an error, the hook logs a one-line note and continues; it never blocks session start.
 
 ---
 

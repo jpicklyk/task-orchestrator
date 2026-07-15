@@ -265,6 +265,18 @@ class CurrentMcpServer(
                     "The /mcp endpoint remains unauthenticated regardless of the REST API auth mode.",
             )
         }
+        if (apiWiring.apiConfig is ApiAuthConfig.Unauthenticated) {
+            logger.warn(
+                "SECURITY: API_AUTH_MODE=none + API_ALLOW_UNAUTHENTICATED=true — the /api/v1 REST " +
+                    "API is UNAUTHENTICATED. Anyone who can reach {}:{} has full read/write/delete " +
+                    "access to all config and data via the REST API (same exposure as /mcp above). " +
+                    "This MUST be fronted by a reverse proxy / mTLS / private network, or bound to " +
+                    "127.0.0.1 for a loopback-only local run — do NOT expose this port to untrusted " +
+                    "callers.",
+                host,
+                port,
+            )
+        }
         if (host == "0.0.0.0") {
             logger.warn(
                 "SECURITY: MCP HTTP transport is bound to 0.0.0.0 (all interfaces). If this is not a " +

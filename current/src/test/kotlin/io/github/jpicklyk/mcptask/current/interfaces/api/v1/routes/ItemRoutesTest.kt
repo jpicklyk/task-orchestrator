@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.WorkItemsTable
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
@@ -246,6 +247,30 @@ class ItemRoutesTest {
                     header("Authorization", "Bearer $TEST_TOKEN")
                 }
             assertEquals(HttpStatusCode.OK, response.status)
+        }
+
+    /**
+     * Opt-in unauthenticated mode ([ApiAuthConfig.Unauthenticated]): a request with NO
+     * Authorization header at all is attached the synthetic ADMIN/unrestricted principal and
+     * must reach this capability-gated (`requireCapability(READ)`), scope-checked
+     * (`enforceScopeForItem`) route successfully — proving both checks pass unchanged for the
+     * synthetic principal.
+     */
+    @Test
+    fun `GET items id succeeds with no Authorization header in unauthenticated mode`() =
+        testApplication {
+            val repo = buildH2RepositoryProvider()
+            val root =
+                runBlocking {
+                    repo.workItemRepository().create(WorkItem(title = "Unauth Item", depth = 0)).getOrNull()!!
+                }
+            application {
+                configureTestApp(ApiAuthConfig.Unauthenticated) { itemRoutes(repo) }
+            }
+            val response = client.get("/api/v1/items/${root.id}")
+            assertEquals(HttpStatusCode.OK, response.status)
+            val body = response.bodyAsText()
+            assertTrue(body.contains("Unauth Item"), "Expected item title in response: $body")
         }
 
     // ─── Pagination ──────────────────────────────────────────────────────────
