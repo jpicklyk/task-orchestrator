@@ -92,7 +92,7 @@ API_JWKS_CACHE_TTL_SECONDS=300   # optional, default 300
 
 See [api-rest.md §1](api-rest.md#1-authentication) for the full YAML format. Key points:
 - `token_sha256` must be a 64-char lowercase hex SHA-256 digest of the plaintext token
-- `capabilities` grant specific operations: `read`, `write-notes`, `write-items`, `advance`, `manage-dependencies`, `admin`
+- `capabilities` grant specific operations: `read`, `write-notes`, `write-items`, `advance`, `manage-dependencies`, `write-config`, `admin`
 - `scope.root_ids` restricts access to specific subtrees (null/empty = unrestricted)
 - Token rotation requires a server restart (no live reload)
 - `admin` capability unlocks attribution fields in responses (subject to `API_REDACT_*` env flags)
@@ -102,6 +102,19 @@ See [api-rest.md §1](api-rest.md#1-authentication) for the full YAML format. Ke
 When `API_AUTH_MODE=jwks` and `DEGRADED_MODE_POLICY=reject`, write endpoints (`POST`, `PATCH`, `PUT`, `DELETE`, advance) return `401 verification_failed` if JWKS verification fails. **Bearer mode is always trusted** — the REST API bearer token was validated at the HTTP layer and has no JWKS verification chain.
 
 This is different from the MCP actor `reject` policy, which governs MCP tool calls (`claim_item`, `advance_item`). Both layers share the same `DEGRADED_MODE_POLICY` env var but apply it independently.
+
+### Client-side config sync (SessionStart hook)
+
+In a shared HTTP deployment, per-project config lives in the DB per root (hot-reloaded, no restart), while the mounted global `.taskorchestrator/config.yaml` is only a fallback. The plugin's `config-sync.mjs` SessionStart hook keeps a project's DB config in sync with its workspace file: on session start it fingerprints the local file and, if it differs from the server's stored config, PUTs it to `PUT /api/v1/roots/{rootId}/config`. **The file is the source of truth; the DB row is a synced replica** (a byte-identical file is a no-op via `If-Match`/fingerprint).
+
+The hook is **fail-open and opt-in** — it no-ops silently (exit 0) unless BOTH client env vars below are set, so stdio/local deployments (which read the file directly) are unaffected:
+
+| Variable | Required for sync | Description |
+|----------|-------------------|-------------|
+| `TASK_ORCHESTRATOR_API_URL` | yes | Base URL of the REST API, e.g. `http://orchestrator.internal:3001` (the hook appends `/api/v1/roots/{rootId}/config`). |
+| `TASK_ORCHESTRATOR_API_TOKEN` | yes | Bearer token with the `write-config` capability, scoped (`scope.root_ids`) to this workspace's project root. |
+
+Set these per-workspace (e.g. in `.claude/settings.json`'s `env` block, or the shell environment). The token needs only `write-config` for its own root — not `admin` — and the server must have `API_ENABLED=true`. If the API is unreachable or returns an error, the hook logs a one-line note and continues; it never blocks session start.
 
 ---
 
