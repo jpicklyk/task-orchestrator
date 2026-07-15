@@ -5,6 +5,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 import kotlin.test.fail
 
@@ -35,11 +36,14 @@ class TierClassificationConsistencyTest {
     @Test
     fun `every in-repo consumer mirrors the canonical fragment`() {
         val root = repoRoot()
+        // Mirror generate.mjs's canonical form: CRLF-normalized, exactly one trailing newline
+        // (the generator does `.replace(/\n*$/, '\n')`), so the test and generator stay byte-aligned.
         val fragment =
             root
                 .resolve("claude-plugins/task-orchestrator/output-styles/_fragments/tier-classification.md")
                 .let { Files.readString(it) }
                 .normalize()
+                .trimEnd('\n') + "\n"
 
         val consumers = readManifest(root)
         assertTrue(
@@ -50,13 +54,34 @@ class TierClassificationConsistencyTest {
         for (relativePath in consumers) {
             val text = Files.readString(root.resolve(relativePath)).normalize()
             val region = regionBetweenMarkers(text, relativePath)
+            // Byte-exact (only CRLF normalized) — matches generate.mjs's exact-string check so that
+            // whitespace-only drift inside the markers is caught, not silently trimmed away.
             assertEquals(
-                fragment.trim(),
-                region.trim(),
+                fragment,
+                region,
                 "tier-classification block in $relativePath drifted from the canonical fragment. " +
                     "Run: node claude-plugins/task-orchestrator/output-styles/generate.mjs",
             )
         }
+    }
+
+    @Test
+    fun `regionBetweenMarkers extracts the block between well-formed markers`() {
+        val text = "intro\n$beginPrefix | note -->\nBODY 1\nBODY 2\n$endPrefix -->\noutro\n"
+        assertEquals("BODY 1\nBODY 2\n", regionBetweenMarkers(text, "well-formed"))
+    }
+
+    @Test
+    fun `regionBetweenMarkers fails cleanly when markers are missing`() {
+        val ex = assertFailsWith<AssertionError> { regionBetweenMarkers("no markers here\n", "missing") }
+        assertTrue(ex.message!!.contains("markers not found"))
+    }
+
+    @Test
+    fun `regionBetweenMarkers fails cleanly when END precedes BEGIN`() {
+        val text = "$endPrefix -->\nbody\n$beginPrefix -->\n"
+        val ex = assertFailsWith<AssertionError> { regionBetweenMarkers(text, "reversed") }
+        assertTrue(ex.message!!.contains("malformed"))
     }
 
     private fun regionBetweenMarkers(
