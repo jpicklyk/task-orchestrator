@@ -11,7 +11,7 @@ mcpSdk = "0.12.0"
 ktor = "3.3.3"
 
 # Database
-sqlite = "3.49.1.0"
+sqlite = "3.53.2.0"
 exposed = "1.2.0"
 flyway = "11.8.2"
 
