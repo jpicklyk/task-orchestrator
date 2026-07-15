@@ -306,6 +306,37 @@ Both `/github/v/tag/` and `/github/v/release/` badge endpoints work — the CI w
 creates a git tag and a GitHub release on every deploy. No change needed unless the URL
 is broken.
 
+**Dependency & CVE audit:**
+
+Do not ship a release carrying a known-vulnerable or stale dependency. For each
+security-sensitive dependency in `gradle/libs.versions.toml` (`sqlite-jdbc`, `flyway-core`,
+`exposed-*`, `ktor-*`, `nimbus-jose-jwt`, `google-tink`), compare the pinned version against
+the latest stable on Maven Central:
+
+```bash
+# Example for sqlite-jdbc (adjust the group path per artifact):
+curl -s "https://repo1.maven.org/maven2/org/xerial/sqlite-jdbc/maven-metadata.xml" \
+  | grep -oE '<release>[^<]+</release>'
+```
+
+Flag any pin that is behind latest stable, on a `beta`/`alpha`/`-rc` version, or named in an
+open CVE advisory.
+
+**Critical — verify remediation, not just the bump.** A version bump closes a CVE only when the
+dependency's *bundled component* version is at or above the CVE's upstream fixed-in version.
+Never write "addresses CVE-X" in a commit, changelog, PR body, or note without citing BOTH:
+
+1. the CVE's upstream fixed-in version (e.g., "SQLite 3.50.2"), **and**
+2. the version actually bundled by the pinned dependency (e.g., "sqlite-jdbc 3.49.1.0 bundles
+   SQLite 3.49.1 — still exposed").
+
+> Precedent: CVE-2025-6965 (SQLite, fixed in 3.50.2) stayed live in this repo for ~3 months
+> because a bump to `sqlite-jdbc 3.49.1.0` (bundles SQLite 3.49.1) was recorded as remediation
+> without checking the bundled version.
+
+If the audit finds a live CVE or a materially stale pin, land the dependency fix as **its own PR
+before** cutting the release — do not fold it into the release commit.
+
 ---
 
 ## Step 10 — Create the PR
