@@ -27,13 +27,18 @@ const fragment = norm(readFileSync(resolve(scriptDir, '_fragments/tier-classific
 
 const check = process.argv.includes('--check');
 const extra = process.argv.slice(2).filter((a) => !a.startsWith('--'));
-// KEEP IN SYNC with TierClassificationConsistencyTest.inRepoConsumers and current/build.gradle.kts
-// `inputs.files` — a consumer added here but not to inputs.files is not cache-busted, so drift can pass CI.
+// The in-repo consumer set is defined ONCE in the manifest and shared by TierClassificationConsistencyTest
+// and current/build.gradle.kts inputs.files, so the three enforcement sites can never diverge.
+const manifestPath = resolve(scriptDir, '_fragments/tier-classification.consumers.txt');
+const manifestTargets = norm(readFileSync(manifestPath, 'utf8'))
+  .split('\n')
+  .map((line) => line.trim())
+  .filter((line) => line && !line.startsWith('#'))
+  .map((rel) => ({ path: resolve(repoRoot, rel), required: true }));
 const targets = [
-  { path: resolve(scriptDir, 'workflow-orchestrator.md'), required: true },
-  { path: resolve(repoRoot, '.claude/skills/implement/SKILL.md'), required: true },
-  // Out-of-repo copies (e.g. a personal ~/.claude/output-styles/workflow-analyst.md) are not
-  // defaults — pass them as CLI args to sync them: `node generate.mjs <path-to-style>`.
+  ...manifestTargets,
+  // Out-of-repo copies (e.g. a personal ~/.claude/output-styles/workflow-analyst.md) are not in the
+  // manifest — pass them as CLI args to sync them: `node generate.mjs <path-to-style>`.
   ...extra.map((p) => ({ path: resolve(p), required: true })),
 ];
 

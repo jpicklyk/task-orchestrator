@@ -5,6 +5,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 import kotlin.test.fail
 
 /**
@@ -26,13 +27,10 @@ class TierClassificationConsistencyTest {
     private val beginPrefix = "<!-- BEGIN GENERATED:$marker"
     private val endPrefix = "<!-- END GENERATED:$marker"
 
-    // KEEP IN SYNC with generate.mjs `targets` and current/build.gradle.kts `inputs.files` on the test
-    // task — a consumer added here but not to inputs.files is not cache-busted, so drift can pass CI.
-    private val inRepoConsumers =
-        listOf(
-            "claude-plugins/task-orchestrator/output-styles/workflow-orchestrator.md",
-            ".claude/skills/implement/SKILL.md",
-        )
+    // The in-repo consumer set is defined ONCE in this manifest, shared by generate.mjs and
+    // current/build.gradle.kts inputs.files. Add a new consumer there, not here.
+    private val consumersManifest =
+        "claude-plugins/task-orchestrator/output-styles/_fragments/tier-classification.consumers.txt"
 
     @Test
     fun `every in-repo consumer mirrors the canonical fragment`() {
@@ -43,7 +41,13 @@ class TierClassificationConsistencyTest {
                 .let { Files.readString(it) }
                 .normalize()
 
-        for (relativePath in inRepoConsumers) {
+        val consumers = readManifest(root)
+        assertTrue(
+            consumers.isNotEmpty(),
+            "consumer manifest $consumersManifest is empty — the guard would be vacuously green",
+        )
+
+        for (relativePath in consumers) {
             val text = Files.readString(root.resolve(relativePath)).normalize()
             val region = regionBetweenMarkers(text, relativePath)
             assertEquals(
@@ -72,6 +76,12 @@ class TierClassificationConsistencyTest {
     }
 
     private fun String.normalize(): String = replace("\r\n", "\n")
+
+    private fun readManifest(root: Path): List<String> =
+        Files
+            .readAllLines(root.resolve(consumersManifest))
+            .map { it.trim() }
+            .filter { it.isNotEmpty() && !it.startsWith("#") }
 
     /** Walk up from the test working directory until the repo root (contains both marker dirs). */
     private fun repoRoot(): Path {
