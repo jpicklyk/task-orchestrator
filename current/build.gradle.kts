@@ -143,6 +143,17 @@ tasks.test {
     // `OutOfMemoryError: Java heap space` worker crashes. Raise the cap to give the suite
     // headroom; production runtime heap is unaffected (this is test-only).
     maxHeapSize = "2g"
+
+    // TierClassificationConsistencyTest reads these markdown files at runtime. Declare them
+    // as task inputs so a markdown-only edit (with no Kotlin change) invalidates the cached
+    // test result instead of reporting UP-TO-DATE — otherwise Gradle's incremental cache
+    // (and CI's setup-gradle cache) would let tier-block drift slip through the guard.
+    inputs
+        .files(
+            rootProject.file("claude-plugins/task-orchestrator/output-styles/_fragments/tier-classification.md"),
+            rootProject.file("claude-plugins/task-orchestrator/output-styles/workflow-orchestrator.md"),
+            rootProject.file(".claude/skills/implement/SKILL.md"),
+        ).withPropertyName("docsConsistencyInputs")
 }
 
 kotlin {

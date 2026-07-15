@@ -30,7 +30,8 @@ const extra = process.argv.slice(2).filter((a) => !a.startsWith('--'));
 const targets = [
   { path: resolve(scriptDir, 'workflow-orchestrator.md'), required: true },
   { path: resolve(repoRoot, '.claude/skills/implement/SKILL.md'), required: true },
-  { path: resolve(repoRoot, '.claude/output-styles/workflow-analyst.md'), required: false },
+  // Out-of-repo copies (e.g. a personal ~/.claude/output-styles/workflow-analyst.md) are not
+  // defaults — pass them as CLI args to sync them: `node generate.mjs <path-to-style>`.
   ...extra.map((p) => ({ path: resolve(p), required: true })),
 ];
 
