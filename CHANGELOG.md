@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Project-root scoping** — new `manage_project_config` tool plus an `ancestorId` scope parameter
   on `query_items`, `get_next_item`, `get_context`, and `get_blocked_items`, so work in a shared
   database can be scoped to a single project subtree.
+  > **Note:** project scoping is an organizational convenience, **not** a security mechanism for
+  > data separation. `ancestorId` filters which items a query returns — it does not isolate or
+  > access-control data. Any caller with database or MCP access can still reach every item
+  > regardless of scope. For true data separation between projects, use separate databases.
 - **Per-root schema configuration** layered over the global config, resolved via a new per-root
   config service.
 - `excludeTerminal` filter on the `query_items` overview operation, powering a leaner,
