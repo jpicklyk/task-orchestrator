@@ -26,12 +26,13 @@ This document describes the HTTP REST API layer (v1) added alongside the MCP tra
 14. [Endpoints — Transitions (Audit)](#14-endpoints--transitions-audit)
 15. [Endpoints — Search](#15-endpoints--search)
 16. [Endpoints — Config / Schema Discovery](#16-endpoints--config--schema-discovery)
-17. [Endpoints — Service Meta](#17-endpoints--service-meta)
-18. [Server-Sent Events (SSE)](#18-server-sent-events-sse)
-19. [Audit Model](#19-audit-model)
-20. [Merge Patch Semantics](#20-merge-patch-semantics)
-21. [Status-Graph Caveat](#21-status-graph-caveat)
-22. [Known Limitations](#22-known-limitations)
+17. [Endpoints — Project Config (Per-Root)](#17-endpoints--project-config-per-root)
+18. [Endpoints — Service Meta](#18-endpoints--service-meta)
+19. [Server-Sent Events (SSE)](#19-server-sent-events-sse)
+20. [Audit Model](#20-audit-model)
+21. [Merge Patch Semantics](#21-merge-patch-semantics)
+22. [Status-Graph Caveat](#22-status-graph-caveat)
+23. [Known Limitations](#23-known-limitations)
 
 ---
 
@@ -116,6 +117,7 @@ Each token grants a set of additive capabilities:
 | `WRITE_NOTES` | `write-notes` | `PUT /items/{id}/notes/{key}`, `DELETE /items/{id}/notes/{key}` |
 | `ADVANCE` | `advance` | `POST /items/{id}/advance` |
 | `MANAGE_DEPENDENCIES` | `manage-dependencies` | `POST /dependencies`, `DELETE /dependencies/{id}` |
+| `WRITE_CONFIG` | `write-config` | `PUT /roots/{rootId}/config`, `DELETE /roots/{rootId}/config` |
 | `ADMIN` | `admin` | Implies all of the above; unlocks attribution fields in responses |
 
 **`ADMIN` unlocks:** When a caller has `ADMIN`, note and transition `actor`/`verification` fields are included in responses (subject to `API_REDACT_*` env flags). Non-admin callers always receive `null` for these fields.
@@ -158,6 +160,11 @@ Config/schema endpoints (`/config`, `/config/schemas`, etc.) use a fingerprint-b
 - Stable across reads when the config has not changed
 - `If-None-Match` → `304` when fingerprint matches
 
+The per-root project config endpoints (§17, `/roots/{rootId}/config`) use the SAME `"cfg-<fingerprint>"`
+format, but the fingerprint is a SHA-256 over the stored `configYaml`'s raw UTF-8 bytes (see
+`SQLiteProjectConfigRepository.computeFingerprint`) rather than the global config file. `PUT` additionally
+accepts `If-Match` for optimistic-concurrency writes (see §17).
+
 ---
 
 ## 5. Idempotency
@@ -197,7 +204,7 @@ All error responses use:
 | `scope_forbidden` | 403 | Item exists but is outside the caller's scope |
 | `field_not_patchable` | 400 | PATCH attempted on a server-owned field |
 | `cycle_detected` | 400 | Dependency would create a cycle |
-| `unsupported_media_type` | 415 | Wrong `Content-Type` for PATCH (see §20) |
+| `unsupported_media_type` | 415 | Wrong `Content-Type` for PATCH (see §21) |
 | `etag_mismatch` | 412 | `If-Match` header does not match current ETag |
 | `unauthenticated` | 401 | No authenticated principal (missing/invalid token) |
 | `verification_failed` | 401 | JWKS verification failed under `reject` policy |
@@ -441,6 +448,19 @@ Note: `"<previousRole>"` is a literal sentinel string — dashboards must resolv
 }
 ```
 
+**ProjectConfigResponseDto** (see §17):
+```json
+{
+  "rootItemId": "550e8400-e29b-41d4-a716-446655440000",
+  "fingerprint": "e3b0c44298fc1c14...",
+  "updatedAt": "2026-07-15T19:00:00Z",
+  "configYaml": "work_item_schemas:\n  ...",
+  "warning": "string|null"
+}
+```
+`configYaml` is populated on `GET` only (omitted on `PUT`). `warning` is populated only when the
+root's `type` is not `"project"` (non-fatal — the push still succeeds).
+
 ### SSE / ApiEvent
 
 ```json
@@ -574,7 +594,7 @@ Supports `Idempotency-Key` header.
 
 JSON Merge Patch update. Requires `WRITE_ITEMS`, `If-Match`, and `Content-Type: application/merge-patch+json` (or `application/json`).
 
-**Request body:** A partial JSON object following RFC 7396 merge-patch semantics (see §20).
+**Request body:** A partial JSON object following RFC 7396 merge-patch semantics (see §21).
 
 **Tags deviation:** In PATCH, `tags` must be a comma-separated **string** (not a JSON array). Example: `"tags": "feature,auth"`. Sending a JSON array in PATCH → `400 validation_error`.
 
@@ -884,11 +904,66 @@ Structural role-transition graph across all schema types.
 
 **Response:** `200 OK` → `StatusGraphDto`
 
-See §21 for the important caveat about what the status graph does and does not reflect.
+See §22 for the important caveat about what the status graph does and does not reflect.
 
 ---
 
-## 17. Endpoints — Service Meta
+## 17. Endpoints — Project Config (Per-Root)
+
+Per-root config YAML documents pushed by a client (or the fail-open SessionStart config-sync hook,
+in a later phase) and layered over the global `.taskorchestrator/config.yaml` on every
+schema-resolving read — see [`ProjectConfigPushService`](../src/main/kotlin/io/github/jpicklyk/mcptask/current/application/service/ProjectConfigPushService.kt)
+and the MCP `manage_project_config` tool, which share the exact same validate-then-persist
+pipeline as these routes (both converge on identical DB state for the same payload).
+
+All three verbs additionally require `ApiScope.rootIds` (when scoped) to contain `{rootId}` —
+`403 scope_forbidden` otherwise. `{rootId}` must be a depth-0 WorkItem UUID.
+
+### PUT /roots/{rootId}/config
+
+Validates and stores raw `configYaml` for `{rootId}`. Requires `WRITE_CONFIG`.
+
+**Request body:** raw YAML text (`Content-Type: application/yaml` or `text/plain`); max 128 KiB.
+
+**Validation pipeline (in order, stops at first failure — nothing is written on failure):**
+1. Body size ≤ 128 KiB
+2. `{rootId}` resolves to an existing WorkItem
+3. That WorkItem is depth-0 (configs anchor to project roots only)
+4. `configYaml` parses under a `SafeConstructor` YAML load (rejects `!!`-tagged arbitrary Java
+   type construction — CWE-502 — as well as ordinary syntax errors)
+5. Optional `If-Match` (see below), evaluated against the CURRENT stored fingerprint
+
+**Responses:**
+- `200 OK` → `ProjectConfigResponseDto` (no `configYaml` field on this verb); `ETag: "cfg-<fingerprint>"`
+- `404 not_found` — `{rootId}` does not resolve to an existing WorkItem
+- `422 validation_error` — `{rootId}` is not depth-0
+- `422 parse_error` — `configYaml` failed SafeConstructor parse-validation
+- `412 etag_mismatch` — `If-Match` supplied and mismatched against an EXISTING row's ETag (a
+  first push to a root with no prior row ignores `If-Match` — there is nothing to match yet)
+- `413 payload_too_large` — body exceeds 128 KiB
+- `403 scope_forbidden` — capability present but `{rootId}` outside token scope
+
+### GET /roots/{rootId}/config
+
+Reads back the stored config for `{rootId}`. Requires `READ`.
+
+**Responses:**
+- `200 OK` → `ProjectConfigResponseDto` (includes `configYaml`); `ETag: "cfg-<fingerprint>"`
+- `304 Not Modified` — `If-None-Match` matches the current fingerprint ETag
+- `404 not_found` — no config has ever been pushed for `{rootId}` (the WorkItem itself is not
+  validated to exist — mirrors the MCP tool's `get` semantics)
+
+### DELETE /roots/{rootId}/config
+
+Removes the stored config row for `{rootId}`. Requires `WRITE_CONFIG`.
+
+**Responses:**
+- `204 No Content` — deleted
+- `404 not_found` — no config row existed for `{rootId}`
+
+---
+
+## 18. Endpoints — Service Meta
 
 ### GET /api/v1/info
 
@@ -930,7 +1005,7 @@ Requires `READ`. Returns server metadata and the caller's resolved capabilities.
 
 ---
 
-## 18. Server-Sent Events (SSE)
+## 19. Server-Sent Events (SSE)
 
 ### GET /api/v1/events
 
@@ -978,7 +1053,7 @@ Ktor's `sse {}` handler runs inside the response-body phase — after the HTTP 2
 
 ---
 
-## 19. Audit Model
+## 20. Audit Model
 
 All write endpoints (POST, PATCH, PUT, DELETE) synthesize an actor server-side from the authenticated principal. Client-supplied `actor.*` fields in the request body are **silently dropped** — callers cannot override audit attribution.
 
@@ -999,7 +1074,7 @@ All write endpoints (POST, PATCH, PUT, DELETE) synthesize an actor server-side f
 
 ---
 
-## 20. Merge Patch Semantics
+## 21. Merge Patch Semantics
 
 `PATCH /items/{id}` implements [RFC 7396 JSON Merge Patch](https://datatracker.ietf.org/doc/html/rfc7396).
 
@@ -1019,7 +1094,7 @@ All write endpoints (POST, PATCH, PUT, DELETE) synthesize an actor server-side f
 
 ---
 
-## 21. Status-Graph Caveat
+## 22. Status-Graph Caveat
 
 `GET /config/status-graph` returns the **structural** (schema-defined) transition graph — which triggers are valid for each role per type.
 
@@ -1035,7 +1110,7 @@ The `"<previousRole>"` sentinel in `blocked.resume` is a literal string — reso
 
 ---
 
-## 22. Known Limitations
+## 23. Known Limitations
 
 **SSE dependency-event scoping depends on a warm ancestor cache.** Live root-filtering and `Last-Event-ID` replay are both correctly root-scoped — ring-buffer entries carry `affectedRoots` metadata and the replay path applies the same root-intersection filter as the live fan-out. One residual caveat remains for dependency events: `dependency.added` / `dependency.removed` resolve their affected roots from an in-memory ancestor cache populated by prior item create/update writes. On a cache miss (e.g., a dependency change with no preceding item write on that subtree during the connection's lifetime), the event falls back to an unscoped broadcast. This is a deliberate tradeoff; root-scoped subscribers that require exact dependency-event scoping should re-fetch state rather than relying solely on the event stream.
 

@@ -1,14 +1,12 @@
 package io.github.jpicklyk.mcptask.current.application.tools.config
 
+import io.github.jpicklyk.mcptask.current.application.service.ProjectConfigPushResult
+import io.github.jpicklyk.mcptask.current.application.service.ProjectConfigPushService
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
-import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlSchemaParser
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.*
-import org.yaml.snakeyaml.LoaderOptions
-import org.yaml.snakeyaml.Yaml
-import org.yaml.snakeyaml.constructor.SafeConstructor
 
 /**
  * MCP tool for pushing and reading back per-root config YAML — the transport-agnostic sync path
@@ -149,64 +147,42 @@ not-found error when no config has been pushed for it.
         if (idError != null) return idError
         val configYaml = requireString(params, "configYaml")
 
-        val sizeBytes = configYaml.toByteArray(Charsets.UTF_8).size
-        if (sizeBytes > MAX_CONFIG_YAML_BYTES) {
-            return errorResponse(
-                "configYaml is $sizeBytes bytes, exceeds the $MAX_CONFIG_YAML_BYTES byte " +
-                    "($MAX_CONFIG_YAML_KIB KiB) limit",
-                ErrorCodes.VALIDATION_ERROR
-            )
-        }
-
-        val itemResult = context.workItemRepository().getById(rootItemId!!)
-        val item =
-            when (itemResult) {
-                is Result.Success -> itemResult.data
-                is Result.Error -> return errorResponse(
-                    "Root WorkItem not found: $rootItemId",
-                    ErrorCodes.RESOURCE_NOT_FOUND
-                )
-            }
-
-        if (item.depth != 0) {
-            return errorResponse(
-                "rootItemId must reference a depth-0 (root) WorkItem; '$rootItemId' has depth ${item.depth}",
-                ErrorCodes.VALIDATION_ERROR
-            )
-        }
-
-        val typeWarning =
-            if (item.type != "project") {
-                "Root item type is '${item.type ?: "null"}', not 'project' — config pushed anyway " +
-                    "(a naming convention, not an enforced constraint)"
-            } else {
-                null
-            }
-
-        val parseError = validateYaml(configYaml)
-        if (parseError != null) {
-            return errorResponse(
-                "configYaml failed to parse: $parseError",
-                ErrorCodes.VALIDATION_ERROR,
-                details = parseError
-            )
-        }
-
-        return when (val result = context.projectConfigRepository().upsert(rootItemId, configYaml)) {
-            is Result.Success -> {
-                val config = result.data
+        val service = ProjectConfigPushService(context.repositoryProvider)
+        return when (val result = service.push(rootItemId!!, configYaml)) {
+            is ProjectConfigPushResult.Success ->
                 successResponse(
                     buildJsonObject {
-                        put("rootItemId", JsonPrimitive(config.rootItemId.toString()))
-                        put("fingerprint", JsonPrimitive(config.fingerprint))
-                        put("updatedAt", JsonPrimitive(config.updatedAt.toString()))
-                        typeWarning?.let { put("warning", JsonPrimitive(it)) }
+                        put("rootItemId", JsonPrimitive(result.rootItemId.toString()))
+                        put("fingerprint", JsonPrimitive(result.fingerprint))
+                        put("updatedAt", JsonPrimitive(result.updatedAt.toString()))
+                        result.warning?.let { put("warning", JsonPrimitive(it)) }
                     }
                 )
-            }
-            is Result.Error ->
+            is ProjectConfigPushResult.NotFound ->
                 errorResponse(
-                    "Failed to store project config: ${result.error.message}",
+                    "Root WorkItem not found: ${result.rootItemId}",
+                    ErrorCodes.RESOURCE_NOT_FOUND
+                )
+            is ProjectConfigPushResult.NotDepthZero ->
+                errorResponse(
+                    "rootItemId must reference a depth-0 (root) WorkItem; '${result.rootItemId}' has depth ${result.depth}",
+                    ErrorCodes.VALIDATION_ERROR
+                )
+            is ProjectConfigPushResult.TooLarge ->
+                errorResponse(
+                    "configYaml is ${result.sizeBytes} bytes, exceeds the ${result.maxBytes} byte " +
+                        "(${result.maxBytes / 1024} KiB) limit",
+                    ErrorCodes.VALIDATION_ERROR
+                )
+            is ProjectConfigPushResult.ParseError ->
+                errorResponse(
+                    "configYaml failed to parse: ${result.detail}",
+                    ErrorCodes.VALIDATION_ERROR,
+                    details = result.detail
+                )
+            is ProjectConfigPushResult.RepositoryError ->
+                errorResponse(
+                    "Failed to store project config: ${result.message}",
                     ErrorCodes.DATABASE_ERROR
                 )
         }
@@ -223,7 +199,8 @@ not-found error when no config has been pushed for it.
         val (rootItemId, idError) = resolveItemId(params, "rootItemId", context)
         if (idError != null) return idError
 
-        return when (val result = context.projectConfigRepository().get(rootItemId!!)) {
+        val service = ProjectConfigPushService(context.repositoryProvider)
+        return when (val result = service.get(rootItemId!!)) {
             is Result.Success -> {
                 val config =
                     result.data ?: return errorResponse(
@@ -247,53 +224,13 @@ not-found error when no config has been pushed for it.
         }
     }
 
-    // ──────────────────────────────────────────────
-    // YAML parse-validation
-    // ──────────────────────────────────────────────
-
-    /**
-     * Parses [configYaml] the same way [io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService]
-     * will on every subsequent read (via the shared [YamlSchemaParser]), but BEFORE storing — a
-     * stored-but-unparseable config would otherwise silently fall through to the global schema on
-     * every future read, a confusing failure mode discovered only much later. Returns the parse
-     * failure message, or null when [configYaml] parses cleanly.
-     *
-     * Uses [SafeConstructor] rather than SnakeYAML's default `Constructor` — `configYaml` is
-     * attacker-reachable input (pushed over the MCP protocol by a caller, not read from a trusted
-     * local file), and the default `Constructor` will happily instantiate an arbitrary Java type
-     * named by a `!!`-tag (the SnakeYAML deserialization-RCE gadget class, CWE-502). `SafeConstructor`
-     * only ever builds plain maps/lists/scalars, which is all a config document legitimately needs;
-     * any `!!`-tagged custom type throws [org.yaml.snakeyaml.constructor.ConstructorException] before
-     * anything is instantiated, and that exception is caught below like any other parse failure.
-     *
-     * Soft validation warnings collected by [YamlSchemaParser.parseRoot] (e.g. a note entry
-     * missing `key`, an invalid `lifecycle` value) are NOT treated as rejection here — only a hard
-     * YAML syntax/shape failure (invalid syntax, or a non-map document) is. Those soft warnings
-     * mirror the global config loader's existing behavior: skip the offending entry, keep going.
-     */
-    private fun validateYaml(configYaml: String): String? =
-        try {
-            @Suppress("UNCHECKED_CAST")
-            val root = Yaml(SafeConstructor(LoaderOptions())).load<Map<String, Any>>(configYaml)
-            if (root != null) {
-                YamlSchemaParser.parseRoot(root, warnOnMissingSchemas = false)
-            }
-            null
-        } catch (
-            @Suppress("TooGenericExceptionCaught") e: Exception
-        ) {
-            e.message ?: e.javaClass.simpleName
-        }
-
     companion object {
-        /** `configYaml` size limit for `push`, in KiB — see [MAX_CONFIG_YAML_BYTES]. */
-        private const val MAX_CONFIG_YAML_KIB = 128
-
         /**
-         * Hard cap on a pushed `configYaml` document's UTF-8 byte size (CWE-770: uncontrolled
-         * resource consumption). Enforced before any parse attempt, well above any legitimate
-         * config document, and small enough to bound parse cost against a hostile payload.
+         * `configYaml` size limit for `push`, in bytes — delegates to
+         * [ProjectConfigPushService.MAX_CONFIG_YAML_BYTES], the single source of truth now that the
+         * validate+persist pipeline lives in the service. Kept as a public alias here for backward
+         * compatibility (existing callers/tests reference `ManageProjectConfigTool.MAX_CONFIG_YAML_BYTES`).
          */
-        const val MAX_CONFIG_YAML_BYTES = MAX_CONFIG_YAML_KIB * 1024
+        const val MAX_CONFIG_YAML_BYTES = ProjectConfigPushService.MAX_CONFIG_YAML_BYTES
     }
 }

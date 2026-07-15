@@ -671,6 +671,28 @@ components:
         dbReachable:
           type: boolean
 
+    ProjectConfigResponseDto:
+      type: object
+      required: [rootItemId, fingerprint, updatedAt]
+      properties:
+        rootItemId:
+          type: string
+          format: uuid
+        fingerprint:
+          type: string
+          description: SHA-256 hex digest of the stored configYaml's UTF-8 bytes
+        updatedAt:
+          type: string
+          format: date-time
+        configYaml:
+          type: string
+          nullable: true
+          description: Raw stored YAML text; present on GET only (omitted on PUT)
+        warning:
+          type: string
+          nullable: true
+          description: Non-fatal notice when the root's `type` is not "project"
+
   responses:
     Unauthorized:
       description: Missing or invalid bearer token
@@ -1654,6 +1676,138 @@ paths:
           description: Not modified
         "401":
           $ref: "#/components/responses/Unauthorized"
+
+  /roots/{rootId}/config:
+    parameters:
+      - name: rootId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      summary: Read back the stored per-root config
+      operationId: getProjectConfig
+      tags: [project-config]
+      description: |
+        Requires READ + scope (rootId must be within the token's rootIds when scoped). Mirrors
+        the MCP manage_project_config tool's get operation — does not validate that the WorkItem
+        itself exists, only that a config row has been pushed.
+      parameters:
+        - name: If-None-Match
+          in: header
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Stored config
+          headers:
+            ETag:
+              schema:
+                type: string
+                description: '"cfg-<fingerprint>"'
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectConfigResponseDto"
+        "304":
+          description: Not modified
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: No config has been pushed for this root
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDto"
+
+    put:
+      summary: Validate and store raw config YAML for a root
+      operationId: putProjectConfig
+      tags: [project-config]
+      description: |
+        Requires WRITE_CONFIG + scope. Delegates the full validate-then-persist pipeline
+        (size cap -> root exists -> root is depth-0 -> SafeConstructor parse-validate -> upsert)
+        to ProjectConfigPushService — the SAME service the MCP manage_project_config tool's push
+        operation calls, so both surfaces converge on identical DB state for the same payload.
+      parameters:
+        - name: If-Match
+          in: header
+          schema:
+            type: string
+          description: >-
+            Optional; validated against the CURRENT stored fingerprint's ETag when a row already
+            exists. Ignored on a first push (no prior row to match).
+      requestBody:
+        required: true
+        content:
+          application/yaml:
+            schema:
+              type: string
+          text/plain:
+            schema:
+              type: string
+      responses:
+        "200":
+          description: Config validated and stored
+          headers:
+            ETag:
+              schema:
+                type: string
+                description: '"cfg-<fingerprint>"'
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProjectConfigResponseDto"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: rootId does not resolve to an existing WorkItem
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDto"
+        "412":
+          description: If-Match mismatch against the current fingerprint
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDto"
+        "413":
+          description: configYaml exceeds the 128 KiB cap
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDto"
+        "422":
+          description: rootId is not depth-0, or configYaml failed parse-validation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDto"
+
+    delete:
+      summary: Delete the stored per-root config
+      operationId: deleteProjectConfig
+      tags: [project-config]
+      description: Requires WRITE_CONFIG + scope.
+      responses:
+        "204":
+          description: Deleted
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: No config row existed for this root
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDto"
 
   /info:
     get:
