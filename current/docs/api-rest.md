@@ -38,7 +38,7 @@ This document describes the HTTP REST API layer (v1) added alongside the MCP tra
 
 ## 1. Authentication
 
-All `/api/v1/*` endpoints require authentication. The API supports two modes, selected by `API_AUTH_MODE`:
+All `/api/v1/*` endpoints require authentication by default. The API supports three modes, selected by `API_AUTH_MODE`:
 
 ### Bearer Mode (`API_AUTH_MODE=bearer`)
 
@@ -103,6 +103,21 @@ Capabilities and scope are derived from the JWT's `sub` claim (mapped to a princ
 - `403 Forbidden` — token valid but lacks required capability
 
 **`degradedModePolicy` interaction (JWKS mode):** When `DEGRADED_MODE_POLICY=reject` and JWKS verification fails, write endpoints return `401` with error `verification_failed`. Read endpoints and the bearer mode are unaffected (bearer auth has no JWKS chain).
+
+### Unauthenticated Mode (`API_AUTH_MODE=none`, opt-in)
+
+**Two signals are required together** — this is a deliberate two-key opt-in, not a single flag:
+
+```
+API_AUTH_MODE=none
+API_ALLOW_UNAUTHENTICATED=true
+```
+
+Setting `API_AUTH_MODE=none` alone still fails startup with an error naming the confirm flag. Setting `API_ALLOW_UNAUTHENTICATED=true` alone (with `bearer`/`jwks`) is silently ignored — it only takes effect combined with `none`.
+
+When both are set, every request — with or without an `Authorization` header — is attached a synthetic principal with `ADMIN` capability (implies all others) and unrestricted scope (`root_ids: null`). No token is required or checked. Audit records attribute writes to the actor `api:local-unauth`.
+
+> **SECURITY — loopback only.** This mode has NO authentication whatsoever: anyone who can reach the port has full read/write/delete access to every item, note, and per-root config, identical to the existing `/mcp` exposure. Use it only on a server bound to `127.0.0.1` (or otherwise network-fenced) for a single-user local setup — e.g. the config-sync hook talking to a local HTTP-transport server. Never set both keys on a server reachable from an untrusted network. The server logs a loud `SECURITY:` warning at startup when this mode is active.
 
 ---
 

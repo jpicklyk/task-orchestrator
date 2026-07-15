@@ -77,6 +77,12 @@ object ApiAuditBridge {
                     verifier = "api-jwks",
                     reason = null,
                 )
+            ApiAuthMode.UNAUTHENTICATED ->
+                VerificationResult(
+                    status = VerificationStatus.UNCHECKED,
+                    verifier = "api-unauthenticated",
+                    reason = null,
+                )
         }
 
     /**
@@ -90,13 +96,18 @@ object ApiAuditBridge {
      * no JWKS verification chain. The spec says: "API_AUTH_MODE=bearer is unaffected — bearer
      * auth has no verification chain." Bearer tokens are validated by the auth plugin before
      * any route handler runs; if a route handler sees a principal, the bearer token was valid.
+     *
+     * **Unauthenticated mode is likewise always trusted** — like bearer, there is no JWKS
+     * verification chain to run; the synthetic [io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.LOCAL_UNAUTH_PRINCIPAL]
+     * is attached unconditionally by the auth plugin.
      */
     fun resolveTrustedActorIdOrNull(
         principal: ApiPrincipal,
         degradedModePolicy: DegradedModePolicy,
     ): String? {
-        // Bearer mode: always trusted — no JWKS chain, auth was validated at plugin level
-        if (principal.authMode == ApiAuthMode.BEARER) {
+        // Bearer and Unauthenticated modes: always trusted — no JWKS chain, auth was validated
+        // (or synthesized) at plugin level.
+        if (principal.authMode == ApiAuthMode.BEARER || principal.authMode == ApiAuthMode.UNAUTHENTICATED) {
             return "api:${principal.tokenId}"
         }
         // JWKS mode: run through the standard policy resolution

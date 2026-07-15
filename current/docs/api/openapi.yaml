@@ -25,6 +25,8 @@ components:
       description: |
         Static bearer token (API_AUTH_MODE=bearer) or JWT (API_AUTH_MODE=jwks).
         For SSE, use Authorization header or opt-in ?token= query param.
+        Optional opt-in unauthenticated mode (API_AUTH_MODE=none + API_ALLOW_UNAUTHENTICATED=true)
+        accepts requests with no Authorization header at all — loopback-only, see api-rest.md §1.
 
   parameters:
     itemId:

@@ -247,7 +247,7 @@ class ApiAuthConfigLoaderTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `API_AUTH_MODE=none throws with explicit message`() {
+    fun `API_AUTH_MODE=none without the confirm flag throws naming API_ALLOW_UNAUTHENTICATED`() {
         val loader =
             ApiAuthConfigLoader(
                 envResolver =
@@ -257,7 +257,73 @@ class ApiAuthConfigLoaderTest {
                     ),
             )
         val ex = assertThrows<IllegalArgumentException> { loader.load() }
-        assertTrue(ex.message!!.contains("none") || ex.message!!.contains("not allowed"), "Error: ${ex.message}")
+        assertTrue(ex.message!!.contains("API_ALLOW_UNAUTHENTICATED"), "Error: ${ex.message}")
+    }
+
+    // -------------------------------------------------------------------------
+    // Unauthenticated mode (API_AUTH_MODE=none + API_ALLOW_UNAUTHENTICATED=true)
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun `API_AUTH_MODE=none with API_ALLOW_UNAUTHENTICATED=true returns Unauthenticated`() {
+        val loader =
+            ApiAuthConfigLoader(
+                envResolver =
+                    env(
+                        "API_ENABLED" to "true",
+                        "API_AUTH_MODE" to "none",
+                        "API_ALLOW_UNAUTHENTICATED" to "true",
+                    ),
+            )
+        val config = loader.load()
+        assertInstanceOf(ApiAuthConfig.Unauthenticated::class.java, config)
+    }
+
+    @Test
+    fun `API_AUTH_MODE=none with API_ALLOW_UNAUTHENTICATED=false still throws`() {
+        val loader =
+            ApiAuthConfigLoader(
+                envResolver =
+                    env(
+                        "API_ENABLED" to "true",
+                        "API_AUTH_MODE" to "none",
+                        "API_ALLOW_UNAUTHENTICATED" to "false",
+                    ),
+            )
+        val ex = assertThrows<IllegalArgumentException> { loader.load() }
+        assertTrue(ex.message!!.contains("API_ALLOW_UNAUTHENTICATED"), "Error: ${ex.message}")
+    }
+
+    @Test
+    fun `API_ALLOW_UNAUTHENTICATED=true alone with bearer mode is ignored — normal Bearer config`() {
+        val tokensPath = writeTokenFile(validBearerTokenYaml())
+        val loader =
+            ApiAuthConfigLoader(
+                envResolver =
+                    env(
+                        "API_ENABLED" to "true",
+                        "API_AUTH_MODE" to "bearer",
+                        "API_TOKENS_PATH" to tokensPath,
+                        "API_ALLOW_UNAUTHENTICATED" to "true",
+                    ),
+            )
+        val config = loader.load()
+        assertInstanceOf(ApiAuthConfig.Bearer::class.java, config)
+    }
+
+    @Test
+    fun `API_ALLOW_UNAUTHENTICATED with invalid value throws`() {
+        val loader =
+            ApiAuthConfigLoader(
+                envResolver =
+                    env(
+                        "API_ENABLED" to "true",
+                        "API_AUTH_MODE" to "none",
+                        "API_ALLOW_UNAUTHENTICATED" to "maybe",
+                    ),
+            )
+        val ex = assertThrows<IllegalArgumentException> { loader.load() }
+        assertTrue(ex.message!!.contains("API_ALLOW_UNAUTHENTICATED"), "Error: ${ex.message}")
     }
 
     @Test

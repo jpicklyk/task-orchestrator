@@ -202,7 +202,8 @@ Add to `gradle/libs.versions.toml` (`[versions]` + `[libraries]`), then referenc
 
 **REST API environment variables** (see also `current/docs/fleet-deployment.md`):
 - `API_ENABLED` — master API switch (default: `false`; set `true` to opt into the REST API, which then requires `API_AUTH_MODE`)
-- `API_AUTH_MODE` — `bearer` or `jwks`; required when API enabled; no `none` mode
+- `API_AUTH_MODE` — `bearer` or `jwks`; required when API enabled. Also accepts `none` when `API_ALLOW_UNAUTHENTICATED=true` (opt-in unauthenticated mode, loopback-only — see `current/docs/api-rest.md` §1)
+- `API_ALLOW_UNAUTHENTICATED` — confirm flag required alongside `API_AUTH_MODE=none` (default: `false`); ignored with `bearer`/`jwks`
 - `API_TOKENS_PATH` — bearer token YAML file path (default: `/run/secrets/api-tokens.yaml`)
 - `API_JWKS_URL` — JWKS endpoint URL (jwks mode, required)
 - `API_JWKS_ISSUER` — expected JWT `iss` claim (jwks mode, required)

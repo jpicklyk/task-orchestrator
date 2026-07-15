@@ -10,7 +10,10 @@
 //
 // Requires (all optional — absent = no-op):
 //   TASK_ORCHESTRATOR_API_URL    base URL of the REST API, e.g. http://localhost:3001
-//   TASK_ORCHESTRATOR_API_TOKEN  bearer token with the WRITE_CONFIG capability, scoped to this root
+//   TASK_ORCHESTRATOR_API_TOKEN  bearer token with the WRITE_CONFIG capability, scoped to this root.
+//                                Optional: an unauthenticated server (API_AUTH_MODE=none +
+//                                API_ALLOW_UNAUTHENTICATED=true) needs no token at all — when
+//                                absent, requests are sent with no Authorization header.
 
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
@@ -79,12 +82,15 @@ async function main() {
   if (!rootId) return; // not project-scoped → nothing to sync
 
   const apiUrl = process.env.TASK_ORCHESTRATOR_API_URL;
+  if (!apiUrl) return; // stdio/local: the global config file already serves this workspace
+
+  // Token is optional — an unauthenticated server (API_AUTH_MODE=none +
+  // API_ALLOW_UNAUTHENTICATED=true) needs no Authorization header at all.
   const token = process.env.TASK_ORCHESTRATOR_API_TOKEN;
-  if (!apiUrl || !token) return; // stdio/local: the global config file already serves this workspace
 
   const localEtag = `"cfg-${createHash('sha256').update(bytes).digest('hex')}"`;
   const endpoint = `${apiUrl.replace(/\/+$/, '')}/api/v1/roots/${rootId}/config`;
-  const authHeader = { Authorization: `Bearer ${token}` };
+  const authHeader = token ? { Authorization: `Bearer ${token}` } : {};
 
   // 1) Read the server's current fingerprint to decide whether a push is needed.
   let currentEtag = null;

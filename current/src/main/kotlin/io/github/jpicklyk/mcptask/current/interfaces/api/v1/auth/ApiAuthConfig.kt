@@ -33,6 +33,12 @@ sealed class ApiAuthConfig {
         val algorithms: List<String>,
         val cacheTtlSeconds: Long,
     ) : ApiAuthConfig()
+
+    // Opt-in unauthenticated mode (API_AUTH_MODE=none + API_ALLOW_UNAUTHENTICATED=true).
+    // Every request is attached the synthetic ApiPrincipal.LOCAL_UNAUTH_PRINCIPAL (ADMIN,
+    // unrestricted scope) with NO credential check at all. Intended only for a loopback-bound
+    // single-user local server -- see the SECURITY warn logged at startup in CurrentMcpServer.
+    data object Unauthenticated : ApiAuthConfig()
 }
 
 // Wrapper around a SHA-256 digest ByteArray that provides the structural equality

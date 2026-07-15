@@ -23,6 +23,24 @@ data class ApiPrincipal(
 )
 
 /**
+ * Synthetic principal attached to every request when [ApiAuthConfig.Unauthenticated] is active.
+ *
+ * Granted [ApiCapability.ADMIN] (implies all other capabilities via the existing
+ * `hasCapability`/`requireCapability` logic) and an unrestricted [ApiScope] (`rootIds = null`),
+ * so `requireCapability` and `enforceScopeForItem` pass unchanged for every route -- no
+ * authorization-layer special-casing is needed for this mode.
+ *
+ * Audited as actor `api:local-unauth` via the existing [ApiAuditBridge] (tokenId-derived).
+ */
+val LOCAL_UNAUTH_PRINCIPAL =
+    ApiPrincipal(
+        tokenId = "local-unauth",
+        scope = ApiScope(rootIds = null, tagsInclude = emptySet()),
+        capabilities = setOf(ApiCapability.ADMIN),
+        authMode = ApiAuthMode.UNAUTHENTICATED,
+    )
+
+/**
  * Structural scope filter attached to an authenticated principal.
  *
  * Scope enforcement walks the item's ancestor chain.  A null [rootIds] means the
@@ -104,4 +122,7 @@ enum class ApiAuthMode {
 
     /** JWT validated against a JWKS endpoint. */
     JWKS,
+
+    /** No credential at all -- [ApiAuthConfig.Unauthenticated] mode's synthetic principal. */
+    UNAUTHENTICATED,
 }

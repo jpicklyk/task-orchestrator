@@ -145,11 +145,13 @@ fun makeWriteAuthConfig(scopeRootIds: Set<UUID>? = null): ApiAuthConfig.Bearer {
  *
  * Installs [ContentNegotiation], [SSE], [ApiBearerAuth], and registers routes via [routeBlock].
  *
- * @param authConfig The auth config to install on `/api/v1`.
+ * @param authConfig The auth config to install on `/api/v1`. Accepts any [ApiAuthConfig] variant
+ *   (e.g. [ApiAuthConfig.Unauthenticated] for opt-in unauth-mode tests) — token entries are only
+ *   populated when it is [ApiAuthConfig.Bearer].
  * @param routeBlock Route registration block called inside `route("/api/v1") { ... }`.
  */
 fun Application.configureTestApp(
-    authConfig: ApiAuthConfig.Bearer = makeTestAuthConfig(),
+    authConfig: ApiAuthConfig = makeTestAuthConfig(),
     routeBlock: io.ktor.server.routing.Route.() -> Unit,
 ) {
     install(ContentNegotiation) { json(McpJson) }
@@ -159,9 +161,9 @@ fun Application.configureTestApp(
             install(ApiBearerAuth) {
                 this.authConfig = authConfig
                 tokenEntries =
-                    authConfig.tokens.mapValues { (_, p) ->
+                    (authConfig as? ApiAuthConfig.Bearer)?.tokens?.mapValues { (_, p) ->
                         BearerTokenStore.TokenEntry(p, expiresAt = null)
-                    }
+                    } ?: emptyMap()
             }
             routeBlock()
         }

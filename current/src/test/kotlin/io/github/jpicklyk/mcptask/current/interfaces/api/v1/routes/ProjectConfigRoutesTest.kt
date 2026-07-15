@@ -54,10 +54,16 @@ private val VALID_YAML =
             required: true
     """.trimIndent()
 
-/** Configures a test Ktor application with only [projectConfigRoutes] registered. */
+/**
+ * Configures a test Ktor application with only [projectConfigRoutes] registered.
+ *
+ * [authConfig] accepts any [ApiAuthConfig] variant — e.g. [ApiAuthConfig.Unauthenticated] for
+ * opt-in unauth-mode tests (see [ProjectConfigUnauthenticatedModeTest]). Token entries are only
+ * populated when it is [ApiAuthConfig.Bearer].
+ */
 fun Application.configureProjectConfigTestApp(
     repo: DefaultRepositoryProvider,
-    authConfig: ApiAuthConfig.Bearer = makeWriteAuthConfig(),
+    authConfig: ApiAuthConfig = makeWriteAuthConfig(),
 ) {
     install(ContentNegotiation) { json(McpJson) }
     install(SSE)
@@ -66,9 +72,9 @@ fun Application.configureProjectConfigTestApp(
             install(ApiBearerAuth) {
                 this.authConfig = authConfig
                 tokenEntries =
-                    authConfig.tokens.mapValues { (_, p) ->
+                    (authConfig as? ApiAuthConfig.Bearer)?.tokens?.mapValues { (_, p) ->
                         BearerTokenStore.TokenEntry(p, expiresAt = null)
-                    }
+                    } ?: emptyMap()
             }
             projectConfigRoutes(repo)
         }
@@ -424,6 +430,56 @@ class ProjectConfigDeleteRouteTest {
                 }
 
             assertEquals(HttpStatusCode.NotFound, response.status)
+        }
+}
+
+/**
+ * Opt-in unauthenticated REST mode (`API_AUTH_MODE=none` + `API_ALLOW_UNAUTHENTICATED=true`).
+ * With [ApiAuthConfig.Unauthenticated] installed, every request — including one with NO
+ * Authorization header at all — is attached the synthetic ADMIN/unrestricted principal and must
+ * reach this WRITE_CONFIG-gated, scope-checked route successfully. This is the config-sync hook's
+ * exact use case: a token-less PUT against a local unauthenticated server.
+ */
+class ProjectConfigUnauthenticatedModeTest {
+    @Test
+    fun `PUT roots rootId config with no Authorization header succeeds in unauthenticated mode`(): Unit =
+        testApplication {
+            val repo = buildH2RepositoryProvider()
+            val root = createRoot(repo)
+            application { configureProjectConfigTestApp(repo, authConfig = ApiAuthConfig.Unauthenticated) }
+
+            val response =
+                client.put("/api/v1/roots/${root.id}/config") {
+                    // Deliberately no Authorization header.
+                    contentType(ContentType.Text.Plain)
+                    setBody(VALID_YAML)
+                }
+
+            assertEquals(HttpStatusCode.OK, response.status)
+            val persisted = runBlocking { repo.projectConfigRepository().get(root.id) }
+            assertTrue(persisted is Result.Success)
+            val config = (persisted as Result.Success).data
+            assertNotNull(config, "Config should be persisted even with no token")
+            assertEquals(VALID_YAML, config!!.configYaml)
+        }
+
+    @Test
+    fun `GET roots rootId config with no Authorization header succeeds in unauthenticated mode`(): Unit =
+        testApplication {
+            val repo = buildH2RepositoryProvider()
+            val root = createRoot(repo)
+            application { configureProjectConfigTestApp(repo, authConfig = ApiAuthConfig.Unauthenticated) }
+
+            client.put("/api/v1/roots/${root.id}/config") {
+                contentType(ContentType.Text.Plain)
+                setBody(VALID_YAML)
+            }
+
+            val response = client.get("/api/v1/roots/${root.id}/config")
+
+            assertEquals(HttpStatusCode.OK, response.status)
+            val body = response.bodyAsText()
+            assertTrue(body.contains(root.id.toString()))
         }
 }
 
