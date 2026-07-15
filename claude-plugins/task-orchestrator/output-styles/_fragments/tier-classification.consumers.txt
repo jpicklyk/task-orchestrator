@@ -1,0 +1,9 @@
+# Single source of truth for the set of in-repo files that embed the GENERATED:tier-classification
+# block from tier-classification.md. Read by all three enforcement sites so they can never diverge:
+#   - claude-plugins/task-orchestrator/output-styles/generate.mjs   (rewrite targets)
+#   - current/.../docs/TierClassificationConsistencyTest.kt         (drift assertion)
+#   - current/build.gradle.kts                                      (:current:test inputs.files, cache-busting)
+# Paths are repo-root-relative, one per line. Blank lines and lines starting with '#' are ignored.
+# To add a new consumer: add the marker block to the file, then add its path here — nowhere else.
+claude-plugins/task-orchestrator/output-styles/workflow-orchestrator.md
+.claude/skills/implement/SKILL.md
