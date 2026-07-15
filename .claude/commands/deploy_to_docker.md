@@ -1,271 +1,198 @@
 ---
-description: Build Docker image and optionally start a container for the MCP Task Orchestrator
+description: Build Docker image and start/redeploy the MCP Task Orchestrator container, reusing the last-used config by default
 ---
 
 # Deploy to Docker
 
-Build the MCP Task Orchestrator Docker image and, by default, start the detached HTTP container that the active `.mcp.json` connects to. The Dockerfile handles its own Gradle build internally, so no local build step is needed.
+Build the MCP Task Orchestrator Docker image and start (or redeploy) the detached HTTP container that the active `.mcp.json` connects to. The Dockerfile handles its own Gradle build internally — no local build step needed.
 
-**Usage:** `/deploy_to_docker [image-tag] [--build-only] [--run]`
+On every deploy the command **detects the current container's settings and defaults to reusing them**, so you never have to re-specify things like `API_AUTH_MODE=none` after the first time. You can always review or change them via the chooser.
 
-**Default behavior (no flags):** Build the image, then start the detached HTTP container on `127.0.0.1:3001` with the config mount. This matches the active `.mcp.json` (`type: http`, `url: http://localhost:3001/mcp`) — the server is reachable immediately after `/mcp reconnect mcp-task-orchestrator`.
+**Usage:** `/deploy_to_docker [image-tag] [--build-only] [--run] [--reuse]`
+
+**Default (no flags):** Build the image, detect the existing container's config, then present a **[Reuse / Reconfigure]** chooser. Reuse redeploys with the same settings; Reconfigure walks the REST-mode / config-mount prompts. Matches the active `.mcp.json` (`type: http`, `url: http://localhost:3001/mcp`) — reachable after `/mcp reconnect mcp-task-orchestrator`.
 
 **Arguments:**
-- `image-tag` (optional): Docker image tag. Default: `task-orchestrator:current`. A bare name like `dev` expands to `task-orchestrator:dev`.
-- `--build-only` (optional): Build the image but do not start any container.
-- `--run` (optional): Build, then interactively prompt for transport (STDIO/HTTP) and run configuration — use this for STDIO or debug variants.
+- `image-tag` (optional): Docker image tag. Default `task-orchestrator:current`. A bare name like `dev` → `task-orchestrator:dev`.
+- `--build-only`: Build the image only; start no container; no prompts.
+- `--run` / `--reconfigure`: Build, then go straight to the reconfigure prompts (skip the reuse chooser) — including STDIO/HTTP transport choice.
+- `--reuse`: Build, then redeploy with the detected settings **without prompting** (non-interactive redeploy).
 
 **Examples:**
-- `/deploy_to_docker` — Build `task-orchestrator:current` and start the detached HTTP container on :3001 (matches `.mcp.json`)
-- `/deploy_to_docker --build-only` — Build the image only, start no container
-- `/deploy_to_docker --run` — Build and interactively choose transport + run config
-- `/deploy_to_docker myfeature` — Build tag `task-orchestrator:myfeature` and start the HTTP container from it
+- `/deploy_to_docker` — build, then Reuse-or-Reconfigure chooser
+- `/deploy_to_docker --reuse` — rebuild + redeploy identical settings, no prompts
+- `/deploy_to_docker --run` — build + full interactive reconfigure
+- `/deploy_to_docker --build-only` — build image only
 
 ---
 
 ## Workflow
 
 ### Step 1: Resolve Image Tag
-
-Parse the arguments to determine the image tag:
-- Set `TARGET=runtime-current`, default tag = `task-orchestrator:current`, data volume = `mcp-task-data`
-- If a tag argument is provided (not starting with `--`), use it as-is
-- If the tag has no `:`, prepend `task-orchestrator:` (e.g., `dev` becomes `task-orchestrator:dev`)
-- If no tag argument, use the default tag
+- `TARGET=runtime-current`, default tag `task-orchestrator:current`, data volume `mcp-task-data`.
+- A non-`--` tag argument is used as-is; a tag with no `:` gets `task-orchestrator:` prepended; no arg → default.
 
 ### Step 2: Build Docker Image
-
 ```bash
-docker build --target <TARGET> -t <image-tag> .
+docker build --target runtime-current -t <image-tag> .
 ```
-
-Where `<TARGET>` is `runtime-current`.
-
-The Dockerfile's multi-stage build compiles the project from source — no prior `./gradlew build` required.
+Multi-stage build compiles from source — no prior `./gradlew build`.
 
 ### Step 3: Verify Image
-
 ```bash
 docker images | grep task-orchestrator
 ```
+Report image ID and size.
 
-Report the image ID and size.
+### Step 4: Determine Run Settings (detect → reuse or reconfigure)
 
-### Step 4: Start Container
+**If `--build-only`:** skip to Step 5 — no container.
 
-**If `--build-only` was specified:** Skip to summary — no container is started.
-
-**Default (no flags): start the HTTP container.** Do NOT prompt. Go directly to the "HTTP transport" section below and run the **"With Config Mount (Recommended)"** command — skip both the transport prompt and the HTTP run-config prompt. This is the path that matches the active `.mcp.json`.
-
-**If `--run` was specified**, first ask the user which transport mode to use:
-
-```
-AskUserQuestion(
-  questions: [{
-    question: "Which transport mode?",
-    header: "Transport",
-    multiSelect: false,
-    options: [
-      {
-        label: "STDIO (Recommended)",
-        description: "Connect via stdin/stdout — standard MCP transport, no port needed"
-      },
-      {
-        label: "HTTP",
-        description: "Serves the MCP endpoint at /mcp on port 3001 (loopback by default) — runs detached as a long-lived daemon"
-      }
-    ]
-  }]
-)
-```
-
----
-
-#### If STDIO transport selected
-
-Ask which run configuration to use:
-
-```
-AskUserQuestion(
-  questions: [{
-    question: "Which container configuration?",
-    header: "Run mode",
-    multiSelect: false,
-    options: [
-      {
-        label: "With Project Mount (Recommended)",
-        description: "Database volume + project mount for config reading"
-      },
-      {
-        label: "With Debug Logging",
-        description: "Project mount + LOG_LEVEL=DEBUG + DATABASE_SHOW_SQL=true"
-      },
-      {
-        label: "Basic",
-        description: "Database volume only, no config file access"
-      }
-    ]
-  }]
-)
-```
-
-Use `mcp-task-data` as the data volume name.
-
-**"With Config Mount"**
+#### 4a. Detect current settings
+Read what the existing container was last started with (this is the source of truth for a redeploy — run it **before** removing the container):
 ```bash
-docker run --rm -i \
-  -v <DATA_VOLUME>:/app/data \
-  -v "$(pwd)"/.taskorchestrator:/project/.taskorchestrator:ro \
-  -e AGENT_CONFIG_DIR=/project \
-  <image-tag>
+# REST env + debug
+docker inspect mcp-task-orchestrator-http --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null \
+  | grep -E 'API_ENABLED|API_AUTH_MODE|API_ALLOW_UNAUTHENTICATED|API_TOKENS_PATH|LOG_LEVEL' || echo '(no existing container)'
+# config mount present?
+docker inspect mcp-task-orchestrator-http --format '{{range .Mounts}}{{.Source}} -> {{.Destination}}{{println}}{{end}}' 2>/dev/null \
+  | grep -q '/project/.taskorchestrator' && echo 'config-mount: project' || echo 'config-mount: none'
+```
+Derive the **REST mode** from the env: `API_ENABLED=false` → **off**; `API_ENABLED=true` + `API_AUTH_MODE=none` → **unauthenticated**; `+ API_AUTH_MODE=bearer` → **bearer**.
+
+If no container exists, fall back (in order) to: the persisted file `${HOME}/.taskorchestrator/deploy.env` (see 4d); else the **defaults** — HTTP transport, REST **off**, **project** config mount, loopback `127.0.0.1:3001`, debug off.
+
+Build a one-line `DETECTED` summary, e.g. `HTTP · REST=unauthenticated (local) · config-mount=none · debug=off · 127.0.0.1:3001 · image=task-orchestrator:current`.
+
+#### 4b. Chooser
+- **If `--reuse`:** skip prompting — use the detected settings, go to 4d.
+- **If `--run`/`--reconfigure`:** skip this chooser, go to 4c.
+- **Otherwise (default):** present the detected summary and ask:
+```
+AskUserQuestion(questions: [{
+  question: "Detected config: <DETECTED>. Reuse it, or reconfigure?",
+  header: "Deploy config",
+  multiSelect: false,
+  options: [
+    { label: "Reuse detected settings", description: "Redeploy with the settings shown above — no further prompts" },
+    { label: "Reconfigure", description: "Choose transport / REST API mode / config mount" }
+  ]
+}])
+```
+Reuse → 4d. Reconfigure → 4c.
+
+#### 4c. Reconfigure prompts
+
+**Transport** (ask only on `--run`; the default/reconfigure path assumes **HTTP**, since `.mcp.json` uses HTTP):
+```
+AskUserQuestion(questions: [{
+  question: "Which transport mode?", header: "Transport", multiSelect: false,
+  options: [
+    { label: "HTTP (Recommended)", description: "Serves /mcp on 127.0.0.1:3001, detached daemon — matches .mcp.json" },
+    { label: "STDIO", description: "stdin/stdout, no port; interactive -i run (does not match the http .mcp.json)" }
+  ]
+}])
+```
+For **STDIO**, use the legacy interactive run (`docker run --rm -i -v mcp-task-data:/app/data [-v <pwd>/.taskorchestrator:/project/.taskorchestrator:ro -e AGENT_CONFIG_DIR=/project] [-e LOG_LEVEL=DEBUG -e DATABASE_SHOW_SQL=true] <image-tag>`) and skip the HTTP questions below.
+
+For **HTTP**, ask:
+
+**REST API mode** — pre-note the detected value as recommended:
+```
+AskUserQuestion(questions: [{
+  question: "REST API mode? (the /api/v1 layer used by config-sync)", header: "REST API", multiSelect: false,
+  options: [
+    { label: "Off (MCP only)", description: "API_ENABLED=false — the /mcp endpoint only. Default for plain local MCP use." },
+    { label: "Unauthenticated (local)", description: "API_ENABLED=true + API_AUTH_MODE=none + API_ALLOW_UNAUTHENTICATED=true. Token-free config-sync; loopback-bound ONLY." },
+    { label: "Bearer (token file)", description: "API_ENABLED=true + API_AUTH_MODE=bearer + a mounted api-tokens.yaml. For authed / shared setups." }
+  ]
+}])
+```
+- If **Bearer**, ask for the host path to the token YAML (via the "Other" free-text answer), e.g. `~/.taskorchestrator-secrets/api-tokens.yaml`.
+- If **Unauthenticated**, show this caveat before proceeding:
+  > **SECURITY:** unauthenticated REST means anyone who can reach the port can read/write/delete config and data. This is only safe **loopback-bound** (`-p 127.0.0.1:3001:3001`). Never publish the port on `0.0.0.0`. (`/mcp` is already unauthenticated on the same server — this just matches that posture.)
+
+**Config mount:**
+```
+AskUserQuestion(questions: [{
+  question: "Mount this project's config as the server's global/fallback config?", header: "Config mount", multiSelect: false,
+  options: [
+    { label: "This project (fallback)", description: "Mount ./.taskorchestrator read-only as AGENT_CONFIG_DIR — the global fallback config." },
+    { label: "None (multi-project)", description: "No project mount. Per-project config flows in via the config-sync hook into the DB per root." }
+  ]
+}])
 ```
 
-**"With Debug Logging"**
+**Debug logging:** ask Yes/No (`LOG_LEVEL=DEBUG` + `DATABASE_SHOW_SQL=true`).
+
+#### 4d. Persist settings
+Write the resolved settings so the next deploy reuses them even if the container is later removed:
 ```bash
-docker run --rm -i \
-  -v <DATA_VOLUME>:/app/data \
-  -v "$(pwd)"/.taskorchestrator:/project/.taskorchestrator:ro \
-  -e AGENT_CONFIG_DIR=/project \
-  -e LOG_LEVEL=DEBUG \
-  -e DATABASE_SHOW_SQL=true \
-  <image-tag>
+mkdir -p "${HOME}/.taskorchestrator"
+cat > "${HOME}/.taskorchestrator/deploy.env" <<EOF
+# written by /deploy_to_docker — last-used deploy settings
+IMAGE_TAG=<image-tag>
+TRANSPORT=http
+REST_MODE=<off|unauth|bearer>
+TOKENS_HOST_PATH=<host path, bearer only>
+CONFIG_MOUNT=<project|none>
+DEBUG=<true|false>
+EOF
 ```
 
-**"Basic"**
-```bash
-docker run --rm -i -v <DATA_VOLUME>:/app/data <image-tag>
-```
-
----
-
-#### If HTTP transport selected
-
-> **Note:** HTTP (Streamable HTTP) transport works with the bundled MCP Kotlin SDK (0.12.0). The
-> MCP endpoint is served at `/mcp`. The REST API is off by default (`API_ENABLED=false`); leave it
-> off for an MCP-only HTTP server, or set `API_ENABLED=true` + `API_AUTH_MODE` to enable it.
-> Origin validation is enforced (cross-origin requests get 403), so bind to loopback when local.
-
-**If you arrived here via the default path (no flags):** skip the prompt below and use the **"With Config Mount (Recommended)"** command directly.
-
-Otherwise (reached via `--run` → HTTP), ask which run configuration to use:
-
-```
-AskUserQuestion(
-  questions: [{
-    question: "Which HTTP container configuration?",
-    header: "Run mode",
-    multiSelect: false,
-    options: [
-      {
-        label: "With Config Mount (Recommended)",
-        description: "Database volume + .taskorchestrator config mount + port 3001"
-      },
-      {
-        label: "With Debug Logging",
-        description: "Project mount + port 3001 + LOG_LEVEL=DEBUG + DATABASE_SHOW_SQL=true"
-      }
-    ]
-  }]
-)
-```
-
-Use `mcp-task-data` as the data volume name.
-The container name will be `mcp-task-orchestrator-http`.
-
-Stop any existing container with that name first:
+#### 4e. Assemble and run (HTTP)
+Stop/remove the existing container (AFTER detection in 4a), then run with the resolved settings.
 ```bash
 docker stop mcp-task-orchestrator-http 2>/dev/null || true
-docker rm mcp-task-orchestrator-http 2>/dev/null || true
+docker rm   mcp-task-orchestrator-http 2>/dev/null || true
 ```
 
-**"With Config Mount (Recommended)"**
-```bash
-docker run -d \
-  --name mcp-task-orchestrator-http \
-  --restart unless-stopped \
-  -v <DATA_VOLUME>:/app/data \
-  -v "$(pwd)"/.taskorchestrator:/project/.taskorchestrator:ro \
-  -e AGENT_CONFIG_DIR=/project \
-  -e MCP_TRANSPORT=http \
-  -e MCP_HTTP_HOST=0.0.0.0 \
-  -e MCP_HTTP_PORT=3001 \
-  -e API_ENABLED=false \
-  -p 127.0.0.1:3001:3001 \
-  <image-tag>
+Base command (compose the REST-mode / config-mount / debug fragments below into it):
 ```
-> `MCP_HTTP_HOST=0.0.0.0` is the container's internal bind; `-p 127.0.0.1:3001:3001` publishes it to
-> the host on loopback only (per the Streamable HTTP localhost-binding recommendation). Use
-> `-p 3001:3001` only when you intentionally need access from other hosts.
-
-**"With Debug Logging"**
-```bash
-docker run -d \
-  --name mcp-task-orchestrator-http \
-  -v <DATA_VOLUME>:/app/data \
-  -v "$(pwd)"/.taskorchestrator:/project/.taskorchestrator:ro \
-  -e AGENT_CONFIG_DIR=/project \
-  -e MCP_TRANSPORT=http \
-  -e MCP_HTTP_HOST=0.0.0.0 \
-  -e MCP_HTTP_PORT=3001 \
-  -e API_ENABLED=false \
-  -e LOG_LEVEL=DEBUG \
-  -e DATABASE_SHOW_SQL=true \
-  -p 127.0.0.1:3001:3001 \
-  <image-tag>
+docker run -d --name mcp-task-orchestrator-http --restart unless-stopped \
+  -v mcp-task-data:/app/data \
+  -e MCP_TRANSPORT=http -e MCP_HTTP_HOST=0.0.0.0 -e MCP_HTTP_PORT=3001 \
+  <REST-MODE fragment> <CONFIG-MOUNT fragment> <DEBUG fragment> \
+  -p 127.0.0.1:3001:3001 <image-tag>
 ```
 
-After starting, verify the container is running:
+| Choice | Fragment |
+|--------|----------|
+| REST off | `-e API_ENABLED=false` |
+| REST unauthenticated | `-e API_ENABLED=true -e API_AUTH_MODE=none -e API_ALLOW_UNAUTHENTICATED=true` |
+| REST bearer | `-e API_ENABLED=true -e API_AUTH_MODE=bearer -e API_TOKENS_PATH=/run/secrets/api-tokens.yaml -v <TOKENS_HOST_PATH>:/run/secrets/api-tokens.yaml:ro` |
+| Config mount = project | `-v "<pwd>/.taskorchestrator:/project/.taskorchestrator:ro" -e AGENT_CONFIG_DIR=/project` |
+| Config mount = none | *(omit)* |
+| Debug on | `-e LOG_LEVEL=DEBUG -e DATABASE_SHOW_SQL=true` |
+
+> **Windows:** run the `docker run` (and the STDIO variant) via **PowerShell** using `${PWD}` for the volume path — the Bash/MSYS shell rewrites the leading slash in `-e AGENT_CONFIG_DIR=/project` and in `:/app/data` / `:/project/...` mounts, breaking the container. Bash is fine for `docker build`, `docker inspect`, `docker logs`, `docker stop/rm`.
+
+Verify running:
 ```bash
 docker ps --filter name=mcp-task-orchestrator-http --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+docker logs --since 20s mcp-task-orchestrator-http 2>&1 | tail -8
 ```
-
-Then verify `.mcp.json` contains the HTTP server entry (this is the active default in this repo):
+`.mcp.json` should already hold the HTTP entry (do NOT rename the `mcp-task-orchestrator` key or add a duplicate):
 ```json
-"mcp-task-orchestrator": {
-  "type": "http",
-  "url": "http://localhost:3001/mcp"
-}
+"mcp-task-orchestrator": { "type": "http", "url": "http://localhost:3001/mcp" }
 ```
-> The `.mcp.json` server key is `mcp-task-orchestrator`; the Docker container is named
-> `mcp-task-orchestrator-http`. These are independent — Claude Code connects by URL, not by name.
-> Do NOT rename the existing `mcp-task-orchestrator` key or add a duplicate
-> `mcp-task-orchestrator-http` entry.
 
 ### Step 5: Summary
+Report: image tag + ID; the resolved run config (transport, REST mode, config mount, debug, port); whether settings were reused or reconfigured; and — for HTTP — remind the user to run `/mcp reconnect mcp-task-orchestrator` then `/mcp` to verify. For `--build-only`, note no container was started.
 
-Report:
-- Image tag and ID
-- Build target used (`runtime-current`)
-- Whether a container was started (default HTTP, `--run` transport choice, or `--build-only`)
-- **HTTP (default):** Confirm `.mcp.json` has the `mcp-task-orchestrator` HTTP entry, then run `/mcp reconnect mcp-task-orchestrator` and `/mcp` to verify the connection
-- **STDIO (`--run` → STDIO):** Remind user to reconnect MCP: `/mcp reconnect mcp-task-orchestrator`
-- **`--build-only`:** No container started — note that the HTTP `.mcp.json` config will not connect until a container is running (re-run without `--build-only`)
+If **unauthenticated** REST was selected, repeat the loopback-only SECURITY caveat in the summary.
 
 ---
 
 ## Notes
-
-- **No local build needed:** The Dockerfile runs `./gradlew :current:jar` in a builder stage
-- **Database persistence:** Volume `mcp-task-data` persists across container runs
-- **Config access:** Project mount modes mount the project for `.taskorchestrator/config.yaml` access
-- **STDIO transport:** Uses stdin/stdout, no port mapping needed; started with `-i` flag
-- **HTTP transport:** Runs detached (`-d`), serves the MCP endpoint at `/mcp`, named `mcp-task-orchestrator-http`; publish on `127.0.0.1:3001` (loopback) by default. Works with the bundled SDK (0.12.0). The REST API stays off unless `API_ENABLED=true` + `API_AUTH_MODE` are set.
+- **Reuse is the default:** detection reads the live container (`docker inspect`) first, then `${HOME}/.taskorchestrator/deploy.env`, then built-in defaults — so a redeploy keeps your last REST mode / mounts unless you Reconfigure.
+- **REST API + config-sync:** the `config-sync` SessionStart hook needs the REST API **on** (`Unauthenticated` locally, or `Bearer`). With REST `off`, only `/mcp` is served and config-sync no-ops.
+- **No local build needed:** the Dockerfile runs `./gradlew :current:jar` in a builder stage.
+- **Persistence:** `mcp-task-data` volume persists the DB across runs.
+- **HTTP:** detached (`-d`), `/mcp` served, container `mcp-task-orchestrator-http`, published loopback-only by default.
 
 ## Troubleshooting
-
-**Docker build fails:**
-- Verify Dockerfile exists in project root
-- Check disk space
-
-**Container fails to start:**
-- Try debug logging mode for detailed output
-- Check `docker logs <container-id>`
-
-**Database permission errors:**
-```bash
-docker run --rm -v mcp-task-data-current:/app/data --user root amazoncorretto:25-al2023-headless chown -R 1001:1001 /app/data
-```
-
-**Config files not found:**
-- Use project mount mode (not basic)
-- Verify `.taskorchestrator/` directory exists in project root
+- **Build fails:** verify the Dockerfile exists at project root; check disk space.
+- **Container won't start:** reconfigure with Debug logging; `docker logs mcp-task-orchestrator-http`. If you set REST unauthenticated on a **pre-#237 image**, the old loader rejects `API_AUTH_MODE=none` at startup — rebuild first.
+- **DB permission errors:** `docker run --rm -v mcp-task-data:/app/data --user root amazoncorretto:25-al2023-headless chown -R 1001:1001 /app/data`.
+- **Config not found:** use a config mount (not None) if you rely on the global fallback config; verify `.taskorchestrator/` exists.
