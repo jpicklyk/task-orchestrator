@@ -12,7 +12,9 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventPublishi
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
+import io.ktor.client.request.put
 import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
@@ -79,6 +81,8 @@ class FullApiWiringSmokeTest {
                 itemWriteRoutes(decorated, DegradedModePolicy.ACCEPT_CACHED, IdempotencyCache(), NoOpNoteSchemaService)
                 noteWriteRoutes(decorated, DegradedModePolicy.ACCEPT_CACHED, IdempotencyCache())
                 dependencyWriteRoutes(decorated, DegradedModePolicy.ACCEPT_CACHED)
+                // Phase 1 (project-config-rest-endpoint): per-root config read/write/delete
+                projectConfigRoutes(decorated)
             }
             // Phase 6 SSE — registered OUTSIDE the ApiBearerAuth block (sibling /api/v1 route)
             // so the header-only ApiBearerAuth plugin does not intercept it; the SSE route does
@@ -152,5 +156,34 @@ class FullApiWiringSmokeTest {
                 client.get("/api/v1/events").status,
                 "events route is wired and its inline auth rejects unauthenticated requests",
             )
+
+            // Phase 1 (project-config-rest-endpoint): proves projectConfigRoutes wired without a
+            // requireCapability collision — it installs a SEPARATE READ group (GET) alongside a
+            // SEPARATE WRITE_CONFIG group (PUT/DELETE) on the same /roots/{rootId}/config path.
+            val configCreated =
+                client.post("/api/v1/items") {
+                    header("Authorization", "Bearer $WRITE_TOKEN")
+                    contentType(ContentType.Application.Json)
+                    setBody("""{"title":"smoke-config-root"}""")
+                }
+            assertEquals(HttpStatusCode.Created, configCreated.status)
+            val rootId = Regex(""""id":"([0-9a-fA-F-]{36})"""").find(configCreated.bodyAsText())!!.groupValues[1]
+
+            // READ token can reach the GET route (capability gate wired); no config was ever
+            // pushed for this root, so the expected outcome is 404 — the route IS reachable.
+            assertEquals(
+                HttpStatusCode.NotFound,
+                client.get("/api/v1/roots/$rootId/config") { header("Authorization", "Bearer $TEST_TOKEN") }.status,
+                "GET config route reachable with READ token (404 = no config pushed, not a wiring failure)",
+            )
+
+            // WRITE_CONFIG token can PUT to the same path (separate capability group, same path).
+            val configPut =
+                client.put("/api/v1/roots/$rootId/config") {
+                    header("Authorization", "Bearer $WRITE_TOKEN")
+                    contentType(ContentType.Text.Plain)
+                    setBody("work_item_schemas: {}")
+                }
+            assertEquals(HttpStatusCode.OK, configPut.status, "PUT config route reachable with WRITE_CONFIG token")
         }
 }

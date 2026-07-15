@@ -38,6 +38,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.itemRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.itemWriteRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.noteRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.noteWriteRoutes
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.projectConfigRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.searchRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.serviceRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.transitionRoutes
@@ -497,6 +498,9 @@ internal fun Application.installRestApiRoutes(
             )
             noteWriteRoutes(effectiveProvider, degradedModePolicy, idempotencyCache)
             dependencyWriteRoutes(effectiveProvider, degradedModePolicy)
+            // Phase 1 (project-config-rest-endpoint): per-root config read/write/delete —
+            // converges on the same ProjectConfigPushService the manage_project_config MCP tool uses.
+            projectConfigRoutes(effectiveProvider)
         }
         // Phase 6: real-time SSE event stream — registered OUTSIDE the ApiBearerAuth block (as a
         // sibling `route("/api/v1/events")`) so the ApiBearerAuth plugin does NOT intercept it. The

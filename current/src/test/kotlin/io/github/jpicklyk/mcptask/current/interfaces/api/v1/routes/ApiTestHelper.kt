@@ -35,7 +35,7 @@ const val ADMIN_TOKEN_ID = "test-admin-principal"
 
 /**
  * Write-capable token for Phase 5 write-route tests. Granted READ + all write capabilities
- * (WRITE_ITEMS, WRITE_NOTES, ADVANCE, MANAGE_DEPENDENCIES) but NOT admin.
+ * (WRITE_ITEMS, WRITE_NOTES, ADVANCE, MANAGE_DEPENDENCIES, WRITE_CONFIG) but NOT admin.
  */
 const val WRITE_TOKEN = "integration-write-token-w0987"
 const val WRITE_TOKEN_ID = "test-write-principal"
@@ -131,6 +131,7 @@ fun makeWriteAuthConfig(scopeRootIds: Set<UUID>? = null): ApiAuthConfig.Bearer {
                     ApiCapability.WRITE_NOTES,
                     ApiCapability.ADVANCE,
                     ApiCapability.MANAGE_DEPENDENCIES,
+                    ApiCapability.WRITE_CONFIG,
                 ),
             authMode = ApiAuthMode.BEARER,
         )

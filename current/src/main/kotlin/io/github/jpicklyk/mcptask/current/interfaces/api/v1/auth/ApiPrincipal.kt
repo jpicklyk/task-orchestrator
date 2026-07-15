@@ -65,6 +65,9 @@ enum class ApiCapability {
     /** POST/DELETE on dependency endpoints. */
     MANAGE_DEPENDENCIES,
 
+    /** PUT/DELETE on the per-root project config endpoint. */
+    WRITE_CONFIG,
+
     /** Future: any operator-only endpoint; also implies all of the above. */
     ADMIN,
     ;
@@ -73,7 +76,7 @@ enum class ApiCapability {
         /**
          * Parses a capability from its canonical string form as used in the secret file
          * and JWT claims.  Values use kebab-case to match the YAML convention:
-         * `read`, `write-notes`, `write-items`, `advance`, `manage-dependencies`, `admin`.
+         * `read`, `write-notes`, `write-items`, `advance`, `manage-dependencies`, `write-config`, `admin`.
          *
          * @throws IllegalArgumentException for unknown values.
          */
@@ -84,10 +87,11 @@ enum class ApiCapability {
                 "write-items" -> WRITE_ITEMS
                 "advance" -> ADVANCE
                 "manage-dependencies" -> MANAGE_DEPENDENCIES
+                "write-config" -> WRITE_CONFIG
                 "admin" -> ADMIN
                 else -> throw IllegalArgumentException(
                     "Unknown capability '$value'. Valid values: read, write-notes, write-items, " +
-                        "advance, manage-dependencies, admin",
+                        "advance, manage-dependencies, write-config, admin",
                 )
             }
     }

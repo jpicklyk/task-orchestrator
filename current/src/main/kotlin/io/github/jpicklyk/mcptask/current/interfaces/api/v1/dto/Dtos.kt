@@ -438,3 +438,21 @@ data class SearchHitDto(
     val score: Double,
     val noteKey: String? = null,
 )
+
+/**
+ * Response DTO for `PUT /api/v1/roots/{rootId}/config` and `GET /api/v1/roots/{rootId}/config`.
+ *
+ * Mirrors the `data` payload of the MCP `manage_project_config` tool's `push`/`get` operations
+ * (see [io.github.jpicklyk.mcptask.current.application.service.ProjectConfigPushResult.Success]) —
+ * both surfaces converge on the same [io.github.jpicklyk.mcptask.current.application.service.ProjectConfigPushService].
+ * `configYaml` is included only on GET (omitted on PUT, which already echoed the caller's own body).
+ * `warning` carries the non-fatal "root type is not 'project'" notice, when applicable.
+ */
+@Serializable
+data class ProjectConfigResponseDto(
+    val rootItemId: String,
+    val fingerprint: String,
+    val updatedAt: String,
+    val configYaml: String? = null,
+    val warning: String? = null,
+)
