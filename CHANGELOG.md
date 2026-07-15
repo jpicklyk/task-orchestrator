@@ -5,6 +5,45 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.11.0] - 2026-07-15
+
+### Added
+
+- **New skill: `/adopt-project-scope`** — one-command, in-place migration of an existing unscoped
+  Task Orchestrator database to the project-scoping model. It creates a project anchor root,
+  re-parents your existing work trees under it, and writes `rootId` back to
+  `.taskorchestrator/config.yaml`, so established workspaces can adopt multi-project scoping without
+  rebuilding their database. This is the recommended entry point for existing users moving to
+  project scoping.
+- **Project-root scoping** — new `manage_project_config` tool plus an `ancestorId` scope parameter
+  on `query_items`, `get_next_item`, `get_context`, and `get_blocked_items`, so work in a shared
+  database can be scoped to a single project subtree.
+  > **Note:** project scoping is an organizational convenience, **not** a security mechanism for
+  > data separation. `ancestorId` filters which items a query returns — it does not isolate or
+  > access-control data. Any caller with database or MCP access can still reach every item
+  > regardless of scope. For true data separation between projects, use separate databases.
+- **Per-root schema configuration** layered over the global config, resolved via a new per-root
+  config service.
+- `excludeTerminal` filter on the `query_items` overview operation, powering a leaner,
+  attention-first `/work-summary` dashboard.
+
+### Changed
+
+- Trimmed MCP tool-description payloads (Token-Efficiency Program) — lower context cost per
+  `tools/list` call.
+- Attributed note and transition output omits no-op verification blocks.
+
+### Fixed
+
+- Patched `sqlite-jdbc` to 3.53.2.0, closing CVE-2025-6965 (SQLite memory corruption; fixed
+  upstream in SQLite 3.50.2 — the prior 3.49.1.0 pin bundled SQLite 3.49.1 and was still exposed).
+- `complete_tree` now records already-terminal (including cancelled) items as skipped instead of
+  failing their gate and spuriously skipping their dependents.
+- Reparenting an item now recomputes its descendants' depths instead of leaving them stale
+  (MCP + REST).
+- `query_items` returns true totals, deterministic ordering, and skipped-row visibility
+  (MCP tools and REST `/items/roots`).
+
 ## [3.10.0] - 2026-06-24
 
 ### Added
