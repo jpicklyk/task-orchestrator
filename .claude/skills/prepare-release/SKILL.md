@@ -427,7 +427,7 @@ gh run list --branch main --limit 1 --json status,conclusion,displayTitle
   CI before tagging. The tag must point to a green commit.
 
 **Plugin-only release:** Skip CI monitoring — no server code changed, no Docker
-image to build. Proceed directly to the plugin-only completion in 11g.
+image to build. Proceed directly to the plugin-only completion in 11h.
 
 ### 11e. Tag and push (server or both release)
 
@@ -453,12 +453,45 @@ Check immediately:
 gh run list --workflow=docker-publish.yml --limit=1 --json status,conclusion,displayTitle
 ```
 
-- If `conclusion: success` — cancel the loop, proceed to 11h
+- If `conclusion: success` — cancel the loop, proceed to 11g
 - If `status: in_progress` or `queued` — wait for the loop
 - If `conclusion: failure` — report the failure, investigate, and help the user
   resolve it. The Docker build may need a re-tag or a fix-and-retag cycle.
 
-### 11g. Plugin-only completion
+### 11g. Publish curated release notes (server or both release)
+
+The `docker-publish.yml` workflow creates the GitHub Release automatically on the tag push, but it
+fills the body with GitHub's **auto-generated PR-title list** — not the curated changelog. Once the
+release exists (after 11f succeeds), overwrite its body with this version's `CHANGELOG.md` section so
+the published release notes match what you actually wrote. `CHANGELOG.md` is the source of truth.
+
+Extract the section between this version's `## [X.Y.Z]` header and the next `## [` header, and set it
+as the release body:
+
+```bash
+RELNOTES="$(mktemp)"
+awk -v ver="X.Y.Z" '
+  $0 ~ "^## \\[" ver "\\]" { capture=1; next }   # skip the version header line (redundant with the release title)
+  capture && /^## \[/ { exit }                    # stop at the next version section
+  capture { print }
+' CHANGELOG.md > "$RELNOTES"
+
+gh release edit vX.Y.Z --notes-file "$RELNOTES"
+rm -f "$RELNOTES"
+```
+
+Verify the body now leads with the curated notes:
+```bash
+gh release view vX.Y.Z --json body -q '.body' | head -20
+```
+
+> To also keep GitHub's contributor/PR list beneath the curated notes, capture it first with
+> `gh api "repos/{owner}/{repo}/releases/generate-notes" -f tag_name=vX.Y.Z -q '.body'`, append it to
+> `$RELNOTES` under a `---` separator, then run `gh release edit`.
+
+**Plugin-only release:** skip this step — no tag and no GitHub Release are created.
+
+### 11h. Plugin-only completion
 
 No tag or Docker rebuild needed — only plugin content changed.
 Plugin users pick up the new version when they reinstall the marketplace.
@@ -469,9 +502,9 @@ Release complete: vX.Y.Z (plugin-only)
 Plugin version:   vA.B.C
 ```
 
-Skip to 11h.
+Skip to 11i.
 
-### 11h. Final report
+### 11i. Final report
 
 **Server or both release:**
 ```
@@ -502,3 +535,4 @@ pushes (`v*`), not manual dispatch.
 - Do not stage files other than `version.properties`, `CHANGELOG.md`, plugin version files (if changed), and `README.md` (if fixes were needed)
 - Do not create the PR if there are no commits ahead of the last tag
 - Do not bump plugin versions outside of the release workflow
+- Do not leave GitHub's auto-generated PR-title list as the final release notes — overwrite the GitHub Release body with the curated `CHANGELOG.md` section (Step 11g)
