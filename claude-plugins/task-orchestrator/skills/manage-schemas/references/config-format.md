@@ -366,6 +366,23 @@ work_item_schemas:
 
 ---
 
+## Global vs Per-Project Config
+
+Config resolves in **two layers**, chosen per work item by its `rootId`:
+
+| Layer | Where it lives | Reload | Scope |
+|-------|----------------|--------|-------|
+| **Global** | the `AGENT_CONFIG_DIR/.taskorchestrator/config.yaml` file | read once at server startup (restart to reload) | one per server — the **fallback/default** |
+| **Per-root** | pushed into the DB per project-root UUID (via `manage_project_config` or `PUT /api/v1/roots/{rootId}/config`) | **hot-reloaded** on every schema-resolving read — no restart | one per project root |
+
+For an item with a `rootId`, every schema / tag / trait lookup consults that root's per-root config **first** and falls back to the global file on a miss. An item with no `rootId` uses the global file only. Behavior is byte-identical to a single-file setup when no per-root config has been pushed.
+
+**Precedence — the workspace file is canonical; the per-root DB row is a synced replica.** The `config-sync.mjs` SessionStart hook (and the `manage-schemas` / `quick-start` push steps) copy the local `.taskorchestrator/config.yaml` into the per-root store whenever it changes. Durable edits belong in the **file**: a runtime `manage_project_config` push that isn't reflected in the file is overwritten at the next session's sync. A byte-identical file is a no-op (fingerprints match).
+
+**Global-only settings.** `note_limits` and `actor_authentication` are **not** part of the per-root layer — the resolver reads them only from the global file. A per-root document may carry them, but they are ignored; keep them in the global config.
+
+---
+
 ## Note Body Length Limits
 
 Top-level `note_limits.mode` (`warn`, default, or `reject`) governs what happens when a note body exceeds its schema `maxLength`, checked at `manage_notes` upsert time against the resolved body (inline `body` or file-read via `bodyFromFile`): `warn` accepts the note with a `warning` field on its result; `reject` fails that note with `code: NOTE_BODY_TOO_LONG`.
