@@ -151,6 +151,14 @@ traits:
         required: true
         description: "Security review of auth, data handling, and access control."
         guidance: "Evaluate input validation, injection risks, access control, data handling. Flag OWASP Top 10 concerns."
+
+  delegated:
+    notes:
+      - key: delegation-metadata
+        role: work
+        required: false
+        description: "Model, isolation, rationale, and outcome for a delegated dispatch (orchestrator-filled)."
+        guidance: "Filled by the orchestrator AFTER a subagent returns (the subagent doesn't know which model it ran on). Record model (haiku/sonnet/opus), isolation (inline or worktree:<path>), a one-line rationale, and a one-line outcome. Optional — feeds /session-retrospective delegation-alignment scoring; absent is tolerated."
 ```
 
 Apply traits at item creation: `manage_items(create, items=[{..., traits: "needs-migration-review"}])` or via schema-level `default_traits`.
