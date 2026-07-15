@@ -34,26 +34,29 @@ const manifestTargets = norm(readFileSync(manifestPath, 'utf8'))
   .split('\n')
   .map((line) => line.trim())
   .filter((line) => line && !line.startsWith('#'))
-  .map((rel) => ({ path: resolve(repoRoot, rel), required: true }));
+  .map((rel) => resolve(repoRoot, rel));
 const targets = [
   ...manifestTargets,
   // Out-of-repo copies (e.g. a personal ~/.claude/output-styles/workflow-analyst.md) are not in the
   // manifest — pass them as CLI args to sync them: `node generate.mjs <path-to-style>`.
-  ...extra.map((p) => ({ path: resolve(p), required: true })),
+  ...extra.map((p) => resolve(p)),
 ];
 
 let failures = 0;
 let changed = 0;
-for (const { path, required } of targets) {
+for (const path of targets) {
   if (!existsSync(path)) {
-    if (required) { console.error(`ERROR: required consumer missing: ${path}`); failures++; }
+    console.error(`ERROR: consumer missing: ${path}`);
+    failures++;
     continue;
   }
-  const text = norm(readFileSync(path, 'utf8'));
+  const raw = readFileSync(path, 'utf8');
+  const text = norm(raw);
   const bi = text.indexOf(BEGIN);
   const ei = text.indexOf(END);
   if (bi === -1 || ei === -1) {
-    if (required) { console.error(`ERROR: markers not found in ${path}`); failures++; }
+    console.error(`ERROR: markers not found in ${path}`);
+    failures++;
     continue;
   }
   const beginLineEnd = text.indexOf('\n', bi);
@@ -68,7 +71,10 @@ for (const { path, required } of targets) {
     console.error(`OUT OF SYNC: ${path} — run: node claude-plugins/task-orchestrator/output-styles/generate.mjs`);
     failures++;
   } else {
-    writeFileSync(path, rebuilt);
+    // Preserve the file's original line-ending style — only the marked region changed, so a
+    // regen on a CRLF checkout must not flip the whole file to LF.
+    const eol = raw.includes('\r\n') ? '\r\n' : '\n';
+    writeFileSync(path, eol === '\n' ? rebuilt : rebuilt.replace(/\n/g, eol));
     console.log(`updated: ${path}`);
     changed++;
   }
