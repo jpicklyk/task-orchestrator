@@ -27,6 +27,8 @@ const fragment = norm(readFileSync(resolve(scriptDir, '_fragments/tier-classific
 
 const check = process.argv.includes('--check');
 const extra = process.argv.slice(2).filter((a) => !a.startsWith('--'));
+// KEEP IN SYNC with TierClassificationConsistencyTest.inRepoConsumers and current/build.gradle.kts
+// `inputs.files` — a consumer added here but not to inputs.files is not cache-busted, so drift can pass CI.
 const targets = [
   { path: resolve(scriptDir, 'workflow-orchestrator.md'), required: true },
   { path: resolve(repoRoot, '.claude/skills/implement/SKILL.md'), required: true },
@@ -50,6 +52,11 @@ for (const { path, required } of targets) {
     continue;
   }
   const beginLineEnd = text.indexOf('\n', bi);
+  if (beginLineEnd === -1 || ei <= beginLineEnd) {
+    console.error(`ERROR: malformed markers in ${path} (END must follow BEGIN on a later line)`);
+    failures++;
+    continue;
+  }
   const rebuilt = text.slice(0, beginLineEnd + 1) + fragment + text.slice(ei);
   if (rebuilt === text) continue; // already in sync
   if (check) {

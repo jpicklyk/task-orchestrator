@@ -148,6 +148,7 @@ tasks.test {
     // as task inputs so a markdown-only edit (with no Kotlin change) invalidates the cached
     // test result instead of reporting UP-TO-DATE — otherwise Gradle's incremental cache
     // (and CI's setup-gradle cache) would let tier-block drift slip through the guard.
+    // KEEP IN SYNC with TierClassificationConsistencyTest.inRepoConsumers and generate.mjs `targets`.
     inputs
         .files(
             rootProject.file("claude-plugins/task-orchestrator/output-styles/_fragments/tier-classification.md"),

@@ -26,6 +26,8 @@ class TierClassificationConsistencyTest {
     private val beginPrefix = "<!-- BEGIN GENERATED:$marker"
     private val endPrefix = "<!-- END GENERATED:$marker"
 
+    // KEEP IN SYNC with generate.mjs `targets` and current/build.gradle.kts `inputs.files` on the test
+    // task — a consumer added here but not to inputs.files is not cache-busted, so drift can pass CI.
     private val inRepoConsumers =
         listOf(
             "claude-plugins/task-orchestrator/output-styles/workflow-orchestrator.md",
@@ -63,6 +65,9 @@ class TierClassificationConsistencyTest {
             fail("tier-classification markers not found in $source (expected $beginPrefix ... $endPrefix)")
         }
         val beginLineEnd = text.indexOf('\n', begin)
+        if (beginLineEnd == -1 || end <= beginLineEnd) {
+            fail("malformed tier-classification markers in $source (END must follow BEGIN on a later line)")
+        }
         return text.substring(beginLineEnd + 1, end)
     }
 
