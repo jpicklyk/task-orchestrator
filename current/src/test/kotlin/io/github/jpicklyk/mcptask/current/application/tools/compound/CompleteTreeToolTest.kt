@@ -351,6 +351,135 @@ class CompleteTreeToolTest {
         }
 
     // ──────────────────────────────────────────────
+    // Regression (obs 821379ea): already-terminal items must be skipped, never gate-checked,
+    // and must not propagate a skip to their dependents.
+    // ──────────────────────────────────────────────
+
+    /** Builds a gated context whose schema requires one queue-phase note for feature-task items. */
+    private fun gatedContextRequiringAcceptanceCriteria(): ToolExecutionContext {
+        val schemaEntries =
+            listOf(
+                NoteSchemaEntry(
+                    key = "acceptance-criteria",
+                    role = Role.QUEUE,
+                    required = true,
+                    description = "Acceptance criteria"
+                )
+            )
+        val noteSchemaService =
+            object : NoteSchemaService {
+                override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? =
+                    if ("feature-task" in tags) schemaEntries else null
+            }
+        val gatedRepoProvider = mockk<RepositoryProvider>()
+        every { gatedRepoProvider.workItemRepository() } returns workItemRepo
+        every { gatedRepoProvider.dependencyRepository() } returns depRepo
+        every { gatedRepoProvider.noteRepository() } returns noteRepo
+        every { gatedRepoProvider.roleTransitionRepository() } returns roleTransitionRepo
+        return ToolExecutionContext(gatedRepoProvider, noteSchemaService)
+    }
+
+    @Test
+    fun `terminal item is skipped not gate-failed even with unfilled required notes`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            // A cancelled (terminal) item whose feature-task schema requires a note it never got.
+            val item = makeItem(id = itemId, title = "Cancelled Item", role = Role.TERMINAL, tags = "feature-task")
+            val gatedContext = gatedContextRequiringAcceptanceCriteria()
+
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            every { depRepo.findByToItemId(itemId) } returns emptyList()
+            // Deliberately do NOT mock noteRepo.findByItemId — a regression that gate-checks a
+            // terminal item would call it and fail this test with an unmocked-call error.
+
+            val params = buildItemIdsParams(listOf(itemId))
+            val result = tool.execute(params, gatedContext)
+
+            val r = extractResults(result)[0].jsonObject
+            assertFalse(r["applied"]!!.jsonPrimitive.boolean)
+            assertTrue(r["skipped"]!!.jsonPrimitive.boolean, "terminal item should be skipped")
+            assertEquals("already terminal", r["skippedReason"]!!.jsonPrimitive.content)
+            assertNull(r["gateErrors"], "terminal item must NOT be gate-checked")
+
+            val summary = extractSummary(result)
+            assertEquals(0, summary["completed"]!!.jsonPrimitive.int)
+            assertEquals(1, summary["skipped"]!!.jsonPrimitive.int)
+            assertEquals(0, summary["gateFailures"]!!.jsonPrimitive.int)
+        }
+
+    @Test
+    fun `dependent of a terminal item completes and is not skipped`(): Unit =
+        runBlocking {
+            val idA = UUID.randomUUID() // already-cancelled blocker (terminal, gated, no notes)
+            val idB = UUID.randomUUID() // ready dependent
+
+            val itemA = makeItem(id = idA, title = "Cancelled Blocker", role = Role.TERMINAL, tags = "feature-task")
+            val itemB = makeItem(id = idB, title = "Ready Dependent", role = Role.QUEUE)
+
+            // A blocks B — before the fix, A's spurious gate failure skipped B ("dependency gate failed").
+            val depAtoB = Dependency(fromItemId = idA, toItemId = idB, type = DependencyType.BLOCKS)
+
+            val gatedContext = gatedContextRequiringAcceptanceCriteria()
+
+            coEvery { workItemRepo.getById(idA) } returns Result.Success(itemA)
+            coEvery { workItemRepo.getById(idB) } returns Result.Success(itemB)
+            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+
+            every { depRepo.findByToItemId(idA) } returns emptyList()
+            every { depRepo.findByToItemId(idB) } returns listOf(depAtoB)
+
+            val params = buildItemIdsParams(listOf(idA, idB))
+            val result = tool.execute(params, gatedContext)
+
+            val resultMap =
+                extractResults(result).associate {
+                    val obj = it.jsonObject
+                    UUID.fromString(obj["itemId"]!!.jsonPrimitive.content) to obj
+                }
+
+            val rA = resultMap[idA]!!
+            assertTrue(rA["skipped"]!!.jsonPrimitive.boolean, "terminal A should be skipped")
+            assertEquals("already terminal", rA["skippedReason"]!!.jsonPrimitive.content)
+
+            val rB = resultMap[idB]!!
+            assertTrue(
+                rB["applied"]!!.jsonPrimitive.boolean,
+                "B must complete — a terminal dependency is satisfied, not a gate failure"
+            )
+
+            val summary = extractSummary(result)
+            assertEquals(1, summary["completed"]!!.jsonPrimitive.int)
+            assertEquals(1, summary["skipped"]!!.jsonPrimitive.int)
+            assertEquals(0, summary["gateFailures"]!!.jsonPrimitive.int)
+        }
+
+    @Test
+    fun `root item already terminal is skipped not gate-failed`(): Unit =
+        runBlocking {
+            val rootId = UUID.randomUUID()
+            val rootItem = makeItem(id = rootId, title = "Done Feature", role = Role.TERMINAL, tags = "feature-task")
+            val gatedContext = gatedContextRequiringAcceptanceCriteria()
+
+            coEvery { workItemRepo.findDescendants(rootId) } returns Result.Success(emptyList())
+            coEvery { workItemRepo.getById(rootId) } returns Result.Success(rootItem)
+
+            val params = buildRootIdParams(rootId) // includeRoot defaults true
+            val result = tool.execute(params, gatedContext)
+
+            val r = extractResults(result)[0].jsonObject
+            assertEquals(rootId.toString(), r["itemId"]!!.jsonPrimitive.content)
+            assertTrue(r["skipped"]!!.jsonPrimitive.boolean)
+            assertEquals("already terminal", r["skippedReason"]!!.jsonPrimitive.content)
+            assertNull(r["gateErrors"], "terminal root must NOT be gate-checked")
+
+            val summary = extractSummary(result)
+            assertEquals(0, summary["completed"]!!.jsonPrimitive.int)
+            assertEquals(1, summary["skipped"]!!.jsonPrimitive.int)
+            assertEquals(0, summary["gateFailures"]!!.jsonPrimitive.int)
+        }
+
+    // ──────────────────────────────────────────────
     // Test 6: Must provide either rootId or itemIds -> validation error otherwise
     // ──────────────────────────────────────────────
 

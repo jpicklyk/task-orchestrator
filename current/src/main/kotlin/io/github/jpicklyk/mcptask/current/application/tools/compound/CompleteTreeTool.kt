@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.application.tools.compound
 
 import io.github.jpicklyk.mcptask.current.application.service.RoleTransitionHandler
 import io.github.jpicklyk.mcptask.current.application.tools.*
+import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
@@ -368,6 +369,23 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
                 continue
             }
 
+            // Items already in a terminal role are recorded as skipped and never gate-checked.
+            // A terminal item is already done, so it must NOT gate-fail on unfilled notes and must
+            // NOT propagate a skip to its dependents — a terminal dependency is satisfied.
+            if (item.role == Role.TERMINAL) {
+                skippedCount++
+                resultsList.add(
+                    buildJsonObject {
+                        put("itemId", JsonPrimitive(itemId.toString()))
+                        put("title", JsonPrimitive(item.title))
+                        put("applied", JsonPrimitive(false))
+                        put("skipped", JsonPrimitive(true))
+                        put("skippedReason", JsonPrimitive("already terminal"))
+                    }
+                )
+                continue
+            }
+
             // Gate check: required notes must be filled for "complete" trigger
             val missingKeys = checkGate(item, trigger, context)
             if (missingKeys.isNotEmpty()) {
@@ -447,27 +465,41 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
 
         // Step 5: Process root item last (after all descendants), if requested
         if (rootItem != null) {
-            val missingKeys = checkGate(rootItem, trigger, context)
-            if (missingKeys.isNotEmpty()) {
-                gateFailureCount++
+            if (rootItem.role == Role.TERMINAL) {
+                // Already terminal — record as skipped, never gate-check (mirrors the descendant path).
+                skippedCount++
                 resultsList.add(
                     buildJsonObject {
                         put("itemId", JsonPrimitive(rootItem.id.toString()))
                         put("title", JsonPrimitive(rootItem.title))
                         put("applied", JsonPrimitive(false))
-                        put("gateErrors", JsonArray(missingKeys.map { JsonPrimitive("missing: $it") }))
+                        put("skipped", JsonPrimitive(true))
+                        put("skippedReason", JsonPrimitive("already terminal"))
                     }
                 )
             } else {
-                processItem(
-                    rootItem,
-                    trigger,
-                    handler,
-                    context,
-                    resultsList,
-                    onComplete = { completedCount++ },
-                    onSkip = { skippedCount++ }
-                )
+                val missingKeys = checkGate(rootItem, trigger, context)
+                if (missingKeys.isNotEmpty()) {
+                    gateFailureCount++
+                    resultsList.add(
+                        buildJsonObject {
+                            put("itemId", JsonPrimitive(rootItem.id.toString()))
+                            put("title", JsonPrimitive(rootItem.title))
+                            put("applied", JsonPrimitive(false))
+                            put("gateErrors", JsonArray(missingKeys.map { JsonPrimitive("missing: $it") }))
+                        }
+                    )
+                } else {
+                    processItem(
+                        rootItem,
+                        trigger,
+                        handler,
+                        context,
+                        resultsList,
+                        onComplete = { completedCount++ },
+                        onSkip = { skippedCount++ }
+                    )
+                }
             }
         }
 
