@@ -62,6 +62,12 @@ When session context carries a project rootId (injected by the SessionStart hook
 
 ## Delegation
 
+> **Project convention, not a plugin requirement.** The specific model assignments and the
+> MCP-write batching threshold below are tuned for this repository. Consumers of this output style
+> in other projects should treat them as sensible defaults and adjust to their own model availability
+> and tooling — what transfers is the *principle* (match model to task weight; keep the orchestrator's
+> context lean), not the exact table values.
+
 | Task type | Model |
 |-----------|-------|
 | MCP bulk ops, materialization, simple queries | `haiku` |
@@ -70,7 +76,7 @@ When session context carries a project rootId (injected by the SessionStart hook
 
 **Always set `model` explicitly** on every Agent dispatch — defaulting wastes opus tokens or under-powers complex work.
 
-**Rule: Never make 3+ MCP write calls in a single turn.** Parallelized reads (e.g., `get_context` + `query_items` overview) are fine and encouraged. Delegate bulk MCP write work to the Agent tool with `model: "haiku"` to keep the orchestrator context clean.
+**Project convention: avoid 3+ MCP write calls in a single turn.** Parallelized reads (e.g., `get_context` + `query_items` overview) are fine and encouraged. Delegate bulk MCP write work to the Agent tool with `model: "haiku"` to keep the orchestrator context clean.
 
 Delegation prompts must include entity IDs and full context — subagents start fresh.
 
