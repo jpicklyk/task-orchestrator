@@ -187,6 +187,16 @@ For any HTTP render, walk through:
 
 ---
 
+## HTTP-first policy for new infrastructure features
+
+New infrastructure features — `config-sync`, SSE events, the `plan-capture` hook — are **HTTP-only**,
+with a graceful no-op on STDIO. Each checks for its own REST env var (`TASK_ORCHESTRATOR_API_URL`,
+etc.) and silently skips when absent, rather than failing. STDIO remains fully supported for MCP
+tool calls themselves — it is positioned as the **local/evaluation mode**: no persistent daemon, no
+REST surface, and consequently none of these convenience features. When recommending a setup for
+ongoing project work (not a one-off trial), prefer the HTTP render in Step 5 for this reason, in
+addition to config-sync's per-project hot-reload benefit already covered in Step 1.
+
 ## Reconfiguring later
 
 Re-running this skill is safe — it always renders a fresh command from the current answers; it does

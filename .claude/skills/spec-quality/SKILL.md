@@ -10,6 +10,13 @@ This skill defines the minimum thinking floor for plans and specifications. The 
 below represent what every plan must address. They are not a ceiling — if the problem
 demands additional analysis, add it. But these areas must not be skipped.
 
+**Where this applies at each level:** for a `feature-implementation` parent, the queue-phase
+`feature-summary` note stays lean by design (goal, findings→tasks table, dependency edges,
+a pointer to non-goals — target under 2k chars) and does not carry the full disciplines below.
+The disciplines below apply in full to each child's `task-scope` note (or to `specification`/
+`diagnosis` notes on schemas without a parent/child split) — that is where alternatives,
+blast radius, risk flags, and test strategy must actually be worked through.
+
 The value of a spec is entirely in the thinking it forces before code is written. If a
 section doesn't change how you'd approach implementation, it isn't earning its place.
 Every sentence should either prevent a mistake or force a decision.

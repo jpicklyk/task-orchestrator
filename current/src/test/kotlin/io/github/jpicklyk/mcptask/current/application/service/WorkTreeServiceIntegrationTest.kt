@@ -11,6 +11,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.managem
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteDependencyRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteNoteRepository
+import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLitePlanDocumentRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.service.SQLiteWorkTreeService
 import kotlinx.coroutines.runBlocking
@@ -43,6 +44,7 @@ class WorkTreeServiceIntegrationTest {
     private lateinit var workItemRepository: SQLiteWorkItemRepository
     private lateinit var dependencyRepository: SQLiteDependencyRepository
     private lateinit var noteRepository: SQLiteNoteRepository
+    private lateinit var planDocumentRepository: SQLitePlanDocumentRepository
     private lateinit var service: SQLiteWorkTreeService
     private lateinit var h2Database: Database
 
@@ -57,8 +59,9 @@ class WorkTreeServiceIntegrationTest {
         workItemRepository = repositoryProvider.workItemRepository() as SQLiteWorkItemRepository
         noteRepository = repositoryProvider.noteRepository() as SQLiteNoteRepository
         dependencyRepository = repositoryProvider.dependencyRepository() as SQLiteDependencyRepository
+        planDocumentRepository = repositoryProvider.planDocumentRepository() as SQLitePlanDocumentRepository
 
-        service = SQLiteWorkTreeService(databaseManager, workItemRepository, noteRepository)
+        service = SQLiteWorkTreeService(databaseManager, workItemRepository, noteRepository, planDocumentRepository)
     }
 
     // ──────────────────────────────────────────────────────────────────────────

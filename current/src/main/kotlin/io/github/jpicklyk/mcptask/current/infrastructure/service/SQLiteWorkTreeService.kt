@@ -8,10 +8,12 @@ import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.domain.repository.PlanDocumentAdoptOutcome
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.DependenciesTable
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteNoteRepository
+import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLitePlanDocumentRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
@@ -26,7 +28,8 @@ import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 class SQLiteWorkTreeService(
     private val databaseManager: DatabaseManager,
     private val workItemRepo: SQLiteWorkItemRepository,
-    private val noteRepo: SQLiteNoteRepository
+    private val noteRepo: SQLiteNoteRepository,
+    private val planDocumentRepo: SQLitePlanDocumentRepository
 ) : WorkTreeExecutor {
     override suspend fun execute(input: WorkTreeInput): WorkTreeResult =
         suspendTransaction(db = databaseManager.getDatabase()) {
@@ -88,6 +91,27 @@ class SQLiteWorkTreeService(
                 when (val upsertResult = noteRepo.upsertRow(note)) {
                     is Result.Success -> createdNotes.add(upsertResult.data)
                     is Result.Error -> throw IllegalStateException("Failed to upsert Note '${note.id}': ${upsertResult.error.message}")
+                }
+            }
+
+            // 4. Mark the source plan document adopted, LAST, in the SAME transaction as the
+            // inserts above — see [io.github.jpicklyk.mcptask.current.application.service.DocRefSpec].
+            // Any outcome other than a fresh Adopted (a concurrent adopt raced us, or the document
+            // vanished between the tool's pre-check and here) throws, rolling back everything
+            // inserted above — no partial tree, no double-adoption.
+            val docRef = input.docRef
+            if (docRef != null) {
+                when (val outcome = planDocumentRepo.markAdoptedRow(docRef.rootItemId, docRef.slug, docRef.adoptingItemId)) {
+                    is PlanDocumentAdoptOutcome.Adopted -> Unit
+                    is PlanDocumentAdoptOutcome.AlreadyAdopted ->
+                        throw IllegalStateException(
+                            "Plan document '${docRef.slug}' (root ${docRef.rootItemId}) was concurrently adopted " +
+                                "by item ${outcome.existing.adoptedByItemId}; aborting work tree creation"
+                        )
+                    is PlanDocumentAdoptOutcome.NotFound ->
+                        throw IllegalStateException(
+                            "Plan document '${docRef.slug}' (root ${docRef.rootItemId}) no longer exists; aborting work tree creation"
+                        )
                 }
             }
 

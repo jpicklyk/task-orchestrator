@@ -1,5 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.tools.compound
 
+import io.github.jpicklyk.mcptask.current.application.service.DocRefSpec
+import io.github.jpicklyk.mcptask.current.application.service.MarkdownSectionSplitter
 import io.github.jpicklyk.mcptask.current.application.service.TreeDepSpec
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeInput
 import io.github.jpicklyk.mcptask.current.application.service.buildSchemaResponseFields
@@ -44,6 +46,15 @@ under it at existing.depth + 1.
 
 **Depth:** root depth = parent.depth + 1 when `parentId` is given, otherwise 0 (or the existing root's
 depth in attach mode). No depth cap.
+
+**Materialize-from-document:** pass `docRef` (`{ rootId?, slug }`) plus per-item `noteAnchors`
+(`root` and/or any `children` entry) to source note bodies from a stashed plan document
+(see `manage_plan_documents`) instead of inlining them. Each anchor is sliced from the document and
+written as that item's note in the SAME transaction as the item/dependency/note inserts, then the
+document is marked adopted by the created/attached root. Precedence on `(itemRef, key)` collision:
+explicit `notes` win over `noteAnchors`; `noteAnchors` win over `createNotes=true` blanks. Any anchor
+miss, an unresolved document, a `docRef.rootId` mismatch, or an already-adopted document fails the
+WHOLE call atomically — no items are created. Without `docRef`, behavior is unchanged.
         """.trimIndent()
 
     override val category = ToolCategory.ITEM_MANAGEMENT
@@ -70,7 +81,24 @@ depth in attach mode). No depth cap.
                                     "Root item spec: { id? (attach mode: UUID or hex prefix of an existing item — " +
                                         "makes title optional/ignored), title (required unless id given), priority?, " +
                                         "tags?, traits? (comma-separated, merged into properties), summary?, " +
-                                        "description?, requiresVerification?, type? }"
+                                        "description?, requiresVerification?, type?, noteAnchors? ([{ noteKey, role, " +
+                                        "anchor }] — sources this item's note bodies from the docRef document; " +
+                                        "requires top-level docRef) }"
+                                )
+                            )
+                        }
+                    )
+                    put(
+                        "docRef",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("object"))
+                            put(
+                                "description",
+                                JsonPrimitive(
+                                    "Materialize-from-document source: { rootId? (defaults to the created/attached " +
+                                        "root's own rootId; validated for consistency if given — UUID or hex prefix), " +
+                                        "slug (required, the stashed plan document's slug) }. Required whenever any " +
+                                        "item spec's noteAnchors is used."
                                 )
                             )
                         }
@@ -97,7 +125,9 @@ depth in attach mode). No depth cap.
                                     "Child item specs: [{ ref (required local name, used to wire deps/notes/parentRef), " +
                                         "title (required), parentRef? (parent's ref or \"root\", default \"root\"), " +
                                         "priority?, tags?, traits? (comma-separated, merged into properties), summary?, " +
-                                        "description?, requiresVerification?, type? }]. Order-independent (topologically " +
+                                        "description?, requiresVerification?, type?, noteAnchors? ([{ noteKey, role, " +
+                                        "anchor }] — sources this item's note bodies from the docRef document; " +
+                                        "requires top-level docRef) }]. Order-independent (topologically " +
                                         "sorted); nesting is expressed via parentRef only — a nested 'children' key " +
                                         "inside an item spec is rejected, not silently dropped."
                                 )
@@ -216,6 +246,28 @@ depth in attach mode). No depth cap.
 
         rejectNestedChildren(rootObj, "root")
 
+        // Validate docRef if provided — required whenever any item spec carries noteAnchors.
+        val docRefElement = paramsObj["docRef"]
+        val docRefPresent = docRefElement != null && docRefElement !is JsonNull
+        if (docRefPresent) {
+            val docRefObj =
+                docRefElement as? JsonObject
+                    ?: throw ToolValidationException("'docRef' must be a JSON object")
+            val slug = (docRefObj["slug"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+            if (slug.isNullOrBlank()) {
+                throw ToolValidationException("'docRef.slug' is required and must be a non-blank string")
+            }
+            val rootIdElement = docRefObj["rootId"]
+            if (rootIdElement != null && rootIdElement !is JsonNull) {
+                val rootIdStr = (rootIdElement as? JsonPrimitive)?.takeIf { it.isString }?.content
+                if (rootIdStr.isNullOrBlank()) {
+                    throw ToolValidationException("'docRef.rootId' must be a non-blank string when provided")
+                }
+            }
+        }
+
+        var anyNoteAnchors = validateNoteAnchorsField(rootObj, "root")
+
         // Validate children if provided
         val childrenElement = paramsObj["children"]
         if (childrenElement != null && childrenElement !is JsonNull) {
@@ -239,6 +291,7 @@ depth in attach mode). No depth cap.
                     throw ToolValidationException("children[$index]: 'title' is required")
                 }
                 rejectNestedChildren(childObj, "children[$index]")
+                if (validateNoteAnchorsField(childObj, "children[$index]")) anyNoteAnchors = true
                 allRefs.add(ref)
             }
             // Validate parentRef values and detect cycles
@@ -326,6 +379,53 @@ depth in attach mode). No depth cap.
                 }
             }
         }
+
+        if (anyNoteAnchors && !docRefPresent) {
+            throw ToolValidationException("'noteAnchors' requires top-level 'docRef' to be provided")
+        }
+    }
+
+    /**
+     * Validates an item spec's optional `noteAnchors` array (`[{ noteKey, role, anchor }]`).
+     * Returns true if [itemObj] carries at least one anchor — used by the caller to require a
+     * top-level `docRef` whenever any item spec uses this field.
+     */
+    private fun validateNoteAnchorsField(
+        itemObj: JsonObject,
+        contextLabel: String
+    ): Boolean {
+        val element = itemObj["noteAnchors"]
+        if (element == null || element is JsonNull) return false
+        val anchors =
+            element as? JsonArray
+                ?: throw ToolValidationException("$contextLabel: 'noteAnchors' must be a JSON array")
+        if (anchors.isEmpty()) return false
+
+        val validRoles = setOf("queue", "work", "review")
+        for ((index, anchorElement) in anchors.withIndex()) {
+            val anchorObj =
+                anchorElement as? JsonObject
+                    ?: throw ToolValidationException("$contextLabel: noteAnchors[$index] must be a JSON object")
+            val noteKey = (anchorObj["noteKey"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+            if (noteKey.isNullOrBlank()) {
+                throw ToolValidationException(
+                    "$contextLabel: noteAnchors[$index]: 'noteKey' is required and must be a non-blank string"
+                )
+            }
+            val role = (anchorObj["role"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+            if (role.isNullOrBlank() || role !in validRoles) {
+                throw ToolValidationException(
+                    "$contextLabel: noteAnchors[$index]: 'role' is required and must be one of queue, work, review"
+                )
+            }
+            val anchor = (anchorObj["anchor"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+            if (anchor.isNullOrBlank()) {
+                throw ToolValidationException(
+                    "$contextLabel: noteAnchors[$index]: 'anchor' is required and must be a non-blank string"
+                )
+            }
+        }
+        return true
     }
 
     override suspend fun execute(
@@ -461,6 +561,34 @@ depth in attach mode). No depth cap.
                     id = rootItemId
                 ) ?: return errorResponse("Failed to build root item", ErrorCodes.VALIDATION_ERROR)
             isExistingRoot = false
+        }
+
+        // ── 3.5. Resolve docRef (materialize-from-document), if provided ───────
+        // Purely in-memory at this point — no DB writes have happened yet for either mode, so
+        // any failure below returns before create/attach even reaches the executor.
+        val docRefElement = paramsObj["docRef"]
+        var docSlug: String? = null
+        var docRootId: UUID? = null
+        if (docRefElement != null && docRefElement !is JsonNull) {
+            val docRefObj = docRefElement as JsonObject
+            docSlug = (docRefObj["slug"] as JsonPrimitive).content
+            val expectedDocRootId = rootItem.rootId ?: rootItem.id
+            val explicitRootIdStr =
+                (docRefObj["rootId"] as? JsonPrimitive)?.takeIf { it.isString }?.content?.takeIf { it.isNotBlank() }
+            if (explicitRootIdStr != null) {
+                val (parsedRootId, rootIdError) = resolveIdString(explicitRootIdStr, context)
+                if (rootIdError != null) return rootIdError
+                if (parsedRootId != expectedDocRootId) {
+                    return errorResponse(
+                        "'docRef.rootId' ($parsedRootId) does not match the created/attached root's own " +
+                            "rootId ($expectedDocRootId)",
+                        ErrorCodes.VALIDATION_ERROR
+                    )
+                }
+                docRootId = parsedRootId
+            } else {
+                docRootId = expectedDocRootId
+            }
         }
 
         // ── 4. Parse children ──────────────────────────────────────────────────
@@ -641,12 +769,98 @@ depth in attach mode). No depth cap.
             }
         }
 
-        // If createNotes=true, fill schema-required notes that aren't already explicit (with empty bodies)
+        // Resolve noteAnchors (materialize-from-document): fetch the referenced PENDING document,
+        // slice each anchor, and merge into notesList — skipping any (itemRef, key) already covered
+        // by an explicit note (explicit wins). Anchor-derived pairs are tracked in anchorByRefKey so
+        // the createNotes fill below also skips them (noteAnchors win over createNotes blanks).
+        // Everything here is read-only against the document (the atomic adopt happens later, inside
+        // the executor's transaction) — an anchor miss, missing document, or already-adopted document
+        // returns an error here, before any DB write, so zero items are created.
+        val anchorByRefKey = mutableMapOf<Pair<String, String>, Int>()
+        if (docSlug != null) {
+            val docResult = context.repositoryProvider.planDocumentRepository().get(docRootId!!, docSlug)
+            val doc =
+                when (docResult) {
+                    is Result.Success -> docResult.data
+                    is Result.Error ->
+                        return errorResponse(
+                            "Failed to read plan document '$docSlug' (root $docRootId): ${docResult.error.message}",
+                            ErrorCodes.INTERNAL_ERROR
+                        )
+                } ?: return errorResponse(
+                    "Plan document not found: rootId=$docRootId, slug='$docSlug'",
+                    ErrorCodes.RESOURCE_NOT_FOUND
+                )
+            if (doc.status == PlanDocumentStatus.ADOPTED) {
+                return errorResponse(
+                    "Plan document '$docSlug' (root $docRootId) is already adopted (by item ${doc.adoptedByItemId})",
+                    ErrorCodes.VALIDATION_ERROR
+                )
+            }
+
+            for (anchor in collectNoteAnchors(rootObj, childrenArray)) {
+                val refKey = anchor.itemRef to anchor.noteKey
+                if (explicitByRefKey.containsKey(refKey)) continue // explicit notes win
+
+                val targetItem =
+                    refToItem[anchor.itemRef]
+                        ?: return errorResponse(
+                            "noteAnchors: itemRef '${anchor.itemRef}' is not defined. Valid refs: " +
+                                refToItem.keys.joinToString(),
+                            ErrorCodes.VALIDATION_ERROR
+                        )
+
+                val schema = itemSchemas[anchor.itemRef]
+                if (schema != null) {
+                    val schemaEntry = schema.notes.firstOrNull { it.key == anchor.noteKey }
+                    if (schemaEntry != null) {
+                        val expectedRole = schemaEntry.role.toJsonString()
+                        if (anchor.role != expectedRole) {
+                            return errorResponse(
+                                "noteAnchors: key '${anchor.noteKey}' is declared in the schema for itemRef " +
+                                    "'${anchor.itemRef}' with role '$expectedRole', but the anchor has role " +
+                                    "'${anchor.role}'. Schema-declared keys must use the schema role.",
+                                ErrorCodes.VALIDATION_ERROR
+                            )
+                        }
+                    }
+                }
+
+                val sliced =
+                    MarkdownSectionSplitter.slice(doc.body, anchor.anchor)
+                        ?: return errorResponse(
+                            "noteAnchors: anchor '${anchor.anchor}' not found in plan document '$docSlug' " +
+                                "(itemRef '${anchor.itemRef}', noteKey '${anchor.noteKey}')",
+                            ErrorCodes.VALIDATION_ERROR
+                        )
+
+                val note =
+                    Note(
+                        itemId = targetItem.id,
+                        key = anchor.noteKey,
+                        role = anchor.role,
+                        body = sliced,
+                        actorClaim = noteActorClaim,
+                        verification = noteVerification
+                    )
+                val existingIndex = anchorByRefKey[refKey]
+                if (existingIndex != null) {
+                    notesList[existingIndex] = note
+                } else {
+                    anchorByRefKey[refKey] = notesList.size
+                    notesList.add(note)
+                }
+            }
+        }
+
+        // If createNotes=true, fill schema-required notes that aren't already explicit or
+        // anchor-derived (with empty bodies)
         if (createNotes) {
             for ((ref, item) in refToItem) {
                 val resolvedSchema = itemSchemas[ref] ?: continue
                 for (entry in resolvedSchema.notes) {
-                    if (explicitByRefKey.containsKey(ref to entry.key)) continue
+                    val refKey = ref to entry.key
+                    if (explicitByRefKey.containsKey(refKey) || anchorByRefKey.containsKey(refKey)) continue
                     notesList.add(
                         Note(
                             itemId = item.id,
@@ -677,7 +891,8 @@ depth in attach mode). No depth cap.
                 items = orderedItems,
                 refToItem = refToItem,
                 deps = depSpecs,
-                notes = notesList
+                notes = notesList,
+                docRef = docSlug?.let { slug -> DocRefSpec(rootItemId = docRootId!!, slug = slug, adoptingItemId = rootItem.id) }
             )
 
         // ── 8. Execute atomically via WorkTreeExecutor ──────────────────────────
@@ -802,6 +1017,49 @@ depth in attach mode). No depth cap.
     // ──────────────────────────────────────────────
     // Private helpers
     // ──────────────────────────────────────────────
+
+    /** One `noteAnchors` entry resolved against its owning item's ref. */
+    private data class PendingAnchor(
+        val itemRef: String,
+        val noteKey: String,
+        val role: String,
+        val anchor: String
+    )
+
+    /**
+     * Collects every `noteAnchors` entry declared on [rootObj] and each spec in [childrenArray],
+     * tagging each with its owning item's ref. `validateParams` has already verified shape (object,
+     * required non-blank fields, valid role) — this just extracts.
+     */
+    private fun collectNoteAnchors(
+        rootObj: JsonObject,
+        childrenArray: JsonArray
+    ): List<PendingAnchor> {
+        fun fromItem(
+            itemObj: JsonObject,
+            itemRef: String
+        ): List<PendingAnchor> {
+            val anchors = itemObj["noteAnchors"] as? JsonArray ?: return emptyList()
+            return anchors.map { element ->
+                val obj = element as JsonObject
+                PendingAnchor(
+                    itemRef = itemRef,
+                    noteKey = (obj["noteKey"] as JsonPrimitive).content,
+                    role = (obj["role"] as JsonPrimitive).content,
+                    anchor = (obj["anchor"] as JsonPrimitive).content
+                )
+            }
+        }
+
+        val result = mutableListOf<PendingAnchor>()
+        result.addAll(fromItem(rootObj, ROOT_REF))
+        for (childElement in childrenArray) {
+            val childObj = childElement as JsonObject
+            val ref = (childObj["ref"] as JsonPrimitive).content
+            result.addAll(fromItem(childObj, ref))
+        }
+        return result
+    }
 
     /**
      * Rejects a nested `children` key inside an item spec. create_work_tree expresses nesting via

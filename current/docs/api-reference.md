@@ -2,7 +2,7 @@
 
 ## Overview
 
-The v3 server exposes 15 MCP tools organized around a single **WorkItem** graph model. Every
+The v3 server exposes 16 MCP tools organized around a single **WorkItem** graph model. Every
 entity — whether a project, feature, or task — is a WorkItem with a `role` (queue, work, review,
 blocked, terminal), optional `parentId`, a `type` field that selects a work-item schema (lifecycle
 mode + required notes), optional `tags` for categorization, and optional `traits` that compose
@@ -31,6 +31,7 @@ FTS5 search (two-tokenizer design, RRF fusion, scope filtering, backlinks, score
 | `get_blocked_items` | Workflow | Read | All items blocked by dependency or explicit block trigger |
 | `claim_item` | Workflow | Write | Atomically claim or release work items for exclusive ownership |
 | `manage_project_config` | System | Write/Read | Push or read back per-root config YAML for the layered schema resolver |
+| `manage_plan_documents` | System | Write/Read | Stash, read back, or list per-root plan documents |
 
 ---
 
@@ -448,16 +449,49 @@ under it at `existing.depth + 1`. Providing both `root.id` and `parentId` is rej
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `root` | object | Yes | Create mode: `{ title (required), priority?, tags?, type?, traits?, summary?, description?, requiresVerification? }`. Attach mode: `{ id? (UUID or hex prefix of existing item), title? (optional when id provided), priority?, tags?, type?, traits?, summary?, description?, requiresVerification? }`. When `id` is present, `title` is optional and ignored. |
+| `root` | object | Yes | Create mode: `{ title (required), priority?, tags?, type?, traits?, summary?, description?, requiresVerification?, noteAnchors? }`. Attach mode: `{ id? (UUID or hex prefix of existing item), title? (optional when id provided), priority?, tags?, type?, traits?, summary?, description?, requiresVerification?, noteAnchors? }`. When `id` is present, `title` is optional and ignored. `noteAnchors` is documented below alongside `docRef`. |
 | `parentId` | string (UUID) | No | Existing parent; root depth = parent.depth + 1. Cannot be combined with `root.id`. |
-| `children` | array | No | Child item specs: `[{ ref, title, parentRef?, priority?, tags?, type?, traits?, summary?, description?, requiresVerification? }]`. `ref` is a local name used to wire `deps`, `notes`, and other children's `parentRef`. `parentRef` (another child's `ref` or `"root"`, default `"root"`) sets the child's parent — nesting is expressed via `parentRef` only; a nested `children` key inside a child spec is rejected. |
+| `children` | array | No | Child item specs: `[{ ref, title, parentRef?, priority?, tags?, type?, traits?, summary?, description?, requiresVerification?, noteAnchors? }]`. `ref` is a local name used to wire `deps`, `notes`, and other children's `parentRef`. `parentRef` (another child's `ref` or `"root"`, default `"root"`) sets the child's parent — nesting is expressed via `parentRef` only; a nested `children` key inside a child spec is rejected. |
 | `deps` | array | No | Dependency specs: `[{ from: ref, to: ref, type?: BLOCKS\|IS_BLOCKED_BY\|RELATES_TO, unblockAt?: queue\|work\|review\|terminal }]`. Use `"root"` to reference the root item. |
 | `createNotes` | boolean | No | Auto-create blank notes for each item from its resolved schema (looked up by `type` first, then by `tags`). Default: false. |
-| `notes` | array | No | Notes to create with bodies: `[{ itemRef (required, "root" or child ref), key (required), role (required: queue\|work\|review), body? (defaults to empty string) }]`. Explicit notes win over `createNotes=true` blanks per `(itemRef, key)`. **Strict role enforcement:** when an explicit note's `key` is declared in the resolved schema for the target item, the note's `role` must equal the schema role; mismatch returns `VALIDATION_ERROR`. Off-schema keys and items without a schema are unconstrained. |
-| `actor` | object | No | Actor claim `{ id, kind: orchestrator\|subagent\|user\|external, parent?, proof? }`. Used for idempotency keying AND propagated as the actor attribution on every persisted note (both explicit and `createNotes=true` blanks). |
+| `notes` | array | No | Notes to create with bodies: `[{ itemRef (required, "root" or child ref), key (required), role (required: queue\|work\|review), body? (defaults to empty string) }]`. Explicit notes win over `noteAnchors` AND `createNotes=true` blanks per `(itemRef, key)`. **Strict role enforcement:** when an explicit note's `key` is declared in the resolved schema for the target item, the note's `role` must equal the schema role; mismatch returns `VALIDATION_ERROR`. Off-schema keys and items without a schema are unconstrained. |
+| `docRef` | object | No | Materialize-from-document source: `{ rootId? (defaults to the created/attached root's own rootId — `rootItem.rootId ?: rootItem.id`; validated for consistency if given, UUID or hex prefix), slug (required) }`. References a document stashed via `manage_plan_documents`/`PUT /roots/{rootId}/plans/{slug}`. Required whenever any item spec's `noteAnchors` is used; valid (adopts with zero sourced notes) even with none. |
+| `actor` | object | No | Actor claim `{ id, kind: orchestrator\|subagent\|user\|external, parent?, proof? }`. Used for idempotency keying AND propagated as the actor attribution on every persisted note (explicit, `noteAnchors`-sourced, and `createNotes=true` blanks alike). |
 | `requestId` | string (UUID) | No | Client-generated UUID for idempotency. See [Idempotency](#idempotency). Requires `actor` to function. |
 
 Nesting depth is unbounded. The root item can be at any depth; each child's depth is its resolved parent's depth + 1 — root.depth + 1 for direct children (default `parentRef: "root"`), deeper when nested under another child via `parentRef`. In attach mode, children derive depth from the existing root's depth. `parentRef` cycles are rejected at validation; cycle protection is also enforced at the database level.
+
+#### Materialize-from-document (`docRef` + `noteAnchors`)
+
+`docRef` plus one or more item specs' `noteAnchors: [{ noteKey (required), role (required: queue|work|review), anchor (required) }]` source note bodies from a stashed [plan document](#manage_plan_documents) instead of inlining them. `noteAnchors` may appear on `root` and/or any `children` entry.
+
+**Anchor resolution.** Each anchor is sliced out of the document body by heading: a deterministic kebab-case slug per markdown heading (any level `#`–`######`), duplicates disambiguated with `-2`, `-3`, ... suffixes in document order. A section runs from its heading line through the line before the next heading of the same or higher level (or the end of the document) — sub-headings stay part of their parent's slice.
+
+**Atomicity.** Resolution and slicing happen before any database write; an anchor miss, an unresolved document, a `docRef.rootId` mismatch, or an already-adopted document fails the WHOLE call with `VALIDATION_ERROR`/`RESOURCE_NOT_FOUND` — no items, dependencies, or notes are created. On success, the document is marked adopted (`adopted_by_item_id` = the created/attached root's id) in the SAME database transaction as the item/dependency/note inserts, so a concurrent adoption race also rolls back the whole tree rather than double-materializing.
+
+**Precedence** on `(itemRef, key)` collision: explicit `notes` win over `noteAnchors`; `noteAnchors` win over `createNotes=true` blanks.
+
+**Example.**
+
+```json
+{
+  "root": {
+    "title": "Feature X",
+    "noteAnchors": [{ "noteKey": "requirements", "role": "queue", "anchor": "overview" }]
+  },
+  "parentId": "<project-root-uuid>",
+  "docRef": { "slug": "my-plan" },
+  "children": [
+    {
+      "ref": "t1",
+      "title": "Task 1",
+      "noteAnchors": [{ "noteKey": "task-scope", "role": "queue", "anchor": "task-1" }]
+    }
+  ]
+}
+```
+
+Without `docRef`, `create_work_tree` behavior is byte-identical to calls that predate this feature.
 
 **Example.**
 
@@ -1900,6 +1934,122 @@ this tool; it's the existing MCP transport trust model (see
 Read First") applying to config data the same way it already applies to every other MCP tool.
 Fence `/mcp` at the network layer per that guidance before exposing `MCP_TRANSPORT=http` beyond a
 single trusted process.
+
+### manage_plan_documents
+
+**Purpose.** Transport-agnostic store for per-root plan documents — free-floating planning docs an
+agent stashes ahead of adoption into a real WorkItem. Mirrors `manage_project_config`'s push/get
+shape: `PlanDocumentService` is the same validate-then-persist pipeline shared with the REST
+`PUT/GET /api/v1/roots/{rootId}/plans/{slug}` and `GET /api/v1/roots/{rootId}/plans` routes — both
+surfaces converge on identical DB state (including `contentHash`) for the same payload.
+
+Supports three operations, selected via `operation`:
+
+#### `stash`
+
+Validates, in order:
+1. The resolved body (`body` or `bodyFromFile`) must not exceed **64 KiB** (65,536 bytes, UTF-8) —
+   rejected before any repository call.
+2. `rootItemId` must resolve to an existing WorkItem.
+3. That WorkItem must be depth 0 (a project root) — plan documents anchor to roots only.
+4. If a document already exists at `rootItemId`+`slug` and its `status` is `"adopted"`, the stash
+   is rejected — adoption is a one-way transition (see the materialization tooling that calls
+   `PlanDocumentRepository.markAdopted`) and cannot be undone by stashing over it. A `"pending"`
+   document at that slug is overwritten in place (`contentHash`, `body`, and `updatedAt` replaced;
+   `id` and `createdAt` preserved).
+
+`body` (inline text) and `bodyFromFile` (server-side path) are mutually exclusive — providing both,
+or neither, fails validation. `bodyFromFile` resolves strictly relative to the agent config root
+(`AGENT_CONFIG_DIR`, same containment rules as `manage_notes`' `bodyFromFile`: rejects absolute
+paths, `..`, and symlink escapes; file must exist, ≤65536 bytes; CRLF is normalized to LF) —
+so a document stashed via REST PUT and via `bodyFromFile` land byte-identical content when the
+underlying text matches.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `operation` | string (`"stash"` \| `"get"` \| `"list"`) | Yes | Selects the operation |
+| `rootItemId` | string (UUID or 4+ char hex prefix) | Yes | Project root WorkItem — must be depth 0 for `stash` |
+| `slug` | string | Yes (stash, get) | Document identifier, unique within `rootItemId` |
+| `body` | string | One of `body`/`bodyFromFile` (stash only) | Inline document text; max 64 KiB |
+| `bodyFromFile` | string | One of `body`/`bodyFromFile` (stash only) | Server-side path, resolved relative to the agent config root |
+| `status` | string (`"pending"` \| `"adopted"`) | No (list only) | Filter to a single status |
+
+**Example.**
+
+```json
+{
+  "operation": "stash",
+  "rootItemId": "3f9c2b10-...",
+  "slug": "auth-redesign",
+  "body": "# Auth Redesign\n\n## Goals\n..."
+}
+```
+
+**Response (success).**
+
+```json
+{
+  "id": "8a1e...",
+  "rootItemId": "3f9c2b10-...",
+  "slug": "auth-redesign",
+  "contentHash": "e3b0c44298fc1c14...",
+  "status": "pending",
+  "createdAt": "2026-07-16T18:00:00Z",
+  "updatedAt": "2026-07-16T18:00:00Z"
+}
+```
+
+`body` is never echoed back on `stash` — the caller already has it. `adoptedByItemId` is included
+only once `status` is `"adopted"`.
+
+**Error cases.**
+
+| Condition | `error.code` |
+|---|---|
+| Resolved body exceeds 64 KiB | `VALIDATION_ERROR` (message names the limit and the actual size) |
+| `rootItemId` does not resolve to an existing WorkItem | `RESOURCE_NOT_FOUND` |
+| Root WorkItem has `depth != 0` | `VALIDATION_ERROR` |
+| Both `body` and `bodyFromFile` supplied, or neither | `VALIDATION_ERROR` |
+| `bodyFromFile` path rejected (absolute, `..`, symlink escape, missing, over cap) | `VALIDATION_ERROR` |
+| Target slug is already `"adopted"` | `CONFLICT_ERROR` (message names the adopting item when known) |
+| Storage failure | `DATABASE_ERROR` |
+
+#### `get`
+
+Reads back the full stored document (including `body`) for `rootItemId`+`slug`.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `operation` | string (`"stash"` \| `"get"` \| `"list"`) | Yes | Selects the operation |
+| `rootItemId` | string (UUID or 4+ char hex prefix) | Yes | Project root WorkItem to read from |
+| `slug` | string | Yes | Document identifier to read |
+
+**Response (no document at this slug).** `error.code` is `RESOURCE_NOT_FOUND`.
+
+#### `list`
+
+Reads back metadata-only summaries (never the body) for every document under `rootItemId`,
+optionally filtered by `status`, ordered by `slug` ascending.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `operation` | string (`"stash"` \| `"get"` \| `"list"`) | Yes | Selects the operation |
+| `rootItemId` | string (UUID or 4+ char hex prefix) | Yes | Project root WorkItem to list documents for |
+| `status` | string (`"pending"` \| `"adopted"`) | No | Filter to a single status |
+
+**Response (success).**
+
+```json
+{
+  "rootItemId": "3f9c2b10-...",
+  "plans": [
+    { "id": "8a1e...", "rootItemId": "3f9c2b10-...", "slug": "auth-redesign", "contentHash": "e3b0c4...", "status": "pending", "createdAt": "...", "updatedAt": "..." }
+  ]
+}
+```
+
+**Note on actor attribution.** Like `manage_project_config`, this tool does not accept an `actor`
+parameter — plan documents have no per-note attribution model to stamp.
 
 ---
 

@@ -2605,6 +2605,209 @@ class CreateWorkTreeToolTest {
     }
 
     // ──────────────────────────────────────────────
+    // Materialize-from-document: validateParams tests (unit, no DB — shape-only)
+    // ──────────────────────────────────────────────
+
+    @Nested
+    inner class DocRefValidateParamsTests {
+        @Test
+        fun `docRef must be a JSON object`() {
+            val ex =
+                assertFailsWith<ToolValidationException> {
+                    tool.validateParams(
+                        buildJsonObject {
+                            put("root", buildJsonObject { put("title", JsonPrimitive("Root")) })
+                            put("docRef", JsonPrimitive("not-an-object"))
+                        }
+                    )
+                }
+            assertTrue(ex.message?.contains("docRef") == true, "Exception should mention docRef: ${ex.message}")
+        }
+
+        @Test
+        fun `docRef without slug throws ToolValidationException`() {
+            val ex =
+                assertFailsWith<ToolValidationException> {
+                    tool.validateParams(
+                        buildJsonObject {
+                            put("root", buildJsonObject { put("title", JsonPrimitive("Root")) })
+                            put("docRef", buildJsonObject { put("rootId", JsonPrimitive(UUID.randomUUID().toString())) })
+                        }
+                    )
+                }
+            assertTrue(ex.message?.contains("docRef.slug") == true, "Exception should mention docRef.slug: ${ex.message}")
+        }
+
+        @Test
+        fun `docRef with blank rootId throws ToolValidationException`() {
+            val ex =
+                assertFailsWith<ToolValidationException> {
+                    tool.validateParams(
+                        buildJsonObject {
+                            put("root", buildJsonObject { put("title", JsonPrimitive("Root")) })
+                            put(
+                                "docRef",
+                                buildJsonObject {
+                                    put("slug", JsonPrimitive("plan-a"))
+                                    put("rootId", JsonPrimitive("   "))
+                                }
+                            )
+                        }
+                    )
+                }
+            assertTrue(ex.message?.contains("docRef.rootId") == true, "Exception should mention docRef.rootId: ${ex.message}")
+        }
+
+        @Test
+        fun `noteAnchors on root without top-level docRef throws ToolValidationException`() {
+            val ex =
+                assertFailsWith<ToolValidationException> {
+                    tool.validateParams(
+                        buildJsonObject {
+                            put(
+                                "root",
+                                buildJsonObject {
+                                    put("title", JsonPrimitive("Root"))
+                                    put(
+                                        "noteAnchors",
+                                        buildJsonArray {
+                                            add(
+                                                buildJsonObject {
+                                                    put("noteKey", JsonPrimitive("requirements"))
+                                                    put("role", JsonPrimitive("queue"))
+                                                    put("anchor", JsonPrimitive("overview"))
+                                                }
+                                            )
+                                        }
+                                    )
+                                }
+                            )
+                        }
+                    )
+                }
+            assertTrue(
+                ex.message?.contains("noteAnchors") == true && ex.message?.contains("docRef") == true,
+                "Exception should mention noteAnchors requires docRef: ${ex.message}"
+            )
+        }
+
+        @Test
+        fun `noteAnchors on a child without top-level docRef throws ToolValidationException`() {
+            val ex =
+                assertFailsWith<ToolValidationException> {
+                    tool.validateParams(
+                        buildJsonObject {
+                            put("root", buildJsonObject { put("title", JsonPrimitive("Root")) })
+                            put(
+                                "children",
+                                buildJsonArray {
+                                    add(
+                                        buildJsonObject {
+                                            put("ref", JsonPrimitive("t1"))
+                                            put("title", JsonPrimitive("Task 1"))
+                                            put(
+                                                "noteAnchors",
+                                                buildJsonArray {
+                                                    add(
+                                                        buildJsonObject {
+                                                            put("noteKey", JsonPrimitive("task-scope"))
+                                                            put("role", JsonPrimitive("queue"))
+                                                            put("anchor", JsonPrimitive("task-1"))
+                                                        }
+                                                    )
+                                                }
+                                            )
+                                        }
+                                    )
+                                }
+                            )
+                        }
+                    )
+                }
+            assertTrue(ex.message?.contains("noteAnchors") == true, "Exception should mention noteAnchors: ${ex.message}")
+        }
+
+        @Test
+        fun `noteAnchors entry with invalid role throws ToolValidationException`() {
+            val ex =
+                assertFailsWith<ToolValidationException> {
+                    tool.validateParams(
+                        buildJsonObject {
+                            put("root", buildJsonObject { put("title", JsonPrimitive("Root")) })
+                            put("docRef", buildJsonObject { put("slug", JsonPrimitive("plan-a")) })
+                            put(
+                                "children",
+                                buildJsonArray {
+                                    add(
+                                        buildJsonObject {
+                                            put("ref", JsonPrimitive("t1"))
+                                            put("title", JsonPrimitive("Task 1"))
+                                            put(
+                                                "noteAnchors",
+                                                buildJsonArray {
+                                                    add(
+                                                        buildJsonObject {
+                                                            put("noteKey", JsonPrimitive("task-scope"))
+                                                            put("role", JsonPrimitive("not-a-role"))
+                                                            put("anchor", JsonPrimitive("task-1"))
+                                                        }
+                                                    )
+                                                }
+                                            )
+                                        }
+                                    )
+                                }
+                            )
+                        }
+                    )
+                }
+            assertTrue(ex.message?.contains("role") == true, "Exception should mention role: ${ex.message}")
+        }
+
+        @Test
+        fun `noteAnchors entry missing anchor throws ToolValidationException`() {
+            val ex =
+                assertFailsWith<ToolValidationException> {
+                    tool.validateParams(
+                        buildJsonObject {
+                            put("docRef", buildJsonObject { put("slug", JsonPrimitive("plan-a")) })
+                            put(
+                                "root",
+                                buildJsonObject {
+                                    put("title", JsonPrimitive("Root"))
+                                    put(
+                                        "noteAnchors",
+                                        buildJsonArray {
+                                            add(
+                                                buildJsonObject {
+                                                    put("noteKey", JsonPrimitive("requirements"))
+                                                    put("role", JsonPrimitive("queue"))
+                                                    // anchor intentionally missing
+                                                }
+                                            )
+                                        }
+                                    )
+                                }
+                            )
+                        }
+                    )
+                }
+            assertTrue(ex.message?.contains("anchor") == true, "Exception should mention anchor: ${ex.message}")
+        }
+
+        @Test
+        fun `docRef with no noteAnchors anywhere does NOT throw`() {
+            // docRef alone (materialize/adopt with zero anchors) is a valid, if unusual, call.
+            tool.validateParams(
+                buildJsonObject {
+                    put("root", buildJsonObject { put("title", JsonPrimitive("Root")) })
+                    put("docRef", buildJsonObject { put("slug", JsonPrimitive("plan-a")) })
+                }
+            )
+        }
+    }
+
+    // ──────────────────────────────────────────────
     // Attach mode: execute tests (unit / MockK)
     // ──────────────────────────────────────────────
 
