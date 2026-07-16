@@ -183,4 +183,21 @@ class V13StatusLabelRepairMigrationTest {
 
             assertNull(readStatusLabel(id), "NULL status_label on a terminal row is not this bug's symptom and must be left alone")
         }
+
+    @Test
+    fun `V13 does not clobber a terminal row with a custom (non-default) terminal label`(): Unit =
+        runBlocking {
+            val id = UUID.randomUUID()
+            // A project may configure a custom terminal label via per-root status_labels (e.g. 'finished').
+            // Such a row is correctly labeled and is NOT this bug's symptom — it must survive the repair.
+            insertWorkItem(id, "Custom Terminal Label", role = "terminal", statusLabel = "finished")
+
+            applyV13Migration()
+
+            assertEquals(
+                "finished",
+                readStatusLabel(id),
+                "A legitimate custom per-root terminal label must not be rewritten to 'done'"
+            )
+        }
 }
