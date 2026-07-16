@@ -509,6 +509,29 @@ interface WorkItemRepository {
      * When [rootIds] is empty, returns an empty map immediately.
      */
     suspend fun countInScopeByRole(rootIds: Set<UUID>): Result<Map<Role, Int>>
+
+    /**
+     * Full-text search on work items using the V7 FTS5 virtual tables.
+     *
+     * **H2 (test environment):** FTS5 is SQLite-only. Implementations return an empty
+     * [SearchResult] immediately when the current dialect is H2 — unit tests that exercise
+     * the search path must use a real SQLite DB (see `Fts5MigrationTest`).
+     *
+     * @param sanitizedFtsQuery FTS5 query string. Callers (QueryItemsTool / FtsQuerySanitizer)
+     *   are responsible for sanitizing user input before calling this method. Passing raw user
+     *   input may cause FTS5 syntax errors.
+     * @param matchMode Which FTS table(s) to query.
+     * @param scope     Optional structural scope filters (subtree, tags, role).
+     * @param limit     Maximum hits to return (enforced at 100; default 20).
+     * @param offset    Zero-based page offset.
+     */
+    suspend fun ftsSearch(
+        sanitizedFtsQuery: String,
+        matchMode: SearchMatchMode = SearchMatchMode.AUTO,
+        scope: SearchScope? = null,
+        limit: Int = 20,
+        offset: Int = 0,
+    ): SearchResult
 }
 
 /**

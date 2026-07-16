@@ -2,10 +2,9 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.service.search.FtsQuerySanitizer
 import io.github.jpicklyk.mcptask.current.domain.model.Role
+import io.github.jpicklyk.mcptask.current.domain.repository.SearchMatchMode
+import io.github.jpicklyk.mcptask.current.domain.repository.SearchScope
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.SearchMatchMode
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.SearchScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.enforceScopeForItem
@@ -95,15 +94,12 @@ fun Route.searchRoutes(repositoryProvider: RepositoryProvider) {
                     else -> SearchScope(role = role, tags = tags)
                 }
 
-            val repo = workItemRepo
-            if (repo !is SQLiteWorkItemRepository) {
-                // H2 test environment — FTS5 not available
-                call.respond(HttpStatusCode.OK, emptyList<SearchHitDto>())
-                return@get
-            }
-
+            // Dispatched via the WorkItemRepository interface so this works whether workItemRepo
+            // is the concrete SQLite repo or a decorator (e.g. EventPublishingWorkItemRepository —
+            // always the case when the REST API is enabled). Non-FTS dialects (H2 tests) are
+            // handled inside ftsSearch, which returns an empty result.
             val result =
-                repo.ftsSearch(
+                workItemRepo.ftsSearch(
                     sanitizedFtsQuery = sanitizedQuery,
                     matchMode = SearchMatchMode.AUTO,
                     scope = scope,

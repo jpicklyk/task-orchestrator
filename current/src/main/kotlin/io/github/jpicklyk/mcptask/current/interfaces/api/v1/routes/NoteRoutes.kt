@@ -2,10 +2,9 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.service.search.FtsQuerySanitizer
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
+import io.github.jpicklyk.mcptask.current.domain.repository.SearchMatchMode
+import io.github.jpicklyk.mcptask.current.domain.repository.SearchScope
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteNoteRepository
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.SearchMatchMode
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.SearchScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.enforceScopeForItem
@@ -38,7 +37,7 @@ private val noteLogger = LoggerFactory.getLogger("NoteRoutes")
  * [AttributionRedactor] (env-driven, defaults to redact).
  *
  * **FTS5 search caveat:** the `/notes/search` endpoint delegates to
- * [SQLiteNoteRepository.ftsSearch] which returns empty results when running against H2
+ * [NoteRepository.ftsSearch] which returns empty results when running against H2
  * (test environment). Use real SQLite fixtures for integration tests of this endpoint.
  */
 fun Route.noteRoutes(repositoryProvider: RepositoryProvider) {
@@ -178,15 +177,12 @@ fun Route.noteRoutes(repositoryProvider: RepositoryProvider) {
                     else -> SearchScope()
                 }
 
-            val repo = noteRepo
-            if (repo !is SQLiteNoteRepository) {
-                // H2 test environment — FTS5 not available
-                call.respond(HttpStatusCode.OK, emptyList<SearchHitDto>())
-                return@get
-            }
-
+            // Dispatched via the NoteRepository interface so this works whether noteRepo is the
+            // concrete SQLite repo or a decorator (e.g. EventPublishingNoteRepository — always the
+            // case when the REST API is enabled). Non-FTS dialects (H2 tests) are handled inside
+            // ftsSearch, which returns an empty result.
             val result =
-                repo.ftsSearch(
+                noteRepo.ftsSearch(
                     sanitizedFtsQuery = sanitizedQuery,
                     matchMode = SearchMatchMode.AUTO,
                     scope = scope,

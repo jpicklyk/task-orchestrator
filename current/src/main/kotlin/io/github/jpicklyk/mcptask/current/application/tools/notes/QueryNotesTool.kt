@@ -3,10 +3,9 @@ package io.github.jpicklyk.mcptask.current.application.tools.notes
 import io.github.jpicklyk.mcptask.current.application.service.search.FtsQuerySanitizer
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteNoteRepository
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.SearchMatchMode
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.SearchResult
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.SearchScope
+import io.github.jpicklyk.mcptask.current.domain.repository.SearchMatchMode
+import io.github.jpicklyk.mcptask.current.domain.repository.SearchResult
+import io.github.jpicklyk.mcptask.current.domain.repository.SearchScope
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.*
@@ -385,7 +384,7 @@ by note role (queue/work/review), use `list` instead — `search`'s `scope` has 
     /**
      * Full-text search over note bodies via FTS5.
      *
-     * Sanitizes the user query, delegates to [SQLiteNoteRepository.ftsSearch], and
+     * Sanitizes the user query, delegates to [NoteRepository.ftsSearch], and
      * serializes the [SearchResult] into the response shape defined in plan §7:
      * `{ hits: [...], totalHits, nextOffset, truncated }`.
      *
@@ -490,27 +489,25 @@ by note role (queue/work/review), use `list` instead — `search`'s `scope` has 
                 return errorResponse(e.message ?: "Invalid search query", ErrorCodes.VALIDATION_ERROR)
             }
 
-        // Delegate to repository — mirrors T4's SQLiteWorkItemRepository cast pattern.
+        // Delegate to repository — dispatched via the NoteRepository interface so this works
+        // whether the tool context holds the concrete SQLite repo or a decorator (e.g.
+        // EventPublishingNoteRepository, when the REST API is enabled). Non-FTS dialects
+        // (H2 tests) are handled inside ftsSearch, which returns an empty result.
         val repo = context.noteRepository()
         val searchResult: SearchResult =
-            if (repo is SQLiteNoteRepository) {
-                try {
-                    repo.ftsSearch(
-                        sanitizedFtsQuery = sanitizedQuery,
-                        matchMode = matchMode,
-                        scope = scope,
-                        limit = limit,
-                        offset = offset,
-                    )
-                } catch (e: Exception) {
-                    return errorResponse(
-                        "FTS5 note search failed: ${e.message}",
-                        ErrorCodes.INTERNAL_ERROR
-                    )
-                }
-            } else {
-                // Non-SQLite environment (H2 tests): FTS5 is SQLite-only — return empty result.
-                SearchResult(hits = emptyList(), totalHits = 0, nextOffset = null)
+            try {
+                repo.ftsSearch(
+                    sanitizedFtsQuery = sanitizedQuery,
+                    matchMode = matchMode,
+                    scope = scope,
+                    limit = limit,
+                    offset = offset,
+                )
+            } catch (e: Exception) {
+                return errorResponse(
+                    "FTS5 note search failed: ${e.message}",
+                    ErrorCodes.INTERNAL_ERROR
+                )
             }
 
         // Serialize hits
