@@ -6,6 +6,14 @@ This document describes the HTTP REST API layer (v1) added alongside the MCP tra
 **Content-Type:** `application/json` (responses); see PATCH for request-body negotiation.
 **OpenAPI spec:** [`api/openapi.yaml`](api/openapi.yaml) — covers all routes for machine consumption. Note: the YAML is hand-maintained and may lag behind edge-case behavior; this document and the source are authoritative.
 
+**HTTP-first policy.** New plugin-side infrastructure features — `config-sync.mjs`, SSE event
+streaming, and the `plan-capture.mjs` hook (which stashes an approved plan as a `plan_document` via
+`PUT /roots/{rootId}/plans/{slug}`) — are built HTTP-only, each fail-opening to a silent no-op when
+its REST env var (`TASK_ORCHESTRATOR_API_URL`, etc.) is absent. STDIO deployments keep full MCP tool
+functionality but do not gain these convenience features; STDIO is positioned as the local/evaluation
+transport, while a persistent HTTP daemon with the REST API enabled is the recommended path for
+ongoing fleet or multi-project work.
+
 ---
 
 ## Table of Contents

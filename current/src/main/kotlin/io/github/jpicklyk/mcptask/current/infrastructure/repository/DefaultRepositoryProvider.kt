@@ -26,7 +26,7 @@ class DefaultRepositoryProvider(
     private val roleTransitionRepo by lazy { SQLiteRoleTransitionRepository(databaseManager) }
     private val projectConfigRepo by lazy { SQLiteProjectConfigRepository(databaseManager) }
     private val planDocumentRepo by lazy { SQLitePlanDocumentRepository(databaseManager) }
-    private val workTreeExecutorInstance by lazy { SQLiteWorkTreeService(databaseManager, workItemRepo, noteRepo) }
+    private val workTreeExecutorInstance by lazy { SQLiteWorkTreeService(databaseManager, workItemRepo, noteRepo, planDocumentRepo) }
 
     override fun workItemRepository(): WorkItemRepository = workItemRepo
 

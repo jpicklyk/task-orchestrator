@@ -127,33 +127,51 @@ class SQLitePlanDocumentRepository(
         adoptedByItemId: UUID
     ): Result<PlanDocumentAdoptOutcome> =
         databaseManager.suspendedTransaction("Failed to mark PlanDocument adopted") {
-            val existing =
-                PlanDocumentsTable
-                    .selectAll()
-                    .where { (PlanDocumentsTable.rootItemId eq rootItemId) and (PlanDocumentsTable.slug eq slug) }
-                    .singleOrNull()
-                    ?: return@suspendedTransaction Result.Success(PlanDocumentAdoptOutcome.NotFound)
-
-            if (existing[PlanDocumentsTable.status] == PlanDocumentStatus.ADOPTED.toDbValue()) {
-                return@suspendedTransaction Result.Success(
-                    PlanDocumentAdoptOutcome.AlreadyAdopted(mapRowToPlanDocument(existing))
-                )
-            }
-
-            val now = Instant.now()
-            PlanDocumentsTable.update({ (PlanDocumentsTable.rootItemId eq rootItemId) and (PlanDocumentsTable.slug eq slug) }) {
-                it[PlanDocumentsTable.status] = PlanDocumentStatus.ADOPTED.toDbValue()
-                it[PlanDocumentsTable.adoptedByItemId] = adoptedByItemId
-                it[PlanDocumentsTable.modifiedAt] = now
-            }
-
-            val updated =
-                PlanDocumentsTable
-                    .selectAll()
-                    .where { (PlanDocumentsTable.rootItemId eq rootItemId) and (PlanDocumentsTable.slug eq slug) }
-                    .single()
-            Result.Success(PlanDocumentAdoptOutcome.Adopted(mapRowToPlanDocument(updated)))
+            Result.Success(markAdoptedRow(rootItemId, slug, adoptedByItemId))
         }
+
+    /**
+     * Raw (no own transaction) counterpart to [markAdopted], for callers already inside an open
+     * transaction — specifically
+     * [io.github.jpicklyk.mcptask.current.infrastructure.service.SQLiteWorkTreeService], which must
+     * mark a plan document ADOPTED in the SAME transaction as `create_work_tree`'s item/dependency/
+     * note inserts. Doing so means a race (the document being adopted by a concurrent call between
+     * the tool's pre-check read and this call) is caught here and rolls back the WHOLE tree — via the
+     * caller throwing on a non-[PlanDocumentAdoptOutcome.Adopted] result — rather than silently
+     * double-materializing the same document.
+     *
+     * **Must be called within an existing transaction** — this function does NOT open its own.
+     */
+    internal fun markAdoptedRow(
+        rootItemId: UUID,
+        slug: String,
+        adoptedByItemId: UUID
+    ): PlanDocumentAdoptOutcome {
+        val existing =
+            PlanDocumentsTable
+                .selectAll()
+                .where { (PlanDocumentsTable.rootItemId eq rootItemId) and (PlanDocumentsTable.slug eq slug) }
+                .singleOrNull()
+                ?: return PlanDocumentAdoptOutcome.NotFound
+
+        if (existing[PlanDocumentsTable.status] == PlanDocumentStatus.ADOPTED.toDbValue()) {
+            return PlanDocumentAdoptOutcome.AlreadyAdopted(mapRowToPlanDocument(existing))
+        }
+
+        val now = Instant.now()
+        PlanDocumentsTable.update({ (PlanDocumentsTable.rootItemId eq rootItemId) and (PlanDocumentsTable.slug eq slug) }) {
+            it[PlanDocumentsTable.status] = PlanDocumentStatus.ADOPTED.toDbValue()
+            it[PlanDocumentsTable.adoptedByItemId] = adoptedByItemId
+            it[PlanDocumentsTable.modifiedAt] = now
+        }
+
+        val updated =
+            PlanDocumentsTable
+                .selectAll()
+                .where { (PlanDocumentsTable.rootItemId eq rootItemId) and (PlanDocumentsTable.slug eq slug) }
+                .single()
+        return PlanDocumentAdoptOutcome.Adopted(mapRowToPlanDocument(updated))
+    }
 
     override fun computeContentHash(body: String): String = sha256Hex(body.toByteArray(Charsets.UTF_8))
 

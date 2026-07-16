@@ -1,6 +1,8 @@
 package io.github.jpicklyk.mcptask.current.application.tools.compound
 
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.domain.model.PlanDocumentStatus
+import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
@@ -32,6 +34,7 @@ class CreateWorkTreeToolIntegrationTest {
     private lateinit var context: ToolExecutionContext
     private lateinit var workItemRepository: SQLiteWorkItemRepository
     private lateinit var noteRepository: SQLiteNoteRepository
+    private lateinit var repositoryProvider: DefaultRepositoryProvider
     private lateinit var h2Database: Database
 
     @BeforeEach
@@ -40,7 +43,7 @@ class CreateWorkTreeToolIntegrationTest {
         h2Database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
         val databaseManager = DatabaseManager(h2Database)
         DirectDatabaseSchemaManager().updateSchema()
-        val repositoryProvider = DefaultRepositoryProvider(databaseManager)
+        repositoryProvider = DefaultRepositoryProvider(databaseManager)
 
         workItemRepository = repositoryProvider.workItemRepository() as SQLiteWorkItemRepository
         noteRepository = repositoryProvider.noteRepository() as SQLiteNoteRepository
@@ -601,5 +604,260 @@ class CreateWorkTreeToolIntegrationTest {
             assertNotNull(persisted.verification, "Persisted note must carry the verification result")
             // NoOpActorVerifier wired in DefaultRepositoryProvider's tool context
             assertEquals("noop", persisted.verification.verifier)
+        }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // Materialize-from-document: docRef + noteAnchors
+    // ──────────────────────────────────────────────────────────────────────────
+
+    private val planBody =
+        """
+        # Overview
+        Feature overview text.
+        # Task 1
+        Task 1 detail text.
+        """.trimIndent()
+
+    private suspend fun createProjectRoot(title: String = "Project"): UUID {
+        val result = workItemRepository.create(WorkItem(title = title, type = "project"))
+        return (result as Result.Success).data.id
+    }
+
+    @Test
+    fun `docRef materializes note bodies from stashed plan document sections and adopts the document exactly once`(): Unit =
+        runBlocking {
+            val projectRootId = createProjectRoot()
+            repositoryProvider.planDocumentRepository().stash(projectRootId, "my-plan", planBody)
+
+            val params =
+                buildJsonObject {
+                    put(
+                        "root",
+                        buildJsonObject {
+                            put("title", JsonPrimitive("Feature X"))
+                            put(
+                                "noteAnchors",
+                                buildJsonArray {
+                                    add(
+                                        buildJsonObject {
+                                            put("noteKey", JsonPrimitive("requirements"))
+                                            put("role", JsonPrimitive("queue"))
+                                            put("anchor", JsonPrimitive("overview"))
+                                        }
+                                    )
+                                }
+                            )
+                        }
+                    )
+                    put("parentId", JsonPrimitive(projectRootId.toString()))
+                    put("docRef", buildJsonObject { put("slug", JsonPrimitive("my-plan")) })
+                    put(
+                        "children",
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("ref", JsonPrimitive("t1"))
+                                    put("title", JsonPrimitive("Task 1"))
+                                    put(
+                                        "noteAnchors",
+                                        buildJsonArray {
+                                            add(
+                                                buildJsonObject {
+                                                    put("noteKey", JsonPrimitive("task-scope"))
+                                                    put("role", JsonPrimitive("queue"))
+                                                    put("anchor", JsonPrimitive("task-1"))
+                                                }
+                                            )
+                                        }
+                                    )
+                                }
+                            )
+                        }
+                    )
+                }
+
+            val result = tool.execute(params, context) as JsonObject
+            assertTrue(result["success"]!!.jsonPrimitive.boolean, "Expected success; got: $result")
+
+            val data = result["data"] as JsonObject
+            val rootId = UUID.fromString((data["root"] as JsonObject)["id"]!!.jsonPrimitive.content)
+            val childId =
+                UUID.fromString(((data["children"] as JsonArray)[0] as JsonObject)["id"]!!.jsonPrimitive.content)
+
+            val rootNote = (noteRepository.findByItemIdAndKey(rootId, "requirements") as Result.Success).data
+            assertNotNull(rootNote)
+            assertEquals("# Overview\nFeature overview text.", rootNote.body)
+
+            val childNote = (noteRepository.findByItemIdAndKey(childId, "task-scope") as Result.Success).data
+            assertNotNull(childNote)
+            assertEquals("# Task 1\nTask 1 detail text.", childNote.body)
+
+            val doc = (repositoryProvider.planDocumentRepository().get(projectRootId, "my-plan") as Result.Success).data
+            assertNotNull(doc)
+            assertEquals(PlanDocumentStatus.ADOPTED, doc.status)
+            // Adopted by the newly-created FEATURE root, not the project root the doc was stashed against.
+            assertEquals(rootId, doc.adoptedByItemId)
+        }
+
+    @Test
+    fun `docRef anchor miss fails atomically — zero items created and document remains pending`(): Unit =
+        runBlocking {
+            val projectRootId = createProjectRoot()
+            repositoryProvider.planDocumentRepository().stash(projectRootId, "my-plan", planBody)
+
+            val params =
+                buildJsonObject {
+                    put(
+                        "root",
+                        buildJsonObject {
+                            put("title", JsonPrimitive("Feature X"))
+                            put(
+                                "noteAnchors",
+                                buildJsonArray {
+                                    add(
+                                        buildJsonObject {
+                                            put("noteKey", JsonPrimitive("requirements"))
+                                            put("role", JsonPrimitive("queue"))
+                                            put("anchor", JsonPrimitive("does-not-exist"))
+                                        }
+                                    )
+                                }
+                            )
+                        }
+                    )
+                    put("parentId", JsonPrimitive(projectRootId.toString()))
+                    put("docRef", buildJsonObject { put("slug", JsonPrimitive("my-plan")) })
+                }
+
+            val result = tool.execute(params, context) as JsonObject
+            assertTrue(!result["success"]!!.jsonPrimitive.boolean, "Expected failure; got: $result")
+
+            val itemsResult = workItemRepository.findByFilters(parentId = projectRootId, limit = 100)
+            val titles = (itemsResult as Result.Success).data.items.map { it.title }
+            assertTrue("Feature X" !in titles, "Root item must NOT be created on anchor miss; got: $titles")
+
+            val doc = (repositoryProvider.planDocumentRepository().get(projectRootId, "my-plan") as Result.Success).data
+            assertNotNull(doc)
+            assertEquals(PlanDocumentStatus.PENDING, doc.status, "Document must remain PENDING after a failed materialization")
+        }
+
+    @Test
+    fun `docRef against an already-adopted document fails atomically with zero items created`(): Unit =
+        runBlocking {
+            val projectRootId = createProjectRoot()
+            val earlierAdopterId = createProjectRoot("Earlier Adopter") // FK-valid target for adoptedByItemId
+            repositoryProvider.planDocumentRepository().stash(projectRootId, "my-plan", planBody)
+            val adoptResult = repositoryProvider.planDocumentRepository().markAdopted(projectRootId, "my-plan", earlierAdopterId)
+            assertTrue(adoptResult is Result.Success, "Pre-test setup: markAdopted must succeed; got: $adoptResult")
+
+            val params =
+                buildJsonObject {
+                    put("root", buildJsonObject { put("title", JsonPrimitive("Feature X")) })
+                    put("parentId", JsonPrimitive(projectRootId.toString()))
+                    put("docRef", buildJsonObject { put("slug", JsonPrimitive("my-plan")) })
+                }
+
+            val result = tool.execute(params, context) as JsonObject
+            assertTrue(!result["success"]!!.jsonPrimitive.boolean, "Expected failure; got: $result")
+
+            val itemsResult = workItemRepository.findByFilters(parentId = projectRootId, limit = 100)
+            val titles = (itemsResult as Result.Success).data.items.map { it.title }
+            assertTrue("Feature X" !in titles, "Root item must NOT be created against an already-adopted document; got: $titles")
+        }
+
+    @Test
+    fun `explicit notes win over noteAnchors on (itemRef, key) collision`(): Unit =
+        runBlocking {
+            val projectRootId = createProjectRoot()
+            repositoryProvider.planDocumentRepository().stash(projectRootId, "my-plan", planBody)
+
+            val params =
+                buildJsonObject {
+                    put(
+                        "root",
+                        buildJsonObject {
+                            put("title", JsonPrimitive("Feature X"))
+                            put(
+                                "noteAnchors",
+                                buildJsonArray {
+                                    add(
+                                        buildJsonObject {
+                                            put("noteKey", JsonPrimitive("requirements"))
+                                            put("role", JsonPrimitive("queue"))
+                                            put("anchor", JsonPrimitive("overview"))
+                                        }
+                                    )
+                                }
+                            )
+                        }
+                    )
+                    put("parentId", JsonPrimitive(projectRootId.toString()))
+                    put("docRef", buildJsonObject { put("slug", JsonPrimitive("my-plan")) })
+                    put(
+                        "notes",
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("itemRef", JsonPrimitive("root"))
+                                    put("key", JsonPrimitive("requirements"))
+                                    put("role", JsonPrimitive("queue"))
+                                    put("body", JsonPrimitive("Explicit body wins"))
+                                }
+                            )
+                        }
+                    )
+                }
+
+            val result = tool.execute(params, context) as JsonObject
+            assertTrue(result["success"]!!.jsonPrimitive.boolean, "Expected success; got: $result")
+
+            val data = result["data"] as JsonObject
+            val rootId = UUID.fromString((data["root"] as JsonObject)["id"]!!.jsonPrimitive.content)
+            val rootNote = (noteRepository.findByItemIdAndKey(rootId, "requirements") as Result.Success).data
+            assertNotNull(rootNote)
+            assertEquals("Explicit body wins", rootNote.body, "Explicit notes must win over noteAnchors")
+        }
+
+    @Test
+    fun `docRef rootId mismatch fails validation before any items are created`(): Unit =
+        runBlocking {
+            val projectRootId = createProjectRoot()
+            repositoryProvider.planDocumentRepository().stash(projectRootId, "my-plan", planBody)
+            val wrongRootId = createProjectRoot("Other Project")
+
+            val params =
+                buildJsonObject {
+                    put("root", buildJsonObject { put("title", JsonPrimitive("Feature X")) })
+                    put("parentId", JsonPrimitive(projectRootId.toString()))
+                    put(
+                        "docRef",
+                        buildJsonObject {
+                            put("slug", JsonPrimitive("my-plan"))
+                            put("rootId", JsonPrimitive(wrongRootId.toString()))
+                        }
+                    )
+                }
+
+            val result = tool.execute(params, context) as JsonObject
+            assertTrue(!result["success"]!!.jsonPrimitive.boolean, "Expected failure; got: $result")
+
+            val itemsResult = workItemRepository.findByFilters(parentId = projectRootId, limit = 100)
+            val titles = (itemsResult as Result.Success).data.items.map { it.title }
+            assertTrue("Feature X" !in titles, "Root item must NOT be created on a docRef.rootId mismatch; got: $titles")
+        }
+
+    @Test
+    fun `omitting docRef leaves create_work_tree behavior unchanged (regression pin)`(): Unit =
+        runBlocking {
+            val params =
+                buildJsonObject {
+                    put("root", buildJsonObject { put("title", JsonPrimitive("No Doc Feature")) })
+                }
+
+            val result = tool.execute(params, context) as JsonObject
+            assertTrue(result["success"]!!.jsonPrimitive.boolean, "Expected success; got: $result")
+
+            val data = result["data"] as JsonObject
+            assertEquals(0, (data["notes"] as JsonArray).size, "No notes expected without docRef/noteAnchors")
         }
 }
