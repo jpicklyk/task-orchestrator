@@ -52,6 +52,7 @@ If the user accepts:
    ```
    - Success → the returned `fingerprint` confirms the push landed; re-pushing identical content later returns the same fingerprint (idempotent).
    - `VALIDATION_ERROR` → surface the parse error to the user; the config.yaml write from step 3 is already saved locally, so nothing is lost — tell them to fix the file and retry the push (or run `/manage-schemas validate`).
+   - `CONFLICT_ERROR` (superseded) → the local file is older than the server's stored config (rare during onboarding — usually means another checkout already synced a newer version). Fetch the server's copy with `manage_project_config(operation="get", ...)` and reconcile, or pass `force: true` if overwriting is intentional.
    - A `warning` field → relay it to the user (non-fatal).
 
    If the tool isn't available, note this and skip — the config.yaml write from step 3 is authoritative on its own; the server will pick it up on its normal config read path.
