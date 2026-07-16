@@ -128,6 +128,46 @@ class ToolExecutionContext(
     }
 
     /**
+     * Same resolution as [resolveSchema], but also reports which config layer supplied the BASE
+     * schema (the type/tag lookup step — see [resolveBaseSchemaWithSource]) and that layer's
+     * config fingerprint. Trait notes are merged in identically to [resolveSchema] and may
+     * originate from a different layer than the base schema (see [mergeTraits]); [ResolvedSchema.source]
+     * and [ResolvedSchema.fingerprint] describe the base schema's provenance only — this is what
+     * `query_items`'s `schema` operation needs for its `configSource`/`configFingerprint` fields.
+     */
+    suspend fun resolveSchemaWithSource(item: WorkItem): ResolvedSchema? {
+        val service = noteSchemaService()
+        val (baseSchema, source) = resolveBaseSchemaWithSource(item, service) ?: return null
+        val merged = mergeTraits(item, baseSchema, service)
+        val fingerprint =
+            when (source) {
+                SchemaSource.PER_ROOT -> item.rootId?.let { perRootConfigService?.getFingerprint(it) }
+                SchemaSource.GLOBAL -> service.getConfigFingerprint()
+            }
+        return ResolvedSchema(merged, source, fingerprint)
+    }
+
+    /**
+     * Type-only counterpart to [resolveSchemaWithSource] for callers that have a type name but no
+     * [WorkItem] (e.g. `query_items(operation="schema", type=...)`). Mirrors [resolveTypeAgainstLayers]
+     * only — no tag fallback (there's no item to carry tags) and no trait merging (there's no item
+     * to carry `properties`). Returns null when neither layer defines [type].
+     */
+    suspend fun resolveTypeSchema(
+        type: String,
+        rootId: UUID?
+    ): ResolvedSchema? {
+        val service = noteSchemaService()
+        val (schema, source) = resolveTypeAgainstLayers(type, rootId, service) ?: return null
+        val fingerprint =
+            when (source) {
+                SchemaSource.PER_ROOT -> rootId?.let { perRootConfigService?.getFingerprint(it) }
+                SchemaSource.GLOBAL -> service.getConfigFingerprint()
+            }
+        return ResolvedSchema(schema, source, fingerprint)
+    }
+
+    /**
      * Returns true if the resolved (trait-merged) schema for [item] has a REVIEW phase.
      * Convenience wrapper around [resolveSchema] + [WorkItemSchema.hasReviewPhase].
      * Returns false when no schema matches (schema-free mode — skip REVIEW).
@@ -161,7 +201,19 @@ class ToolExecutionContext(
     private suspend fun resolveBaseSchema(
         item: WorkItem,
         service: NoteSchemaService
-    ): WorkItemSchema? {
+    ): WorkItemSchema? = resolveBaseSchemaWithSource(item, service)?.first
+
+    /**
+     * Same resolution as [resolveBaseSchema], but returns which layer ([SchemaSource]) supplied
+     * the result alongside the schema itself — the source-tracking variant used by
+     * [resolveSchemaWithSource]. Behavior is byte-identical to [resolveBaseSchema]; this is purely
+     * an additive return-shape change, factored out so [resolveBaseSchema] keeps its original
+     * public-facing behavior unchanged for every other caller of [resolveSchema].
+     */
+    private suspend fun resolveBaseSchemaWithSource(
+        item: WorkItem,
+        service: NoteSchemaService
+    ): Pair<WorkItemSchema, SchemaSource>? {
         val rootId = item.rootId
         val perRoot = perRootConfigService
 
@@ -171,13 +223,7 @@ class ToolExecutionContext(
         // neither the exact type nor "default" defined) do we fall through to the global lookup
         // (which has its own type -> "default" fallback — see class KDoc above).
         item.type?.let { type ->
-            val perRootMatch =
-                if (rootId != null && perRoot != null) {
-                    perRoot.getSchemaForType(rootId, type) ?: perRoot.getSchemaForType(rootId, "default")
-                } else {
-                    null
-                }
-            (perRootMatch ?: service.getSchemaForType(type))?.let { return it }
+            resolveTypeAgainstLayers(type, rootId, service)?.let { return it }
         }
 
         // Tag fallback: run the per-root schema map through the SAME first-tag-match/"default"
@@ -185,7 +231,7 @@ class ToolExecutionContext(
         // has no config row for this root, or no tag (nor "default") matches within it.
         val tags = item.tagList()
         if (rootId != null && perRoot != null) {
-            resolvePerRootTagMatch(rootId, tags, perRoot)?.let { return it }
+            resolvePerRootTagMatch(rootId, tags, perRoot)?.let { return it to SchemaSource.PER_ROOT }
         }
 
         // Tag fallback: find the matched tag, then look up the full WorkItemSchema
@@ -199,8 +245,28 @@ class ToolExecutionContext(
             }
         // Retrieve the full WorkItemSchema (with lifecycle/defaultTraits) if available.
         // Re-use tagNotes from above to avoid a redundant getSchemaForTags call in the fallback.
-        return service.getSchemaForType(matchedType)
-            ?: WorkItemSchema(type = matchedType, notes = tagNotes)
+        val resolved = service.getSchemaForType(matchedType) ?: WorkItemSchema(type = matchedType, notes = tagNotes)
+        return resolved to SchemaSource.GLOBAL
+    }
+
+    /**
+     * Runs the type-lookup step shared by [resolveBaseSchemaWithSource] and [resolveTypeSchema]:
+     * per-root exact type -> per-root `"default"` -> global exact type (which has its own internal
+     * `-> global "default"` fallback — see [resolveSchema]'s KDoc table). Whole-algorithm-first:
+     * the entire per-root probe runs to completion before the global layer is consulted at all.
+     * Returns null when neither layer defines [type].
+     */
+    private suspend fun resolveTypeAgainstLayers(
+        type: String,
+        rootId: UUID?,
+        service: NoteSchemaService
+    ): Pair<WorkItemSchema, SchemaSource>? {
+        val perRoot = perRootConfigService
+        if (rootId != null && perRoot != null) {
+            val perRootMatch = perRoot.getSchemaForType(rootId, type) ?: perRoot.getSchemaForType(rootId, "default")
+            if (perRootMatch != null) return perRootMatch to SchemaSource.PER_ROOT
+        }
+        return service.getSchemaForType(type)?.let { it to SchemaSource.GLOBAL }
     }
 
     /**
@@ -275,3 +341,18 @@ class ToolExecutionContext(
         private val logger = LoggerFactory.getLogger(ToolExecutionContext::class.java)
     }
 }
+
+/** Which config layer supplied a resolved schema — see [ToolExecutionContext.resolveSchemaWithSource]. */
+enum class SchemaSource { PER_ROOT, GLOBAL }
+
+/**
+ * A resolved [WorkItemSchema] together with which layer supplied its base schema and that layer's
+ * config fingerprint (null when the supplying layer has no fingerprint available, e.g. no global
+ * config loaded). Returned by [ToolExecutionContext.resolveSchemaWithSource] and
+ * [ToolExecutionContext.resolveTypeSchema].
+ */
+data class ResolvedSchema(
+    val schema: WorkItemSchema,
+    val source: SchemaSource,
+    val fingerprint: String?
+)

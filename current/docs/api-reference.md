@@ -243,7 +243,8 @@ snippets, filtered list search, or hierarchical overview.
 |---|---|---|---|
 | `operation` | string | Yes | `"schema"` |
 | `type` | string | Exactly one of `type`/`itemId` | Schema type identifier — direct lookup in `work_item_schemas` |
-| `itemId` | string (UUID or 4+ char prefix) | Exactly one of `type`/`itemId` | Resolves the item's schema via the standard type-first/tag-fallback/trait-merge logic |
+| `itemId` | string (UUID or 4+ char prefix) | Exactly one of `type`/`itemId` | Resolves the item's schema via the standard type-first/tag-fallback/trait-merge logic, layered per-root-then-global using the item's own `rootId` |
+| `rootId` | string (UUID or 4+ char prefix) | No | Only used with `type`. Resolves `type` against this root's per-root pushed config first (per-root exact type -> per-root `"default"` -> global exact type -> global `"default"`), falling back to global-only behavior when the root has no pushed config. Ignored when `itemId` is used instead — the item's own `rootId` is applied automatically. |
 
 **Response (schema).**
 
@@ -251,6 +252,7 @@ snippets, filtered list search, or hierarchical overview.
 {
   "type": "feature-implementation",
   "configFingerprint": "a1b2c3d4",
+  "configSource": "global",
   "notes": [
     { "key": "specification", "role": "queue", "required": true, "description": "...", "guidance": "...", "skill": "spec-quality", "maxLength": 4000 },
     { "key": "implementation-notes", "role": "work", "required": true, "description": "..." }
@@ -258,7 +260,7 @@ snippets, filtered list search, or hierarchical overview.
 }
 ```
 
-This is the **only** place that returns full note text (`description`, `guidance`, `skill`, `maxLength`) in one shot for an entire schema. Use it to resolve the keys-only `expectedNotes` and the reference-only `guidanceKey`/`skillPointer` fields returned elsewhere. `guidance`, `skill`, and `maxLength` are omitted per-entry when unset. `configFingerprint` is `null` when unavailable; cache schema responses per fingerprint to avoid re-fetching unchanged config. Errors with `RESOURCE_NOT_FOUND` when no schema matches the given `type` or the item is schema-free.
+This is the **only** place that returns full note text (`description`, `guidance`, `skill`, `maxLength`) in one shot for an entire schema. Use it to resolve the keys-only `expectedNotes` and the reference-only `guidanceKey`/`skillPointer` fields returned elsewhere. `guidance`, `skill`, and `maxLength` are omitted per-entry when unset. `configFingerprint` reports the fingerprint of whichever config layer actually supplied the schema (per-root or global) and is `null` when unavailable; cache schema responses per fingerprint to avoid re-fetching unchanged config. `configSource` is `"per-root"` when a per-root pushed config supplied the schema (via `rootId` on the `type` path, or the item's own `rootId` on the `itemId` path) and `"global"` otherwise. Errors with `RESOURCE_NOT_FOUND` when no schema matches the given `type` or the item is schema-free.
 
 **Examples.**
 

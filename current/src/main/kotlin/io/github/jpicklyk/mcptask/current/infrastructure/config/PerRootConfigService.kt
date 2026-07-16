@@ -77,6 +77,19 @@ class PerRootConfigService(
     suspend fun getAllTraits(rootItemId: UUID): Map<String, List<NoteSchemaEntry>>? = resolve(rootItemId)?.traits
 
     /**
+     * Returns the cached config fingerprint for [rootItemId], or null when no config row exists or
+     * it fails to parse. Goes through [resolve]'s normal fingerprint-check hot-reload path first
+     * (so this never returns a stale fingerprint after a concurrent push) — callers needing to
+     * report which config version supplied a resolved schema (e.g. `query_items`'s `schema`
+     * operation) should call this immediately after a [getSchemaForType]/[getSchemas] lookup that
+     * resolved from this root's per-root layer.
+     */
+    suspend fun getFingerprint(rootItemId: UUID): String? {
+        resolve(rootItemId) ?: return null
+        return cache[rootItemId]?.fingerprint
+    }
+
+    /**
      * Returns the parsed config for [rootItemId], reusing the cached parse when the DB
      * fingerprint hasn't changed since it was cached. Returns null when there is no config row
      * for this root, or the stored YAML fails to parse (see class doc — failures fall through to
