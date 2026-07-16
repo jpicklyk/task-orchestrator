@@ -44,7 +44,7 @@ When a rootId is known, Lean and Full mode calls pass it as `ancestorId="<rootId
 3. `get_context(mode="session-resume", since="<now minus 48h, ISO 8601>")` — recent role transitions (the "where did I leave off" signal). Add `ancestorId="<rootId>"` when known — but note the **known limitation**: `recentTransitions` is NOT scoped by `ancestorId` even when passed; it always reflects the whole tree, not just this project.
 4. `get_next_item(limit=5, includeDetails=true)` — ranked recommendations with parentId/tags. Add `ancestorId="<rootId>"` when known.
 5. `query_items(operation="search", role="queue", limit=1)` — read `total` for the true queued count. Add `ancestorId="<rootId>"` when known.
-6. `query_items(operation="search", role="terminal", limit=1)` — read `total` for the true done count. Add `ancestorId="<rootId>"` when known.
+6. `query_items(operation="search", role="terminal", limit=1)` — read `total` for the true terminal count. Add `ancestorId="<rootId>"` when known.
 
 **Headline counts must come from these sources, never from eyeballing the overview payload** — overview covers roots + direct children only and may be truncated.
 
@@ -52,7 +52,7 @@ When a rootId is known, Lean and Full mode calls pass it as `ancestorId="<rootId
 
 - **Containers are shelves, not work.** Items with tag or `type` = `container` never count as active; exclude them from the active/In Flight lists.
 - **Active** = health-check `activeItems` minus containers. **Blocked/stalled** = health-check lists as-is.
-- **Workstreams** = non-terminal roots with children. Progress fraction = `terminal / total` from `childCounts`; "next up" = the highest-priority queue-role child from the children array.
+- **Workstreams** = non-terminal roots with children. Progress fraction = `terminal / total` from `childCounts`, rendered `N/M terminal` (not `done` — the `terminal` bucket includes cancelled items, so labeling it "done" overstates completion); "next up" = the highest-priority queue-role child from the children array.
 - **Standalone queue roots** group by kind: the `type` field if set; else the first tag *not* in {`agent-observation`, `feature`, `container`}; else "Uncategorized".
 - **Rollup threshold:** any group with more than 5 items renders as a count line broken down by kind, listing individual items only when priority ≥ medium or tagged `action-item`.
 - **Hygiene candidates:** empty non-terminal containers; evident test artifacts (probe/smoke/depth-test titles, `mtest-*` tags).
@@ -66,7 +66,7 @@ Render in this order; omit any section with no data.
 
 [One sentence: health and momentum.]
 
-**N active · N blocked · N stalled · N queued · N done**
+**N active · N blocked · N stalled · N queued · N terminal**
 
 ### ◉ In Flight
 | ID | Item | Container | Status | Pri |
@@ -89,19 +89,19 @@ Render in this order; omit any section with no data.
 **Workstreams**
 | ID | Workstream | Progress | Next up | Pri |
 |----|-----------|----------|---------|-----|
-| `xxxxxxxx` | <root title> | 2/5 done | <queue child title> | high |
+| `xxxxxxxx` | <root title> | 2/5 terminal | <queue child title> | high |
 
 **<Kind>** (N): `id` <title> (pri) · `id` <title> (pri) · ...        ← groups of ≤5
 **<Kind>** (N): X bug · Y optimization · Z friction — highest: `id` <title> (pri)   ← groups of >5
 
-### ✓ Done — N terminal items
+### ✓ Terminal — N terminal items
 
 ↳ Hygiene: <N> test artifacts, <N> empty containers — candidates for /batch-complete
 ```
 
 **Lean-mode rules:**
 - Total output target is ~45 lines; rollups are how you hold that budget.
-- The Done section is a single line (count from the role-total query). No titles, no done/cancelled split in lean mode — the terminal statusLabels aren't fetched. Use `full` mode for the breakdown.
+- The Terminal section is a single line (count from the role-total query). No titles, no done/cancelled split in lean mode — the terminal statusLabels aren't fetched. Use `full` mode for the breakdown.
 - The Hygiene line appears only when candidates exist.
 - If all of In Flight / Attention / Recommended Next are empty, say so in the health sentence ("Quiet board — nothing in flight...") rather than rendering empty sections.
 
@@ -119,7 +119,7 @@ Everything lean mode shows, plus the complete per-container inventory.
 4. `get_next_item(limit=5, includeDetails=true)`. Add `ancestorId="<rootId>"` when known.
 5. Role-total queries as in lean mode (queue + terminal, `limit=1`, same `ancestorId` rule).
 
-**Never fetch every root's children in one call** (`overview includeChildren=true` across the whole tree). On a mature workspace the combined terminal subtrees exceed the tool-result token ceiling — the per-container scoped fetch in step 2 is what keeps full mode bounded. Terminal children are **counted, not enumerated**: the `✓ N done` footer comes from `childCounts`, never from pulling the terminal subtree. To see a specific container's completed items, run Scoped mode on that container (one bounded subtree).
+**Never fetch every root's children in one call** (`overview includeChildren=true` across the whole tree). On a mature workspace the combined terminal subtrees exceed the tool-result token ceiling — the per-container scoped fetch in step 2 is what keeps full mode bounded. Terminal children are **counted, not enumerated**: the `✓ N terminal` footer comes from `childCounts`, never from pulling the terminal subtree. To see a specific container's completed items, run Scoped mode on that container (one bounded subtree).
 
 ### Sections, in order
 
@@ -130,21 +130,21 @@ Everything lean mode shows, plus the complete per-container inventory.
 
    ```
    #### <Container Title> `<8-char-id>`
-   <role-symbol> <role> · <N open> · <N done>
+   <role-symbol> <role> · <N open> · <N terminal>
 
    | ID | Title | Status | Pri | Tags | Children |
    |----|-------|--------|-----|------|----------|
 
-   ✓ N done — terminal children are counted (from childCounts), not listed
+   ✓ N terminal — terminal children are counted (from childCounts), not listed
    ```
 
    - The table lists only the container's **open** children (queue/work/review/blocked) — the step-2 scoped `excludeTerminal` fetch returns exactly these. Sort: ◉ active first, then ⊘ blocked, then ○ queue.
-   - `<N open>` = queue + work + review + blocked from `childCounts`; `<N done>` = terminal from `childCounts`. Terminal children are never fetched — run Scoped mode on this container to see them.
+   - `<N open>` = queue + work + review + blocked from `childCounts`; `<N terminal>` = terminal from `childCounts`. Terminal children are never fetched — run Scoped mode on this container to see them.
    - **Children column** = compact role summary `N○ N◉ N⊘ N✓` built from the child's own `childCounts` in the scoped payload (omit zero roles; `—` if childless).
    - **Tags column** = tag value or `—`; traits append with `▸` prefix, `needs-` stripped (`feature-task ▸migration-review`).
    - If the container itself is work/review role, prefix its header with the role symbol.
 5. **Standalone Items** — non-terminal childless roots, grouped by the shared grouping key (below). One tag group → flat table with Tags column; multiple groups → subheading per group, Tags column omitted.
-6. **Done** — header `### ✓ Done — N terminal` (N from the terminal role-total query). Split **root-level** terminal items by their `statusLabel` (present in the step-1 roots list): `**Completed containers:** <title> (N children) · ...`, `**Completed standalone:** <title> · ... (+N more if >5)`, and `**Cancelled:** <title> · ...`. **Cancelled roots are listed separately — never presented as completed work.** Child-level terminal items are accounted by count via `childCounts` (not enumerated); their done/cancelled split is available through Scoped mode on the owning container.
+6. **Terminal** — header `### ✓ Terminal — N terminal` (N from the terminal role-total query). Split **root-level** terminal items by their `statusLabel` (present in the step-1 roots list): `**Completed containers:** <title> (N children) · ...`, `**Completed standalone:** <title> · ... (+N more if >5)`, and `**Cancelled:** <title> · ...`. **Cancelled roots are listed separately — never presented as completed work.** Child-level terminal items are accounted by count via `childCounts` (not enumerated); their done/cancelled split is available through Scoped mode on the owning container.
 7. **Empty containers** — `**Empty (no items):** <title>, <title>` at the end of the inventory if any exist.
 
 ---
