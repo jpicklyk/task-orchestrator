@@ -63,6 +63,7 @@ Show this schema to the user:
 ```yaml
   bug-fix:
     lifecycle: auto
+    default_traits: [delegated]
     notes:
       - key: diagnosis
         role: queue

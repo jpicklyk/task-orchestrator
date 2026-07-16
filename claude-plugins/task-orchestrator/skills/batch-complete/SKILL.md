@@ -50,7 +50,7 @@ Parse the child counts by role and present a preview table. Use the trigger chos
   ✓ terminal: 2 items (already done — will be skipped)
 ```
 
-**For `itemIds` path** (no root item): call `query_items(operation="get", id="<uuid>")` on each item and build the same role-grouped preview table from the individual results. For large lists (10+ items), use `query_items(operation="search")` with filters instead of individual get calls.
+**For `itemIds` path** (no root item): call `query_items(operation="get", itemId="<uuid>")` on each item and build the same role-grouped preview table from the individual results. For large lists (10+ items), use `query_items(operation="search")` with filters instead of individual get calls.
 
 **If any items are in `work` or `review`**, warn the user that active work will be force-completed (gate checks still apply). Use `AskUserQuestion` with three options:
 
@@ -81,7 +81,7 @@ If any child's gate status shows missing required notes, display them:
 ```
 ⊘ Gate Warnings (preview — definitive check runs at execution):
   "Implement login" — missing: implementation-notes (work, required)
-  "Write tests" — missing: test-results (work, required)
+  "Write tests" — missing: session-tracking (work, required)
 ```
 
 Then offer three options via `AskUserQuestion`:
@@ -188,7 +188,7 @@ Solution: Fix the upstream gate failure first (fill required notes), then run `c
 
 Cause: The UUID provided does not match any existing item, or the item has already been deleted.
 
-Solution: Verify the UUID with `query_items(operation="get", id="<uuid>")`. If not found, search by title fragment: `query_items(operation="search", query="<title>")`. Use the returned UUID.
+Solution: Verify the UUID with `query_items(operation="get", itemId="<uuid>")`. If not found, search by title fragment: `query_items(operation="search", query="<title>")`. Use the returned UUID.
 
 ---
 

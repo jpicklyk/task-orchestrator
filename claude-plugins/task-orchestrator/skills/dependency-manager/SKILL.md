@@ -36,7 +36,7 @@ Resolve `$ARGUMENTS` to a UUID via `query_items` search (`operation="search"`, `
 Once you have an item ID and intent is VIEW, query its dependency edges:
 
 ```
-query_dependencies(itemId="<uuid>", direction="all", includeItemInfo=true)
+query_dependencies(operation="get", itemId="<uuid>", direction="all", includeItemInfo=true)
 ```
 
 Format the result as an ASCII tree:
@@ -68,7 +68,7 @@ Use the visual symbols to indicate role at a glance:
 For a full chain view (ancestors and descendants beyond immediate neighbors), add `neighborsOnly=false`:
 
 ```
-query_dependencies(itemId="<uuid>", direction="all", includeItemInfo=true, neighborsOnly=false)
+query_dependencies(operation="get", itemId="<uuid>", direction="all", includeItemInfo=true, neighborsOnly=false)
 ```
 
 This performs BFS traversal and returns the full dependency graph. Use it when the user asks to "show the full chain" or "trace all blockers."
@@ -146,7 +146,7 @@ To set a partial unblock threshold (so the blocked item unblocks before the bloc
 Query existing edges first so the user knows what can be deleted:
 
 ```
-query_dependencies(itemId="<uuid>", direction="all", includeItemInfo=true)
+query_dependencies(operation="get", itemId="<uuid>", direction="all", includeItemInfo=true)
 ```
 
 Present the edges to the user:
@@ -190,13 +190,13 @@ For DIAGNOSE intent, identify why a specific item cannot start or is stuck in bl
 **Path A — User provided an item ID:**
 
 ```
-query_dependencies(itemId="<uuid>", direction="incoming", includeItemInfo=true)
+query_dependencies(operation="get", itemId="<uuid>", direction="incoming", includeItemInfo=true)
 ```
 
 **Path B — User wants a broad view of all blocked work:**
 
 ```
-get_blocked_items(includeItemDetails=true)
+get_blocked_items(includeDetails=true)
 ```
 
 For each blocker returned, show:
@@ -269,7 +269,7 @@ Cause: The dependency UUID or relationship does not exist. The edge may have alr
 Solution: Re-query to confirm current state:
 
 ```
-query_dependencies(itemId="<uuid>", direction="all", includeItemInfo=true)
+query_dependencies(operation="get", itemId="<uuid>", direction="all", includeItemInfo=true)
 ```
 
 Use a dependency UUID from the fresh query result for the delete call. If the edge is not present, it was already removed.
@@ -283,10 +283,10 @@ Cause: Either the `unblockAt` threshold is set to a role the blocker has not yet
 Solution: Query incoming edges to check all blockers:
 
 ```
-query_dependencies(itemId="<uuid>", direction="incoming", includeItemInfo=true)
+query_dependencies(operation="get", itemId="<uuid>", direction="incoming", includeItemInfo=true)
 ```
 
-Check each blocker's `role`. If all blockers are terminal and the item is still in blocked role, use `advance_item(trigger="resume")` to manually return it to its previous role via `/status-progression`.
+Check each blocker's `role`. If all blockers are terminal and the item is still in blocked role, use `advance_item(transitions=[{itemId: "<uuid>", trigger: "resume"}])` to manually return it to its previous role via `/status-progression`.
 
 ---
 
@@ -307,7 +307,7 @@ User: "Show me what blocks the REST endpoints task."
 Search → one match `uuid-rest`. Query incoming deps:
 
 ```
-query_dependencies(itemId="uuid-rest", direction="incoming", includeItemInfo=true)
+query_dependencies(operation="get", itemId="uuid-rest", direction="incoming", includeItemInfo=true)
 ```
 
 Display:
@@ -342,7 +342,7 @@ Result:
 User: "Why can't 'Write integration tests' start?" Search → `uuid-tests`. Query incoming:
 
 ```
-query_dependencies(itemId="uuid-tests", direction="incoming", includeItemInfo=true)
+query_dependencies(operation="get", itemId="uuid-tests", direction="incoming", includeItemInfo=true)
 ```
 
 Display:

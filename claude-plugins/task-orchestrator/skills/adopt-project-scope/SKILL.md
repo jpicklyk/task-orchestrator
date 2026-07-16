@@ -64,17 +64,25 @@ Build a probe where a grandchild's depth MUST change when a middle node is re-pa
    ])
    ```
    Capture its UUID as `P`.
-2. Create the branch (sequential parentage, small tree):
+2. Create the branch (sequential parentage, small tree). `manage_items` create has no ref/parentRef
+   mechanism (only `create_work_tree` does), so a sibling's UUID does not exist until its own create
+   call returns — M and G cannot be created in the same batch since G's `parentId` needs M's real UUID:
    ```
    manage_items(operation="create", items=[
      { title: "zzprobe-A",   parentId: P,  priority: "low" }     → capture as A (depth 1)
    ])
+   ```
+   ```
    manage_items(operation="create", items=[
-     { title: "zzprobe-M",   parentId: P,  priority: "low" },    → capture as M (depth 1, sibling of A)
-     { title: "zzprobe-G",   parentId: M,  priority: "low" }     → capture as G (depth 2, child of M)
+     { title: "zzprobe-M",   parentId: P,  priority: "low" }     → capture as M (depth 1, sibling of A)
    ])
    ```
-   (Create M before G so G can reference it; batch where the array ordering allows.)
+   Capture M's returned UUID, then create G referencing it:
+   ```
+   manage_items(operation="create", items=[
+     { title: "zzprobe-G",   parentId: "<M's real UUID>",  priority: "low" }     → capture as G (depth 2, child of M)
+   ])
+   ```
 3. Re-parent the middle node M **under A** (making it deeper):
    ```
    manage_items(operation="update", items=[{ id: M, parentId: A }])
@@ -82,7 +90,7 @@ Build a probe where a grandchild's depth MUST change when a middle node is re-pa
    Post-fix, M becomes depth 2 and G becomes depth 3.
 4. Read the grandchild's depth and capture it:
    ```
-   query_items(operation="get", id=G)
+   query_items(operation="get", itemId=G)
    ```
 5. Delete the probe **immediately, before acting on the result** — this runs on every path, pass or fail:
    ```
@@ -225,7 +233,7 @@ Confirm the migration landed correctly. On ANY mismatch, report loudly and do NO
    Expected depth-0 roots = KEEP-GLOBAL count + 1 (the anchor) + any CLEANUP-CANDIDATE roots left in place (cleanup candidates were flagged, not moved). Confirm the moved roots are no longer at depth 0.
 3. **Depth spot-check** — pick one moved tree that had a grandchild; confirm the grandchild's depth increased by exactly 1 from its pre-move value (the anchor added one level above the old root):
    ```
-   query_items(operation="get", id="<grandchild-of-a-moved-tree>")
+   query_items(operation="get", itemId="<grandchild-of-a-moved-tree>")
    ```
 
 Render a before/after table:

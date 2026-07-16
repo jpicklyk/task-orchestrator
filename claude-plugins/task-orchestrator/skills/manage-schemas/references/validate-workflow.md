@@ -54,8 +54,8 @@ Parse the file. If YAML is invalid, report the parse error with line number (if 
 For each note in each schema (and trait):
 - `key` — required, must be a string, should be kebab-case
 - `role` — required, must be one of: `queue`, `work`, `review`
-- `required` — required, must be a boolean (`true` or `false`)
-- `description` — required, must be a string
+- `required` — optional; must be a boolean if present. The parser defaults it to `false` when omitted, so a missing `required` is **not** a hard error — **warn** (recommend setting explicitly, since it silently becomes `false` = no gate)
+- `description` — optional; must be a string if present. Parser defaults to `""` when omitted — warn if missing
 - `guidance` — optional, must be a string if present
 - `skill` — optional, must be a string if present
 
@@ -85,10 +85,11 @@ For each note in each schema (and trait):
   project: "Task Orchestrator" (rootId set)
 
   Errors (must fix):
-    ✗ bug-fix.fix-summary: missing "required" field
+    ✗ bug-fix.diagnosis: role "queued" is invalid (must be queue/work/review)
     ✗ bug-fix: duplicate key "test-verification"
 
   Warnings (recommended):
+    ! bug-fix.implementation-notes: missing "required" field — defaults to false (set explicitly)
     ! feature-implementation.deploy-notes: description is 94 chars (recommended: under 80)
     ! research-spike: all notes are optional — schema has no gate effect
     ! container: lifecycle is "auto" — consider "manual" for organizational containers
