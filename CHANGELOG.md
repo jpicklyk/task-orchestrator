@@ -5,6 +5,48 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **REST per-root config write endpoint.** `GET`/`PUT`/`DELETE /api/v1/roots/{rootId}/config`,
+  gated by a new `WRITE_CONFIG` capability, backed by a shared `ProjectConfigPushService` so the
+  MCP `manage_project_config` tool and the REST path converge on identical validation and DB state
+  (#234).
+- **`config-sync` SessionStart hook.** Opt-in, fail-open plugin hook that fingerprints the
+  workspace's `.taskorchestrator/config.yaml` at session start and, if it differs from the
+  server's stored per-root config, pushes it via the new REST endpoint — so a shared HTTP server
+  picks up per-project schemas/traits without a restart. No-ops silently unless
+  `TASK_ORCHESTRATOR_API_URL` (and, for bearer mode, `TASK_ORCHESTRATOR_API_TOKEN`) is set in the
+  client environment (#235).
+- **Opt-in unauthenticated REST mode.** `API_AUTH_MODE=none` (plus the required confirm flag
+  `API_ALLOW_UNAUTHENTICATED=true`) attaches a synthetic `ADMIN`/unrestricted principal to every
+  `/api/v1/*` request, skipping bearer/JWKS auth entirely. Intended for a loopback-bound local
+  server only — see `current/docs/api-rest.md` §1 and the loopback-footgun guidance in the new
+  `configure-server` skill below (#237).
+- **New plugin skill `/configure-server`.** End-user decision flow for how the server runs and is
+  reached — transport (HTTP vs STDIO), REST API mode, port publishing, config mount, and
+  config-sync — plus a companion `references/runtime-config.md` rendering catalog shared with
+  `/deploy_to_docker`. Establishes a new **recommended default for new installs**: localhost +
+  HTTP + REST enabled + unauthenticated (loopback-bound), which enables config-sync out of the box
+  for a single developer working across multiple projects. **Image/server defaults are unchanged**
+  — still STDIO, REST off, `MCP_HTTP_HOST=0.0.0.0` — the new posture is delivered entirely by the
+  skill's render, the reframed README/quick-start recipes, and an additive `http-rest`
+  `docker-compose.yml` profile (the existing `http` profile stays REST-off).
+- **`/deploy_to_docker` reuse-on-redeploy.** Every redeploy now detects the existing container's
+  settings via `docker inspect` before removing it and defaults to reusing them, via a
+  Reuse/Reconfigure chooser; Reconfigure adds a REST-mode chooser (Off / Unauthenticated-local /
+  Bearer+token-file) and a config-mount chooser (this-project fallback / none for multi-project).
+  Resolved settings persist to `~/.taskorchestrator/deploy.env` so they survive a full container
+  removal (#238).
+
+### Documentation
+
+- Documented global-vs-per-project config precedence (workspace file is canonical; the per-root DB
+  row is a hot-reloaded synced replica; the file wins at session boundaries) and reframed
+  `AGENT_CONFIG_DIR` in `CLAUDE.md` as the global/fallback config layer, with a pointer to the
+  per-root DB layer and the `config-sync` hook (#236).
+
 ## [3.11.0] - 2026-07-15
 
 ### Added
@@ -101,6 +143,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The REST API is off by default.** `API_ENABLED` defaults to `false`, so the stock container
   (stdio or MCP-over-HTTP) starts with no API configuration; enable the API explicitly with
   `API_ENABLED=true` (which then requires `API_AUTH_MODE`).
+
+> **Correction (added 2026-07-15):** the "binds to loopback by default" clause above was inaccurate
+> both then and now — `MCP_HTTP_HOST` has always defaulted to `0.0.0.0` (verified at the `v3.9.0` tag
+> and unchanged since; see `AppConfig.kt`). For Docker deployments, host-level exposure has always
+> been controlled by the `-p` port-publish mapping (e.g. `-p 127.0.0.1:3001:3001`), not by the
+> server's internal bind address. See `current/docs/quick-start.md` "HTTP transport security" and
+> `SECURITY.md` for the accurate guidance.
 
 ## [3.8.0] - 2026-05-22 (Plugin v3.2.2)
 

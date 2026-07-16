@@ -462,7 +462,7 @@ Restart Claude Code and run `/mcp` to confirm the connection and all 14 tools. O
 
 > **Schema config works identically over HTTP.** `.taskorchestrator/config.yaml` is loaded via `AGENT_CONFIG_DIR` regardless of transport — the `-v ...:/project/.taskorchestrator:ro` mount above gives the HTTP server the same schemas it would have over stdio. (An HTTP server resolves a single project's config; run one server per project.)
 
-The `docker compose --profile http up` service in `docker-compose.yml` is pre-configured this way.
+The `docker compose --profile http up` service in `docker-compose.yml` is pre-configured this way. If you want the recommended REST-enabled, unauthenticated, loopback-only posture as copy-paste compose instead, use the additive `http-rest` profile (`docker compose --profile http-rest up`) — it layers `API_ENABLED=true`, `API_AUTH_MODE=none`, and `API_ALLOW_UNAUTHENTICATED=true` onto the same HTTP service without changing the `http` profile's REST-off default.
 
 ### HTTP transport security
 
@@ -480,7 +480,24 @@ The Streamable HTTP transport follows the [MCP transport security requirements](
 
 The REST API adds HTTP endpoints under `/api/v1` for dashboards, CI systems, and operators who want to read or write work items without an MCP client. It runs on the **same** HTTP server as the MCP transport (Step 9) — `/mcp` keeps serving MCP clients while `/api/v1/*` serves REST. So you enable it on top of an `MCP_TRANSPORT=http` container.
 
-The API is **off by default**, and when enabled it **always requires authentication** (there is no unauthenticated mode). This walkthrough uses **bearer-token** auth — the simplest option for local use. For JWT/JWKS, see [api-rest.md](api-rest.md).
+The API is **off by default** (`API_ENABLED=false`). When you opt in, there are two supported postures:
+
+- **Unauthenticated, loopback-only (recommended default for a single developer).** No token to manage — `API_AUTH_MODE=none` plus the confirm flag `API_ALLOW_UNAUTHENTICATED=true`, published only on `127.0.0.1`. This is what enables `config-sync` out of the box (see the callout at the top of this doc) and is the tuple `/task-orchestrator:configure-server` renders by default. Safety comes entirely from the `-p 127.0.0.1:3001:3001` publish mapping — never widen that publish while running unauthenticated, and never set `MCP_HTTP_HOST=127.0.0.1` to "harden" it (that binds loopback *inside* the container's network namespace and breaks host→container reachability; leave `MCP_HTTP_HOST=0.0.0.0`).
+- **Bearer-token auth**, for shared or multi-user setups where you want per-caller credentials. This is the walkthrough below. For JWT/JWKS, see [api-rest.md](api-rest.md) §1.
+
+To go the unauthenticated route instead of following steps 1-3 below, start the container with:
+
+```bash
+docker run -d --name mcp-task-orchestrator-http --restart unless-stopped \
+  -v mcp-task-data:/app/data \
+  -e MCP_TRANSPORT=http -e API_ENABLED=true -e API_AUTH_MODE=none -e API_ALLOW_UNAUTHENTICATED=true \
+  -p 127.0.0.1:3001:3001 \
+  ghcr.io/jpicklyk/task-orchestrator:latest
+```
+
+and skip to [Step 4: Test it](#4-test-it) (omit the `Authorization` header — there's no token). See [api-rest.md](api-rest.md) §1 for the full unauthenticated-mode semantics.
+
+The rest of this section walks through the **bearer-token** path.
 
 > **You never store your plaintext token.** The server only keeps its **SHA-256 hash**. You generate a token once, keep the plaintext somewhere safe (e.g. a password manager), and put only the hash in `api-tokens.yaml`. You send the plaintext in each request.
 
@@ -599,7 +616,7 @@ Expected: `/api/v1/health` → `200`; the authenticated calls **without** the he
 - **`401` on every authenticated call** almost always means the hash in `api-tokens.yaml` doesn't match your token — re-run step 1 (usually the trailing-newline gotcha).
 - **The `/mcp` endpoint stays open** even with the API enabled (MCP clients don't send the REST token). Keep the server on a trusted boundary — the `127.0.0.1` binding above does this.
 - **Rotating a token:** generate a new one (step 1), replace `token_sha256`, then restart the container (`docker restart task-orchestrator-http`). Tokens are read once at startup.
-- **Docker Compose alternative:** the `http` profile in `docker-compose.yml` runs an MCP-only HTTP server; to enable the REST API there, add the same `API_ENABLED`/`API_AUTH_MODE`/`API_TOKENS_PATH` env vars and the `api-tokens.yaml` mount to that service.
+- **Docker Compose alternative:** the `http` profile in `docker-compose.yml` runs an MCP-only HTTP server; to enable the REST API there in bearer mode, add the same `API_ENABLED`/`API_AUTH_MODE`/`API_TOKENS_PATH` env vars and the `api-tokens.yaml` mount to that service. For the unauthenticated posture instead, use the additive `http-rest` profile, which already ships `API_ENABLED=true`/`API_AUTH_MODE=none`/`API_ALLOW_UNAUTHENTICATED=true`.
 
 See [api-rest.md](api-rest.md) for full endpoint documentation, capabilities and scopes, JWKS mode, DTOs, merge-patch semantics, ETag/idempotency, SSE, and the complete env-var reference.
 

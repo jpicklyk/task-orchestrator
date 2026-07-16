@@ -227,6 +227,7 @@ Present this capabilities table:
 | Build custom workflow schemas | `/manage-schemas` | Create, view, edit, delete, and validate note schemas |
 | See project health dashboard | `/work-summary` | Active work, blockers, next actions at a glance |
 | Advance an item through gates | `/status-progression` | Shows current role, gate status, correct trigger |
+| Change how the server runs (HTTP, REST API, config-sync) | `/configure-server` | Transport, REST API mode, port publishing, config mount |
 
 **Offer cleanup:** Ask via `AskUserQuestion` whether to keep the tutorial items for reference or delete them. If delete, use the container UUID returned in Step 4 above:
 

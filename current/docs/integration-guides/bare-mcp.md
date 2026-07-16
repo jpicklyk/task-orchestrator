@@ -37,6 +37,9 @@ For non-Claude-Code MCP clients, the server configuration follows the standard M
 
 The `mcp-task-data` Docker volume persists the SQLite database across container restarts.
 
+For a persistent HTTP server shared across multiple projects (instead of this per-session `--rm -i`
+container), see `/task-orchestrator:configure-server`.
+
 ## Core Workflow
 
 ### Creating Work Items

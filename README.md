@@ -377,7 +377,7 @@ Agent: advance_item(trigger="start", itemId="a3f2",
 Clean Architecture (Domain > Application > Infrastructure > Interface) with comprehensive test coverage.
 
 Key capabilities added in recent versions:
-- **REST API** — an HTTP REST layer (`API_ENABLED=true`) exposes items, notes, dependencies, transitions, config, and real-time SSE events to dashboards, CI systems, and operators. Supports static bearer tokens and JWKS JWT auth. See [`current/docs/api-rest.md`](current/docs/api-rest.md) for the full endpoint reference.
+- **REST API** — an HTTP REST layer (`API_ENABLED=true`) exposes items, notes, dependencies, transitions, config, and real-time SSE events to dashboards, CI systems, and operators. Supports static bearer tokens, JWKS JWT auth, and an opt-in unauthenticated loopback mode (`API_AUTH_MODE=none`) for single-developer local setups — see [Quick Start](#quick-start) above and `/configure-server`. See [`current/docs/api-rest.md`](current/docs/api-rest.md) for the full endpoint reference.
 - **Full-text search** — search work items and notes by keyword with ranked results (see [Full-Text Search](#full-text-search) above)
 - **Unbounded hierarchy depth** — item trees are not capped at depth 3; cycle protection is enforced at the database level via a trigger
 - **Backlinks** — `query_dependencies(operation="backlinks")` finds all items that reference a given item (reverse-direction edge lookup)
