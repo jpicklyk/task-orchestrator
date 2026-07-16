@@ -712,6 +712,83 @@ components:
             Honored keys: work_item_schemas, note_schemas, traits, project, note_limits,
             status_labels. Omitted entirely when empty.
 
+    PlanDocumentResponseDto:
+      type: object
+      required: [id, rootItemId, slug, contentHash, status, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        rootItemId:
+          type: string
+          format: uuid
+        slug:
+          type: string
+        contentHash:
+          type: string
+          description: SHA-256 hex digest of the stored body's UTF-8 bytes
+        status:
+          type: string
+          enum: [pending, adopted]
+        adoptedByItemId:
+          type: string
+          format: uuid
+          nullable: true
+          description: >-
+            Set once status is "adopted"; null while pending, and null again if the adopting
+            item is later deleted (ON DELETE SET NULL — status itself does not revert).
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        body:
+          type: string
+          nullable: true
+          description: Raw stored document text; present on GET only (omitted on PUT)
+
+    PlanDocumentSummaryDto:
+      type: object
+      required: [id, rootItemId, slug, contentHash, status, createdAt, updatedAt]
+      description: Same shape as PlanDocumentResponseDto minus body, which list responses never include.
+      properties:
+        id:
+          type: string
+          format: uuid
+        rootItemId:
+          type: string
+          format: uuid
+        slug:
+          type: string
+        contentHash:
+          type: string
+        status:
+          type: string
+          enum: [pending, adopted]
+        adoptedByItemId:
+          type: string
+          format: uuid
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    PlanDocumentListResponseDto:
+      type: object
+      required: [rootItemId, plans]
+      properties:
+        rootItemId:
+          type: string
+          format: uuid
+        plans:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlanDocumentSummaryDto"
+
   responses:
     Unauthorized:
       description: Missing or invalid bearer token
@@ -1866,6 +1943,138 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           description: No config row existed for this root
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDto"
+
+  /roots/{rootId}/plans:
+    parameters:
+      - name: rootId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      summary: List metadata-only plan document summaries for a root
+      operationId: listPlanDocuments
+      tags: [plan-documents]
+      description: |
+        Requires READ + scope. Returns metadata-only summaries (never the body) for every
+        document under {rootId}, ordered by slug ascending.
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, adopted]
+          description: Optional filter to a single status.
+      responses:
+        "200":
+          description: Plan document summaries
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlanDocumentListResponseDto"
+        "400":
+          description: Invalid status query parameter
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDto"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /roots/{rootId}/plans/{slug}:
+    parameters:
+      - name: rootId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: slug
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      summary: Read back a stored plan document, including its body
+      operationId: getPlanDocument
+      tags: [plan-documents]
+      description: |
+        Requires READ + scope. Mirrors the MCP manage_plan_documents tool's get operation.
+      responses:
+        "200":
+          description: Stored plan document
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlanDocumentResponseDto"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: No document exists at this slug
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDto"
+
+    put:
+      summary: Validate and stash a plan document body for a root+slug
+      operationId: putPlanDocument
+      tags: [plan-documents]
+      description: |
+        Requires WRITE_CONFIG + scope. Delegates the full validate-then-persist pipeline
+        (size cap -> root exists -> root is depth-0 -> stash) to PlanDocumentService — the
+        SAME service the MCP manage_plan_documents tool's stash operation calls, so both
+        surfaces converge on identical DB state (including contentHash) for the same payload.
+
+        A document already at status "adopted" for this slug cannot be overwritten by stash —
+        adoption is a one-way transition, rejected as 409 adopted_conflict. A "pending" document
+        at that slug is overwritten in place.
+      requestBody:
+        required: true
+        content:
+          text/plain:
+            schema:
+              type: string
+      responses:
+        "200":
+          description: Plan document validated and stashed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlanDocumentResponseDto"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: rootId does not resolve to an existing WorkItem
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDto"
+        "409":
+          description: The slug is already adopted; adoption is one-way and cannot be overwritten
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDto"
+        "413":
+          description: body exceeds the 64 KiB cap
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDto"
+        "422":
+          description: rootId is not depth-0
           content:
             application/json:
               schema:

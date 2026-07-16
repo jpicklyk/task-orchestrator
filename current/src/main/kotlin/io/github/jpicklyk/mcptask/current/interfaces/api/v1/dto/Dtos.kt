@@ -460,3 +460,43 @@ data class ProjectConfigResponseDto(
     /** Top-level `configYaml` keys not honored by any per-root layer (e.g. `actor_authentication`); present only on PUT, and only when non-empty. */
     val ignoredSections: List<String>? = null,
 )
+
+/**
+ * Response DTO for `PUT /api/v1/roots/{rootId}/plans/{slug}` and `GET /api/v1/roots/{rootId}/plans/{slug}`.
+ *
+ * Mirrors the `data` payload of the MCP `manage_plan_documents` tool's `stash`/`get` operations —
+ * both surfaces converge on the same [io.github.jpicklyk.mcptask.current.application.service.PlanDocumentService].
+ * `body` is included only on GET (omitted on PUT, which already echoed the caller's own body).
+ */
+@Serializable
+data class PlanDocumentResponseDto(
+    val id: String,
+    val rootItemId: String,
+    val slug: String,
+    val contentHash: String,
+    val status: String,
+    val adoptedByItemId: String? = null,
+    val createdAt: String,
+    val updatedAt: String,
+    val body: String? = null,
+)
+
+/** One row of `GET /api/v1/roots/{rootId}/plans` — metadata only, never the document body. */
+@Serializable
+data class PlanDocumentSummaryDto(
+    val id: String,
+    val rootItemId: String,
+    val slug: String,
+    val contentHash: String,
+    val status: String,
+    val adoptedByItemId: String? = null,
+    val createdAt: String,
+    val updatedAt: String,
+)
+
+/** Response DTO for `GET /api/v1/roots/{rootId}/plans`. */
+@Serializable
+data class PlanDocumentListResponseDto(
+    val rootItemId: String,
+    val plans: List<PlanDocumentSummaryDto>,
+)

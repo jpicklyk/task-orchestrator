@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.application.tools
 
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
+import io.github.jpicklyk.mcptask.current.application.tools.config.ManagePlanDocumentsTool
 import io.github.jpicklyk.mcptask.current.application.tools.config.ManageProjectConfigTool
 import io.github.jpicklyk.mcptask.current.application.tools.dependency.ManageDependenciesTool
 import io.github.jpicklyk.mcptask.current.application.tools.dependency.QueryDependenciesTool
@@ -76,6 +77,7 @@ class ToolTokenBudgetTest {
             CompleteTreeTool(),
             CreateWorkTreeTool(),
             ManageProjectConfigTool(),
+            ManagePlanDocumentsTool(),
         )
 
     /**
@@ -108,10 +110,11 @@ class ToolTokenBudgetTest {
             "get_blocked_items" to 1250, // was 830; T2.3 added the `ancestorId` scope parameter
             "get_next_status" to 470,
             "manage_project_config" to 3150, // measured 2698 after get `fingerprint` param + relation (fast-forward guard, t5)
+            "manage_plan_documents" to 2150, // measured 1834; new tool: stash/get/list per-root plan documents (dual REST+MCP ingestion)
         )
 
     /** Sum of the (unrounded) measured-per-tool-values * 1.15; see BUDGET PHILOSOPHY point 2. */
-    private val totalCeiling = 40_800
+    private val totalCeiling = 43_350
 
     // explicitNulls = false mirrors the compact-wire-shape convention already used elsewhere
     // in this codebase (see EventRoutes.kt / ItemWriteRoutes.kt / NoteWriteRoutes.kt) — a

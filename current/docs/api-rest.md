@@ -27,12 +27,13 @@ This document describes the HTTP REST API layer (v1) added alongside the MCP tra
 15. [Endpoints — Search](#15-endpoints--search)
 16. [Endpoints — Config / Schema Discovery](#16-endpoints--config--schema-discovery)
 17. [Endpoints — Project Config (Per-Root)](#17-endpoints--project-config-per-root)
-18. [Endpoints — Service Meta](#18-endpoints--service-meta)
-19. [Server-Sent Events (SSE)](#19-server-sent-events-sse)
-20. [Audit Model](#20-audit-model)
-21. [Merge Patch Semantics](#21-merge-patch-semantics)
-22. [Status-Graph Caveat](#22-status-graph-caveat)
-23. [Known Limitations](#23-known-limitations)
+18. [Endpoints — Plan Documents (Per-Root)](#18-endpoints--plan-documents-per-root)
+19. [Endpoints — Service Meta](#19-endpoints--service-meta)
+20. [Server-Sent Events (SSE)](#20-server-sent-events-sse)
+21. [Audit Model](#21-audit-model)
+22. [Merge Patch Semantics](#22-merge-patch-semantics)
+23. [Status-Graph Caveat](#23-status-graph-caveat)
+24. [Known Limitations](#24-known-limitations)
 
 ---
 
@@ -132,7 +133,7 @@ Each token grants a set of additive capabilities:
 | `WRITE_NOTES` | `write-notes` | `PUT /items/{id}/notes/{key}`, `DELETE /items/{id}/notes/{key}` |
 | `ADVANCE` | `advance` | `POST /items/{id}/advance` |
 | `MANAGE_DEPENDENCIES` | `manage-dependencies` | `POST /dependencies`, `DELETE /dependencies/{id}` |
-| `WRITE_CONFIG` | `write-config` | `PUT /roots/{rootId}/config`, `DELETE /roots/{rootId}/config` |
+| `WRITE_CONFIG` | `write-config` | `PUT /roots/{rootId}/config`, `DELETE /roots/{rootId}/config`, `PUT /roots/{rootId}/plans/{slug}` |
 | `ADMIN` | `admin` | Implies all of the above; unlocks attribution fields in responses |
 
 **`ADMIN` unlocks:** When a caller has `ADMIN`, note and transition `actor`/`verification` fields are included in responses (subject to `API_REDACT_*` env flags). Non-admin callers always receive `null` for these fields.
@@ -481,6 +482,35 @@ root's `type` is not `"project"` (non-fatal — the push still succeeds). `relat
 `PUT` only, and only when the pushed document contains top-level keys the per-root resolution layer
 does not honor (e.g. `actor_authentication`, which stays global-only) — omitted entirely when empty.
 See §17 for the full list of honored per-root keys.
+
+**PlanDocumentResponseDto** (see §18):
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "rootItemId": "550e8400-e29b-41d4-a716-446655440000",
+  "slug": "auth-redesign",
+  "contentHash": "e3b0c44298fc1c14...",
+  "status": "pending",
+  "adoptedByItemId": "string|null",
+  "createdAt": "2026-07-15T19:00:00Z",
+  "updatedAt": "2026-07-15T19:00:00Z",
+  "body": "string|null"
+}
+```
+`body` is populated on `GET` only (omitted on `PUT`). `adoptedByItemId` is populated once `status`
+is `"adopted"`; null while `"pending"`, and null again if the adopting item is later deleted
+(`ON DELETE SET NULL` — the document's own `status` does not revert).
+
+**PlanDocumentSummaryDto** — one row of `PlanDocumentListResponseDto.plans` (see §18); same shape as
+`PlanDocumentResponseDto` minus `body`, which is never included in list responses.
+
+**PlanDocumentListResponseDto** (see §18):
+```json
+{
+  "rootItemId": "550e8400-e29b-41d4-a716-446655440000",
+  "plans": [<PlanDocumentSummaryDto>]
+}
+```
 
 ### SSE / ApiEvent
 
@@ -1013,7 +1043,63 @@ Removes the stored config row for `{rootId}`. Requires `WRITE_CONFIG`.
 
 ---
 
-## 18. Endpoints — Service Meta
+## 18. Endpoints — Plan Documents (Per-Root)
+
+Per-root plan documents — free-floating planning docs an agent stashes ahead of adoption into a
+real WorkItem. See [`PlanDocumentService`](../src/main/kotlin/io/github/jpicklyk/mcptask/current/application/service/PlanDocumentService.kt)
+and the MCP `manage_plan_documents` tool's `stash`/`get`/`list` operations, which share the exact
+same validate-then-persist pipeline as these routes (both converge on identical DB state, including
+`contentHash`, for the same payload).
+
+All verbs additionally require `ApiScope.rootIds` (when scoped) to contain `{rootId}` —
+`403 scope_forbidden` otherwise. `{rootId}` must be a depth-0 WorkItem UUID. `{slug}` is a
+caller-chosen identifier, unique within `{rootId}`.
+
+### PUT /roots/{rootId}/plans/{slug}
+
+Validates and stores the raw request body as the `pending` document at `{rootId}`+`{slug}`.
+Requires `WRITE_CONFIG`.
+
+**Request body:** raw document text (markdown or plain text); max 64 KiB.
+
+**Validation pipeline (in order, stops at first failure — nothing is written on failure):**
+1. Body size ≤ 64 KiB
+2. `{rootId}` resolves to an existing WorkItem
+3. That WorkItem is depth-0 (plan documents anchor to project roots only)
+4. If a document already exists at `{rootId}`+`{slug}` and its `status` is `adopted`, the stash is
+   rejected — adoption is a one-way transition and cannot be overwritten. A `pending` document at
+   that slug is overwritten in place (`contentHash`, `body`, and `updatedAt` are replaced; `id` and
+   `createdAt` are preserved).
+
+**Responses:**
+- `200 OK` → `PlanDocumentResponseDto` (no `body` field on this verb — the caller already has it)
+- `404 not_found` — `{rootId}` does not resolve to an existing WorkItem
+- `422 validation_error` — `{rootId}` is not depth-0
+- `409 adopted_conflict` — the slug is already `adopted` (message names the adopting item when known)
+- `413 payload_too_large` — body exceeds 64 KiB
+- `403 scope_forbidden` — capability present but `{rootId}` outside token scope
+
+### GET /roots/{rootId}/plans/{slug}
+
+Reads back the stored document (including its body) for `{rootId}`+`{slug}`. Requires `READ`.
+
+**Responses:**
+- `200 OK` → `PlanDocumentResponseDto` (includes `body`)
+- `404 not_found` — no document exists at that slug
+
+### GET /roots/{rootId}/plans
+
+Lists metadata-only summaries (never the body) for every document under `{rootId}`. Requires `READ`.
+
+**Query parameter:** `status` (optional, `pending` | `adopted`) — filters the list to a single status.
+`400 bad_request` on any other value.
+
+**Responses:**
+- `200 OK` → `PlanDocumentListResponseDto` — `plans` ordered by `slug` ascending
+
+---
+
+## 19. Endpoints — Service Meta
 
 ### GET /api/v1/info
 
@@ -1055,7 +1141,7 @@ Requires `READ`. Returns server metadata and the caller's resolved capabilities.
 
 ---
 
-## 19. Server-Sent Events (SSE)
+## 20. Server-Sent Events (SSE)
 
 ### GET /api/v1/events
 
@@ -1103,7 +1189,7 @@ Ktor's `sse {}` handler runs inside the response-body phase — after the HTTP 2
 
 ---
 
-## 20. Audit Model
+## 21. Audit Model
 
 All write endpoints (POST, PATCH, PUT, DELETE) synthesize an actor server-side from the authenticated principal. Client-supplied `actor.*` fields in the request body are **silently dropped** — callers cannot override audit attribution.
 
@@ -1124,7 +1210,7 @@ All write endpoints (POST, PATCH, PUT, DELETE) synthesize an actor server-side f
 
 ---
 
-## 21. Merge Patch Semantics
+## 22. Merge Patch Semantics
 
 `PATCH /items/{id}` implements [RFC 7396 JSON Merge Patch](https://datatracker.ietf.org/doc/html/rfc7396).
 
@@ -1144,7 +1230,7 @@ All write endpoints (POST, PATCH, PUT, DELETE) synthesize an actor server-side f
 
 ---
 
-## 22. Status-Graph Caveat
+## 23. Status-Graph Caveat
 
 `GET /config/status-graph` returns the **structural** (schema-defined) transition graph — which triggers are valid for each role per type.
 
@@ -1160,7 +1246,7 @@ The `"<previousRole>"` sentinel in `blocked.resume` is a literal string — reso
 
 ---
 
-## 23. Known Limitations
+## 24. Known Limitations
 
 **SSE dependency-event scoping depends on a warm ancestor cache.** Live root-filtering and `Last-Event-ID` replay are both correctly root-scoped — ring-buffer entries carry `affectedRoots` metadata and the replay path applies the same root-intersection filter as the live fan-out. One residual caveat remains for dependency events: `dependency.added` / `dependency.removed` resolve their affected roots from an in-memory ancestor cache populated by prior item create/update writes. On a cache miss (e.g., a dependency change with no preceding item write on that subtree during the connection's lifetime), the event falls back to an unscoped broadcast. This is a deliberate tradeoff; root-scoped subscribers that require exact dependency-event scoping should re-fetch state rather than relying solely on the event stream.
 

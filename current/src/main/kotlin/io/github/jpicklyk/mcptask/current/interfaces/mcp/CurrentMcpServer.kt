@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaServ
 import io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
+import io.github.jpicklyk.mcptask.current.application.tools.config.ManagePlanDocumentsTool
 import io.github.jpicklyk.mcptask.current.application.tools.config.ManageProjectConfigTool
 import io.github.jpicklyk.mcptask.current.application.tools.dependency.ManageDependenciesTool
 import io.github.jpicklyk.mcptask.current.application.tools.dependency.QueryDependenciesTool
@@ -38,6 +39,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.itemRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.itemWriteRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.noteRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.noteWriteRoutes
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.planDocumentRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.projectConfigRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.searchRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.serviceRoutes
@@ -407,6 +409,8 @@ internal fun buildMcpTools(): List<ToolDefinition> =
         GetContextTool(),
         // Per-root schema layering: transport-agnostic config sync
         ManageProjectConfigTool(),
+        // Per-root plan document store: dual ingestion (REST PUT + MCP stash)
+        ManagePlanDocumentsTool(),
     )
 
 /**
@@ -513,6 +517,9 @@ internal fun Application.installRestApiRoutes(
             // Phase 1 (project-config-rest-endpoint): per-root config read/write/delete —
             // converges on the same ProjectConfigPushService the manage_project_config MCP tool uses.
             projectConfigRoutes(effectiveProvider)
+            // plan_documents store: per-root plan document read/write —
+            // converges on the same PlanDocumentService the manage_plan_documents MCP tool uses.
+            planDocumentRoutes(effectiveProvider)
         }
         // Phase 6: real-time SSE event stream — registered OUTSIDE the ApiBearerAuth block (as a
         // sibling `route("/api/v1/events")`) so the ApiBearerAuth plugin does NOT intercept it. The

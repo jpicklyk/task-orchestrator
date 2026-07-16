@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.infrastructure.database.schema.manage
 
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.DependenciesTable
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.NotesTable
+import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.PlanDocumentsTable
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.ProjectConfigTable
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.RoleTransitionsTable
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.WorkItemsTable
@@ -18,9 +19,10 @@ import org.slf4j.LoggerFactory
  * Table dependency graph:
  * 1. WorkItemsTable (no external dependencies, self-referencing parentId)
  * 2. ProjectConfigTable (depends on WorkItemsTable)
- * 3. NotesTable (depends on WorkItemsTable)
- * 4. DependenciesTable (depends on WorkItemsTable)
- * 5. RoleTransitionsTable (depends on WorkItemsTable)
+ * 3. PlanDocumentsTable (depends on WorkItemsTable, two FKs — root_item_id and adopted_by_item_id)
+ * 4. NotesTable (depends on WorkItemsTable)
+ * 5. DependenciesTable (depends on WorkItemsTable)
+ * 6. RoleTransitionsTable (depends on WorkItemsTable)
  *
  * Virtual tables (FTS5, follow their backing tables):
  * 6. work_items_fts_trigram (external-content over WorkItemsTable)
@@ -41,6 +43,7 @@ class DirectDatabaseSchemaManager : DatabaseSchemaManager {
         arrayOf(
             WorkItemsTable,
             ProjectConfigTable,
+            PlanDocumentsTable,
             NotesTable,
             DependenciesTable,
             RoleTransitionsTable,

@@ -2,7 +2,7 @@
 
 ## Overview
 
-The v3 server exposes 15 MCP tools organized around a single **WorkItem** graph model. Every
+The v3 server exposes 16 MCP tools organized around a single **WorkItem** graph model. Every
 entity — whether a project, feature, or task — is a WorkItem with a `role` (queue, work, review,
 blocked, terminal), optional `parentId`, a `type` field that selects a work-item schema (lifecycle
 mode + required notes), optional `tags` for categorization, and optional `traits` that compose
@@ -31,6 +31,7 @@ FTS5 search (two-tokenizer design, RRF fusion, scope filtering, backlinks, score
 | `get_blocked_items` | Workflow | Read | All items blocked by dependency or explicit block trigger |
 | `claim_item` | Workflow | Write | Atomically claim or release work items for exclusive ownership |
 | `manage_project_config` | System | Write/Read | Push or read back per-root config YAML for the layered schema resolver |
+| `manage_plan_documents` | System | Write/Read | Stash, read back, or list per-root plan documents |
 
 ---
 
@@ -1900,6 +1901,122 @@ this tool; it's the existing MCP transport trust model (see
 Read First") applying to config data the same way it already applies to every other MCP tool.
 Fence `/mcp` at the network layer per that guidance before exposing `MCP_TRANSPORT=http` beyond a
 single trusted process.
+
+### manage_plan_documents
+
+**Purpose.** Transport-agnostic store for per-root plan documents — free-floating planning docs an
+agent stashes ahead of adoption into a real WorkItem. Mirrors `manage_project_config`'s push/get
+shape: `PlanDocumentService` is the same validate-then-persist pipeline shared with the REST
+`PUT/GET /api/v1/roots/{rootId}/plans/{slug}` and `GET /api/v1/roots/{rootId}/plans` routes — both
+surfaces converge on identical DB state (including `contentHash`) for the same payload.
+
+Supports three operations, selected via `operation`:
+
+#### `stash`
+
+Validates, in order:
+1. The resolved body (`body` or `bodyFromFile`) must not exceed **64 KiB** (65,536 bytes, UTF-8) —
+   rejected before any repository call.
+2. `rootItemId` must resolve to an existing WorkItem.
+3. That WorkItem must be depth 0 (a project root) — plan documents anchor to roots only.
+4. If a document already exists at `rootItemId`+`slug` and its `status` is `"adopted"`, the stash
+   is rejected — adoption is a one-way transition (see the materialization tooling that calls
+   `PlanDocumentRepository.markAdopted`) and cannot be undone by stashing over it. A `"pending"`
+   document at that slug is overwritten in place (`contentHash`, `body`, and `updatedAt` replaced;
+   `id` and `createdAt` preserved).
+
+`body` (inline text) and `bodyFromFile` (server-side path) are mutually exclusive — providing both,
+or neither, fails validation. `bodyFromFile` resolves strictly relative to the agent config root
+(`AGENT_CONFIG_DIR`, same containment rules as `manage_notes`' `bodyFromFile`: rejects absolute
+paths, `..`, and symlink escapes; file must exist, ≤65536 bytes; CRLF is normalized to LF) —
+so a document stashed via REST PUT and via `bodyFromFile` land byte-identical content when the
+underlying text matches.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `operation` | string (`"stash"` \| `"get"` \| `"list"`) | Yes | Selects the operation |
+| `rootItemId` | string (UUID or 4+ char hex prefix) | Yes | Project root WorkItem — must be depth 0 for `stash` |
+| `slug` | string | Yes (stash, get) | Document identifier, unique within `rootItemId` |
+| `body` | string | One of `body`/`bodyFromFile` (stash only) | Inline document text; max 64 KiB |
+| `bodyFromFile` | string | One of `body`/`bodyFromFile` (stash only) | Server-side path, resolved relative to the agent config root |
+| `status` | string (`"pending"` \| `"adopted"`) | No (list only) | Filter to a single status |
+
+**Example.**
+
+```json
+{
+  "operation": "stash",
+  "rootItemId": "3f9c2b10-...",
+  "slug": "auth-redesign",
+  "body": "# Auth Redesign\n\n## Goals\n..."
+}
+```
+
+**Response (success).**
+
+```json
+{
+  "id": "8a1e...",
+  "rootItemId": "3f9c2b10-...",
+  "slug": "auth-redesign",
+  "contentHash": "e3b0c44298fc1c14...",
+  "status": "pending",
+  "createdAt": "2026-07-16T18:00:00Z",
+  "updatedAt": "2026-07-16T18:00:00Z"
+}
+```
+
+`body` is never echoed back on `stash` — the caller already has it. `adoptedByItemId` is included
+only once `status` is `"adopted"`.
+
+**Error cases.**
+
+| Condition | `error.code` |
+|---|---|
+| Resolved body exceeds 64 KiB | `VALIDATION_ERROR` (message names the limit and the actual size) |
+| `rootItemId` does not resolve to an existing WorkItem | `RESOURCE_NOT_FOUND` |
+| Root WorkItem has `depth != 0` | `VALIDATION_ERROR` |
+| Both `body` and `bodyFromFile` supplied, or neither | `VALIDATION_ERROR` |
+| `bodyFromFile` path rejected (absolute, `..`, symlink escape, missing, over cap) | `VALIDATION_ERROR` |
+| Target slug is already `"adopted"` | `CONFLICT_ERROR` (message names the adopting item when known) |
+| Storage failure | `DATABASE_ERROR` |
+
+#### `get`
+
+Reads back the full stored document (including `body`) for `rootItemId`+`slug`.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `operation` | string (`"stash"` \| `"get"` \| `"list"`) | Yes | Selects the operation |
+| `rootItemId` | string (UUID or 4+ char hex prefix) | Yes | Project root WorkItem to read from |
+| `slug` | string | Yes | Document identifier to read |
+
+**Response (no document at this slug).** `error.code` is `RESOURCE_NOT_FOUND`.
+
+#### `list`
+
+Reads back metadata-only summaries (never the body) for every document under `rootItemId`,
+optionally filtered by `status`, ordered by `slug` ascending.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `operation` | string (`"stash"` \| `"get"` \| `"list"`) | Yes | Selects the operation |
+| `rootItemId` | string (UUID or 4+ char hex prefix) | Yes | Project root WorkItem to list documents for |
+| `status` | string (`"pending"` \| `"adopted"`) | No | Filter to a single status |
+
+**Response (success).**
+
+```json
+{
+  "rootItemId": "3f9c2b10-...",
+  "plans": [
+    { "id": "8a1e...", "rootItemId": "3f9c2b10-...", "slug": "auth-redesign", "contentHash": "e3b0c4...", "status": "pending", "createdAt": "...", "updatedAt": "..." }
+  ]
+}
+```
+
+**Note on actor attribution.** Like `manage_project_config`, this tool does not accept an `actor`
+parameter — plan documents have no per-note attribution model to stamp.
 
 ---
 
