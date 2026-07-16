@@ -220,6 +220,39 @@ class ToolExecutionContext(
     }
 
     /**
+     * Builds a [StatusLabelService] bound to a single item's [rootId] and pre-resolved for
+     * [trigger], for handing to [io.github.jpicklyk.mcptask.current.application.service.AdvanceService]
+     * (whose constructor takes a plain, non-suspending [StatusLabelService] and has no rootId
+     * awareness of its own). Since [StatusLabelService.resolveLabel] is synchronous, the per-root
+     * layering ([resolveStatusLabels]) must run to completion BEFORE this method returns; the
+     * resulting map is then served from a trivial synchronous lookup.
+     *
+     * Resolves every trigger key a single `advance()` call can ever consult: the primary [trigger]
+     * itself, `"complete"` (consulted instead of `"start"` when a start resolves to TERMINAL — see
+     * bug 100da214 / [io.github.jpicklyk.mcptask.current.application.service.AdvanceService.advance]),
+     * and the system-internal `"cascade"` trigger (consulted only when a cascade is detected and
+     * applied). [resolveStatusLabels] collapses this 3-key resolution into a SINGLE per-root
+     * snapshot fetch rather than one per trigger, so widening the set costs nothing extra.
+     *
+     * Shared by [io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool]
+     * (MCP) and the REST `POST /items/{id}/advance` route so both paths resolve config-driven,
+     * per-root status labels identically (bug 80e48e55 — REST previously constructed its
+     * [io.github.jpicklyk.mcptask.current.application.service.AdvanceService] with
+     * [io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService] and never
+     * applied labels at all).
+     */
+    suspend fun rootAwareStatusLabelService(
+        rootId: UUID?,
+        trigger: String
+    ): StatusLabelService {
+        val consultedTriggers = setOf(trigger, "complete", "cascade")
+        val resolved = resolveStatusLabels(consultedTriggers, rootId)
+        return object : StatusLabelService {
+            override fun resolveLabel(trigger: String): String? = resolved[trigger]
+        }
+    }
+
+    /**
      * Returns the union of trait names available for the given [rootIds], per-root traits first
      * (in [rootIds] iteration order), followed by the global trait list — deduplicated, preserving
      * first-seen order. Used by response hints (e.g. `availableTraits` on item creation) so callers

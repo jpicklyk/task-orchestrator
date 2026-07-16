@@ -5,7 +5,7 @@ import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceService
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
 import io.github.jpicklyk.mcptask.current.application.service.ItemHierarchyValidator
-import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
+import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.rest.MergePatchApplier
 import io.github.jpicklyk.mcptask.current.application.service.rest.WorkItemPatchProjection
@@ -17,6 +17,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
+import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlStatusLabelService
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.audit.ApiAuditBridge
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
@@ -193,6 +194,11 @@ private suspend fun respondAdvanceFailure(
  *
  * @param schemaService used to resolve the item's actual `hasReviewPhase` on advance, mirroring
  *   [io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool] (trait-merged).
+ * @param statusLabelService config-driven, root-layerable status label resolution — the SAME
+ *   [StatusLabelService] instance the MCP `advance_item` tool uses, so REST-driven advances stamp
+ *   identical labels (bug 80e48e55 — REST previously hardcoded [NoOpStatusLabelService] and never
+ *   applied labels at all). Defaults to a fresh [YamlStatusLabelService] for callers (tests) that
+ *   don't need to share the production instance.
  */
 fun Route.itemWriteRoutes(
     repositoryProvider: RepositoryProvider,
@@ -200,6 +206,7 @@ fun Route.itemWriteRoutes(
     idempotencyCache: IdempotencyCache,
     schemaService: WorkItemSchemaService,
     warnOnClaimedAdvance: Boolean = defaultWarnOnClaimedAdvance,
+    statusLabelService: StatusLabelService = YamlStatusLabelService(),
 ) {
     val workItemRepo = repositoryProvider.workItemRepository()
     val roleTransitionRepo = repositoryProvider.roleTransitionRepository()
@@ -209,13 +216,15 @@ fun Route.itemWriteRoutes(
     // Schema-resolution context — reuses the EXACT trait-merging + review-phase logic from
     // AdvanceItemTool (via ToolExecutionContext.resolveHasReviewPhase). Repository access is shared;
     // no MCP behavior is affected since this context is read-only for schema resolution here.
-    // perRootConfigService is passed by name (all other trailing ToolExecutionContext params keep
-    // their defaults) so REST advances get the SAME per-root schema layering as MCP tool calls —
-    // otherwise this independently-constructed context would silently resolve global-only.
+    // statusLabelService and perRootConfigService are passed by name (all other trailing
+    // ToolExecutionContext params keep their defaults) so REST advances get the SAME per-root
+    // schema layering AND the SAME config-driven status labels as MCP tool calls — otherwise this
+    // independently-constructed context would silently resolve global-only / labels at all.
     val schemaResolutionContext =
         ToolExecutionContext(
             repositoryProvider,
             schemaService,
+            statusLabelService = statusLabelService,
             perRootConfigService = PerRootConfigService(repositoryProvider.projectConfigRepository()),
         )
 
@@ -750,13 +759,20 @@ fun Route.itemWriteRoutes(
             // not fleet agents). The advance SUCCEEDS even when the item is claimed by a different
             // MCP agent, while the synthesized API actor is still recorded on the role_transitions
             // row for audit. Unlike the prior userTransition() path, the gate is now ENFORCED.
+            // statusLabelService is bound to THIS item's rootId via the SAME root-aware factory
+            // AdvanceItemTool uses, so REST advances stamp identical (config-driven, per-root)
+            // status labels instead of applying none at all (bug 80e48e55).
             val advanceService =
                 AdvanceService(
                     workItemRepository = workItemRepo,
                     roleTransitionRepository = roleTransitionRepo,
                     dependencyRepository = depRepo,
                     noteRepository = repositoryProvider.noteRepository(),
-                    statusLabelService = NoOpStatusLabelService,
+                    statusLabelService =
+                        schemaResolutionContext.rootAwareStatusLabelService(
+                            item.rootId,
+                            userTrigger.triggerString,
+                        ),
                     schemaResolver = { schemaResolutionContext.resolveSchema(it) },
                 )
 

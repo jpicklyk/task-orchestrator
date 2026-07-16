@@ -218,13 +218,22 @@ class AdvanceService(
         // 2. Resolve — schema-driven review-phase detection.
         val hasReviewPhase = itemSchema?.hasReviewPhase() ?: false
         val resolution = handler.resolveTransition(item, trigger, hasReviewPhase)
-        val configLabel = statusLabelService.resolveLabel(trigger)
         if (!resolution.success || resolution.targetRole == null) {
             return AdvanceOutcome.Failure(
                 AdvanceFailure.ResolutionFailed(resolution.error ?: "Failed to resolve transition")
             )
         }
         val targetRole = resolution.targetRole
+        // "start" ordinarily maps to the in-progress label, but resolveStart() returns
+        // targetRole=TERMINAL when the schema has no review phase (WORK->TERMINAL) or the item was
+        // already in REVIEW (REVIEW->TERMINAL) — the item is actually completing, not merely
+        // starting work. Look the label up under "complete" in that case so start-to-terminal and
+        // complete-to-terminal converge on the same terminal label instead of stamping the
+        // work-phase label ("in-progress") on a terminal item (bug 100da214). "cancel" already
+        // carries its own hardcoded resolution.statusLabel ("cancelled"), which takes precedence
+        // below regardless of this lookup, so it is deliberately excluded from the remap.
+        val labelLookupTrigger = if (trigger == "start" && targetRole == Role.TERMINAL) "complete" else trigger
+        val configLabel = statusLabelService.resolveLabel(labelLookupTrigger)
 
         // 3. Validate dependency constraints.
         val validation = handler.validateTransition(item, targetRole, dependencyRepository, workItemRepository)
