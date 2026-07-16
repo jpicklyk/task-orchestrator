@@ -76,6 +76,22 @@ All 14 MCP tools are available to any connected client without identification. T
 
 **This is intentional.** Within a cooperating fleet, access control between agents adds friction without meaningful security benefit — the agents are working toward the same goals. Tenant isolation is achieved at the infrastructure level (separate databases), not the application level.
 
+### REST API Authentication
+
+The above applies to the **MCP tool surface** (`/mcp`). The optional REST API (`/api/v1/*`, opt-in via `API_ENABLED=true`) is a separate surface with its own authentication layer, selected by `API_AUTH_MODE`. Full semantics: [`current/docs/api-rest.md`](current/docs/api-rest.md) §1.
+
+| Mode | Identity | Capability model |
+|------|----------|-------------------|
+| `bearer` | Static token, hashed (SHA-256) at rest in a YAML file | Per-token `capabilities` (`read`, `write-items`, `write-notes`, `advance`, `manage-dependencies`, `admin`) and optional `scope.root_ids` |
+| `jwks` | JWT verified against a JWKS endpoint (or `did:web` document) | Same capability model, driven by JWT claims |
+| `none` (opt-in, requires `API_ALLOW_UNAUTHENTICATED=true` in addition) | None — every request is attached a synthetic `ADMIN` principal | Unrestricted: full read/write/delete access to every item, note, and per-root config, with no scope restriction |
+
+**The unauthenticated mode's threat boundary is the network, not the application.** `API_AUTH_MODE=none` deliberately grants unconditional `ADMIN` access — there is no capability check to bypass because there is no capability restriction at all. This mode is safe **only** when the port is unreachable from anyone but the operator's own machine. That containment comes entirely from how the port is published, not from anything the server enforces:
+
+- **The safety mechanism is `-p 127.0.0.1:3001:3001`** (Docker's port-publish mapping to loopback), not `MCP_HTTP_HOST`. Publishing wider (e.g. `-p 3001:3001` or `-p 0.0.0.0:3001:3001`) while `API_AUTH_MODE=none` exposes an unauthenticated read/write/delete API to the entire reachable network.
+- **`MCP_HTTP_HOST` must stay `0.0.0.0`.** The container binds all interfaces *inside its own network namespace* by design — this is required for Docker's port-publish mechanism to reach the process at all. Setting `MCP_HTTP_HOST=127.0.0.1` to "harden" it instead binds loopback inside the container's namespace, which breaks the docker-proxy path from the host and can make the server unreachable even via `127.0.0.1:3001` on the host.
+- Operators who need unauthenticated REST reachable from more than one host should use `bearer` or `jwks` mode instead — the unauthenticated mode is scoped to single-operator, loopback-only, local use (see [`claude-plugins/task-orchestrator/skills/configure-server/references/runtime-config.md`](claude-plugins/task-orchestrator/skills/configure-server/references/runtime-config.md), and [`current/docs/fleet-deployment.md`](current/docs/fleet-deployment.md) for multi-caller topologies).
+
 ### Actor Attribution and Verification
 
 Actor attribution has two layers — **presence enforcement** (is an actor claim provided?) and **authenticity verification** (is the claim cryptographically valid?). These are implemented in different places:
@@ -214,9 +230,12 @@ This means that in deployments where non-Claude-Code clients connect to the serv
 | Transport | Built-in security | Operator responsibility |
 |-----------|------------------|----------------------|
 | **STDIO** | Process-level isolation (client spawns server) | Ensure the host environment is trusted |
-| **HTTP** | None — no TLS, no auth headers, no CORS | Deploy behind a reverse proxy with TLS and authentication, or restrict network access |
+| **HTTP — `/mcp`** | None — no TLS, no auth headers, no CORS | Deploy behind a reverse proxy with TLS and authentication, or restrict network access |
+| **HTTP — `/api/v1/*`** (REST, opt-in) | `API_AUTH_MODE` gates every request (`bearer`, `jwks`, or opt-in `none`) — see "REST API Authentication" above | Same network exposure responsibility as `/mcp`; `none` mode additionally depends on loopback-only port publishing |
 
-**For HTTP deployments in production:** Do not expose the server directly to untrusted networks. Use a reverse proxy (nginx, Caddy, Traefik) with TLS termination and client authentication. The server's `MCP_HTTP_HOST` and `MCP_HTTP_PORT` variables control the bind address — restrict to `127.0.0.1` or a private network interface when possible.
+**Enabling the REST API does not add auth to `/mcp`.** Bearer/JWKS auth on `/api/v1/*` is a separate gate from the MCP transport — `/mcp` stays open by design (MCP clients send no REST token) even when `API_AUTH_MODE=bearer` or `jwks`. Treat `/mcp` and `/api/v1/*` as two endpoints on the same port with independent (or, for `none` mode, absent) authentication.
+
+**For HTTP deployments in production:** Do not expose the server directly to untrusted networks. Use a reverse proxy (nginx, Caddy, Traefik) with TLS termination and client authentication. The server's `MCP_HTTP_HOST` and `MCP_HTTP_PORT` variables control the bind address inside the container's network namespace — for Docker deployments, host-level exposure is controlled by the `-p` port-publish mapping instead (see "REST API Authentication" above); for a direct non-Docker JAR run, restrict `MCP_HTTP_HOST` to `127.0.0.1` or a private network interface when possible.
 
 ### Data Security
 

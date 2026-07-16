@@ -85,7 +85,9 @@ claude mcp add-json mcp-task-orchestrator '{
 
 Only the `.taskorchestrator/` folder is exposed — the server has no access to the rest of your project.
 
-See [Quick Start](../quick-start.md) Step 8 for the full Docker mount example.
+See [Quick Start](../quick-start.md) Step 8 for the full Docker mount example. If you work across
+multiple projects, `/task-orchestrator:configure-server` sets up `config-sync` instead, which
+hot-reloads each project's config without a read-only mount or a restart.
 
 ### Cache Invalidation
 

@@ -15,6 +15,7 @@
 
 **Reference**
 - [API Reference](api-reference.md)
+- [REST API Reference](api-rest.md)
 - [Workflow Guide](workflow-guide.md)
 
 **Operations**

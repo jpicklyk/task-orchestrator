@@ -74,6 +74,57 @@ services:
     cpu_shares: 256
     stop_grace_period: 10s
 
+  mcp-task-orchestrator-http-rest:
+    build:
+      context: .
+      target: runtime-current
+    container_name: mcp-task-orchestrator-http-rest
+    profiles:
+      - http-rest
+    user: "1001:1001"
+    labels:
+      mcp.client: claude-desktop
+    volumes:
+      - mcp-task-data:/app/data
+      - .:/project:ro
+    environment:
+      DATABASE_PATH: /app/data/current-tasks.db
+      MCP_TRANSPORT: http
+      # Bind stays 0.0.0.0 inside the container by design — Docker's port-publish mechanism
+      # requires it. Loopback safety comes from the `ports:` mapping below, NOT this value.
+      # Do not change this to 127.0.0.1 — see runtime-config.md "Loopback footgun".
+      MCP_HTTP_HOST: 0.0.0.0
+      MCP_HTTP_PORT: "3001"
+      LOG_LEVEL: INFO
+      USE_FLYWAY: "true"
+      # Single-repo convenience: this compose file runs from one project dir, so it mounts that
+      # repo's .taskorchestrator config as the global fallback (AGENT_CONFIG_DIR). The MULTI-project
+      # recommended default (per /configure-server) uses NO config mount and relies on config-sync
+      # to push each repo's config into the per-root DB store instead.
+      AGENT_CONFIG_DIR: /project
+      MCP_SERVER_NAME: mcp-task-orchestrator
+      # Recommended single-developer posture: REST API on, unauthenticated, loopback-bound.
+      # See claude-plugins/task-orchestrator/skills/configure-server/references/runtime-config.md
+      # and current/docs/api-rest.md §1 for the auth-mode rationale.
+      API_ENABLED: "true"
+      API_AUTH_MODE: none
+      API_ALLOW_UNAUTHENTICATED: "true"
+    ports:
+      # Loopback only — this is what makes the unauthenticated REST API safe. Never change
+      # to "3001:3001" (all interfaces) while API_AUTH_MODE=none.
+      - "127.0.0.1:3001:3001"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    restart: unless-stopped
+    mem_limit: 512m
+    mem_reservation: 256m
+    cpus: 1.0
+    cpu_shares: 256
+    stop_grace_period: 10s
+
 volumes:
   mcp-task-data:
     external: true

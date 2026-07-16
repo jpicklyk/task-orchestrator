@@ -183,15 +183,56 @@ Task Orchestrator enforces workflow structure without imposing methodology. The 
 
 **Prerequisite**: [Docker](https://www.docker.com/products/docker-desktop/) installed and running.
 
-### 1. Pull the image
+If you work across multiple projects, **set up once and every project you open just works**: run
+one persistent server with the REST API on, and each project's `.taskorchestrator/config.yaml` syncs
+into it automatically via `config-sync` — no per-project container, no manual config mounting.
+
+### Recommended: HTTP + REST enabled, localhost-only
+
+Pull the image, then run the plugin's `/configure-server` skill (or use the equivalent manual setup
+below) to stand up a persistent local server:
 
 ```bash
 docker pull ghcr.io/jpicklyk/task-orchestrator:latest
+
+docker run -d --name mcp-task-orchestrator-http --restart unless-stopped \
+  -v mcp-task-data:/app/data \
+  -e MCP_TRANSPORT=http -e API_ENABLED=true -e API_AUTH_MODE=none -e API_ALLOW_UNAUTHENTICATED=true \
+  -p 127.0.0.1:3001:3001 \
+  ghcr.io/jpicklyk/task-orchestrator:latest
 ```
 
-### 2. Register with your MCP client
+Register it in `.mcp.json` (HTTP shape — not an args array):
 
-**Claude Code (recommended):**
+```json
+{
+  "mcpServers": {
+    "mcp-task-orchestrator": {
+      "type": "http",
+      "url": "http://localhost:3001/mcp"
+    }
+  }
+}
+```
+
+And export the client-side env so `config-sync` can find the server (without this, config-sync
+silently no-ops):
+
+```bash
+export TASK_ORCHESTRATOR_API_URL=http://localhost:3001
+```
+
+> **SECURITY:** unauthenticated REST means anyone who can reach the port has full read/write/delete
+> access. This is only safe because the port is published **loopback-only** (`-p 127.0.0.1:3001:3001`).
+> Never publish it on `0.0.0.0` or a wider interface.
+
+Prefer not to wire this up by hand? Install the plugin and run `/configure-server` — it renders
+all of the above (plus the bearer-token and STDIO alternatives) interactively.
+
+### Simpler alternative: STDIO, no config-sync
+
+If you don't want a persistent daemon and are fine hand-mounting each project's config, STDIO is the
+simpler no-setup option — a per-session container, no port, no REST API:
 
 ```bash
 claude mcp add-json mcp-task-orchestrator '{
@@ -204,7 +245,7 @@ claude mcp add-json mcp-task-orchestrator '{
 }'
 ```
 
-**Any MCP client** — add to `.mcp.json` in your project root:
+Or add the same shape to `.mcp.json`:
 
 ```json
 {
@@ -223,9 +264,8 @@ claude mcp add-json mcp-task-orchestrator '{
 
 Restart your client. The server auto-initializes on first run — no setup required.
 
-### 3. Enable workflow schemas (optional)
-
-Mount your project's config to activate gate enforcement:
+To activate workflow schema gates on STDIO, mount the project's config directly instead of relying on
+config-sync:
 
 ```json
 {
@@ -263,7 +303,7 @@ The plugin adds workflow automation on top of the MCP server — skills, hooks, 
 
 | Layer | What it does |
 |-------|-------------|
-| **Skills** | Slash commands for common workflows — `/task-orchestrator:create-item`, `/task-orchestrator:manage-schemas`, `/task-orchestrator:quick-start` |
+| **Skills** | Slash commands for common workflows — `/task-orchestrator:create-item`, `/task-orchestrator:manage-schemas`, `/task-orchestrator:quick-start`, `/task-orchestrator:configure-server` |
 | **Hooks** | Automatic context injection at session start, plan mode integration, sub-agent context handoff, actor attribution enforcement |
 | **Output style** | Workflow Orchestrator mode — Claude plans, delegates to sub-agents, and tracks progress without writing code directly |
 
@@ -337,7 +377,7 @@ Agent: advance_item(trigger="start", itemId="a3f2",
 Clean Architecture (Domain > Application > Infrastructure > Interface) with comprehensive test coverage.
 
 Key capabilities added in recent versions:
-- **REST API** — an HTTP REST layer (`API_ENABLED=true`) exposes items, notes, dependencies, transitions, config, and real-time SSE events to dashboards, CI systems, and operators. Supports static bearer tokens and JWKS JWT auth. See [`current/docs/api-rest.md`](current/docs/api-rest.md) for the full endpoint reference.
+- **REST API** — an HTTP REST layer (`API_ENABLED=true`) exposes items, notes, dependencies, transitions, config, and real-time SSE events to dashboards, CI systems, and operators. Supports static bearer tokens, JWKS JWT auth, and an opt-in unauthenticated loopback mode (`API_AUTH_MODE=none`) for single-developer local setups — see [Quick Start](#quick-start) above and `/configure-server`. See [`current/docs/api-rest.md`](current/docs/api-rest.md) for the full endpoint reference.
 - **Full-text search** — search work items and notes by keyword with ranked results (see [Full-Text Search](#full-text-search) above)
 - **Unbounded hierarchy depth** — item trees are not capped at depth 3; cycle protection is enforced at the database level via a trigger
 - **Backlinks** — `query_dependencies(operation="backlinks")` finds all items that reference a given item (reverse-direction edge lookup)

@@ -156,16 +156,10 @@ docker run -d --name mcp-task-orchestrator-http --restart unless-stopped \
   -p 127.0.0.1:3001:3001 <image-tag>
 ```
 
-| Choice | Fragment |
-|--------|----------|
-| REST off | `-e API_ENABLED=false` |
-| REST unauthenticated | `-e API_ENABLED=true -e API_AUTH_MODE=none -e API_ALLOW_UNAUTHENTICATED=true` |
-| REST bearer | `-e API_ENABLED=true -e API_AUTH_MODE=bearer -e API_TOKENS_PATH=/run/secrets/api-tokens.yaml -v <TOKENS_HOST_PATH>:/run/secrets/api-tokens.yaml:ro` |
-| Config mount = project | `-v "<pwd>/.taskorchestrator:/project/.taskorchestrator:ro" -e AGENT_CONFIG_DIR=/project` |
-| Config mount = none | *(omit)* |
-| Debug on | `-e LOG_LEVEL=DEBUG -e DATABASE_SHOW_SQL=true` |
-
-> **Windows:** run the `docker run` (and the STDIO variant) via **PowerShell** using `${PWD}` for the volume path — the Bash/MSYS shell rewrites the leading slash in `-e AGENT_CONFIG_DIR=/project` and in `:/app/data` / `:/project/...` mounts, breaking the container. Bash is fine for `docker build`, `docker inspect`, `docker logs`, `docker stop/rm`.
+The exact fragments for each choice (REST off/unauthenticated/bearer, config mount, debug), the
+loopback-safety rationale, and the Windows/MSYS path caveat are single-sourced in
+`claude-plugins/task-orchestrator/skills/configure-server/references/runtime-config.md` — use that
+catalog to compose the command above rather than re-deriving the flags here.
 
 Verify running:
 ```bash
@@ -186,7 +180,7 @@ If **unauthenticated** REST was selected, repeat the loopback-only SECURITY cave
 
 ## Notes
 - **Reuse is the default:** detection reads the live container (`docker inspect`) first, then `${HOME}/.taskorchestrator/deploy.env`, then built-in defaults — so a redeploy keeps your last REST mode / mounts unless you Reconfigure.
-- **REST API + config-sync:** the `config-sync` SessionStart hook needs the REST API **on** (`Unauthenticated` locally, or `Bearer`). With REST `off`, only `/mcp` is served and config-sync no-ops.
+- **REST API + config-sync:** the `config-sync` SessionStart hook needs the REST API **on** (`Unauthenticated` locally, or `Bearer`) **and** the client-side `TASK_ORCHESTRATOR_API_URL` env var — see the "config-sync" section of `runtime-config.md` (cited above) for the full requirement and the silent-no-op failure mode. With REST `off`, only `/mcp` is served and config-sync no-ops regardless.
 - **No local build needed:** the Dockerfile runs `./gradlew :current:jar` in a builder stage.
 - **Persistence:** `mcp-task-data` volume persists the DB across runs.
 - **HTTP:** detached (`-d`), `/mcp` served, container `mcp-task-orchestrator-http`, published loopback-only by default.

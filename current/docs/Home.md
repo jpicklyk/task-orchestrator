@@ -21,7 +21,49 @@ MCP Task Orchestrator is an open-source MCP server that gives AI agents persiste
 
 ## Quick Install
 
-Run this once in your terminal to register the server with Claude Code:
+If you work across multiple projects, the recommended setup is a persistent local server with the
+REST API enabled (unauthenticated, loopback-only) — every project's `.taskorchestrator/config.yaml`
+then syncs into it automatically via `config-sync`, with no per-project container or manual config
+mounting:
+
+```bash
+docker pull ghcr.io/jpicklyk/task-orchestrator:latest
+
+docker run -d --name mcp-task-orchestrator-http --restart unless-stopped \
+  -v mcp-task-data:/app/data \
+  -e MCP_TRANSPORT=http -e API_ENABLED=true -e API_AUTH_MODE=none -e API_ALLOW_UNAUTHENTICATED=true \
+  -p 127.0.0.1:3001:3001 \
+  ghcr.io/jpicklyk/task-orchestrator:latest
+```
+
+Register it in `.mcp.json` (HTTP shape — not an args array):
+
+```json
+{
+  "mcpServers": {
+    "mcp-task-orchestrator": {
+      "type": "http",
+      "url": "http://localhost:3001/mcp"
+    }
+  }
+}
+```
+
+And export the client-side env so `config-sync` can find the server (without this it silently no-ops):
+
+```bash
+export TASK_ORCHESTRATOR_API_URL=http://localhost:3001
+```
+
+> **SECURITY:** unauthenticated REST means anyone who can reach the port has full read/write/delete
+> access. This is only safe because the port is published **loopback-only** (`-p 127.0.0.1:3001:3001`).
+> Never publish it on `0.0.0.0` or a wider interface.
+
+Once the plugin is installed, run `/task-orchestrator:configure-server` to walk through this (and
+bearer-token or STDIO alternatives) interactively.
+
+**Simpler alternative — STDIO, no config-sync.** If you don't want a persistent daemon, run this once
+in your terminal to register a per-session container instead:
 
 ```bash
 claude mcp add-json mcp-task-orchestrator '{
