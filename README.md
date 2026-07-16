@@ -226,8 +226,8 @@ export TASK_ORCHESTRATOR_API_URL=http://localhost:3001
 > access. This is only safe because the port is published **loopback-only** (`-p 127.0.0.1:3001:3001`).
 > Never publish it on `0.0.0.0` or a wider interface.
 
-Once running, `/plugin install task-orchestrator@task-orchestrator-marketplace` then
-`/configure-server` walks you through this (and bearer-token or STDIO alternatives) interactively.
+Prefer not to wire this up by hand? Install the plugin and run `/configure-server` — it renders
+all of the above (plus the bearer-token and STDIO alternatives) interactively.
 
 ### Simpler alternative: STDIO, no config-sync
 

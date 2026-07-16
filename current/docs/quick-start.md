@@ -594,6 +594,8 @@ If the API is enabled but the token file is missing, empty, or malformed, the se
 
 ### 4. Test it
 
+> Running **unauthenticated** (the loopback option above)? Omit the `-H "Authorization: Bearer …"` header from the item calls below — there is no token. The health check needs no auth in either mode.
+
 ```bash
 # Health — no auth required
 curl http://localhost:3001/api/v1/health

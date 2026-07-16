@@ -97,6 +97,10 @@ services:
       MCP_HTTP_PORT: "3001"
       LOG_LEVEL: INFO
       USE_FLYWAY: "true"
+      # Single-repo convenience: this compose file runs from one project dir, so it mounts that
+      # repo's .taskorchestrator config as the global fallback (AGENT_CONFIG_DIR). The MULTI-project
+      # recommended default (per /configure-server) uses NO config mount and relies on config-sync
+      # to push each repo's config into the per-root DB store instead.
       AGENT_CONFIG_DIR: /project
       MCP_SERVER_NAME: mcp-task-orchestrator
       # Recommended single-developer posture: REST API on, unauthenticated, loopback-bound.
