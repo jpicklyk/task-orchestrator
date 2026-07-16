@@ -135,7 +135,7 @@ class PerRootConfigService(
             @Suppress("UNCHECKED_CAST")
             val root = Yaml(SafeConstructor(LoaderOptions())).load<Map<String, Any>>(configYaml)
             if (root == null) {
-                YamlSchemaParser.ParsedConfig(emptyMap(), emptyMap(), emptyMap(), emptyList())
+                YamlSchemaParser.ParsedConfig(emptyMap(), emptyMap(), emptyList())
             } else {
                 YamlSchemaParser.parseRoot(root, warnOnMissingSchemas = false)
             }

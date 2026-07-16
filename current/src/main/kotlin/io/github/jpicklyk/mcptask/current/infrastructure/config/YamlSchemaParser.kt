@@ -38,9 +38,13 @@ internal object YamlSchemaParser {
     /** Recognized `note_limits.mode` values. */
     private val VALID_NOTE_LIMITS_MODES = setOf("warn", "reject")
 
-    /** Result of parsing a config root map: schemas, traits, warnings, and the note-limits mode. */
+    /**
+     * Result of parsing a config root map: schemas (keyed by type/tag), traits, warnings, and the
+     * note-limits mode. Per-tag note lists are read via `workItemSchemas[tag]?.notes` — there is no
+     * separate tag→entries map, since it would be a redundant view of the same `NoteSchemaEntry`
+     * lists already held inside each [WorkItemSchema].
+     */
     data class ParsedConfig(
-        val schemas: Map<String, List<NoteSchemaEntry>>,
         val workItemSchemas: Map<String, WorkItemSchema>,
         val traits: Map<String, List<NoteSchemaEntry>>,
         val warnings: List<String>,
@@ -75,7 +79,7 @@ internal object YamlSchemaParser {
                     if (warnOnMissingSchemas) {
                         warnings.add("Config file is missing 'note_schemas' key; no schemas loaded")
                     }
-                    ParsedConfig(emptyMap(), emptyMap(), emptyMap(), warnings)
+                    ParsedConfig(emptyMap(), emptyMap(), warnings)
                 }
             }
 
@@ -89,9 +93,8 @@ internal object YamlSchemaParser {
     ): ParsedConfig {
         val rawSchemas =
             root["work_item_schemas"] as? Map<String, Any>
-                ?: return ParsedConfig(emptyMap(), emptyMap(), emptyMap(), warnings)
+                ?: return ParsedConfig(emptyMap(), emptyMap(), warnings)
 
-        val schemasMap = mutableMapOf<String, List<NoteSchemaEntry>>()
         val workItemSchemasMap = mutableMapOf<String, WorkItemSchema>()
 
         for ((schemaName, rawValue) in rawSchemas) {
@@ -122,7 +125,6 @@ internal object YamlSchemaParser {
                     parseEntry(raw, schemaName, index, warnings)
                 }
 
-            schemasMap[schemaName] = entries
             workItemSchemasMap[schemaName] =
                 WorkItemSchema(
                     type = schemaName,
@@ -132,7 +134,7 @@ internal object YamlSchemaParser {
                 )
         }
 
-        return ParsedConfig(schemasMap, workItemSchemasMap, emptyMap(), warnings)
+        return ParsedConfig(workItemSchemasMap, emptyMap(), warnings)
     }
 
     @Suppress("UNCHECKED_CAST")
@@ -142,9 +144,8 @@ internal object YamlSchemaParser {
     ): ParsedConfig {
         val noteSchemas =
             root["note_schemas"] as? Map<String, Any>
-                ?: return ParsedConfig(emptyMap(), emptyMap(), emptyMap(), warnings)
+                ?: return ParsedConfig(emptyMap(), emptyMap(), warnings)
 
-        val schemasMap = mutableMapOf<String, List<NoteSchemaEntry>>()
         val workItemSchemasMap = mutableMapOf<String, WorkItemSchema>()
 
         for ((schemaName, rawEntries) in noteSchemas) {
@@ -153,7 +154,6 @@ internal object YamlSchemaParser {
                 entryList.mapIndexedNotNull { index, raw ->
                     parseEntry(raw, schemaName, index, warnings)
                 }
-            schemasMap[schemaName] = entries
             // Wrap into WorkItemSchema with AUTO lifecycle for backward compat
             workItemSchemasMap[schemaName] =
                 WorkItemSchema(
@@ -163,7 +163,7 @@ internal object YamlSchemaParser {
                 )
         }
 
-        return ParsedConfig(schemasMap, workItemSchemasMap, emptyMap(), warnings)
+        return ParsedConfig(workItemSchemasMap, emptyMap(), warnings)
     }
 
     @Suppress("UNCHECKED_CAST")
