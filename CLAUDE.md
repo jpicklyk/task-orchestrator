@@ -243,7 +243,7 @@ Add to `gradle/libs.versions.toml` (`[versions]` + `[libraries]`), then referenc
 | Workflow config | `.taskorchestrator/config.yaml` |
 | Note schema service | `current/.../infrastructure/config/YamlWorkItemSchemaService.kt` (backward-compat typealias `YamlNoteSchemaService`) |
 | FTS5 search utilities | `current/.../application/service/search/` (FtsQuerySanitizer, RrfFusion) |
-| Search types (SearchResult, SearchHit, SearchScope, SearchMatchMode) | `current/.../infrastructure/repository/SQLiteWorkItemRepository.kt` |
+| Search types (SearchResult, SearchHit, SearchScope, SearchMatchMode) | `current/.../domain/repository/SearchTypes.kt` |
 | BacklinkRow (domain model) | `current/.../domain/model/BacklinkRow.kt` |
 | Plugin | `claude-plugins/task-orchestrator/` |
 | Tests | `current/src/test/kotlin/` |

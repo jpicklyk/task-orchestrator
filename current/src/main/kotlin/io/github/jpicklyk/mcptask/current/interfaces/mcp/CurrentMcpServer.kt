@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
+import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeTool
@@ -21,6 +22,7 @@ import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetNextItem
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetNextStatusTool
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
+import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlStatusLabelService
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
@@ -123,6 +125,7 @@ class CurrentMcpServer(
             val toolContext = composition.toolContext
             val apiWiring = composition.apiWiring
             val noteSchemaService = composition.noteSchemaService
+            val statusLabelService = composition.statusLabelService
             val degradedModePolicy = composition.degradedModePolicy
             val idempotencyCache = composition.idempotencyCache
             val mcpLoggingService = composition.mcpLoggingService
@@ -174,6 +177,7 @@ class CurrentMcpServer(
                         toolCount,
                         apiWiring,
                         noteSchemaService,
+                        statusLabelService,
                         degradedModePolicy,
                         idempotencyCache,
                         composition.actorAuthEnabled
@@ -237,6 +241,7 @@ class CurrentMcpServer(
         toolCount: Int,
         apiWiring: ApiWiring,
         noteSchemaService: WorkItemSchemaService,
+        statusLabelService: StatusLabelService,
         degradedModePolicy: DegradedModePolicy,
         idempotencyCache: IdempotencyCache,
         actorAuthEnabled: Boolean,
@@ -314,6 +319,7 @@ class CurrentMcpServer(
                     serverVersion = version,
                     actorAuthEnabled = actorAuthEnabled,
                     noteSchemaService = noteSchemaService,
+                    statusLabelService = statusLabelService,
                     degradedModePolicy = degradedModePolicy,
                     idempotencyCache = idempotencyCache,
                     jwksVerifier = jwksVerifier,
@@ -461,6 +467,7 @@ internal fun Application.installRestApiRoutes(
     serverVersion: String,
     actorAuthEnabled: Boolean,
     noteSchemaService: WorkItemSchemaService,
+    statusLabelService: StatusLabelService = YamlStatusLabelService(),
     degradedModePolicy: DegradedModePolicy,
     idempotencyCache: IdempotencyCache,
     jwksVerifier: JwksApiVerifier? = null,
@@ -511,6 +518,7 @@ internal fun Application.installRestApiRoutes(
                 idempotencyCache,
                 noteSchemaService,
                 warnOnClaimedAdvance = appConfig.apiWarnOnClaimedAdvance,
+                statusLabelService = statusLabelService,
             )
             noteWriteRoutes(effectiveProvider, degradedModePolicy, idempotencyCache)
             dependencyWriteRoutes(effectiveProvider, degradedModePolicy)

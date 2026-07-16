@@ -2,6 +2,8 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
 import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
+import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
+import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
@@ -65,6 +67,9 @@ private const val READ_ONLY_TOKEN = TEST_TOKEN
  *
  * @param schemaService schema service used by the advance route to resolve hasReviewPhase.
  *   Defaults to [NoOpNoteSchemaService] (schema-free → no review phase).
+ * @param statusLabelService config-driven status label resolution used by the advance route.
+ *   Defaults to [NoOpStatusLabelService] (deterministic hardcoded defaults, no file I/O) — tests
+ *   asserting REST/MCP status-label parity (bug 80e48e55) rely on this default.
  */
 fun Application.configureWriteTestApp(
     repo: DefaultRepositoryProvider,
@@ -72,6 +77,7 @@ fun Application.configureWriteTestApp(
     degradedModePolicy: DegradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
     authConfig: ApiAuthConfig.Bearer = makeWriteAuthConfig(),
     schemaService: WorkItemSchemaService = NoOpNoteSchemaService,
+    statusLabelService: StatusLabelService = NoOpStatusLabelService,
 ) {
     install(ContentNegotiation) { json(McpJson) }
     install(SSE)
@@ -89,7 +95,7 @@ fun Application.configureWriteTestApp(
             noteRoutes(repo)
             dependencyRoutes(repo)
             // WRITE routes under test
-            itemWriteRoutes(repo, degradedModePolicy, idempotencyCache, schemaService)
+            itemWriteRoutes(repo, degradedModePolicy, idempotencyCache, schemaService, statusLabelService = statusLabelService)
             noteWriteRoutes(repo, degradedModePolicy, idempotencyCache)
             dependencyWriteRoutes(repo, degradedModePolicy)
         }
@@ -771,6 +777,80 @@ class AdvanceRouteTest {
                     .data.role.name
                     .lowercase() != "queue",
                 "Item role should have advanced from queue"
+            )
+        }
+
+    @Test
+    fun `POST items id advance stamps a config-driven statusLabel (bug 80e48e55 REST-MCP parity)`(): Unit =
+        testApplication {
+            val repo = buildH2RepositoryProvider()
+            val item =
+                runBlocking {
+                    repo.workItemRepository().create(WorkItem(title = "Label Parity", depth = 0)).getOrNull()!!
+                }
+            application { configureWriteTestApp(repo, statusLabelService = NoOpStatusLabelService) }
+
+            val response =
+                client.post("/api/v1/items/${item.id}/advance") {
+                    header("Authorization", "Bearer $WRITE_TOKEN")
+                    contentType(ContentType.Application.Json)
+                    setBody("""{"trigger":"start"}""")
+                }
+
+            assertEquals(HttpStatusCode.OK, response.status)
+            val body = response.bodyAsText()
+            assertTrue(
+                body.contains("\"statusLabel\":\"in-progress\""),
+                "REST advance must stamp a config-driven statusLabel; previously used NoOpStatusLabelService " +
+                    "unconditionally and applied no label at all: $body",
+            )
+
+            // Hard assertion: the persisted item carries the stamped label, not just the response body.
+            val persisted = runBlocking { repo.workItemRepository().getById(item.id) }
+            assertEquals(
+                "in-progress",
+                (persisted as Result.Success).data.statusLabel,
+                "Persisted item must carry the REST-stamped statusLabel",
+            )
+        }
+
+    @Test
+    fun `POST items id advance start on WORK with no review phase stamps the terminal label (bug 100da214 + 80e48e55)`(): Unit =
+        testApplication {
+            val repo = buildH2RepositoryProvider()
+            // 'flat-type' has no REVIEW-phase note -> hasReviewPhase() false -> start from WORK
+            // resolves straight to TERMINAL. Before the fix this stamped "in-progress" (bug
+            // 100da214) via a NoOpStatusLabelService that REST never even consulted (bug 80e48e55).
+            val item =
+                runBlocking {
+                    repo
+                        .workItemRepository()
+                        .create(WorkItem(title = "No Review Label", type = "flat-type", role = Role.WORK, depth = 0))
+                        .getOrNull()!!
+                }
+            application {
+                configureWriteTestApp(
+                    repo,
+                    schemaService = ReviewPhaseSchemaService(),
+                    statusLabelService = NoOpStatusLabelService,
+                )
+            }
+
+            val response =
+                client.post("/api/v1/items/${item.id}/advance") {
+                    header("Authorization", "Bearer $WRITE_TOKEN")
+                    contentType(ContentType.Application.Json)
+                    setBody("""{"trigger":"start"}""")
+                }
+
+            assertEquals(HttpStatusCode.OK, response.status)
+            val persisted = runBlocking { repo.workItemRepository().getById(item.id) }
+            val data = (persisted as Result.Success).data
+            assertEquals("terminal", data.role.name.lowercase())
+            assertEquals(
+                "done",
+                data.statusLabel,
+                "REST start->TERMINAL must stamp the terminal label, not 'in-progress' or null",
             )
         }
 

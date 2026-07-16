@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
 import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommender
 import io.github.jpicklyk.mcptask.current.application.service.NoOpActorVerifier
+import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
@@ -65,6 +66,7 @@ class CompositionResult(
     val toolContext: ToolExecutionContext,
     val apiWiring: ApiWiring,
     val noteSchemaService: WorkItemSchemaService,
+    val statusLabelService: StatusLabelService,
     val degradedModePolicy: DegradedModePolicy,
     val idempotencyCache: IdempotencyCache,
     val mcpLoggingService: DefaultMcpLoggingService,
@@ -154,6 +156,7 @@ class ServerComposition(
             toolContext = toolContext,
             apiWiring = apiWiring,
             noteSchemaService = noteSchemaService,
+            statusLabelService = statusLabelService,
             degradedModePolicy = degradedModePolicy,
             idempotencyCache = idempotencyCache,
             mcpLoggingService = mcpLoggingService,

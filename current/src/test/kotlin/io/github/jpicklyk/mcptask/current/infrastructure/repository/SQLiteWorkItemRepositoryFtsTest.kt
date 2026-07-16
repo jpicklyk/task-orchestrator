@@ -3,6 +3,8 @@ package io.github.jpicklyk.mcptask.current.infrastructure.repository
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
+import io.github.jpicklyk.mcptask.current.domain.repository.SearchMatchMode
+import io.github.jpicklyk.mcptask.current.domain.repository.SearchScope
 import io.github.jpicklyk.mcptask.current.test.BaseFts5RepositoryTest
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test

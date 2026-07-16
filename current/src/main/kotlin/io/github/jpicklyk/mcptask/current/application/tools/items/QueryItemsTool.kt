@@ -7,9 +7,8 @@ import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.SearchMatchMode
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.SearchScope
+import io.github.jpicklyk.mcptask.current.domain.repository.SearchMatchMode
+import io.github.jpicklyk.mcptask.current.domain.repository.SearchScope
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.*
@@ -704,7 +703,7 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
     /**
      * Full-text search over work-item titles and summaries via FTS5.
      *
-     * Sanitizes the user query, delegates to [SQLiteWorkItemRepository.ftsSearch], and
+     * Sanitizes the user query, delegates to [WorkItemRepository.ftsSearch], and
      * serializes the [SearchResult] into the response shape defined in plan §7:
      * `{ hits: [...], totalHits, nextOffset, truncated }`.
      *
@@ -801,30 +800,24 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
                 return errorResponse(e.message ?: "Invalid search query", ErrorCodes.VALIDATION_ERROR)
             }
 
-        // Delegate to repository
+        // Delegate to repository — dispatched via the WorkItemRepository interface so this
+        // works whether the tool context holds the concrete SQLite repo or a decorator
+        // (e.g. EventPublishingWorkItemRepository, when the REST API is enabled). Non-FTS
+        // dialects (H2 tests) are handled inside ftsSearch, which returns an empty result.
         val repo = context.workItemRepository()
         val searchResult =
-            if (repo is SQLiteWorkItemRepository) {
-                try {
-                    repo.ftsSearch(
-                        sanitizedFtsQuery = sanitizedQuery,
-                        matchMode = matchMode,
-                        scope = scope,
-                        limit = limit,
-                        offset = offset,
-                    )
-                } catch (e: Exception) {
-                    return errorResponse(
-                        "FTS5 search failed: ${e.message}",
-                        ErrorCodes.INTERNAL_ERROR
-                    )
-                }
-            } else {
-                // Non-SQLite environment (H2 tests): return empty result
-                io.github.jpicklyk.mcptask.current.infrastructure.repository.SearchResult(
-                    hits = emptyList(),
-                    totalHits = 0,
-                    nextOffset = null,
+            try {
+                repo.ftsSearch(
+                    sanitizedFtsQuery = sanitizedQuery,
+                    matchMode = matchMode,
+                    scope = scope,
+                    limit = limit,
+                    offset = offset,
+                )
+            } catch (e: Exception) {
+                return errorResponse(
+                    "FTS5 search failed: ${e.message}",
+                    ErrorCodes.INTERNAL_ERROR
                 )
             }
 

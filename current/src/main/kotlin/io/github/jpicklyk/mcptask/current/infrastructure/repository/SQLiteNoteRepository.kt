@@ -9,6 +9,10 @@ import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
+import io.github.jpicklyk.mcptask.current.domain.repository.SearchHit
+import io.github.jpicklyk.mcptask.current.domain.repository.SearchMatchMode
+import io.github.jpicklyk.mcptask.current.domain.repository.SearchResult
+import io.github.jpicklyk.mcptask.current.domain.repository.SearchScope
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.NotesTable
 import org.jetbrains.exposed.v1.core.ResultRow
@@ -255,12 +259,12 @@ class SQLiteNoteRepository(
      * @param limit     Maximum hits to return (enforced at 100; default 20).
      * @param offset    Zero-based page offset.
      */
-    suspend fun ftsSearch(
+    override suspend fun ftsSearch(
         sanitizedFtsQuery: String,
-        matchMode: SearchMatchMode = SearchMatchMode.AUTO,
-        scope: SearchScope? = null,
-        limit: Int = 20,
-        offset: Int = 0,
+        matchMode: SearchMatchMode,
+        scope: SearchScope?,
+        limit: Int,
+        offset: Int,
     ): SearchResult {
         val effectiveLimit = limit.coerceIn(1, 100)
 

@@ -363,6 +363,144 @@ class AdvanceServiceTest {
             assertIs<AdvanceFailure.OwnershipRejected>(failure.failure)
         }
 
+    // ──────────────────────────────────────────────
+    // Bug 100da214: start-to-terminal label convergence
+    //
+    // A "start" trigger that RESOLVES to TERMINAL (WORK->TERMINAL on a no-review schema, or
+    // REVIEW->TERMINAL) must stamp the SAME terminal label "complete" would stamp, not the
+    // work-phase "in-progress" label the raw trigger string would otherwise map to.
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `start on WORK with no review phase resolves to TERMINAL and stamps the terminal label`(): Unit =
+        runBlocking {
+            // No schema at all -> hasReviewPhase() is false -> resolveStart(WORK) targets TERMINAL.
+            val item = makeItem(role = Role.WORK)
+            val outcome =
+                serviceWith(schema = null).advance(
+                    item,
+                    "start",
+                    null,
+                    null,
+                    null,
+                    DegradedModePolicy.ACCEPT_CACHED,
+                    enforceOwnership = true,
+                )
+            val success = assertIs<AdvanceOutcome.Success>(outcome)
+            assertEquals(Role.TERMINAL, success.result.newRole)
+            assertEquals("done", success.result.statusLabel, "start->TERMINAL must stamp the 'complete' label, not 'in-progress'")
+        }
+
+    @Test
+    fun `start on REVIEW resolves to TERMINAL and stamps the terminal label`(): Unit =
+        runBlocking {
+            val item = makeItem(role = Role.REVIEW)
+            val sc = schema(NoteSchemaEntry("review-checklist", Role.REVIEW, required = false, description = "x"))
+            val outcome =
+                serviceWith(sc).advance(item, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+            val success = assertIs<AdvanceOutcome.Success>(outcome)
+            assertEquals(Role.TERMINAL, success.result.newRole)
+            assertEquals("done", success.result.statusLabel)
+        }
+
+    @Test
+    fun `full start-only lifecycle queue-work-terminal (no review phase) ends with the terminal label`(): Unit =
+        runBlocking {
+            val id = UUID.randomUUID()
+            val service = serviceWith(schema = null)
+            var item = makeItem(id = id, role = Role.QUEUE)
+
+            val step1 =
+                assertIs<AdvanceOutcome.Success>(
+                    service.advance(item, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true),
+                )
+            assertEquals(Role.WORK, step1.result.newRole)
+            assertEquals("in-progress", step1.result.statusLabel)
+
+            item = step1.result.appliedItem
+            val step2 =
+                assertIs<AdvanceOutcome.Success>(
+                    service.advance(item, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true),
+                )
+            assertEquals(Role.TERMINAL, step2.result.newRole)
+            assertEquals("done", step2.result.statusLabel, "final start-driven transition must not leave a stale 'in-progress' label")
+        }
+
+    @Test
+    fun `full start-only lifecycle queue-work-review-terminal ends with the terminal label`(): Unit =
+        runBlocking {
+            val id = UUID.randomUUID()
+            val sc = schema(NoteSchemaEntry("review-checklist", Role.REVIEW, required = false, description = "x"))
+            val service = serviceWith(sc)
+            var item = makeItem(id = id, role = Role.QUEUE)
+
+            val step1 =
+                assertIs<AdvanceOutcome.Success>(
+                    service.advance(item, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true),
+                )
+            assertEquals(Role.WORK, step1.result.newRole)
+            assertEquals("in-progress", step1.result.statusLabel)
+
+            item = step1.result.appliedItem
+            val step2 =
+                assertIs<AdvanceOutcome.Success>(
+                    service.advance(item, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true),
+                )
+            assertEquals(Role.REVIEW, step2.result.newRole)
+            assertEquals("in-progress", step2.result.statusLabel, "WORK->REVIEW is still in-flight work, not completion")
+
+            item = step2.result.appliedItem
+            val step3 =
+                assertIs<AdvanceOutcome.Success>(
+                    service.advance(item, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true),
+                )
+            assertEquals(Role.TERMINAL, step3.result.newRole)
+            assertEquals("done", step3.result.statusLabel)
+        }
+
+    // ──────────────────────────────────────────────
+    // Regression pins: BLOCKED / reopen label handling must be unaffected by the above fix
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `block preserves the item's existing statusLabel when the configured block label is explicitly null`(): Unit =
+        runBlocking {
+            // Exercises the "targetRole == BLOCKED -> preserve current.statusLabel" branch in
+            // RoleTransitionHandler.applyTransition, which only fires when the resolved config
+            // label for "block" is null (NoOpStatusLabelService's default "blocked" would NOT
+            // preserve — this pins the null-config-label preserve path specifically).
+            val nullBlockLabelService =
+                object : StatusLabelService {
+                    override fun resolveLabel(trigger: String): String? =
+                        if (trigger == "block") null else NoOpStatusLabelService.resolveLabel(trigger)
+                }
+            val service =
+                AdvanceService(
+                    workItemRepository = workItemRepo,
+                    roleTransitionRepository = roleTransitionRepo,
+                    dependencyRepository = depRepo,
+                    noteRepository = noteRepo,
+                    statusLabelService = nullBlockLabelService,
+                    schemaResolver = { null },
+                )
+            val item = makeItem(role = Role.WORK).copy(statusLabel = "in-progress")
+            val outcome = service.advance(item, "block", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+            val success = assertIs<AdvanceOutcome.Success>(outcome)
+            assertEquals(Role.BLOCKED, success.result.newRole)
+            assertEquals("in-progress", success.result.statusLabel)
+        }
+
+    @Test
+    fun `reopen clears the terminal item's statusLabel`(): Unit =
+        runBlocking {
+            val item = makeItem(role = Role.TERMINAL).copy(statusLabel = "done")
+            val outcome =
+                serviceWith().advance(item, "reopen", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+            val success = assertIs<AdvanceOutcome.Success>(outcome)
+            assertEquals(Role.QUEUE, success.result.newRole)
+            assertEquals(null, success.result.statusLabel)
+        }
+
     @Test
     fun `enforceOwnership false allows advance on item claimed by another agent`(): Unit =
         runBlocking {
