@@ -79,8 +79,8 @@ When using `note_schemas`, the `lifecycle` field is not available — all schema
 |-------|----------|------|-------|
 | `key` | yes | string | kebab-case, unique within schema, stable after creation |
 | `role` | yes | string | `queue`, `work`, or `review` only |
-| `required` | yes | boolean | `true` = blocks gate, `false` = shown but not enforced |
-| `description` | yes | string | Keep under 80 chars — quick label; fetched via `query_items(operation="schema")`, not in `expectedNotes` |
+| `required` | no | boolean | Parser defaults to `false` if omitted — **always set explicitly**, since a note you meant to gate on silently becomes optional otherwise. `true` = blocks gate, `false` = shown but not enforced |
+| `description` | no | string | Parser defaults to `""` if omitted (recommended in practice). Keep under 80 chars — quick label; fetched via `query_items(operation="schema")`, not in `expectedNotes` |
 | `guidance` | no | string | Project-specific authoring instructions — fetched via `query_items(operation="schema")`; `get_context`/`advance_item` return `guidanceKey` (a reference) |
 | `skill` | no | string | Reusable evaluation framework — shown as `skillPointer` in `get_context` |
 | `maxLength` | no | integer | Max note body length (chars). Enforced by `manage_notes` upsert (inline `body` or `bodyFromFile`) per top-level `note_limits.mode` |

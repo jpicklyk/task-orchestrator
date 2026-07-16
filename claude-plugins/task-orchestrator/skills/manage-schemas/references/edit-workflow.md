@@ -15,10 +15,10 @@ Display the current schema in full:
 
 | # | Key | Role | Required | Description |
 |---|-----|------|----------|-------------|
-| 1 | reproduction-steps | queue | yes | Step-by-step reproduction with expected vs actual result |
-| 2 | root-cause | queue | yes | Why it happens — file, line, and condition |
-| 3 | fix-summary | work | yes | What was changed and which files were modified |
-| 4 | test-verification | work | yes | How the fix was verified and test results after fix |
+| 1 | diagnosis | queue | yes | Reproduction, root cause, and fix approach |
+| 2 | implementation-notes | work | yes | What changed; deviations from the diagnosis |
+| 3 | review-checklist | review | yes | Quality gate — fix alignment, test quality, simplification |
+| 4 | session-tracking | work | yes | Session context — what was done and how it went |
 ```
 
 ---

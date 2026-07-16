@@ -152,7 +152,7 @@ For detailed workflow, see `references/validate-workflow.md` in this skill folde
 **Schema not applied — item has no schema**
 - Cause: The item's `type` field doesn't match any key in `work_item_schemas`, and its tags don't match any `note_schemas` key (legacy fallback)
 - Resolution order: `type` field → direct lookup in `work_item_schemas`; if no type or no match, first tag match in `note_schemas`; if no match, falls back to `default` schema if one exists
-- Solution: Verify the item's type and tags with `query_items(operation="get", id="<uuid>")`. Set `type` to a key that exists in `work_item_schemas` for reliable schema selection.
+- Solution: Verify the item's type and tags with `query_items(operation="get", itemId="<uuid>")`. Set `type` to a key that exists in `work_item_schemas` for reliable schema selection.
 
 **Duplicate schema key in config file**
 - Cause: YAML allows duplicate keys but only the last one is used

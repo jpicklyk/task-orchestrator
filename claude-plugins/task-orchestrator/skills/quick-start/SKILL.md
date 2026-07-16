@@ -158,6 +158,22 @@ Show the structure:
 
 This is **the project board side** — these items track progress. The plan file (if this were a real feature) would contain the *design decisions* behind each of these tasks.
 
+**Fill required notes (gate prerequisite):** `feature-task` items require a `task-scope` note (queue, required) before `advance_item(trigger="start")` will succeed, and a `complete` trigger checks ALL required notes across every phase (queue + work + review) — not just the current one. `create_work_tree` above created the children with no notes — its `createNotes` option only auto-fills blank bodies, which don't count as "filled" for gate purposes — so fill all four required notes on the design item now, before Step 5a, so both the `start` and `complete` calls succeed:
+
+```
+manage_notes(
+  operation="upsert",
+  notes=[
+    { itemId: "<design-UUID>", key: "task-scope", role: "queue", body: "Define requirements and approach for <topic>." },
+    { itemId: "<design-UUID>", key: "implementation-notes", role: "work", body: "Design work completed for <topic>." },
+    { itemId: "<design-UUID>", key: "session-tracking", role: "work", body: "Design phase completed this session." },
+    { itemId: "<design-UUID>", key: "review-checklist", role: "review", body: "Design reviewed and approved." }
+  ]
+)
+```
+
+**Explain to the user:** in a real workflow, subagents fill these notes as work actually happens, phase by phase. Here we're pre-filling all of them up front purely so the tutorial's Step 5b `complete` call isn't gate-blocked — note bodies don't need to match the item's current role to be saved, only to satisfy the gate check at advance time.
+
 ---
 
 ## Step 5: The Role Lifecycle
@@ -209,7 +225,7 @@ Briefly mention that MCP items can have **required notes** that act as documenta
 
 - A `.taskorchestrator/config.yaml` file defines schemas under `work_item_schemas:` — which notes must be filled before an item can advance
 - Items match schemas via their `type` field (e.g., `type: "feature-implementation"` activates that schema's notes and gates)
-- Example: the `feature-implementation` schema requires a `specification` note before work can start, and a `review-checklist` note before completion
+- Example: the `feature-implementation` schema requires a `feature-summary` note before work can start, and a `review-checklist` note before completion
 - Each schema can set a **lifecycle mode** (auto, manual, auto-reopen, permanent) controlling cascade behavior
 - Notes can carry a `guidance` field (authoring hints) and a `skill` field (structured evaluation framework to invoke before filling)
 - **Composable traits** add additional note requirements per-item — e.g., `traits: "needs-security-review"` adds a `security-assessment` note at the review phase

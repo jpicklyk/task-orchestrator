@@ -54,7 +54,7 @@ If no config file exists, the project has no note schemas — items will be sche
 work_item_schemas:
   feature-task:
     notes:
-      - key: requirements
+      - key: task-scope
         role: queue
         required: true
       - key: implementation-notes

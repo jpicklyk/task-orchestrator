@@ -165,10 +165,11 @@ Check `expectedNotes` in the create response. For each note where `required: tru
 - Batch all notes into a single call rather than one call per note:
   ```
   manage_notes(operation="upsert", notes=[
-    {itemId: "<uuid>", key: "reproduction-steps", role: "queue", body: "..."},
-    {itemId: "<uuid>", key: "root-cause",          role: "queue", body: "..."}
+    {itemId: "<bug-uuid>",     key: "diagnosis",       role: "queue", body: "..."},
+    {itemId: "<feature-uuid>", key: "feature-summary", role: "queue", body: "..."}
   ])
   ```
+  (note keys come from each item's schema `expectedNotes` — `diagnosis` for `bug-fix`, `feature-summary` for `feature-implementation`; a single call may batch notes across multiple items)
 - If conversation content is too sparse for a meaningful note body, leave it — do not fabricate content
 
 ---

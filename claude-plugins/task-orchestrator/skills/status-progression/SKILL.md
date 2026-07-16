@@ -31,7 +31,7 @@ Parse the response and display a status card. Use this format:
   Role:     work
   Gate:     ⊘ blocked — 2 required notes missing
   Missing:  implementation-notes (work, required)
-            test-results (work, required)
+            session-tracking (work, required)
   Guidance: "Describe what was implemented, which files changed, and why
              the approach was chosen..."
 ```
@@ -50,7 +50,7 @@ Parse the response and display a status card. Use this format:
 | `item.role` | Current role label |
 | `gateStatus.canAdvance` | ✓ open or ⊘ blocked |
 | `gateStatus.missing` | List each missing note key + role |
-| `guidanceKey` | Key of first unfilled required note with guidance; resolve its text via `query_items(operation="schema")` to show as "Guidance:" |
+| `guidanceKey` | Key of first unfilled required note with guidance; resolve its text via `query_items(operation="schema", itemId="<uuid>")` to show as "Guidance:" |
 | `noteSchema` | List all schema notes with `exists` status |
 
 If the item has no schema (no tags matching a schema key), `noteSchema` will be empty and the gate is always open.
@@ -72,7 +72,7 @@ manage_notes(
   operation="upsert",
   notes=[
     { itemId: "<uuid>", key: "implementation-notes", role: "work", body: "<content>" },
-    { itemId: "<uuid>", key: "test-results", role: "work", body: "<content>" }
+    { itemId: "<uuid>", key: "session-tracking", role: "work", body: "<content>" }
   ]
 )
 ```
@@ -103,7 +103,7 @@ Parse the response and report the transition result:
   ↳ Unblocked: "Write integration tests" (was waiting on this item)
   ↳ Next phase notes:
       implementation-notes (work, required)
-      test-results (work, required)
+      session-tracking (work, required)
 ```
 
 **Fields to check in the advance response:**
@@ -136,7 +136,7 @@ Cause: Another item has a `BLOCKS` edge pointing to this item, and that blocking
 Solution: Find the blocker:
 
 ```
-query_dependencies(itemId="<uuid>", direction="incoming", includeItemInfo=true)
+query_dependencies(operation="get", itemId="<uuid>", direction="incoming", includeItemInfo=true)
 ```
 
 Identify the blocking item (role will be non-terminal). Advance the blocking item to terminal first. When it completes, the current item appears in `unblockedItems`.
@@ -186,7 +186,7 @@ Cause: The item is already in TERMINAL role (completed or cancelled). Terminal i
 Solution: The item cannot be advanced further. If the item was completed in error, you would need to create a new item. To verify the item's current state:
 
 ```
-query_items(operation="get", id="<uuid>")
+query_items(operation="get", itemId="<uuid>")
 ```
 
 Check the `role` field. If `role = "terminal"`, the item's lifecycle is complete.
@@ -253,14 +253,14 @@ Items tagged `feature-implementation` have a schema with required notes at each 
 get_context(itemId="def-456")
 ```
 
-Response shows `role: "queue"`, `gateStatus.canAdvance: false`, missing: `["requirements"]`.
+Response shows `role: "queue"`, `gateStatus.canAdvance: false`, missing: `["feature-summary"]`.
 
 Status card:
 ```
 ◉ "Add OAuth2 login flow"
   Role:     queue
   Gate:     ⊘ blocked — 1 required note missing
-  Missing:  requirements (queue, required)
+  Missing:  feature-summary (queue, required)
   Guidance: "Document the acceptance criteria and scope of this feature.
              Include: what the feature does, what it does not do, and
              the definition of done."
@@ -275,7 +275,7 @@ manage_notes(
   operation="upsert",
   notes=[{
     itemId: "def-456",
-    key: "requirements",
+    key: "feature-summary",
     role: "queue",
     body: "Implement OAuth2 login via GitHub and Google providers. Users should
            be redirected to provider, authenticated, and returned to the app
@@ -311,7 +311,7 @@ Result:
 ✓ Advanced: queue → work
   ↳ Next phase notes:
       implementation-notes (work, required)
-      test-results (work, required)
+      session-tracking (work, required)
 ```
 
 The `expectedNotes` in the response shows what must be filled during the work phase before the next `start` will succeed. Fill these notes as implementation progresses, then return control to the orchestrator. The orchestrator calls `advance_item(trigger="start")` to advance the item to the next phase (review if the schema has review-phase notes, or terminal otherwise).

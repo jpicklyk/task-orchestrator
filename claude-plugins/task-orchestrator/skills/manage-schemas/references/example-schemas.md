@@ -42,6 +42,7 @@ Schema for child work items under a feature container. Lighter queue gate (task 
 ```yaml
   feature-task:
     lifecycle: auto
+    default_traits: [delegated]
     notes:
       - key: task-scope
         role: queue
@@ -72,6 +73,7 @@ Root cause analysis before code, verification after.
 ```yaml
   bug-fix:
     lifecycle: auto
+    default_traits: [delegated]
     notes:
       - key: diagnosis
         role: queue
@@ -161,4 +163,4 @@ traits:
         guidance: "Filled by the orchestrator AFTER a subagent returns (the subagent doesn't know which model it ran on). Record model (haiku/sonnet/opus), isolation (inline or worktree:<path>), a one-line rationale, and a one-line outcome. Optional — feeds /session-retrospective delegation-alignment scoring; absent is tolerated."
 ```
 
-Apply traits at item creation: `manage_items(create, items=[{..., traits: "needs-migration-review"}])` or via schema-level `default_traits`.
+Apply traits at item creation: `manage_items(operation="create", items=[{..., traits: "needs-migration-review"}])` or via schema-level `default_traits`.

@@ -55,8 +55,10 @@ Build scope from recently completed items (compare `modifiedAt` to current date)
 For each item in scope (up to 20):
 
 ```
-query_notes(itemId="<uuid>", includeBody=true)
+query_notes(operation="list", itemId="<uuid>", includeBody=true)
 ```
+
+`operation` is **required** — `query_notes` has no default and rejects the call without it (`Missing required parameter: operation`). Use `operation="list"` to enumerate an item's notes.
 
 Extract:
 - Notes with key `session-tracking` — these contain per-item outcome, files changed, deviations, friction, observations, and test results
@@ -164,7 +166,7 @@ Read the trend memory file `memory/retrospectives.md` from the auto memory direc
 This container is process-global by design — it is the shared, cross-project learning layer, so it deliberately lives outside any project root and this search stays unscoped even when a project rootId is known.
 
 ```
-query_items(operation="search", query="Session Retrospectives", depth=0, limit=5)
+query_items(operation="search", query="Session Retrospectives", limit=5)
 ```
 
 If no match with that exact title at depth 0, create it:
@@ -194,9 +196,9 @@ manage_items(operation="create", items=[{
 
 If no project name is known, omit that segment: `"Retrospective — <root-item-title> — <YYYY-MM-DD>"`.
 
-### 5c. Fill schema notes
+### 5c. Fill queue-phase notes
 
-All three notes are queue-role. Fill them in a single batch:
+The `session-retrospective` schema has **four** required notes: three queue-phase (`session-metrics`, `workflow-evaluation`, `improvement-signals`) plus one **work-phase** `actions-taken` (a closure record of the proposals created in Step 7). Fill the three queue notes now, in a single batch; `actions-taken` is filled later, at Step 8b, once the proposals are known:
 
 ```
 manage_notes(operation="upsert", notes=[
@@ -221,13 +223,15 @@ manage_notes(operation="upsert", notes=[
 ])
 ```
 
-### 5d. Advance to terminal
+### 5d. Advance to work phase
 
-The retrospective is a write-once artifact — all notes are queue-phase, so after filling them there are no further gates. Complete directly:
+The three queue notes satisfy the queue→work gate. Advance the item to `work` (the work-phase `actions-taken` gate stays open until Step 8b):
 
 ```
-complete_tree(itemIds=["<retro-uuid>"], trigger="complete")
+advance_item(transitions=[{itemId: "<retro-uuid>", trigger: "start"}])
 ```
+
+Do **not** complete the item yet — the `actions-taken` work-phase note is still required and depends on the Step 7 proposal results. Completion happens at Step 8b.
 
 ---
 
@@ -257,7 +261,7 @@ Check the updated trend memory (from step 6). For each trend with **Sessions >= 
 This container is also process-global by design (same rationale as 5a) — it stays outside any project root, and this search stays unscoped even when a project rootId is known.
 
 ```
-query_items(operation="search", query="Improvement Proposals", depth=0, limit=5)
+query_items(operation="search", query="Improvement Proposals", limit=5)
 ```
 
 Create if missing (same pattern as 5a — include `type: "container"` and `tags: "container"`).
@@ -309,6 +313,29 @@ manage_notes(operation="upsert", notes=[{
   role: "queue",
   body: "<updated body with meta-evaluation appended>"
 }])
+```
+
+---
+
+## Step 8b — Fill Closure Note and Complete
+
+**Skip entirely in dry-run mode.**
+
+Now that Step 7 has determined which improvement proposals were created (or that none graduated), fill the work-phase `actions-taken` note — the schema's closure record — and complete the item.
+
+```
+manage_notes(operation="upsert", notes=[{
+  itemId: "<retro-uuid>",
+  key: "actions-taken",
+  role: "work",
+  body: "<closure record: improvement-proposal items created/updated in Step 7 (title + short-id each), or 'none graduated (≥2 sessions) this run'; plus trend-memory sections updated and any memory writes>"
+}])
+```
+
+The `actions-taken` note satisfies the work→terminal gate. Complete:
+
+```
+complete_tree(itemIds=["<retro-uuid>"], trigger="complete")
 ```
 
 ---
