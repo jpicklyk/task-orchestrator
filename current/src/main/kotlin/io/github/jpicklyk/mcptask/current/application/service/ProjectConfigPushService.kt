@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
+import io.github.jpicklyk.mcptask.current.domain.model.FingerprintRelation
 import io.github.jpicklyk.mcptask.current.domain.model.ProjectConfig
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlSchemaParser
@@ -36,9 +37,18 @@ class ProjectConfigPushService(
      * differs from [rootItemId], the push is rejected as [ProjectConfigPushResult.RootIdMismatch]
      * instead of being upserted — this catches a config document copy-pasted or synced against the
      * wrong project root before it silently overwrites the target root's gates. An absent or
-     * non-UUID embedded `project.rootId` is not an error; the push proceeds unchanged. Passing
-     * `force: true` skips this guard (bypasses push guards generally — a later guard shares this
-     * same flag).
+     * non-UUID embedded `project.rootId` is not an error; the push proceeds unchanged.
+     *
+     * A second guard runs right after: the fast-forward (known-old) guard. The incoming
+     * `configYaml`'s fingerprint is classified against the root's stored fingerprint history (see
+     * [io.github.jpicklyk.mcptask.current.domain.model.FingerprintRelation]) — a fingerprint that is
+     * [FingerprintRelation.SUPERSEDED] (known-old: present in history but not current) is rejected as
+     * [ProjectConfigPushResult.Superseded], since writing it would silently revert a later push made
+     * from elsewhere. [FingerprintRelation.CURRENT] (idempotent re-push) and
+     * [FingerprintRelation.UNKNOWN] (divergent edit, or no row/history yet) both proceed normally.
+     *
+     * Passing `force: true` skips BOTH guards (bypasses push guards generally — this single flag is
+     * shared across guards).
      */
     suspend fun push(
         rootItemId: UUID,
@@ -81,7 +91,26 @@ class ProjectConfigPushService(
             }
         }
 
-        return when (val result = repositoryProvider.projectConfigRepository().upsert(rootItemId, configYaml)) {
+        val projectConfigRepository = repositoryProvider.projectConfigRepository()
+
+        if (!force) {
+            val incomingFingerprint = projectConfigRepository.computeFingerprint(configYaml)
+            val relation =
+                when (val relationResult = projectConfigRepository.classifyFingerprint(rootItemId, incomingFingerprint)) {
+                    is Result.Success -> relationResult.data
+                    is Result.Error -> return ProjectConfigPushResult.RepositoryError(relationResult.error.message)
+                }
+            if (relation == FingerprintRelation.SUPERSEDED) {
+                val currentUpdatedAt =
+                    when (val currentResult = projectConfigRepository.get(rootItemId)) {
+                        is Result.Success -> currentResult.data?.updatedAt
+                        is Result.Error -> null
+                    } ?: Instant.now()
+                return ProjectConfigPushResult.Superseded(rootItemId, currentUpdatedAt)
+            }
+        }
+
+        return when (val result = projectConfigRepository.upsert(rootItemId, configYaml)) {
             is Result.Success ->
                 ProjectConfigPushResult.Success(
                     rootItemId = result.data.rootItemId,
@@ -212,6 +241,20 @@ sealed class ProjectConfigPushResult {
     data class RootIdMismatch(
         val targetRootId: UUID,
         val embeddedRootId: UUID
+    ) : ProjectConfigPushResult()
+
+    /**
+     * The incoming `configYaml`'s fingerprint classified as
+     * [io.github.jpicklyk.mcptask.current.domain.model.FingerprintRelation.SUPERSEDED] — known-old:
+     * present in [rootItemId]'s fingerprint history but not its current fingerprint. Rejected before
+     * any write, since persisting it would silently revert a later push made from elsewhere, unless
+     * the caller passed `force: true` to [ProjectConfigPushService.push]. [currentUpdatedAt] is the
+     * server's current row's `updatedAt`, for a caller-facing "local config is older than the
+     * server's (updated ...)" message.
+     */
+    data class Superseded(
+        val rootItemId: UUID,
+        val currentUpdatedAt: Instant
     ) : ProjectConfigPushResult()
 
     /** The upsert itself failed at the repository layer. */

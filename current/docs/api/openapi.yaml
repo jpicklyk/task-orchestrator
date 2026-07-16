@@ -694,6 +694,13 @@ components:
           type: string
           nullable: true
           description: Non-fatal notice when the root's `type` is not "project"
+        relation:
+          type: string
+          nullable: true
+          enum: [current, superseded, unknown]
+          description: >-
+            Present on GET only, and only when ?fingerprint= was supplied — classifies that
+            fingerprint against the root's stored fingerprint history.
 
   responses:
     Unauthorized:
@@ -1700,6 +1707,14 @@ paths:
           in: header
           schema:
             type: string
+        - name: fingerprint
+          in: query
+          schema:
+            type: string
+          description: >-
+            Optional SHA-256 hex digest; when supplied, adds a `relation` field
+            ("current"/"superseded"/"unknown") to the response, classifying it against the
+            root's stored fingerprint history.
       responses:
         "200":
           description: Stored config
@@ -1732,13 +1747,20 @@ paths:
       description: |
         Requires WRITE_CONFIG + scope. Delegates the full validate-then-persist pipeline
         (size cap -> root exists -> root is depth-0 -> SafeConstructor parse-validate ->
-        embedded-rootId guard -> upsert) to ProjectConfigPushService — the SAME service the MCP
-        manage_project_config tool's push operation calls, so both surfaces converge on identical
-        DB state for the same payload.
+        embedded-rootId guard -> fast-forward fingerprint guard -> upsert) to
+        ProjectConfigPushService — the SAME service the MCP manage_project_config tool's push
+        operation calls, so both surfaces converge on identical DB state for the same payload.
 
         The embedded-rootId guard: if the parsed document has a top-level project.rootId that
         parses as a UUID and differs from {rootId}, the push is rejected as 422 rootid_mismatch
         unless ?force=true is set. An absent or non-UUID project.rootId is not an error.
+
+        The fast-forward (known-old) guard: the incoming configYaml's fingerprint is classified
+        against {rootId}'s stored fingerprint history. A fingerprint that is superseded (present
+        in history but not current) is rejected as 409 superseded — distinct from 412
+        etag_mismatch, which is a concurrent-write guard rather than a known-old-content guard —
+        unless ?force=true is set. current (idempotent re-push) and unknown (divergent edit, or
+        no row/history yet) both proceed normally.
       parameters:
         - name: If-Match
           in: header
@@ -1753,7 +1775,8 @@ paths:
             type: boolean
             default: false
           description: >-
-            Bypass push guards — currently skips the embedded project.rootId mismatch check.
+            Bypass push guards — skips both the embedded project.rootId mismatch check and the
+            fast-forward fingerprint guard.
       requestBody:
         required: true
         content:
@@ -1781,6 +1804,14 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           description: rootId does not resolve to an existing WorkItem
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDto"
+        "409":
+          description: >-
+            configYaml's fingerprint is known-old (superseded) — present in the root's
+            fingerprint history but not current; retry with ?force=true to overwrite anyway
           content:
             application/json:
               schema:

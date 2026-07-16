@@ -327,6 +327,121 @@ class ManageProjectConfigToolTest {
         assertEquals(ErrorCodes.RESOURCE_NOT_FOUND, errorOf(result)["code"]!!.jsonPrimitive.content)
     }
 
+    private fun getWithFingerprint(
+        rootItemId: String,
+        fingerprint: String
+    ): JsonElement =
+        runBlocking {
+            tool.execute(
+                params(
+                    "operation" to JsonPrimitive("get"),
+                    "rootItemId" to JsonPrimitive(rootItemId),
+                    "fingerprint" to JsonPrimitive(fingerprint)
+                ),
+                context
+            )
+        }
+
+    @Test
+    fun `get without a fingerprint param omits relation from the response`() {
+        push(rootId.toString(), validYaml)
+
+        val result = get(rootId.toString())
+
+        assertTrue(isSuccess(result))
+        assertNull(dataOf(result)["relation"])
+    }
+
+    @Test
+    fun `get with a fingerprint matching current returns relation current`() {
+        val pushResult = push(rootId.toString(), validYaml)
+        val currentFingerprint = dataOf(pushResult)["fingerprint"]!!.jsonPrimitive.content
+
+        val result = getWithFingerprint(rootId.toString(), currentFingerprint)
+
+        assertTrue(isSuccess(result))
+        assertEquals("current", dataOf(result)["relation"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `get with a superseded fingerprint returns relation superseded`() {
+        val validYaml2 =
+            """
+            work_item_schemas:
+              feature-task:
+                notes:
+                  - key: other
+                    role: queue
+                    required: true
+            """.trimIndent()
+        val firstPush = push(rootId.toString(), validYaml)
+        val firstFingerprint = dataOf(firstPush)["fingerprint"]!!.jsonPrimitive.content
+        push(rootId.toString(), validYaml2)
+
+        val result = getWithFingerprint(rootId.toString(), firstFingerprint)
+
+        assertTrue(isSuccess(result))
+        assertEquals("superseded", dataOf(result)["relation"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `get with an unrelated fingerprint returns relation unknown`() {
+        push(rootId.toString(), validYaml)
+
+        val result = getWithFingerprint(rootId.toString(), "0".repeat(64))
+
+        assertTrue(isSuccess(result))
+        assertEquals("unknown", dataOf(result)["relation"]!!.jsonPrimitive.content)
+    }
+
+    // ──────────────────────────────────────────────
+    // fast-forward (known-old) push guard
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `push with a superseded fingerprint is rejected as CONFLICT_ERROR and does not overwrite`() {
+        val validYaml2 =
+            """
+            work_item_schemas:
+              feature-task:
+                notes:
+                  - key: other
+                    role: queue
+                    required: true
+            """.trimIndent()
+        push(rootId.toString(), validYaml)
+        push(rootId.toString(), validYaml2)
+
+        val result = push(rootId.toString(), validYaml)
+
+        assertFalse(isSuccess(result))
+        assertEquals(ErrorCodes.CONFLICT_ERROR, errorOf(result)["code"]!!.jsonPrimitive.content)
+
+        val getResult = get(rootId.toString())
+        assertEquals(validYaml2, dataOf(getResult)["configYaml"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `push with force true bypasses a superseded fingerprint`() {
+        val validYaml2 =
+            """
+            work_item_schemas:
+              feature-task:
+                notes:
+                  - key: other
+                    role: queue
+                    required: true
+            """.trimIndent()
+        push(rootId.toString(), validYaml)
+        push(rootId.toString(), validYaml2)
+
+        val result = push(rootId.toString(), validYaml, force = true)
+
+        assertTrue(isSuccess(result))
+        val getResult = get(rootId.toString())
+        assertEquals(validYaml, dataOf(getResult)["configYaml"]!!.jsonPrimitive.content)
+    }
+
     // ──────────────────────────────────────────────
     // validateParams
     // ──────────────────────────────────────────────

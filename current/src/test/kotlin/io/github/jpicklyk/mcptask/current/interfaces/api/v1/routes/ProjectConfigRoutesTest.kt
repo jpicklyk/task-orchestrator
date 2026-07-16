@@ -335,6 +335,73 @@ class ProjectConfigPutRouteTest {
             val persisted = runBlocking { repo.projectConfigRepository().get(root.id) }
             assertTrue((persisted as Result.Success).data != null, "force=true should allow the push to persist")
         }
+
+    @Test
+    fun `PUT roots rootId config with a known-old (superseded) fingerprint returns 409 superseded`(): Unit =
+        testApplication {
+            val repo = buildH2RepositoryProvider()
+            val root = createRoot(repo)
+            application { configureProjectConfigTestApp(repo) }
+            val yamlB = VALID_YAML + "\n"
+
+            client.put("/api/v1/roots/${root.id}/config") {
+                header("Authorization", "Bearer $WRITE_TOKEN")
+                contentType(ContentType.Text.Plain)
+                setBody(VALID_YAML)
+            }
+            client.put("/api/v1/roots/${root.id}/config") {
+                header("Authorization", "Bearer $WRITE_TOKEN")
+                contentType(ContentType.Text.Plain)
+                setBody(yamlB)
+            }
+
+            // VALID_YAML is now superseded by yamlB — pushing it again must be rejected as 409,
+            // distinct from the 412 If-Match/concurrent-write case.
+            val response =
+                client.put("/api/v1/roots/${root.id}/config") {
+                    header("Authorization", "Bearer $WRITE_TOKEN")
+                    contentType(ContentType.Text.Plain)
+                    setBody(VALID_YAML)
+                }
+
+            assertEquals(HttpStatusCode.Conflict, response.status)
+            val body = response.bodyAsText()
+            assertTrue(body.contains("superseded"), "Should report the superseded error code: $body")
+
+            val persisted = runBlocking { repo.projectConfigRepository().get(root.id) }
+            assertEquals(yamlB, (persisted as Result.Success).data?.configYaml, "Rejected push must not overwrite the current row")
+        }
+
+    @Test
+    fun `PUT roots rootId config with force=true bypasses a superseded fingerprint`(): Unit =
+        testApplication {
+            val repo = buildH2RepositoryProvider()
+            val root = createRoot(repo)
+            application { configureProjectConfigTestApp(repo) }
+            val yamlB = VALID_YAML + "\n"
+
+            client.put("/api/v1/roots/${root.id}/config") {
+                header("Authorization", "Bearer $WRITE_TOKEN")
+                contentType(ContentType.Text.Plain)
+                setBody(VALID_YAML)
+            }
+            client.put("/api/v1/roots/${root.id}/config") {
+                header("Authorization", "Bearer $WRITE_TOKEN")
+                contentType(ContentType.Text.Plain)
+                setBody(yamlB)
+            }
+
+            val response =
+                client.put("/api/v1/roots/${root.id}/config?force=true") {
+                    header("Authorization", "Bearer $WRITE_TOKEN")
+                    contentType(ContentType.Text.Plain)
+                    setBody(VALID_YAML)
+                }
+
+            assertEquals(HttpStatusCode.OK, response.status)
+            val persisted = runBlocking { repo.projectConfigRepository().get(root.id) }
+            assertEquals(VALID_YAML, (persisted as Result.Success).data?.configYaml)
+        }
 }
 
 class ProjectConfigGetRouteTest {
@@ -419,6 +486,102 @@ class ProjectConfigGetRouteTest {
                 }
 
             assertEquals(HttpStatusCode.NotFound, response.status)
+        }
+
+    @Test
+    fun `GET roots rootId config with no fingerprint query param omits relation`(): Unit =
+        testApplication {
+            val repo = buildH2RepositoryProvider()
+            val root = createRoot(repo)
+            application { configureProjectConfigTestApp(repo) }
+
+            client.put("/api/v1/roots/${root.id}/config") {
+                header("Authorization", "Bearer $WRITE_TOKEN")
+                contentType(ContentType.Text.Plain)
+                setBody(VALID_YAML)
+            }
+
+            val response =
+                client.get("/api/v1/roots/${root.id}/config") {
+                    header("Authorization", "Bearer $PROJECT_CONFIG_READ_ONLY_TOKEN")
+                }
+
+            assertEquals(HttpStatusCode.OK, response.status)
+            assertTrue(!response.bodyAsText().contains("relation"), "relation must be omitted when ?fingerprint= is absent")
+        }
+
+    @Test
+    fun `GET roots rootId config with fingerprint matching current returns relation current`(): Unit =
+        testApplication {
+            val repo = buildH2RepositoryProvider()
+            val root = createRoot(repo)
+            application { configureProjectConfigTestApp(repo) }
+
+            client.put("/api/v1/roots/${root.id}/config") {
+                header("Authorization", "Bearer $WRITE_TOKEN")
+                contentType(ContentType.Text.Plain)
+                setBody(VALID_YAML)
+            }
+            val currentFingerprint = runBlocking { repo.projectConfigRepository().computeFingerprint(VALID_YAML) }
+
+            val response =
+                client.get("/api/v1/roots/${root.id}/config?fingerprint=$currentFingerprint") {
+                    header("Authorization", "Bearer $PROJECT_CONFIG_READ_ONLY_TOKEN")
+                }
+
+            assertEquals(HttpStatusCode.OK, response.status)
+            assertTrue(response.bodyAsText().contains("\"relation\":\"current\""))
+        }
+
+    @Test
+    fun `GET roots rootId config with a superseded fingerprint returns relation superseded`(): Unit =
+        testApplication {
+            val repo = buildH2RepositoryProvider()
+            val root = createRoot(repo)
+            application { configureProjectConfigTestApp(repo) }
+            val yamlB = VALID_YAML + "\n"
+
+            client.put("/api/v1/roots/${root.id}/config") {
+                header("Authorization", "Bearer $WRITE_TOKEN")
+                contentType(ContentType.Text.Plain)
+                setBody(VALID_YAML)
+            }
+            client.put("/api/v1/roots/${root.id}/config") {
+                header("Authorization", "Bearer $WRITE_TOKEN")
+                contentType(ContentType.Text.Plain)
+                setBody(yamlB)
+            }
+            val supersededFingerprint = runBlocking { repo.projectConfigRepository().computeFingerprint(VALID_YAML) }
+
+            val response =
+                client.get("/api/v1/roots/${root.id}/config?fingerprint=$supersededFingerprint") {
+                    header("Authorization", "Bearer $PROJECT_CONFIG_READ_ONLY_TOKEN")
+                }
+
+            assertEquals(HttpStatusCode.OK, response.status)
+            assertTrue(response.bodyAsText().contains("\"relation\":\"superseded\""))
+        }
+
+    @Test
+    fun `GET roots rootId config with an unrelated fingerprint returns relation unknown`(): Unit =
+        testApplication {
+            val repo = buildH2RepositoryProvider()
+            val root = createRoot(repo)
+            application { configureProjectConfigTestApp(repo) }
+
+            client.put("/api/v1/roots/${root.id}/config") {
+                header("Authorization", "Bearer $WRITE_TOKEN")
+                contentType(ContentType.Text.Plain)
+                setBody(VALID_YAML)
+            }
+
+            val response =
+                client.get("/api/v1/roots/${root.id}/config?fingerprint=${"0".repeat(64)}") {
+                    header("Authorization", "Bearer $PROJECT_CONFIG_READ_ONLY_TOKEN")
+                }
+
+            assertEquals(HttpStatusCode.OK, response.status)
+            assertTrue(response.bodyAsText().contains("\"relation\":\"unknown\""))
         }
 }
 

@@ -396,6 +396,18 @@ which can lower the floor to zero via the empty default (see below).
 
 **Precedence — the workspace file is canonical; the per-root DB row is a synced replica.** The `config-sync.mjs` SessionStart hook (and the `manage-schemas` / `quick-start` push steps) copy the local `.taskorchestrator/config.yaml` into the per-root store whenever it changes. Durable edits belong in the **file**: a runtime `manage_project_config` push that isn't reflected in the file is overwritten at the next session's sync. A byte-identical file is a no-op (fingerprints match).
 
+**Fast-forward guarded.** The server keeps a per-root fingerprint history (newest first, pruned to
+20), so file-canonical precedence is enforced, not just assumed. A push whose fingerprint is
+**known-old** — present in that history but not the root's current fingerprint (e.g. a stale
+checkout that missed a later push made from another machine) — is rejected server-side (REST `409
+superseded`; MCP tool `CONFLICT_ERROR`) instead of silently reverting the later change.
+`config-sync.mjs` checks this on every session start via `GET .../config?fingerprint=<local-sha256>`:
+a `superseded` relation skips the push and surfaces a message telling the agent to pull or copy the
+server's config back before editing, rather than pushing over it. `current` (already in sync) and
+`unknown` (brand-new content, or an older server that predates this guard — no `relation` field
+returned) both proceed as before. `force: true` (or `?force=true`) bypasses the guard when a
+deliberate revert or overwrite is intended.
+
 **Global-only settings.** `note_limits` and `actor_authentication` are **not** part of the per-root layer — the resolver reads them only from the global file. A per-root document may carry them, but they are ignored; keep them in the global config.
 
 ### Schema-free / non-dev / business-workflow projects

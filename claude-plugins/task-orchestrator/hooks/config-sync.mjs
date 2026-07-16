@@ -73,6 +73,26 @@ function fetchWithTimeout(url, opts) {
   return fetch(url, { ...opts, signal: controller.signal }).finally(() => clearTimeout(timer));
 }
 
+/**
+ * Decides what to do with the GET response's `relation` field (fast-forward guard — see
+ * ProjectConfigRoutes.kt's `?fingerprint=` handling). Pure function, kept separate from `main` so
+ * the branch logic is unit-inspectable without a JS test harness (this repo has none for the
+ * plugin hooks).
+ *
+ * - "current": already in sync, no push needed.
+ * - "superseded": this checkout's config.yaml is known-old (a later push happened elsewhere) —
+ *   skip the push rather than silently reverting that later change.
+ * - "unknown", or the field absent entirely (an older server that predates this guard): degrade to
+ *   the existing etag-compare-then-push behavior — never block on an ambiguous relation.
+ *
+ * Returns one of: "already-in-sync" | "skip-superseded" | "push".
+ */
+function decideSyncAction(relation, updatedAt) {
+  if (relation === 'current') return { action: 'already-in-sync' };
+  if (relation === 'superseded') return { action: 'skip-superseded', updatedAt };
+  return { action: 'push' }; // 'unknown' or absent (older server) — fall back to etag-compare push
+}
+
 async function main() {
   if (typeof fetch !== 'function') return; // node < 18 — no global fetch; nothing we can do, stay silent
 
@@ -88,20 +108,47 @@ async function main() {
   // API_ALLOW_UNAUTHENTICATED=true) needs no Authorization header at all.
   const token = process.env.TASK_ORCHESTRATOR_API_TOKEN;
 
-  const localEtag = `"cfg-${createHash('sha256').update(bytes).digest('hex')}"`;
+  const localFingerprint = createHash('sha256').update(bytes).digest('hex');
+  const localEtag = `"cfg-${localFingerprint}"`;
   const endpoint = `${apiUrl.replace(/\/+$/, '')}/api/v1/roots/${rootId}/config`;
   const authHeader = token ? { Authorization: `Bearer ${token}` } : {};
 
-  // 1) Read the server's current fingerprint to decide whether a push is needed.
+  // 1) Read the server's current fingerprint — and, via ?fingerprint=, how our local fingerprint
+  //    relates to its history (fast-forward guard) — to decide whether a push is needed.
   let currentEtag = null;
   try {
-    const res = await fetchWithTimeout(endpoint, { headers: authHeader });
+    const res = await fetchWithTimeout(`${endpoint}?fingerprint=${localFingerprint}`, { headers: authHeader });
     if (res.status === 200) {
       currentEtag = res.headers.get('etag');
       if (currentEtag && currentEtag === localEtag) {
         emit(`Task Orchestrator: project config already in sync for root ${rootId}.`);
         return;
       }
+
+      let relation;
+      let updatedAt;
+      try {
+        const body = await res.json();
+        relation = body?.relation;
+        updatedAt = body?.updatedAt;
+      } catch {
+        relation = undefined; // unparseable body — degrade like an absent relation field
+      }
+
+      const decision = decideSyncAction(relation, updatedAt);
+      if (decision.action === 'already-in-sync') {
+        emit(`Task Orchestrator: project config already in sync for root ${rootId}.`);
+        return;
+      }
+      if (decision.action === 'skip-superseded') {
+        emit(
+          `Task Orchestrator: config sync skipped — your checkout's config.yaml is older than the ` +
+            `server's (updated ${decision.updatedAt ?? 'unknown'}); pull or copy back before editing.`,
+        );
+        return;
+      }
+      // decision.action === 'push' ('unknown' relation, or an older server with no relation field
+      // at all) — fall through to step 2, same as today's etag-compare-then-push behavior.
     } else if (res.status === 404) {
       currentEtag = null; // no row yet — first push is a create
     } else {

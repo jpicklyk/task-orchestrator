@@ -455,4 +455,6 @@ data class ProjectConfigResponseDto(
     val updatedAt: String,
     val configYaml: String? = null,
     val warning: String? = null,
+    /** "current" | "superseded" | "unknown" — present only on GET when `?fingerprint=` was supplied. */
+    val relation: String? = null,
 )

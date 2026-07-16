@@ -119,4 +119,81 @@ class ProjectConfigPushServiceTest {
             assertTrue(stored is Result.Success)
             assertEquals(rootId, (stored as Result.Success).data?.rootItemId)
         }
+
+    // ──────────────────────────────────────────────
+    // fast-forward (known-old) fingerprint guard
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `push with an UNKNOWN fingerprint (brand-new content) proceeds normally`() =
+        runBlocking {
+            val yamlA = "work_item_schemas:\n  a: {}\n"
+            val yamlB = "work_item_schemas:\n  b: {}\n"
+            service.push(rootId, yamlA)
+
+            // yamlB has never been pushed to this root before — UNKNOWN, not SUPERSEDED.
+            val result = service.push(rootId, yamlB)
+
+            assertTrue(result is ProjectConfigPushResult.Success)
+            val stored = (projectConfigRepository.get(rootId) as Result.Success).data
+            assertEquals(yamlB, stored?.configYaml)
+        }
+
+    @Test
+    fun `push with the CURRENT fingerprint (idempotent re-push) proceeds normally`() =
+        runBlocking {
+            val yaml = "work_item_schemas:\n  a: {}\n"
+            val first = service.push(rootId, yaml)
+            assertTrue(first is ProjectConfigPushResult.Success)
+
+            val second = service.push(rootId, yaml)
+
+            assertTrue(second is ProjectConfigPushResult.Success)
+            assertEquals(
+                (first as ProjectConfigPushResult.Success).fingerprint,
+                (second as ProjectConfigPushResult.Success).fingerprint
+            )
+        }
+
+    @Test
+    fun `push with a SUPERSEDED (known-old) fingerprint is rejected naming the server's updatedAt`() =
+        runBlocking {
+            val yamlA = "work_item_schemas:\n  a: {}\n"
+            val yamlB = "work_item_schemas:\n  b: {}\n"
+            service.push(rootId, yamlA)
+            service.push(rootId, yamlB)
+
+            // yamlA is now superseded — pushing it again (e.g. from a stale checkout) must be
+            // rejected, not silently accepted as a normal re-push.
+            val result = service.push(rootId, yamlA)
+
+            assertTrue(result is ProjectConfigPushResult.Superseded)
+            val superseded = result as ProjectConfigPushResult.Superseded
+            assertEquals(rootId, superseded.rootItemId)
+
+            val currentStored = (projectConfigRepository.get(rootId) as Result.Success).data
+            assertEquals(
+                currentStored?.updatedAt,
+                superseded.currentUpdatedAt,
+                "Superseded.currentUpdatedAt should name the server's current row's updatedAt"
+            )
+
+            // The rejected push must not have overwritten the server's current (yamlB) state.
+            assertEquals(yamlB, currentStored?.configYaml)
+        }
+
+    @Test
+    fun `push with force true bypasses a SUPERSEDED fingerprint and overwrites`() =
+        runBlocking {
+            val yamlA = "work_item_schemas:\n  a: {}\n"
+            val yamlB = "work_item_schemas:\n  b: {}\n"
+            service.push(rootId, yamlA)
+            service.push(rootId, yamlB)
+
+            val result = service.push(rootId, yamlA, force = true)
+
+            assertTrue(result is ProjectConfigPushResult.Success)
+            val stored = (projectConfigRepository.get(rootId) as Result.Success).data
+            assertEquals(yamlA, stored?.configYaml, "force=true should allow reverting to the known-old content")
+        }
 }

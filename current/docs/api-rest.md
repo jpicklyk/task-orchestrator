@@ -470,11 +470,13 @@ Note: `"<previousRole>"` is a literal sentinel string — dashboards must resolv
   "fingerprint": "e3b0c44298fc1c14...",
   "updatedAt": "2026-07-15T19:00:00Z",
   "configYaml": "work_item_schemas:\n  ...",
-  "warning": "string|null"
+  "warning": "string|null",
+  "relation": "current|superseded|unknown|null"
 }
 ```
 `configYaml` is populated on `GET` only (omitted on `PUT`). `warning` is populated only when the
-root's `type` is not `"project"` (non-fatal — the push still succeeds).
+root's `type` is not `"project"` (non-fatal — the push still succeeds). `relation` is populated on
+`GET` only, and only when `?fingerprint=` was supplied — see §17.
 
 ### SSE / ApiEvent
 
@@ -941,7 +943,8 @@ Validates and stores raw `configYaml` for `{rootId}`. Requires `WRITE_CONFIG`.
 **Request body:** raw YAML text (`Content-Type: application/yaml` or `text/plain`); max 128 KiB.
 
 **Query parameter:** `force` (boolean, default `false`) — set `?force=true` to bypass push guards;
-currently skips the embedded `project.rootId` mismatch check (guard 5 below).
+skips both the embedded `project.rootId` mismatch check (guard 5 below) and the fast-forward
+fingerprint guard (guard 6 below).
 
 **Validation pipeline (in order, stops at first failure — nothing is written on failure):**
 1. Body size ≤ 128 KiB
@@ -952,7 +955,12 @@ currently skips the embedded `project.rootId` mismatch check (guard 5 below).
 5. Unless `?force=true`: if the parsed document embeds a top-level `project.rootId` that parses as
    a UUID and differs from `{rootId}`, the push is rejected (an absent or non-UUID `project.rootId`
    is not an error — the push proceeds as if it were absent)
-6. Optional `If-Match` (see below), evaluated against the CURRENT stored fingerprint
+6. Unless `?force=true`: the incoming `configYaml`'s fingerprint is classified against `{rootId}`'s
+   stored fingerprint history — a fast-forward (known-old) guard. A fingerprint that is
+   **superseded** (present in history but not current) is rejected, since writing it would silently
+   revert a later push made from elsewhere. **current** (idempotent re-push) and **unknown**
+   (divergent edit, or no row/history yet) both proceed normally.
+7. Optional `If-Match` (see below), evaluated against the CURRENT stored fingerprint
 
 **Responses:**
 - `200 OK` → `ProjectConfigResponseDto` (no `configYaml` field on this verb); `ETag: "cfg-<fingerprint>"`
@@ -961,6 +969,9 @@ currently skips the embedded `project.rootId` mismatch check (guard 5 below).
 - `422 parse_error` — `configYaml` failed SafeConstructor parse-validation
 - `422 rootid_mismatch` — `configYaml` embeds a `project.rootId` differing from `{rootId}` (message
   names both ids); retry with `?force=true` to bypass
+- `409 superseded` — `configYaml`'s fingerprint is known-old (guard 6 above); message names the
+  server's current `updatedAt`; retry with `?force=true` to overwrite anyway. Distinct from
+  `412 etag_mismatch` below — this is a known-old-**content** guard, not a concurrent-write guard.
 - `412 etag_mismatch` — `If-Match` supplied and mismatched against an EXISTING row's ETag (a
   first push to a root with no prior row ignores `If-Match` — there is nothing to match yet)
 - `413 payload_too_large` — body exceeds 128 KiB
@@ -969,6 +980,11 @@ currently skips the embedded `project.rootId` mismatch check (guard 5 below).
 ### GET /roots/{rootId}/config
 
 Reads back the stored config for `{rootId}`. Requires `READ`.
+
+**Query parameter:** `fingerprint` (optional, SHA-256 hex digest) — when supplied, classifies it
+against `{rootId}`'s stored fingerprint history and adds a `relation` field
+(`"current"|"superseded"|"unknown"`) to the response body. Omitted entirely when the query
+parameter is absent.
 
 **Responses:**
 - `200 OK` → `ProjectConfigResponseDto` (includes `configYaml`); `ETag: "cfg-<fingerprint>"`
