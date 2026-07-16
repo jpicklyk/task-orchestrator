@@ -340,7 +340,7 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                     roleTransitionRepository = context.roleTransitionRepository(),
                     dependencyRepository = context.dependencyRepository(),
                     noteRepository = context.noteRepository(),
-                    statusLabelService = resolveRootAwareStatusLabelService(context, item.rootId),
+                    statusLabelService = resolveRootAwareStatusLabelService(context, item.rootId, trigger),
                     schemaResolver = { context.resolveSchema(it) }
                 )
 
@@ -550,24 +550,37 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                 )
         }
 
+    // Divergence note (pre-existing, tracked as backlog): REST transitions
+    // (ItemWriteRoutes' advance route) construct their AdvanceService with a NoOpStatusLabelService
+    // and do NOT apply status labels at all — including this per-root layer. Only the MCP path
+    // below resolves and applies status labels. Not addressed here; out of scope for this pass.
+
     /**
      * Builds a [StatusLabelService] bound to a single item's [rootId], for handing to [AdvanceService]
      * (whose constructor takes a plain, non-suspending [StatusLabelService] and has no rootId
      * awareness of its own — see `docs: AdvanceService.kt` is out of this task's scope). Since
      * [StatusLabelService.resolveLabel] is synchronous, the per-root layering
-     * ([ToolExecutionContext.resolveStatusLabel]) must run to completion for every trigger
-     * [AdvanceService] might ask about BEFORE this method returns; the resulting map is then served
-     * from a trivial synchronous lookup.
+     * ([ToolExecutionContext.resolveStatusLabels]) must run to completion BEFORE this method
+     * returns; the resulting map is then served from a trivial synchronous lookup.
      *
-     * Covers every [UserTrigger] plus the system-internal "cascade" trigger (used by
-     * [AdvanceService]'s cascade-apply paths, which are not reachable through the public
-     * `advance_item` trigger parameter — see [UserTrigger]'s KDoc).
+     * Resolves only the trigger set [AdvanceService.advance] can actually consult for a single
+     * advance call: the primary [trigger] itself (passed unconditionally to
+     * `statusLabelService.resolveLabel(trigger)` for the primary transition) plus the
+     * system-internal `"cascade"` trigger (consulted only when a cascade is detected and applied —
+     * see `AdvanceService.detectAndApplyTerminalCascades`/`applyCascadeEvents`). No other
+     * [UserTrigger] value is ever looked up during a single call, so precomputing the full 8-trigger
+     * set (every [UserTrigger] plus `"cascade"`) — as this used to do — resolved 6 triggers that
+     * could never be consulted. [ToolExecutionContext.resolveStatusLabels] additionally collapses
+     * this 2-element (or 1-element, when [trigger] happens to be `"cascade"`) resolution into a
+     * SINGLE per-root snapshot fetch rather than one per trigger.
      */
     private suspend fun resolveRootAwareStatusLabelService(
         context: ToolExecutionContext,
-        rootId: UUID?
+        rootId: UUID?,
+        trigger: String
     ): StatusLabelService {
-        val resolved = KNOWN_STATUS_LABEL_TRIGGERS.associateWith { trigger -> context.resolveStatusLabel(trigger, rootId) }
+        val consultedTriggers = setOf(trigger, "cascade")
+        val resolved = context.resolveStatusLabels(consultedTriggers, rootId)
         return object : StatusLabelService {
             override fun resolveLabel(trigger: String): String? = resolved[trigger]
         }
@@ -613,14 +626,4 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
             put("errorCode", JsonPrimitive(toolError.code))
             toolError.contendedItemId?.let { put("contendedItemId", JsonPrimitive(it.toString())) }
         }
-
-    companion object {
-        /**
-         * Every trigger [AdvanceService] may pass to [StatusLabelService.resolveLabel]: all public
-         * [UserTrigger] values, plus the system-internal "cascade" trigger used by cascade-apply
-         * paths. Used by [resolveRootAwareStatusLabelService] to precompute a complete per-item
-         * label map up front.
-         */
-        private val KNOWN_STATUS_LABEL_TRIGGERS = UserTrigger.entries.map { it.triggerString } + "cascade"
-    }
 }

@@ -312,6 +312,56 @@ note_limits:
             )
         }
 
+    // --- getSnapshot: single-pass combined view ---
+
+    @Test
+    fun `getSnapshot returns null when no config row exists`() =
+        runBlocking {
+            assertNull(service.getSnapshot(rootItemId))
+        }
+
+    @Test
+    fun `getSnapshot combines schemas, traits, note_limits, status_labels, and fingerprint from one parse`() =
+        runBlocking {
+            repository.upsert(
+                rootItemId,
+                """
+work_item_schemas:
+  bug-fix:
+    notes:
+      - key: repro-steps
+        role: queue
+        required: true
+        description: "Repro steps"
+traits:
+  needs-migration-review:
+    notes:
+      - key: migration-assessment
+        role: queue
+        required: true
+        description: "Migration assessment"
+note_limits:
+  mode: reject
+status_labels:
+  start: "root-started"
+                """.trimIndent()
+            )
+
+            val snapshot = service.getSnapshot(rootItemId)
+            assertNotNull(snapshot)
+            assertEquals(
+                "repro-steps",
+                snapshot.workItemSchemas["bug-fix"]
+                    ?.notes
+                    ?.get(0)
+                    ?.key
+            )
+            assertEquals("migration-assessment", snapshot.traits["needs-migration-review"]?.get(0)?.key)
+            assertEquals("reject", snapshot.noteLimitsModeExplicit)
+            assertEquals("root-started", snapshot.statusLabels?.get("start"))
+            assertEquals(service.getFingerprint(rootItemId), snapshot.fingerprint)
+        }
+
     // --- getStatusLabels: absent-vs-explicit, partial map ---
 
     @Test

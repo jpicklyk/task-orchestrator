@@ -6,6 +6,7 @@ import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigReposit
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.ProjectConfigTable
+import io.github.jpicklyk.mcptask.current.infrastructure.security.sha256Hex
 import kotlinx.serialization.json.*
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.eq
@@ -13,7 +14,6 @@ import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.select
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.upsert
-import java.security.MessageDigest
 import java.time.Instant
 import java.util.UUID
 
@@ -112,10 +112,7 @@ class SQLiteProjectConfigRepository(
             Result.Success(deletedCount > 0)
         }
 
-    override fun computeFingerprint(configYaml: String): String {
-        val digest = MessageDigest.getInstance("SHA-256").digest(configYaml.toByteArray(Charsets.UTF_8))
-        return digest.joinToString("") { "%02x".format(it) }
-    }
+    override fun computeFingerprint(configYaml: String): String = sha256Hex(configYaml.toByteArray(Charsets.UTF_8))
 
     override suspend fun classifyFingerprint(
         rootItemId: UUID,

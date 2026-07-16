@@ -123,8 +123,9 @@ class ToolExecutionContext(
      */
     suspend fun resolveSchema(item: WorkItem): WorkItemSchema? {
         val service = noteSchemaService()
-        val baseSchema = resolveBaseSchema(item, service) ?: return null
-        return mergeTraits(item, baseSchema, service)
+        val snapshot = snapshotFor(item.rootId)
+        val baseSchema = resolveBaseSchemaWithSource(item, snapshot, service)?.first ?: return null
+        return mergeTraits(item, baseSchema, snapshot, service)
     }
 
     /**
@@ -137,14 +138,10 @@ class ToolExecutionContext(
      */
     suspend fun resolveSchemaWithSource(item: WorkItem): ResolvedSchema? {
         val service = noteSchemaService()
-        val (baseSchema, source) = resolveBaseSchemaWithSource(item, service) ?: return null
-        val merged = mergeTraits(item, baseSchema, service)
-        val fingerprint =
-            when (source) {
-                SchemaSource.PER_ROOT -> item.rootId?.let { perRootConfigService?.getFingerprint(it) }
-                SchemaSource.GLOBAL -> service.getConfigFingerprint()
-            }
-        return ResolvedSchema(merged, source, fingerprint)
+        val snapshot = snapshotFor(item.rootId)
+        val (baseSchema, source) = resolveBaseSchemaWithSource(item, snapshot, service) ?: return null
+        val merged = mergeTraits(item, baseSchema, snapshot, service)
+        return ResolvedSchema(merged, source, fingerprintFor(source, snapshot, service))
     }
 
     /**
@@ -158,13 +155,9 @@ class ToolExecutionContext(
         rootId: UUID?
     ): ResolvedSchema? {
         val service = noteSchemaService()
-        val (schema, source) = resolveTypeAgainstLayers(type, rootId, service) ?: return null
-        val fingerprint =
-            when (source) {
-                SchemaSource.PER_ROOT -> rootId?.let { perRootConfigService?.getFingerprint(it) }
-                SchemaSource.GLOBAL -> service.getConfigFingerprint()
-            }
-        return ResolvedSchema(schema, source, fingerprint)
+        val snapshot = snapshotFor(rootId)
+        val (schema, source) = resolveTypeAgainstLayers(type, snapshot, service) ?: return null
+        return ResolvedSchema(schema, source, fingerprintFor(source, snapshot, service))
     }
 
     /**
@@ -182,8 +175,7 @@ class ToolExecutionContext(
      * pre-layering global-only behavior.
      */
     suspend fun resolveNoteLimitsMode(rootId: UUID?): String {
-        val perRoot = perRootConfigService
-        val perRootMode = if (rootId != null && perRoot != null) perRoot.getNoteLimitsMode(rootId) else null
+        val perRootMode = snapshotFor(rootId)?.noteLimitsModeExplicit
         return perRootMode ?: noteSchemaService().getNoteLimitsMode()
     }
 
@@ -199,15 +191,32 @@ class ToolExecutionContext(
     suspend fun resolveStatusLabel(
         trigger: String,
         rootId: UUID?
-    ): String? {
-        val perRoot = perRootConfigService
-        if (rootId != null && perRoot != null) {
-            val perRootLabels = perRoot.getStatusLabels(rootId)
+    ): String? = resolveStatusLabels(listOf(trigger), rootId)[trigger]
+
+    /**
+     * Batched counterpart to [resolveStatusLabel]: resolves every trigger in [triggers] against
+     * [rootId]'s layered status-label config from a SINGLE per-root snapshot fetch instead of one
+     * fetch per trigger — callers resolving more than one trigger for the same item (e.g.
+     * `AdvanceItemTool`'s root-aware [StatusLabelService], which needs the primary trigger plus the
+     * system-internal "cascade" trigger) should call this once rather than [resolveStatusLabel] in
+     * a loop. Per-trigger precedence is identical to [resolveStatusLabel]: an explicit per-root key
+     * for that trigger wins (including an explicit `null` value — see
+     * [PerRootConfigService.getStatusLabels]); a trigger absent from the per-root map falls through
+     * to the global [statusLabelService].
+     */
+    suspend fun resolveStatusLabels(
+        triggers: Collection<String>,
+        rootId: UUID?
+    ): Map<String, String?> {
+        val perRootLabels = snapshotFor(rootId)?.statusLabels
+        val global = statusLabelService()
+        return triggers.associateWith { trigger ->
             if (perRootLabels != null && perRootLabels.containsKey(trigger)) {
-                return perRootLabels[trigger]
+                perRootLabels[trigger]
+            } else {
+                global.resolveLabel(trigger)
             }
         }
-        return statusLabelService().resolveLabel(trigger)
     }
 
     /**
@@ -223,7 +232,13 @@ class ToolExecutionContext(
         val perRoot = perRootConfigService
         val perRootTraits =
             if (perRoot != null) {
-                rootIds.flatMap { rootId -> perRoot.getAllTraits(rootId)?.keys.orEmpty() }
+                rootIds.flatMap { rootId ->
+                    perRoot
+                        .getSnapshot(rootId)
+                        ?.traits
+                        ?.keys
+                        .orEmpty()
+                }
             } else {
                 emptyList()
             }
@@ -231,43 +246,58 @@ class ToolExecutionContext(
     }
 
     /**
-     * Resolves the base schema without trait merging. Type-first lookup with tag fallback, each
-     * layered per-root-then-global — see [resolveSchema]'s KDoc for the full fallback table.
+     * Fetches [rootId]'s [PerRootConfigService.Snapshot] in ONE call, or null when [rootId] is
+     * null, no [perRootConfigService] is wired, or the root has no per-root config (no row, or a
+     * row that fails to parse). Every per-root-aware resolver below (schema/tag/trait lookup,
+     * note-limits mode, status labels, fingerprint) takes this ALREADY-fetched snapshot as a
+     * parameter instead of independently calling the single-facet accessors on
+     * [PerRootConfigService] — each of those would otherwise re-invoke [PerRootConfigService.resolve]
+     * on its own, costing a redundant fingerprint-read per facet even when the cache is warm.
      */
-    private suspend fun resolveBaseSchema(
-        item: WorkItem,
-        service: NoteSchemaService
-    ): WorkItemSchema? = resolveBaseSchemaWithSource(item, service)?.first
+    private suspend fun snapshotFor(rootId: UUID?): PerRootConfigService.Snapshot? = rootId?.let { perRootConfigService?.getSnapshot(it) }
 
     /**
-     * Same resolution as [resolveBaseSchema], but returns which layer ([SchemaSource]) supplied
-     * the result alongside the schema itself — the source-tracking variant used by
-     * [resolveSchemaWithSource]. Behavior is byte-identical to [resolveBaseSchema]; this is purely
-     * an additive return-shape change, factored out so [resolveBaseSchema] keeps its original
-     * public-facing behavior unchanged for every other caller of [resolveSchema].
+     * Returns the fingerprint associated with a resolved schema's [source], from the SAME
+     * [snapshot] used to resolve it (PER_ROOT) or from the global loader (GLOBAL) — the tiny shared
+     * helper behind [resolveSchemaWithSource] and [resolveTypeSchema], replacing what used to be a
+     * duplicated 4-line `when (source)` expression in each.
      */
-    private suspend fun resolveBaseSchemaWithSource(
+    private fun fingerprintFor(
+        source: SchemaSource,
+        snapshot: PerRootConfigService.Snapshot?,
+        service: NoteSchemaService
+    ): String? =
+        when (source) {
+            SchemaSource.PER_ROOT -> snapshot?.fingerprint
+            SchemaSource.GLOBAL -> service.getConfigFingerprint()
+        }
+
+    /**
+     * Resolves the base schema (no trait merging), returning which layer ([SchemaSource]) supplied
+     * it alongside the schema itself. Type-first lookup with tag fallback, each layered
+     * per-root-then-global against the ALREADY-fetched [snapshot] — see [resolveSchema]'s KDoc for
+     * the full fallback table.
+     */
+    private fun resolveBaseSchemaWithSource(
         item: WorkItem,
+        snapshot: PerRootConfigService.Snapshot?,
         service: NoteSchemaService
     ): Pair<WorkItemSchema, SchemaSource>? {
-        val rootId = item.rootId
-        val perRoot = perRootConfigService
-
         // Type-first lookup: whole-algorithm-first per layer. Run the ENTIRE per-root layer
         // (exact type match, then per-root "default") before ever consulting the global layer.
         // Only when neither per-root key matches (no config row for this root, or a row with
         // neither the exact type nor "default" defined) do we fall through to the global lookup
         // (which has its own type -> "default" fallback — see class KDoc above).
         item.type?.let { type ->
-            resolveTypeAgainstLayers(type, rootId, service)?.let { return it }
+            resolveTypeAgainstLayers(type, snapshot, service)?.let { return it }
         }
 
         // Tag fallback: run the per-root schema map through the SAME first-tag-match/"default"
         // algorithm first; only fall through to the global tag algorithm when the per-root layer
         // has no config row for this root, or no tag (nor "default") matches within it.
         val tags = item.tagList()
-        if (rootId != null && perRoot != null) {
-            resolvePerRootTagMatch(rootId, tags, perRoot)?.let { return it to SchemaSource.PER_ROOT }
+        if (snapshot != null) {
+            resolvePerRootTagMatch(tags, snapshot)?.let { return it to SchemaSource.PER_ROOT }
         }
 
         // Tag fallback: find the matched tag, then look up the full WorkItemSchema
@@ -288,59 +318,56 @@ class ToolExecutionContext(
     /**
      * Runs the type-lookup step shared by [resolveBaseSchemaWithSource] and [resolveTypeSchema]:
      * per-root exact type -> per-root `"default"` -> global exact type (which has its own internal
-     * `-> global "default"` fallback — see [resolveSchema]'s KDoc table). Whole-algorithm-first:
-     * the entire per-root probe runs to completion before the global layer is consulted at all.
-     * Returns null when neither layer defines [type].
+     * `-> global "default"` fallback — see [resolveSchema]'s KDoc table), against the
+     * ALREADY-fetched [snapshot]. Whole-algorithm-first: the entire per-root probe runs to
+     * completion before the global layer is consulted at all. Returns null when neither layer
+     * defines [type].
      */
-    private suspend fun resolveTypeAgainstLayers(
+    private fun resolveTypeAgainstLayers(
         type: String,
-        rootId: UUID?,
+        snapshot: PerRootConfigService.Snapshot?,
         service: NoteSchemaService
     ): Pair<WorkItemSchema, SchemaSource>? {
-        val perRoot = perRootConfigService
-        if (rootId != null && perRoot != null) {
-            val perRootMatch = perRoot.getSchemaForType(rootId, type) ?: perRoot.getSchemaForType(rootId, "default")
+        if (snapshot != null) {
+            val perRootMatch = snapshot.workItemSchemas[type] ?: snapshot.workItemSchemas["default"]
             if (perRootMatch != null) return perRootMatch to SchemaSource.PER_ROOT
         }
         return service.getSchemaForType(type)?.let { it to SchemaSource.GLOBAL }
     }
 
     /**
-     * Runs the same "first matching tag wins, else `default`" algorithm [resolveBaseSchema] uses
-     * against the global service, but against [rootId]'s per-root schema map instead. Per-root
-     * schema map keys (type/tag names) and their [WorkItemSchema] values come straight from
-     * [PerRootConfigService.getSchemas], which already carries lifecycle/defaultTraits — no
-     * separate "fetch notes, then re-fetch the full schema" step is needed here (unlike the global
-     * path, which has two parallel maps for historical reasons).
+     * Runs the same "first matching tag wins, else `default`" algorithm [resolveBaseSchemaWithSource]
+     * uses against the global service, but against the ALREADY-fetched [snapshot]'s per-root schema
+     * map instead. Per-root schema map keys (type/tag names) and their [WorkItemSchema] values come
+     * straight from [PerRootConfigService.Snapshot.workItemSchemas], which already carries
+     * lifecycle/defaultTraits — no separate "fetch notes, then re-fetch the full schema" step is
+     * needed here (unlike the global path, which has two parallel maps for historical reasons).
      *
-     * Returns null when there is no per-root config row for [rootId], or no tag (nor `"default"`)
-     * matches within it — either case means "defer to the global tag algorithm".
+     * Returns null when no tag (nor `"default"`) matches within [snapshot] — meaning "defer to the
+     * global tag algorithm".
      */
-    private suspend fun resolvePerRootTagMatch(
-        rootId: UUID,
+    private fun resolvePerRootTagMatch(
         tags: List<String>,
-        perRoot: PerRootConfigService
+        snapshot: PerRootConfigService.Snapshot
     ): WorkItemSchema? {
-        val schemas = perRoot.getSchemas(rootId) ?: return null
         for (tag in tags) {
-            schemas[tag]?.let { return it }
+            snapshot.workItemSchemas[tag]?.let { return it }
         }
-        return schemas["default"]
+        return snapshot.workItemSchemas["default"]
     }
 
     /**
      * Merges trait notes into the base schema. Collects default_traits from config +
-     * per-item traits from properties JSON, looks up notes for each (per-root config for
-     * [item]'s root taking precedence over the global trait definition — see [resolveSchema]'s
+     * per-item traits from properties JSON, looks up notes for each (the ALREADY-fetched [snapshot]
+     * for [item]'s root taking precedence over the global trait definition — see [resolveSchema]'s
      * KDoc), and appends to the base schema notes (base key wins on duplicates).
      */
-    private suspend fun mergeTraits(
+    private fun mergeTraits(
         item: WorkItem,
         baseSchema: WorkItemSchema,
+        snapshot: PerRootConfigService.Snapshot?,
         service: NoteSchemaService
     ): WorkItemSchema {
-        val rootId = item.rootId
-        val perRoot = perRootConfigService
         val defaultTraits = baseSchema.defaultTraits
         val itemTraits = PropertiesHelper.extractTraits(item.properties)
         val allTraits = (defaultTraits + itemTraits).distinct()
@@ -349,7 +376,7 @@ class ToolExecutionContext(
 
         val traitNotes = mutableListOf<NoteSchemaEntry>()
         for (traitName in allTraits) {
-            val perRootNotes = if (rootId != null && perRoot != null) perRoot.getTraitNotes(rootId, traitName) else null
+            val perRootNotes = snapshot?.traits?.get(traitName)
             val notes = perRootNotes ?: service.getTraitNotes(traitName)
             if (notes == null) {
                 logger.warn("Unknown trait '{}' on item '{}'; skipping", traitName, item.id)

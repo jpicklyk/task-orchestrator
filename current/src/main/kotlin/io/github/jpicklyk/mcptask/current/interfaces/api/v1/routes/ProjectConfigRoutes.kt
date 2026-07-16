@@ -107,10 +107,7 @@ fun Route.projectConfigRoutes(repositoryProvider: RepositoryProvider) {
 
                         val relation =
                             call.request.queryParameters["fingerprint"]?.let { queriedFingerprint ->
-                                when (val relationResult = projectConfigRepo.classifyFingerprint(rootId, queriedFingerprint)) {
-                                    is Result.Success -> relationResult.data.name.lowercase()
-                                    is Result.Error -> null
-                                }
+                                service.classifyRelation(rootId, queriedFingerprint)
                             }
 
                         call.response.header(HttpHeaders.ETag, etag)

@@ -488,7 +488,14 @@ class ToolExecutionContextResolveSchemaTest {
             val rootId = UUID.randomUUID()
             val perRoot = mockk<PerRootConfigService>()
             val perRootSchema = schemaWithReview("feature-task")
-            coEvery { perRoot.getSchemaForType(rootId, "feature-task") } returns perRootSchema
+            coEvery { perRoot.getSnapshot(rootId) } returns
+                PerRootConfigService.Snapshot(
+                    workItemSchemas = mapOf("feature-task" to perRootSchema),
+                    traits = emptyMap(),
+                    noteLimitsModeExplicit = null,
+                    statusLabels = null,
+                    fingerprint = "fp"
+                )
 
             val repoProvider = mockk<RepositoryProvider>(relaxed = true)
             val ctx = ToolExecutionContext(repoProvider, noteSchemaService, perRootConfigService = perRoot)
@@ -506,9 +513,15 @@ class ToolExecutionContextResolveSchemaTest {
         runBlocking {
             val rootId = UUID.randomUUID()
             val perRoot = mockk<PerRootConfigService>()
-            coEvery { perRoot.getSchemaForType(rootId, "feature-task") } returns null
-            // No per-root row at all — the "default" probe (whole-algorithm-first) also misses.
-            coEvery { perRoot.getSchemaForType(rootId, "default") } returns null
+            // Per-root row exists but defines neither the exact type nor "default".
+            coEvery { perRoot.getSnapshot(rootId) } returns
+                PerRootConfigService.Snapshot(
+                    workItemSchemas = emptyMap(),
+                    traits = emptyMap(),
+                    noteLimitsModeExplicit = null,
+                    statusLabels = null,
+                    fingerprint = "fp"
+                )
 
             val globalSchema = schemaWithReview("feature-task")
             every { noteSchemaService.getSchemaForType("feature-task") } returns globalSchema
@@ -520,8 +533,9 @@ class ToolExecutionContextResolveSchemaTest {
             val result = ctx.resolveSchema(item)
 
             assertEquals(globalSchema, result)
-            coVerify(exactly = 1) { perRoot.getSchemaForType(rootId, "feature-task") }
-            coVerify(exactly = 1) { perRoot.getSchemaForType(rootId, "default") }
+            // Exactly ONE snapshot fetch for the whole resolveSchema call (schema/trait resolution
+            // reuse the same already-fetched snapshot instead of re-querying per facet).
+            coVerify(exactly = 1) { perRoot.getSnapshot(rootId) }
         }
 
     @Test
@@ -529,9 +543,15 @@ class ToolExecutionContextResolveSchemaTest {
         runBlocking {
             val rootId = UUID.randomUUID()
             val perRoot = mockk<PerRootConfigService>()
-            coEvery { perRoot.getSchemaForType(rootId, "feature-task") } returns null
             val perRootDefault = WorkItemSchema(type = "default", notes = listOf(workEntry()))
-            coEvery { perRoot.getSchemaForType(rootId, "default") } returns perRootDefault
+            coEvery { perRoot.getSnapshot(rootId) } returns
+                PerRootConfigService.Snapshot(
+                    workItemSchemas = mapOf("default" to perRootDefault),
+                    traits = emptyMap(),
+                    noteLimitsModeExplicit = null,
+                    statusLabels = null,
+                    fingerprint = "fp"
+                )
 
             // Global has an EXACT type match — under whole-algorithm-first, the per-root default
             // must still win; the global layer must never be consulted.
@@ -553,9 +573,15 @@ class ToolExecutionContextResolveSchemaTest {
         runBlocking {
             val rootId = UUID.randomUUID()
             val perRoot = mockk<PerRootConfigService>()
-            coEvery { perRoot.getSchemaForType(rootId, "feature-task") } returns null
             val emptyPerRootDefault = WorkItemSchema(type = "default", notes = emptyList())
-            coEvery { perRoot.getSchemaForType(rootId, "default") } returns emptyPerRootDefault
+            coEvery { perRoot.getSnapshot(rootId) } returns
+                PerRootConfigService.Snapshot(
+                    workItemSchemas = mapOf("default" to emptyPerRootDefault),
+                    traits = emptyMap(),
+                    noteLimitsModeExplicit = null,
+                    statusLabels = null,
+                    fingerprint = "fp"
+                )
 
             val repoProvider = mockk<RepositoryProvider>(relaxed = true)
             val ctx = ToolExecutionContext(repoProvider, noteSchemaService, perRootConfigService = perRoot)
@@ -575,8 +601,8 @@ class ToolExecutionContextResolveSchemaTest {
         runBlocking {
             val rootId = UUID.randomUUID()
             val perRoot = mockk<PerRootConfigService>()
-            coEvery { perRoot.getSchemaForType(rootId, "feature-task") } returns null
-            coEvery { perRoot.getSchemaForType(rootId, "default") } returns null
+            // No per-root config row at all for this root.
+            coEvery { perRoot.getSnapshot(rootId) } returns null
 
             // No global exact match either — but getSchemaForType("feature-task") mimics the real
             // YamlNoteSchemaService's own internal exact -> "default" fallback by directly returning
@@ -607,10 +633,9 @@ class ToolExecutionContextResolveSchemaTest {
             val result = ctx.resolveSchema(item)
 
             assertEquals(globalSchema, result)
-            // Zero interactions with the per-root layer at all — not just the type-lookup method.
-            coVerify(exactly = 0) { perRoot.getSchemaForType(any(), any()) }
-            coVerify(exactly = 0) { perRoot.getSchemas(any()) }
-            coVerify(exactly = 0) { perRoot.getTraitNotes(any(), any()) }
+            // Zero interactions with the per-root layer at all — a null rootId must never even
+            // attempt a snapshot fetch.
+            coVerify(exactly = 0) { perRoot.getSnapshot(any()) }
         }
 
     @Test
@@ -625,15 +650,19 @@ class ToolExecutionContextResolveSchemaTest {
                     notes = listOf(workEntry()),
                     defaultTraits = listOf("needs-perf-review")
                 )
+            val perRootTraitNote = traitEntry("performance-baseline-per-root")
             // Type lookup misses per-root (exact and "default") and falls to the global base
             // schema — trait layering is independent of where the base schema itself came from.
-            coEvery { perRoot.getSchemaForType(rootId, "feature-task") } returns null
-            coEvery { perRoot.getSchemaForType(rootId, "default") } returns null
+            coEvery { perRoot.getSnapshot(rootId) } returns
+                PerRootConfigService.Snapshot(
+                    workItemSchemas = emptyMap(),
+                    traits = mapOf("needs-perf-review" to listOf(perRootTraitNote)),
+                    noteLimitsModeExplicit = null,
+                    statusLabels = null,
+                    fingerprint = "fp"
+                )
             every { noteSchemaService.getSchemaForType("feature-task") } returns baseSchema
             every { noteSchemaService.getDefaultTraits("feature-task") } returns listOf("needs-perf-review")
-
-            val perRootTraitNote = traitEntry("performance-baseline-per-root")
-            coEvery { perRoot.getTraitNotes(rootId, "needs-perf-review") } returns listOf(perRootTraitNote)
 
             val repoProvider = mockk<RepositoryProvider>(relaxed = true)
             val ctx = ToolExecutionContext(repoProvider, noteSchemaService, perRootConfigService = perRoot)
@@ -653,7 +682,14 @@ class ToolExecutionContextResolveSchemaTest {
             val rootId = UUID.randomUUID()
             val perRoot = mockk<PerRootConfigService>()
             val perRootDefault = WorkItemSchema(type = "default", notes = listOf(workEntry()))
-            coEvery { perRoot.getSchemas(rootId) } returns mapOf("default" to perRootDefault)
+            coEvery { perRoot.getSnapshot(rootId) } returns
+                PerRootConfigService.Snapshot(
+                    workItemSchemas = mapOf("default" to perRootDefault),
+                    traits = emptyMap(),
+                    noteLimitsModeExplicit = null,
+                    statusLabels = null,
+                    fingerprint = "fp"
+                )
 
             val repoProvider = mockk<RepositoryProvider>(relaxed = true)
             val ctx = ToolExecutionContext(repoProvider, noteSchemaService, perRootConfigService = perRoot)
@@ -707,7 +743,7 @@ class ToolExecutionContextResolveSchemaTest {
                 )
 
             assertEquals("warn", ctx.resolveNoteLimitsMode(null))
-            coVerify(exactly = 0) { perRoot.getNoteLimitsMode(any()) }
+            coVerify(exactly = 0) { perRoot.getSnapshot(any()) }
         }
 
     @Test
@@ -715,7 +751,14 @@ class ToolExecutionContextResolveSchemaTest {
         runBlocking {
             val rootId = UUID.randomUUID()
             val perRoot = mockk<PerRootConfigService>()
-            coEvery { perRoot.getNoteLimitsMode(rootId) } returns null
+            coEvery { perRoot.getSnapshot(rootId) } returns
+                PerRootConfigService.Snapshot(
+                    workItemSchemas = emptyMap(),
+                    traits = emptyMap(),
+                    noteLimitsModeExplicit = null,
+                    statusLabels = null,
+                    fingerprint = "fp"
+                )
             every { noteSchemaService.getNoteLimitsMode() } returns "warn"
             val repoProvider = mockk<RepositoryProvider>(relaxed = true)
             val ctx = ToolExecutionContext(repoProvider, noteSchemaService, perRootConfigService = perRoot)
@@ -728,7 +771,14 @@ class ToolExecutionContextResolveSchemaTest {
         runBlocking {
             val rootId = UUID.randomUUID()
             val perRoot = mockk<PerRootConfigService>()
-            coEvery { perRoot.getNoteLimitsMode(rootId) } returns "reject"
+            coEvery { perRoot.getSnapshot(rootId) } returns
+                PerRootConfigService.Snapshot(
+                    workItemSchemas = emptyMap(),
+                    traits = emptyMap(),
+                    noteLimitsModeExplicit = "reject",
+                    statusLabels = null,
+                    fingerprint = "fp"
+                )
             every { noteSchemaService.getNoteLimitsMode() } returns "warn"
             val repoProvider = mockk<RepositoryProvider>(relaxed = true)
             val ctx = ToolExecutionContext(repoProvider, noteSchemaService, perRootConfigService = perRoot)
@@ -752,7 +802,7 @@ class ToolExecutionContextResolveSchemaTest {
                 )
 
             assertEquals("in-progress", ctx.resolveStatusLabel("start", null))
-            coVerify(exactly = 0) { perRoot.getStatusLabels(any()) }
+            coVerify(exactly = 0) { perRoot.getSnapshot(any()) }
         }
 
     @Test
@@ -760,7 +810,14 @@ class ToolExecutionContextResolveSchemaTest {
         runBlocking {
             val rootId = UUID.randomUUID()
             val perRoot = mockk<PerRootConfigService>()
-            coEvery { perRoot.getStatusLabels(rootId) } returns mapOf("start" to "root-started")
+            coEvery { perRoot.getSnapshot(rootId) } returns
+                PerRootConfigService.Snapshot(
+                    workItemSchemas = emptyMap(),
+                    traits = emptyMap(),
+                    noteLimitsModeExplicit = null,
+                    statusLabels = mapOf("start" to "root-started"),
+                    fingerprint = "fp"
+                )
             val globalLabels = mockk<StatusLabelService>()
             every { globalLabels.resolveLabel("complete") } returns "done"
             val repoProvider = mockk<RepositoryProvider>(relaxed = true)
@@ -785,7 +842,14 @@ class ToolExecutionContextResolveSchemaTest {
         runBlocking {
             val rootId = UUID.randomUUID()
             val perRoot = mockk<PerRootConfigService>()
-            coEvery { perRoot.getStatusLabels(rootId) } returns mapOf("complete" to null)
+            coEvery { perRoot.getSnapshot(rootId) } returns
+                PerRootConfigService.Snapshot(
+                    workItemSchemas = emptyMap(),
+                    traits = emptyMap(),
+                    noteLimitsModeExplicit = null,
+                    statusLabels = mapOf("complete" to null),
+                    fingerprint = "fp"
+                )
             val globalLabels = mockk<StatusLabelService>()
             every { globalLabels.resolveLabel("complete") } returns "done"
             val repoProvider = mockk<RepositoryProvider>(relaxed = true)
@@ -802,5 +866,36 @@ class ToolExecutionContextResolveSchemaTest {
                 "An explicit null value for a present trigger key must win over the global label, not fall through"
             )
             verify(exactly = 0) { globalLabels.resolveLabel("complete") }
+        }
+
+    @Test
+    fun `resolveStatusLabels resolves the whole trigger set from a single snapshot fetch`() =
+        runBlocking {
+            val rootId = UUID.randomUUID()
+            val perRoot = mockk<PerRootConfigService>()
+            coEvery { perRoot.getSnapshot(rootId) } returns
+                PerRootConfigService.Snapshot(
+                    workItemSchemas = emptyMap(),
+                    traits = emptyMap(),
+                    noteLimitsModeExplicit = null,
+                    statusLabels = mapOf("start" to "root-started"),
+                    fingerprint = "fp"
+                )
+            val globalLabels = mockk<StatusLabelService>()
+            every { globalLabels.resolveLabel("cascade") } returns "done"
+            val repoProvider = mockk<RepositoryProvider>(relaxed = true)
+            val ctx =
+                ToolExecutionContext(
+                    repoProvider,
+                    noteSchemaService,
+                    statusLabelService = globalLabels,
+                    perRootConfigService = perRoot
+                )
+
+            val resolved = ctx.resolveStatusLabels(setOf("start", "cascade"), rootId)
+
+            assertEquals("root-started", resolved["start"])
+            assertEquals("done", resolved["cascade"])
+            coVerify(exactly = 1) { perRoot.getSnapshot(rootId) }
         }
 }

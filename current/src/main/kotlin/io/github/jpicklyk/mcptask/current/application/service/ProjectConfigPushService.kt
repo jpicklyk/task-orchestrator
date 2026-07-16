@@ -137,6 +137,28 @@ class ProjectConfigPushService(
     /** Reads back the stored config for [rootItemId], or a null payload when no row exists. */
     suspend fun get(rootItemId: UUID): Result<ProjectConfig?> = repositoryProvider.projectConfigRepository().get(rootItemId)
 
+    /**
+     * Classifies [fingerprint] against [rootItemId]'s stored fingerprint (+ history) and returns
+     * the lowercase [FingerprintRelation] name (`"current"` / `"superseded"` / `"unknown"`), or
+     * null on a repository error.
+     *
+     * Centralizes the `when (classifyFingerprint(...)) { Success -> name.lowercase(); Error -> null }`
+     * mapping shared by [io.github.jpicklyk.mcptask.current.application.tools.config.ManageProjectConfigTool]'s
+     * `get` operation and [io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.projectConfigRoutes]'s
+     * `GET` route — both need the exact same "unclassifiable = absent from the response, not an
+     * error surfaced to the caller" policy, which is why a repository error swallows to null here
+     * rather than propagating a [Result.Error]: an unclassifiable fingerprint is deliberately
+     * treated as if the caller simply hadn't supplied one.
+     */
+    suspend fun classifyRelation(
+        rootItemId: UUID,
+        fingerprint: String,
+    ): String? =
+        when (val result = repositoryProvider.projectConfigRepository().classifyFingerprint(rootItemId, fingerprint)) {
+            is Result.Success -> result.data.name.lowercase()
+            is Result.Error -> null
+        }
+
     /** Deletes the stored config row for [rootItemId]. Returns true when a row was deleted. */
     suspend fun delete(rootItemId: UUID): Result<Boolean> = repositoryProvider.projectConfigRepository().delete(rootItemId)
 

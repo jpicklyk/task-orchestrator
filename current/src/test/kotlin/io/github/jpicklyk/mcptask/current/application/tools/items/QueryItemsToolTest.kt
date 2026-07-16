@@ -2090,8 +2090,14 @@ class QueryItemsToolTest {
                             NoteSchemaEntry(key = "per-root-note", role = Role.QUEUE, required = true, description = "Per-root note")
                         )
                 )
-            coEvery { perRoot.getSchemaForType(rootId, "feature-task") } returns perRootSchema
-            coEvery { perRoot.getFingerprint(rootId) } returns "per-root-fp-1"
+            coEvery { perRoot.getSnapshot(rootId) } returns
+                PerRootConfigService.Snapshot(
+                    workItemSchemas = mapOf("feature-task" to perRootSchema),
+                    traits = emptyMap(),
+                    noteLimitsModeExplicit = null,
+                    statusLabels = null,
+                    fingerprint = "per-root-fp-1"
+                )
 
             val schemaContext = ToolExecutionContext(repositoryProvider, schemaServiceForSchemaOp(), perRootConfigService = perRoot)
 
@@ -2125,9 +2131,14 @@ class QueryItemsToolTest {
                     type = "default",
                     notes = listOf(NoteSchemaEntry(key = "default-note", role = Role.WORK, required = false, description = "Default note"))
                 )
-            coEvery { perRoot.getSchemaForType(rootId, "feature-task") } returns null
-            coEvery { perRoot.getSchemaForType(rootId, "default") } returns perRootDefault
-            coEvery { perRoot.getFingerprint(rootId) } returns "per-root-fp-2"
+            coEvery { perRoot.getSnapshot(rootId) } returns
+                PerRootConfigService.Snapshot(
+                    workItemSchemas = mapOf("default" to perRootDefault),
+                    traits = emptyMap(),
+                    noteLimitsModeExplicit = null,
+                    statusLabels = null,
+                    fingerprint = "per-root-fp-2"
+                )
 
             val schemaContext = ToolExecutionContext(repositoryProvider, schemaServiceForSchemaOp(), perRootConfigService = perRoot)
 
@@ -2153,8 +2164,7 @@ class QueryItemsToolTest {
         runBlocking {
             val rootId = UUID.fromString(createItem("Project Root"))
             val perRoot = mockk<PerRootConfigService>()
-            coEvery { perRoot.getSchemaForType(rootId, "feature-task") } returns null
-            coEvery { perRoot.getSchemaForType(rootId, "default") } returns null
+            coEvery { perRoot.getSnapshot(rootId) } returns null
 
             val schemaContext = ToolExecutionContext(repositoryProvider, schemaServiceForSchemaOp(), perRootConfigService = perRoot)
 
@@ -2211,8 +2221,14 @@ class QueryItemsToolTest {
                             NoteSchemaEntry(key = "per-root-note", role = Role.QUEUE, required = true, description = "Per-root note")
                         )
                 )
-            coEvery { perRoot.getSchemaForType(rootId, "feature-task") } returns perRootSchema
-            coEvery { perRoot.getFingerprint(rootId) } returns "per-root-fp-3"
+            coEvery { perRoot.getSnapshot(rootId) } returns
+                PerRootConfigService.Snapshot(
+                    workItemSchemas = mapOf("feature-task" to perRootSchema),
+                    traits = emptyMap(),
+                    noteLimitsModeExplicit = null,
+                    statusLabels = null,
+                    fingerprint = "per-root-fp-3"
+                )
 
             val schemaContext = ToolExecutionContext(repositoryProvider, schemaServiceForSchemaOp(), perRootConfigService = perRoot)
 

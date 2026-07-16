@@ -58,6 +58,42 @@ class PerRootConfigService(
     /** In-memory cache keyed by root item UUID. Populated lazily on first [resolve] per root. */
     private val cache = ConcurrentHashMap<UUID, CacheEntry>()
 
+    /**
+     * A single-pass, single-root view combining every per-root config facet a caller might need
+     * (schemas, traits, note-limits mode, status labels) plus the fingerprint it was resolved
+     * against — everything [resolve] already parses in one pass, bundled instead of split across
+     * the individual accessor methods below. Callers needing several of these facets for the same
+     * [rootItemId] (e.g. [io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext])
+     * should call [getSnapshot] once and read the fields locally, instead of calling the
+     * single-facet accessors once each — each of those independently re-invokes [resolve], which
+     * costs at least one fingerprint-only DB read apiece even when the cache is warm.
+     */
+    data class Snapshot(
+        val workItemSchemas: Map<String, WorkItemSchema>,
+        val traits: Map<String, List<NoteSchemaEntry>>,
+        val noteLimitsModeExplicit: String?,
+        val statusLabels: Map<String, String?>?,
+        val fingerprint: String
+    )
+
+    /**
+     * Returns a [Snapshot] of every per-root config facet for [rootItemId] from a SINGLE [resolve]
+     * pass, or null under the same conditions as every other accessor on this class: no config row
+     * for [rootItemId], or the stored YAML fails to parse (see class doc — failures fall through to
+     * the global loader rather than throwing).
+     */
+    suspend fun getSnapshot(rootItemId: UUID): Snapshot? {
+        val parsed = resolve(rootItemId) ?: return null
+        val fingerprint = cache[rootItemId]?.fingerprint ?: return null
+        return Snapshot(
+            workItemSchemas = parsed.workItemSchemas,
+            traits = parsed.traits,
+            noteLimitsModeExplicit = parsed.noteLimitsModeExplicit,
+            statusLabels = parsed.statusLabels,
+            fingerprint = fingerprint
+        )
+    }
+
     /** Returns the resolved `work_item_schemas` map for [rootItemId], or null when no config row exists or it fails to parse. */
     suspend fun getSchemas(rootItemId: UUID): Map<String, WorkItemSchema>? = resolve(rootItemId)?.workItemSchemas
 

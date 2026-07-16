@@ -79,18 +79,22 @@ function fetchWithTimeout(url, opts) {
  * the branch logic is unit-inspectable without a JS test harness (this repo has none for the
  * plugin hooks).
  *
+ * `relation` is the SOLE authority whenever present — callers must NOT also consult the
+ * etag-compare result in that case (see `main`'s call site). Only when `relation` is absent
+ * entirely (an older server that predates this guard) does the caller fall back to comparing
+ * etags itself.
+ *
  * - "current": already in sync, no push needed.
  * - "superseded": this checkout's config.yaml is known-old (a later push happened elsewhere) —
  *   skip the push rather than silently reverting that later change.
- * - "unknown", or the field absent entirely (an older server that predates this guard): degrade to
- *   the existing etag-compare-then-push behavior — never block on an ambiguous relation.
+ * - "unknown": divergent edit (or no server-side history yet) — push.
  *
  * Returns one of: "already-in-sync" | "skip-superseded" | "push".
  */
 function decideSyncAction(relation, updatedAt) {
   if (relation === 'current') return { action: 'already-in-sync' };
   if (relation === 'superseded') return { action: 'skip-superseded', updatedAt };
-  return { action: 'push' }; // 'unknown' or absent (older server) — fall back to etag-compare push
+  return { action: 'push' }; // 'unknown' relation — a divergent edit, or no history yet — push.
 }
 
 async function main() {
@@ -120,10 +124,6 @@ async function main() {
     const res = await fetchWithTimeout(`${endpoint}?fingerprint=${localFingerprint}`, { headers: authHeader });
     if (res.status === 200) {
       currentEtag = res.headers.get('etag');
-      if (currentEtag && currentEtag === localEtag) {
-        emit(`Task Orchestrator: project config already in sync for root ${rootId}.`);
-        return;
-      }
 
       let relation;
       let updatedAt;
@@ -135,20 +135,29 @@ async function main() {
         relation = undefined; // unparseable body — degrade like an absent relation field
       }
 
-      const decision = decideSyncAction(relation, updatedAt);
-      if (decision.action === 'already-in-sync') {
+      if (relation !== undefined) {
+        // relation is the sole authority when the server provides it — the client-side etag
+        // compare below is only ever consulted as the degrade path for an older server that
+        // predates this field (see the `else if` branch).
+        const decision = decideSyncAction(relation, updatedAt);
+        if (decision.action === 'already-in-sync') {
+          emit(`Task Orchestrator: project config already in sync for root ${rootId}.`);
+          return;
+        }
+        if (decision.action === 'skip-superseded') {
+          emit(
+            `Task Orchestrator: config sync skipped — your checkout's config.yaml is older than the ` +
+              `server's (updated ${decision.updatedAt ?? 'unknown'}); pull or copy back before editing.`,
+          );
+          return;
+        }
+        // decision.action === 'push' ('unknown' relation) — fall through to step 2.
+      } else if (currentEtag && currentEtag === localEtag) {
+        // Degrade path: an older server with no `relation` field at all — fall back to the
+        // client-side etag compare instead of blocking on an ambiguous relation.
         emit(`Task Orchestrator: project config already in sync for root ${rootId}.`);
         return;
       }
-      if (decision.action === 'skip-superseded') {
-        emit(
-          `Task Orchestrator: config sync skipped — your checkout's config.yaml is older than the ` +
-            `server's (updated ${decision.updatedAt ?? 'unknown'}); pull or copy back before editing.`,
-        );
-        return;
-      }
-      // decision.action === 'push' ('unknown' relation, or an older server with no relation field
-      // at all) — fall through to step 2, same as today's etag-compare-then-push behavior.
     } else if (res.status === 404) {
       currentEtag = null; // no row yet — first push is a create
     } else {

@@ -1810,12 +1810,26 @@ class ManageNotesToolTest {
         runBlocking {
             val strictRootId = UUID.randomUUID()
             val laxRootId = UUID.randomUUID()
-            // relaxed=true: resolveSchema's tag-fallback path also probes getSchemas/getSchemaForType
-            // on this same mock (to look up the note's maxLength) — only note_limits behavior is
-            // under test here, so those unrelated calls just get harmless defaults (null).
-            val perRoot = mockk<PerRootConfigService>(relaxed = true)
-            coEvery { perRoot.getNoteLimitsMode(strictRootId) } returns "reject"
-            coEvery { perRoot.getNoteLimitsMode(laxRootId) } returns null
+            // resolveSchema's tag-fallback path also consults this same mock's snapshot (to look up
+            // the note's maxLength) — only note_limits behavior is under test here, so each
+            // snapshot's workItemSchemas/traits are empty, giving that path a harmless miss.
+            val perRoot = mockk<PerRootConfigService>()
+            coEvery { perRoot.getSnapshot(strictRootId) } returns
+                PerRootConfigService.Snapshot(
+                    workItemSchemas = emptyMap(),
+                    traits = emptyMap(),
+                    noteLimitsModeExplicit = "reject",
+                    statusLabels = null,
+                    fingerprint = "fp-strict"
+                )
+            coEvery { perRoot.getSnapshot(laxRootId) } returns
+                PerRootConfigService.Snapshot(
+                    workItemSchemas = emptyMap(),
+                    traits = emptyMap(),
+                    noteLimitsModeExplicit = null,
+                    statusLabels = null,
+                    fingerprint = "fp-lax"
+                )
 
             val schemaEntries = listOf(NoteSchemaEntry(key = "limited", role = Role.WORK, maxLength = 10))
             val schemaContext = contextWithSchemaLimitsAndPerRoot(schemaEntries, "limited-schema", "warn", perRoot)

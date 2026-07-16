@@ -260,16 +260,7 @@ the root's stored fingerprint history.
                         "No project config found for root: $rootItemId",
                         ErrorCodes.RESOURCE_NOT_FOUND
                     )
-                val relation =
-                    fingerprint?.let {
-                        when (
-                            val relationResult =
-                                context.repositoryProvider.projectConfigRepository().classifyFingerprint(rootItemId, it)
-                        ) {
-                            is Result.Success -> relationResult.data.name.lowercase()
-                            is Result.Error -> null
-                        }
-                    }
+                val relation = fingerprint?.let { service.classifyRelation(rootItemId, it) }
                 successResponse(
                     buildJsonObject {
                         put("rootItemId", JsonPrimitive(config.rootItemId.toString()))

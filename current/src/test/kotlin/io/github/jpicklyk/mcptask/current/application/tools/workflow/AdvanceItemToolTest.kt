@@ -1957,11 +1957,18 @@ class AdvanceItemToolTest {
     fun `per-root status_labels override the global label on that root's start transition`(): Unit =
         runBlocking {
             val rootId = UUID.randomUUID()
-            // relaxed=true: AdvanceService's schemaResolver also calls resolveSchema, which probes
-            // getSchemas/getSchemaForType/getTraitNotes on this same per-root mock — only
-            // status_labels behavior is under test here, so those calls just get harmless defaults.
-            val perRoot = mockk<PerRootConfigService>(relaxed = true)
-            coEvery { perRoot.getStatusLabels(rootId) } returns mapOf("start" to "root-started")
+            // AdvanceService's schemaResolver also calls resolveSchema, which consults this same
+            // per-root mock's snapshot — only status_labels behavior is under test here, so
+            // workItemSchemas/traits are empty, giving that path a harmless miss.
+            val perRoot = mockk<PerRootConfigService>()
+            coEvery { perRoot.getSnapshot(rootId) } returns
+                PerRootConfigService.Snapshot(
+                    workItemSchemas = emptyMap(),
+                    traits = emptyMap(),
+                    noteLimitsModeExplicit = null,
+                    statusLabels = mapOf("start" to "root-started"),
+                    fingerprint = "fp"
+                )
             val globalLabels = TestStatusLabelService(mapOf("start" to "in-progress"))
             val customContext = contextWithPerRootLabels(globalLabels, perRoot)
 
@@ -1980,15 +1987,28 @@ class AdvanceItemToolTest {
             val r = extractResults(result)[0].jsonObject
             assertTrue(r["applied"]!!.jsonPrimitive.boolean)
             assertEquals("root-started", r["statusLabel"]!!.jsonPrimitive.content)
+            // A single advance resolves the per-root layer from exactly two snapshot fetches — one
+            // for schema resolution (AdvanceService's schemaResolver) and one for status-label
+            // resolution (resolveRootAwareStatusLabelService) — NOT one fetch per trigger and NOT
+            // the old 8-wide (every UserTrigger + "cascade") fan-out. The status-label fetch alone
+            // resolves both consulted triggers ("start" + "cascade") from a SINGLE snapshot.
+            coVerify(exactly = 2) { perRoot.getSnapshot(rootId) }
         }
 
     @Test
     fun `partial per-root status_labels falls through to global per trigger`(): Unit =
         runBlocking {
             val rootId = UUID.randomUUID()
-            val perRoot = mockk<PerRootConfigService>(relaxed = true)
+            val perRoot = mockk<PerRootConfigService>()
             // Only "start" is overridden for this root — "complete" must fall through to global.
-            coEvery { perRoot.getStatusLabels(rootId) } returns mapOf("start" to "root-started")
+            coEvery { perRoot.getSnapshot(rootId) } returns
+                PerRootConfigService.Snapshot(
+                    workItemSchemas = emptyMap(),
+                    traits = emptyMap(),
+                    noteLimitsModeExplicit = null,
+                    statusLabels = mapOf("start" to "root-started"),
+                    fingerprint = "fp"
+                )
             val globalLabels = TestStatusLabelService(mapOf("start" to "in-progress", "complete" to "finished"))
             val customContext = contextWithPerRootLabels(globalLabels, perRoot)
 
@@ -2035,7 +2055,7 @@ class AdvanceItemToolTest {
             val r = extractResults(result)[0].jsonObject
             assertTrue(r["applied"]!!.jsonPrimitive.boolean)
             assertEquals("in-progress", r["statusLabel"]!!.jsonPrimitive.content)
-            coVerify(exactly = 0) { perRoot.getStatusLabels(any()) }
+            coVerify(exactly = 0) { perRoot.getSnapshot(any()) }
         }
 
     @Test
