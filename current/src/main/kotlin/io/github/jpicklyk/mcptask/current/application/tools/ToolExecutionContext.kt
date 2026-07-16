@@ -90,30 +90,29 @@ class ToolExecutionContext(
      * [perRootConfigService] wired) skips the per-root layer entirely — zero extra calls, behavior
      * byte-identical to before this layering was added.
      *
-     * Per-key fallback table (`?:` reads as "per-root miss defers to global"):
+     * Per-key fallback table — both the type step and the tag step are **whole-algorithm-first**:
+     * the entire per-root resolution (exact match, then per-root `"default"`) runs to completion
+     * before the global layer is consulted at all:
      *
-     * | Resolution step | Expression |
+     * | Resolution step | Precedence |
      * |---|---|
-     * | Type lookup | `perRoot.getSchemaForType(rootId, type) ?: global.getSchemaForType(type)` |
-     * | Tag lookup | whole-algorithm-first: run the existing first-tag-match/"default" match against the per-root schema map; only defer the WHOLE algorithm to global if the per-root layer has no config row or no match at all |
+     * | Type lookup | per-root exact type -> per-root `"default"` -> global exact type -> global `"default"` (the last step is [NoteSchemaService.getSchemaForType]'s own internal fallback) |
+     * | Tag lookup | per-root first-matching-tag -> per-root `"default"` -> global first-matching-tag -> global `"default"` (see [resolvePerRootTagMatch]) |
      * | Trait notes | `perRoot.getTraitNotes(rootId, name) ?: global.getTraitNotes(name)`, per trait name |
-     * | "default" schema | folded into the type/tag rules above — a per-root `default` entry wins over the global one wherever the surrounding rule would have used it |
      *
-     * **Known limitation:** [PerRootConfigService.getSchemaForType] has no internal `"default"`
-     * fallback (unlike [NoteSchemaService.getSchemaForType], which falls back to its own
-     * `workItemSchemas["default"]` when the exact type misses). So for the *type* lookup step, a
-     * per-root config that defines no exact match for `item.type` defers entirely to
-     * `global.getSchemaForType(type)` — which may itself resolve to the *global* default schema,
-     * bypassing any per-root default. Only an explicit per-root entry for `item.type` (or the tag
-     * path's own `default` handling) overrides the global result. This mirrors the resolution
-     * expression the per-root schema layering design specifies for the type step.
+     * This intentionally means a per-root `"default"` schema wins over a global *exact* type match:
+     * once a root has pushed its own config, that config is treated as the root's complete
+     * self-description for gate purposes, not a patch over the global floor. A project that wants
+     * zero required notes for every item type can push a per-root config with an empty default
+     * schema (`work_item_schemas: { default: { notes: [] } } }`) to fence off the global config
+     * entirely — see `config-format.md` for the schema-free / non-dev project pattern.
      *
      * Note length limits ([NoteSchemaService.getNoteLimitsMode]) and anything else not exposed by
      * [PerRootConfigService] stay global-only — [PerRootConfigService] does not expose them.
      *
      * Resolution order (unchanged from before layering, now with the per-root prefix above):
-     * 1. If the item has a `type`, look up the schema by type via [NoteSchemaService.getSchemaForType].
-     * 2. If no type or no type-based schema found, look up by tags via [NoteSchemaService.getSchemaForTags]
+     * 1. If the item has a `type`, look up the schema by type (per-root layer first, see table above).
+     * 2. If no type or no type-based schema found, look up by tags (per-root layer first, see table above)
      *    (first matching tag wins; falls back to default schema if no tag matches).
      * 3. Returns null if no schema matches (schema-free mode).
      *
@@ -136,6 +135,26 @@ class ToolExecutionContext(
     suspend fun resolveHasReviewPhase(item: WorkItem): Boolean = resolveSchema(item)?.hasReviewPhase() ?: false
 
     /**
+     * Returns the union of trait names available for the given [rootIds], per-root traits first
+     * (in [rootIds] iteration order), followed by the global trait list — deduplicated, preserving
+     * first-seen order. Used by response hints (e.g. `availableTraits` on item creation) so callers
+     * discover per-root traits alongside the global ones without a separate lookup.
+     *
+     * Roots with no pushed config (or no [perRootConfigService] wired at all) contribute nothing —
+     * this degrades to the plain global trait list, unchanged from before this method existed.
+     */
+    suspend fun availableTraits(rootIds: Collection<UUID>): List<String> {
+        val perRoot = perRootConfigService
+        val perRootTraits =
+            if (perRoot != null) {
+                rootIds.flatMap { rootId -> perRoot.getAllTraits(rootId)?.keys.orEmpty() }
+            } else {
+                emptyList()
+            }
+        return (perRootTraits + noteSchemaService().getAvailableTraits()).distinct()
+    }
+
+    /**
      * Resolves the base schema without trait merging. Type-first lookup with tag fallback, each
      * layered per-root-then-global — see [resolveSchema]'s KDoc for the full fallback table.
      */
@@ -146,10 +165,18 @@ class ToolExecutionContext(
         val rootId = item.rootId
         val perRoot = perRootConfigService
 
-        // Type-first lookup: an exact per-root type match wins; otherwise defer entirely to the
-        // global lookup (which has its own type -> "default" fallback — see class KDoc above).
+        // Type-first lookup: whole-algorithm-first per layer. Run the ENTIRE per-root layer
+        // (exact type match, then per-root "default") before ever consulting the global layer.
+        // Only when neither per-root key matches (no config row for this root, or a row with
+        // neither the exact type nor "default" defined) do we fall through to the global lookup
+        // (which has its own type -> "default" fallback — see class KDoc above).
         item.type?.let { type ->
-            val perRootMatch = if (rootId != null && perRoot != null) perRoot.getSchemaForType(rootId, type) else null
+            val perRootMatch =
+                if (rootId != null && perRoot != null) {
+                    perRoot.getSchemaForType(rootId, type) ?: perRoot.getSchemaForType(rootId, "default")
+                } else {
+                    null
+                }
             (perRootMatch ?: service.getSchemaForType(type))?.let { return it }
         }
 

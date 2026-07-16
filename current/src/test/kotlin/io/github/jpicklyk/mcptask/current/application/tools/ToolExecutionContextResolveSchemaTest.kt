@@ -506,6 +506,8 @@ class ToolExecutionContextResolveSchemaTest {
             val rootId = UUID.randomUUID()
             val perRoot = mockk<PerRootConfigService>()
             coEvery { perRoot.getSchemaForType(rootId, "feature-task") } returns null
+            // No per-root row at all — the "default" probe (whole-algorithm-first) also misses.
+            coEvery { perRoot.getSchemaForType(rootId, "default") } returns null
 
             val globalSchema = schemaWithReview("feature-task")
             every { noteSchemaService.getSchemaForType("feature-task") } returns globalSchema
@@ -518,6 +520,76 @@ class ToolExecutionContextResolveSchemaTest {
 
             assertEquals(globalSchema, result)
             coVerify(exactly = 1) { perRoot.getSchemaForType(rootId, "feature-task") }
+            coVerify(exactly = 1) { perRoot.getSchemaForType(rootId, "default") }
+        }
+
+    @Test
+    fun `resolveSchema per-root default wins over global exact type match (whole-algorithm-first)`() =
+        runBlocking {
+            val rootId = UUID.randomUUID()
+            val perRoot = mockk<PerRootConfigService>()
+            coEvery { perRoot.getSchemaForType(rootId, "feature-task") } returns null
+            val perRootDefault = WorkItemSchema(type = "default", notes = listOf(workEntry()))
+            coEvery { perRoot.getSchemaForType(rootId, "default") } returns perRootDefault
+
+            // Global has an EXACT type match — under whole-algorithm-first, the per-root default
+            // must still win; the global layer must never be consulted.
+            val globalSchema = schemaWithReview("feature-task")
+            every { noteSchemaService.getSchemaForType("feature-task") } returns globalSchema
+
+            val repoProvider = mockk<RepositoryProvider>(relaxed = true)
+            val ctx = ToolExecutionContext(repoProvider, noteSchemaService, perRootConfigService = perRoot)
+
+            val item = makeItem(type = "feature-task", rootId = rootId)
+            val result = ctx.resolveSchema(item)
+
+            assertEquals(perRootDefault, result)
+            verify(exactly = 0) { noteSchemaService.getSchemaForType("feature-task") }
+        }
+
+    @Test
+    fun `resolveSchema empty per-root default schema fences off global entirely`() =
+        runBlocking {
+            val rootId = UUID.randomUUID()
+            val perRoot = mockk<PerRootConfigService>()
+            coEvery { perRoot.getSchemaForType(rootId, "feature-task") } returns null
+            val emptyPerRootDefault = WorkItemSchema(type = "default", notes = emptyList())
+            coEvery { perRoot.getSchemaForType(rootId, "default") } returns emptyPerRootDefault
+
+            val repoProvider = mockk<RepositoryProvider>(relaxed = true)
+            val ctx = ToolExecutionContext(repoProvider, noteSchemaService, perRootConfigService = perRoot)
+
+            val item = makeItem(type = "feature-task", rootId = rootId)
+            val result = ctx.resolveSchema(item)
+
+            assertNotNull(result)
+            assertTrue(result.notes.isEmpty(), "Empty per-root default must resolve to a zero-note schema")
+            // Global must NEVER be consulted once a per-root default (even an empty one) resolves.
+            verify(exactly = 0) { noteSchemaService.getSchemaForType(any()) }
+            verify(exactly = 0) { noteSchemaService.getSchemaForTags(any()) }
+        }
+
+    @Test
+    fun `resolveSchema no per-root row and no global exact match falls through to global default`() =
+        runBlocking {
+            val rootId = UUID.randomUUID()
+            val perRoot = mockk<PerRootConfigService>()
+            coEvery { perRoot.getSchemaForType(rootId, "feature-task") } returns null
+            coEvery { perRoot.getSchemaForType(rootId, "default") } returns null
+
+            // No global exact match either — but getSchemaForType("feature-task") mimics the real
+            // YamlNoteSchemaService's own internal exact -> "default" fallback by directly returning
+            // the global default schema here (the mock stands in for that internal behavior).
+            val globalDefault = WorkItemSchema(type = "default", notes = listOf(workEntry()))
+            every { noteSchemaService.getSchemaForType("feature-task") } returns globalDefault
+
+            val repoProvider = mockk<RepositoryProvider>(relaxed = true)
+            val ctx = ToolExecutionContext(repoProvider, noteSchemaService, perRootConfigService = perRoot)
+
+            val item = makeItem(type = "feature-task", rootId = rootId)
+            val result = ctx.resolveSchema(item)
+
+            assertEquals(globalDefault, result)
         }
 
     @Test
@@ -552,9 +624,10 @@ class ToolExecutionContextResolveSchemaTest {
                     notes = listOf(workEntry()),
                     defaultTraits = listOf("needs-perf-review")
                 )
-            // Type lookup misses per-root and falls to the global base schema — trait layering is
-            // independent of where the base schema itself came from.
+            // Type lookup misses per-root (exact and "default") and falls to the global base
+            // schema — trait layering is independent of where the base schema itself came from.
             coEvery { perRoot.getSchemaForType(rootId, "feature-task") } returns null
+            coEvery { perRoot.getSchemaForType(rootId, "default") } returns null
             every { noteSchemaService.getSchemaForType("feature-task") } returns baseSchema
             every { noteSchemaService.getDefaultTraits("feature-task") } returns listOf("needs-perf-review")
 
