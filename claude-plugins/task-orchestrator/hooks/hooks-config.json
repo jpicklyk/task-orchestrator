@@ -57,6 +57,11 @@
             "type": "command",
             "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/post-plan.mjs",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/plan-capture.mjs",
+            "timeout": 5
           }
         ]
       }

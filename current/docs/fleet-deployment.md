@@ -130,6 +130,14 @@ The hook is **fail-open and opt-in** — it no-ops silently (exit 0) unless `TAS
 
 Set these per-workspace (e.g. in `.claude/settings.json`'s `env` block, or the shell environment). Against a bearer/jwks server the token needs only `write-config` for its own root — not `admin`. Against an unauthenticated server, no token is needed at all. Either way the server must have `API_ENABLED=true`. If the API is unreachable or returns an error, the hook logs a one-line note and continues; it never blocks session start.
 
+**HTTP-first policy.** New plugin-side infrastructure features — `config-sync.mjs`, SSE event
+streaming, and the `plan-capture.mjs` hook (which stashes an approved plan as a `plan_document` via
+`PUT /roots/{rootId}/plans/{slug}`) — are built HTTP-only, each fail-opening to a silent no-op when
+its REST env var (`TASK_ORCHESTRATOR_API_URL`, etc.) is absent. STDIO deployments keep full MCP tool
+functionality but do not gain these convenience features; STDIO is positioned as the local/evaluation
+transport, while a persistent HTTP daemon with the REST API enabled is the recommended path for
+ongoing fleet or multi-project work.
+
 ---
 
 ---

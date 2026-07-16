@@ -12,7 +12,7 @@ Otherwise, ask via `AskUserQuestion`:
 
 ```
 ◆ How would you like to create the schema?
-  1. Feature implementation — specification gate (queue), implementation evidence
+  1. Feature implementation — lean feature-summary gate (queue), implementation evidence
      + session tracking (work), review checklist (review) — 4 notes
   2. Bug fix — diagnosis gate (queue), implementation evidence + session tracking (work),
      review checklist (review) — 4 notes
@@ -32,17 +32,17 @@ work_item_schemas:
   feature-implementation:
     lifecycle: auto
     notes:
-      - key: specification
+      - key: feature-summary
         role: queue
         required: true
-        description: "Problem statement, approach, and pre-work plan."
+        description: "Lean feature-level summary — goal, findings-to-tasks mapping, dependency edges, non-goals pointer."
         skill: "spec-quality"
-        guidance: "This note must cover: problem statement and who benefits, acceptance criteria, non-goals, alternatives considered (min 2 real options + 'do nothing'), blast radius (affected modules and tests), risk flags, and test strategy."
+        guidance: "Keep this lean — target under 2k chars. Cover: goal (2-3 sentences), a findings→tasks table mapping research/brainstorm findings to child task-scope items, dependency edges between those tasks, and a pointer to non-goals. Full spec-quality depth (alternatives, blast radius, risk flags, test strategy) belongs in each child's task-scope note, not here."
       - key: implementation-notes
         role: work
         required: true
         description: "Context handoff for downstream agents — deviations, surprises, decisions."
-        guidance: "Document decisions not in the specification. Focus on what downstream agents need: deviations, API surprises, wrong assumptions, patterns affecting dependent work."
+        guidance: "Document decisions not in the feature-summary. Focus on what downstream agents need: deviations, API surprises, wrong assumptions, patterns affecting dependent work."
       - key: session-tracking
         role: work
         required: true
@@ -53,7 +53,7 @@ work_item_schemas:
         required: true
         description: "Quality gate — plan alignment, test quality, simplification, verdict."
         skill: "review-quality"
-        guidance: "Verify: (1) what was built aligns with the specification, (2) tests cover the test strategy — not strawman tests, (3) no unnecessary complexity in changed files. End with a verdict."
+        guidance: "Verify: (1) what was built aligns with the feature-summary and each child's task-scope, (2) tests cover the test strategy — not strawman tests, (3) no unnecessary complexity in changed files. End with a verdict."
 ```
 
 ### Bug Fix Template

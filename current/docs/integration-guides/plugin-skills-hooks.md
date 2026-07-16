@@ -216,7 +216,7 @@ create_work_tree(
 )
 ```
 
-Queue-phase notes (specification / task-scope) are filled before dispatching.
+Queue-phase notes (feature-summary / task-scope) are filled before dispatching.
 
 **5. Agent dispatches implementation subagents** — each subagent receives one child item UUID. The subagent-start hook injects the Agent-Owned-Phase Protocol automatically.
 
