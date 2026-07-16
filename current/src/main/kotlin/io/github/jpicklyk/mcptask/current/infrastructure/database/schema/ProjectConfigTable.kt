@@ -19,6 +19,15 @@ object ProjectConfigTable : UUIDTable("project_config") {
     val fingerprint = text("fingerprint")
     val updatedAt = timestamp("updated_at")
 
+    /**
+     * JSON array of prior fingerprints for this root (newest first, pruned to 20 by
+     * [io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteProjectConfigRepository.upsert]).
+     * Nullable — pre-V11 rows and a root's first push both have no history yet; NULL is treated as
+     * "no known ancestors" by
+     * [io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteProjectConfigRepository.classifyFingerprint].
+     */
+    val fingerprintHistory = text("fingerprint_history").nullable()
+
     init {
         foreignKey(rootItemId to WorkItemsTable.id, onDelete = ReferenceOption.CASCADE)
         uniqueIndex(rootItemId)

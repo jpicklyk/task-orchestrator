@@ -107,7 +107,7 @@ TASK_ORCHESTRATOR_API_URL=http://localhost:3001
 TASK_ORCHESTRATOR_API_TOKEN=<token>   # bearer mode only; omit entirely for unauthenticated mode
 ```
 
-Verified in `config-sync.mjs:84-92`: if `TASK_ORCHESTRATOR_API_URL` is unset, the hook returns
+Verified in `config-sync.mjs` (the `TASK_ORCHESTRATOR_API_URL` guard in `main()`): if `TASK_ORCHESTRATOR_API_URL` is unset, the hook returns
 immediately with no error and no log — it silently no-ops. There is no visible symptom other than
 per-project config never showing up server-side. **Always render this env var alongside the HTTP+REST
 docker run command** — it is easy to forget because it's set outside the container, not inside it.

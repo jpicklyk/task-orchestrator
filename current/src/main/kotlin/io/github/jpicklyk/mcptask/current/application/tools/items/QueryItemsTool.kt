@@ -6,7 +6,6 @@ import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SearchMatchMode
@@ -411,6 +410,22 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
                             put("enum", JsonArray(listOf("claimed", "unclaimed", "expired").map { JsonPrimitive(it) }))
                         }
                     )
+                    put(
+                        "rootId",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("string"))
+                            put(
+                                "description",
+                                JsonPrimitive(
+                                    "schema operation with `type` only: project root WorkItem UUID or hex prefix " +
+                                        "(4+ chars). Resolves `type` against that root's per-root config first (per-root " +
+                                        "exact type -> per-root \"default\" -> global exact type -> global \"default\"), " +
+                                        "falling back to global-only behavior when the root has no pushed config. Ignored " +
+                                        "when `itemId` is used instead (the item's own rootId is applied automatically)."
+                                )
+                            )
+                        }
+                    )
                 },
             required = listOf("operation")
         )
@@ -462,6 +477,7 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
                 if (itemIdStr != null) {
                     validateIdOrPrefix(params, "itemId")
                 }
+                validateIdOrPrefix(params, "rootId", required = false)
             }
             else -> throw ToolValidationException("Invalid operation: $operation. Must be one of: get, search, overview, schema")
         }
@@ -586,12 +602,16 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
      * work-item type or a specific item. This is the reference target for the keys-only
      * `expectedNotes` and `guidanceKey` fields emitted elsewhere.
      *
-     * - `type`: direct lookup via [NoteSchemaService.getSchemaForType] (base schema as configured;
-     *   no per-item trait merging since there is no item).
+     * - `type` (+ optional `rootId`): resolved via [ToolExecutionContext.resolveTypeSchema] — when
+     *   `rootId` is given, that root's per-root config is consulted first (same precedence as the
+     *   `itemId` path), falling back to the global lookup; without `rootId`, behavior is unchanged
+     *   (global-only, no per-item trait merging since there is no item).
      * - `itemId`: resolves the item, then uses the standard resolution logic
-     *   ([ToolExecutionContext.resolveSchema]: type-first, tag fallback, trait merging).
+     *   ([ToolExecutionContext.resolveSchemaWithSource]: type-first, tag fallback, trait merging,
+     *   layered per-root-then-global using the item's own `rootId`).
      *
-     * Response: `{ type, configFingerprint, notes: [{key, role, required, description, guidance?, skill?, maxLength?}] }`.
+     * Response: `{ type, configFingerprint, configSource, notes: [{key, role, required, description, guidance?, skill?, maxLength?}] }`.
+     * `configSource` is `"per-root"` when the schema's base layer was the per-root config, `"global"` otherwise.
      */
     private suspend fun executeSchema(
         params: JsonElement,
@@ -599,9 +619,11 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
     ): JsonElement {
         val typeParam = optionalString(params, "type")
 
-        val schema: WorkItemSchema? =
+        val resolved: ResolvedSchema? =
             if (typeParam != null) {
-                context.noteSchemaService().getSchemaForType(typeParam)
+                val (rootId, rootIdError) = resolveItemId(params, "rootId", context, required = false)
+                if (rootIdError != null) return rootIdError
+                context.resolveTypeSchema(typeParam, rootId)
             } else {
                 val (resolvedId, idError) = resolveItemId(params, "itemId", context)
                 if (idError != null) return idError
@@ -613,19 +635,20 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
                             ErrorCodes.RESOURCE_NOT_FOUND
                         )
                     }
-                context.resolveSchema(item)
+                context.resolveSchemaWithSource(item)
             }
 
-        if (schema == null) {
+        if (resolved == null) {
             val subject = if (typeParam != null) "type '$typeParam'" else "item (schema-free mode)"
             return errorResponse("No schema found for $subject", ErrorCodes.RESOURCE_NOT_FOUND)
         }
 
-        val fingerprint = context.noteSchemaService().getConfigFingerprint()
+        val (schema, source, fingerprint) = resolved
         val data =
             buildJsonObject {
                 put("type", JsonPrimitive(schema.type))
                 put("configFingerprint", if (fingerprint != null) JsonPrimitive(fingerprint) else JsonNull)
+                put("configSource", JsonPrimitive(if (source == SchemaSource.PER_ROOT) "per-root" else "global"))
                 put("notes", buildFullSchemaEntriesJson(schema.notes))
             }
         return successResponse(data)

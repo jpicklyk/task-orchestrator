@@ -455,4 +455,8 @@ data class ProjectConfigResponseDto(
     val updatedAt: String,
     val configYaml: String? = null,
     val warning: String? = null,
+    /** "current" | "superseded" | "unknown" — present only on GET when `?fingerprint=` was supplied. */
+    val relation: String? = null,
+    /** Top-level `configYaml` keys not honored by any per-root layer (e.g. `actor_authentication`); present only on PUT, and only when non-empty. */
+    val ignoredSections: List<String>? = null,
 )

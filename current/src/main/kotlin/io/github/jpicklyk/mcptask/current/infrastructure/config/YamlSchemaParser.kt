@@ -43,12 +43,28 @@ internal object YamlSchemaParser {
      * note-limits mode. Per-tag note lists are read via `workItemSchemas[tag]?.notes` — there is no
      * separate tag→entries map, since it would be a redundant view of the same `NoteSchemaEntry`
      * lists already held inside each [WorkItemSchema].
+     *
+     * @property noteLimitsMode always resolves to a mode ("warn" default) — unchanged behavior for
+     *   the global file-backed loader, which has no fallback layer beneath it.
+     * @property noteLimitsModeExplicit null when the document has no top-level `note_limits` key at
+     *   all; otherwise the resolved mode (same value as [noteLimitsMode]). Callers that layer this
+     *   config over another (e.g. [PerRootConfigService]) use this field to distinguish "this
+     *   document doesn't opine on note limits, fall through" from "this document explicitly
+     *   configures note limits" — a plain [noteLimitsMode] read can't make that distinction because
+     *   it always defaults to "warn" when the key is absent.
+     * @property statusLabels null when the document has no top-level `status_labels` key at all;
+     *   otherwise the parsed trigger→label map (values may themselves be null, mirroring
+     *   [io.github.jpicklyk.mcptask.current.infrastructure.config.YamlStatusLabelService]'s
+     *   "explicit null clears the label" semantics — only an ABSENT key in this map falls through to
+     *   another layer).
      */
     data class ParsedConfig(
         val workItemSchemas: Map<String, WorkItemSchema>,
         val traits: Map<String, List<NoteSchemaEntry>>,
         val warnings: List<String>,
-        val noteLimitsMode: String = DEFAULT_NOTE_LIMITS_MODE
+        val noteLimitsMode: String = DEFAULT_NOTE_LIMITS_MODE,
+        val noteLimitsModeExplicit: String? = null,
+        val statusLabels: Map<String, String?>? = null
     )
 
     /**
@@ -70,6 +86,8 @@ internal object YamlSchemaParser {
         val warnings = mutableListOf<String>()
         val parsedTraits = parseTraits(root, warnings)
         val parsedNoteLimitsMode = parseNoteLimitsMode(root, warnings)
+        val noteLimitsModeExplicit = if (root.containsKey("note_limits")) parsedNoteLimitsMode else null
+        val parsedStatusLabels = parseStatusLabels(root, warnings)
 
         val base =
             when {
@@ -83,7 +101,13 @@ internal object YamlSchemaParser {
                 }
             }
 
-        return base.copy(traits = parsedTraits, warnings = warnings, noteLimitsMode = parsedNoteLimitsMode)
+        return base.copy(
+            traits = parsedTraits,
+            warnings = warnings,
+            noteLimitsMode = parsedNoteLimitsMode,
+            noteLimitsModeExplicit = noteLimitsModeExplicit,
+            statusLabels = parsedStatusLabels
+        )
     }
 
     @Suppress("UNCHECKED_CAST")
@@ -269,5 +293,29 @@ internal object YamlSchemaParser {
             return DEFAULT_NOTE_LIMITS_MODE
         }
         return modeRaw
+    }
+
+    /**
+     * Parses the top-level `status_labels` key into a trigger→label map, mirroring
+     * [io.github.jpicklyk.mcptask.current.infrastructure.config.YamlStatusLabelService]'s reading of
+     * the same key from the global file: each value is coerced to a string via `toString()` (YAML
+     * `null` survives as a Kotlin `null`, meaning "explicitly no label for this trigger").
+     *
+     * Returns null when the document has no `status_labels` key at all (see [ParsedConfig.statusLabels]
+     * for what callers do with that distinction), or when the key is present but not a map (a
+     * malformed section is treated the same as "absent", with a warning).
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun parseStatusLabels(
+        root: Map<String, Any>,
+        warnings: MutableList<String>
+    ): Map<String, String?>? {
+        if (!root.containsKey("status_labels")) return null
+        val raw = root["status_labels"] as? Map<String, Any?>
+        if (raw == null) {
+            warnings.add("status_labels section is not a map; ignoring")
+            return null
+        }
+        return raw.entries.associate { (trigger, label) -> trigger to label?.toString() }
     }
 }

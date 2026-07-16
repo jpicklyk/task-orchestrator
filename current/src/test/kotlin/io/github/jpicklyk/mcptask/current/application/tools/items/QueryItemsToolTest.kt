@@ -6,11 +6,16 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationExcept
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
+import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
+import io.github.jpicklyk.mcptask.current.domain.repository.Result
+import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.WorkItemsTable
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
+import io.mockk.coEvery
+import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
 import org.jetbrains.exposed.v1.core.eq
@@ -2067,6 +2072,216 @@ class QueryItemsToolTest {
             )
         }
     }
+
+    // ──────────────────────────────────────────────
+    // Schema operation: per-root awareness (T2)
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `schema operation with type and rootId returns per-root schema, fingerprint, and configSource`(): Unit =
+        runBlocking {
+            val rootId = UUID.fromString(createItem("Project Root"))
+            val perRoot = mockk<PerRootConfigService>()
+            val perRootSchema =
+                WorkItemSchema(
+                    type = "feature-task",
+                    notes =
+                        listOf(
+                            NoteSchemaEntry(key = "per-root-note", role = Role.QUEUE, required = true, description = "Per-root note")
+                        )
+                )
+            coEvery { perRoot.getSnapshot(rootId) } returns
+                PerRootConfigService.Snapshot(
+                    workItemSchemas = mapOf("feature-task" to perRootSchema),
+                    traits = emptyMap(),
+                    noteLimitsModeExplicit = null,
+                    statusLabels = null,
+                    fingerprint = "per-root-fp-1"
+                )
+
+            val schemaContext = ToolExecutionContext(repositoryProvider, schemaServiceForSchemaOp(), perRootConfigService = perRoot)
+
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("schema"),
+                        "type" to JsonPrimitive("feature-task"),
+                        "rootId" to JsonPrimitive(rootId.toString())
+                    ),
+                    schemaContext
+                ) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val data = result["data"] as JsonObject
+            assertEquals("feature-task", data["type"]!!.jsonPrimitive.content)
+            assertEquals("per-root-fp-1", data["configFingerprint"]!!.jsonPrimitive.content)
+            assertEquals("per-root", data["configSource"]!!.jsonPrimitive.content)
+            val notes = data["notes"]!!.jsonArray
+            assertEquals(1, notes.size)
+            assertEquals("per-root-note", notes[0].jsonObject["key"]!!.jsonPrimitive.content)
+        }
+
+    @Test
+    fun `schema operation with type and rootId falls back to per-root default when exact type misses`(): Unit =
+        runBlocking {
+            val rootId = UUID.fromString(createItem("Project Root"))
+            val perRoot = mockk<PerRootConfigService>()
+            val perRootDefault =
+                WorkItemSchema(
+                    type = "default",
+                    notes = listOf(NoteSchemaEntry(key = "default-note", role = Role.WORK, required = false, description = "Default note"))
+                )
+            coEvery { perRoot.getSnapshot(rootId) } returns
+                PerRootConfigService.Snapshot(
+                    workItemSchemas = mapOf("default" to perRootDefault),
+                    traits = emptyMap(),
+                    noteLimitsModeExplicit = null,
+                    statusLabels = null,
+                    fingerprint = "per-root-fp-2"
+                )
+
+            val schemaContext = ToolExecutionContext(repositoryProvider, schemaServiceForSchemaOp(), perRootConfigService = perRoot)
+
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("schema"),
+                        "type" to JsonPrimitive("feature-task"),
+                        "rootId" to JsonPrimitive(rootId.toString())
+                    ),
+                    schemaContext
+                ) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val data = result["data"] as JsonObject
+            assertEquals("default", data["type"]!!.jsonPrimitive.content)
+            assertEquals("per-root-fp-2", data["configFingerprint"]!!.jsonPrimitive.content)
+            assertEquals("per-root", data["configSource"]!!.jsonPrimitive.content)
+        }
+
+    @Test
+    fun `schema operation with type and rootId falls back to global when root has no per-root config`(): Unit =
+        runBlocking {
+            val rootId = UUID.fromString(createItem("Project Root"))
+            val perRoot = mockk<PerRootConfigService>()
+            coEvery { perRoot.getSnapshot(rootId) } returns null
+
+            val schemaContext = ToolExecutionContext(repositoryProvider, schemaServiceForSchemaOp(), perRootConfigService = perRoot)
+
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("schema"),
+                        "type" to JsonPrimitive("feature-task"),
+                        "rootId" to JsonPrimitive(rootId.toString())
+                    ),
+                    schemaContext
+                ) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val data = result["data"] as JsonObject
+            assertEquals("feature-task", data["type"]!!.jsonPrimitive.content)
+            assertEquals("fp-123", data["configFingerprint"]!!.jsonPrimitive.content)
+            assertEquals("global", data["configSource"]!!.jsonPrimitive.content)
+        }
+
+    @Test
+    fun `schema operation with type and no rootId is unchanged global behavior`(): Unit =
+        runBlocking {
+            val schemaContext = ToolExecutionContext(repositoryProvider, schemaServiceForSchemaOp())
+
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("schema"),
+                        "type" to JsonPrimitive("feature-task")
+                    ),
+                    schemaContext
+                ) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val data = result["data"] as JsonObject
+            assertEquals("feature-task", data["type"]!!.jsonPrimitive.content)
+            assertEquals("fp-123", data["configFingerprint"]!!.jsonPrimitive.content)
+            assertEquals("global", data["configSource"]!!.jsonPrimitive.content)
+        }
+
+    @Test
+    fun `schema operation by itemId reports per-root fingerprint and source when item's root resolved it`(): Unit =
+        runBlocking {
+            val rootId = UUID.fromString(createItem("Project Root"))
+            val itemId = createItem("Tagged item", parentId = rootId.toString(), type = "feature-task")
+
+            val perRoot = mockk<PerRootConfigService>()
+            val perRootSchema =
+                WorkItemSchema(
+                    type = "feature-task",
+                    notes =
+                        listOf(
+                            NoteSchemaEntry(key = "per-root-note", role = Role.QUEUE, required = true, description = "Per-root note")
+                        )
+                )
+            coEvery { perRoot.getSnapshot(rootId) } returns
+                PerRootConfigService.Snapshot(
+                    workItemSchemas = mapOf("feature-task" to perRootSchema),
+                    traits = emptyMap(),
+                    noteLimitsModeExplicit = null,
+                    statusLabels = null,
+                    fingerprint = "per-root-fp-3"
+                )
+
+            val schemaContext = ToolExecutionContext(repositoryProvider, schemaServiceForSchemaOp(), perRootConfigService = perRoot)
+
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("schema"),
+                        "itemId" to JsonPrimitive(itemId)
+                    ),
+                    schemaContext
+                ) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val data = result["data"] as JsonObject
+            assertEquals("feature-task", data["type"]!!.jsonPrimitive.content)
+            assertEquals("per-root-fp-3", data["configFingerprint"]!!.jsonPrimitive.content)
+            assertEquals("per-root", data["configSource"]!!.jsonPrimitive.content)
+        }
+
+    @Test
+    fun `schema operation by itemId reports global fingerprint and source for a null-rootId item`(): Unit =
+        runBlocking {
+            // Simulates a legacy pre-backfill row: created directly via the repository (bypassing
+            // CreateItemHandler's rootId auto-assignment) with rootId explicitly null.
+            val legacyItem =
+                WorkItem(
+                    id = UUID.randomUUID(),
+                    title = "Legacy item",
+                    type = "feature-task",
+                    depth = 0,
+                    rootId = null
+                )
+            val created = context.workItemRepository().create(legacyItem)
+            assertTrue(created is Result.Success)
+
+            val perRoot = mockk<PerRootConfigService>()
+            val schemaContext = ToolExecutionContext(repositoryProvider, schemaServiceForSchemaOp(), perRootConfigService = perRoot)
+
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("schema"),
+                        "itemId" to JsonPrimitive(legacyItem.id.toString())
+                    ),
+                    schemaContext
+                ) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val data = result["data"] as JsonObject
+            assertEquals("feature-task", data["type"]!!.jsonPrimitive.content)
+            assertEquals("fp-123", data["configFingerprint"]!!.jsonPrimitive.content)
+            assertEquals("global", data["configSource"]!!.jsonPrimitive.content)
+        }
 
     // ──────────────────────────────────────────────
     // Validation

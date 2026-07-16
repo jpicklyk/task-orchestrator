@@ -3,13 +3,13 @@ package io.github.jpicklyk.mcptask.current.infrastructure.config
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
+import io.github.jpicklyk.mcptask.current.infrastructure.security.sha256Hex
 import org.slf4j.LoggerFactory
 import org.yaml.snakeyaml.LoaderOptions
 import org.yaml.snakeyaml.Yaml
 import org.yaml.snakeyaml.constructor.SafeConstructor
 import java.io.FileReader
 import java.nio.file.Paths
-import java.security.MessageDigest
 
 /**
  * YAML-backed implementation of [WorkItemSchemaService].
@@ -111,9 +111,7 @@ class YamlWorkItemSchemaService(
         val file = configPath.toFile()
         if (!file.exists()) return null
         return try {
-            val bytes = file.readBytes()
-            val digest = MessageDigest.getInstance("SHA-256").digest(bytes)
-            digest.joinToString("") { "%02x".format(it) }
+            sha256Hex(file.readBytes())
         } catch (
             @Suppress("TooGenericExceptionCaught") e: Exception
         ) {

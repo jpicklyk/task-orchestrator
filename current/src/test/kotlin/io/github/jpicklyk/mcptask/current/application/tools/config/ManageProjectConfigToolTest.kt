@@ -85,14 +85,18 @@ class ManageProjectConfigToolTest {
 
     private fun push(
         rootItemId: String,
-        configYaml: String
+        configYaml: String,
+        force: Boolean? = null
     ): JsonElement =
         runBlocking {
             tool.execute(
                 params(
-                    "operation" to JsonPrimitive("push"),
-                    "rootItemId" to JsonPrimitive(rootItemId),
-                    "configYaml" to JsonPrimitive(configYaml)
+                    *buildList {
+                        add("operation" to JsonPrimitive("push"))
+                        add("rootItemId" to JsonPrimitive(rootItemId))
+                        add("configYaml" to JsonPrimitive(configYaml))
+                        if (force != null) add("force" to JsonPrimitive(force))
+                    }.toTypedArray()
                 ),
                 context
             )
@@ -123,6 +127,28 @@ class ManageProjectConfigToolTest {
         assertFalse(data["fingerprint"]!!.jsonPrimitive.content.isBlank())
         assertNotNull(data["updatedAt"])
         assertNull(data["warning"], "root is type='project' — no warning expected")
+    }
+
+    @Test
+    fun `push surfaces ignoredSections when the doc has an unhonored top-level key`() {
+        // Plain concatenation (not a nested trimIndent template) — interpolating an already-
+        // trimIndent'd multi-line constant into another trimIndent block would get its indentation
+        // re-mangled by the outer trim's common-margin computation (see ProjectConfigPushServiceTest).
+        val yamlWithActorAuth = "$validYaml\nactor_authentication:\n  mode: jwks\n"
+
+        val result = push(rootId.toString(), yamlWithActorAuth)
+
+        assertTrue(isSuccess(result))
+        val ignoredSections = dataOf(result)["ignoredSections"]!!.jsonArray.map { it.jsonPrimitive.content }
+        assertEquals(listOf("actor_authentication"), ignoredSections)
+    }
+
+    @Test
+    fun `push omits ignoredSections when the doc only uses honored keys`() {
+        val result = push(rootId.toString(), validYaml)
+
+        assertTrue(isSuccess(result))
+        assertNull(dataOf(result)["ignoredSections"], "ignoredSections must be omitted entirely when empty, not an empty array")
     }
 
     @Test
@@ -244,6 +270,60 @@ class ManageProjectConfigToolTest {
     }
 
     // ──────────────────────────────────────────────
+    // rootId mismatch guard
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `push with embedded project rootId matching the target succeeds`() {
+        val yaml = "project:\n  rootId: $rootId\n$validYaml"
+
+        val result = push(rootId.toString(), yaml)
+
+        assertTrue(isSuccess(result))
+    }
+
+    @Test
+    fun `push with embedded project rootId differing from the target is rejected naming both ids`() {
+        val otherRootId = UUID.randomUUID()
+        val yaml = "project:\n  rootId: $otherRootId\n$validYaml"
+
+        val result = push(rootId.toString(), yaml)
+
+        assertFalse(isSuccess(result))
+        val error = errorOf(result)
+        assertEquals(ErrorCodes.VALIDATION_ERROR, error["code"]!!.jsonPrimitive.content)
+        val message = error["message"]!!.jsonPrimitive.content
+        assertTrue(message.contains(rootId.toString()), "message should name the target rootId: $message")
+        assertTrue(message.contains(otherRootId.toString()), "message should name the embedded rootId: $message")
+
+        // Rejected mismatch must not have stored anything.
+        val getResult = get(rootId.toString())
+        assertFalse(isSuccess(getResult))
+        assertEquals(ErrorCodes.RESOURCE_NOT_FOUND, errorOf(getResult)["code"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `push with a malformed non-UUID embedded project rootId proceeds unchanged`() {
+        val yaml = "project:\n  rootId: not-a-uuid\n$validYaml"
+
+        val result = push(rootId.toString(), yaml)
+
+        assertTrue(isSuccess(result))
+    }
+
+    @Test
+    fun `push with force true bypasses a mismatched embedded project rootId`() {
+        val otherRootId = UUID.randomUUID()
+        val yaml = "project:\n  rootId: $otherRootId\n$validYaml"
+
+        val result = push(rootId.toString(), yaml, force = true)
+
+        assertTrue(isSuccess(result))
+        val getResult = get(rootId.toString())
+        assertTrue(isSuccess(getResult))
+    }
+
+    // ──────────────────────────────────────────────
     // get
     // ──────────────────────────────────────────────
 
@@ -267,6 +347,121 @@ class ManageProjectConfigToolTest {
 
         assertFalse(isSuccess(result))
         assertEquals(ErrorCodes.RESOURCE_NOT_FOUND, errorOf(result)["code"]!!.jsonPrimitive.content)
+    }
+
+    private fun getWithFingerprint(
+        rootItemId: String,
+        fingerprint: String
+    ): JsonElement =
+        runBlocking {
+            tool.execute(
+                params(
+                    "operation" to JsonPrimitive("get"),
+                    "rootItemId" to JsonPrimitive(rootItemId),
+                    "fingerprint" to JsonPrimitive(fingerprint)
+                ),
+                context
+            )
+        }
+
+    @Test
+    fun `get without a fingerprint param omits relation from the response`() {
+        push(rootId.toString(), validYaml)
+
+        val result = get(rootId.toString())
+
+        assertTrue(isSuccess(result))
+        assertNull(dataOf(result)["relation"])
+    }
+
+    @Test
+    fun `get with a fingerprint matching current returns relation current`() {
+        val pushResult = push(rootId.toString(), validYaml)
+        val currentFingerprint = dataOf(pushResult)["fingerprint"]!!.jsonPrimitive.content
+
+        val result = getWithFingerprint(rootId.toString(), currentFingerprint)
+
+        assertTrue(isSuccess(result))
+        assertEquals("current", dataOf(result)["relation"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `get with a superseded fingerprint returns relation superseded`() {
+        val validYaml2 =
+            """
+            work_item_schemas:
+              feature-task:
+                notes:
+                  - key: other
+                    role: queue
+                    required: true
+            """.trimIndent()
+        val firstPush = push(rootId.toString(), validYaml)
+        val firstFingerprint = dataOf(firstPush)["fingerprint"]!!.jsonPrimitive.content
+        push(rootId.toString(), validYaml2)
+
+        val result = getWithFingerprint(rootId.toString(), firstFingerprint)
+
+        assertTrue(isSuccess(result))
+        assertEquals("superseded", dataOf(result)["relation"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `get with an unrelated fingerprint returns relation unknown`() {
+        push(rootId.toString(), validYaml)
+
+        val result = getWithFingerprint(rootId.toString(), "0".repeat(64))
+
+        assertTrue(isSuccess(result))
+        assertEquals("unknown", dataOf(result)["relation"]!!.jsonPrimitive.content)
+    }
+
+    // ──────────────────────────────────────────────
+    // fast-forward (known-old) push guard
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `push with a superseded fingerprint is rejected as CONFLICT_ERROR and does not overwrite`() {
+        val validYaml2 =
+            """
+            work_item_schemas:
+              feature-task:
+                notes:
+                  - key: other
+                    role: queue
+                    required: true
+            """.trimIndent()
+        push(rootId.toString(), validYaml)
+        push(rootId.toString(), validYaml2)
+
+        val result = push(rootId.toString(), validYaml)
+
+        assertFalse(isSuccess(result))
+        assertEquals(ErrorCodes.CONFLICT_ERROR, errorOf(result)["code"]!!.jsonPrimitive.content)
+
+        val getResult = get(rootId.toString())
+        assertEquals(validYaml2, dataOf(getResult)["configYaml"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `push with force true bypasses a superseded fingerprint`() {
+        val validYaml2 =
+            """
+            work_item_schemas:
+              feature-task:
+                notes:
+                  - key: other
+                    role: queue
+                    required: true
+            """.trimIndent()
+        push(rootId.toString(), validYaml)
+        push(rootId.toString(), validYaml2)
+
+        val result = push(rootId.toString(), validYaml, force = true)
+
+        assertTrue(isSuccess(result))
+        val getResult = get(rootId.toString())
+        assertEquals(validYaml, dataOf(getResult)["configYaml"]!!.jsonPrimitive.content)
     }
 
     // ──────────────────────────────────────────────

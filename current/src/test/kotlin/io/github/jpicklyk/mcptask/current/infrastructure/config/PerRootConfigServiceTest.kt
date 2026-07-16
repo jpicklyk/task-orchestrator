@@ -259,4 +259,149 @@ work_item_schemas:
 
             assertNull(service.getSchemas(rootItemId))
         }
+
+    // --- getNoteLimitsMode: absent-vs-explicit ---
+
+    @Test
+    fun `getNoteLimitsMode returns null when no config row exists`() =
+        runBlocking {
+            assertNull(service.getNoteLimitsMode(rootItemId))
+        }
+
+    @Test
+    fun `getNoteLimitsMode returns null when the per-root doc has no note_limits section`() =
+        runBlocking {
+            repository.upsert(
+                rootItemId,
+                """
+work_item_schemas:
+  default:
+    notes: []
+                """.trimIndent()
+            )
+
+            assertNull(
+                service.getNoteLimitsMode(rootItemId),
+                "Absence of the note_limits key must fall through to global, not resolve to a default"
+            )
+        }
+
+    @Test
+    fun `getNoteLimitsMode returns the explicit mode when the per-root doc configures note_limits`() =
+        runBlocking {
+            repository.upsert(
+                rootItemId,
+                """
+note_limits:
+  mode: reject
+                """.trimIndent()
+            )
+
+            assertEquals("reject", service.getNoteLimitsMode(rootItemId))
+        }
+
+    @Test
+    fun `getNoteLimitsMode resolves to the warn default when note_limits is present without a mode key`() =
+        runBlocking {
+            repository.upsert(rootItemId, "note_limits: {}\n")
+
+            assertEquals(
+                "warn",
+                service.getNoteLimitsMode(rootItemId),
+                "Presence of the note_limits key is what counts as explicit, even with no mode sub-key"
+            )
+        }
+
+    // --- getSnapshot: single-pass combined view ---
+
+    @Test
+    fun `getSnapshot returns null when no config row exists`() =
+        runBlocking {
+            assertNull(service.getSnapshot(rootItemId))
+        }
+
+    @Test
+    fun `getSnapshot combines schemas, traits, note_limits, status_labels, and fingerprint from one parse`() =
+        runBlocking {
+            repository.upsert(
+                rootItemId,
+                """
+work_item_schemas:
+  bug-fix:
+    notes:
+      - key: repro-steps
+        role: queue
+        required: true
+        description: "Repro steps"
+traits:
+  needs-migration-review:
+    notes:
+      - key: migration-assessment
+        role: queue
+        required: true
+        description: "Migration assessment"
+note_limits:
+  mode: reject
+status_labels:
+  start: "root-started"
+                """.trimIndent()
+            )
+
+            val snapshot = service.getSnapshot(rootItemId)
+            assertNotNull(snapshot)
+            assertEquals(
+                "repro-steps",
+                snapshot.workItemSchemas["bug-fix"]
+                    ?.notes
+                    ?.get(0)
+                    ?.key
+            )
+            assertEquals("migration-assessment", snapshot.traits["needs-migration-review"]?.get(0)?.key)
+            assertEquals("reject", snapshot.noteLimitsModeExplicit)
+            assertEquals("root-started", snapshot.statusLabels?.get("start"))
+            assertEquals(service.getFingerprint(rootItemId), snapshot.fingerprint)
+        }
+
+    // --- getStatusLabels: absent-vs-explicit, partial map ---
+
+    @Test
+    fun `getStatusLabels returns null when no config row exists`() =
+        runBlocking {
+            assertNull(service.getStatusLabels(rootItemId))
+        }
+
+    @Test
+    fun `getStatusLabels returns null when the per-root doc has no status_labels section`() =
+        runBlocking {
+            repository.upsert(
+                rootItemId,
+                """
+work_item_schemas:
+  default:
+    notes: []
+                """.trimIndent()
+            )
+
+            assertNull(service.getStatusLabels(rootItemId))
+        }
+
+    @Test
+    fun `getStatusLabels returns a partial map when the per-root doc only overrides some triggers`() =
+        runBlocking {
+            repository.upsert(
+                rootItemId,
+                """
+status_labels:
+  start: "root-started"
+  complete: null
+                """.trimIndent()
+            )
+
+            val labels = service.getStatusLabels(rootItemId)
+            assertNotNull(labels)
+            assertEquals("root-started", labels["start"])
+            assertTrue(labels.containsKey("complete"), "An explicit null value must still be a present key")
+            assertNull(labels["complete"], "Explicit null means 'no label', distinct from the key being absent")
+            assertTrue(!labels.containsKey("cancel"), "A trigger not mentioned in the doc must be absent from the map")
+        }
 }

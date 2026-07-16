@@ -38,12 +38,20 @@ otherwise); if the root's `type` is not "project", the response includes a non-f
 parse-validated BEFORE storing, using a safe YAML constructor that only builds plain maps/lists/
 scalars (arbitrary `!!`-tagged Java type construction is rejected, not silently ignored) —
 unparseable or unsafe YAML is rejected with the parse error and never written, so a broken or
-malicious config can never silently exist server-side. Pushing byte-identical content is naturally
+malicious config can never silently exist server-side. A `configYaml` whose fingerprint is
+known-old (present in the root's fingerprint history but not current) is rejected as a
+`CONFLICT_ERROR` naming force as the override, unless `force: true` is passed — this guards against
+silently reverting a later push made from elsewhere. Pushing byte-identical content is naturally
 idempotent: the returned `fingerprint` is unchanged, so callers can `get` first and skip the push
-when fingerprints match.
+when fingerprints match. A pushed document may set `note_limits`/`status_labels` to override the
+global config for this root's items alongside `work_item_schemas`/`note_schemas`/`traits`/`project`;
+any other top-level key (e.g. `actor_authentication`, which stays global-only) is reported back in
+an additive `ignoredSections` array, present only when non-empty.
 
 **get** — returns the stored `configYaml` + `fingerprint` + `updatedAt` for a root, or a
-not-found error when no config has been pushed for it.
+not-found error when no config has been pushed for it. When `fingerprint` is supplied, the response
+also includes a `relation` field ("current"/"superseded"/"unknown") classifying that value against
+the root's stored fingerprint history.
         """.trimIndent()
 
     override val category = ToolCategory.SYSTEM
@@ -89,6 +97,33 @@ not-found error when no config has been pushed for it.
                                 JsonPrimitive(
                                     "Raw config.yaml text to store for this root (push only); max 128 KiB, " +
                                         "parse-validated before storing"
+                                )
+                            )
+                        }
+                    )
+                    put(
+                        "force",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("boolean"))
+                            put(
+                                "description",
+                                JsonPrimitive(
+                                    "push only, default false: bypass push guards — skips the embedded " +
+                                        "project.rootId mismatch check and the known-old (fast-forward) " +
+                                        "fingerprint guard"
+                                )
+                            )
+                        }
+                    )
+                    put(
+                        "fingerprint",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("string"))
+                            put(
+                                "description",
+                                JsonPrimitive(
+                                    "get only: SHA-256 hex digest to classify against the stored config's " +
+                                        "current fingerprint and history; adds a relation field to the response"
                                 )
                             )
                         }
@@ -146,9 +181,10 @@ not-found error when no config has been pushed for it.
         val (rootItemId, idError) = resolveItemId(params, "rootItemId", context)
         if (idError != null) return idError
         val configYaml = requireString(params, "configYaml")
+        val force = optionalBoolean(params, "force")
 
         val service = ProjectConfigPushService(context.repositoryProvider)
-        return when (val result = service.push(rootItemId!!, configYaml)) {
+        return when (val result = service.push(rootItemId!!, configYaml, force)) {
             is ProjectConfigPushResult.Success ->
                 successResponse(
                     buildJsonObject {
@@ -156,6 +192,9 @@ not-found error when no config has been pushed for it.
                         put("fingerprint", JsonPrimitive(result.fingerprint))
                         put("updatedAt", JsonPrimitive(result.updatedAt.toString()))
                         result.warning?.let { put("warning", JsonPrimitive(it)) }
+                        if (result.ignoredSections.isNotEmpty()) {
+                            put("ignoredSections", JsonArray(result.ignoredSections.map { JsonPrimitive(it) }))
+                        }
                     }
                 )
             is ProjectConfigPushResult.NotFound ->
@@ -180,6 +219,19 @@ not-found error when no config has been pushed for it.
                     ErrorCodes.VALIDATION_ERROR,
                     details = result.detail
                 )
+            is ProjectConfigPushResult.RootIdMismatch ->
+                errorResponse(
+                    "configYaml embeds project.rootId '${result.embeddedRootId}', which differs from " +
+                        "the target rootItemId '${result.targetRootId}'; fix project.rootId in the " +
+                        "document or pass force: true to push anyway",
+                    ErrorCodes.VALIDATION_ERROR
+                )
+            is ProjectConfigPushResult.Superseded ->
+                errorResponse(
+                    "local config is older than the server's (updated ${result.currentUpdatedAt}); " +
+                        "pull or copy back before editing, or pass force: true to overwrite anyway",
+                    ErrorCodes.CONFLICT_ERROR
+                )
             is ProjectConfigPushResult.RepositoryError ->
                 errorResponse(
                     "Failed to store project config: ${result.message}",
@@ -198,6 +250,7 @@ not-found error when no config has been pushed for it.
     ): JsonElement {
         val (rootItemId, idError) = resolveItemId(params, "rootItemId", context)
         if (idError != null) return idError
+        val fingerprint = optionalString(params, "fingerprint")
 
         val service = ProjectConfigPushService(context.repositoryProvider)
         return when (val result = service.get(rootItemId!!)) {
@@ -207,12 +260,14 @@ not-found error when no config has been pushed for it.
                         "No project config found for root: $rootItemId",
                         ErrorCodes.RESOURCE_NOT_FOUND
                     )
+                val relation = fingerprint?.let { service.classifyRelation(rootItemId, it) }
                 successResponse(
                     buildJsonObject {
                         put("rootItemId", JsonPrimitive(config.rootItemId.toString()))
                         put("configYaml", JsonPrimitive(config.configYaml))
                         put("fingerprint", JsonPrimitive(config.fingerprint))
                         put("updatedAt", JsonPrimitive(config.updatedAt.toString()))
+                        relation?.let { put("relation", JsonPrimitive(it)) }
                     }
                 )
             }

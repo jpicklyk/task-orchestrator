@@ -58,6 +58,42 @@ class PerRootConfigService(
     /** In-memory cache keyed by root item UUID. Populated lazily on first [resolve] per root. */
     private val cache = ConcurrentHashMap<UUID, CacheEntry>()
 
+    /**
+     * A single-pass, single-root view combining every per-root config facet a caller might need
+     * (schemas, traits, note-limits mode, status labels) plus the fingerprint it was resolved
+     * against — everything [resolve] already parses in one pass, bundled instead of split across
+     * the individual accessor methods below. Callers needing several of these facets for the same
+     * [rootItemId] (e.g. [io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext])
+     * should call [getSnapshot] once and read the fields locally, instead of calling the
+     * single-facet accessors once each — each of those independently re-invokes [resolve], which
+     * costs at least one fingerprint-only DB read apiece even when the cache is warm.
+     */
+    data class Snapshot(
+        val workItemSchemas: Map<String, WorkItemSchema>,
+        val traits: Map<String, List<NoteSchemaEntry>>,
+        val noteLimitsModeExplicit: String?,
+        val statusLabels: Map<String, String?>?,
+        val fingerprint: String
+    )
+
+    /**
+     * Returns a [Snapshot] of every per-root config facet for [rootItemId] from a SINGLE [resolve]
+     * pass, or null under the same conditions as every other accessor on this class: no config row
+     * for [rootItemId], or the stored YAML fails to parse (see class doc — failures fall through to
+     * the global loader rather than throwing).
+     */
+    suspend fun getSnapshot(rootItemId: UUID): Snapshot? {
+        val parsed = resolve(rootItemId) ?: return null
+        val fingerprint = cache[rootItemId]?.fingerprint ?: return null
+        return Snapshot(
+            workItemSchemas = parsed.workItemSchemas,
+            traits = parsed.traits,
+            noteLimitsModeExplicit = parsed.noteLimitsModeExplicit,
+            statusLabels = parsed.statusLabels,
+            fingerprint = fingerprint
+        )
+    }
+
     /** Returns the resolved `work_item_schemas` map for [rootItemId], or null when no config row exists or it fails to parse. */
     suspend fun getSchemas(rootItemId: UUID): Map<String, WorkItemSchema>? = resolve(rootItemId)?.workItemSchemas
 
@@ -75,6 +111,39 @@ class PerRootConfigService(
 
     /** Returns all trait definitions for [rootItemId]'s config, or null when no config row exists or it fails to parse. */
     suspend fun getAllTraits(rootItemId: UUID): Map<String, List<NoteSchemaEntry>>? = resolve(rootItemId)?.traits
+
+    /**
+     * Returns the cached config fingerprint for [rootItemId], or null when no config row exists or
+     * it fails to parse. Goes through [resolve]'s normal fingerprint-check hot-reload path first
+     * (so this never returns a stale fingerprint after a concurrent push) — callers needing to
+     * report which config version supplied a resolved schema (e.g. `query_items`'s `schema`
+     * operation) should call this immediately after a [getSchemaForType]/[getSchemas] lookup that
+     * resolved from this root's per-root layer.
+     */
+    suspend fun getFingerprint(rootItemId: UUID): String? {
+        resolve(rootItemId) ?: return null
+        return cache[rootItemId]?.fingerprint
+    }
+
+    /**
+     * Returns [rootItemId]'s explicitly-configured `note_limits.mode`, or null when there is no
+     * config row for this root, the row fails to parse, or the row's document has no top-level
+     * `note_limits` key at all — see [YamlSchemaParser.ParsedConfig.noteLimitsModeExplicit] for the
+     * absent-vs-explicit distinction this preserves. Callers (see
+     * [io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext.resolveNoteLimitsMode])
+     * treat a null return as "fall through to the global note-limits mode", not as "warn".
+     */
+    suspend fun getNoteLimitsMode(rootItemId: UUID): String? = resolve(rootItemId)?.noteLimitsModeExplicit
+
+    /**
+     * Returns [rootItemId]'s explicitly-configured `status_labels` trigger→label map, or null when
+     * there is no config row for this root, the row fails to parse, or the row's document has no
+     * top-level `status_labels` key at all. A non-null return may still be a PARTIAL map — see
+     * [YamlSchemaParser.ParsedConfig.statusLabels] — callers fall through to the global status label
+     * service on a per-trigger basis when a trigger key is absent from this map (see
+     * [io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext.resolveStatusLabel]).
+     */
+    suspend fun getStatusLabels(rootItemId: UUID): Map<String, String?>? = resolve(rootItemId)?.statusLabels
 
     /**
      * Returns the parsed config for [rootItemId], reusing the cached parse when the DB

@@ -355,7 +355,8 @@ field naming the limit and actual size; `mode: reject` fails that note with `cod
                         ?.maxLength
                 if (maxLength != null && body.length > maxLength) {
                     val detail = "body length ${body.length} exceeds maxLength $maxLength for key '$key'"
-                    if (context.noteSchemaService().getNoteLimitsMode() == "reject") {
+                    val effectiveNoteLimitsMode = context.resolveNoteLimitsMode(validatedItems.getValue(itemId).rootId)
+                    if (effectiveNoteLimitsMode == "reject") {
                         failures.add(
                             buildJsonObject {
                                 put("index", JsonPrimitive(index))

@@ -42,6 +42,7 @@ class CreateItemHandler(
 
         val createdItems = mutableListOf<JsonObject>()
         val failures = mutableListOf<JsonObject>()
+        val createdRootIds = mutableSetOf<UUID>()
 
         for ((index, element) in items.withIndex()) {
             try {
@@ -151,6 +152,7 @@ class CreateItemHandler(
 
                 when (val result = repo.create(workItem)) {
                     is Result.Success -> {
+                        result.data.rootId?.let { createdRootIds.add(it) }
                         val createdTags = result.data.tags
                         val resolvedSchema = context.resolveSchema(result.data)
                         val schemaFields = buildSchemaResponseFields(resolvedSchema)
@@ -198,7 +200,7 @@ class CreateItemHandler(
             }
         }
 
-        val availableTraits = context.noteSchemaService().getAvailableTraits()
+        val availableTraits = context.availableTraits(createdRootIds)
         val data =
             buildJsonObject {
                 put("items", JsonArray(createdItems))

@@ -243,7 +243,8 @@ snippets, filtered list search, or hierarchical overview.
 |---|---|---|---|
 | `operation` | string | Yes | `"schema"` |
 | `type` | string | Exactly one of `type`/`itemId` | Schema type identifier — direct lookup in `work_item_schemas` |
-| `itemId` | string (UUID or 4+ char prefix) | Exactly one of `type`/`itemId` | Resolves the item's schema via the standard type-first/tag-fallback/trait-merge logic |
+| `itemId` | string (UUID or 4+ char prefix) | Exactly one of `type`/`itemId` | Resolves the item's schema via the standard type-first/tag-fallback/trait-merge logic, layered per-root-then-global using the item's own `rootId` |
+| `rootId` | string (UUID or 4+ char prefix) | No | Only used with `type`. Resolves `type` against this root's per-root pushed config first (per-root exact type -> per-root `"default"` -> global exact type -> global `"default"`), falling back to global-only behavior when the root has no pushed config. Ignored when `itemId` is used instead — the item's own `rootId` is applied automatically. |
 
 **Response (schema).**
 
@@ -251,6 +252,7 @@ snippets, filtered list search, or hierarchical overview.
 {
   "type": "feature-implementation",
   "configFingerprint": "a1b2c3d4",
+  "configSource": "global",
   "notes": [
     { "key": "specification", "role": "queue", "required": true, "description": "...", "guidance": "...", "skill": "spec-quality", "maxLength": 4000 },
     { "key": "implementation-notes", "role": "work", "required": true, "description": "..." }
@@ -258,7 +260,7 @@ snippets, filtered list search, or hierarchical overview.
 }
 ```
 
-This is the **only** place that returns full note text (`description`, `guidance`, `skill`, `maxLength`) in one shot for an entire schema. Use it to resolve the keys-only `expectedNotes` and the reference-only `guidanceKey`/`skillPointer` fields returned elsewhere. `guidance`, `skill`, and `maxLength` are omitted per-entry when unset. `configFingerprint` is `null` when unavailable; cache schema responses per fingerprint to avoid re-fetching unchanged config. Errors with `RESOURCE_NOT_FOUND` when no schema matches the given `type` or the item is schema-free.
+This is the **only** place that returns full note text (`description`, `guidance`, `skill`, `maxLength`) in one shot for an entire schema. Use it to resolve the keys-only `expectedNotes` and the reference-only `guidanceKey`/`skillPointer` fields returned elsewhere. `guidance`, `skill`, and `maxLength` are omitted per-entry when unset. `configFingerprint` reports the fingerprint of whichever config layer actually supplied the schema (per-root or global) and is `null` when unavailable; cache schema responses per fingerprint to avoid re-fetching unchanged config. `configSource` is `"per-root"` when a per-root pushed config supplied the schema (via `rootId` on the `type` path, or the item's own `rootId` on the `itemId` path) and `"global"` otherwise. Errors with `RESOURCE_NOT_FOUND` when no schema matches the given `type` or the item is schema-free.
 
 **Examples.**
 
@@ -610,7 +612,7 @@ Providing both `ids` and `itemId` in the same delete call is an error — the se
 | `bodyFromFile` | string | No | Server-side file path read in place of `body`. Resolved strictly relative to the agent config root (`AGENT_CONFIG_DIR`, falling back to the server's working directory) — absolute paths, `..` escapes, and symlink escapes are rejected. File must exist and be ≤65536 bytes. CRLF line endings are normalized to LF on read. |
 | `actor` | object | No | Optional actor claim — see Actor Attribution section |
 
-**Note body length limits.** When the resolved schema declares `maxLength` for a note's `key`, the resolved body (from `body` or `bodyFromFile`) is checked against it after resolution. The top-level config `note_limits.mode` controls enforcement: `warn` (default) accepts the note and adds a `warning` field to that note's result naming the limit and actual size; `reject` fails that note with a structured error: `{ "code": "NOTE_BODY_TOO_LONG", "key": "...", "maxLength": N, "actualLength": N }` in its `failures` entry.
+**Note body length limits.** When the resolved schema declares `maxLength` for a note's `key`, the resolved body (from `body` or `bodyFromFile`) is checked against it after resolution. The top-level config `note_limits.mode` controls enforcement: `warn` (default) accepts the note and adds a `warning` field to that note's result naming the limit and actual size; `reject` fails that note with a structured error: `{ "code": "NOTE_BODY_TOO_LONG", "key": "...", "maxLength": N, "actualLength": N }` in its `failures` entry. `note_limits` is layered per-root: a per-root `manage_project_config` push that explicitly sets `note_limits.mode` wins for that root's items; a per-root document that omits `note_limits` entirely falls through to the global mode unchanged — see [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md).
 
 Each upsert note element may include an optional `actor` object:
 - `id` (required string): Identifier for the actor writing this note
@@ -1100,7 +1102,7 @@ All cascade types are recorded in `cascadeEvents`.
 }
 ```
 
-`previousRole` and `trigger` are omitted from successful results — the caller supplied the trigger, and `newRole` is the outcome. Both remain present on `cascadeEvents` entries and on failed results (see below). `cascadeEvents` and `unblockedItems` are omitted entirely when empty (there is no top-level `allUnblockedItems` aggregate — sum `unblockedItems` across `results` if you need a batch total). `expectedNotes` is always present (`[]` when no schema matches the item's tags) and is keys-only: `key`, `role`, `required`, `exists` (`filled` appears only in `get_context`'s item-mode `schema` entries, not here). `statusLabel` (string, optional) is present when the transition set a status label (config-driven via `status_labels`; defaults: `"in-progress"` for `start`, `"done"` for `complete`, `"blocked"` for `block`, `"cancelled"` for `cancel`; `resume`/`reopen` set none). `summary` (string, optional) echoes the transition's input annotation when one was supplied.
+`previousRole` and `trigger` are omitted from successful results — the caller supplied the trigger, and `newRole` is the outcome. Both remain present on `cascadeEvents` entries and on failed results (see below). `cascadeEvents` and `unblockedItems` are omitted entirely when empty (there is no top-level `allUnblockedItems` aggregate — sum `unblockedItems` across `results` if you need a batch total). `expectedNotes` is always present (`[]` when no schema matches the item's tags) and is keys-only: `key`, `role`, `required`, `exists` (`filled` appears only in `get_context`'s item-mode `schema` entries, not here). `statusLabel` (string, optional) is present when the transition set a status label (config-driven via `status_labels`; defaults: `"in-progress"` for `start`, `"done"` for `complete`, `"blocked"` for `block`, `"cancelled"` for `cancel`; `resume`/`reopen` set none). `status_labels` is layered per-root: a per-root `manage_project_config` push resolves a label for a given trigger from that root's `status_labels` map first, falling through to the global config PER TRIGGER when the root's map doesn't mention that trigger (or has no `status_labels` section at all). `summary` (string, optional) echoes the transition's input annotation when one was supplied.
 
 `guidanceKey` (string, optional) names the first unfilled required note with guidance for the **new** role; omitted when no schema matches, no required notes exist for the new role, or all required notes are already filled. Resolve the full guidance text via `query_items(operation="schema", itemId=...)`.
 
@@ -1752,16 +1754,47 @@ Validates, in order:
    below). Unparseable or unsafe YAML is rejected here — nothing is stored — so a broken or
    malicious config can never silently exist server-side and fall through to the global schema on
    a later read.
+6. If the parsed document embeds a top-level `project.rootId` that parses as a UUID and differs
+   from `rootItemId`, the push is rejected as a `rootId` mismatch (see **rootId mismatch guard**
+   below) — unless `force: true` is passed.
+7. If the incoming document's fingerprint is **superseded** — it appears in the root's fingerprint
+   history but is not the current fingerprint (i.e. the server has already moved past this exact
+   content) — the push is rejected as stale (see **Fast-forward guard** below) — unless
+   `force: true` is passed. A fingerprint the server has never seen (`unknown`) pushes normally;
+   the current fingerprint (`current`) is the idempotent re-push.
 
 On success, stores the document and returns its fingerprint. Pushing byte-identical content is
 naturally idempotent: the fingerprint returned is unchanged, so a caller can `get` first and skip
 the push when fingerprints already match — no separate idempotency-key machinery is needed.
+
+**Which sections are honored per-root.** Only a subset of top-level `configYaml` keys are resolved
+per-root; everything else stays global-only and is reported back via `ignoredSections` (see below)
+so a push is never silently partial:
+
+| Top-level key | Honored per-root? | Layered by |
+|---|---|---|
+| `work_item_schemas` | Yes | `PerRootConfigService` / `ToolExecutionContext.resolveSchema()` |
+| `note_schemas` (legacy) | Yes | `PerRootConfigService` / `ToolExecutionContext.resolveSchema()` |
+| `traits` | Yes | `PerRootConfigService` / `ToolExecutionContext.resolveSchema()` |
+| `project` | Yes | `ProjectConfigPushService` (embedded `project.rootId` guard only) |
+| `note_limits` | Yes | `ToolExecutionContext.resolveNoteLimitsMode()` |
+| `status_labels` | Yes | `ToolExecutionContext.resolveStatusLabel()` |
+| `actor_authentication` | No — global-only | n/a |
+| any other key | No | n/a |
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `operation` | string (`"push"` \| `"get"`) | Yes | Selects the operation |
 | `rootItemId` | string (UUID or 4+ char hex prefix) | Yes | Project root WorkItem — must be depth 0 for `push` |
 | `configYaml` | string | Yes (push only) | Raw config.yaml text to store for this root; max 128 KiB |
+| `force` | boolean | No (push only, default `false`) | Bypass push guards — skips both the embedded `project.rootId` mismatch check and the superseded (fast-forward) staleness check |
+
+**rootId mismatch guard.** A pushed `configYaml` document may embed its own root id at top-level
+`project.rootId`. If present and it parses as a UUID that differs from the `rootItemId` argument,
+the push is rejected before any write — this catches a config document synced or copy-pasted
+against the wrong project root before it silently overwrites the target root's gates. An absent or
+non-UUID `project.rootId` is not an error; the push proceeds as if it were absent. Pass
+`force: true` to push anyway.
 
 **Parse safety.** `configYaml` is parsed with SnakeYAML's `SafeConstructor` rather than its default
 `Constructor`. The default constructor will instantiate an arbitrary Java type named by a YAML
@@ -1790,11 +1823,14 @@ config bytes are parsed (`PerRootConfigService`, on every schema-resolving read)
   "rootItemId": "3f9c2b10-...",
   "fingerprint": "a94a8fe5cc...",
   "updatedAt": "2026-07-14T18:40:00Z",
-  "warning": "Root item type is 'null', not 'project' — config pushed anyway (a naming convention, not an enforced constraint)"
+  "warning": "Root item type is 'null', not 'project' — config pushed anyway (a naming convention, not an enforced constraint)",
+  "ignoredSections": ["actor_authentication"]
 }
 ```
 
-`warning` is only present when the root's `type` is not `"project"`.
+`warning` is only present when the root's `type` is not `"project"`. `ignoredSections` is only
+present (and non-empty) when the pushed document contains top-level keys outside the honored
+allowlist above — e.g. `actor_authentication`.
 
 **Error cases.**
 
@@ -1804,7 +1840,21 @@ config bytes are parsed (`PerRootConfigService`, on every schema-resolving read)
 | `rootItemId` does not resolve to an existing WorkItem | `RESOURCE_NOT_FOUND` |
 | Root WorkItem has `depth != 0` | `VALIDATION_ERROR` |
 | `configYaml` fails to parse (invalid/unsafe YAML syntax or shape, including `!!`-tagged custom types — see **Parse safety** above) | `VALIDATION_ERROR` (message includes the parse detail) |
+| `configYaml` embeds a `project.rootId` that differs from `rootItemId` (and `force` was not `true`) | `VALIDATION_ERROR` (message names both ids) |
+| `configYaml`'s fingerprint is superseded — in the root's history but not current (and `force` was not `true`) | `VALIDATION_ERROR` (message: local config is older than the server's, with the server row's `updatedAt`) |
 | Storage failure | `DATABASE_ERROR` |
+
+**Fast-forward guard.** Every successful push appends the *previous* current fingerprint to a
+per-root history (newest first, pruned to the last 20; stored in `project_config.fingerprint_history`,
+added in migration V11). An incoming push whose fingerprint appears in that history but is not the
+current fingerprint is provably *older content the server has already moved past* — the classic
+stale-checkout case (old branch, unsynced worktree, second machine) — and is rejected so a session
+starting from an outdated file cannot silently revert the project's live config. Content the server
+has never seen (`unknown`) is accepted — true divergence remains last-writer-wins by design. Rows
+created before V11 have no history and classify every non-current fingerprint as `unknown`
+(pre-guard behavior) until history accumulates. The `config-sync` SessionStart hook performs the
+same check client-side via `get` + `fingerprint` (below) and skips the push with a warning instead
+of hitting the rejection.
 
 #### `get`
 
@@ -1814,6 +1864,7 @@ Reads back the stored config for a root.
 |---|---|---|---|
 | `operation` | string (`"push"` \| `"get"`) | Yes | Selects the operation |
 | `rootItemId` | string (UUID or 4+ char hex prefix) | Yes | Project root WorkItem to read the config for |
+| `fingerprint` | string (hex SHA-256) | No (get only) | A local document fingerprint to classify against this root's stored config; adds `relation` to the response |
 
 **Response (success).**
 
@@ -1822,9 +1873,16 @@ Reads back the stored config for a root.
   "rootItemId": "3f9c2b10-...",
   "configYaml": "work_item_schemas:\n  ...\n",
   "fingerprint": "a94a8fe5cc...",
-  "updatedAt": "2026-07-14T18:40:00Z"
+  "updatedAt": "2026-07-14T18:40:00Z",
+  "relation": "superseded"
 }
 ```
+
+`relation` is only present when a `fingerprint` argument was supplied: `"current"` (matches the
+stored fingerprint), `"superseded"` (in this root's fingerprint history but not current — the
+supplied content is older than the server's), or `"unknown"` (never seen — new content, or a
+pre-V11 row with no history). Callers deciding whether to push should treat `superseded` as
+"do not push without `force`" — this is exactly what the `config-sync` hook does.
 
 **Response (no config pushed for this root).** `error.code` is `RESOURCE_NOT_FOUND`.
 

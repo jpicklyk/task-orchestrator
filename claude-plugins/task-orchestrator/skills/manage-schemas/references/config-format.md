@@ -375,11 +375,76 @@ Config resolves in **two layers**, chosen per work item by its `rootId`:
 | **Global** | the `AGENT_CONFIG_DIR/.taskorchestrator/config.yaml` file | read once at server startup (restart to reload) | one per server — the **fallback/default** |
 | **Per-root** | pushed into the DB per project-root UUID (via `manage_project_config` or `PUT /api/v1/roots/{rootId}/config`) | **hot-reloaded** on every schema-resolving read — no restart | one per project root |
 
-For an item with a `rootId`, every schema / tag / trait lookup consults that root's per-root config **first** and falls back to the global file on a miss. An item with no `rootId` uses the global file only. Behavior is byte-identical to a single-file setup when no per-root config has been pushed.
+For an item with a `rootId`, every schema / tag / trait lookup is **whole-algorithm-first**: the
+entire per-root resolution runs to completion before the global layer is consulted at all. For the
+type lookup, that precedence is:
+
+1. Per-root exact match on `item.type`
+2. Per-root `default` schema
+3. Global exact match on `item.type`
+4. Global `default` schema
+
+The tag lookup follows the same shape (per-root first-matching-tag, then per-root `default`,
+*then* the equivalent global steps). This means a per-root `default` schema wins over a **global
+exact type match** — once a root has pushed its own config, that config is treated as the root's
+complete self-description, not a patch layered on top of the global floor. An item with no
+`rootId` uses the global file only. Behavior is byte-identical to a single-file setup when no
+per-root config has been pushed.
+
+**Layer roles:** global = server-wide floor; per-root = the project's complete self-description,
+which can lower the floor to zero via the empty default (see below).
 
 **Precedence — the workspace file is canonical; the per-root DB row is a synced replica.** The `config-sync.mjs` SessionStart hook (and the `manage-schemas` / `quick-start` push steps) copy the local `.taskorchestrator/config.yaml` into the per-root store whenever it changes. Durable edits belong in the **file**: a runtime `manage_project_config` push that isn't reflected in the file is overwritten at the next session's sync. A byte-identical file is a no-op (fingerprints match).
 
-**Global-only settings.** `note_limits` and `actor_authentication` are **not** part of the per-root layer — the resolver reads them only from the global file. A per-root document may carry them, but they are ignored; keep them in the global config.
+**Fast-forward guarded.** The server keeps a per-root fingerprint history (newest first, pruned to
+20), so file-canonical precedence is enforced, not just assumed. A push whose fingerprint is
+**known-old** — present in that history but not the root's current fingerprint (e.g. a stale
+checkout that missed a later push made from another machine) — is rejected server-side (REST `409
+superseded`; MCP tool `CONFLICT_ERROR`) instead of silently reverting the later change.
+`config-sync.mjs` checks this on every session start via `GET .../config?fingerprint=<local-sha256>`:
+a `superseded` relation skips the push and surfaces a message telling the agent to pull or copy the
+server's config back before editing, rather than pushing over it. `current` (already in sync) and
+`unknown` (brand-new content, or an older server that predates this guard — no `relation` field
+returned) both proceed as before. `force: true` (or `?force=true`) bypasses the guard when a
+deliberate revert or overwrite is intended.
+
+**Per-root honorable settings.** `note_limits` and `status_labels` are layered the same way as
+schemas/traits: a per-root document that **explicitly** sets `note_limits.mode` or a trigger under
+`status_labels` wins for that root; a per-root document that **omits the key entirely** falls
+through to the global value, unchanged. `status_labels` falls through **per trigger** — a per-root
+map that only overrides `start` still defers to the global config for `complete`, `block`, etc.
+(and a trigger explicitly mapped to `null` in the per-root doc means "no label for this trigger",
+which is different from the trigger being absent). A pushed document's response (`manage_project_config`
+push, or `PUT /roots/{rootId}/config`) reports which top-level keys it contains that are NOT honored
+per-root in an additive `ignoredSections` field.
+
+**Global-only settings.** `actor_authentication` is **not** part of the per-root layer — the
+resolver reads it only from the global file. A per-root document may carry it, but it is ignored
+(and reported in `ignoredSections`); keep it in the global config.
+
+### Schema-free / non-dev / business-workflow projects
+
+A project that has no notion of "notes to fill" — non-dev workflows, business-process tracking,
+or anything using Task Orchestrator purely for status/dependency tracking — can push a per-root
+config with an **empty default schema** to fence off the global config entirely:
+
+```yaml
+work_item_schemas:
+  default:
+    lifecycle: auto   # or manual / permanent for workflow-style projects
+    notes: []
+```
+
+Because per-root resolution is whole-algorithm-first, this `default` entry resolves for every item
+type in this root (no exact type match needed) with zero required notes — every gate passes
+automatically, regardless of what the global config requires for the same type elsewhere. The
+global config is never consulted for this root once this per-root default resolves.
+
+**Why the global default still matters even with per-root fencing available:** stdio mode (no
+per-root DB row exists at all — items resolve via `rootId == null`), the bootstrap window before a
+workspace's first `manage_project_config` push, legacy items with a null `rootId` predating the
+root-backfill, and process-global containers that intentionally sit outside any single project
+root. The global default is the floor these cases fall back to.
 
 ---
 
@@ -391,6 +456,10 @@ Top-level `note_limits.mode` (`warn`, default, or `reject`) governs what happens
 note_limits:
   mode: warn   # warn | reject
 ```
+
+This mode is per-root honorable (see "Global vs Per-Project Config" above): a project root that
+pushes its own `note_limits.mode` overrides the global mode for that root's items only; a per-root
+document with no `note_limits` section at all defers to the global mode unchanged.
 
 Notes are a compression boundary: keep bodies distilled prose, and route verbatim artifacts (test output, diffs, logs) through `bodyFromFile` rather than pasting them inline.
 

@@ -41,14 +41,24 @@ private fun configEtag(fingerprint: String): String = "\"cfg-$fingerprint\""
  *
  * Endpoints:
  * - `GET    /roots/{rootId}/config` — read back the stored config ([ApiCapability.READ] + scope);
- *   `If-None-Match` → 304 when unchanged; 404 when no config has been pushed for the root.
+ *   `If-None-Match` → 304 when unchanged; 404 when no config has been pushed for the root. Optional
+ *   `?fingerprint=<sha256>` classifies that value against the root's stored fingerprint
+ *   history and adds an additive `relation` field ("current"/"superseded"/"unknown") to the
+ *   response body — omitted entirely when the query param is absent.
  * - `PUT    /roots/{rootId}/config` — validate + upsert raw YAML body ([ApiCapability.WRITE_CONFIG] +
  *   scope); delegates the FULL validate-then-persist pipeline to [ProjectConfigPushService] — the
  *   SAME service the MCP `manage_project_config` tool's `push` operation calls, so both surfaces
  *   converge on identical DB state for the same payload. Body must not exceed
  *   [ProjectConfigPushService.MAX_CONFIG_YAML_BYTES] (413); malformed/unsafe YAML is rejected before
- *   storing (422); optional `If-Match` against the current fingerprint-derived ETag (412 on mismatch,
- *   ignored when no row exists yet — a first push is a create).
+ *   storing (422); a `configYaml` embedding a mismatched top-level `project.rootId` is rejected as
+ *   422 `rootid_mismatch` unless the `?force=true` query param is set; a `configYaml` whose
+ *   fingerprint is known-old (present in history but not current) is rejected as 409 `superseded`
+ *   unless `?force=true` — distinct from the 412 `If-Match` case below, which is a concurrent-write
+ *   guard rather than a known-old-content guard; optional `If-Match` against the current
+ *   fingerprint-derived ETag (412 on mismatch, ignored when no row exists yet — a first push is a
+ *   create). On success, top-level `configYaml` keys not honored by the per-root resolution layer
+ *   (e.g. `actor_authentication`) are reported in an additive `ignoredSections` field, omitted when
+ *   empty.
  * - `DELETE /roots/{rootId}/config` — remove the stored config row ([ApiCapability.WRITE_CONFIG] +
  *   scope); 404 when no row exists.
  *
@@ -95,6 +105,11 @@ fun Route.projectConfigRoutes(repositoryProvider: RepositoryProvider) {
                             return@get
                         }
 
+                        val relation =
+                            call.request.queryParameters["fingerprint"]?.let { queriedFingerprint ->
+                                service.classifyRelation(rootId, queriedFingerprint)
+                            }
+
                         call.response.header(HttpHeaders.ETag, etag)
                         call.respond(
                             HttpStatusCode.OK,
@@ -103,6 +118,7 @@ fun Route.projectConfigRoutes(repositoryProvider: RepositoryProvider) {
                                 fingerprint = config.fingerprint,
                                 updatedAt = config.updatedAt.toString(),
                                 configYaml = config.configYaml,
+                                relation = relation,
                             ),
                         )
                     }
@@ -124,6 +140,7 @@ fun Route.projectConfigRoutes(repositoryProvider: RepositoryProvider) {
                     return@put
                 }
 
+                val force = call.request.queryParameters["force"]?.toBooleanStrictOrNull() ?: false
                 val configYaml = call.receiveText()
                 val sizeBytes = configYaml.toByteArray(Charsets.UTF_8).size
                 if (sizeBytes > ProjectConfigPushService.MAX_CONFIG_YAML_BYTES) {
@@ -161,7 +178,7 @@ fun Route.projectConfigRoutes(repositoryProvider: RepositoryProvider) {
                     }
                 }
 
-                when (val result = service.push(rootId, configYaml)) {
+                when (val result = service.push(rootId, configYaml, force)) {
                     is ProjectConfigPushResult.Success -> {
                         val etag = configEtag(result.fingerprint)
                         call.response.header(HttpHeaders.ETag, etag)
@@ -172,6 +189,7 @@ fun Route.projectConfigRoutes(repositoryProvider: RepositoryProvider) {
                                 fingerprint = result.fingerprint,
                                 updatedAt = result.updatedAt.toString(),
                                 warning = result.warning,
+                                ignoredSections = result.ignoredSections.ifEmpty { null },
                             ),
                         )
                     }
@@ -201,6 +219,25 @@ fun Route.projectConfigRoutes(repositoryProvider: RepositoryProvider) {
                         call.respond(
                             HttpStatusCode.UnprocessableEntity,
                             ErrorDto("parse_error", "configYaml failed to parse: ${result.detail}"),
+                        )
+                    is ProjectConfigPushResult.RootIdMismatch ->
+                        call.respond(
+                            HttpStatusCode.UnprocessableEntity,
+                            ErrorDto(
+                                "rootid_mismatch",
+                                "configYaml embeds project.rootId '${result.embeddedRootId}', which differs " +
+                                    "from the target rootId '${result.targetRootId}'; fix project.rootId in " +
+                                    "the document or retry with ?force=true",
+                            ),
+                        )
+                    is ProjectConfigPushResult.Superseded ->
+                        call.respond(
+                            HttpStatusCode.Conflict,
+                            ErrorDto(
+                                "superseded",
+                                "local config is older than the server's (updated ${result.currentUpdatedAt}); " +
+                                    "pull or copy back before editing, or retry with ?force=true",
+                            ),
                         )
                     is ProjectConfigPushResult.RepositoryError -> {
                         projectConfigLogger.warn("PUT /roots/{}/config DB error: {}", rootId, result.message)

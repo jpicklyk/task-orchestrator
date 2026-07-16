@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.domain.repository
 
+import io.github.jpicklyk.mcptask.current.domain.model.FingerprintRelation
 import io.github.jpicklyk.mcptask.current.domain.model.ProjectConfig
 import java.util.UUID
 
@@ -36,4 +37,25 @@ interface ProjectConfigRepository {
 
     /** Deletes the config row for [rootItemId], if any. Returns true if a row was deleted. */
     suspend fun delete(rootItemId: UUID): Result<Boolean>
+
+    /**
+     * Computes the SHA-256 fingerprint of [configYaml] — the exact algorithm [upsert] uses when
+     * persisting. Exposed as a pure, non-persisting method so callers (notably
+     * [io.github.jpicklyk.mcptask.current.application.service.ProjectConfigPushService.push]'s
+     * fast-forward guard) can classify an incoming payload's fingerprint against the stored state
+     * BEFORE deciding whether to write it, without duplicating the hash algorithm.
+     */
+    fun computeFingerprint(configYaml: String): String
+
+    /**
+     * Classifies [fingerprint] against [rootItemId]'s stored current fingerprint and fingerprint
+     * history — see [FingerprintRelation] for the three outcomes. A NULL/absent history (a
+     * pre-V11 row, or no row at all for [rootItemId]) classifies any non-current fingerprint as
+     * [FingerprintRelation.UNKNOWN] — identical to pre-history behavior until history accumulates
+     * on subsequent [upsert] calls.
+     */
+    suspend fun classifyFingerprint(
+        rootItemId: UUID,
+        fingerprint: String
+    ): Result<FingerprintRelation>
 }

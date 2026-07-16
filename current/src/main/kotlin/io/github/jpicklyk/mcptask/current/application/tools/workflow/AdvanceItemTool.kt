@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.application.tools.workflow
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceFailure
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceService
+import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
 import io.github.jpicklyk.mcptask.current.application.service.buildExpectedNotesJson
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
 import io.github.jpicklyk.mcptask.current.application.tools.*
@@ -246,18 +247,6 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
         transitions: JsonArray,
         context: ToolExecutionContext
     ): JsonElement {
-        // Shared advance pipeline (ownership → resolve → validate → gate → apply → cascade → unblock).
-        // MCP enforces claim ownership (enforceOwnership = true); the REST route passes false.
-        val advanceService =
-            AdvanceService(
-                workItemRepository = context.workItemRepository(),
-                roleTransitionRepository = context.roleTransitionRepository(),
-                dependencyRepository = context.dependencyRepository(),
-                noteRepository = context.noteRepository(),
-                statusLabelService = context.statusLabelService(),
-                schemaResolver = { context.resolveSchema(it) }
-            )
-
         val resultsList = mutableListOf<JsonObject>()
         var successCount = 0
         var failCount = 0
@@ -340,8 +329,22 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                     }
                 }
 
-            // Delegate the full pipeline (ownership → resolve → validate → gate → apply → cascade →
-            // unblock) to the shared AdvanceService. MCP enforces claim ownership.
+            // Shared advance pipeline (ownership → resolve → validate → gate → apply → cascade →
+            // unblock). Built per-item (not once for the whole batch) because statusLabelService
+            // must be bound to THIS item's rootId — a batch can mix items from different roots, each
+            // with its own per-root status_labels override (see resolveRootAwareStatusLabelService).
+            // MCP enforces claim ownership (enforceOwnership = true); the REST route passes false.
+            val advanceService =
+                AdvanceService(
+                    workItemRepository = context.workItemRepository(),
+                    roleTransitionRepository = context.roleTransitionRepository(),
+                    dependencyRepository = context.dependencyRepository(),
+                    noteRepository = context.noteRepository(),
+                    statusLabelService = resolveRootAwareStatusLabelService(context, item.rootId, trigger),
+                    schemaResolver = { context.resolveSchema(it) }
+                )
+
+            // Delegate the full pipeline to the per-item AdvanceService above.
             val outcome =
                 advanceService.advance(
                     item = item,
@@ -546,6 +549,42 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                     missingNotes = NoteSchemaJsonHelpers.buildMissingNotesArray(failure.missingNotes)
                 )
         }
+
+    // Divergence note (pre-existing, tracked as backlog): REST transitions
+    // (ItemWriteRoutes' advance route) construct their AdvanceService with a NoOpStatusLabelService
+    // and do NOT apply status labels at all — including this per-root layer. Only the MCP path
+    // below resolves and applies status labels. Not addressed here; out of scope for this pass.
+
+    /**
+     * Builds a [StatusLabelService] bound to a single item's [rootId], for handing to [AdvanceService]
+     * (whose constructor takes a plain, non-suspending [StatusLabelService] and has no rootId
+     * awareness of its own — see `docs: AdvanceService.kt` is out of this task's scope). Since
+     * [StatusLabelService.resolveLabel] is synchronous, the per-root layering
+     * ([ToolExecutionContext.resolveStatusLabels]) must run to completion BEFORE this method
+     * returns; the resulting map is then served from a trivial synchronous lookup.
+     *
+     * Resolves only the trigger set [AdvanceService.advance] can actually consult for a single
+     * advance call: the primary [trigger] itself (passed unconditionally to
+     * `statusLabelService.resolveLabel(trigger)` for the primary transition) plus the
+     * system-internal `"cascade"` trigger (consulted only when a cascade is detected and applied —
+     * see `AdvanceService.detectAndApplyTerminalCascades`/`applyCascadeEvents`). No other
+     * [UserTrigger] value is ever looked up during a single call, so precomputing the full 8-trigger
+     * set (every [UserTrigger] plus `"cascade"`) — as this used to do — resolved 6 triggers that
+     * could never be consulted. [ToolExecutionContext.resolveStatusLabels] additionally collapses
+     * this 2-element (or 1-element, when [trigger] happens to be `"cascade"`) resolution into a
+     * SINGLE per-root snapshot fetch rather than one per trigger.
+     */
+    private suspend fun resolveRootAwareStatusLabelService(
+        context: ToolExecutionContext,
+        rootId: UUID?,
+        trigger: String
+    ): StatusLabelService {
+        val consultedTriggers = setOf(trigger, "cascade")
+        val resolved = context.resolveStatusLabels(consultedTriggers, rootId)
+        return object : StatusLabelService {
+            override fun resolveLabel(trigger: String): String? = resolved[trigger]
+        }
+    }
 
     private fun buildErrorResult(
         itemId: UUID,

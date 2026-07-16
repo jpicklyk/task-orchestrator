@@ -107,11 +107,11 @@ class ToolTokenBudgetTest {
             "advance_item" to 1450, // was 1407; see note above
             "get_blocked_items" to 1250, // was 830; T2.3 added the `ancestorId` scope parameter
             "get_next_status" to 470,
-            "manage_project_config" to 1900, // T3.3: new tool, measured 1609 chars
+            "manage_project_config" to 3150, // measured 2698 after get `fingerprint` param + relation (fast-forward guard, t5)
         )
 
     /** Sum of the (unrounded) measured-per-tool-values * 1.15; see BUDGET PHILOSOPHY point 2. */
-    private val totalCeiling = 39_550
+    private val totalCeiling = 40_800
 
     // explicitNulls = false mirrors the compact-wire-shape convention already used elsewhere
     // in this codebase (see EventRoutes.kt / ItemWriteRoutes.kt / NoteWriteRoutes.kt) — a
