@@ -32,7 +32,7 @@ work_item_schemas:
         required: true
         description: "Quality gate — plan alignment, test quality, simplification."
         skill: "review-quality"
-        guidance: "Verify: (1) what was built aligns with the specification, (2) tests cover the test strategy, (3) no unnecessary complexity."
+        guidance: "Verify: (1) what was built aligns with the feature-summary and each child's task-scope, (2) tests cover the test strategy, (3) no unnecessary complexity."
 ```
 
 ## `feature-task` (queue + work + review, lighter than feature-implementation)
