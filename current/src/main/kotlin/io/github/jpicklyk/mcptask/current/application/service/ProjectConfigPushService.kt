@@ -20,7 +20,8 @@ import java.util.UUID
  * must converge on identical DB state for the same payload.
  *
  * Pipeline, in order: size cap -> root exists -> root is depth-0 -> [SafeConstructor]
- * parse-validate -> [io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository.upsert].
+ * parse-validate -> embedded-rootId guard (skipped when `force: true`) ->
+ * [io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository.upsert].
  * The pipeline stops at the first failing step; nothing is written on failure.
  */
 class ProjectConfigPushService(
@@ -29,10 +30,20 @@ class ProjectConfigPushService(
     /**
      * Validates and persists [configYaml] for [rootItemId]. See [ProjectConfigPushResult] for the
      * possible outcomes.
+     *
+     * When [force] is `false` (the default), a rootId guard runs after parse-validation: if the
+     * document embeds its own root id at top-level `project.rootId` and it parses as a UUID that
+     * differs from [rootItemId], the push is rejected as [ProjectConfigPushResult.RootIdMismatch]
+     * instead of being upserted — this catches a config document copy-pasted or synced against the
+     * wrong project root before it silently overwrites the target root's gates. An absent or
+     * non-UUID embedded `project.rootId` is not an error; the push proceeds unchanged. Passing
+     * `force: true` skips this guard (bypasses push guards generally — a later guard shares this
+     * same flag).
      */
     suspend fun push(
         rootItemId: UUID,
         configYaml: String,
+        force: Boolean = false,
     ): ProjectConfigPushResult {
         val sizeBytes = configYaml.toByteArray(Charsets.UTF_8).size
         if (sizeBytes > MAX_CONFIG_YAML_BYTES) {
@@ -57,9 +68,17 @@ class ProjectConfigPushService(
                 null
             }
 
-        val parseError = validateYaml(configYaml)
-        if (parseError != null) {
-            return ProjectConfigPushResult.ParseError(parseError)
+        val parsedRoot =
+            when (val outcome = parseAndValidateYaml(configYaml)) {
+                is YamlParseOutcome.Failure -> return ProjectConfigPushResult.ParseError(outcome.detail)
+                is YamlParseOutcome.Success -> outcome.root
+            }
+
+        if (!force && parsedRoot != null) {
+            val embeddedRootId = extractEmbeddedRootId(parsedRoot)
+            if (embeddedRootId != null && embeddedRootId != rootItemId) {
+                return ProjectConfigPushResult.RootIdMismatch(rootItemId, embeddedRootId)
+            }
         }
 
         return when (val result = repositoryProvider.projectConfigRepository().upsert(rootItemId, configYaml)) {
@@ -84,8 +103,9 @@ class ProjectConfigPushService(
      * Parses [configYaml] the same way [io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService]
      * will on every subsequent read (via the shared [YamlSchemaParser]), but BEFORE storing — a
      * stored-but-unparseable config would otherwise silently fall through to the global schema on
-     * every future read, a confusing failure mode discovered only much later. Returns the parse
-     * failure message, or null when [configYaml] parses cleanly.
+     * every future read, a confusing failure mode discovered only much later. Parses ONCE: the
+     * returned [YamlParseOutcome.Success.root] is reused by [push]'s embedded-rootId guard so the
+     * document is never parsed twice for one push.
      *
      * Uses [SafeConstructor] rather than SnakeYAML's default `Constructor` — `configYaml` is
      * attacker-reachable input (pushed over MCP or REST, not read from a trusted local file), and
@@ -100,19 +120,44 @@ class ProjectConfigPushService(
      * YAML syntax/shape failure (invalid syntax, or a non-map document) is. Those soft warnings
      * mirror the global config loader's existing behavior: skip the offending entry, keep going.
      */
-    private fun validateYaml(configYaml: String): String? =
+    private fun parseAndValidateYaml(configYaml: String): YamlParseOutcome =
         try {
             @Suppress("UNCHECKED_CAST")
             val root = Yaml(SafeConstructor(LoaderOptions())).load<Map<String, Any>>(configYaml)
             if (root != null) {
                 YamlSchemaParser.parseRoot(root, warnOnMissingSchemas = false)
             }
-            null
+            YamlParseOutcome.Success(root)
         } catch (
             @Suppress("TooGenericExceptionCaught") e: Exception
         ) {
-            e.message ?: e.javaClass.simpleName
+            YamlParseOutcome.Failure(e.message ?: e.javaClass.simpleName)
         }
+
+    /**
+     * Reads a top-level `project.rootId` string from an already-[SafeConstructor]-parsed document
+     * root and parses it as a UUID. Returns null when the `project` map, the `rootId` key, or a
+     * valid UUID shape is absent — all three are treated as "no embedded rootId" by [push], not as
+     * errors.
+     */
+    private fun extractEmbeddedRootId(root: Map<String, Any>): UUID? {
+        val project = root["project"] as? Map<*, *> ?: return null
+        val rawRootId = project["rootId"] as? String ?: return null
+        return runCatching { UUID.fromString(rawRootId) }.getOrNull()
+    }
+
+    /** Outcome of a single [Yaml.load] + [YamlSchemaParser.parseRoot] pass over `configYaml`. */
+    private sealed class YamlParseOutcome {
+        /** [root] is the SafeConstructor-parsed document root, or null for an empty/blank document. */
+        data class Success(
+            val root: Map<String, Any>?
+        ) : YamlParseOutcome()
+
+        /** [detail] is the parse failure message. */
+        data class Failure(
+            val detail: String
+        ) : YamlParseOutcome()
+    }
 
     companion object {
         /** `configYaml` size limit for `push`, in KiB — see [MAX_CONFIG_YAML_BYTES]. */
@@ -157,6 +202,16 @@ sealed class ProjectConfigPushResult {
     /** `configYaml` failed SafeConstructor parse-validation; [detail] is the parse failure message. */
     data class ParseError(
         val detail: String
+    ) : ProjectConfigPushResult()
+
+    /**
+     * `configYaml` embeds a top-level `project.rootId` that parses as a UUID but differs from
+     * [targetRootId] — the push target the caller supplied. Rejected before any write, unless the
+     * caller passed `force: true` to [ProjectConfigPushService.push].
+     */
+    data class RootIdMismatch(
+        val targetRootId: UUID,
+        val embeddedRootId: UUID
     ) : ProjectConfigPushResult()
 
     /** The upsert itself failed at the repository layer. */

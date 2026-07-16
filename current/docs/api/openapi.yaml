@@ -1731,9 +1731,14 @@ paths:
       tags: [project-config]
       description: |
         Requires WRITE_CONFIG + scope. Delegates the full validate-then-persist pipeline
-        (size cap -> root exists -> root is depth-0 -> SafeConstructor parse-validate -> upsert)
-        to ProjectConfigPushService — the SAME service the MCP manage_project_config tool's push
-        operation calls, so both surfaces converge on identical DB state for the same payload.
+        (size cap -> root exists -> root is depth-0 -> SafeConstructor parse-validate ->
+        embedded-rootId guard -> upsert) to ProjectConfigPushService — the SAME service the MCP
+        manage_project_config tool's push operation calls, so both surfaces converge on identical
+        DB state for the same payload.
+
+        The embedded-rootId guard: if the parsed document has a top-level project.rootId that
+        parses as a UUID and differs from {rootId}, the push is rejected as 422 rootid_mismatch
+        unless ?force=true is set. An absent or non-UUID project.rootId is not an error.
       parameters:
         - name: If-Match
           in: header
@@ -1742,6 +1747,13 @@ paths:
           description: >-
             Optional; validated against the CURRENT stored fingerprint's ETag when a row already
             exists. Ignored on a first push (no prior row to match).
+        - name: force
+          in: query
+          schema:
+            type: boolean
+            default: false
+          description: >-
+            Bypass push guards — currently skips the embedded project.rootId mismatch check.
       requestBody:
         required: true
         content:
@@ -1786,7 +1798,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorDto"
         "422":
-          description: rootId is not depth-0, or configYaml failed parse-validation
+          description: >-
+            rootId is not depth-0, configYaml failed parse-validation, or configYaml embeds a
+            mismatched project.rootId (rootid_mismatch)
           content:
             application/json:
               schema:

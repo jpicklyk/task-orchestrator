@@ -1752,6 +1752,9 @@ Validates, in order:
    below). Unparseable or unsafe YAML is rejected here — nothing is stored — so a broken or
    malicious config can never silently exist server-side and fall through to the global schema on
    a later read.
+6. If the parsed document embeds a top-level `project.rootId` that parses as a UUID and differs
+   from `rootItemId`, the push is rejected as a `rootId` mismatch (see **rootId mismatch guard**
+   below) — unless `force: true` is passed.
 
 On success, stores the document and returns its fingerprint. Pushing byte-identical content is
 naturally idempotent: the fingerprint returned is unchanged, so a caller can `get` first and skip
@@ -1762,6 +1765,14 @@ the push when fingerprints already match — no separate idempotency-key machine
 | `operation` | string (`"push"` \| `"get"`) | Yes | Selects the operation |
 | `rootItemId` | string (UUID or 4+ char hex prefix) | Yes | Project root WorkItem — must be depth 0 for `push` |
 | `configYaml` | string | Yes (push only) | Raw config.yaml text to store for this root; max 128 KiB |
+| `force` | boolean | No (push only, default `false`) | Bypass push guards — currently skips the embedded `project.rootId` mismatch check |
+
+**rootId mismatch guard.** A pushed `configYaml` document may embed its own root id at top-level
+`project.rootId`. If present and it parses as a UUID that differs from the `rootItemId` argument,
+the push is rejected before any write — this catches a config document synced or copy-pasted
+against the wrong project root before it silently overwrites the target root's gates. An absent or
+non-UUID `project.rootId` is not an error; the push proceeds as if it were absent. Pass
+`force: true` to push anyway.
 
 **Parse safety.** `configYaml` is parsed with SnakeYAML's `SafeConstructor` rather than its default
 `Constructor`. The default constructor will instantiate an arbitrary Java type named by a YAML
@@ -1804,6 +1815,7 @@ config bytes are parsed (`PerRootConfigService`, on every schema-resolving read)
 | `rootItemId` does not resolve to an existing WorkItem | `RESOURCE_NOT_FOUND` |
 | Root WorkItem has `depth != 0` | `VALIDATION_ERROR` |
 | `configYaml` fails to parse (invalid/unsafe YAML syntax or shape, including `!!`-tagged custom types — see **Parse safety** above) | `VALIDATION_ERROR` (message includes the parse detail) |
+| `configYaml` embeds a `project.rootId` that differs from `rootItemId` (and `force` was not `true`) | `VALIDATION_ERROR` (message names both ids) |
 | Storage failure | `DATABASE_ERROR` |
 
 #### `get`

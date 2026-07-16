@@ -290,6 +290,51 @@ class ProjectConfigPutRouteTest {
             val body = response.bodyAsText()
             assertTrue(body.contains("depth-0"), "Should name the depth-0 constraint: $body")
         }
+
+    @Test
+    fun `PUT roots rootId config with a mismatched embedded project rootId returns 422 naming both ids`(): Unit =
+        testApplication {
+            val repo = buildH2RepositoryProvider()
+            val root = createRoot(repo)
+            val otherRootId = UUID.randomUUID()
+            application { configureProjectConfigTestApp(repo) }
+
+            val response =
+                client.put("/api/v1/roots/${root.id}/config") {
+                    header("Authorization", "Bearer $WRITE_TOKEN")
+                    contentType(ContentType.Text.Plain)
+                    setBody("project:\n  rootId: $otherRootId\n$VALID_YAML")
+                }
+
+            assertEquals(HttpStatusCode.UnprocessableEntity, response.status)
+            val body = response.bodyAsText()
+            assertTrue(body.contains("rootid_mismatch"), "Should report rootid_mismatch: $body")
+            assertTrue(body.contains(root.id.toString()), "Should name the target rootId: $body")
+            assertTrue(body.contains(otherRootId.toString()), "Should name the embedded rootId: $body")
+
+            val persisted = runBlocking { repo.projectConfigRepository().get(root.id) }
+            assertTrue((persisted as Result.Success).data == null, "Mismatched embedded rootId must never be stored")
+        }
+
+    @Test
+    fun `PUT roots rootId config with force=true bypasses a mismatched embedded project rootId`(): Unit =
+        testApplication {
+            val repo = buildH2RepositoryProvider()
+            val root = createRoot(repo)
+            val otherRootId = UUID.randomUUID()
+            application { configureProjectConfigTestApp(repo) }
+
+            val response =
+                client.put("/api/v1/roots/${root.id}/config?force=true") {
+                    header("Authorization", "Bearer $WRITE_TOKEN")
+                    contentType(ContentType.Text.Plain)
+                    setBody("project:\n  rootId: $otherRootId\n$VALID_YAML")
+                }
+
+            assertEquals(HttpStatusCode.OK, response.status)
+            val persisted = runBlocking { repo.projectConfigRepository().get(root.id) }
+            assertTrue((persisted as Result.Success).data != null, "force=true should allow the push to persist")
+        }
 }
 
 class ProjectConfigGetRouteTest {

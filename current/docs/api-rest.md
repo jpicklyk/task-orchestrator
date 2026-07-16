@@ -940,19 +940,27 @@ Validates and stores raw `configYaml` for `{rootId}`. Requires `WRITE_CONFIG`.
 
 **Request body:** raw YAML text (`Content-Type: application/yaml` or `text/plain`); max 128 KiB.
 
+**Query parameter:** `force` (boolean, default `false`) — set `?force=true` to bypass push guards;
+currently skips the embedded `project.rootId` mismatch check (guard 5 below).
+
 **Validation pipeline (in order, stops at first failure — nothing is written on failure):**
 1. Body size ≤ 128 KiB
 2. `{rootId}` resolves to an existing WorkItem
 3. That WorkItem is depth-0 (configs anchor to project roots only)
 4. `configYaml` parses under a `SafeConstructor` YAML load (rejects `!!`-tagged arbitrary Java
    type construction — CWE-502 — as well as ordinary syntax errors)
-5. Optional `If-Match` (see below), evaluated against the CURRENT stored fingerprint
+5. Unless `?force=true`: if the parsed document embeds a top-level `project.rootId` that parses as
+   a UUID and differs from `{rootId}`, the push is rejected (an absent or non-UUID `project.rootId`
+   is not an error — the push proceeds as if it were absent)
+6. Optional `If-Match` (see below), evaluated against the CURRENT stored fingerprint
 
 **Responses:**
 - `200 OK` → `ProjectConfigResponseDto` (no `configYaml` field on this verb); `ETag: "cfg-<fingerprint>"`
 - `404 not_found` — `{rootId}` does not resolve to an existing WorkItem
 - `422 validation_error` — `{rootId}` is not depth-0
 - `422 parse_error` — `configYaml` failed SafeConstructor parse-validation
+- `422 rootid_mismatch` — `configYaml` embeds a `project.rootId` differing from `{rootId}` (message
+  names both ids); retry with `?force=true` to bypass
 - `412 etag_mismatch` — `If-Match` supplied and mismatched against an EXISTING row's ETag (a
   first push to a root with no prior row ignores `If-Match` — there is nothing to match yet)
 - `413 payload_too_large` — body exceeds 128 KiB

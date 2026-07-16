@@ -85,14 +85,18 @@ class ManageProjectConfigToolTest {
 
     private fun push(
         rootItemId: String,
-        configYaml: String
+        configYaml: String,
+        force: Boolean? = null
     ): JsonElement =
         runBlocking {
             tool.execute(
                 params(
-                    "operation" to JsonPrimitive("push"),
-                    "rootItemId" to JsonPrimitive(rootItemId),
-                    "configYaml" to JsonPrimitive(configYaml)
+                    *buildList {
+                        add("operation" to JsonPrimitive("push"))
+                        add("rootItemId" to JsonPrimitive(rootItemId))
+                        add("configYaml" to JsonPrimitive(configYaml))
+                        if (force != null) add("force" to JsonPrimitive(force))
+                    }.toTypedArray()
                 ),
                 context
             )
@@ -241,6 +245,60 @@ class ManageProjectConfigToolTest {
             dataOf(first)["fingerprint"]!!.jsonPrimitive.content,
             dataOf(second)["fingerprint"]!!.jsonPrimitive.content
         )
+    }
+
+    // ──────────────────────────────────────────────
+    // rootId mismatch guard
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `push with embedded project rootId matching the target succeeds`() {
+        val yaml = "project:\n  rootId: $rootId\n$validYaml"
+
+        val result = push(rootId.toString(), yaml)
+
+        assertTrue(isSuccess(result))
+    }
+
+    @Test
+    fun `push with embedded project rootId differing from the target is rejected naming both ids`() {
+        val otherRootId = UUID.randomUUID()
+        val yaml = "project:\n  rootId: $otherRootId\n$validYaml"
+
+        val result = push(rootId.toString(), yaml)
+
+        assertFalse(isSuccess(result))
+        val error = errorOf(result)
+        assertEquals(ErrorCodes.VALIDATION_ERROR, error["code"]!!.jsonPrimitive.content)
+        val message = error["message"]!!.jsonPrimitive.content
+        assertTrue(message.contains(rootId.toString()), "message should name the target rootId: $message")
+        assertTrue(message.contains(otherRootId.toString()), "message should name the embedded rootId: $message")
+
+        // Rejected mismatch must not have stored anything.
+        val getResult = get(rootId.toString())
+        assertFalse(isSuccess(getResult))
+        assertEquals(ErrorCodes.RESOURCE_NOT_FOUND, errorOf(getResult)["code"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `push with a malformed non-UUID embedded project rootId proceeds unchanged`() {
+        val yaml = "project:\n  rootId: not-a-uuid\n$validYaml"
+
+        val result = push(rootId.toString(), yaml)
+
+        assertTrue(isSuccess(result))
+    }
+
+    @Test
+    fun `push with force true bypasses a mismatched embedded project rootId`() {
+        val otherRootId = UUID.randomUUID()
+        val yaml = "project:\n  rootId: $otherRootId\n$validYaml"
+
+        val result = push(rootId.toString(), yaml, force = true)
+
+        assertTrue(isSuccess(result))
+        val getResult = get(rootId.toString())
+        assertTrue(isSuccess(getResult))
     }
 
     // ──────────────────────────────────────────────

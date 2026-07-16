@@ -47,8 +47,10 @@ private fun configEtag(fingerprint: String): String = "\"cfg-$fingerprint\""
  *   SAME service the MCP `manage_project_config` tool's `push` operation calls, so both surfaces
  *   converge on identical DB state for the same payload. Body must not exceed
  *   [ProjectConfigPushService.MAX_CONFIG_YAML_BYTES] (413); malformed/unsafe YAML is rejected before
- *   storing (422); optional `If-Match` against the current fingerprint-derived ETag (412 on mismatch,
- *   ignored when no row exists yet — a first push is a create).
+ *   storing (422); a `configYaml` embedding a mismatched top-level `project.rootId` is rejected as
+ *   422 `rootid_mismatch` unless the `?force=true` query param is set; optional `If-Match` against
+ *   the current fingerprint-derived ETag (412 on mismatch, ignored when no row exists yet — a first
+ *   push is a create).
  * - `DELETE /roots/{rootId}/config` — remove the stored config row ([ApiCapability.WRITE_CONFIG] +
  *   scope); 404 when no row exists.
  *
@@ -124,6 +126,7 @@ fun Route.projectConfigRoutes(repositoryProvider: RepositoryProvider) {
                     return@put
                 }
 
+                val force = call.request.queryParameters["force"]?.toBooleanStrictOrNull() ?: false
                 val configYaml = call.receiveText()
                 val sizeBytes = configYaml.toByteArray(Charsets.UTF_8).size
                 if (sizeBytes > ProjectConfigPushService.MAX_CONFIG_YAML_BYTES) {
@@ -161,7 +164,7 @@ fun Route.projectConfigRoutes(repositoryProvider: RepositoryProvider) {
                     }
                 }
 
-                when (val result = service.push(rootId, configYaml)) {
+                when (val result = service.push(rootId, configYaml, force)) {
                     is ProjectConfigPushResult.Success -> {
                         val etag = configEtag(result.fingerprint)
                         call.response.header(HttpHeaders.ETag, etag)
@@ -201,6 +204,16 @@ fun Route.projectConfigRoutes(repositoryProvider: RepositoryProvider) {
                         call.respond(
                             HttpStatusCode.UnprocessableEntity,
                             ErrorDto("parse_error", "configYaml failed to parse: ${result.detail}"),
+                        )
+                    is ProjectConfigPushResult.RootIdMismatch ->
+                        call.respond(
+                            HttpStatusCode.UnprocessableEntity,
+                            ErrorDto(
+                                "rootid_mismatch",
+                                "configYaml embeds project.rootId '${result.embeddedRootId}', which differs " +
+                                    "from the target rootId '${result.targetRootId}'; fix project.rootId in " +
+                                    "the document or retry with ?force=true",
+                            ),
                         )
                     is ProjectConfigPushResult.RepositoryError -> {
                         projectConfigLogger.warn("PUT /roots/{}/config DB error: {}", rootId, result.message)

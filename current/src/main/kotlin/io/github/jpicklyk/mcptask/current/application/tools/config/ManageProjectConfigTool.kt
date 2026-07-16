@@ -93,6 +93,19 @@ not-found error when no config has been pushed for it.
                             )
                         }
                     )
+                    put(
+                        "force",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("boolean"))
+                            put(
+                                "description",
+                                JsonPrimitive(
+                                    "push only, default false: bypass push guards — currently skips the " +
+                                        "embedded project.rootId mismatch check"
+                                )
+                            )
+                        }
+                    )
                 },
             required = listOf("operation", "rootItemId")
         )
@@ -146,9 +159,10 @@ not-found error when no config has been pushed for it.
         val (rootItemId, idError) = resolveItemId(params, "rootItemId", context)
         if (idError != null) return idError
         val configYaml = requireString(params, "configYaml")
+        val force = optionalBoolean(params, "force")
 
         val service = ProjectConfigPushService(context.repositoryProvider)
-        return when (val result = service.push(rootItemId!!, configYaml)) {
+        return when (val result = service.push(rootItemId!!, configYaml, force)) {
             is ProjectConfigPushResult.Success ->
                 successResponse(
                     buildJsonObject {
@@ -179,6 +193,13 @@ not-found error when no config has been pushed for it.
                     "configYaml failed to parse: ${result.detail}",
                     ErrorCodes.VALIDATION_ERROR,
                     details = result.detail
+                )
+            is ProjectConfigPushResult.RootIdMismatch ->
+                errorResponse(
+                    "configYaml embeds project.rootId '${result.embeddedRootId}', which differs from " +
+                        "the target rootItemId '${result.targetRootId}'; fix project.rootId in the " +
+                        "document or pass force: true to push anyway",
+                    ErrorCodes.VALIDATION_ERROR
                 )
             is ProjectConfigPushResult.RepositoryError ->
                 errorResponse(
