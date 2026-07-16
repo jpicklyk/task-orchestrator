@@ -58,21 +58,19 @@ class YamlWorkItemSchemaService(
     /** Lazily loaded schema cache and warnings. Initialized once on first access. */
     private val loadResult: YamlSchemaParser.ParsedConfig by lazy { loadSchemas() }
 
-    /** Lazily loaded tag→entries schema cache. */
-    private val schemas: Map<String, List<NoteSchemaEntry>> get() = loadResult.schemas
-
-    /** Lazily loaded type→WorkItemSchema cache. */
+    /** Lazily loaded type→WorkItemSchema cache. Note lists per tag are read via `[tag]?.notes`. */
     private val workItemSchemas: Map<String, WorkItemSchema> get() = loadResult.workItemSchemas
 
     /** Lazily loaded trait definitions. */
     private val traitDefs: Map<String, List<NoteSchemaEntry>> get() = loadResult.traits
 
     override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? {
+        // First matching tag wins; fall back to the "default" schema only after every tag misses.
         for (tag in tags) {
-            val schema = schemas[tag]
-            if (schema != null) return schema
+            val schema = workItemSchemas[tag]
+            if (schema != null) return schema.notes
         }
-        return schemas["default"]
+        return workItemSchemas["default"]?.notes
     }
 
     override fun getSchemaForType(type: String?): WorkItemSchema? {
@@ -138,7 +136,7 @@ class YamlWorkItemSchemaService(
     private fun loadSchemas(): YamlSchemaParser.ParsedConfig {
         if (!configPath.toFile().exists()) {
             logger.debug("No config file found at {}; running in schema-free mode", configPath)
-            return YamlSchemaParser.ParsedConfig(emptyMap(), emptyMap(), emptyMap(), emptyList())
+            return YamlSchemaParser.ParsedConfig(emptyMap(), emptyMap(), emptyList())
         }
 
         return try {
@@ -147,7 +145,7 @@ class YamlWorkItemSchemaService(
                 @Suppress("UNCHECKED_CAST")
                 val root = yaml.load<Map<String, Any>>(reader)
                 if (root == null) {
-                    YamlSchemaParser.ParsedConfig(emptyMap(), emptyMap(), emptyMap(), emptyList())
+                    YamlSchemaParser.ParsedConfig(emptyMap(), emptyMap(), emptyList())
                 } else {
                     YamlSchemaParser.parseRoot(root)
                 }
@@ -155,13 +153,13 @@ class YamlWorkItemSchemaService(
         } catch (e: Exception) {
             val msg = "Failed to load note schemas from '$configPath': ${e.message}"
             logger.warn(msg)
-            YamlSchemaParser.ParsedConfig(emptyMap(), emptyMap(), emptyMap(), listOf(msg))
+            YamlSchemaParser.ParsedConfig(emptyMap(), emptyMap(), listOf(msg))
         }.also { result ->
             result.warnings.forEach { w -> logger.warn(w) }
-            val totalEntries = result.schemas.values.sumOf { it.size }
+            val totalEntries = result.workItemSchemas.values.sumOf { it.notes.size }
             logger.info(
                 "Loaded {} schemas ({} entries, {} warnings)",
-                result.schemas.size,
+                result.workItemSchemas.size,
                 totalEntries,
                 result.warnings.size
             )

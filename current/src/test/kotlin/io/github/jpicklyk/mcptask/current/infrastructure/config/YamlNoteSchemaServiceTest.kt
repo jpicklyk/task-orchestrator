@@ -348,6 +348,40 @@ note_schemas:
     }
 
     @Test
+    fun `later matching tag wins over default when earlier tag misses`() {
+        // Regression guard: getSchemaForTags must scan ALL tags before falling back to "default".
+        // A per-tag `workItemSchemas[tag]?.notes ?: default` collapse would wrongly return the
+        // default on the first (missing) tag instead of the schema of a later matching tag.
+        val tempDir = createTempConfigDir()
+        writeConfig(
+            tempDir,
+            """
+note_schemas:
+  my-schema:
+    - key: acceptance-criteria
+      role: queue
+      required: true
+      description: "Acceptance criteria"
+  default:
+    - key: implementation-notes
+      role: work
+      required: true
+      description: "Implementation notes"
+            """.trimIndent()
+        )
+
+        val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
+        val service = YamlNoteSchemaService(configPath)
+
+        // First tag misses; second tag matches a named schema — the named schema must win,
+        // NOT the default.
+        val schema = service.getSchemaForTags(listOf("unknown-tag", "my-schema"))
+        assertNotNull(schema)
+        assertEquals(1, schema.size)
+        assertEquals("acceptance-criteria", schema[0].key)
+    }
+
+    @Test
     fun `empty tags list returns default schema`() {
         val tempDir = createTempConfigDir()
         writeConfig(
