@@ -1757,6 +1757,11 @@ Validates, in order:
 6. If the parsed document embeds a top-level `project.rootId` that parses as a UUID and differs
    from `rootItemId`, the push is rejected as a `rootId` mismatch (see **rootId mismatch guard**
    below) — unless `force: true` is passed.
+7. If the incoming document's fingerprint is **superseded** — it appears in the root's fingerprint
+   history but is not the current fingerprint (i.e. the server has already moved past this exact
+   content) — the push is rejected as stale (see **Fast-forward guard** below) — unless
+   `force: true` is passed. A fingerprint the server has never seen (`unknown`) pushes normally;
+   the current fingerprint (`current`) is the idempotent re-push.
 
 On success, stores the document and returns its fingerprint. Pushing byte-identical content is
 naturally idempotent: the fingerprint returned is unchanged, so a caller can `get` first and skip
@@ -1767,7 +1772,7 @@ the push when fingerprints already match — no separate idempotency-key machine
 | `operation` | string (`"push"` \| `"get"`) | Yes | Selects the operation |
 | `rootItemId` | string (UUID or 4+ char hex prefix) | Yes | Project root WorkItem — must be depth 0 for `push` |
 | `configYaml` | string | Yes (push only) | Raw config.yaml text to store for this root; max 128 KiB |
-| `force` | boolean | No (push only, default `false`) | Bypass push guards — currently skips the embedded `project.rootId` mismatch check |
+| `force` | boolean | No (push only, default `false`) | Bypass push guards — skips both the embedded `project.rootId` mismatch check and the superseded (fast-forward) staleness check |
 
 **rootId mismatch guard.** A pushed `configYaml` document may embed its own root id at top-level
 `project.rootId`. If present and it parses as a UUID that differs from the `rootItemId` argument,
@@ -1818,7 +1823,20 @@ config bytes are parsed (`PerRootConfigService`, on every schema-resolving read)
 | Root WorkItem has `depth != 0` | `VALIDATION_ERROR` |
 | `configYaml` fails to parse (invalid/unsafe YAML syntax or shape, including `!!`-tagged custom types — see **Parse safety** above) | `VALIDATION_ERROR` (message includes the parse detail) |
 | `configYaml` embeds a `project.rootId` that differs from `rootItemId` (and `force` was not `true`) | `VALIDATION_ERROR` (message names both ids) |
+| `configYaml`'s fingerprint is superseded — in the root's history but not current (and `force` was not `true`) | `VALIDATION_ERROR` (message: local config is older than the server's, with the server row's `updatedAt`) |
 | Storage failure | `DATABASE_ERROR` |
+
+**Fast-forward guard.** Every successful push appends the *previous* current fingerprint to a
+per-root history (newest first, pruned to the last 20; stored in `project_config.fingerprint_history`,
+added in migration V11). An incoming push whose fingerprint appears in that history but is not the
+current fingerprint is provably *older content the server has already moved past* — the classic
+stale-checkout case (old branch, unsynced worktree, second machine) — and is rejected so a session
+starting from an outdated file cannot silently revert the project's live config. Content the server
+has never seen (`unknown`) is accepted — true divergence remains last-writer-wins by design. Rows
+created before V11 have no history and classify every non-current fingerprint as `unknown`
+(pre-guard behavior) until history accumulates. The `config-sync` SessionStart hook performs the
+same check client-side via `get` + `fingerprint` (below) and skips the push with a warning instead
+of hitting the rejection.
 
 #### `get`
 
@@ -1828,6 +1846,7 @@ Reads back the stored config for a root.
 |---|---|---|---|
 | `operation` | string (`"push"` \| `"get"`) | Yes | Selects the operation |
 | `rootItemId` | string (UUID or 4+ char hex prefix) | Yes | Project root WorkItem to read the config for |
+| `fingerprint` | string (hex SHA-256) | No (get only) | A local document fingerprint to classify against this root's stored config; adds `relation` to the response |
 
 **Response (success).**
 
@@ -1836,9 +1855,16 @@ Reads back the stored config for a root.
   "rootItemId": "3f9c2b10-...",
   "configYaml": "work_item_schemas:\n  ...\n",
   "fingerprint": "a94a8fe5cc...",
-  "updatedAt": "2026-07-14T18:40:00Z"
+  "updatedAt": "2026-07-14T18:40:00Z",
+  "relation": "superseded"
 }
 ```
+
+`relation` is only present when a `fingerprint` argument was supplied: `"current"` (matches the
+stored fingerprint), `"superseded"` (in this root's fingerprint history but not current — the
+supplied content is older than the server's), or `"unknown"` (never seen — new content, or a
+pre-V11 row with no history). Callers deciding whether to push should treat `superseded` as
+"do not push without `force`" — this is exactly what the `config-sync` hook does.
 
 **Response (no config pushed for this root).** `error.code` is `RESOURCE_NOT_FOUND`.
 
