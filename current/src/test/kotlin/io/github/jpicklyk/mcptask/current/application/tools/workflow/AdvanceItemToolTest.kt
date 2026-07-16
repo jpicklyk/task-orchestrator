@@ -12,6 +12,7 @@ import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.test.TestStatusLabelService
 import io.mockk.coEvery
@@ -64,6 +65,15 @@ class AdvanceItemToolTest {
     private fun contextWithLabels(labelService: StatusLabelService): ToolExecutionContext =
         ToolExecutionContext(repoProvider, statusLabelService = labelService)
 
+    /**
+     * Build a custom context with a global [labelService] AND a [perRoot] layer, reusing existing
+     * mocked repos — for t3's per-root status_labels tests.
+     */
+    private fun contextWithPerRootLabels(
+        labelService: StatusLabelService,
+        perRoot: PerRootConfigService
+    ): ToolExecutionContext = ToolExecutionContext(repoProvider, statusLabelService = labelService, perRootConfigService = perRoot)
+
     /** Build a custom context with a specific ActorVerifier, reusing existing mocked repos. */
     private fun contextWithVerifier(verifier: ActorVerifier): ToolExecutionContext =
         ToolExecutionContext(repoProvider, actorVerifier = verifier)
@@ -74,7 +84,8 @@ class AdvanceItemToolTest {
         previousRole: Role? = null,
         title: String = "Test Item",
         parentId: UUID? = null,
-        depth: Int = if (parentId != null) 1 else 0
+        depth: Int = if (parentId != null) 1 else 0,
+        rootId: UUID? = null
     ): WorkItem =
         WorkItem(
             id = id,
@@ -82,7 +93,8 @@ class AdvanceItemToolTest {
             role = role,
             previousRole = previousRole,
             parentId = parentId,
-            depth = depth
+            depth = depth,
+            rootId = rootId
         )
 
     private fun buildParams(vararg transitions: JsonObject): JsonObject =
@@ -1935,6 +1947,95 @@ class AdvanceItemToolTest {
             assertEquals("work", r["newRole"]!!.jsonPrimitive.content)
             // Custom config label "working" should be used (resolution.statusLabel is null for start)
             assertEquals("working", r["statusLabel"]!!.jsonPrimitive.content)
+        }
+
+    // ──────────────────────────────────────────────
+    // t3: per-root status_labels layering
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `per-root status_labels override the global label on that root's start transition`(): Unit =
+        runBlocking {
+            val rootId = UUID.randomUUID()
+            // relaxed=true: AdvanceService's schemaResolver also calls resolveSchema, which probes
+            // getSchemas/getSchemaForType/getTraitNotes on this same per-root mock — only
+            // status_labels behavior is under test here, so those calls just get harmless defaults.
+            val perRoot = mockk<PerRootConfigService>(relaxed = true)
+            coEvery { perRoot.getStatusLabels(rootId) } returns mapOf("start" to "root-started")
+            val globalLabels = TestStatusLabelService(mapOf("start" to "in-progress"))
+            val customContext = contextWithPerRootLabels(globalLabels, perRoot)
+
+            val itemId = UUID.randomUUID()
+            val item = makeItem(id = itemId, role = Role.QUEUE, rootId = rootId)
+
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            every { depRepo.findByToItemId(itemId) } returns emptyList()
+            every { depRepo.findByFromItemId(itemId) } returns emptyList()
+
+            val params = buildParams(transitionObj(itemId, "start"))
+            val result = tool.execute(params, customContext)
+
+            val r = extractResults(result)[0].jsonObject
+            assertTrue(r["applied"]!!.jsonPrimitive.boolean)
+            assertEquals("root-started", r["statusLabel"]!!.jsonPrimitive.content)
+        }
+
+    @Test
+    fun `partial per-root status_labels falls through to global per trigger`(): Unit =
+        runBlocking {
+            val rootId = UUID.randomUUID()
+            val perRoot = mockk<PerRootConfigService>(relaxed = true)
+            // Only "start" is overridden for this root — "complete" must fall through to global.
+            coEvery { perRoot.getStatusLabels(rootId) } returns mapOf("start" to "root-started")
+            val globalLabels = TestStatusLabelService(mapOf("start" to "in-progress", "complete" to "finished"))
+            val customContext = contextWithPerRootLabels(globalLabels, perRoot)
+
+            val itemId = UUID.randomUUID()
+            val item = makeItem(id = itemId, role = Role.QUEUE, rootId = rootId)
+
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            every { depRepo.findByToItemId(itemId) } returns emptyList()
+            every { depRepo.findByFromItemId(itemId) } returns emptyList()
+
+            val params = buildParams(transitionObj(itemId, "complete"))
+            val result = tool.execute(params, customContext)
+
+            val r = extractResults(result)[0].jsonObject
+            assertTrue(r["applied"]!!.jsonPrimitive.boolean)
+            assertEquals(
+                "finished",
+                r["statusLabel"]!!.jsonPrimitive.content,
+                "trigger not present in the per-root map must fall through to the global label"
+            )
+        }
+
+    @Test
+    fun `a null rootId uses the global StatusLabelService even when a per-root layer is wired`(): Unit =
+        runBlocking {
+            val perRoot = mockk<PerRootConfigService>()
+            val globalLabels = TestStatusLabelService(mapOf("start" to "in-progress"))
+            val customContext = contextWithPerRootLabels(globalLabels, perRoot)
+
+            val itemId = UUID.randomUUID()
+            val item = makeItem(id = itemId, role = Role.QUEUE, rootId = null)
+
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            every { depRepo.findByToItemId(itemId) } returns emptyList()
+            every { depRepo.findByFromItemId(itemId) } returns emptyList()
+
+            val params = buildParams(transitionObj(itemId, "start"))
+            val result = tool.execute(params, customContext)
+
+            val r = extractResults(result)[0].jsonObject
+            assertTrue(r["applied"]!!.jsonPrimitive.boolean)
+            assertEquals("in-progress", r["statusLabel"]!!.jsonPrimitive.content)
+            coVerify(exactly = 0) { perRoot.getStatusLabels(any()) }
         }
 
     @Test

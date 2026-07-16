@@ -175,6 +175,42 @@ class ToolExecutionContext(
     suspend fun resolveHasReviewPhase(item: WorkItem): Boolean = resolveSchema(item)?.hasReviewPhase() ?: false
 
     /**
+     * Layered `note_limits.mode` resolution: [rootId]'s per-root config wins when it explicitly
+     * configures `note_limits` (see [PerRootConfigService.getNoteLimitsMode] for the absent-vs-explicit
+     * distinction); otherwise falls back to the global [noteSchemaService]'s mode. A null [rootId] or
+     * no wired [perRootConfigService] skips the per-root layer entirely — byte-identical to the
+     * pre-layering global-only behavior.
+     */
+    suspend fun resolveNoteLimitsMode(rootId: UUID?): String {
+        val perRoot = perRootConfigService
+        val perRootMode = if (rootId != null && perRoot != null) perRoot.getNoteLimitsMode(rootId) else null
+        return perRootMode ?: noteSchemaService().getNoteLimitsMode()
+    }
+
+    /**
+     * Layered status-label resolution for a single [trigger]: [rootId]'s per-root `status_labels`
+     * map wins ONLY when it explicitly contains [trigger] as a key (its value may itself be null,
+     * meaning "this root explicitly clears the label for this trigger" — see
+     * [PerRootConfigService.getStatusLabels]); a trigger key absent from the per-root map (including
+     * when there is no per-root `status_labels` section at all) falls through to the global
+     * [statusLabelService]. A null [rootId] or no wired [perRootConfigService] skips the per-root
+     * layer entirely.
+     */
+    suspend fun resolveStatusLabel(
+        trigger: String,
+        rootId: UUID?
+    ): String? {
+        val perRoot = perRootConfigService
+        if (rootId != null && perRoot != null) {
+            val perRootLabels = perRoot.getStatusLabels(rootId)
+            if (perRootLabels != null && perRootLabels.containsKey(trigger)) {
+                return perRootLabels[trigger]
+            }
+        }
+        return statusLabelService().resolveLabel(trigger)
+    }
+
+    /**
      * Returns the union of trait names available for the given [rootIds], per-root traits first
      * (in [rootIds] iteration order), followed by the global trait list — deduplicated, preserving
      * first-seen order. Used by response hints (e.g. `availableTraits` on item creation) so callers

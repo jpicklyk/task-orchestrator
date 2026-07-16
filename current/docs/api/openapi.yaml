@@ -701,6 +701,16 @@ components:
           description: >-
             Present on GET only, and only when ?fingerprint= was supplied — classifies that
             fingerprint against the root's stored fingerprint history.
+        ignoredSections:
+          type: array
+          nullable: true
+          items:
+            type: string
+          description: >-
+            Present on PUT only, and only when the pushed document has top-level keys not honored
+            by the per-root resolution layer (e.g. actor_authentication, which stays global-only).
+            Honored keys: work_item_schemas, note_schemas, traits, project, note_limits,
+            status_labels. Omitted entirely when empty.
 
   responses:
     Unauthorized:
@@ -1761,6 +1771,11 @@ paths:
         etag_mismatch, which is a concurrent-write guard rather than a known-old-content guard —
         unless ?force=true is set. current (idempotent re-push) and unknown (divergent edit, or
         no row/history yet) both proceed normally.
+
+        On success, top-level keys in the parsed document not honored by the per-root resolution
+        layer (work_item_schemas, note_schemas, traits, project, note_limits, status_labels) are
+        reported in the response's ignoredSections array — e.g. actor_authentication, which stays
+        global-only.
       parameters:
         - name: If-Match
           in: header

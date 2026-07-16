@@ -90,6 +90,26 @@ class PerRootConfigService(
     }
 
     /**
+     * Returns [rootItemId]'s explicitly-configured `note_limits.mode`, or null when there is no
+     * config row for this root, the row fails to parse, or the row's document has no top-level
+     * `note_limits` key at all — see [YamlSchemaParser.ParsedConfig.noteLimitsModeExplicit] for the
+     * absent-vs-explicit distinction this preserves. Callers (see
+     * [io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext.resolveNoteLimitsMode])
+     * treat a null return as "fall through to the global note-limits mode", not as "warn".
+     */
+    suspend fun getNoteLimitsMode(rootItemId: UUID): String? = resolve(rootItemId)?.noteLimitsModeExplicit
+
+    /**
+     * Returns [rootItemId]'s explicitly-configured `status_labels` trigger→label map, or null when
+     * there is no config row for this root, the row fails to parse, or the row's document has no
+     * top-level `status_labels` key at all. A non-null return may still be a PARTIAL map — see
+     * [YamlSchemaParser.ParsedConfig.statusLabels] — callers fall through to the global status label
+     * service on a per-trigger basis when a trigger key is absent from this map (see
+     * [io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext.resolveStatusLabel]).
+     */
+    suspend fun getStatusLabels(rootItemId: UUID): Map<String, String?>? = resolve(rootItemId)?.statusLabels
+
+    /**
      * Returns the parsed config for [rootItemId], reusing the cached parse when the DB
      * fingerprint hasn't changed since it was cached. Returns null when there is no config row
      * for this root, or the stored YAML fails to parse (see class doc — failures fall through to

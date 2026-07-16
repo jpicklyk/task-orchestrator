@@ -408,7 +408,19 @@ server's config back before editing, rather than pushing over it. `current` (alr
 returned) both proceed as before. `force: true` (or `?force=true`) bypasses the guard when a
 deliberate revert or overwrite is intended.
 
-**Global-only settings.** `note_limits` and `actor_authentication` are **not** part of the per-root layer — the resolver reads them only from the global file. A per-root document may carry them, but they are ignored; keep them in the global config.
+**Per-root honorable settings.** `note_limits` and `status_labels` are layered the same way as
+schemas/traits: a per-root document that **explicitly** sets `note_limits.mode` or a trigger under
+`status_labels` wins for that root; a per-root document that **omits the key entirely** falls
+through to the global value, unchanged. `status_labels` falls through **per trigger** — a per-root
+map that only overrides `start` still defers to the global config for `complete`, `block`, etc.
+(and a trigger explicitly mapped to `null` in the per-root doc means "no label for this trigger",
+which is different from the trigger being absent). A pushed document's response (`manage_project_config`
+push, or `PUT /roots/{rootId}/config`) reports which top-level keys it contains that are NOT honored
+per-root in an additive `ignoredSections` field.
+
+**Global-only settings.** `actor_authentication` is **not** part of the per-root layer — the
+resolver reads it only from the global file. A per-root document may carry it, but it is ignored
+(and reported in `ignoredSections`); keep it in the global config.
 
 ### Schema-free / non-dev / business-workflow projects
 
@@ -444,6 +456,10 @@ Top-level `note_limits.mode` (`warn`, default, or `reject`) governs what happens
 note_limits:
   mode: warn   # warn | reject
 ```
+
+This mode is per-root honorable (see "Global vs Per-Project Config" above): a project root that
+pushes its own `note_limits.mode` overrides the global mode for that root's items only; a per-root
+document with no `note_limits` section at all defers to the global mode unchanged.
 
 Notes are a compression boundary: keep bodies distilled prose, and route verbatim artifacts (test output, diffs, logs) through `bodyFromFile` rather than pasting them inline.
 

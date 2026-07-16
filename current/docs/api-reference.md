@@ -612,7 +612,7 @@ Providing both `ids` and `itemId` in the same delete call is an error — the se
 | `bodyFromFile` | string | No | Server-side file path read in place of `body`. Resolved strictly relative to the agent config root (`AGENT_CONFIG_DIR`, falling back to the server's working directory) — absolute paths, `..` escapes, and symlink escapes are rejected. File must exist and be ≤65536 bytes. CRLF line endings are normalized to LF on read. |
 | `actor` | object | No | Optional actor claim — see Actor Attribution section |
 
-**Note body length limits.** When the resolved schema declares `maxLength` for a note's `key`, the resolved body (from `body` or `bodyFromFile`) is checked against it after resolution. The top-level config `note_limits.mode` controls enforcement: `warn` (default) accepts the note and adds a `warning` field to that note's result naming the limit and actual size; `reject` fails that note with a structured error: `{ "code": "NOTE_BODY_TOO_LONG", "key": "...", "maxLength": N, "actualLength": N }` in its `failures` entry.
+**Note body length limits.** When the resolved schema declares `maxLength` for a note's `key`, the resolved body (from `body` or `bodyFromFile`) is checked against it after resolution. The top-level config `note_limits.mode` controls enforcement: `warn` (default) accepts the note and adds a `warning` field to that note's result naming the limit and actual size; `reject` fails that note with a structured error: `{ "code": "NOTE_BODY_TOO_LONG", "key": "...", "maxLength": N, "actualLength": N }` in its `failures` entry. `note_limits` is layered per-root: a per-root `manage_project_config` push that explicitly sets `note_limits.mode` wins for that root's items; a per-root document that omits `note_limits` entirely falls through to the global mode unchanged — see [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md).
 
 Each upsert note element may include an optional `actor` object:
 - `id` (required string): Identifier for the actor writing this note
@@ -1102,7 +1102,7 @@ All cascade types are recorded in `cascadeEvents`.
 }
 ```
 
-`previousRole` and `trigger` are omitted from successful results — the caller supplied the trigger, and `newRole` is the outcome. Both remain present on `cascadeEvents` entries and on failed results (see below). `cascadeEvents` and `unblockedItems` are omitted entirely when empty (there is no top-level `allUnblockedItems` aggregate — sum `unblockedItems` across `results` if you need a batch total). `expectedNotes` is always present (`[]` when no schema matches the item's tags) and is keys-only: `key`, `role`, `required`, `exists` (`filled` appears only in `get_context`'s item-mode `schema` entries, not here). `statusLabel` (string, optional) is present when the transition set a status label (config-driven via `status_labels`; defaults: `"in-progress"` for `start`, `"done"` for `complete`, `"blocked"` for `block`, `"cancelled"` for `cancel`; `resume`/`reopen` set none). `summary` (string, optional) echoes the transition's input annotation when one was supplied.
+`previousRole` and `trigger` are omitted from successful results — the caller supplied the trigger, and `newRole` is the outcome. Both remain present on `cascadeEvents` entries and on failed results (see below). `cascadeEvents` and `unblockedItems` are omitted entirely when empty (there is no top-level `allUnblockedItems` aggregate — sum `unblockedItems` across `results` if you need a batch total). `expectedNotes` is always present (`[]` when no schema matches the item's tags) and is keys-only: `key`, `role`, `required`, `exists` (`filled` appears only in `get_context`'s item-mode `schema` entries, not here). `statusLabel` (string, optional) is present when the transition set a status label (config-driven via `status_labels`; defaults: `"in-progress"` for `start`, `"done"` for `complete`, `"blocked"` for `block`, `"cancelled"` for `cancel`; `resume`/`reopen` set none). `status_labels` is layered per-root: a per-root `manage_project_config` push resolves a label for a given trigger from that root's `status_labels` map first, falling through to the global config PER TRIGGER when the root's map doesn't mention that trigger (or has no `status_labels` section at all). `summary` (string, optional) echoes the transition's input annotation when one was supplied.
 
 `guidanceKey` (string, optional) names the first unfilled required note with guidance for the **new** role; omitted when no schema matches, no required notes exist for the new role, or all required notes are already filled. Resolve the full guidance text via `query_items(operation="schema", itemId=...)`.
 
@@ -1767,6 +1767,21 @@ On success, stores the document and returns its fingerprint. Pushing byte-identi
 naturally idempotent: the fingerprint returned is unchanged, so a caller can `get` first and skip
 the push when fingerprints already match — no separate idempotency-key machinery is needed.
 
+**Which sections are honored per-root.** Only a subset of top-level `configYaml` keys are resolved
+per-root; everything else stays global-only and is reported back via `ignoredSections` (see below)
+so a push is never silently partial:
+
+| Top-level key | Honored per-root? | Layered by |
+|---|---|---|
+| `work_item_schemas` | Yes | `PerRootConfigService` / `ToolExecutionContext.resolveSchema()` |
+| `note_schemas` (legacy) | Yes | `PerRootConfigService` / `ToolExecutionContext.resolveSchema()` |
+| `traits` | Yes | `PerRootConfigService` / `ToolExecutionContext.resolveSchema()` |
+| `project` | Yes | `ProjectConfigPushService` (embedded `project.rootId` guard only) |
+| `note_limits` | Yes | `ToolExecutionContext.resolveNoteLimitsMode()` |
+| `status_labels` | Yes | `ToolExecutionContext.resolveStatusLabel()` |
+| `actor_authentication` | No — global-only | n/a |
+| any other key | No | n/a |
+
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `operation` | string (`"push"` \| `"get"`) | Yes | Selects the operation |
@@ -1808,11 +1823,14 @@ config bytes are parsed (`PerRootConfigService`, on every schema-resolving read)
   "rootItemId": "3f9c2b10-...",
   "fingerprint": "a94a8fe5cc...",
   "updatedAt": "2026-07-14T18:40:00Z",
-  "warning": "Root item type is 'null', not 'project' — config pushed anyway (a naming convention, not an enforced constraint)"
+  "warning": "Root item type is 'null', not 'project' — config pushed anyway (a naming convention, not an enforced constraint)",
+  "ignoredSections": ["actor_authentication"]
 }
 ```
 
-`warning` is only present when the root's `type` is not `"project"`.
+`warning` is only present when the root's `type` is not `"project"`. `ignoredSections` is only
+present (and non-empty) when the pushed document contains top-level keys outside the honored
+allowlist above — e.g. `actor_authentication`.
 
 **Error cases.**
 

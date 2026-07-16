@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.tools
 
 import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
+import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
 import io.github.jpicklyk.mcptask.current.domain.model.*
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
@@ -684,5 +685,122 @@ class ToolExecutionContextResolveSchemaTest {
             val result = ctxWithoutService.resolveSchema(item)
 
             assertEquals(globalSchema, result)
+        }
+
+    // ──────────────────────────────────────────────
+    // T3: resolveNoteLimitsMode / resolveStatusLabel (per-root layering)
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `resolveNoteLimitsMode falls through to global when rootId is null`() =
+        runBlocking {
+            val perRoot = mockk<PerRootConfigService>()
+            val globalStatusLabels = mockk<StatusLabelService>(relaxed = true)
+            val repoProvider = mockk<RepositoryProvider>(relaxed = true)
+            every { noteSchemaService.getNoteLimitsMode() } returns "warn"
+            val ctx =
+                ToolExecutionContext(
+                    repoProvider,
+                    noteSchemaService,
+                    statusLabelService = globalStatusLabels,
+                    perRootConfigService = perRoot
+                )
+
+            assertEquals("warn", ctx.resolveNoteLimitsMode(null))
+            coVerify(exactly = 0) { perRoot.getNoteLimitsMode(any()) }
+        }
+
+    @Test
+    fun `resolveNoteLimitsMode falls through to global when the per-root doc has no explicit mode`() =
+        runBlocking {
+            val rootId = UUID.randomUUID()
+            val perRoot = mockk<PerRootConfigService>()
+            coEvery { perRoot.getNoteLimitsMode(rootId) } returns null
+            every { noteSchemaService.getNoteLimitsMode() } returns "warn"
+            val repoProvider = mockk<RepositoryProvider>(relaxed = true)
+            val ctx = ToolExecutionContext(repoProvider, noteSchemaService, perRootConfigService = perRoot)
+
+            assertEquals("warn", ctx.resolveNoteLimitsMode(rootId))
+        }
+
+    @Test
+    fun `resolveNoteLimitsMode uses the per-root explicit mode over the global mode`() =
+        runBlocking {
+            val rootId = UUID.randomUUID()
+            val perRoot = mockk<PerRootConfigService>()
+            coEvery { perRoot.getNoteLimitsMode(rootId) } returns "reject"
+            every { noteSchemaService.getNoteLimitsMode() } returns "warn"
+            val repoProvider = mockk<RepositoryProvider>(relaxed = true)
+            val ctx = ToolExecutionContext(repoProvider, noteSchemaService, perRootConfigService = perRoot)
+
+            assertEquals("reject", ctx.resolveNoteLimitsMode(rootId))
+        }
+
+    @Test
+    fun `resolveStatusLabel falls through to global when rootId is null`() =
+        runBlocking {
+            val perRoot = mockk<PerRootConfigService>()
+            val globalLabels = mockk<StatusLabelService>()
+            every { globalLabels.resolveLabel("start") } returns "in-progress"
+            val repoProvider = mockk<RepositoryProvider>(relaxed = true)
+            val ctx =
+                ToolExecutionContext(
+                    repoProvider,
+                    noteSchemaService,
+                    statusLabelService = globalLabels,
+                    perRootConfigService = perRoot
+                )
+
+            assertEquals("in-progress", ctx.resolveStatusLabel("start", null))
+            coVerify(exactly = 0) { perRoot.getStatusLabels(any()) }
+        }
+
+    @Test
+    fun `resolveStatusLabel falls through to global per-trigger when the per-root map is partial`() =
+        runBlocking {
+            val rootId = UUID.randomUUID()
+            val perRoot = mockk<PerRootConfigService>()
+            coEvery { perRoot.getStatusLabels(rootId) } returns mapOf("start" to "root-started")
+            val globalLabels = mockk<StatusLabelService>()
+            every { globalLabels.resolveLabel("complete") } returns "done"
+            val repoProvider = mockk<RepositoryProvider>(relaxed = true)
+            val ctx =
+                ToolExecutionContext(
+                    repoProvider,
+                    noteSchemaService,
+                    statusLabelService = globalLabels,
+                    perRootConfigService = perRoot
+                )
+
+            assertEquals("root-started", ctx.resolveStatusLabel("start", rootId))
+            assertEquals(
+                "done",
+                ctx.resolveStatusLabel("complete", rootId),
+                "A trigger absent from the partial per-root map must fall through to global"
+            )
+        }
+
+    @Test
+    fun `resolveStatusLabel honors an explicit null per-root label without falling through`() =
+        runBlocking {
+            val rootId = UUID.randomUUID()
+            val perRoot = mockk<PerRootConfigService>()
+            coEvery { perRoot.getStatusLabels(rootId) } returns mapOf("complete" to null)
+            val globalLabels = mockk<StatusLabelService>()
+            every { globalLabels.resolveLabel("complete") } returns "done"
+            val repoProvider = mockk<RepositoryProvider>(relaxed = true)
+            val ctx =
+                ToolExecutionContext(
+                    repoProvider,
+                    noteSchemaService,
+                    statusLabelService = globalLabels,
+                    perRootConfigService = perRoot
+                )
+
+            assertNull(
+                ctx.resolveStatusLabel("complete", rootId),
+                "An explicit null value for a present trigger key must win over the global label, not fall through"
+            )
+            verify(exactly = 0) { globalLabels.resolveLabel("complete") }
         }
 }

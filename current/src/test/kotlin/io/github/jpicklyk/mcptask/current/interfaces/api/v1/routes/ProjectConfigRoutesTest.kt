@@ -33,6 +33,7 @@ import kotlinx.serialization.json.buildJsonObject
 import org.junit.jupiter.api.Test
 import java.util.UUID
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -117,6 +118,45 @@ class ProjectConfigPutRouteTest {
             val config = (persisted as Result.Success).data
             assertNotNull(config, "Config should be persisted")
             assertEquals(VALID_YAML, config!!.configYaml)
+        }
+
+    @Test
+    fun `PUT roots rootId config surfaces ignoredSections when the doc has an unhonored top-level key`(): Unit =
+        testApplication {
+            val repo = buildH2RepositoryProvider()
+            val root = createRoot(repo)
+            application { configureProjectConfigTestApp(repo) }
+
+            val response =
+                client.put("/api/v1/roots/${root.id}/config") {
+                    header("Authorization", "Bearer $WRITE_TOKEN")
+                    contentType(ContentType.parse("application/yaml"))
+                    setBody("$VALID_YAML\nactor_authentication:\n  mode: jwks\n")
+                }
+
+            assertEquals(HttpStatusCode.OK, response.status)
+            val body = response.bodyAsText()
+            assertTrue(body.contains("ignoredSections"), "Response should surface ignoredSections: $body")
+            assertTrue(body.contains("actor_authentication"), "ignoredSections should name actor_authentication: $body")
+        }
+
+    @Test
+    fun `PUT roots rootId config omits ignoredSections when the doc only uses honored keys`(): Unit =
+        testApplication {
+            val repo = buildH2RepositoryProvider()
+            val root = createRoot(repo)
+            application { configureProjectConfigTestApp(repo) }
+
+            val response =
+                client.put("/api/v1/roots/${root.id}/config") {
+                    header("Authorization", "Bearer $WRITE_TOKEN")
+                    contentType(ContentType.parse("application/yaml"))
+                    setBody(VALID_YAML)
+                }
+
+            assertEquals(HttpStatusCode.OK, response.status)
+            val body = response.bodyAsText()
+            assertFalse(body.contains("ignoredSections"), "ignoredSections must be omitted entirely when empty: $body")
         }
 
     @Test

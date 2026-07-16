@@ -196,4 +196,62 @@ class ProjectConfigPushServiceTest {
             val stored = (projectConfigRepository.get(rootId) as Result.Success).data
             assertEquals(yamlA, stored?.configYaml, "force=true should allow reverting to the known-old content")
         }
+
+    // ──────────────────────────────────────────────
+    // t3: ignoredSections
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `push reports ignoredSections when the doc has a top-level key not honored per-root`() =
+        runBlocking {
+            val yaml =
+                """
+                work_item_schemas:
+                  feature-task:
+                    notes: []
+                actor_authentication:
+                  mode: jwks
+                """.trimIndent()
+
+            val result = service.push(rootId, yaml)
+
+            assertTrue(result is ProjectConfigPushResult.Success)
+            assertEquals(listOf("actor_authentication"), (result as ProjectConfigPushResult.Success).ignoredSections)
+        }
+
+    @Test
+    fun `push omits ignoredSections when the doc only uses honored top-level keys`() =
+        runBlocking {
+            val yaml =
+                """
+                work_item_schemas:
+                  feature-task:
+                    notes: []
+                note_schemas: {}
+                traits: {}
+                project:
+                  name: "Some Project"
+                note_limits:
+                  mode: reject
+                status_labels:
+                  start: "custom-started"
+                """.trimIndent()
+
+            val result = service.push(rootId, yaml)
+
+            assertTrue(result is ProjectConfigPushResult.Success)
+            assertTrue(
+                (result as ProjectConfigPushResult.Success).ignoredSections.isEmpty(),
+                "A document that only uses honored keys must report no ignored sections"
+            )
+        }
+
+    @Test
+    fun `push reports an empty ignoredSections list for an empty document`() =
+        runBlocking {
+            val result = service.push(rootId, "")
+
+            assertTrue(result is ProjectConfigPushResult.Success)
+            assertTrue((result as ProjectConfigPushResult.Success).ignoredSections.isEmpty())
+        }
 }

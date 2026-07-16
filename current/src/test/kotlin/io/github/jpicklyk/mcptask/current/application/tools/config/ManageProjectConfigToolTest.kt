@@ -130,6 +130,28 @@ class ManageProjectConfigToolTest {
     }
 
     @Test
+    fun `push surfaces ignoredSections when the doc has an unhonored top-level key`() {
+        // Plain concatenation (not a nested trimIndent template) — interpolating an already-
+        // trimIndent'd multi-line constant into another trimIndent block would get its indentation
+        // re-mangled by the outer trim's common-margin computation (see ProjectConfigPushServiceTest).
+        val yamlWithActorAuth = "$validYaml\nactor_authentication:\n  mode: jwks\n"
+
+        val result = push(rootId.toString(), yamlWithActorAuth)
+
+        assertTrue(isSuccess(result))
+        val ignoredSections = dataOf(result)["ignoredSections"]!!.jsonArray.map { it.jsonPrimitive.content }
+        assertEquals(listOf("actor_authentication"), ignoredSections)
+    }
+
+    @Test
+    fun `push omits ignoredSections when the doc only uses honored keys`() {
+        val result = push(rootId.toString(), validYaml)
+
+        assertTrue(isSuccess(result))
+        assertNull(dataOf(result)["ignoredSections"], "ignoredSections must be omitted entirely when empty, not an empty array")
+    }
+
+    @Test
     fun `push with hex-prefix rootItemId resolves the item`() {
         val prefix = rootId.toString().replace("-", "").take(8)
 

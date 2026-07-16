@@ -7,9 +7,12 @@ import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
+import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
+import io.mockk.coEvery
+import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.*
 import org.jetbrains.exposed.v1.jdbc.Database
@@ -1646,6 +1649,32 @@ class ManageNotesToolTest {
         return ToolExecutionContext(repositoryProvider, noteSchemaService)
     }
 
+    /** Same as [contextWithSchemaAndLimitsMode], but with a [perRoot] layer wired in for t3 tests. */
+    private fun contextWithSchemaLimitsAndPerRoot(
+        entries: List<NoteSchemaEntry>,
+        matchTag: String,
+        globalNoteLimitsMode: String,
+        perRoot: PerRootConfigService
+    ): ToolExecutionContext {
+        val noteSchemaService =
+            object : NoteSchemaService {
+                override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? = if (tags.contains(matchTag)) entries else null
+
+                override fun getNoteLimitsMode(): String = globalNoteLimitsMode
+            }
+        return ToolExecutionContext(repositoryProvider, noteSchemaService, perRootConfigService = perRoot)
+    }
+
+    private suspend fun createTestItemWithTagsAndRoot(
+        rootId: UUID,
+        tags: String,
+        title: String = "Test Item"
+    ): String {
+        val item = WorkItem(title = title, tags = tags, role = Role.QUEUE, rootId = rootId)
+        val result = context.workItemRepository().create(item)
+        return ((result as Result.Success).data.id).toString()
+    }
+
     @Test
     fun `upsert warns when body exceeds maxLength in default warn mode`(): Unit =
         runBlocking {
@@ -1770,6 +1799,113 @@ class ManageNotesToolTest {
             assertEquals(1, data["upserted"]!!.jsonPrimitive.int, "warn mode still accepts the note")
             val note = data["notes"]!!.jsonArray[0] as JsonObject
             assertTrue(note.containsKey("warning"), "maxLength must be enforced on bodyFromFile content as well as inline body")
+        }
+
+    // ──────────────────────────────────────────────
+    // t3: per-root note_limits layering
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `upsert per-root note_limits reject mode rejects an over-limit note for that root while another root stays on global warn`(): Unit =
+        runBlocking {
+            val strictRootId = UUID.randomUUID()
+            val laxRootId = UUID.randomUUID()
+            // relaxed=true: resolveSchema's tag-fallback path also probes getSchemas/getSchemaForType
+            // on this same mock (to look up the note's maxLength) — only note_limits behavior is
+            // under test here, so those unrelated calls just get harmless defaults (null).
+            val perRoot = mockk<PerRootConfigService>(relaxed = true)
+            coEvery { perRoot.getNoteLimitsMode(strictRootId) } returns "reject"
+            coEvery { perRoot.getNoteLimitsMode(laxRootId) } returns null
+
+            val schemaEntries = listOf(NoteSchemaEntry(key = "limited", role = Role.WORK, maxLength = 10))
+            val schemaContext = contextWithSchemaLimitsAndPerRoot(schemaEntries, "limited-schema", "warn", perRoot)
+
+            val strictItemId = createTestItemWithTagsAndRoot(strictRootId, "limited-schema")
+            val laxItemId = createTestItemWithTagsAndRoot(laxRootId, "limited-schema")
+
+            val strictResult =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("upsert"),
+                        "notes" to
+                            JsonArray(
+                                listOf(
+                                    buildJsonObject {
+                                        put("itemId", JsonPrimitive(strictItemId))
+                                        put("key", JsonPrimitive("limited"))
+                                        put("role", JsonPrimitive("work"))
+                                        put("body", JsonPrimitive("this body is way over the limit"))
+                                    }
+                                )
+                            )
+                    ),
+                    schemaContext
+                ) as JsonObject
+            val strictData = strictResult["data"] as JsonObject
+            assertEquals(0, strictData["upserted"]!!.jsonPrimitive.int, "the strict root's per-root reject mode must reject")
+            assertEquals(1, strictData["failed"]!!.jsonPrimitive.int)
+            val failure = strictData["failures"]!!.jsonArray[0] as JsonObject
+            assertEquals("NOTE_BODY_TOO_LONG", failure["code"]!!.jsonPrimitive.content)
+
+            val laxResult =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("upsert"),
+                        "notes" to
+                            JsonArray(
+                                listOf(
+                                    buildJsonObject {
+                                        put("itemId", JsonPrimitive(laxItemId))
+                                        put("key", JsonPrimitive("limited"))
+                                        put("role", JsonPrimitive("work"))
+                                        put("body", JsonPrimitive("this body is way over the limit"))
+                                    }
+                                )
+                            )
+                    ),
+                    schemaContext
+                ) as JsonObject
+            val laxData = laxResult["data"] as JsonObject
+            assertEquals(
+                1,
+                laxData["upserted"]!!.jsonPrimitive.int,
+                "no per-root value for this root must fall back to the global warn mode"
+            )
+            assertEquals(0, laxData["failed"]!!.jsonPrimitive.int)
+            val laxNote = laxData["notes"]!!.jsonArray[0] as JsonObject
+            assertTrue(laxNote.containsKey("warning"), "global warn mode should still accept the note with a warning")
+        }
+
+    @Test
+    fun `upsert falls back to the global note_limits mode when the item has a null rootId`(): Unit =
+        runBlocking {
+            val perRoot = mockk<PerRootConfigService>()
+            val schemaEntries = listOf(NoteSchemaEntry(key = "limited", role = Role.WORK, maxLength = 10))
+            val schemaContext = contextWithSchemaLimitsAndPerRoot(schemaEntries, "limited-schema", "reject", perRoot)
+            val itemId = createTestItemWithTags(tags = "limited-schema") // rootId defaults to null
+
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("upsert"),
+                        "notes" to
+                            JsonArray(
+                                listOf(
+                                    buildJsonObject {
+                                        put("itemId", JsonPrimitive(itemId))
+                                        put("key", JsonPrimitive("limited"))
+                                        put("role", JsonPrimitive("work"))
+                                        put("body", JsonPrimitive("this body is way over the limit"))
+                                    }
+                                )
+                            )
+                    ),
+                    schemaContext
+                ) as JsonObject
+
+            val data = result["data"] as JsonObject
+            assertEquals(0, data["upserted"]!!.jsonPrimitive.int, "a null rootId must still use the global mode (reject here)")
+            assertEquals(1, data["failed"]!!.jsonPrimitive.int)
         }
 
     @Test

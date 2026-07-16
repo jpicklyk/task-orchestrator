@@ -117,10 +117,22 @@ class ProjectConfigPushService(
                     fingerprint = result.data.fingerprint,
                     updatedAt = result.data.updatedAt,
                     warning = typeWarning,
+                    ignoredSections = computeIgnoredSections(parsedRoot),
                 )
             is Result.Error -> ProjectConfigPushResult.RepositoryError(result.error.message)
         }
     }
+
+    /**
+     * Returns the top-level keys of [parsedRoot] that are NOT honored by any per-root resolution
+     * layer ([PerRootConfigService][io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService]
+     * and [io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext]'s layered
+     * resolvers) — e.g. `actor_authentication`, which stays global-only (see `config-format.md`).
+     * A pushed document that only contains keys from [HONORED_TOP_LEVEL_SECTIONS] returns an empty
+     * list, which callers omit from their response entirely rather than surfacing an empty array.
+     */
+    private fun computeIgnoredSections(parsedRoot: Map<String, Any>?): List<String> =
+        parsedRoot?.keys?.filterNot { it in HONORED_TOP_LEVEL_SECTIONS } ?: emptyList()
 
     /** Reads back the stored config for [rootItemId], or a null payload when no row exists. */
     suspend fun get(rootItemId: UUID): Result<ProjectConfig?> = repositoryProvider.projectConfigRepository().get(rootItemId)
@@ -198,17 +210,35 @@ class ProjectConfigPushService(
          * config document, and small enough to bound parse cost against a hostile payload.
          */
         const val MAX_CONFIG_YAML_BYTES = MAX_CONFIG_YAML_KIB * 1024
+
+        /**
+         * Top-level `configYaml` keys honored by the per-root resolution layer (schema/trait
+         * lookup via [io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService],
+         * note-limits/status-label layering via
+         * [io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext]). Any other
+         * top-level key in a pushed document (e.g. `actor_authentication`, which is intentionally
+         * global-only — see `config-format.md`) is reported via [ProjectConfigPushResult.Success.ignoredSections]
+         * so a push is never silently partial.
+         */
+        private val HONORED_TOP_LEVEL_SECTIONS =
+            setOf("work_item_schemas", "note_schemas", "traits", "project", "note_limits", "status_labels")
     }
 }
 
 /** Outcome of [ProjectConfigPushService.push]. */
 sealed class ProjectConfigPushResult {
-    /** [warning] is non-null when the root's `type` is not `"project"` (non-fatal, push still succeeds). */
+    /**
+     * [warning] is non-null when the root's `type` is not `"project"` (non-fatal, push still
+     * succeeds). [ignoredSections] lists top-level `configYaml` keys not honored by any per-root
+     * resolution layer (see [ProjectConfigPushService.HONORED_TOP_LEVEL_SECTIONS]); empty when the
+     * document only used honored keys.
+     */
     data class Success(
         val rootItemId: UUID,
         val fingerprint: String,
         val updatedAt: Instant,
         val warning: String? = null,
+        val ignoredSections: List<String> = emptyList(),
     ) : ProjectConfigPushResult()
 
     /** No WorkItem exists for [rootItemId]. */

@@ -56,7 +56,9 @@ private fun configEtag(fingerprint: String): String = "\"cfg-$fingerprint\""
  *   unless `?force=true` — distinct from the 412 `If-Match` case below, which is a concurrent-write
  *   guard rather than a known-old-content guard; optional `If-Match` against the current
  *   fingerprint-derived ETag (412 on mismatch, ignored when no row exists yet — a first push is a
- *   create).
+ *   create). On success, top-level `configYaml` keys not honored by the per-root resolution layer
+ *   (e.g. `actor_authentication`) are reported in an additive `ignoredSections` field, omitted when
+ *   empty.
  * - `DELETE /roots/{rootId}/config` — remove the stored config row ([ApiCapability.WRITE_CONFIG] +
  *   scope); 404 when no row exists.
  *
@@ -190,6 +192,7 @@ fun Route.projectConfigRoutes(repositoryProvider: RepositoryProvider) {
                                 fingerprint = result.fingerprint,
                                 updatedAt = result.updatedAt.toString(),
                                 warning = result.warning,
+                                ignoredSections = result.ignoredSections.ifEmpty { null },
                             ),
                         )
                     }

@@ -471,12 +471,16 @@ Note: `"<previousRole>"` is a literal sentinel string — dashboards must resolv
   "updatedAt": "2026-07-15T19:00:00Z",
   "configYaml": "work_item_schemas:\n  ...",
   "warning": "string|null",
-  "relation": "current|superseded|unknown|null"
+  "relation": "current|superseded|unknown|null",
+  "ignoredSections": ["actor_authentication"]
 }
 ```
 `configYaml` is populated on `GET` only (omitted on `PUT`). `warning` is populated only when the
 root's `type` is not `"project"` (non-fatal — the push still succeeds). `relation` is populated on
-`GET` only, and only when `?fingerprint=` was supplied — see §17.
+`GET` only, and only when `?fingerprint=` was supplied — see §17. `ignoredSections` is populated on
+`PUT` only, and only when the pushed document contains top-level keys the per-root resolution layer
+does not honor (e.g. `actor_authentication`, which stays global-only) — omitted entirely when empty.
+See §17 for the full list of honored per-root keys.
 
 ### SSE / ApiEvent
 
@@ -962,8 +966,15 @@ fingerprint guard (guard 6 below).
    (divergent edit, or no row/history yet) both proceed normally.
 7. Optional `If-Match` (see below), evaluated against the CURRENT stored fingerprint
 
+On success, the parsed document's top-level keys are checked against the honored allowlist —
+`work_item_schemas`, `note_schemas`, `traits`, `project`, `note_limits`, `status_labels` — and any
+other key present (e.g. `actor_authentication`, which stays global-only — see
+[`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md))
+is reported in the response's `ignoredSections` array so a push is never silently partial.
+
 **Responses:**
-- `200 OK` → `ProjectConfigResponseDto` (no `configYaml` field on this verb); `ETag: "cfg-<fingerprint>"`
+- `200 OK` → `ProjectConfigResponseDto` (no `configYaml` field on this verb; `ignoredSections`
+  present only when non-empty); `ETag: "cfg-<fingerprint>"`
 - `404 not_found` — `{rootId}` does not resolve to an existing WorkItem
 - `422 validation_error` — `{rootId}` is not depth-0
 - `422 parse_error` — `configYaml` failed SafeConstructor parse-validation
