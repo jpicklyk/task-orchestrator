@@ -2,6 +2,15 @@
 
 MCP Task Orchestrator gives AI agents persistent, structured task tracking that survives across sessions. Instead of loading your entire project state into context on every prompt, agents read and write a shared graph of `WorkItem` entities — keeping context lean and work visible.
 
+> **Working across multiple projects?** Set up one persistent server with the REST API enabled, and
+> every project you open picks up its own `.taskorchestrator/config.yaml` automatically via
+> `config-sync` — no per-project container, no manual config mounting. The recommended posture is
+> **localhost + HTTP + REST enabled + no auth** (safe because the port is published loopback-only).
+> Once the plugin is installed (Step 4 below), run `/task-orchestrator:configure-server` to set this
+> up interactively — it also covers STDIO and bearer-token alternatives. The steps below default to
+> the simpler **stdio** transport, which stays the right choice if you only ever work in one project
+> and don't need config-sync.
+
 ---
 
 ## Prerequisites
@@ -111,6 +120,7 @@ Skills are invoked as slash commands in any Claude Code session:
 | `/task-orchestrator:work-summary` | Insight-driven dashboard: active work, blockers, and next actions |
 | `/task-orchestrator:create-item` | Create a tracked work item from the current conversation context |
 | `/task-orchestrator:quick-start` | Interactive onboarding — teaches by doing, adapts to empty or populated workspaces |
+| `/task-orchestrator:configure-server` | Configure server transport, REST API mode, port publishing, config mount, and config-sync |
 | `/task-orchestrator:manage-schemas` | Create, view, edit, delete, and validate note schemas in config |
 | `/task-orchestrator:status-progression` | Navigate role transitions; shows current gate status and the correct trigger |
 | `/task-orchestrator:dependency-manager` | Visualize, create, and diagnose dependencies between work items |
@@ -399,6 +409,10 @@ After adding or editing this file, reconnect the MCP server:
 ---
 
 ## Step 9: Running MCP over HTTP (optional)
+
+> If the plugin is installed, `/task-orchestrator:configure-server` walks Steps 9-10 interactively —
+> transport, REST mode, port, config mount, and the client-side config-sync env — and renders the
+> exact commands for you. The manual steps below are the same setup done by hand.
 
 By default the server speaks the **stdio** transport (Step 2). To serve MCP over **HTTP** instead — for remote clients, container-to-container access, or a shared long-running server — set `MCP_TRANSPORT=http`. The MCP endpoint is mounted at `/mcp` using the Streamable HTTP transport.
 
