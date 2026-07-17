@@ -589,13 +589,13 @@ manage_dependencies(operation="create", pattern="linear", itemIds=["task-a", "ta
 Fan-out (one blocker, many dependents):
 
 ```json
-manage_dependencies(operation="create", pattern="fan-out", source="task-a", targets=["task-b", "task-c", "task-d"])
+manage_dependencies(operation="create", pattern="fan-out", fromItemId="task-a", toItemIds=["task-b", "task-c", "task-d"])
 ```
 
 Fan-in (many blockers, one dependent):
 
 ```json
-manage_dependencies(operation="create", pattern="fan-in", sources=["task-a", "task-b"], target="task-c")
+manage_dependencies(operation="create", pattern="fan-in", fromItemIds=["task-a", "task-b"], toItemId="task-c")
 ```
 
 ### `unblockAt` Threshold

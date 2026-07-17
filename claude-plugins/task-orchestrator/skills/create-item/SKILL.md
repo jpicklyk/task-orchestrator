@@ -28,7 +28,7 @@ Resolve the project rootId first: check session context for a rootId injected by
 
 **If a rootId is known:**
 ```
-query_items(operation="overview", ancestorId="<rootId>", includeChildren=true)
+query_items(operation="overview", anchorId="<rootId>", includeChildren=true)
 ```
 Category containers (Bugs, Features, Tech Debt, etc.) are expected as direct children of the project root — anchor new items there. **Exception:** `agent-observation` items always stay at global depth 0, outside any project root, regardless of whether a rootId is known — they're process-global, not project-scoped.
 

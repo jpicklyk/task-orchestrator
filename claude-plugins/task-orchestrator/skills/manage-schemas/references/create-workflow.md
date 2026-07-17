@@ -208,5 +208,5 @@ Check that `expectedNotes` appears in the response with the correct keys and rol
 
 Delete the smoke-test item after verification:
 ```
-manage_items(operation="delete", ids=["<smoke-test-uuid>"])
+manage_items(operation="delete", itemIds=["<smoke-test-uuid>"])
 ```

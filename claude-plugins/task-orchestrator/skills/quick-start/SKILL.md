@@ -48,7 +48,7 @@ If the user accepts:
    ```
 4. Older servers may not expose it, so check the tool list before calling — if a `manage_project_config` tool is available, push the full current file text (not just the `project:` block — the server never reads that block itself; see `references/config-format.md` → Project Scoping) so per-root schema resolution picks it up immediately without waiting on a config reload:
    ```
-   manage_project_config(operation="push", rootItemId="<created-item-uuid>", configYaml="<full current file text from step 3>")
+   manage_project_config(operation="push", rootId="<created-item-uuid>", configYaml="<full current file text from step 3>")
    ```
    - Success → the returned `fingerprint` confirms the push landed; re-pushing identical content later returns the same fingerprint (idempotent).
    - `VALIDATION_ERROR` → surface the parse error to the user; the config.yaml write from step 3 is already saved locally, so nothing is lost — tell them to fix the file and retry the push (or run `/manage-schemas validate`).
@@ -249,7 +249,7 @@ Present this capabilities table:
 **Offer cleanup:** Ask via `AskUserQuestion` whether to keep the tutorial items for reference or delete them. If delete, use the container UUID returned in Step 4 above:
 
 ```
-manage_items(operation="delete", ids=["<container-UUID>"], recursive=true)
+manage_items(operation="delete", itemIds=["<container-UUID>"], recursive=true)
 ```
 
 ---

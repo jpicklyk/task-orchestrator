@@ -155,7 +155,7 @@ If the user wants to delete the completed items after finishing (to fully archiv
 If confirmed, delete with:
 
 ```
-manage_items(operation="delete", ids=["<root-uuid>"], recursive=true)
+manage_items(operation="delete", itemIds=["<root-uuid>"], recursive=true)
 ```
 
 Report what was deleted:
