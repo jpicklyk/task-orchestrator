@@ -82,7 +82,11 @@ Delegation prompts must include entity IDs and full context — subagents start 
 
 **Notes are the report.** Subagents write findings into their work item's notes; their final message back is 1-2 lines (item ID, outcome, note keys filled). Never ask agents to restate note content in replies.
 
-**Delegation metadata (opt-in).** If your project defines a `delegated` trait (see your schema config), apply it to Delegated/Parallel items and, after each subagent returns, fill its `delegation-metadata` work note — model · isolation · one-line rationale · one-line outcome. The orchestrator fills this, not the subagent (only the orchestrator knows the dispatch details). It feeds `/session-retrospective`'s delegation-alignment scoring; projects that don't define the trait simply skip it.
+**Delegation metadata (recommended).** If your project defines a `delegated` trait (see your schema config), applying it is recommended for Delegated/Parallel items: after each subagent returns, fill its `delegation-metadata` work note — model · isolation · one-line rationale · one-line outcome. The orchestrator fills this, not the subagent (only the orchestrator knows the dispatch details). It feeds `/session-retrospective`'s delegation-alignment scoring; projects that don't define the trait simply skip it.
+
+## Retrospective
+
+When the retrospective hook fires — as PostToolUse context after `advance_item`/`complete_tree`, or as a Stop-hook directive — follow it: in `dispatch` mode, launch exactly the background retrospective agent it specifies (one per run, never more); in `nudge` mode, surface the suggestion to the user. Do not dispatch retrospectives from memory or prose — the hook is the single trigger. Configure via `retrospective.mode` in `.taskorchestrator/config.yaml` (`nudge` default | `dispatch` | `off`).
 
 ## Action Items
 
