@@ -1,3 +1,8 @@
 {
-  "enabledPlugins": {}
+  "enabledPlugins": {
+    "task-orchestrator@task-orchestrator-marketplace": true
+  },
+  "env": {
+    "TASK_ORCHESTRATOR_API_URL": "http://localhost:3001"
+  }
 }
