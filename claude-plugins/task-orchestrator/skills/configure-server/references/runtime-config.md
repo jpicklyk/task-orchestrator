@@ -45,7 +45,7 @@ TASK_ORCHESTRATOR_API_URL=http://localhost:3001
 | REST off | `-e API_ENABLED=false` |
 | REST unauthenticated (recommended) | `-e API_ENABLED=true -e API_AUTH_MODE=none -e API_ALLOW_UNAUTHENTICATED=true` |
 | REST bearer | `-e API_ENABLED=true -e API_AUTH_MODE=bearer -e API_TOKENS_PATH=/run/secrets/api-tokens.yaml -v <TOKENS_HOST_PATH>:/run/secrets/api-tokens.yaml:ro` |
-| Config mount = project (fallback) | `-v "<pwd>/.taskorchestrator:/project/.taskorchestrator:ro" -e AGENT_CONFIG_DIR=/project` |
+| Config mount = global floor (recommended) | `-v "<pwd>/deploy/global-config/.taskorchestrator:/project/.taskorchestrator:ro" -e AGENT_CONFIG_DIR=/project` |
 | Config mount = none (multi-project via config-sync) | *(omit)* |
 | Debug on | `-e LOG_LEVEL=DEBUG -e DATABASE_SHOW_SQL=true` |
 | Port publish (loopback only) | `-p 127.0.0.1:3001:3001` |

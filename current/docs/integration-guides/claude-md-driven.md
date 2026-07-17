@@ -102,9 +102,9 @@ CLAUDE.md can instruct agents to fill specific note keys even without schema gat
 ## Note Conventions
 
 When creating a feature item, always fill these notes:
-- `requirements` (role: queue) — what the feature must do
-- `implementation-plan` (role: work) — how you'll build it
-- `test-results` (role: review) — test output and coverage
+- `feature-summary` (role: queue) — what the feature must do
+- `implementation-notes` (role: work) — how you built it
+- `review-checklist` (role: review) — test output and coverage
 ```
 
 This is convention-based — the agent follows the instructions but nothing enforces them. For enforcement, add [Note Schemas](note-schemas.md) (Tier 3).

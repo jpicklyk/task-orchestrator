@@ -33,17 +33,17 @@ Create `.taskorchestrator/config.yaml` in your project root:
 ```yaml
 note_schemas:
   my-feature:
-    - key: requirements
+    - key: task-scope
       role: queue
       required: true
       description: "What the feature must do."
-    - key: implementation-plan
+    - key: implementation-notes
       role: work
       required: true
       description: "How you will build it."
 ```
 
-This schema says: any item tagged `my-feature` must have a `requirements` note filled before it can advance past queue, and an `implementation-plan` note before it can advance past work.
+This schema says: any item tagged `my-feature` must have a `task-scope` note filled before it can advance past queue, and an `implementation-notes` note before it can advance past work.
 
 ### Docker Mount
 
@@ -124,7 +124,7 @@ A full lifecycle schema with gates at every transition:
 ```yaml
 note_schemas:
   feature:
-    - key: specification
+    - key: feature-summary
       role: queue
       required: true
       description: "Problem statement, approach, and acceptance criteria."
@@ -133,16 +133,16 @@ note_schemas:
       role: work
       required: true
       description: "What was built, deviations from the plan, decisions made."
-      guidance: "Document decisions not captured in the spec. Focus on what downstream agents or reviewers need to know."
+      guidance: "Document decisions not captured in the feature-summary. Focus on what downstream agents or reviewers need to know."
     - key: review-checklist
       role: review
       required: true
       description: "Quality gate — plan alignment and test coverage."
-      guidance: "Verify: what was built matches the specification, tests cover the acceptance criteria."
+      guidance: "Verify: what was built matches the feature-summary, tests cover the acceptance criteria."
 ```
 
 With this schema:
-- `advance_item(trigger="start")` from queue checks `specification` exists, then advances to work
+- `advance_item(trigger="start")` from queue checks `feature-summary` exists, then advances to work
 - `advance_item(trigger="start")` from work checks `implementation-notes` exists, then advances to review
 - `advance_item(trigger="start")` from review checks `review-checklist` exists, then advances to terminal
 - `advance_item(trigger="complete")` checks all required notes across all phases before advancing to terminal
@@ -175,7 +175,7 @@ This means every item gets at least `session-tracking` enforced, even items with
 The `guidance` field is a communication channel from the schema author to the agent. `get_context` and `advance_item` return only a `guidanceKey` — the key of the first unfilled required note with guidance — not the guidance text itself.
 
 ```yaml
-- key: specification
+- key: feature-summary
   role: queue
   required: true
   description: "Problem statement and approach."

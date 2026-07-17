@@ -155,7 +155,7 @@ Setting `parentId` to JSON null moves the item to root.
       "tags": "task-implementation",
       "schemaMatch": true,
       "expectedNotes": [
-        { "key": "requirements", "role": "queue", "required": true, "exists": false }
+        { "key": "feature-summary", "role": "queue", "required": true, "exists": false }
       ]
     }
   ],
@@ -255,7 +255,7 @@ snippets, filtered list search, or hierarchical overview.
   "configFingerprint": "a1b2c3d4",
   "configSource": "global",
   "notes": [
-    { "key": "specification", "role": "queue", "required": true, "description": "...", "guidance": "...", "skill": "spec-quality", "maxLength": 4000 },
+    { "key": "feature-summary", "role": "queue", "required": true, "description": "...", "guidance": "...", "skill": "spec-quality", "maxLength": 4000 },
     { "key": "implementation-notes", "role": "work", "required": true, "description": "..." }
   ]
 }
@@ -477,7 +477,7 @@ Nesting depth is unbounded. The root item can be at any depth; each child's dept
 {
   "root": {
     "title": "Feature X",
-    "noteAnchors": [{ "noteKey": "requirements", "role": "queue", "anchor": "overview" }]
+    "noteAnchors": [{ "noteKey": "feature-summary", "role": "queue", "anchor": "overview" }]
   },
   "parentId": "<project-root-uuid>",
   "docRef": { "slug": "my-plan" },
@@ -548,7 +548,7 @@ When `createNotes=false` (default) or no items match a schema, `notes` is `[]`.
   "root": {"title": "Feature X"},
   "children": [{"ref": "t1", "title": "Task 1"}],
   "notes": [
-    {"itemRef": "root", "key": "specification", "role": "queue", "body": "Full plan..."},
+    {"itemRef": "root", "key": "feature-summary", "role": "queue", "body": "Full plan..."},
     {"itemRef": "t1", "key": "task-scope", "role": "queue", "body": "Build the thing"}
   ]
 }
@@ -668,7 +668,7 @@ The `(itemId, key)` pair is unique — upserting with an existing pair updates t
   "notes": [
     {
       "itemId": "550e8400-e29b-41d4-a716-446655440001",
-      "key": "requirements",
+      "key": "feature-summary",
       "role": "queue",
       "body": "The handler must validate JWT signatures and return 401 on failure."
     }
@@ -679,7 +679,7 @@ The `(itemId, key)` pair is unique — upserting with an existing pair updates t
 {
   "operation": "upsert",
   "notes": [
-    { "itemId": "550e8400-e29b-41d4-a716-446655440001", "key": "test-results", "role": "work", "bodyFromFile": "logs/test-run.txt" }
+    { "itemId": "550e8400-e29b-41d4-a716-446655440001", "key": "implementation-notes", "role": "work", "bodyFromFile": "logs/test-run.txt" }
   ]
 }
 
@@ -692,7 +692,7 @@ The `(itemId, key)` pair is unique — upserting with an existing pair updates t
 ```json
 {
   "notes": [
-    { "id": "uuid", "itemId": "uuid", "key": "requirements", "role": "queue" }
+    { "id": "uuid", "itemId": "uuid", "key": "feature-summary", "role": "queue" }
   ],
   "upserted": 1,
   "failed": 0,
@@ -772,7 +772,7 @@ WorkItem, or FTS5 full-text search across note bodies.
 { "operation": "list", "itemId": "550e8400-e29b-41d4-a716-446655440001", "role": "queue" }
 
 // List specific notes by key, with full bodies
-{ "operation": "list", "itemId": "550e8400-e29b-41d4-a716-446655440001", "keys": ["requirements"], "includeBody": true }
+{ "operation": "list", "itemId": "550e8400-e29b-41d4-a716-446655440001", "keys": ["feature-summary"], "includeBody": true }
 
 // FTS5 search across all note bodies for "authentication"
 { "operation": "search", "query": "authentication token", "limit": 10 }
@@ -788,7 +788,7 @@ WorkItem, or FTS5 full-text search across note bodies.
   "notes": [
     {
       "id": "uuid",
-      "key": "requirements",
+      "key": "feature-summary",
       "role": "queue",
       "bodyLength": 42,
       "createdAt": "2025-01-01T00:00:00Z",
@@ -1172,9 +1172,9 @@ All cascade types are recorded in `cascadeEvents`.
       "itemId": "uuid",
       "trigger": "start",
       "applied": false,
-      "error": "Gate check failed: required notes not filled for queue phase: requirements",
+      "error": "Gate check failed: required notes not filled for queue phase: feature-summary",
       "missingNotes": [
-        { "key": "requirements", "description": "...", "guidance": "...", "skill": "spec-quality" }
+        { "key": "feature-summary", "description": "...", "guidance": "...", "skill": "spec-quality" }
       ]
     }
   ],
@@ -1286,7 +1286,7 @@ When `mode` is omitted, the mode is inferred from which parameters are present (
   "mode": "item",
   "item": { "id": "uuid", "title": "JWT Handler", "role": "queue", "tags": "task-implementation", "depth": 1 },
   "schema": [
-    { "key": "requirements", "role": "queue", "required": true, "exists": true, "filled": true },
+    { "key": "task-scope", "role": "queue", "required": true, "exists": true, "filled": true },
     { "key": "done-criteria", "role": "work", "required": true, "exists": false, "filled": false }
   ],
   "gateStatus": { "canAdvance": true, "phase": "queue", "missing": [] },
@@ -2300,7 +2300,7 @@ When using `jwks_path`, the `.agentlair/` directory must be mounted into the con
 ```bash
 docker run --rm -i \
   -v mcp-task-data:/app/data \
-  -v "$(pwd)"/.taskorchestrator:/project/.taskorchestrator:ro \
+  -v "$(pwd)"/deploy/global-config/.taskorchestrator:/project/.taskorchestrator:ro \
   -v "$(pwd)"/.agentlair:/project/.agentlair:ro \
   -e AGENT_CONFIG_DIR=/project \
   task-orchestrator:dev
