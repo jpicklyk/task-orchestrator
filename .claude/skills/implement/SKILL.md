@@ -513,6 +513,7 @@ After review passes:
    ```bash
    advance_item(transitions=[{ itemId: "<uuid>", trigger: "start" }])
    ```
+6. After the item reaches terminal, follow the retrospective hook's directive if one fires (see `retrospective.mode`).
 
 Report the PR URL and a summary.
 
@@ -574,6 +575,10 @@ For Parallel-tier features with a shared feature worktree:
    git branch -D feat/<feature-slug>
    ```
 7. Advance the parent feature to terminal.
+8. Retrospective — the plugin's retrospective hook fires on the parent's terminal transition.
+   In `dispatch` mode (see `retrospective.mode` in `.taskorchestrator/config.yaml`) it directs
+   a background `/session-retrospective` automatically — follow its directive; in `nudge` mode,
+   or if no directive arrives, suggest running it manually.
 
 ### Why one PR at parent finalization, not per child
 
