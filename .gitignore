@@ -63,7 +63,10 @@ current/logs/
 CLAUDE.local.md
 
 ### Task Orchestrator folder ###
-/.taskorchestrator/
+# config.yaml is git-tracked dogfood config + a living schema/trait example.
+# api-tokens.yaml (and everything else under this folder) stays ignored — secrets file.
+/.taskorchestrator/*
+!/.taskorchestrator/config.yaml
 
 ### Temporary plans folder ###
 /plans/

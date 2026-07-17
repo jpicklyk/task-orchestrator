@@ -51,4 +51,4 @@ For migrations that modify existing data:
 
 ## Output
 
-Compose the `migration-assessment` note with findings from each step. Flag any SQLite-specific risks. Reference `project-concerns.md` for additional codebase constraints.
+Compose the `migration-assessment` note with findings from each step. Flag any SQLite-specific risks. Reference `.claude/skills/spec-quality/references/project-concerns.md` for additional codebase constraints.

@@ -4,12 +4,13 @@ Real schemas from the MCP Task Orchestrator project — use as reference when de
 
 ## `feature-implementation` (queue + work + review)
 
-Full lifecycle with design gates, implementation evidence, and review verification.
+Full lifecycle with design gates, implementation evidence, and review verification. `session-tracking` and `delegation-metadata` are not listed as base notes below — they arrive via `default_traits: [delegated, session-tracked]` (see Traits Example below); trait notes append after the base notes shown here.
 
 ```yaml
 work_item_schemas:
   feature-implementation:
     lifecycle: auto
+    default_traits: [delegated, session-tracked]
     notes:
       - key: feature-summary
         role: queue
@@ -22,11 +23,6 @@ work_item_schemas:
         required: true
         description: "Context handoff for downstream agents — deviations, surprises, decisions."
         guidance: "Document decisions not in the feature-summary. Focus on what downstream agents need: deviations, API surprises, wrong assumptions, patterns affecting dependent work."
-      - key: session-tracking
-        role: work
-        required: true
-        description: "Session context for retrospective."
-        guidance: "Record outcome, files changed, deviations, friction, test results."
       - key: review-checklist
         role: review
         required: true
@@ -35,14 +31,14 @@ work_item_schemas:
         guidance: "Verify: (1) what was built aligns with the feature-summary and each child's task-scope, (2) tests cover the test strategy, (3) no unnecessary complexity."
 ```
 
-## `feature-task` (queue + work + review, lighter than feature-implementation)
+## `feature-task` (queue + work, lighter than feature-implementation)
 
-Schema for child work items under a feature container. Lighter queue gate (task scope instead of full specification) and task-scoped review.
+Schema for child work items under a feature container. Lighter queue gate (task scope instead of full specification). Review is opt-in here, not a base note — apply the `needs-task-review` trait per-item when a task needs task-scoped review (see Traits Example below). `session-tracking` and `delegation-metadata` come from `default_traits: [delegated, session-tracked]`, not an inline base note.
 
 ```yaml
   feature-task:
     lifecycle: auto
-    default_traits: [delegated]
+    default_traits: [delegated, session-tracked]
     notes:
       - key: task-scope
         role: queue
@@ -54,16 +50,6 @@ Schema for child work items under a feature container. Lighter queue gate (task 
         required: true
         description: "Context handoff — deviations, surprises, decisions affecting dependent work."
         guidance: "Document decisions not in the task scope. Focus on what downstream agents need."
-      - key: review-checklist
-        role: review
-        required: true
-        description: "Task-level quality gate — scope alignment and test coverage."
-        guidance: "Verify scope alignment, test coverage, no unintended side effects."
-      - key: session-tracking
-        role: work
-        required: true
-        description: "Session context for retrospective."
-        guidance: "Record outcome, files changed, deviations, friction, test results."
 ```
 
 ## `bug-fix` (queue + work + review)
@@ -73,7 +59,7 @@ Root cause analysis before code, verification after.
 ```yaml
   bug-fix:
     lifecycle: auto
-    default_traits: [delegated]
+    default_traits: [delegated, session-tracked]
     notes:
       - key: diagnosis
         role: queue
@@ -86,11 +72,6 @@ Root cause analysis before code, verification after.
         required: true
         description: "Context handoff — what changed, deviations from diagnosis."
         guidance: "Document what changed and why. Note if root cause differed from diagnosis."
-      - key: session-tracking
-        role: work
-        required: true
-        description: "Session context for retrospective."
-        guidance: "Record outcome, files changed, deviations, friction, test results."
       - key: review-checklist
         role: review
         required: true
@@ -98,6 +79,8 @@ Root cause analysis before code, verification after.
         skill: "review-quality"
         guidance: "Verify: (1) fix addresses root cause, (2) regression test exists, (3) edge cases covered."
 ```
+
+`session-tracking` comes from the `session-tracked` default trait, not an inline base note (same pattern as `feature-implementation` and `feature-task` above).
 
 ## `container` (manual lifecycle, gate-free)
 
@@ -116,9 +99,9 @@ Schema for root-level category containers (Features, Bugs, Tech Debt). No requir
 
 Set `type: container` on root containers so they match this schema instead of `default`.
 
-## `agent-observation` (queue only, minimal)
+## `agent-observation` — process-global schema (global floor, not per-project)
 
-Single-note schema for lightweight tracking — no work phase gates.
+Unlike the schemas above, this one is **not** defined in a project's own `.taskorchestrator/config.yaml`. It's delivered by the shared server's **global** config (`deploy/global-config/.taskorchestrator/config.yaml`), which carries only process/self-improvement schemas — `agent-observation`, `session-retrospective`, `improvement-proposal`, and `container` — so every project sharing the server gets them for free without redeclaring them. See "Global vs Per-Project Config" in `config-format.md`. `agent-observation` items are always standalone depth-0 roots, never children of a container.
 
 ```yaml
   agent-observation:
@@ -128,7 +111,12 @@ Single-note schema for lightweight tracking — no work phase gates.
         role: queue
         required: true
         description: "Expected vs actual behavior and suggested improvement."
-        guidance: "Describe what was observed. State expected behavior. Suggest a concrete improvement."
+        guidance: "Describe what you observed. State what you expected instead. Suggest a concrete improvement. Tag the observation type: optimization, friction, bug, or missing-capability."
+      - key: resolution
+        role: work
+        required: false
+        description: "Outcome when the observation is addressed — what was done, or why it was rejected."
+        guidance: "Record the disposition: fixed, rejected, or superseded. Optional — lets retrospectives calibrate which observation types convert to real fixes."
 ```
 
 ## Traits Example
@@ -152,6 +140,7 @@ traits:
         role: review
         required: true
         description: "Compatibility assessment for API changes — the MCP tool surface (dynamically re-discovered) and the REST surface (hardcoded clients) have different compatibility models."
+        skill: "api-compat-review"
         guidance: "Assess by surface. **MCP tools:** clients re-read the tools/list schema each session, so parameter renames/additions are NOT breaking — verify instead that each changed param's schema key and its read site stay in sync, and that all first-party callers (skills, hooks, output styles, memory, api-reference.md) update in lockstep; a pure rename needn't keep the old name working. **REST API:** clients hardcode field/param names, so compatibility matters — keep response shapes additive, and renames/removals need a migration path or version bump. Update openapi.yaml + api-rest.md for REST changes."
 
   needs-plugin-update:
@@ -187,6 +176,22 @@ traits:
         required: false
         description: "Model, isolation, rationale, and outcome for a delegated dispatch (orchestrator-filled)."
         guidance: "Filled by the orchestrator AFTER a subagent returns (the subagent doesn't know which model it ran on). Record model (haiku/sonnet/opus), isolation (inline or worktree:<path>), a one-line rationale, and a one-line outcome. Optional — feeds /session-retrospective delegation-alignment scoring; absent is tolerated."
+
+  session-tracked:
+    notes:
+      - key: session-tracking
+        role: work
+        required: true
+        description: "Session context — what was done, how it went, and anything the retrospective should know."
+        guidance: "Record what happened during implementation. Structure: **Outcome** (success/partial/failure), **Files changed** (list with rationale), **Deviations** (from spec/plan), **Friction** (tool errors, roundtrips, workarounds), **Gate interactions**, **Observations**, **Test results** (pass/fail counts). Keep it factual and concise — this feeds the session retrospective."
+
+  needs-task-review:
+    notes:
+      - key: review-checklist
+        role: review
+        required: true
+        description: "Task-level quality gate — scope alignment and test coverage."
+        guidance: "Verify: (1) what was built matches the task-scope note — flag scope creep or missed acceptance criteria, (2) tests cover the stated acceptance criteria and aren't strawman tests, (3) no unintended side effects on files outside the task scope."
 ```
 
-Apply traits at item creation: `manage_items(operation="create", items=[{..., traits: "needs-migration-review"}])` or via schema-level `default_traits`.
+Apply traits at item creation: `manage_items(operation="create", items=[{..., traits: "needs-migration-review"}])` or via schema-level `default_traits`. Most schemas in this project apply `session-tracked` (and often `delegated`) via `default_traits` rather than per-item, since nearly every item needs session tracking for `/session-retrospective`; `needs-task-review` is the opt-in trait that layers a review phase onto `feature-task`.

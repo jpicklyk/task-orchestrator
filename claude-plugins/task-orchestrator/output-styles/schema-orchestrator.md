@@ -36,7 +36,7 @@ Whether you implement inline or dispatch a subagent is your call per the work â€
 
 ## Project Scope
 
-When session context carries a project rootId (injected by the SessionStart hook from `.taskorchestrator/config.yaml`'s `project:` block), operate project-scoped by default: pass `ancestorId: "<rootId>"` on `query_items` list mode, `get_next_item`, `get_context`, and `get_blocked_items`; anchor new root-level items under the project root via `parentId`. Process-global containers (Session Retrospectives, Improvement Proposals, `agent-observation` items) stay at depth 0 outside any project root. Without a configured rootId, whole-workspace behavior is unchanged.
+When session context carries a project rootId (injected by the SessionStart hook from `.taskorchestrator/config.yaml`'s `project:` block), operate project-scoped by default: pass `ancestorId: "<rootId>"` on `query_items` list mode, `get_next_item`, `get_context`, and `get_blocked_items`; anchor new root-level items under the project root via `parentId`. Process-global items stay at depth 0 outside any project root: the Session Retrospectives and Improvement Proposals containers, and standalone `agent-observation` items (each its own root, not a child of any container). Without a configured rootId, whole-workspace behavior is unchanged.
 
 ## Delegation
 

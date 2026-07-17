@@ -1,14 +1,15 @@
 ---
 name: feature-implementation
-description: "Guides the full lifecycle of a feature-implementation tagged MCP item (the feature container) — from queue through review. Creates or resumes the feature container, fills gate-enforced notes at each phase (requirements, design, implementation-notes, test-results), dispatches implementation subagents, and advances through queue, work, and review to terminal. Use when the user says: implement a feature, start a new feature, feature workflow, resume feature work, guide feature lifecycle, or references a feature-implementation item UUID."
+description: "Guides the full lifecycle of a feature-implementation tagged MCP item (the feature container) — from queue through review. Creates or resumes the feature container, fills gate-enforced notes at each phase (feature-summary, implementation-notes, session-tracking, review-checklist), dispatches implementation subagents, and advances through queue, work, and review to terminal. Use when the user says: implement a feature, start a new feature, feature workflow, resume feature work, guide feature lifecycle, or references a feature-implementation item UUID."
 ---
 
 # Feature Implementation Workflow
 
 End-to-end workflow for a `feature-implementation` tagged item — the **feature container**
-that holds the specification, plan, and holistic review. Child work items under this
-container use the `feature-task` tag with lighter gates (task-scope instead of full
-specification, task-level review without `/simplify`).
+that holds the plan and holistic review. Child work items under this container use the
+`feature-task` tag with lighter gates (`task-scope` instead of the feature-level
+`feature-summary`, and no review phase by default — task-level review is opt-in via the
+`needs-task-review` trait, which adds a `review-checklist` note to that child).
 
 Covers all three phases (queue → work → review) with gate-enforced notes at each transition.
 
@@ -40,61 +41,49 @@ then continue to Phase 1.
 
 ---
 
-## Phase 1 — Queue: Define Requirements and Design
+## Phase 1 — Queue: Define the Feature Summary
 
-**Goal:** Fill the two required queue-phase notes before advancing to work.
+**Goal:** Fill the single required queue-phase note before advancing to work.
 
-### 1a. Fill `requirements`
+### 1a. Fill `feature-summary`
 
-Use `manage_notes` to upsert the `requirements` note:
+Use `manage_notes` to upsert the `feature-summary` note:
 ```
 manage_notes(
   operation="upsert",
   notes=[{
     itemId: "<uuid>",
-    key: "requirements",
+    key: "feature-summary",
     role: "queue",
     body: "<content>"
   }]
 )
 ```
 
-**What to write:** The problem this solves. Who benefits. 2–5 concrete acceptance criteria
-that define done. Reference any existing observations or bug items that motivated this feature.
+**What to write:** Keep this note lean (target under 2k chars) — it stays at the feature
+level, not the child-task level where the full spec-quality disciplines apply. Cover:
+- **Goal** — the problem this solves and who benefits.
+- **Findings → tasks table** — a table mapping each finding or requirement to the child
+  task that will address it.
+- **Dependency edges** — ordering constraints between child tasks, if any.
+- **Non-goals pointer** — a reference to where non-goals are documented per child (each
+  child's `task-scope` note carries its own alternatives/non-goals/blast-radius/risk/test
+  strategy per the spec-quality framework); this note does not repeat that analysis.
 
-### 1b. Fill `design`
+### 1b. Enter plan mode
 
-```
-manage_notes(
-  operation="upsert",
-  notes=[{
-    itemId: "<uuid>",
-    key: "design",
-    role: "queue",
-    body: "<content>"
-  }]
-)
-```
-
-**What to write:** Chosen approach. Alternatives considered and why they were ruled out.
-Key risks or constraints (schema migrations, tight coupling areas, ORM quirks, test isolation issues).
-Reference specific files and classes that will be touched.
-
-### 1c. Enter plan mode
-
-After filling both notes, use `EnterPlanMode` to explore the codebase and produce a concrete
+After filling the note, use `EnterPlanMode` to explore the codebase and produce a concrete
 implementation plan. The `pre-plan` hook will inject additional guidance.
 
 When the plan is approved, `post-plan` hook fires — proceed directly to Phase 2 without pausing.
 
-### 1d. Advance to work
+### 1c. Advance to work
 
 ```
 advance_item(transitions=[{ itemId: "<uuid>", trigger: "start" }])
 ```
 
-Gate check: both `requirements` and `design` must be filled. If gate rejects, fill the missing
-notes and retry.
+Gate check: `feature-summary` must be filled. If gate rejects, fill the missing note and retry.
 
 Confirm `newRole: "work"` in the response before dispatching implementation subagents.
 
@@ -107,7 +96,10 @@ Confirm `newRole: "work"` in the response before dispatching implementation suba
 ### 2a. Materialize any child items
 
 If the feature has sub-tasks, create them now using `create_work_tree` with the feature UUID
-as `parentId`. Dispatch implementation subagents with each child item UUID.
+as `parentId` and the `feature-task` tag. Each child fills a `task-scope` queue note (the
+full spec-quality disciplines — alternatives, non-goals, blast radius, risk flags, test
+strategy — apply there, not in the feature-level `feature-summary`). Dispatch
+implementation subagents with each child item UUID.
 
 Each subagent must:
 - Call `advance_item(trigger="start")` on their item to enter work phase
@@ -115,6 +107,11 @@ Each subagent must:
   provides guidance via `guidancePointer` and `skillPointer`)
 - Return to the orchestrator — do NOT call `advance_item` again. The orchestrator
   handles all further transitions.
+
+By default, `feature-task` items have no review phase — `advance_item(trigger="start")`
+from work goes straight to terminal. A child only gets a review phase if it (or its
+schema's `default_traits`) carries the `needs-task-review` trait, which adds the
+`review-checklist` note back in.
 
 ### 2b. Fill `implementation-notes`
 
@@ -131,26 +128,27 @@ manage_notes(
 )
 ```
 
-**What to write:** Key decisions made during implementation. Deviations from the design note.
+**What to write:** Key decisions made during implementation. Deviations from the plan.
 Any surprises (wrong class names, API differences, test isolation issues). Files changed with
 line counts. If an observation was fixed, reference its item ID.
 
-### 2c. Fill `test-results`
+### 2c. Fill `session-tracking`
 
 ```
 manage_notes(
   operation="upsert",
   notes=[{
     itemId: "<uuid>",
-    key: "test-results",
+    key: "session-tracking",
     role: "work",
     body: "<content>"
   }]
 )
 ```
 
-**What to write:** Run `./gradlew :current:test`. Report total count and any failures.
-List new test classes or cases added. If root-module tests were affected, report those too.
+**What to write:** Run `./gradlew :current:test`. Report total count and any failures,
+new test classes or cases added, and a summary of what changed this session. This note
+comes from the `session-tracked` default trait and feeds `/session-retrospective`.
 
 ### 2d. Advance to review
 
@@ -158,26 +156,50 @@ List new test classes or cases added. If root-module tests were affected, report
 advance_item(transitions=[{ itemId: "<uuid>", trigger: "start" }])
 ```
 
-Gate check: both `implementation-notes` and `test-results` must be filled.
+Gate check: both `implementation-notes` and `session-tracking` must be filled.
 Confirm `newRole: "review"` in the response.
 
 ---
 
-## Phase 3 — Review: Deploy and Verify
+## Phase 3 — Review: Verify, Deploy, and Close
 
-**Goal:** Deploy, verify in the running MCP server, then close the item.
+**Goal:** Fill the required `review-checklist` note (per the review-quality skill), deploy
+and verify in the running MCP server, then close the item.
 
-### 3a. Deploy to Docker (if needed)
+### 3a. Fill `review-checklist`
+
+Follow the `review-quality` skill's framework — plan alignment against `feature-summary`
+and each child's `task-scope`, test quality, and (if `/simplify` ran) test coverage of its
+changes.
+
+```
+manage_notes(
+  operation="upsert",
+  notes=[{
+    itemId: "<uuid>",
+    key: "review-checklist",
+    role: "review",
+    body: "<content>"
+  }]
+)
+```
+
+**What to write:** A feature-level verdict aggregating across children — reference each
+child's own review-checklist if the `needs-task-review` trait produced one. See the
+review-quality skill for the full findings format and verdict types (Pass / Fail —
+blocking issues / Pass with observations).
+
+### 3b. Deploy to Docker (if needed)
 
 Run `/deploy_to_docker --current` to rebuild the image with the new code.
 Reconnect MCP after deploy: `/mcp`.
 
-### 3b. Smoke test the change
+### 3c. Smoke test the change
 
 Exercise the new capability via MCP tool calls. Confirm it behaves as described in the
-`requirements` note acceptance criteria.
+`feature-summary` note's goal.
 
-### 3c. Fill `deploy-notes` (optional)
+### 3d. Fill `deploy-notes` (optional)
 
 ```
 manage_notes(
@@ -194,7 +216,7 @@ manage_notes(
 **What to write:** Whether a Docker rebuild was done and what image tag was used.
 Plugin version bump (if any). MCP reconnect required. Any smoke test results.
 
-### 3d. Close the item
+### 3e. Close the item
 
 ```
 advance_item(transitions=[{ itemId: "<uuid>", trigger: "start", summary: "<one-line summary>" }])
@@ -208,9 +230,9 @@ Confirm `newRole: "terminal"`. Run `get_context()` health check to verify no sta
 
 | Phase | Required notes | Advance trigger |
 |-------|---------------|-----------------|
-| queue | `requirements`, `design` | `start` → work |
-| work | `implementation-notes`, `test-results` | `start` → review |
-| review | _(none required)_ | `start` → terminal |
+| queue | `feature-summary` | `start` → work |
+| work | `implementation-notes`, `session-tracking` | `start` → review |
+| review | `review-checklist` | `start` → terminal |
 
 **Gate error pattern:** `"required notes not filled for <phase> phase: <keys>"`
 → Fill the listed notes, then retry `advance_item`.

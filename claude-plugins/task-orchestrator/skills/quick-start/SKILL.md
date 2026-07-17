@@ -158,7 +158,7 @@ Show the structure:
 
 This is **the project board side** — these items track progress. The plan file (if this were a real feature) would contain the *design decisions* behind each of these tasks.
 
-**Fill required notes (gate prerequisite):** `feature-task` items require a `task-scope` note (queue, required) before `advance_item(trigger="start")` will succeed, and a `complete` trigger checks ALL required notes across every phase (queue + work + review) — not just the current one. `create_work_tree` above created the children with no notes — its `createNotes` option only auto-fills blank bodies, which don't count as "filled" for gate purposes — so fill all four required notes on the design item now, before Step 5a, so both the `start` and `complete` calls succeed:
+**Fill required notes (gate prerequisite):** `feature-task` items require a `task-scope` note (queue, required) before `advance_item(trigger="start")` will succeed, and a `complete` trigger checks ALL required notes across every phase the *resolved* schema declares — not just the current phase, and not just the base schema's own notes. Traits merge in too: a `session-tracked` default trait adds a required `session-tracking` work note, for example, while review-phase notes like `review-checklist` are typically opt-in per item via a trait (e.g. `needs-task-review`), not a base requirement. Call `get_context(itemId="<design-UUID>")` to see the exact resolved note list before filling — schemas vary per project. `create_work_tree` above created the children with no notes — its `createNotes` option only auto-fills blank bodies, which don't count as "filled" for gate purposes — so fill every required note the resolved schema lists on the design item now, before Step 5a, so both the `start` and `complete` calls succeed. For a `feature-task` schema with the common `task-scope` + `implementation-notes` base plus a `session-tracked` default trait:
 
 ```
 manage_notes(
@@ -166,13 +166,12 @@ manage_notes(
   notes=[
     { itemId: "<design-UUID>", key: "task-scope", role: "queue", body: "Define requirements and approach for <topic>." },
     { itemId: "<design-UUID>", key: "implementation-notes", role: "work", body: "Design work completed for <topic>." },
-    { itemId: "<design-UUID>", key: "session-tracking", role: "work", body: "Design phase completed this session." },
-    { itemId: "<design-UUID>", key: "review-checklist", role: "review", body: "Design reviewed and approved." }
+    { itemId: "<design-UUID>", key: "session-tracking", role: "work", body: "Design phase completed this session." }
   ]
 )
 ```
 
-**Explain to the user:** in a real workflow, subagents fill these notes as work actually happens, phase by phase. Here we're pre-filling all of them up front purely so the tutorial's Step 5b `complete` call isn't gate-blocked — note bodies don't need to match the item's current role to be saved, only to satisfy the gate check at advance time.
+**Explain to the user:** in a real workflow, subagents fill these notes as work actually happens, phase by phase. Here we're pre-filling all of them up front purely so the tutorial's Step 5b `complete` call isn't gate-blocked — note bodies don't need to match the item's current role to be saved, only to satisfy the gate check at advance time. If `get_context` shows additional required notes (e.g. a `review-checklist` from an opted-in review trait), fill those too before advancing.
 
 ---
 

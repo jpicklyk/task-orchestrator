@@ -127,7 +127,7 @@ Classify **every depth-0 root** into exactly one bucket:
 
 | Bucket | Rule | Action |
 |--------|------|--------|
-| **KEEP-GLOBAL** | Title matches a global container — `Session Retrospectives`, `Improvement Proposals`; OR the root is a `container` (tag or `type`) whose children are `agent-observation` items; OR the root itself is tagged `agent-observation`. | Stays at depth 0. |
+| **KEEP-GLOBAL** | Title matches a global container — `Session Retrospectives`, `Improvement Proposals`; OR the root itself is tagged/typed `agent-observation` (these are standalone depth-0 items, each its own root — never children of a container). | Stays at depth 0. |
 | **MOVE** | Any work container or work tree (a root with work/queue/review children), and any standalone work item. Everything that is real project work. | Re-parented under the new anchor. |
 | **CLEANUP-CANDIDATE** | Evident test artifacts: titles containing `probe`, `smoke`, `depth-test`, `zzprobe`; or tags matching `mtest-*`. | **Flagged only** — never moved, never deleted. Recommend `/batch-complete`. |
 

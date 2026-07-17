@@ -1,0 +1,86 @@
+# Global process-schema floor config.
+#
+# This is the shared MCP Task Orchestrator server's GLOBAL/fallback config
+# (mounted via AGENT_CONFIG_DIR, read once at server startup). It carries
+# ONLY the process/self-improvement schemas that every project sharing this
+# server should get for free: agent-observation, session-retrospective, and
+# improvement-proposal items, plus the generic container schema.
+#
+# Project-specific schemas (feature-implementation, feature-task, bug-fix,
+# traits, etc.) do NOT belong here — those are delivered per-root via the
+# config-sync hook from each project's own tracked .taskorchestrator/config.yaml
+# and layered over this floor per item rootId. See
+# claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md
+# -> "Global vs Per-Project Config".
+#
+# Mount this directory as AGENT_CONFIG_DIR, e.g.:
+#   -v "$(pwd)"/deploy/global-config/.taskorchestrator:/project/.taskorchestrator:ro
+#   -e AGENT_CONFIG_DIR=/project
+
+work_item_schemas:
+
+  agent-observation:
+    lifecycle: auto
+    notes:
+      - key: observation-detail
+        role: queue
+        required: true
+        description: "Expected vs actual behavior and suggested improvement."
+        guidance: "Describe what you observed (tool call, parameters, result). State what you expected instead. Suggest a concrete improvement — API change, error message improvement, or new capability. Tag the observation type: **optimization** (works but could be better), **friction** (workflow impediment), **bug** (incorrect behavior), or **missing-capability** (needed feature that doesn't exist)."
+      - key: resolution
+        role: work
+        required: false
+        description: "Outcome when the observation is addressed — what was done, or why it was rejected."
+        guidance: "Record the disposition: fixed (link the implementing item or commit), rejected (why — e.g., by design, not reproducible), or superseded (link the successor observation). Optional — but filling it lets retrospectives calibrate which observation types convert to real fixes versus noise."
+
+  improvement-proposal:
+    lifecycle: auto
+    notes:
+      - key: proposal
+        role: queue
+        required: true
+        description: "Problem, evidence, proposed change, expected measurable effect, and scope."
+        guidance: "State: (1) the problem pattern with evidence — cite session-tracking notes, agent-observation items, or retrospective IDs (2+ occurrences preferred), (2) the concrete change (exact YAML for schema changes, file+section for skill/doc changes, event+matcher for hooks), (3) expected effect and HOW it will be measured in later sessions, (4) blast radius — which schemas, skills, or agents the change touches, (5) scope — **global** (server floor config, plugin skills/hooks, process containers) or **project-specific** (one project's per-root config or workflow); name the target rootId(s) when project-specific. Anchor project-specific proposals under that project's root; global proposals belong in the process-global Improvement Proposals container."
+      - key: adoption-decision
+        role: work
+        required: true
+        description: "Accepted / rejected / deferred, with rationale."
+        guidance: "Record the decision and why. If accepted: link the implementing item or commit, and confirm the change landed in the layer matching its scope (global config/plugin vs the project's own config.yaml synced per-root). If rejected: state the reason so future retrospectives don't re-propose it. If deferred: state the trigger condition for revisiting."
+      - key: outcome-verification
+        role: review
+        required: true
+        description: "Did the change produce the expected effect?"
+        guidance: "Compare post-change sessions against the expected effect stated in the proposal note. Cite specific retrospective or session-tracking evidence — scoped to the target project for project-specific changes. Verdict: **effective** | **ineffective** | **inconclusive**. Ineffective outcomes are as valuable as effective ones; say what to try instead."
+
+  session-retrospective:
+    lifecycle: auto
+    notes:
+      - key: session-metrics
+        role: queue
+        required: true
+        description: "Quantitative session data — items, agents, schemas, token efficiency."
+        guidance: "Record from distributed session-tracking notes: items touched (count + IDs), schemas used (tag + count), agent delegations (from delegation-metadata notes if present: model x count x rationale), self-implementation violations, MCP call count, estimated token waste from over-fetches or verbose returns. Record the active project rootId(s) the session's items belonged to — scope attribution for downstream proposals. Use structured lists, not prose."
+      - key: workflow-evaluation
+        role: queue
+        required: true
+        description: "Qualitative workflow assessment across all evaluation dimensions."
+        guidance: "Evaluate: (1) schema usefulness — per schema note, was content quality good? Was guidance followed? (2) delegation alignment — model assignments vs output style table (use delegation-metadata notes if present), (3) note effectiveness — did downstream agents benefit from upstream notes? (4) plan-to-execution alignment — ad-hoc items, skipped items, scope changes, (5) friction synthesis — themes from session-tracking friction entries and agent-observation items. Score each dimension."
+      - key: improvement-signals
+        role: queue
+        required: true
+        description: "Trends, proposals, and extension promotions."
+        guidance: "List patterns seen in 2+ sessions. Reference prior retrospective item IDs. For each trend at threshold: propose a concrete change (schema modification with exact YAML, new hook with event/matcher, skill update with section reference, output style adjustment with zone). Classify each proposal's scope: **global** (server floor config, plugin skills/hooks, process containers) vs **project-specific** (one project's workflow or per-root config) — name the target rootId for project-specific proposals."
+      - key: actions-taken
+        role: work
+        required: true
+        description: "Closure record — which improvement-proposal items were created or updated from this retrospective's signals."
+        guidance: "List each materialized action: improvement-proposal item UUID + one-line summary + scope (global | project:<rootId>). If a signal was intentionally not acted on, say why. 'No actions — <rationale>' is a valid body. This makes the retrospective-to-proposal edge queryable so future retrospectives can trace whether prior signals went anywhere."
+
+  container:
+    lifecycle: manual
+    notes:
+      - key: container-summary
+        role: queue
+        required: false
+        description: "Optional high-level description of what this container organizes."
+        guidance: "Brief description of the container's purpose and scope. Not required — containers exist to group work items, not to carry implementation detail."

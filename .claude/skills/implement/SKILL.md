@@ -388,7 +388,9 @@ Before dispatching or performing review, check the item's current role. Inspect
 
 - **If `newRole` is `terminal`:** The item's schema has no review phase (lightweight
   lifecycle). Review dispatch is not needed — the item completed through its natural
-  lifecycle. Proceed to Step 6.
+  lifecycle. Proceed to Step 6. Note: `feature-task` items skip review by default
+  (work→terminal directly) — the `needs-task-review` trait re-enables a review phase
+  for a specific child when needed.
 - **If `newRole` is `review`:** Continue with review per tier below.
 
 This step is **tier-conditional**:
@@ -521,11 +523,13 @@ Report the PR URL and a summary.
 
 For Parallel-tier features with a shared feature worktree:
 
-**For each child task** (after its review passes):
+**For each child task** (after its review passes, if it has one):
 
-1. Confirm the child's `review-checklist` note is filled.
+1. For children whose schema/trait declares a review phase (e.g. `needs-task-review`),
+   confirm `review-checklist` is filled. Children without one advance work→terminal
+   directly — there is nothing to confirm.
 2. `advance_item(itemId=<child-uuid>, trigger="start")` to move work→review→terminal
-   as the child's schema dictates.
+   (or work→terminal directly) as the child's schema dictates.
 3. **Do NOT push. Do NOT create a PR.** The work is committed to `feat/<feature-slug>`
    inside the shared worktree; that's the integration point.
 
@@ -611,9 +615,11 @@ When processing a Parallel-tier feature with multiple child tasks autonomously:
    (or between sequential children), the orchestrator runs `:current:test` and
    `:current:ktlintCheck` from the feature worktree. Fix failures before advancing
    any child to review.
-4. **Step 5 — Review per child, scoped to that child's commit range.** Review agent
-   reads from the shared worktree but scopes its diff to `<pre-sha>..<post-sha>` for
-   the child being reviewed.
+4. **Step 5 — Review per child, scoped to that child's commit range, when the child has
+   a review phase.** `feature-task` children skip review by default (work→terminal
+   directly) unless the `needs-task-review` trait is set. When a review phase applies,
+   the review agent reads from the shared worktree but scopes its diff to
+   `<pre-sha>..<post-sha>` for the child being reviewed.
 5. **Step 6 — One PR at parent finalization.** Children advance to terminal without
    pushing or PR'ing. Only when the parent feature itself reaches terminal does the
    orchestrator push `feat/<slug>` and open the single feature-level PR.
