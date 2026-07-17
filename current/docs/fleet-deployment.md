@@ -276,7 +276,7 @@ The `DEGRADED_MODE_POLICY` environment variable overrides the YAML `degraded_mod
 # Docker — set reject policy for fleet deployments
 docker run --rm -i \
   -v mcp-task-data:/app/data \
-  -v "$(pwd)"/.taskorchestrator:/project/.taskorchestrator:ro \
+  -v "$(pwd)"/deploy/global-config/.taskorchestrator:/project/.taskorchestrator:ro \
   -e AGENT_CONFIG_DIR=/project \
   -e DEGRADED_MODE_POLICY=reject \
   task-orchestrator:dev
@@ -537,7 +537,7 @@ Values below 100ms are clamped to 100ms. Values that cannot be parsed as integer
 ```bash
 docker run --rm -i \
   -v mcp-task-data:/app/data \
-  -v "$(pwd)"/.taskorchestrator:/project/.taskorchestrator:ro \
+  -v "$(pwd)"/deploy/global-config/.taskorchestrator:/project/.taskorchestrator:ro \
   -e AGENT_CONFIG_DIR=/project \
   -e DATABASE_BUSY_TIMEOUT_MS=15000 \
   task-orchestrator:dev

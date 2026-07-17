@@ -158,13 +158,13 @@ Set `lifecycle` at the schema level in `work_item_schemas:`:
 
 ```yaml
 work_item_schemas:
-  feature:
-    lifecycle: MANUAL
+  quick-fix:
+    lifecycle: AUTO
     notes:
-      - key: requirements
-        role: queue
+      - key: session-tracking
+        role: work
         required: true
-        description: "Problem statement and acceptance criteria."
+        description: "Brief record of what was changed and test results."
 ```
 
 ### Complete Example Schema
@@ -174,31 +174,21 @@ work_item_schemas:
   feature-implementation:
     lifecycle: AUTO
     notes:
-      - key: requirements
+      - key: feature-summary
         role: queue
         required: true
-        description: "Problem statement and acceptance criteria."
-        guidance: "Describe what problem this solves. List 2-5 acceptance criteria."
-      - key: design
-        role: queue
-        required: true
-        description: "Chosen approach, alternatives considered."
-        guidance: "Describe the chosen implementation approach. List alternatives considered and why they were rejected."
+        description: "Lean feature-level summary — goal, findings-to-tasks mapping, dependency edges, non-goals pointer."
+        guidance: "Cover the goal in 2-3 sentences, a findings→tasks mapping, dependency edges between child tasks, and a pointer to where non-goals and alternatives are recorded."
       - key: implementation-notes
         role: work
         required: true
-        description: "Key decisions made during implementation."
-        guidance: "Document key decisions made during coding. Include any deviations from the design and why."
-      - key: test-results
-        role: work
-        required: true
-        description: "Test pass/fail count and new tests added."
-        guidance: "State total tests passing and failing. List new test cases added and what edge cases they cover."
-      - key: deploy-notes
+        description: "Context handoff for downstream agents — deviations, surprises, and decisions that affect dependent work."
+        guidance: "Document decisions made during implementation that weren't in the feature-summary. Focus on deviations from the plan, interface surprises, and assumptions that turned out wrong."
+      - key: review-checklist
         role: review
-        required: false
-        description: "Deploy needed? Version bump? Reconnect required?"
-        guidance: "Note any deployment steps, config changes, version bumps, or client reconnection requirements."
+        required: true
+        description: "Quality gate — plan alignment, test quality, and simplification review."
+        guidance: "Verify what was built aligns with the feature-summary, tests cover the test strategy, and any /simplify changes have test coverage."
 ```
 
 > The legacy `note_schemas:` flat-list format is still accepted. New configs should prefer `work_item_schemas:` for access to the `lifecycle:` and `traits:` fields.
@@ -207,17 +197,17 @@ work_item_schemas:
 
 ```
 queue
-  requires: requirements (filled), design (filled)
+  requires: feature-summary (filled)
       |
    [start]
       |
     work
-  requires: implementation-notes (filled), test-results (filled)
+  requires: implementation-notes (filled)
       |
    [start]
       |
    review
-  requires: (no required notes in this example)
+  requires: review-checklist (filled)
       |
    [start]
       |
@@ -236,9 +226,9 @@ Notes are created or updated using `manage_notes(operation="upsert")`.
 manage_notes(operation="upsert", notes=[
   {
     "itemId": "abc-123",
-    "key": "requirements",
+    "key": "feature-summary",
     "role": "queue",
-    "body": "## Problem\nUsers cannot reset passwords via email.\n\n## Acceptance Criteria\n- User receives reset email within 60s\n- Link expires after 24h\n- Old password no longer works after reset"
+    "body": "## Goal\nAllow users to reset passwords via email.\n\n## Findings -> Tasks\n- Token storage design -> PasswordResetTokenRepository task\n\n## Dependencies\nNone.\n\n## Non-goals\nSee linked spec doc for alternatives considered."
   }
 ])
 ```
@@ -261,29 +251,20 @@ Response includes:
   "gateStatus": {
     "canAdvance": false,
     "phase": "queue",
-    "missing": ["design"]
+    "missing": ["feature-summary"]
   },
   "schema": [
     {
-      "key": "requirements",
+      "key": "feature-summary",
       "role": "queue",
       "required": true,
-      "description": "Problem statement and acceptance criteria.",
-      "guidance": "Describe what problem this solves. List 2-5 acceptance criteria.",
-      "exists": true,
-      "filled": true
-    },
-    {
-      "key": "design",
-      "role": "queue",
-      "required": true,
-      "description": "Chosen approach, alternatives considered.",
-      "guidance": "Describe the chosen implementation approach. List alternatives considered and why they were rejected.",
+      "description": "Lean feature-level summary — goal, findings-to-tasks mapping, dependency edges, non-goals pointer.",
+      "guidance": "Cover the goal in 2-3 sentences, a findings->tasks mapping, dependency edges between child tasks, and a pointer to where non-goals and alternatives are recorded.",
       "exists": false,
       "filled": false
     }
   ],
-  "guidancePointer": "Describe the chosen implementation approach. List alternatives considered and why they were rejected."
+  "guidancePointer": "Cover the goal in 2-3 sentences, a findings->tasks mapping, dependency edges between child tasks, and a pointer to where non-goals and alternatives are recorded."
 }
 ```
 
@@ -323,11 +304,9 @@ The response includes `expectedNotes` when the type (or tags) match a schema:
   "role": "queue",
   "tags": "feature-implementation",
   "expectedNotes": [
-    { "key": "requirements", "role": "queue", "required": true, "description": "Problem statement and acceptance criteria.", "guidance": "Describe what problem this solves. List 2-5 acceptance criteria.", "exists": false },
-    { "key": "design",        "role": "queue", "required": true, "description": "Chosen approach, alternatives considered.", "guidance": "Describe the chosen implementation approach. List alternatives considered and why they were rejected.", "exists": false },
-    { "key": "implementation-notes", "role": "work", "required": true, "description": "Key decisions made during implementation.", "guidance": "Document key decisions made during coding. Include any deviations from the design and why.", "exists": false },
-    { "key": "test-results",  "role": "work", "required": true, "description": "Test pass/fail count and new tests added.", "guidance": "State total tests passing and failing. List new test cases added and what edge cases they cover.", "exists": false },
-    { "key": "deploy-notes",  "role": "review", "required": false, "description": "Deploy needed? Version bump? Reconnect required?", "exists": false }
+    { "key": "feature-summary", "role": "queue", "required": true, "description": "Lean feature-level summary — goal, findings-to-tasks mapping, dependency edges, non-goals pointer.", "guidance": "Cover the goal in 2-3 sentences, a findings->tasks mapping, dependency edges between child tasks, and a pointer to where non-goals and alternatives are recorded.", "exists": false },
+    { "key": "implementation-notes", "role": "work", "required": true, "description": "Context handoff for downstream agents — deviations, surprises, and decisions that affect dependent work.", "guidance": "Document decisions made during implementation that weren't in the feature-summary. Focus on deviations from the plan, interface surprises, and assumptions that turned out wrong.", "exists": false },
+    { "key": "review-checklist", "role": "review", "required": true, "description": "Quality gate — plan alignment, test quality, and simplification review.", "guidance": "Verify what was built aligns with the feature-summary, tests cover the test strategy, and any /simplify changes have test coverage.", "exists": false }
   ]
 }
 ```
@@ -338,24 +317,18 @@ Before writing notes, consult `guidancePointer` for authoring instructions:
 
 ```json
 get_context(itemId="abc-123")
-// guidancePointer: "Describe what problem this solves. List 2-5 acceptance criteria."
+// guidancePointer: "Cover the goal in 2-3 sentences, a findings->tasks mapping, dependency edges between child tasks, and a pointer to where non-goals and alternatives are recorded."
 ```
 
-Use the guidance to author each note:
+Use the guidance to author the note:
 
 ```json
 manage_notes(operation="upsert", notes=[
   {
     "itemId": "abc-123",
-    "key": "requirements",
+    "key": "feature-summary",
     "role": "queue",
-    "body": "Users need to reset passwords by email.\n\nAcceptance Criteria:\n- Reset email delivered < 60s\n- Link expires after 24h"
-  },
-  {
-    "itemId": "abc-123",
-    "key": "design",
-    "role": "queue",
-    "body": "Use HMAC token stored in DB. Chose over JWT to allow server-side invalidation."
+    "body": "Goal: let users reset passwords by email.\n\nFindings -> Tasks:\n- Token storage design -> PasswordResetTokenRepository task\n\nDependencies: none.\n\nNon-goals: see linked spec doc."
   }
 ])
 ```
@@ -376,10 +349,10 @@ Consult `guidancePointer` again — it now points to the first unfilled work-pha
 
 ```json
 get_context(itemId="abc-123")
-// guidancePointer: "Document key decisions made during coding. Include any deviations from the design and why."
+// guidancePointer: "Document decisions made during implementation that weren't in the feature-summary. Focus on deviations from the plan, interface surprises, and assumptions that turned out wrong."
 ```
 
-Use the guidance to author each work-phase note:
+Use the guidance to author the work-phase note:
 
 ```json
 manage_notes(operation="upsert", notes=[
@@ -387,13 +360,7 @@ manage_notes(operation="upsert", notes=[
     "itemId": "abc-123",
     "key": "implementation-notes",
     "role": "work",
-    "body": "Added PasswordResetTokenRepository. Token TTL configurable via env var."
-  },
-  {
-    "itemId": "abc-123",
-    "key": "test-results",
-    "role": "work",
-    "body": "42 tests passing, 0 failing. Added 8 new tests for token expiry edge cases."
+    "body": "Added PasswordResetTokenRepository. Token TTL configurable via env var. 42 tests passing, 0 failing; added 8 new tests for token expiry edge cases."
   }
 ])
 ```
@@ -495,9 +462,9 @@ Orchestration hooks (e.g., `SubagentStart`) can inject `guidancePointer` into a 
 ```
 System context injected by hook:
   Item: abc-123 — Password Reset Feature (role: queue)
-  Required note: design
-  Guidance: Describe the chosen implementation approach. List alternatives considered
-            and why they were rejected.
+  Required note: feature-summary
+  Guidance: Cover the goal in 2-3 sentences, a findings->tasks mapping, dependency edges
+            between child tasks, and a pointer to where non-goals and alternatives are recorded.
 ```
 
 The agent receives this context at session start and can proceed directly to `manage_notes(upsert)`.
@@ -507,12 +474,12 @@ The agent receives this context at session start and can proceed directly to `ma
 When dispatching a subagent to fill notes for a specific item, embed the guidance directly in the prompt:
 
 ```
-Fill the "design" note for item abc-123.
+Fill the "feature-summary" note for item abc-123.
 
-Guidance from schema: "Describe the chosen implementation approach. List alternatives
-considered and why they were rejected."
+Guidance from schema: "Cover the goal in 2-3 sentences, a findings->tasks mapping, dependency
+edges between child tasks, and a pointer to where non-goals and alternatives are recorded."
 
-Use manage_notes(operation="upsert") with itemId="abc-123", key="design", role="queue".
+Use manage_notes(operation="upsert") with itemId="abc-123", key="feature-summary", role="queue".
 ```
 
 ---
@@ -933,7 +900,7 @@ work_item_schemas:
 - Docker override: set `AGENT_CONFIG_DIR` environment variable to the directory containing `.taskorchestrator/`.
 
 ```bash
-docker run -e AGENT_CONFIG_DIR=/project -v "$(pwd)"/.taskorchestrator:/project/.taskorchestrator:ro task-orchestrator:dev
+docker run -e AGENT_CONFIG_DIR=/project -v "$(pwd)"/deploy/global-config/.taskorchestrator:/project/.taskorchestrator:ro task-orchestrator:dev
 ```
 
 ---
