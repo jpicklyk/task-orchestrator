@@ -30,6 +30,8 @@ query_items(operation="overview", itemId="<root-uuid>")
 
 This returns the root item and its children. Collect all item UUIDs from the overview.
 
+A supplied root UUID is the **authoritative scope** — this covers dispatched mode, e.g. a background agent invoked with the root item ID (see the output style's hook-driven Retrospective dispatch, or the retro-trigger hook's background-agent directive). When a root UUID is supplied, run only this overview call and do **not** run the fallback scan below (neither the `get_context` calls nor the terminal-items search) — the fallback scan applies only when no UUID argument was provided.
+
 **If no root item ID provided:**
 
 Check for a known project root: session context injected by the SessionStart hook, or a `project.rootId` entry in `.taskorchestrator/config.yaml`.
@@ -335,8 +337,18 @@ manage_notes(operation="upsert", notes=[{
 The `actions-taken` note satisfies the work→terminal gate. Complete:
 
 ```
-complete_tree(itemIds=["<retro-uuid>"], trigger="complete")
+advance_item(transitions=[{itemId: "<retro-uuid>", trigger: "complete"}])
 ```
+
+### 8c. Acknowledge the retrospective to the trigger hooks
+
+Run via Bash, from the skill's base directory shown at invocation (`<skill-base-dir>`):
+
+```
+node "<skill-base-dir>/../../hooks/retro-ack.mjs"
+```
+
+This stamps the hook dedup marker as handled, extending the suppression window so the Stop backstop does not re-prompt for a retrospective — a manual run completing its own item must not look like a new implementation run needing one. This step is best-effort: if the script is missing (plugin layout changed), continue without failing the retrospective.
 
 ---
 

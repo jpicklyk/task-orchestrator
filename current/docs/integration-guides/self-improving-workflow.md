@@ -519,37 +519,18 @@ Do not auto-invoke. Show at most once per implementation run.
 
 This relies on the agent noticing the terminal transition and remembering to nudge. Soft signal, no infrastructure.
 
-**Option 6b — PostToolUse hooks (reliable).** Add two Node hook scripts and wire them in `.claude/settings.json`. The TO project repo carries reference implementations:
+**Option 6b — Plugin-native hooks (reliable, no setup required).** The `task-orchestrator` plugin ships deterministic retrospective hooks out of the box:
 
-| Hook | Path in TO repo | Triggers on |
-|------|-----------------|-------------|
-| `post-advance-retro-nudge.mjs` | `.claude/hooks/post-advance-retro-nudge.mjs` | `advance_item` calls that produce `"newRole":"terminal"` |
-| `post-complete-tree-retro-nudge.mjs` | `.claude/hooks/post-complete-tree-retro-nudge.mjs` | every `complete_tree` call |
+| Hook | Fires on | Role |
+|------|----------|------|
+| `retro-trigger.mjs` | PostToolUse on `advance_item` / `complete_tree` | Detects parent/run completion and records lone terminals |
+| `retro-backstop.mjs` | Stop | End-of-turn backstop so a completion is never silently missed |
 
-Each script writes a `hookSpecificOutput.additionalContext` block that injects a one-line retrospective nudge into the agent's next turn. Copy both scripts into your project's `.claude/hooks/` and register them in `.claude/settings.json`:
+Both are registered automatically via the plugin's `hooks-config.json` — there is nothing to copy into `.claude/hooks/` and no `.claude/settings.json` wiring to add. Enabling the plugin (see [Claude Code Plugin Discovery](../../../CLAUDE.md#claude-code-plugin-discovery) in the repo root `CLAUDE.md`) is enough.
 
-```json
-{
-  "hooks": {
-    "PostToolUse": [
-      {
-        "matcher": "mcp__mcp-task-orchestrator__advance_item",
-        "hooks": [
-          { "type": "command", "command": "node .claude/hooks/post-advance-retro-nudge.mjs", "timeout": 5 }
-        ]
-      },
-      {
-        "matcher": "mcp__mcp-task-orchestrator__complete_tree",
-        "hooks": [
-          { "type": "command", "command": "node .claude/hooks/post-complete-tree-retro-nudge.mjs", "timeout": 5 }
-        ]
-      }
-    ]
-  }
-}
-```
+Behavior is configured per workspace via `retrospective.mode` in `.taskorchestrator/config.yaml`: `nudge` (default, prints the suggestion) | `dispatch` (directs a background `/session-retrospective` automatically) | `off` (disabled) — `headless` is reserved for a future mode. See [config-format.md → Retrospective](../../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#retrospective) for the full field reference; edits to `retrospective.mode` take effect on the next hook trigger, no `/mcp` reconnect needed.
 
-Hooks fire deterministically on every matching tool call regardless of agent attention, so the nudge cannot be silently skipped. The TO repo uses both 6a and 6b together — the hook injects the nudge, the output-style prose tells the agent how to act on it.
+Hooks fire deterministically on every matching tool call regardless of agent attention, so the nudge cannot be silently skipped. The TO repo uses both 6a and 6b together — the hook injects the nudge (or dispatch directive, in `dispatch` mode), the output-style prose tells the agent how to act on it.
 
 **7.** Reload Claude Code so the schemas, skill, hooks, and output style are picked up. If you only edited `.taskorchestrator/config.yaml`, run `/mcp` to reconnect.
 

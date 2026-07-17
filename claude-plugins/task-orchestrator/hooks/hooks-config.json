@@ -64,6 +64,16 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "matcher": "mcp__mcp-task-orchestrator__advance_item|mcp__mcp-task-orchestrator__complete_tree",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/retro-trigger.mjs",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "SubagentStart": [
@@ -74,6 +84,18 @@
             "type": "command",
             "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/subagent-start.mjs",
             "timeout": 3
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/retro-backstop.mjs",
+            "timeout": 5
           }
         ]
       }

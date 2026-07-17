@@ -366,6 +366,40 @@ work_item_schemas:
 
 ---
 
+## Retrospective
+
+The `retrospective:` section is a top-level key alongside `work_item_schemas`, `traits`, `actor_authentication`, and `project`. It controls how the plugin's hooks behave when an implementation run reaches terminal — whether they merely suggest running `/session-retrospective`, or actively direct an agent to dispatch one in the background.
+
+```yaml
+retrospective:
+  mode: nudge   # nudge (default) | dispatch | off | headless (reserved)
+```
+
+Default: `nudge` — applied when the `retrospective:` block or `mode` key is absent, or the value is unrecognized.
+
+### Fields
+
+| Field | Required | Type | Notes |
+|-------|----------|------|-------|
+| `mode` | no | string | `nudge`, `dispatch`, `off`, or the reserved `headless`. Defaults to `nudge` |
+
+### Modes
+
+| Mode | Behavior |
+|------|----------|
+| `nudge` (default) | Hooks inject a suggestion to run `/session-retrospective` when an implementation run reaches terminal. The agent decides whether to act on it. |
+| `dispatch` | Hooks inject a directive that launches exactly one background retrospective agent per run — no suggestion, an instruction to act. |
+| `off` | Hooks stay silent — no retrospective suggestion or dispatch directive is injected. |
+| `headless` (reserved) | **Not implemented yet.** Intended for a future version where the hook spawns a detached `claude -p` retrospective session outside the current conversation. Today, setting `mode: headless` falls back to `nudge` behavior, same as any other unrecognized value. |
+
+### Behavior
+
+- **Client-side only.** This block is read directly from the workspace file by the plugin hooks (`PostToolUse` hook `retro-trigger.mjs` and `Stop` hook `retro-backstop.mjs`) — the MCP server never interprets it. Per-root `config-sync` still pushes the file verbatim; the server reports `retrospective` under `ignoredSections` in the push response, same as any other section it doesn't resolve against (see "Global vs Per-Project Config" below).
+- **No hot-reload needed.** Because hooks read the file fresh on every fire (unlike the server's cached/per-root schema resolution), an edit to `retrospective.mode` takes effect on the next hook trigger — no `/mcp` reconnect required.
+- **`project.rootId` recommended.** The hooks key their dedup marker (which prevents a duplicate nudge or dispatch directive from firing twice for the same run) on `project.rootId` when present. This gives reliable self-suppression once the background retrospective subagent completes its own item and the run is recognized as closed out. Without a configured `rootId`, dedup falls back to a weaker session-local signal.
+
+---
+
 ## Global vs Per-Project Config
 
 Config resolves in **two layers**, chosen per work item by its `rootId`:
