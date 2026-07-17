@@ -116,8 +116,11 @@ if (!missing) {
 }
 
 process.stdout.write(JSON.stringify({
-  decision: 'block',
-  reason: 'Actor authentication is enabled \u2014 actor attribution required. Include an "actor" object ' +
-    'with "id" (string) and "kind" (orchestrator|subagent|user|external) on every ' +
-    'transition/note element. For subagents, include "parent" with the dispatching agent\'s id.'
+  hookSpecificOutput: {
+    hookEventName: 'PreToolUse',
+    permissionDecision: 'deny',
+    permissionDecisionReason: 'Actor authentication is enabled \u2014 actor attribution required. Include an "actor" object ' +
+      'with "id" (string) and "kind" (orchestrator|subagent|user|external) on every ' +
+      'transition/note element. For subagents, include "parent" with the dispatching agent\'s id.'
+  }
 }));
