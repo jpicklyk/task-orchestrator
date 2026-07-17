@@ -407,18 +407,28 @@ with `deleteAll=true` for every dependency on that item.
         val sharedUnblockAt = optionalString(params, "unblockAt")
 
         val dependencies: List<Dependency> =
-            try {
-                if (depsArray != null) {
-                    parseDependenciesArray(depsArray, sharedType, sharedUnblockAt, context)
-                } else {
-                    generateFromPattern(params, pattern!!, sharedType, sharedUnblockAt, context)
+            if (depsArray != null) {
+                // Validate every element, collecting all per-index failures (batch-create convention).
+                val (parsed, failures) = parseDependenciesArray(depsArray, sharedType, sharedUnblockAt, context)
+                if (failures.isNotEmpty()) {
+                    return successResponse(buildValidationFailureResponse(failures))
                 }
-            } catch (e: ToolValidationException) {
-                val failedCount = depsArray?.size ?: 1
-                return successResponse(buildValidationFailureResponse(e.message ?: "Validation failed", failedCount))
-            } catch (e: ValidationException) {
-                val failedCount = depsArray?.size ?: 1
-                return successResponse(buildValidationFailureResponse(e.message ?: "Domain validation failed", failedCount))
+                parsed
+            } else {
+                // A pattern is a single logical spec — first-error reporting is correct here.
+                try {
+                    generateFromPattern(params, pattern!!, sharedType, sharedUnblockAt, context)
+                } catch (e: ToolValidationException) {
+                    return successResponse(
+                        buildValidationFailureResponse(listOf(DependencyFailure(0, e.message ?: "Validation failed")))
+                    )
+                } catch (e: ValidationException) {
+                    return successResponse(
+                        buildValidationFailureResponse(
+                            listOf(DependencyFailure(0, e.message ?: "Domain validation failed"))
+                        )
+                    )
+                }
             }
 
         val repo = context.dependencyRepository()
@@ -447,64 +457,90 @@ with `deleteAll=true` for every dependency on that item.
                 }
             successResponse(data)
         } catch (e: ValidationException) {
-            successResponse(buildValidationFailureResponse(e.message ?: "Dependency creation failed", dependencies.size))
+            // Batch-level rejection (cycle/duplicate detected across the whole batch) — a single failure.
+            successResponse(
+                buildValidationFailureResponse(listOf(DependencyFailure(0, e.message ?: "Dependency creation failed")))
+            )
         } catch (e: Exception) {
             errorResponse(e.message ?: "Unexpected error creating dependencies", ErrorCodes.INTERNAL_ERROR)
         }
     }
 
+    /**
+     * Validates every element of the `dependencies` array independently, returning the successfully
+     * parsed dependencies alongside a per-index list of validation failures. Unlike a fail-fast parse,
+     * this reports ALL invalid elements in one pass so batch callers see every error at once
+     * (batch-create convention). Creation stays atomic: the caller must not create anything when the
+     * returned failure list is non-empty.
+     */
     private suspend fun parseDependenciesArray(
         depsArray: JsonArray,
         sharedType: DependencyType,
         sharedUnblockAt: String?,
         context: ToolExecutionContext
-    ): List<Dependency> {
+    ): Pair<List<Dependency>, List<DependencyFailure>> {
         val result = mutableListOf<Dependency>()
+        val failures = mutableListOf<DependencyFailure>()
         for ((index, element) in depsArray.withIndex()) {
-            val depObj =
-                element as? JsonObject
-                    ?: throw ToolValidationException("Dependency at index $index must be a JSON object")
-
-            val fromItemIdStr =
-                extractItemString(depObj, "fromItemId")
-                    ?: throw ToolValidationException("Dependency at index $index: 'fromItemId' is required")
-            val toItemIdStr =
-                extractItemString(depObj, "toItemId")
-                    ?: throw ToolValidationException("Dependency at index $index: 'toItemId' is required")
-
-            val (fromItemId, fromErr) = resolveIdString(fromItemIdStr, context)
-            if (fromErr != null || fromItemId == null) {
-                throw ToolValidationException(
-                    "Dependency at index $index: 'fromItemId' could not be resolved: $fromItemIdStr"
-                )
-            }
-            val (toItemId, toErr) = resolveIdString(toItemIdStr, context)
-            if (toErr != null || toItemId == null) {
-                throw ToolValidationException(
-                    "Dependency at index $index: 'toItemId' could not be resolved: $toItemIdStr"
-                )
-            }
-
-            val typeStr = extractItemString(depObj, "type")
-            val type =
-                if (typeStr != null) {
-                    DependencyType.fromString(typeStr)
-                        ?: throw ToolValidationException(
-                            "Dependency at index $index: invalid type '$typeStr'. Valid: BLOCKS, IS_BLOCKED_BY, RELATES_TO"
-                        )
-                } else {
-                    sharedType
-                }
-
-            val unblockAt = extractItemString(depObj, "unblockAt") ?: sharedUnblockAt
-
             try {
-                result.add(Dependency(fromItemId = fromItemId, toItemId = toItemId, type = type, unblockAt = unblockAt))
-            } catch (e: ValidationException) {
-                throw ToolValidationException("Dependency at index $index: ${e.message}")
+                result.add(parseOneDependency(index, element, sharedType, sharedUnblockAt, context))
+            } catch (e: ToolValidationException) {
+                failures.add(DependencyFailure(index, e.message ?: "Validation failed"))
             }
         }
-        return result
+        return result to failures
+    }
+
+    /** Parses and validates a single dependency element, throwing [ToolValidationException] on any failure. */
+    private suspend fun parseOneDependency(
+        index: Int,
+        element: JsonElement,
+        sharedType: DependencyType,
+        sharedUnblockAt: String?,
+        context: ToolExecutionContext
+    ): Dependency {
+        val depObj =
+            element as? JsonObject
+                ?: throw ToolValidationException("Dependency at index $index must be a JSON object")
+
+        val fromItemIdStr =
+            extractItemString(depObj, "fromItemId")
+                ?: throw ToolValidationException("Dependency at index $index: 'fromItemId' is required")
+        val toItemIdStr =
+            extractItemString(depObj, "toItemId")
+                ?: throw ToolValidationException("Dependency at index $index: 'toItemId' is required")
+
+        val (fromItemId, fromErr) = resolveIdString(fromItemIdStr, context)
+        if (fromErr != null || fromItemId == null) {
+            throw ToolValidationException(
+                "Dependency at index $index: 'fromItemId' could not be resolved: $fromItemIdStr"
+            )
+        }
+        val (toItemId, toErr) = resolveIdString(toItemIdStr, context)
+        if (toErr != null || toItemId == null) {
+            throw ToolValidationException(
+                "Dependency at index $index: 'toItemId' could not be resolved: $toItemIdStr"
+            )
+        }
+
+        val typeStr = extractItemString(depObj, "type")
+        val type =
+            if (typeStr != null) {
+                DependencyType.fromString(typeStr)
+                    ?: throw ToolValidationException(
+                        "Dependency at index $index: invalid type '$typeStr'. Valid: BLOCKS, IS_BLOCKED_BY, RELATES_TO"
+                    )
+            } else {
+                sharedType
+            }
+
+        val unblockAt = extractItemString(depObj, "unblockAt") ?: sharedUnblockAt
+
+        return try {
+            Dependency(fromItemId = fromItemId, toItemId = toItemId, type = type, unblockAt = unblockAt)
+        } catch (e: ValidationException) {
+            throw ToolValidationException("Dependency at index $index: ${e.message}")
+        }
     }
 
     private suspend fun generateFromPattern(
@@ -684,23 +720,30 @@ with `deleteAll=true` for every dependency on that item.
         return if (content.isBlank()) null else content
     }
 
-    private fun buildValidationFailureResponse(
-        error: String,
-        failedCount: Int
-    ): JsonObject =
+    /** A single validation failure tied to its 0-based position in the request's `dependencies` array. */
+    private data class DependencyFailure(
+        val index: Int,
+        val error: String
+    )
+
+    /**
+     * Builds the atomic-failure response. `failed` is always the length of [failures] so the count can
+     * never overstate the number of documented failures (the phantom-count bug this replaced).
+     */
+    private fun buildValidationFailureResponse(failures: List<DependencyFailure>): JsonObject =
         buildJsonObject {
             put("dependencies", JsonArray(emptyList()))
             put("created", JsonPrimitive(0))
-            put("failed", JsonPrimitive(failedCount))
+            put("failed", JsonPrimitive(failures.size))
             put(
                 "failures",
                 JsonArray(
-                    listOf(
+                    failures.map { failure ->
                         buildJsonObject {
-                            put("index", JsonPrimitive(0))
-                            put("error", JsonPrimitive(error))
+                            put("index", JsonPrimitive(failure.index))
+                            put("error", JsonPrimitive(failure.error))
                         }
-                    )
+                    }
                 )
             )
         }

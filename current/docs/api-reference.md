@@ -904,12 +904,15 @@ spans the entire batch).
 {
   "dependencies": [],
   "created": 0,
-  "failed": 1,
-  "failures": [{ "index": 0, "error": "A dependency cannot reference the same item on both sides" }]
+  "failed": 2,
+  "failures": [
+    { "index": 0, "error": "Dependency at index 0: invalid type 'FOO'. Valid: BLOCKS, IS_BLOCKED_BY, RELATES_TO" },
+    { "index": 2, "error": "Dependency at index 2: 'fromItemId' could not be resolved: not-a-uuid" }
+  ]
 }
 ```
 
-Note: atomicity is preserved — either all dependencies are created or none. On any validation failure, `created` is always 0 and `failures` contains a single entry describing the rejection reason. The `failures[].index` field is 0-based (the first item is index 0).
+Note: atomicity is preserved — either all dependencies are created or none. On any validation failure, `created` is always 0 and `failed` **always equals `failures.length`**. Every element of the `dependencies` array is validated independently, so `failures` reports **one entry per invalid element**, each carrying that element's 0-based `index` — a batch with three specs where the first and third are malformed returns two failures at indices 0 and 2 (the valid middle element is still not created). A batch-level rejection that is a property of the whole batch rather than one element — a cycle formed across multiple specs, or a duplicate of an existing dependency — is reported as a single failure entry.
 
 **Constraint: `RELATES_TO` and `unblockAt`.** Specifying `unblockAt` on a `RELATES_TO` dependency is a validation error. `RELATES_TO` dependencies have no blocking semantics and do not support an unblock threshold; providing one will return a validation failure response.
 
