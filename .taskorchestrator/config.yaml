@@ -1,0 +1,170 @@
+project:
+  rootId: "ce064d2c-7c03-4eac-ae7d-89a14c2ba273"
+  name: "TaskOrchestrator"
+
+retrospective:
+  mode: dispatch
+
+work_item_schemas:
+
+  feature-implementation:
+    lifecycle: auto
+    default_traits: [delegated, session-tracked]
+    notes:
+      - key: feature-summary
+        role: queue
+        required: true
+        description: "Lean feature-level summary — goal, findings-to-tasks mapping, dependency edges, non-goals pointer."
+        skill: "spec-quality"
+        guidance: "Keep this lean — target under 2k chars. Cover: (1) the goal in 2-3 sentences, (2) a findings→tasks table mapping brainstorm/research findings to the child task-scope items created for them, (3) dependency edges between those child tasks, (4) a pointer to where non-goals and alternatives are recorded — the full spec-quality bar (alternatives, blast radius, risk flags, test strategy) belongs in each child's task-scope note, not here."
+      - key: implementation-notes
+        role: work
+        required: true
+        description: "Context handoff for downstream agents — deviations, surprises, and decisions that affect dependent work."
+        guidance: "Document decisions made during implementation that weren't in the feature-summary. Focus on what downstream agents need to know: deviations from the plan, API or interface surprises, assumptions that turned out wrong, and any patterns discovered that affect dependent tasks."
+      - key: review-checklist
+        role: review
+        required: true
+        description: "Quality gate — plan alignment, test quality, and simplification review."
+        skill: "review-quality"
+        guidance: "Verify: (1) what was built aligns with the feature-summary and each child's task-scope — flag planned items that were missed or unplanned changes that were added, (2) tests add specific value and cover the test strategy from the feature's planning notes — not strawman tests that pass without verifying real behavior, (3) if /simplify was run and made changes, verify those changes have test coverage — the reviewer does not run simplify or make fixes, only reports gaps. Also flag changes outside the feature's declared scope."
+
+  feature-task:
+    lifecycle: auto
+    default_traits: [delegated, session-tracked]
+    notes:
+      - key: task-scope
+        role: queue
+        required: true
+        description: "What to build — target files, acceptance criteria, constraints."
+        skill: "spec-quality"
+        guidance: "Define the narrow scope of this task. Include: what to build (specific behavior or component), target files and modules, acceptance criteria (how to verify it works), and constraints or dependencies on other tasks. The parent feature specification covers the 'why' and alternatives — this note covers the 'what' for this specific task."
+      - key: implementation-notes
+        role: work
+        required: true
+        description: "Context handoff — deviations, surprises, and decisions that affect dependent work."
+        guidance: "Document decisions made during implementation that weren't in the task scope. Focus on what downstream agents need to know: deviations from the plan, API or interface surprises, assumptions that turned out wrong, and any patterns discovered that affect dependent tasks."
+
+  bug-fix:
+    lifecycle: auto
+    default_traits: [delegated, session-tracked]
+    notes:
+      - key: diagnosis
+        role: queue
+        required: true
+        description: "Reproduction, root cause, and fix approach."
+        skill: "spec-quality"
+        guidance: "This note must cover: reproduction steps (exact inputs and expected vs actual output), root cause (specific file, function, and condition), fix approach with alternatives considered (min 2 options + 'do nothing'), blast radius of the fix, and test strategy (regression test for the bug, edge cases around the fix). Read references/project-concerns.md for codebase-specific constraints."
+      - key: implementation-notes
+        role: work
+        required: true
+        description: "Context handoff for downstream agents — what changed, deviations from the diagnosis, and patterns to apply elsewhere."
+        guidance: "Document what was changed and why. Focus on what downstream agents need to know: deviations from the planned fix, whether the root cause was different than diagnosed, patterns that should be applied elsewhere (e.g., same bug exists in similar code paths), and any assumptions that turned out wrong."
+      - key: review-checklist
+        role: review
+        required: true
+        description: "Quality gate — fix alignment, test quality, and simplification review."
+        skill: "review-quality"
+        guidance: "Verify: (1) the fix addresses the diagnosed root cause and doesn't just mask symptoms, (2) a regression test exists that would have caught the original bug, (3) tests cover edge cases from the diagnosis test strategy, (4) if /simplify was run and made changes, verify those changes have test coverage — the reviewer does not run simplify or make fixes, only reports gaps."
+
+  plugin-change:
+    lifecycle: auto
+    default_traits: [session-tracked]
+    notes:
+      - key: specification
+        role: queue
+        required: true
+        description: "What is changing, why, and expected behavior after the change."
+        guidance: "Describe the plugin/config change: what files are affected, what behavior changes, and how to verify. For skill changes, include the trigger phrase and expected output. For hook changes, include the event and matcher. **Plugin blast radius:** consider whether hook caching requires /mcp reconnect, whether CRLF line endings will break script execution, and whether new skill trigger phrases conflict with existing skills. No implementation-notes gate — config changes are self-documenting."
+
+  quick-fix:
+    lifecycle: auto
+    notes:
+      - key: session-tracking
+        role: work
+        required: true
+        description: "Brief record of what was changed and test results."
+        guidance: "This feeds /session-retrospective — one-paragraph summary: what file(s) changed, what the fix was, test pass/fail count. No structured sections needed — keep it under 100 words."
+
+  container:
+    lifecycle: manual
+    notes:
+      - key: container-summary
+        role: queue
+        required: false
+        description: "Optional high-level description of what this container organizes."
+        guidance: "Brief description of the container's purpose and scope. Not required — containers exist to group work items, not to carry implementation detail."
+
+  default:
+    lifecycle: auto
+    default_traits: [session-tracked]
+    notes: []
+
+traits:
+  needs-migration-review:
+    notes:
+      - key: migration-assessment
+        role: queue
+        required: true
+        description: "SQLite migration strategy — table recreation patterns, data migration, rollback plan."
+        skill: "migration-review"
+        guidance: "Document: (1) what schema changes are needed (new columns, table recreation, index changes), (2) SQLite constraints (no ALTER COLUMN — requires table recreation if modifying existing columns), (3) data migration strategy for existing rows, (4) Flyway migration file name and version number, (5) DirectDatabaseSchemaManager table ordering impact. Reference .claude/skills/spec-quality/references/project-concerns.md for SQLite-specific gotchas."
+
+  needs-api-compat-review:
+    notes:
+      - key: api-compatibility
+        role: review
+        required: true
+        description: "Compatibility assessment for API changes — the MCP tool surface (dynamically re-discovered) and the REST surface (hardcoded clients) have different compatibility models."
+        skill: "api-compat-review"
+        guidance: "Assess the MCP surface and the REST surface separately — their compatibility models differ, see the api-compat-review skill for the full framework. For any REST-facing change, update openapi.yaml and api-rest.md."
+
+  needs-plugin-update:
+    notes:
+      - key: plugin-impact
+        role: review
+        required: true
+        description: "Assessment of plugin skill and hook changes needed."
+        skill: "plugin-impact-review"
+        guidance: "Check: (1) which skills reference the changed behavior (grep skill files for affected tool names, config keys, or concepts), (2) which hooks inject context that references the changed behavior, (3) whether config-format.md needs updating, (4) whether output style references need updating. List specific files and sections that need changes. Plugin content is cached — note if /mcp reconnect is needed."
+
+  needs-security-review:
+    notes:
+      - key: security-assessment
+        role: review
+        required: true
+        description: "Security review of auth, data handling, and access control."
+        guidance: "Evaluate: (1) input validation — are all user/external inputs validated before use? (2) injection risk — SQL injection via Exposed ORM (parameterized queries), command injection, XSS in response payloads, (3) access control — does the change respect existing authorization patterns? (4) data handling — sensitive data not logged, not stored in plain text unnecessarily. Flag any OWASP Top 10 concerns."
+
+  needs-perf-review:
+    notes:
+      - key: performance-baseline
+        role: queue
+        required: false
+        description: "Performance impact assessment and measurement plan."
+        skill: "perf-review"
+        guidance: "Document: (1) which hot paths are affected (per-request, per-item loops, startup), (2) expected performance impact (new DB queries, JSON parsing, file I/O), (3) whether the change is O(n) where n could be large, (4) measurement plan — how to verify performance is acceptable. This note is optional — use it when the change touches known hot paths or adds significant new work."
+
+  delegated:
+    notes:
+      - key: delegation-metadata
+        role: work
+        required: false
+        description: "Model, isolation, rationale, and outcome for a delegated dispatch (orchestrator-filled)."
+        guidance: "Filled by the orchestrator AFTER a subagent returns (the subagent doesn't know which model it ran on). Record model (haiku/sonnet/opus), isolation (inline or worktree:<path>), a one-line rationale, and a one-line outcome. Optional — feeds /session-retrospective delegation-alignment scoring; absent is tolerated."
+
+  needs-task-review:
+    notes:
+      - key: review-checklist
+        role: review
+        required: true
+        description: "Task-level quality gate — scope alignment and test coverage."
+        guidance: "Verify: (1) what was built matches the task-scope note — flag scope creep or missed acceptance criteria, (2) tests cover the stated acceptance criteria and aren't strawman tests, (3) no unintended side effects on files outside the task scope. Task-level review does not run /simplify — that happens at the feature-container level."
+
+  session-tracked:
+    notes:
+      - key: session-tracking
+        role: work
+        required: true
+        description: "Session context — what was done, how it went, and anything the retrospective should know."
+        guidance: "Record what happened during implementation. Structure: - **Outcome**: success | partial | failure - **Files changed**: list with brief rationale - **Deviations**: anything that differed from the specification or plan - **Friction**: tool errors, roundtrips, workarounds, API confusion (type + description) - **Gate interactions**: note fill attempts, gate failures encountered - **Observations**: anything worth tracking for process improvement - **Test results**: pass/fail counts, new tests added. Keep it factual and concise — this feeds the session retrospective."
