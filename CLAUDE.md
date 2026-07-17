@@ -23,7 +23,7 @@ java -jar current/build/libs/mcp-task-orchestrator-*.jar
 docker build -t task-orchestrator:dev .
 docker run --rm -i \
   -v mcp-task-data:/app/data \
-  -v "$(pwd)"/.taskorchestrator:/project/.taskorchestrator:ro \
+  -v "$(pwd)"/deploy/global-config/.taskorchestrator:/project/.taskorchestrator:ro \
   -e AGENT_CONFIG_DIR=/project \
   task-orchestrator:dev
 ```
@@ -139,6 +139,7 @@ private fun getConfigPath(): Path {
 - In local dev: not needed (uses working directory)
 - Currently used by: `YamlWorkItemSchemaService`
 - **This is the GLOBAL/fallback config.** `AGENT_CONFIG_DIR` locates the single, server-wide `.taskorchestrator/config.yaml`, read once at startup (restart to reload). Per-**project** config is stored per-root in the DB — pushed via `manage_project_config` or `PUT /api/v1/roots/{rootId}/config`, synced from the workspace file by the `config-sync` SessionStart hook — and hot-reloads without a restart, layering over this global file per item `rootId`. See `claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md` → "Global vs Per-Project Config".
+- This repo's own `.taskorchestrator/config.yaml` is git-tracked dogfood config and doubles as a living schema/trait example — it is delivered to the server per-root via the `config-sync` hook, not mounted as the global config. The actual global mount is the process-schema floor at `deploy/global-config/.taskorchestrator/` — agent-observation, session-retrospective, improvement-proposal, and container schemas only, shared across every project the server serves.
 
 ## Adding New Components
 

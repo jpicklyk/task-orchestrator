@@ -56,11 +56,11 @@ docker inspect mcp-task-orchestrator-http --format '{{range .Config.Env}}{{print
   | grep -E 'API_ENABLED|API_AUTH_MODE|API_ALLOW_UNAUTHENTICATED|API_TOKENS_PATH|LOG_LEVEL' || echo '(no existing container)'
 # config mount present?
 docker inspect mcp-task-orchestrator-http --format '{{range .Mounts}}{{.Source}} -> {{.Destination}}{{println}}{{end}}' 2>/dev/null \
-  | grep -q '/project/.taskorchestrator' && echo 'config-mount: project' || echo 'config-mount: none'
+  | grep -q '/project/.taskorchestrator' && echo 'config-mount: floor' || echo 'config-mount: none'
 ```
 Derive the **REST mode** from the env: `API_ENABLED=false` → **off**; `API_ENABLED=true` + `API_AUTH_MODE=none` → **unauthenticated**; `+ API_AUTH_MODE=bearer` → **bearer**.
 
-If no container exists, fall back (in order) to: the persisted file `${HOME}/.taskorchestrator/deploy.env` (see 4d); else the **defaults** — HTTP transport, REST **off**, **project** config mount, loopback `127.0.0.1:3001`, debug off.
+If no container exists, fall back (in order) to: the persisted file `${HOME}/.taskorchestrator/deploy.env` (see 4d); else the **defaults** — HTTP transport, REST **off**, **floor** config mount, loopback `127.0.0.1:3001`, debug off.
 
 Build a one-line `DETECTED` summary, e.g. `HTTP · REST=unauthenticated (local) · config-mount=none · debug=off · 127.0.0.1:3001 · image=task-orchestrator:current`.
 
@@ -93,7 +93,7 @@ AskUserQuestion(questions: [{
   ]
 }])
 ```
-For **STDIO**, use the legacy interactive run (`docker run --rm -i -v mcp-task-data:/app/data [-v <pwd>/.taskorchestrator:/project/.taskorchestrator:ro -e AGENT_CONFIG_DIR=/project] [-e LOG_LEVEL=DEBUG -e DATABASE_SHOW_SQL=true] <image-tag>`) and skip the HTTP questions below.
+For **STDIO**, use the legacy interactive run (`docker run --rm -i -v mcp-task-data:/app/data [-v <pwd>/deploy/global-config/.taskorchestrator:/project/.taskorchestrator:ro -e AGENT_CONFIG_DIR=/project] [-e LOG_LEVEL=DEBUG -e DATABASE_SHOW_SQL=true] <image-tag>`) and skip the HTTP questions below.
 
 For **HTTP**, ask:
 
@@ -115,10 +115,10 @@ AskUserQuestion(questions: [{
 **Config mount:**
 ```
 AskUserQuestion(questions: [{
-  question: "Mount this project's config as the server's global/fallback config?", header: "Config mount", multiSelect: false,
+  question: "Mount the process-schema floor config as the server's global/fallback config?", header: "Config mount", multiSelect: false,
   options: [
-    { label: "This project (fallback)", description: "Mount ./.taskorchestrator read-only as AGENT_CONFIG_DIR — the global fallback config." },
-    { label: "None (multi-project)", description: "No project mount. Per-project config flows in via the config-sync hook into the DB per root." }
+    { label: "Floor config (recommended)", description: "Mount ./deploy/global-config/.taskorchestrator read-only as AGENT_CONFIG_DIR — the process-schema floor (agent-observation, session-retrospective, improvement-proposal, container). Project-specific schemas still flow in per-root via config-sync." },
+    { label: "None (multi-project)", description: "No global mount. All schemas — including the process ones — flow in via the config-sync hook into the DB per root." }
   ]
 }])
 ```
@@ -135,7 +135,7 @@ IMAGE_TAG=<image-tag>
 TRANSPORT=http
 REST_MODE=<off|unauth|bearer>
 TOKENS_HOST_PATH=<host path, bearer only>
-CONFIG_MOUNT=<project|none>
+CONFIG_MOUNT=<floor|none>
 DEBUG=<true|false>
 EOF
 ```
@@ -189,4 +189,4 @@ If **unauthenticated** REST was selected, repeat the loopback-only SECURITY cave
 - **Build fails:** verify the Dockerfile exists at project root; check disk space.
 - **Container won't start:** reconfigure with Debug logging; `docker logs mcp-task-orchestrator-http`. If you set REST unauthenticated on a **pre-#237 image**, the old loader rejects `API_AUTH_MODE=none` at startup — rebuild first.
 - **DB permission errors:** `docker run --rm -v mcp-task-data:/app/data --user root amazoncorretto:25-al2023-headless chown -R 1001:1001 /app/data`.
-- **Config not found:** use a config mount (not None) if you rely on the global fallback config; verify `.taskorchestrator/` exists.
+- **Config not found:** use a config mount (not None) if you rely on the global fallback config; verify `deploy/global-config/.taskorchestrator/` exists.
