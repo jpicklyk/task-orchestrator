@@ -146,6 +146,23 @@ traits:
         skill: "migration-review"
         guidance: "Document schema changes, SQLite constraints, data migration strategy, Flyway migration details."
 
+  needs-api-compat-review:
+    notes:
+      - key: api-compatibility
+        role: review
+        required: true
+        description: "Compatibility assessment for API changes — the MCP tool surface (dynamically re-discovered) and the REST surface (hardcoded clients) have different compatibility models."
+        guidance: "Assess by surface. **MCP tools:** clients re-read the tools/list schema each session, so parameter renames/additions are NOT breaking — verify instead that each changed param's schema key and its read site stay in sync, and that all first-party callers (skills, hooks, output styles, memory, api-reference.md) update in lockstep; a pure rename needn't keep the old name working. **REST API:** clients hardcode field/param names, so compatibility matters — keep response shapes additive, and renames/removals need a migration path or version bump. Update openapi.yaml + api-rest.md for REST changes."
+
+  needs-plugin-update:
+    notes:
+      - key: plugin-impact
+        role: review
+        required: true
+        description: "Assessment of plugin skill and hook changes needed after a behavior change."
+        skill: "plugin-impact-review"
+        guidance: "Identify which skills reference the changed behavior, which hooks inject affected context, and whether config-format docs or output styles need updating. List specific files/sections. Plugin content is cached — note if an /mcp reconnect is needed."
+
   needs-security-review:
     notes:
       - key: security-assessment
@@ -153,6 +170,15 @@ traits:
         required: true
         description: "Security review of auth, data handling, and access control."
         guidance: "Evaluate input validation, injection risks, access control, data handling. Flag OWASP Top 10 concerns."
+
+  needs-perf-review:
+    notes:
+      - key: performance-baseline
+        role: queue
+        required: false
+        description: "Performance impact assessment and measurement plan."
+        skill: "perf-review"
+        guidance: "Document affected hot paths, expected impact (new queries, parsing, file I/O), any O(n) risk where n could be large, and a measurement plan. Optional — use when the change touches known hot paths."
 
   delegated:
     notes:
