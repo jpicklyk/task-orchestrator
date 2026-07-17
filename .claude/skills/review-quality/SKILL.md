@@ -28,14 +28,16 @@ The reviewer is given an MCP item ID. Use MCP tools and codebase access to gathe
 you need — do not expect context to be pre-loaded for you.
 
 1. **Load the item's notes** — `query_notes(itemId=..., includeBody=true)` to retrieve
-   the `specification` and `implementation-notes`.
+   the planning note and `implementation-notes`. The planning note's key depends on the
+   item's schema: `feature-summary` (feature-implementation), `task-scope` (feature-task),
+   or `diagnosis` (bug-fix).
 2. **Read the changed files** — use the implementation notes to identify which files were
    modified, then read them directly. Review the actual code, not just summaries.
 3. **Run the test suite** — execute the project's test command and capture the results.
    Do not assume tests pass because the implementation agent said they did.
 
-If the specification or implementation notes are missing, the review cannot proceed.
-Report this as a blocking issue.
+If the planning note (feature-summary / task-scope / diagnosis) or implementation notes
+are missing, the review cannot proceed. Report this as a blocking issue.
 
 ---
 
@@ -61,11 +63,12 @@ issue — the item cannot advance with a failing test suite.
 
 ### 2. Plan Alignment
 
-Compare what was built against the specification. The goal is to catch drift in both
-directions — work that was planned but not done, and work that was done but not planned.
+Compare what was built against the planning note (feature-summary / task-scope /
+diagnosis). The goal is to catch drift in both directions — work that was planned but
+not done, and work that was done but not planned.
 
 **Check each acceptance criterion.** Walk through the acceptance criteria from the
-specification one by one. For each criterion, identify the specific code change that
+planning note one by one. For each criterion, identify the specific code change that
 satisfies it. If a criterion has no corresponding implementation, flag it — either the
 work is incomplete or the criterion was intentionally descoped (which should appear in
 the implementation notes).
@@ -75,12 +78,12 @@ trace back to any acceptance criterion. Unplanned changes aren't automatically w
 sometimes implementation reveals necessary adjacent work. But they should be
 acknowledged and justified in the implementation notes, not silent.
 
-**Check non-goals weren't violated.** Review the specification's non-goals list. If the
+**Check non-goals weren't violated.** Review the planning note's non-goals list. If the
 implementation touched areas that were explicitly scoped out, flag it.
 
 ### 3. Test Quality
 
-The specification's test strategy defined what should be tested — happy paths, failure
+The planning note's test strategy defined what should be tested — happy paths, failure
 paths, and edge cases. The reviewer verifies that the tests actually deliver on that
 strategy, not just that they exist and pass.
 
@@ -88,7 +91,7 @@ This is where the separation of concerns matters most. The agent that wrote the 
 has an inherent bias toward believing they're correct. An independent reviewer can
 evaluate whether the tests verify real behavior or just confirm that code runs.
 
-**Map tests to the test strategy.** For each scenario in the specification's test
+**Map tests to the test strategy.** For each scenario in the planning note's test
 strategy, identify the corresponding test. Missing coverage is a gap to report.
 
 **Evaluate test substance.** Watch for these patterns that produce green results
@@ -112,16 +115,20 @@ development, check whether tests were added for those too.
 
 ### 4. Simplification
 
-Run the `/simplify` skill on the changed files and document its findings. The reviewer
-records what simplify identifies — it does not apply fixes.
+The reviewer does not run `/simplify` — that pass belongs at the feature level, not
+per-task review. Check the implementation notes for whether `/simplify` was run during
+implementation.
 
-Document each finding from simplify with:
-- The file and area affected
-- What simplify identified (duplication, unnecessary complexity, over-engineering)
-- Whether it's minor (style/preference) or substantive (affects maintainability)
+**If `/simplify` made changes**, verify those changes have test coverage. This is the
+one thing the reviewer checks here — not the simplification itself, just whether the
+resulting code is tested. Report coverage gaps; do not re-run simplify or evaluate its
+judgment calls.
 
-Simplification findings are not blocking unless they indicate a structural problem
-that would make the code difficult to maintain or extend.
+**If `/simplify` was not run or made no changes**, there is nothing to check in this
+area — move on.
+
+Coverage gaps found here are not blocking unless they leave a structural change
+entirely unverified.
 
 ---
 
@@ -146,7 +153,7 @@ Every review must end with a clear verdict:
 ### Findings Format
 
 For each finding, state:
-- **What was expected** (from the specification or test strategy)
+- **What was expected** (from the planning note or test strategy)
 - **What was found** (in the code or test output)
 - **Severity** (blocking or observation)
 
