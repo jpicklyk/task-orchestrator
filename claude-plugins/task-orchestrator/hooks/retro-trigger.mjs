@@ -17,6 +17,7 @@ import {
   writeMarker,
   COOLDOWN_MS,
   extractResponseJson,
+  debugCapture,
   buildNudge,
   buildDispatch,
 } from './retro-lib.mjs';
@@ -40,6 +41,8 @@ try {
   } catch {
     emitEmpty();
   }
+
+  debugCapture(raw);
 
   let hookInput;
   try {
