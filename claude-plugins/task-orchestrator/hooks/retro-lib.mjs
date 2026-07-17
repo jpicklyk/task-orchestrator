@@ -128,14 +128,46 @@ export function writeMarker(path, obj) {
 
 export const COOLDOWN_MS = 30 * 60 * 1000;
 
-// MCP tool responses arrive as { content: [{ type: "text", text: "<json string>" }] }. Parses
-// the embedded JSON payload; returns null on any failure so callers can fall back to raw
-// string probing if they choose to.
+// Extracts the tool's JSON payload from a PostToolUse hook's tool_response field. The exact
+// delivered shape is not pinned down by the hooks docs for MCP tools, so this is deliberately
+// shape-tolerant — it accepts every plausible encoding rather than betting on one:
+//   1. CallToolResult wrapper:   { content: [{ type: "text", text: "<json>" }] }
+//   2. Bare content-block array: [{ type: "text", text: "<json>" }]
+//   3. Single content block:     { type: "text", text: "<json>" }
+//   4. Already-parsed payload:   { results: [...], summary: {...} } — returned as-is
+//   5. Raw JSON string:          "<json>"
+// Returns null on any failure (fail-open) so callers stay silent on unknown shapes.
 export function extractResponseJson(toolResponse) {
   try {
-    return JSON.parse(toolResponse.content[0].text);
+    if (toolResponse == null) return null;
+    if (typeof toolResponse === 'string') return JSON.parse(toolResponse);
+    if (Array.isArray(toolResponse)) {
+      const block = toolResponse.find((b) => b && typeof b.text === 'string');
+      return block ? JSON.parse(block.text) : null;
+    }
+    if (Array.isArray(toolResponse.content)) {
+      const block = toolResponse.content.find((b) => b && typeof b.text === 'string');
+      return block ? JSON.parse(block.text) : null;
+    }
+    if (typeof toolResponse.text === 'string') return JSON.parse(toolResponse.text);
+    if (toolResponse.results !== undefined || toolResponse.summary !== undefined) return toolResponse;
+    return null;
   } catch {
     return null;
+  }
+}
+
+// Opt-in diagnostic: when RETRO_HOOK_DEBUG=1, persist the hook's raw stdin to
+// os.tmpdir()/task-orchestrator/debug-last-invocation.json so a live firing records the true
+// payload shape. Best-effort — never throws, never runs unless explicitly enabled.
+export function debugCapture(raw) {
+  if (process.env.RETRO_HOOK_DEBUG !== '1') return;
+  try {
+    const dir = join(os.tmpdir(), 'task-orchestrator');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'debug-last-invocation.json'), new Date().toISOString() + '\n' + raw);
+  } catch {
+    // swallow — diagnostics must never affect hook behavior
   }
 }
 
