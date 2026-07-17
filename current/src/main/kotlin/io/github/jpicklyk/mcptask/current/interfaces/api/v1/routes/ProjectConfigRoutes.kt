@@ -114,7 +114,7 @@ fun Route.projectConfigRoutes(repositoryProvider: RepositoryProvider) {
                         call.respond(
                             HttpStatusCode.OK,
                             ProjectConfigResponseDto(
-                                rootItemId = config.rootItemId.toString(),
+                                rootId = config.rootItemId.toString(),
                                 fingerprint = config.fingerprint,
                                 updatedAt = config.updatedAt.toString(),
                                 configYaml = config.configYaml,
@@ -185,7 +185,7 @@ fun Route.projectConfigRoutes(repositoryProvider: RepositoryProvider) {
                         call.respond(
                             HttpStatusCode.OK,
                             ProjectConfigResponseDto(
-                                rootItemId = result.rootItemId.toString(),
+                                rootId = result.rootItemId.toString(),
                                 fingerprint = result.fingerprint,
                                 updatedAt = result.updatedAt.toString(),
                                 warning = result.warning,

@@ -58,6 +58,25 @@ class ManageDependenciesToolTest {
     private fun params(vararg pairs: Pair<String, JsonElement>) = JsonObject(mapOf(*pairs))
 
     // ──────────────────────────────────────────────
+    // Parameter naming regression (de711807 — API parameter naming normalization)
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `parameterSchema uses fromItemId, toItemId, fromItemIds, toItemIds, dependencyId`() {
+        val propNames = tool.parameterSchema.properties!!.keys
+        assertTrue(propNames.contains("fromItemId"), "expected 'fromItemId' (delete + fan-out)")
+        assertTrue(propNames.contains("toItemId"), "expected 'toItemId' (delete + fan-in)")
+        assertTrue(propNames.contains("fromItemIds"), "expected 'fromItemIds' (fan-in)")
+        assertTrue(propNames.contains("toItemIds"), "expected 'toItemIds' (fan-out)")
+        assertTrue(propNames.contains("dependencyId"), "expected 'dependencyId' (delete by ID)")
+        assertFalse(propNames.contains("source"), "old 'source' name must be removed")
+        assertFalse(propNames.contains("target"), "old 'target' name must be removed")
+        assertFalse(propNames.contains("sources"), "old 'sources' name must be removed")
+        assertFalse(propNames.contains("targets"), "old 'targets' name must be removed")
+        assertFalse(propNames.contains("id"), "old top-level 'id' name must be removed")
+    }
+
+    // ──────────────────────────────────────────────
     // Create via dependencies array
     // ──────────────────────────────────────────────
 
@@ -288,8 +307,8 @@ class ManageDependenciesToolTest {
                     params(
                         "operation" to JsonPrimitive("create"),
                         "pattern" to JsonPrimitive("fan-out"),
-                        "source" to JsonPrimitive(itemA.toString()),
-                        "targets" to
+                        "fromItemId" to JsonPrimitive(itemA.toString()),
+                        "toItemIds" to
                             JsonArray(
                                 listOf(
                                     JsonPrimitive(itemB.toString()),
@@ -319,7 +338,7 @@ class ManageDependenciesToolTest {
                     params(
                         "operation" to JsonPrimitive("create"),
                         "pattern" to JsonPrimitive("fan-in"),
-                        "sources" to
+                        "fromItemIds" to
                             JsonArray(
                                 listOf(
                                     JsonPrimitive(itemB.toString()),
@@ -327,7 +346,7 @@ class ManageDependenciesToolTest {
                                     JsonPrimitive(itemD.toString())
                                 )
                             ),
-                        "target" to JsonPrimitive(itemE.toString())
+                        "toItemId" to JsonPrimitive(itemE.toString())
                     ),
                     context
                 ) as JsonObject
@@ -725,7 +744,7 @@ class ManageDependenciesToolTest {
                 tool.execute(
                     params(
                         "operation" to JsonPrimitive("delete"),
-                        "id" to JsonPrimitive(depId)
+                        "dependencyId" to JsonPrimitive(depId)
                     ),
                     context
                 ) as JsonObject
@@ -830,8 +849,8 @@ class ManageDependenciesToolTest {
                 params(
                     "operation" to JsonPrimitive("create"),
                     "pattern" to JsonPrimitive("fan-out"),
-                    "source" to JsonPrimitive(itemA.toString()),
-                    "targets" to
+                    "fromItemId" to JsonPrimitive(itemA.toString()),
+                    "toItemIds" to
                         JsonArray(
                             listOf(
                                 JsonPrimitive(itemB.toString()),
@@ -887,7 +906,7 @@ class ManageDependenciesToolTest {
                 tool.execute(
                     params(
                         "operation" to JsonPrimitive("delete"),
-                        "id" to JsonPrimitive(randomId)
+                        "dependencyId" to JsonPrimitive(randomId)
                     ),
                     context
                 ) as JsonObject
@@ -987,52 +1006,52 @@ class ManageDependenciesToolTest {
     }
 
     @Test
-    fun `fan-out pattern without source throws`() {
+    fun `fan-out pattern without fromItemId throws`() {
         assertFailsWith<ToolValidationException> {
             tool.validateParams(
                 params(
                     "operation" to JsonPrimitive("create"),
                     "pattern" to JsonPrimitive("fan-out"),
-                    "targets" to JsonArray(listOf(JsonPrimitive(UUID.randomUUID().toString())))
+                    "toItemIds" to JsonArray(listOf(JsonPrimitive(UUID.randomUUID().toString())))
                 )
             )
         }
     }
 
     @Test
-    fun `fan-out pattern without targets throws`() {
+    fun `fan-out pattern without toItemIds throws`() {
         assertFailsWith<ToolValidationException> {
             tool.validateParams(
                 params(
                     "operation" to JsonPrimitive("create"),
                     "pattern" to JsonPrimitive("fan-out"),
-                    "source" to JsonPrimitive(UUID.randomUUID().toString())
+                    "fromItemId" to JsonPrimitive(UUID.randomUUID().toString())
                 )
             )
         }
     }
 
     @Test
-    fun `fan-in pattern without sources throws`() {
+    fun `fan-in pattern without fromItemIds throws`() {
         assertFailsWith<ToolValidationException> {
             tool.validateParams(
                 params(
                     "operation" to JsonPrimitive("create"),
                     "pattern" to JsonPrimitive("fan-in"),
-                    "target" to JsonPrimitive(UUID.randomUUID().toString())
+                    "toItemId" to JsonPrimitive(UUID.randomUUID().toString())
                 )
             )
         }
     }
 
     @Test
-    fun `fan-in pattern without target throws`() {
+    fun `fan-in pattern without toItemId throws`() {
         assertFailsWith<ToolValidationException> {
             tool.validateParams(
                 params(
                     "operation" to JsonPrimitive("create"),
                     "pattern" to JsonPrimitive("fan-in"),
-                    "sources" to JsonArray(listOf(JsonPrimitive(UUID.randomUUID().toString())))
+                    "fromItemIds" to JsonArray(listOf(JsonPrimitive(UUID.randomUUID().toString())))
                 )
             )
         }

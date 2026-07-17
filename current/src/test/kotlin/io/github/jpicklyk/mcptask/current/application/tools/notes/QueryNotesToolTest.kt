@@ -34,6 +34,17 @@ class QueryNotesToolTest {
 
     private fun params(vararg pairs: Pair<String, JsonElement>) = JsonObject(mapOf(*pairs))
 
+    // ──────────────────────────────────────────────
+    // Parameter naming regression (de711807 — API parameter naming normalization)
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `parameterSchema uses noteId for get, not the old id name`() {
+        val propNames = tool.parameterSchema.properties!!.keys
+        assertTrue(propNames.contains("noteId"), "expected 'noteId' for the get operation")
+        assertFalse(propNames.contains("id"), "old top-level 'id' name must be removed")
+    }
+
     /**
      * Helper to create a work item directly via repository and return its UUID string.
      */
@@ -90,7 +101,7 @@ class QueryNotesToolTest {
                 tool.execute(
                     params(
                         "operation" to JsonPrimitive("get"),
-                        "id" to JsonPrimitive(noteId)
+                        "noteId" to JsonPrimitive(noteId)
                     ),
                     context
                 ) as JsonObject
@@ -114,7 +125,7 @@ class QueryNotesToolTest {
                 tool.execute(
                     params(
                         "operation" to JsonPrimitive("get"),
-                        "id" to JsonPrimitive(randomId)
+                        "noteId" to JsonPrimitive(randomId)
                     ),
                     context
                 ) as JsonObject
@@ -402,7 +413,7 @@ class QueryNotesToolTest {
                 tool.execute(
                     params(
                         "operation" to JsonPrimitive("get"),
-                        "id" to JsonPrimitive(noteId)
+                        "noteId" to JsonPrimitive(noteId)
                     ),
                     context
                 ) as JsonObject
@@ -475,7 +486,7 @@ class QueryNotesToolTest {
                 tool.execute(
                     params(
                         "operation" to JsonPrimitive("get"),
-                        "id" to JsonPrimitive(noteId)
+                        "noteId" to JsonPrimitive(noteId)
                     ),
                     context
                 ) as JsonObject

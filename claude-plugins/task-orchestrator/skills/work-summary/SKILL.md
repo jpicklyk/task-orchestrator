@@ -29,9 +29,9 @@ Before running Lean, Full, or Multi-Project mode, resolve the project rootId:
 
 - Check session context for a rootId injected by the SessionStart hook.
 - Otherwise, read `.taskorchestrator/config.yaml`'s top-level `project.rootId` field (a file read, not an MCP call).
-- **If no rootId is found by either path, behavior is exactly as before this feature existed** — every call below runs unscoped (whole-DB), and no `ancestorId` param is passed. This is the common case for single-project workspaces.
+- **If no rootId is found by either path, behavior is exactly as before this feature existed** — every call below runs unscoped (whole-DB), and no `ancestorId`/`anchorId` param is passed. This is the common case for single-project workspaces.
 
-When a rootId is known, Lean and Full mode calls pass it as `ancestorId="<rootId>"` (noted inline below). Scoped mode is unaffected — it already resolves its own scope UUID per invocation via FTS.
+When a rootId is known, Lean and Full mode calls pass it as `ancestorId="<rootId>"` — except the `overview` calls, which use `anchorId="<rootId>"` (all noted inline below). Scoped mode is unaffected — it already resolves its own scope UUID per invocation via FTS.
 
 ---
 
@@ -39,7 +39,7 @@ When a rootId is known, Lean and Full mode calls pass it as `ancestorId="<rootId
 
 ### Data collection (all parallel)
 
-1. `query_items(operation="overview", includeChildren=true, excludeTerminal=true)` — non-terminal roots with their children arrays and childCounts. Add `ancestorId="<rootId>"` when a rootId is known, to anchor the overview to this project. **Detecting an older server:** MCP servers **silently ignore** unknown parameters (they return `200` with the full unfiltered payload) rather than rejecting them — so a server predating `excludeTerminal` will *not* error. Detect the no-op by inspecting the payload: **if any returned root has `role: "terminal"`, the filter was not applied.** When that happens, (a) drop terminal roots client-side during enrichment, and (b) if the response is also `truncated: true`, re-issue with `limit=<total>` (still passing `ancestorId` if known) so non-terminal roots in the tail (e.g. active containers) are not silently dropped — a truncated *unfiltered* payload can hide real workstreams. Headline counts never come from this payload regardless (see the role-total queries below), so correctness holds either way; this only recovers the workstream/backlog completeness the filter was meant to guarantee.
+1. `query_items(operation="overview", includeChildren=true, excludeTerminal=true)` — non-terminal roots with their children arrays and childCounts. Add `anchorId="<rootId>"` when a rootId is known, to anchor the overview to this project. **Detecting an older server:** MCP servers **silently ignore** unknown parameters (they return `200` with the full unfiltered payload) rather than rejecting them — so a server predating `excludeTerminal` will *not* error. Detect the no-op by inspecting the payload: **if any returned root has `role: "terminal"`, the filter was not applied.** When that happens, (a) drop terminal roots client-side during enrichment, and (b) if the response is also `truncated: true`, re-issue with `limit=<total>` (still passing `anchorId` if known) so non-terminal roots in the tail (e.g. active containers) are not silently dropped — a truncated *unfiltered* payload can hide real workstreams. Headline counts never come from this payload regardless (see the role-total queries below), so correctness holds either way; this only recovers the workstream/backlog completeness the filter was meant to guarantee.
 2. `get_context()` — health-check: active items, blocked items, stalled items, claim summary. Add `ancestorId="<rootId>"` when known.
 3. `get_context(mode="session-resume", since="<now minus 48h, ISO 8601>")` — recent role transitions (the "where did I leave off" signal). Add `ancestorId="<rootId>"` when known — but note the **known limitation**: `recentTransitions` is NOT scoped by `ancestorId` even when passed; it always reflects the whole tree, not just this project.
 4. `get_next_item(limit=5, includeDetails=true)` — ranked recommendations with parentId/tags. Add `ancestorId="<rootId>"` when known.
@@ -113,7 +113,7 @@ Everything lean mode shows, plus the complete per-container inventory.
 
 ### Data collection
 
-1. `query_items(operation="overview", limit=<total>)` — the compact roots list, **without** `includeChildren`. Add `ancestorId="<rootId>"` when a rootId is known, to anchor the roots list to this project. It carries each root's role, `statusLabel`, `childCounts`, tags, and type but pulls **no** subtree, so it stays under the tool-result token ceiling even on mature workspaces. If the first call reports `truncated: true`, re-issue once with `limit=<total>`.
+1. `query_items(operation="overview", limit=<total>)` — the compact roots list, **without** `includeChildren`. Add `anchorId="<rootId>"` when a rootId is known, to anchor the roots list to this project. It carries each root's role, `statusLabel`, `childCounts`, tags, and type but pulls **no** subtree, so it stays under the tool-result token ceiling even on mature workspaces. If the first call reports `truncated: true`, re-issue once with `limit=<total>`.
 2. **Per active container** (a non-terminal root whose `childCounts` show non-terminal children), in parallel: `query_items(operation="overview", itemId="<root-id>", excludeTerminal=true)` — returns that container plus **only its non-terminal children** (scoped `excludeTerminal` filters the children array; `childCounts` stays full). Each call is bounded to one container's open work. These are already `itemId`-scoped and need no `ancestorId`.
 3. `get_context()` — health-check. Add `ancestorId="<rootId>"` when known.
 4. `get_next_item(limit=5, includeDetails=true)`. Add `ancestorId="<rootId>"` when known.
@@ -170,7 +170,7 @@ Enumerate every known project anchor and render one condensed section per projec
 1. `query_items(operation="search", type="project", depth=0)` — list all depth-0 items typed `project` (the anchors created by `/quick-start`'s bootstrap flow or manually via `/manage-schemas`).
 2. If none are found, say so and stop: "No project anchors found — run `/quick-start` to bootstrap one, or use `/work-summary` (no arguments) for the whole-DB view."
 3. For each anchor found, in parallel:
-   - `query_items(operation="overview", ancestorId="<anchor-id>", includeChildren=true, excludeTerminal=true)`
+   - `query_items(operation="overview", anchorId="<anchor-id>", includeChildren=true, excludeTerminal=true)`
    - `get_context(ancestorId="<anchor-id>")`
    - `get_next_item(limit=3, includeDetails=true, ancestorId="<anchor-id>")`
 

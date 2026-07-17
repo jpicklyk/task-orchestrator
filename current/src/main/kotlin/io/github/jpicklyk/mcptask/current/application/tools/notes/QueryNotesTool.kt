@@ -31,7 +31,7 @@ Read-only query operations for Notes.
 
 Operations: get, list, search
 
-**get** requires `id`.
+**get** requires `noteId`.
 
 **list** requires `itemId`. Optional `role`/`keys` filters.
 
@@ -62,7 +62,7 @@ by note role (queue/work/review), use `list` instead — `search`'s `scope` has 
                         }
                     )
                     put(
-                        "id",
+                        "noteId",
                         buildJsonObject {
                             put("type", JsonPrimitive("string"))
                             put("description", JsonPrimitive("Note UUID (required for get)"))
@@ -215,7 +215,7 @@ by note role (queue/work/review), use `list` instead — `search`'s `scope` has 
         val operation = requireString(params, "operation")
         when (operation) {
             "get" -> {
-                extractUUID(params, "id", required = true)
+                extractUUID(params, "noteId", required = true)
             }
             "list" -> {
                 validateIdOrPrefix(params, "itemId", required = true)
@@ -315,7 +315,7 @@ by note role (queue/work/review), use `list` instead — `search`'s `scope` has 
         params: JsonElement,
         context: ToolExecutionContext
     ): JsonElement {
-        val id = requireUUID(params, "id")
+        val id = requireUUID(params, "noteId")
         val noteRepo = context.noteRepository()
 
         return when (val result = noteRepo.getById(id)) {

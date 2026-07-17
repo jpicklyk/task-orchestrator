@@ -28,7 +28,7 @@ Resolve the project rootId first: check session context for a rootId injected by
 
 **If a rootId is known:**
 ```
-query_items(operation="overview", ancestorId="<rootId>", includeChildren=true)
+query_items(operation="overview", anchorId="<rootId>", includeChildren=true)
 ```
 Category containers (Bugs, Features, Tech Debt, etc.) are expected as direct children of the project root — anchor new items there. **Exception:** `agent-observation` items always stay at global depth 0, outside any project root, regardless of whether a rootId is known — they're process-global, not project-scoped.
 
@@ -198,7 +198,7 @@ If a new category container was created, add one line:
 
 **Wrong container chosen for the item**
 - Cause: Item type was ambiguous or the category mapping didn't match intent
-- Solution: Move the item after creation with `manage_items(operation="update", items=[{id: "<uuid>", parentId: "<correct-container-uuid>"}])`
+- Solution: Move the item after creation with `manage_items(operation="update", items=[{itemId: "<uuid>", parentId: "<correct-container-uuid>"}])`
 
 **Type not matching a schema — `expectedNotes` is empty**
 - Cause: The `type` field doesn't match any key in `.taskorchestrator/config.yaml`, or the config hasn't been loaded

@@ -85,7 +85,7 @@ Build a probe where a grandchild's depth MUST change when a middle node is re-pa
    ```
 3. Re-parent the middle node M **under A** (making it deeper):
    ```
-   manage_items(operation="update", items=[{ id: M, parentId: A }])
+   manage_items(operation="update", items=[{ itemId: M, parentId: A }])
    ```
    Post-fix, M becomes depth 2 and G becomes depth 3.
 4. Read the grandchild's depth and capture it:
@@ -94,7 +94,7 @@ Build a probe where a grandchild's depth MUST change when a middle node is re-pa
    ```
 5. Delete the probe **immediately, before acting on the result** — this runs on every path, pass or fail:
    ```
-   manage_items(operation="delete", ids=[P], recursive=true)
+   manage_items(operation="delete", itemIds=[P], recursive=true)
    ```
 6. Now evaluate the captured depth:
    - `depth == 3` → fix is present. Continue.
@@ -187,8 +187,8 @@ Capture the new UUID as `ANCHOR_ID`.
 
 ```
 manage_items(operation="update", items=[
-  { id: "<move-root-1>", parentId: ANCHOR_ID },
-  { id: "<move-root-2>", parentId: ANCHOR_ID },
+  { itemId: "<move-root-1>", parentId: ANCHOR_ID },
+  { itemId: "<move-root-2>", parentId: ANCHOR_ID },
   ...
 ])
 ```
@@ -209,7 +209,7 @@ This relies on the depth-sweep fix verified in Step 1c — each moved subtree's 
 **(d) Push the config server-side** (tolerant — skip if the tool is absent):
 
 ```
-manage_project_config(operation="push", rootItemId=ANCHOR_ID, configYaml="<full config.yaml text>")
+manage_project_config(operation="push", rootId=ANCHOR_ID, configYaml="<full config.yaml text>")
 ```
 
 - A `warning` field about the root's type is only returned when the anchor's `type` is not `project`; since step (a) sets `type: "project"`, none is expected. Report it if present but treat it as non-fatal.
@@ -223,7 +223,7 @@ Confirm the migration landed correctly. On ANY mismatch, report loudly and do NO
 
 1. **Anchored child count** — the new anchor's direct children must equal the MOVE count:
    ```
-   query_items(operation="overview", ancestorId=ANCHOR_ID)
+   query_items(operation="overview", anchorId=ANCHOR_ID)
    ```
    The anchor's direct-child count must equal `N move`.
 2. **Global census** — remaining depth-0 roots must reconcile:
@@ -258,7 +258,7 @@ Render a before/after table:
 ```
 ⚠ Reconciliation mismatch — expected <X> children under the anchor, found <Y>.
   No rollback was performed. To undo: re-parent the affected roots back to depth 0
-  with manage_items(operation="update", items=[{ id, parentId: null }]) for each,
+  with manage_items(operation="update", items=[{ itemId, parentId: null }]) for each,
   then delete the anchor. Investigate before retrying.
 ```
 

@@ -77,7 +77,7 @@ the root's stored fingerprint history.
                         }
                     )
                     put(
-                        "rootItemId",
+                        "rootId",
                         buildJsonObject {
                             put("type", JsonPrimitive("string"))
                             put(
@@ -129,17 +129,17 @@ the root's stored fingerprint history.
                         }
                     )
                 },
-            required = listOf("operation", "rootItemId")
+            required = listOf("operation", "rootId")
         )
 
     override fun validateParams(params: JsonElement) {
         val operation = requireString(params, "operation")
         when (operation) {
             "push" -> {
-                validateIdOrPrefix(params, "rootItemId", required = true)
+                validateIdOrPrefix(params, "rootId", required = true)
                 requireString(params, "configYaml")
             }
-            "get" -> validateIdOrPrefix(params, "rootItemId", required = true)
+            "get" -> validateIdOrPrefix(params, "rootId", required = true)
             else -> throw ToolValidationException("Invalid operation: $operation. Must be push or get")
         }
     }
@@ -162,10 +162,10 @@ the root's stored fingerprint history.
         val op = (params as? JsonObject)?.get("operation")?.let { (it as? JsonPrimitive)?.content } ?: "unknown"
         if (isError) return "manage_project_config($op) failed"
         val data = (result as? JsonObject)?.get("data") as? JsonObject
-        val rootItemId = data?.get("rootItemId")?.let { (it as? JsonPrimitive)?.content } ?: "unknown"
+        val rootId = data?.get("rootId")?.let { (it as? JsonPrimitive)?.content } ?: "unknown"
         return when (op) {
-            "push" -> "Pushed project config for root $rootItemId"
-            "get" -> "Retrieved project config for root $rootItemId"
+            "push" -> "Pushed project config for root $rootId"
+            "get" -> "Retrieved project config for root $rootId"
             else -> super.userSummary(params, result, isError)
         }
     }
@@ -178,17 +178,17 @@ the root's stored fingerprint history.
         params: JsonElement,
         context: ToolExecutionContext
     ): JsonElement {
-        val (rootItemId, idError) = resolveItemId(params, "rootItemId", context)
+        val (rootId, idError) = resolveItemId(params, "rootId", context)
         if (idError != null) return idError
         val configYaml = requireString(params, "configYaml")
         val force = optionalBoolean(params, "force")
 
         val service = ProjectConfigPushService(context.repositoryProvider)
-        return when (val result = service.push(rootItemId!!, configYaml, force)) {
+        return when (val result = service.push(rootId!!, configYaml, force)) {
             is ProjectConfigPushResult.Success ->
                 successResponse(
                     buildJsonObject {
-                        put("rootItemId", JsonPrimitive(result.rootItemId.toString()))
+                        put("rootId", JsonPrimitive(result.rootItemId.toString()))
                         put("fingerprint", JsonPrimitive(result.fingerprint))
                         put("updatedAt", JsonPrimitive(result.updatedAt.toString()))
                         result.warning?.let { put("warning", JsonPrimitive(it)) }
@@ -204,7 +204,7 @@ the root's stored fingerprint history.
                 )
             is ProjectConfigPushResult.NotDepthZero ->
                 errorResponse(
-                    "rootItemId must reference a depth-0 (root) WorkItem; '${result.rootItemId}' has depth ${result.depth}",
+                    "rootId must reference a depth-0 (root) WorkItem; '${result.rootItemId}' has depth ${result.depth}",
                     ErrorCodes.VALIDATION_ERROR
                 )
             is ProjectConfigPushResult.TooLarge ->
@@ -222,7 +222,7 @@ the root's stored fingerprint history.
             is ProjectConfigPushResult.RootIdMismatch ->
                 errorResponse(
                     "configYaml embeds project.rootId '${result.embeddedRootId}', which differs from " +
-                        "the target rootItemId '${result.targetRootId}'; fix project.rootId in the " +
+                        "the target rootId '${result.targetRootId}'; fix project.rootId in the " +
                         "document or pass force: true to push anyway",
                     ErrorCodes.VALIDATION_ERROR
                 )
@@ -248,22 +248,22 @@ the root's stored fingerprint history.
         params: JsonElement,
         context: ToolExecutionContext
     ): JsonElement {
-        val (rootItemId, idError) = resolveItemId(params, "rootItemId", context)
+        val (rootId, idError) = resolveItemId(params, "rootId", context)
         if (idError != null) return idError
         val fingerprint = optionalString(params, "fingerprint")
 
         val service = ProjectConfigPushService(context.repositoryProvider)
-        return when (val result = service.get(rootItemId!!)) {
+        return when (val result = service.get(rootId!!)) {
             is Result.Success -> {
                 val config =
                     result.data ?: return errorResponse(
-                        "No project config found for root: $rootItemId",
+                        "No project config found for root: $rootId",
                         ErrorCodes.RESOURCE_NOT_FOUND
                     )
-                val relation = fingerprint?.let { service.classifyRelation(rootItemId, it) }
+                val relation = fingerprint?.let { service.classifyRelation(rootId, it) }
                 successResponse(
                     buildJsonObject {
-                        put("rootItemId", JsonPrimitive(config.rootItemId.toString()))
+                        put("rootId", JsonPrimitive(config.rootItemId.toString()))
                         put("configYaml", JsonPrimitive(config.configYaml))
                         put("fingerprint", JsonPrimitive(config.fingerprint))
                         put("updatedAt", JsonPrimitive(config.updatedAt.toString()))

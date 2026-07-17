@@ -475,7 +475,7 @@ Note: `"<previousRole>"` is a literal sentinel string — dashboards must resolv
 **ProjectConfigResponseDto** (see §17):
 ```json
 {
-  "rootItemId": "550e8400-e29b-41d4-a716-446655440000",
+  "rootId": "550e8400-e29b-41d4-a716-446655440000",
   "fingerprint": "e3b0c44298fc1c14...",
   "updatedAt": "2026-07-15T19:00:00Z",
   "configYaml": "work_item_schemas:\n  ...",
@@ -495,7 +495,7 @@ See §17 for the full list of honored per-root keys.
 ```json
 {
   "id": "550e8400-e29b-41d4-a716-446655440000",
-  "rootItemId": "550e8400-e29b-41d4-a716-446655440000",
+  "rootId": "550e8400-e29b-41d4-a716-446655440000",
   "slug": "auth-redesign",
   "contentHash": "e3b0c44298fc1c14...",
   "status": "pending",
@@ -515,7 +515,7 @@ is `"adopted"`; null while `"pending"`, and null again if the adopting item is l
 **PlanDocumentListResponseDto** (see §18):
 ```json
 {
-  "rootItemId": "550e8400-e29b-41d4-a716-446655440000",
+  "rootId": "550e8400-e29b-41d4-a716-446655440000",
   "plans": [<PlanDocumentSummaryDto>]
 }
 ```

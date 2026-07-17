@@ -131,7 +131,7 @@ For detailed workflow, see `references/validate-workflow.md` in this skill folde
 - Show what changed in the config file
 - **Sync to server (if project-scoped):** Check whether the config has a top-level `project.rootId` (see Step 2's note and `references/config-format.md` → Project Scoping). If present, check the tool list for `manage_project_config` — older servers may not expose it, in which case note this to the user and skip (the config.yaml write above is authoritative locally; the server picks it up on its normal read path once the tool becomes available). If the tool is available, call:
   ```
-  manage_project_config(operation="push", rootItemId="<project.rootId>", configYaml="<full current file text>")
+  manage_project_config(operation="push", rootId="<project.rootId>", configYaml="<full current file text>")
   ```
   - Success → report the returned `fingerprint`. Re-pushing identical content later returns the same fingerprint (idempotent) — safe to call after every write without pre-checking.
   - `VALIDATION_ERROR` → the server rejected the YAML (e.g. a construct its parser can't accept). The local file is already saved — tell the user the parse error from the response and to fix `.taskorchestrator/config.yaml`, then re-run VALIDATE and retry the push.

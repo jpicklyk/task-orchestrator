@@ -50,7 +50,7 @@ is computed automatically from the parent; nesting depth is unbounded (cycle pro
 |---|---|---|---|
 | `operation` | string | Yes | One of: `create`, `update`, `delete` |
 | `items` | array | Yes (create/update) | Array of item objects |
-| `ids` | array | Yes (delete) | Array of item UUIDs to delete |
+| `itemIds` | array | Yes (delete) | Array of item UUIDs to delete |
 | `parentId` | string (UUID) | No | Shared default parent for all created items; per-item `parentId` overrides this |
 | `traits` | string | No | Comma-separated trait names applied as a shared default to all items in this batch (e.g., `"needs-migration-review,needs-security-review"`). Adds trait note requirements from the `traits:` config section. Merged into each item's `properties` JSON automatically. |
 | `recursive` | boolean | No | Delete all descendants before deleting the target items (default: false) |
@@ -77,7 +77,7 @@ is computed automatically from the parent; nesting depth is unbounded (cycle pro
 | `traits` | string | No | null | Comma-separated trait names (e.g., `needs-security-review,needs-perf-review`). Adds additional note requirements from the `traits:` config section. Merged into `properties` JSON automatically. |
 | `requiresVerification` | boolean | No | false | |
 
-**Item object fields (update):** Same fields as create plus required `id` (UUID), including `type`,
+**Item object fields (update):** Same fields as create plus required `itemId` (UUID), including `type`,
 `properties`, and `traits`. Only provided fields are changed; omitted fields retain existing values.
 Setting `parentId` to JSON null moves the item to root.
 
@@ -115,14 +115,14 @@ Setting `parentId` to JSON null moves the item to root.
 {
   "operation": "update",
   "items": [
-    { "id": "550e8400-e29b-41d4-a716-446655440001", "priority": "high", "complexity": 3 }
+    { "itemId": "550e8400-e29b-41d4-a716-446655440001", "priority": "high", "complexity": 3 }
   ]
 }
 
 // Recursive delete
 {
   "operation": "delete",
-  "ids": ["550e8400-e29b-41d4-a716-446655440000"],
+  "itemIds": ["550e8400-e29b-41d4-a716-446655440000"],
   "recursive": true
 }
 ```
@@ -231,8 +231,8 @@ snippets, filtered list search, or hierarchical overview.
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `operation` | string | Yes | `"overview"` |
-| `itemId` | string (UUID) | No | Scope overview to a specific item (scoped mode); omit for global root overview. Mutually exclusive with `ancestorId`. |
-| `ancestorId` | string (UUID or 4+ char prefix) | No | Anchored mode: renders this item's DIRECT CHILDREN as the roots set, each with a full-subtree role-count roll-up. Mutually exclusive with `itemId` — supplying both is a validation error. |
+| `itemId` | string (UUID) | No | Scope overview to a specific item (scoped mode); omit for global root overview. Mutually exclusive with `anchorId`. |
+| `anchorId` | string (UUID or 4+ char prefix) | No | Anchored mode: renders this item's DIRECT CHILDREN as the roots set, each with a full-subtree role-count roll-up. Mutually exclusive with `itemId` — supplying both is a validation error. |
 | `includeChildren` | boolean | No | Include direct children on each root item (global mode only, default: false) |
 | `limit` | integer | No | Max root items (default: 50; global and anchored modes only) |
 | `offset` | integer | No | Skip N root items for pagination (default: 0; global and anchored modes only — scoped overview always returns all direct children, unpaginated) |
@@ -401,7 +401,7 @@ Nullable fields (`parentId`, `statusLabel`, `tags`, `type`) are omitted when nul
 
 `claimSummary` counts are scoped to the direct children of each root item. `active` = live non-expired claims; `expired` = claims past TTL; `unclaimed` = items with no claim record. `claimedBy` identity is never included at this level.
 
-**Response (overview — anchored mode, with `ancestorId`).**
+**Response (overview — anchored mode, with `anchorId`).**
 
 ```json
 {
@@ -420,8 +420,8 @@ Nullable fields (`parentId`, `statusLabel`, `tags`, `type`) are omitted when nul
 }
 ```
 
-Anchored overview renders `ancestorId`'s **direct children** as the roots set (instead of true
-depth-0 items) — the project-dashboard entry point when `ancestorId` is a project/feature anchor.
+Anchored overview renders `anchorId`'s **direct children** as the roots set (instead of true
+depth-0 items) — the project-dashboard entry point when `anchorId` is a project/feature anchor.
 The `anchor` envelope names the item whose children are being rendered. Each item uses the same
 minimal fields as global overview, but its `childCounts` is a **full-subtree** role roll-up
 (descendants at any depth), not the direct-children-only breakdown that global/scoped overview use
@@ -740,7 +740,7 @@ WorkItem, or FTS5 full-text search across note bodies.
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `operation` | string | Yes | `"get"` |
-| `id` | string (UUID) | Yes | Note UUID |
+| `noteId` | string (UUID) | Yes | Note UUID |
 
 #### Key Parameters — list
 
@@ -847,13 +847,11 @@ the same as `query_items.search`.
 | `type` | string | No | Create: shared default type — `BLOCKS` (default), `IS_BLOCKED_BY`, `RELATES_TO`. Delete-by-relationship: optional filter — delete only edges of this type. |
 | `unblockAt` | string | No | Shared default threshold: `queue`, `work`, `review`, `terminal` (default: terminal) |
 | `itemIds` | array | Yes (linear) | Ordered UUIDs: A→B, B→C, C→D |
-| `source` | string (UUID) | Yes (fan-out) | Source item |
-| `targets` | array | Yes (fan-out) | Target item UUIDs |
-| `sources` | array | Yes (fan-in) | Source item UUIDs |
-| `target` | string (UUID) | Yes (fan-in) | Target item |
-| `id` | string (UUID) | Cond. (delete) | Delete a single dependency by its UUID |
-| `fromItemId` | string (UUID) | Cond. (delete) | Source side for delete-by-relationship |
-| `toItemId` | string (UUID) | Cond. (delete) | Target side for delete-by-relationship |
+| `fromItemId` | string (UUID) | Yes (fan-out); Cond. (delete) | Fan-out: single source item. Delete-by-relationship: source side. |
+| `toItemIds` | array | Yes (fan-out) | Target item UUIDs |
+| `fromItemIds` | array | Yes (fan-in) | Source item UUIDs |
+| `toItemId` | string (UUID) | Yes (fan-in); Cond. (delete) | Fan-in: single target item. Delete-by-relationship: target side. |
+| `dependencyId` | string (UUID) | Cond. (delete) | Delete a single dependency by its UUID |
 | `deleteAll` | boolean | No (delete) | Delete ALL deps for `fromItemId` or `toItemId` |
 | `actor` | object | No | Actor claim `{ id, kind: orchestrator\|subagent\|user\|external, parent?, proof? }`. Used with `requestId` as the idempotency key. |
 | `requestId` | string (UUID) | No | Client-generated UUID for idempotency. See [Idempotency](#idempotency). Requires `actor` to function. |
@@ -1779,7 +1777,7 @@ Supports two operations, selected via `operation`:
 Validates, in order:
 1. `configYaml` must not exceed **128 KiB** (131,072 bytes, UTF-8) — rejected before any parse
    attempt (CWE-770: bounds parse cost and storage growth against a hostile or oversized payload).
-2. `rootItemId` must resolve to an existing WorkItem.
+2. `rootId` must resolve to an existing WorkItem.
 3. That WorkItem must be depth 0 (a project root) — configs anchor to roots only.
 4. If the root's `type` is not `"project"`, the push still succeeds but the response includes a
    non-fatal `warning` field (a naming convention, not an enforced constraint).
@@ -1789,7 +1787,7 @@ Validates, in order:
    malicious config can never silently exist server-side and fall through to the global schema on
    a later read.
 6. If the parsed document embeds a top-level `project.rootId` that parses as a UUID and differs
-   from `rootItemId`, the push is rejected as a `rootId` mismatch (see **rootId mismatch guard**
+   from `rootId`, the push is rejected as a `rootId` mismatch (see **rootId mismatch guard**
    below) — unless `force: true` is passed.
 7. If the incoming document's fingerprint is **superseded** — it appears in the root's fingerprint
    history but is not the current fingerprint (i.e. the server has already moved past this exact
@@ -1819,12 +1817,12 @@ so a push is never silently partial:
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `operation` | string (`"push"` \| `"get"`) | Yes | Selects the operation |
-| `rootItemId` | string (UUID or 4+ char hex prefix) | Yes | Project root WorkItem — must be depth 0 for `push` |
+| `rootId` | string (UUID or 4+ char hex prefix) | Yes | Project root WorkItem — must be depth 0 for `push` |
 | `configYaml` | string | Yes (push only) | Raw config.yaml text to store for this root; max 128 KiB |
 | `force` | boolean | No (push only, default `false`) | Bypass push guards — skips both the embedded `project.rootId` mismatch check and the superseded (fast-forward) staleness check |
 
 **rootId mismatch guard.** A pushed `configYaml` document may embed its own root id at top-level
-`project.rootId`. If present and it parses as a UUID that differs from the `rootItemId` argument,
+`project.rootId`. If present and it parses as a UUID that differs from the `rootId` argument,
 the push is rejected before any write — this catches a config document synced or copy-pasted
 against the wrong project root before it silently overwrites the target root's gates. An absent or
 non-UUID `project.rootId` is not an error; the push proceeds as if it were absent. Pass
@@ -1845,7 +1843,7 @@ config bytes are parsed (`PerRootConfigService`, on every schema-resolving read)
 ```json
 {
   "operation": "push",
-  "rootItemId": "3f9c2b10-...",
+  "rootId": "3f9c2b10-...",
   "configYaml": "work_item_schemas:\n  feature-task:\n    notes:\n      - key: spec\n        role: queue\n        required: true\n"
 }
 ```
@@ -1854,7 +1852,7 @@ config bytes are parsed (`PerRootConfigService`, on every schema-resolving read)
 
 ```json
 {
-  "rootItemId": "3f9c2b10-...",
+  "rootId": "3f9c2b10-...",
   "fingerprint": "a94a8fe5cc...",
   "updatedAt": "2026-07-14T18:40:00Z",
   "warning": "Root item type is 'null', not 'project' — config pushed anyway (a naming convention, not an enforced constraint)",
@@ -1871,10 +1869,10 @@ allowlist above — e.g. `actor_authentication`.
 | Condition | `error.code` |
 |---|---|
 | `configYaml` exceeds 128 KiB | `VALIDATION_ERROR` (message names the limit and the actual size) |
-| `rootItemId` does not resolve to an existing WorkItem | `RESOURCE_NOT_FOUND` |
+| `rootId` does not resolve to an existing WorkItem | `RESOURCE_NOT_FOUND` |
 | Root WorkItem has `depth != 0` | `VALIDATION_ERROR` |
 | `configYaml` fails to parse (invalid/unsafe YAML syntax or shape, including `!!`-tagged custom types — see **Parse safety** above) | `VALIDATION_ERROR` (message includes the parse detail) |
-| `configYaml` embeds a `project.rootId` that differs from `rootItemId` (and `force` was not `true`) | `VALIDATION_ERROR` (message names both ids) |
+| `configYaml` embeds a `project.rootId` that differs from `rootId` (and `force` was not `true`) | `VALIDATION_ERROR` (message names both ids) |
 | `configYaml`'s fingerprint is superseded — in the root's history but not current (and `force` was not `true`) | `VALIDATION_ERROR` (message: local config is older than the server's, with the server row's `updatedAt`) |
 | Storage failure | `DATABASE_ERROR` |
 
@@ -1897,14 +1895,14 @@ Reads back the stored config for a root.
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `operation` | string (`"push"` \| `"get"`) | Yes | Selects the operation |
-| `rootItemId` | string (UUID or 4+ char hex prefix) | Yes | Project root WorkItem to read the config for |
+| `rootId` | string (UUID or 4+ char hex prefix) | Yes | Project root WorkItem to read the config for |
 | `fingerprint` | string (hex SHA-256) | No (get only) | A local document fingerprint to classify against this root's stored config; adds `relation` to the response |
 
 **Response (success).**
 
 ```json
 {
-  "rootItemId": "3f9c2b10-...",
+  "rootId": "3f9c2b10-...",
   "configYaml": "work_item_schemas:\n  ...\n",
   "fingerprint": "a94a8fe5cc...",
   "updatedAt": "2026-07-14T18:40:00Z",
@@ -1950,9 +1948,9 @@ Supports three operations, selected via `operation`:
 Validates, in order:
 1. The resolved body (`body` or `bodyFromFile`) must not exceed **64 KiB** (65,536 bytes, UTF-8) —
    rejected before any repository call.
-2. `rootItemId` must resolve to an existing WorkItem.
+2. `rootId` must resolve to an existing WorkItem.
 3. That WorkItem must be depth 0 (a project root) — plan documents anchor to roots only.
-4. If a document already exists at `rootItemId`+`slug` and its `status` is `"adopted"`, the stash
+4. If a document already exists at `rootId`+`slug` and its `status` is `"adopted"`, the stash
    is rejected — adoption is a one-way transition (see the materialization tooling that calls
    `PlanDocumentRepository.markAdopted`) and cannot be undone by stashing over it. A `"pending"`
    document at that slug is overwritten in place (`contentHash`, `body`, and `updatedAt` replaced;
@@ -1968,8 +1966,8 @@ underlying text matches.
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `operation` | string (`"stash"` \| `"get"` \| `"list"`) | Yes | Selects the operation |
-| `rootItemId` | string (UUID or 4+ char hex prefix) | Yes | Project root WorkItem — must be depth 0 for `stash` |
-| `slug` | string | Yes (stash, get) | Document identifier, unique within `rootItemId` |
+| `rootId` | string (UUID or 4+ char hex prefix) | Yes | Project root WorkItem — must be depth 0 for `stash` |
+| `slug` | string | Yes (stash, get) | Document identifier, unique within `rootId` |
 | `body` | string | One of `body`/`bodyFromFile` (stash only) | Inline document text; max 64 KiB |
 | `bodyFromFile` | string | One of `body`/`bodyFromFile` (stash only) | Server-side path, resolved relative to the agent config root |
 | `status` | string (`"pending"` \| `"adopted"`) | No (list only) | Filter to a single status |
@@ -1979,7 +1977,7 @@ underlying text matches.
 ```json
 {
   "operation": "stash",
-  "rootItemId": "3f9c2b10-...",
+  "rootId": "3f9c2b10-...",
   "slug": "auth-redesign",
   "body": "# Auth Redesign\n\n## Goals\n..."
 }
@@ -1990,7 +1988,7 @@ underlying text matches.
 ```json
 {
   "id": "8a1e...",
-  "rootItemId": "3f9c2b10-...",
+  "rootId": "3f9c2b10-...",
   "slug": "auth-redesign",
   "contentHash": "e3b0c44298fc1c14...",
   "status": "pending",
@@ -2007,7 +2005,7 @@ only once `status` is `"adopted"`.
 | Condition | `error.code` |
 |---|---|
 | Resolved body exceeds 64 KiB | `VALIDATION_ERROR` (message names the limit and the actual size) |
-| `rootItemId` does not resolve to an existing WorkItem | `RESOURCE_NOT_FOUND` |
+| `rootId` does not resolve to an existing WorkItem | `RESOURCE_NOT_FOUND` |
 | Root WorkItem has `depth != 0` | `VALIDATION_ERROR` |
 | Both `body` and `bodyFromFile` supplied, or neither | `VALIDATION_ERROR` |
 | `bodyFromFile` path rejected (absolute, `..`, symlink escape, missing, over cap) | `VALIDATION_ERROR` |
@@ -2016,34 +2014,34 @@ only once `status` is `"adopted"`.
 
 #### `get`
 
-Reads back the full stored document (including `body`) for `rootItemId`+`slug`.
+Reads back the full stored document (including `body`) for `rootId`+`slug`.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `operation` | string (`"stash"` \| `"get"` \| `"list"`) | Yes | Selects the operation |
-| `rootItemId` | string (UUID or 4+ char hex prefix) | Yes | Project root WorkItem to read from |
+| `rootId` | string (UUID or 4+ char hex prefix) | Yes | Project root WorkItem to read from |
 | `slug` | string | Yes | Document identifier to read |
 
 **Response (no document at this slug).** `error.code` is `RESOURCE_NOT_FOUND`.
 
 #### `list`
 
-Reads back metadata-only summaries (never the body) for every document under `rootItemId`,
+Reads back metadata-only summaries (never the body) for every document under `rootId`,
 optionally filtered by `status`, ordered by `slug` ascending.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
 | `operation` | string (`"stash"` \| `"get"` \| `"list"`) | Yes | Selects the operation |
-| `rootItemId` | string (UUID or 4+ char hex prefix) | Yes | Project root WorkItem to list documents for |
+| `rootId` | string (UUID or 4+ char hex prefix) | Yes | Project root WorkItem to list documents for |
 | `status` | string (`"pending"` \| `"adopted"`) | No | Filter to a single status |
 
 **Response (success).**
 
 ```json
 {
-  "rootItemId": "3f9c2b10-...",
+  "rootId": "3f9c2b10-...",
   "plans": [
-    { "id": "8a1e...", "rootItemId": "3f9c2b10-...", "slug": "auth-redesign", "contentHash": "e3b0c4...", "status": "pending", "createdAt": "...", "updatedAt": "..." }
+    { "id": "8a1e...", "rootId": "3f9c2b10-...", "slug": "auth-redesign", "contentHash": "e3b0c4...", "status": "pending", "createdAt": "...", "updatedAt": "..." }
   ]
 }
 ```

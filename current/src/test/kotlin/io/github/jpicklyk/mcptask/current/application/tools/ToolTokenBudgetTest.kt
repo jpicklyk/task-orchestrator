@@ -95,11 +95,11 @@ class ToolTokenBudgetTest {
      */
     private val perToolCeilings: Map<String, Int> =
         mapOf(
-            "query_items" to 7350, // was 6150; T2.5 added the overview `ancestorId` anchored mode
+            "query_items" to 7350, // was 6150; T2.5 added the overview anchored mode (now `anchorId`, de711807)
             "create_work_tree" to 5100, // was 3080; measured 4408 after docRef/noteAnchors (materialize-from-document)
             "get_next_item" to 3150, // was 2500; T2.3 added the `ancestorId` scope parameter
             "manage_dependencies" to 2585,
-            "manage_items" to 2520,
+            "manage_items" to 2950, // was 2520; measured 2526 after items[].id -> itemId / ids -> itemIds (de711807)
             "query_notes" to 2386,
             "get_context" to 2650, // was 1909; T2.3 added the `ancestorId` scope parameter
             "claim_item" to 2100,

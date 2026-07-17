@@ -96,8 +96,8 @@ Many items that all block one item → fan-in pattern
 |---|---|---|
 | Single edge | `dependencies=[{fromItemId, toItemId}]` | Link exactly two items |
 | `linear` | `itemIds=[A, B, C, D]` | Sequential chain: A→B→C→D |
-| `fan-out` | `source=A`, `targets=[B, C, D]` | One item blocks many |
-| `fan-in` | `sources=[A, B, C]`, `target=D` | Many items block one |
+| `fan-out` | `fromItemId=A`, `toItemIds=[B, C, D]` | One item blocks many |
+| `fan-in` | `fromItemIds=[A, B, C]`, `toItemId=D` | Many items block one |
 
 Confirm the derived edges with the user before creating. Show them what you're about to create in a readable way, for example:
 
@@ -162,7 +162,7 @@ Which edge(s) would you like to remove?
 Confirm before deleting. Then call `manage_dependencies(operation="delete")` using the appropriate mode:
 
 ```
-manage_dependencies(operation="delete", id="<dep-uuid>")
+manage_dependencies(operation="delete", dependencyId="<dep-uuid>")
 ```
 
 **Delete parameter modes:**
@@ -292,7 +292,7 @@ Check each blocker's `role`. If all blockers are terminal and the item is still 
 
 **Problem: Pattern shortcut creates wrong edges**
 
-Cause: The wrong parameter name was used for the pattern. `linear` uses `itemIds` (an ordered array). `fan-out` uses `source` (single UUID) and `targets` (array). `fan-in` uses `sources` (array) and `target` (single UUID). Mixing these up creates edges in the wrong direction or fails silently.
+Cause: The wrong parameter name was used for the pattern. `linear` uses `itemIds` (an ordered array). `fan-out` uses `fromItemId` (single UUID) and `toItemIds` (array). `fan-in` uses `fromItemIds` (array) and `toItemId` (single UUID). Mixing these up creates edges in the wrong direction or fails silently.
 
 Solution: Double-check the parameter names against the pattern table in Step 3. Re-query the item after creation to verify edge direction, and delete any incorrect edges using Step 4.
 

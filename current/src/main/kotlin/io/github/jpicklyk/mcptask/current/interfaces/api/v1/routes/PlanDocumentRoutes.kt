@@ -81,12 +81,12 @@ fun Route.planDocumentRoutes(repositoryProvider: RepositoryProvider) {
                         call.respond(
                             HttpStatusCode.OK,
                             PlanDocumentListResponseDto(
-                                rootItemId = rootId.toString(),
+                                rootId = rootId.toString(),
                                 plans =
                                     result.data.map { summary ->
                                         PlanDocumentSummaryDto(
                                             id = summary.id.toString(),
-                                            rootItemId = summary.rootItemId.toString(),
+                                            rootId = summary.rootItemId.toString(),
                                             slug = summary.slug,
                                             contentHash = summary.contentHash,
                                             status = summary.status.toDbValue(),
@@ -211,7 +211,7 @@ fun Route.planDocumentRoutes(repositoryProvider: RepositoryProvider) {
 private fun PlanDocument.toResponseDto(includeBody: Boolean) =
     PlanDocumentResponseDto(
         id = id.toString(),
-        rootItemId = rootItemId.toString(),
+        rootId = rootItemId.toString(),
         slug = slug,
         contentHash = contentHash,
         status = status.toDbValue(),

@@ -30,7 +30,7 @@ class UpdateItemHandler(
     /**
      * Executes a batch update of WorkItems.
      *
-     * @param items JSON array of item objects with `id` (required) and optional fields to update
+     * @param items JSON array of item objects with `itemId` (required) and optional fields to update
      * @param context The tool execution context providing repository access
      * @return A JSON response envelope with updated item IDs, timestamps, counts, and any failures
      */
@@ -50,10 +50,10 @@ class UpdateItemHandler(
                     element as? JsonObject
                         ?: throw ToolValidationException("Each update item must be a JSON object")
 
-                itemId = extractItemString(itemObj, "id")
-                    ?: throw ToolValidationException("Update item: 'id' is required")
+                itemId = extractItemString(itemObj, "itemId")
+                    ?: throw ToolValidationException("Update item: 'itemId' is required")
 
-                val id = resolveWorkItemIdString(itemId, context, "Update item: 'id'")
+                val id = resolveWorkItemIdString(itemId, context, "Update item: 'itemId'")
 
                 // Fetch existing item
                 val existing =

@@ -84,7 +84,7 @@ class ManageProjectConfigToolTest {
     private fun errorOf(result: JsonElement): JsonObject = (result as JsonObject)["error"] as JsonObject
 
     private fun push(
-        rootItemId: String,
+        rootId: String,
         configYaml: String,
         force: Boolean? = null
     ): JsonElement =
@@ -93,7 +93,7 @@ class ManageProjectConfigToolTest {
                 params(
                     *buildList {
                         add("operation" to JsonPrimitive("push"))
-                        add("rootItemId" to JsonPrimitive(rootItemId))
+                        add("rootId" to JsonPrimitive(rootId))
                         add("configYaml" to JsonPrimitive(configYaml))
                         if (force != null) add("force" to JsonPrimitive(force))
                     }.toTypedArray()
@@ -102,16 +102,27 @@ class ManageProjectConfigToolTest {
             )
         }
 
-    private fun get(rootItemId: String): JsonElement =
+    private fun get(rootId: String): JsonElement =
         runBlocking {
             tool.execute(
                 params(
                     "operation" to JsonPrimitive("get"),
-                    "rootItemId" to JsonPrimitive(rootItemId)
+                    "rootId" to JsonPrimitive(rootId)
                 ),
                 context
             )
         }
+
+    // ──────────────────────────────────────────────
+    // Parameter naming regression (de711807 — API parameter naming normalization)
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `parameterSchema uses rootId, not the old rootItemId name`() {
+        val propNames = tool.parameterSchema.properties!!.keys
+        assertTrue(propNames.contains("rootId"), "expected 'rootId' in parameterSchema")
+        assertFalse(propNames.contains("rootItemId"), "old 'rootItemId' name must be removed")
+    }
 
     // ──────────────────────────────────────────────
     // push
@@ -123,7 +134,7 @@ class ManageProjectConfigToolTest {
 
         assertTrue(isSuccess(result))
         val data = dataOf(result)
-        assertEquals(rootId.toString(), data["rootItemId"]!!.jsonPrimitive.content)
+        assertEquals(rootId.toString(), data["rootId"]!!.jsonPrimitive.content)
         assertFalse(data["fingerprint"]!!.jsonPrimitive.content.isBlank())
         assertNotNull(data["updatedAt"])
         assertNull(data["warning"], "root is type='project' — no warning expected")
@@ -152,13 +163,13 @@ class ManageProjectConfigToolTest {
     }
 
     @Test
-    fun `push with hex-prefix rootItemId resolves the item`() {
+    fun `push with hex-prefix rootId resolves the item`() {
         val prefix = rootId.toString().replace("-", "").take(8)
 
         val result = push(prefix, validYaml)
 
         assertTrue(isSuccess(result))
-        assertEquals(rootId.toString(), dataOf(result)["rootItemId"]!!.jsonPrimitive.content)
+        assertEquals(rootId.toString(), dataOf(result)["rootId"]!!.jsonPrimitive.content)
     }
 
     @Test
@@ -335,7 +346,7 @@ class ManageProjectConfigToolTest {
 
         assertTrue(isSuccess(result))
         val data = dataOf(result)
-        assertEquals(rootId.toString(), data["rootItemId"]!!.jsonPrimitive.content)
+        assertEquals(rootId.toString(), data["rootId"]!!.jsonPrimitive.content)
         assertEquals(validYaml, data["configYaml"]!!.jsonPrimitive.content)
         assertFalse(data["fingerprint"]!!.jsonPrimitive.content.isBlank())
         assertNotNull(data["updatedAt"])
@@ -350,14 +361,14 @@ class ManageProjectConfigToolTest {
     }
 
     private fun getWithFingerprint(
-        rootItemId: String,
+        rootId: String,
         fingerprint: String
     ): JsonElement =
         runBlocking {
             tool.execute(
                 params(
                     "operation" to JsonPrimitive("get"),
-                    "rootItemId" to JsonPrimitive(rootItemId),
+                    "rootId" to JsonPrimitive(rootId),
                     "fingerprint" to JsonPrimitive(fingerprint)
                 ),
                 context
@@ -474,7 +485,7 @@ class ManageProjectConfigToolTest {
             tool.validateParams(
                 params(
                     "operation" to JsonPrimitive("push"),
-                    "rootItemId" to JsonPrimitive(rootId.toString())
+                    "rootId" to JsonPrimitive(rootId.toString())
                 )
             )
         }
@@ -486,7 +497,7 @@ class ManageProjectConfigToolTest {
             tool.validateParams(
                 params(
                     "operation" to JsonPrimitive("delete"),
-                    "rootItemId" to JsonPrimitive(rootId.toString())
+                    "rootId" to JsonPrimitive(rootId.toString())
                 )
             )
         }

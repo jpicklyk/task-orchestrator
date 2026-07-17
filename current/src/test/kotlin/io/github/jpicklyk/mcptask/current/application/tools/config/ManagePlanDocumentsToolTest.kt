@@ -72,7 +72,7 @@ class ManagePlanDocumentsToolTest {
     private fun errorOf(result: JsonElement): JsonObject = (result as JsonObject)["error"] as JsonObject
 
     private fun stash(
-        rootItemId: String,
+        rootId: String,
         slug: String,
         body: String? = null,
         bodyFromFile: String? = null
@@ -82,7 +82,7 @@ class ManagePlanDocumentsToolTest {
                 params(
                     *buildList {
                         add("operation" to JsonPrimitive("stash"))
-                        add("rootItemId" to JsonPrimitive(rootItemId))
+                        add("rootId" to JsonPrimitive(rootId))
                         add("slug" to JsonPrimitive(slug))
                         if (body != null) add("body" to JsonPrimitive(body))
                         if (bodyFromFile != null) add("bodyFromFile" to JsonPrimitive(bodyFromFile))
@@ -93,14 +93,14 @@ class ManagePlanDocumentsToolTest {
         }
 
     private fun get(
-        rootItemId: String,
+        rootId: String,
         slug: String
     ): JsonElement =
         runBlocking {
             tool.execute(
                 params(
                     "operation" to JsonPrimitive("get"),
-                    "rootItemId" to JsonPrimitive(rootItemId),
+                    "rootId" to JsonPrimitive(rootId),
                     "slug" to JsonPrimitive(slug),
                 ),
                 context
@@ -108,7 +108,7 @@ class ManagePlanDocumentsToolTest {
         }
 
     private fun list(
-        rootItemId: String,
+        rootId: String,
         status: String? = null
     ): JsonElement =
         runBlocking {
@@ -116,13 +116,24 @@ class ManagePlanDocumentsToolTest {
                 params(
                     *buildList {
                         add("operation" to JsonPrimitive("list"))
-                        add("rootItemId" to JsonPrimitive(rootItemId))
+                        add("rootId" to JsonPrimitive(rootId))
                         if (status != null) add("status" to JsonPrimitive(status))
                     }.toTypedArray()
                 ),
                 context
             )
         }
+
+    // ──────────────────────────────────────────────
+    // Parameter naming regression (de711807 — API parameter naming normalization)
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `parameterSchema uses rootId, not the old rootItemId name`() {
+        val propNames = tool.parameterSchema.properties!!.keys
+        assertTrue(propNames.contains("rootId"), "expected 'rootId' in parameterSchema")
+        assertFalse(propNames.contains("rootItemId"), "old 'rootItemId' name must be removed")
+    }
 
     // --- validateParams ---
 
@@ -132,7 +143,7 @@ class ManagePlanDocumentsToolTest {
             tool.validateParams(
                 params(
                     "operation" to JsonPrimitive("stash"),
-                    "rootItemId" to JsonPrimitive(rootId.toString()),
+                    "rootId" to JsonPrimitive(rootId.toString()),
                     "slug" to JsonPrimitive("plan-a"),
                 ),
             )
@@ -145,7 +156,7 @@ class ManagePlanDocumentsToolTest {
             tool.validateParams(
                 params(
                     "operation" to JsonPrimitive("stash"),
-                    "rootItemId" to JsonPrimitive(rootId.toString()),
+                    "rootId" to JsonPrimitive(rootId.toString()),
                     "slug" to JsonPrimitive("plan-a"),
                     "body" to JsonPrimitive("inline"),
                     "bodyFromFile" to JsonPrimitive("plan.md"),
