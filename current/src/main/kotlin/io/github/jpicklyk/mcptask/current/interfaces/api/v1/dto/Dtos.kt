@@ -450,7 +450,7 @@ data class SearchHitDto(
  */
 @Serializable
 data class ProjectConfigResponseDto(
-    val rootItemId: String,
+    val rootId: String,
     val fingerprint: String,
     val updatedAt: String,
     val configYaml: String? = null,
@@ -471,7 +471,7 @@ data class ProjectConfigResponseDto(
 @Serializable
 data class PlanDocumentResponseDto(
     val id: String,
-    val rootItemId: String,
+    val rootId: String,
     val slug: String,
     val contentHash: String,
     val status: String,
@@ -485,7 +485,7 @@ data class PlanDocumentResponseDto(
 @Serializable
 data class PlanDocumentSummaryDto(
     val id: String,
-    val rootItemId: String,
+    val rootId: String,
     val slug: String,
     val contentHash: String,
     val status: String,
@@ -497,6 +497,6 @@ data class PlanDocumentSummaryDto(
 /** Response DTO for `GET /api/v1/roots/{rootId}/plans`. */
 @Serializable
 data class PlanDocumentListResponseDto(
-    val rootItemId: String,
+    val rootId: String,
     val plans: List<PlanDocumentSummaryDto>,
 )

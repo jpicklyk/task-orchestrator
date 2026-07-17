@@ -15,8 +15,8 @@ import kotlin.test.*
  * Tests short hex prefix resolution for manage_items operations (create, update, delete).
  *
  * Covers the four parameters that were missing short-ID support:
- * - update: items[].id and items[].parentId
- * - delete: ids[]
+ * - update: items[].itemId and items[].parentId
+ * - delete: itemIds[]
  * - create: per-item items[].parentId
  */
 class ManageItemsToolPrefixTest {
@@ -61,7 +61,7 @@ class ManageItemsToolPrefixTest {
     }
 
     // ──────────────────────────────────────────────
-    // Update: items[].id prefix resolution
+    // Update: items[].itemId prefix resolution
     // ──────────────────────────────────────────────
 
     @Test
@@ -78,7 +78,7 @@ class ManageItemsToolPrefixTest {
                             JsonArray(
                                 listOf(
                                     buildJsonObject {
-                                        put("id", JsonPrimitive(prefix))
+                                        put("itemId", JsonPrimitive(prefix))
                                         put("summary", JsonPrimitive("Updated via 4-char prefix"))
                                     }
                                 )
@@ -107,7 +107,7 @@ class ManageItemsToolPrefixTest {
                             JsonArray(
                                 listOf(
                                     buildJsonObject {
-                                        put("id", JsonPrimitive(prefix))
+                                        put("itemId", JsonPrimitive(prefix))
                                         put("summary", JsonPrimitive("Updated via 8-char prefix"))
                                     }
                                 )
@@ -134,7 +134,7 @@ class ManageItemsToolPrefixTest {
                             JsonArray(
                                 listOf(
                                     buildJsonObject {
-                                        put("id", JsonPrimitive(itemId))
+                                        put("itemId", JsonPrimitive(itemId))
                                         put("summary", JsonPrimitive("Updated via full UUID"))
                                     }
                                 )
@@ -161,7 +161,7 @@ class ManageItemsToolPrefixTest {
                             JsonArray(
                                 listOf(
                                     buildJsonObject {
-                                        put("id", JsonPrimitive("abc"))
+                                        put("itemId", JsonPrimitive("abc"))
                                         put("summary", JsonPrimitive("Should fail"))
                                     }
                                 )
@@ -189,7 +189,7 @@ class ManageItemsToolPrefixTest {
                             JsonArray(
                                 listOf(
                                     buildJsonObject {
-                                        put("id", JsonPrimitive("ghij1234"))
+                                        put("itemId", JsonPrimitive("ghij1234"))
                                         put("summary", JsonPrimitive("Should fail"))
                                     }
                                 )
@@ -219,7 +219,7 @@ class ManageItemsToolPrefixTest {
                             JsonArray(
                                 listOf(
                                     buildJsonObject {
-                                        put("id", JsonPrimitive("0000"))
+                                        put("itemId", JsonPrimitive("0000"))
                                         put("summary", JsonPrimitive("Should fail"))
                                     }
                                 )
@@ -255,7 +255,7 @@ class ManageItemsToolPrefixTest {
                             JsonArray(
                                 listOf(
                                     buildJsonObject {
-                                        put("id", JsonPrimitive(childId))
+                                        put("itemId", JsonPrimitive(childId))
                                         put("parentId", JsonPrimitive(parentPrefix))
                                     }
                                 )
@@ -284,7 +284,7 @@ class ManageItemsToolPrefixTest {
         }
 
     // ──────────────────────────────────────────────
-    // Delete: ids[] prefix resolution
+    // Delete: itemIds[] prefix resolution
     // ──────────────────────────────────────────────
 
     @Test
@@ -297,7 +297,7 @@ class ManageItemsToolPrefixTest {
                 tool.execute(
                     params(
                         "operation" to JsonPrimitive("delete"),
-                        "ids" to JsonArray(listOf(JsonPrimitive(prefix)))
+                        "itemIds" to JsonArray(listOf(JsonPrimitive(prefix)))
                     ),
                     context
                 ) as JsonObject
@@ -318,7 +318,7 @@ class ManageItemsToolPrefixTest {
                 tool.execute(
                     params(
                         "operation" to JsonPrimitive("delete"),
-                        "ids" to JsonArray(listOf(JsonPrimitive(prefix)))
+                        "itemIds" to JsonArray(listOf(JsonPrimitive(prefix)))
                     ),
                     context
                 ) as JsonObject
@@ -337,7 +337,7 @@ class ManageItemsToolPrefixTest {
                 tool.execute(
                     params(
                         "operation" to JsonPrimitive("delete"),
-                        "ids" to JsonArray(listOf(JsonPrimitive(itemId)))
+                        "itemIds" to JsonArray(listOf(JsonPrimitive(itemId)))
                     ),
                     context
                 ) as JsonObject
@@ -354,7 +354,7 @@ class ManageItemsToolPrefixTest {
                 tool.execute(
                     params(
                         "operation" to JsonPrimitive("delete"),
-                        "ids" to JsonArray(listOf(JsonPrimitive("ab")))
+                        "itemIds" to JsonArray(listOf(JsonPrimitive("ab")))
                     ),
                     context
                 ) as JsonObject
@@ -374,7 +374,7 @@ class ManageItemsToolPrefixTest {
                 tool.execute(
                     params(
                         "operation" to JsonPrimitive("delete"),
-                        "ids" to JsonArray(listOf(JsonPrimitive("zzzz1234")))
+                        "itemIds" to JsonArray(listOf(JsonPrimitive("zzzz1234")))
                     ),
                     context
                 ) as JsonObject
@@ -399,7 +399,7 @@ class ManageItemsToolPrefixTest {
                 tool.execute(
                     params(
                         "operation" to JsonPrimitive("delete"),
-                        "ids" to JsonArray(listOf(JsonPrimitive(prefix1), JsonPrimitive(prefix2)))
+                        "itemIds" to JsonArray(listOf(JsonPrimitive(prefix1), JsonPrimitive(prefix2)))
                     ),
                     context
                 ) as JsonObject
@@ -438,7 +438,7 @@ class ManageItemsToolPrefixTest {
                 tool.execute(
                     params(
                         "operation" to JsonPrimitive("delete"),
-                        "ids" to JsonArray(listOf(JsonPrimitive(prefix))),
+                        "itemIds" to JsonArray(listOf(JsonPrimitive(prefix))),
                         "recursive" to JsonPrimitive(true)
                     ),
                     context

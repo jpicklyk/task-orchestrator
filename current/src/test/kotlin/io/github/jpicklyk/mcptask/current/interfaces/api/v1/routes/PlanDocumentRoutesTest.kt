@@ -384,7 +384,7 @@ class PlanDocumentConvergenceTest {
                 tool.execute(
                     buildJsonObject {
                         put("operation", JsonPrimitive("stash"))
-                        put("rootItemId", JsonPrimitive(rootViaTool.id.toString()))
+                        put("rootId", JsonPrimitive(rootViaTool.id.toString()))
                         put("slug", JsonPrimitive("plan-a"))
                         put("body", JsonPrimitive(text))
                     },

@@ -39,9 +39,9 @@ Unified write operations for WorkItems (create, update, delete).
 
 **create** - Each item: `{ title (required), description?, summary?, role?, statusLabel?, priority?, complexity?, parentId?, metadata?, tags?, type?, properties?, requiresVerification? }`. Shared top-level `parentId` is the default for all items (per-item parentId overrides). Depth is auto-computed from parent (root=0, child=parent.depth+1, unbounded). Defaults: role=queue, priority=medium; complexity has no default.
 
-**update** - Each item: `{ id (required, UUID or hex prefix 4+ chars), title?, description?, summary?, statusLabel?, priority?, complexity?, parentId?, metadata?, tags?, type?, properties? }`. Role changes are not allowed — use `advance_item` instead. Only provided fields change; if parentId changes, depth is recomputed from the new parent.
+**update** - Each item: `{ itemId (required, UUID or hex prefix 4+ chars), title?, description?, summary?, statusLabel?, priority?, complexity?, parentId?, metadata?, tags?, type?, properties? }`. Role changes are not allowed — use `advance_item` instead. Only provided fields change; if parentId changes, depth is recomputed from the new parent.
 
-**delete** - Delete by `ids` array (UUIDs or hex prefixes 4+ chars); see `recursive` param.
+**delete** - Delete by `itemIds` array (UUIDs or hex prefixes 4+ chars); see `recursive` param.
         """.trimIndent()
 
     override val category = ToolCategory.ITEM_MANAGEMENT
@@ -74,7 +74,7 @@ Unified write operations for WorkItems (create, update, delete).
                         }
                     )
                     put(
-                        "ids",
+                        "itemIds",
                         buildJsonObject {
                             put("type", JsonPrimitive("array"))
                             put("description", JsonPrimitive("Array of item UUIDs or hex prefixes (4+ chars) for delete"))
@@ -198,9 +198,9 @@ Unified write operations for WorkItems (create, update, delete).
                 }
             }
             "delete" -> {
-                val ids = optionalJsonArray(params, "ids")
+                val ids = optionalJsonArray(params, "itemIds")
                 if (ids == null || ids.isEmpty()) {
-                    throw ToolValidationException("Delete operation requires a non-empty 'ids' array")
+                    throw ToolValidationException("Delete operation requires a non-empty 'itemIds' array")
                 }
             }
             else -> throw ToolValidationException("Invalid operation: $operation. Must be create, update, or delete")
@@ -285,7 +285,7 @@ Unified write operations for WorkItems (create, update, delete).
                 )
             "delete" ->
                 deleteHandler.execute(
-                    requireJsonArray(params, "ids"),
+                    requireJsonArray(params, "itemIds"),
                     optionalBoolean(params, "recursive", false),
                     context
                 )

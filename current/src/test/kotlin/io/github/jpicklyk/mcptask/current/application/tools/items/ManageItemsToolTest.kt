@@ -39,6 +39,18 @@ class ManageItemsToolTest {
     private fun params(vararg pairs: Pair<String, JsonElement>) = JsonObject(mapOf(*pairs))
 
     // ──────────────────────────────────────────────
+    // Parameter naming regression (de711807 — API parameter naming normalization)
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `parameterSchema uses itemId and itemIds, not the old id and ids names`() {
+        val propNames = tool.parameterSchema.properties!!.keys
+        assertTrue(propNames.contains("itemIds"), "expected 'itemIds' (delete) in parameterSchema")
+        assertFalse(propNames.contains("ids"), "old top-level 'ids' name must be removed")
+        assertFalse(propNames.contains("id"), "manage_items never had a top-level 'id' property")
+    }
+
+    // ──────────────────────────────────────────────
     // Create operations
     // ──────────────────────────────────────────────
 
@@ -603,7 +615,7 @@ class ManageItemsToolTest {
                             JsonArray(
                                 listOf(
                                     buildJsonObject {
-                                        put("id", JsonPrimitive(aId))
+                                        put("itemId", JsonPrimitive(aId))
                                         put(
                                             "parentId",
                                             JsonPrimitive(
@@ -664,7 +676,7 @@ class ManageItemsToolTest {
                             JsonArray(
                                 listOf(
                                     buildJsonObject {
-                                        put("id", JsonPrimitive(itemId))
+                                        put("itemId", JsonPrimitive(itemId))
                                         put("title", JsonPrimitive("Updated"))
                                     }
                                 )
@@ -714,7 +726,7 @@ class ManageItemsToolTest {
                         JsonArray(
                             listOf(
                                 buildJsonObject {
-                                    put("id", JsonPrimitive(itemId))
+                                    put("itemId", JsonPrimitive(itemId))
                                     put("title", JsonPrimitive("New Title"))
                                 }
                             )
@@ -814,7 +826,7 @@ class ManageItemsToolTest {
                             JsonArray(
                                 listOf(
                                     buildJsonObject {
-                                        put("id", JsonPrimitive(childId))
+                                        put("itemId", JsonPrimitive(childId))
                                         put("parentId", JsonPrimitive(rootBId))
                                     }
                                 )
@@ -888,7 +900,7 @@ class ManageItemsToolTest {
                             JsonArray(
                                 listOf(
                                     buildJsonObject {
-                                        put("id", JsonPrimitive(bId))
+                                        put("itemId", JsonPrimitive(bId))
                                         put("parentId", JsonPrimitive(dId))
                                     }
                                 )
@@ -954,7 +966,7 @@ class ManageItemsToolTest {
                             JsonArray(
                                 listOf(
                                     buildJsonObject {
-                                        put("id", JsonPrimitive(bId))
+                                        put("itemId", JsonPrimitive(bId))
                                         put("parentId", JsonNull)
                                     }
                                 )
@@ -1015,7 +1027,7 @@ class ManageItemsToolTest {
                             JsonArray(
                                 listOf(
                                     buildJsonObject {
-                                        put("id", JsonPrimitive(bId))
+                                        put("itemId", JsonPrimitive(bId))
                                         put("title", JsonPrimitive("B renamed"))
                                     }
                                 )
@@ -1083,7 +1095,7 @@ class ManageItemsToolTest {
                             JsonArray(
                                 listOf(
                                     buildJsonObject {
-                                        put("id", JsonPrimitive(childId))
+                                        put("itemId", JsonPrimitive(childId))
                                         put("parentId", JsonNull)
                                     }
                                 )
@@ -1138,7 +1150,7 @@ class ManageItemsToolTest {
                             JsonArray(
                                 listOf(
                                     buildJsonObject {
-                                        put("id", JsonPrimitive(itemId))
+                                        put("itemId", JsonPrimitive(itemId))
                                         put("parentId", JsonPrimitive(itemId))
                                     }
                                 )
@@ -1210,7 +1222,7 @@ class ManageItemsToolTest {
                             JsonArray(
                                 listOf(
                                     buildJsonObject {
-                                        put("id", JsonPrimitive(rootId))
+                                        put("itemId", JsonPrimitive(rootId))
                                         put("parentId", JsonPrimitive(childId))
                                     }
                                 )
@@ -1239,7 +1251,7 @@ class ManageItemsToolTest {
                             JsonArray(
                                 listOf(
                                     buildJsonObject {
-                                        put("id", JsonPrimitive(randomId))
+                                        put("itemId", JsonPrimitive(randomId))
                                         put("title", JsonPrimitive("Ghost"))
                                     }
                                 )
@@ -1286,7 +1298,7 @@ class ManageItemsToolTest {
                 tool.execute(
                     params(
                         "operation" to JsonPrimitive("delete"),
-                        "ids" to JsonArray(listOf(JsonPrimitive(itemId)))
+                        "itemIds" to JsonArray(listOf(JsonPrimitive(itemId)))
                     ),
                     context
                 ) as JsonObject
@@ -1305,7 +1317,7 @@ class ManageItemsToolTest {
                 tool.execute(
                     params(
                         "operation" to JsonPrimitive("delete"),
-                        "ids" to JsonArray(listOf(JsonPrimitive(randomId)))
+                        "itemIds" to JsonArray(listOf(JsonPrimitive(randomId)))
                     ),
                     context
                 ) as JsonObject
@@ -1348,7 +1360,7 @@ class ManageItemsToolTest {
                 tool.execute(
                     params(
                         "operation" to JsonPrimitive("delete"),
-                        "ids" to JsonArray(ids.map { JsonPrimitive(it) })
+                        "itemIds" to JsonArray(ids.map { JsonPrimitive(it) })
                     ),
                     context
                 ) as JsonObject
@@ -1430,7 +1442,7 @@ class ManageItemsToolTest {
                 tool.execute(
                     params(
                         "operation" to JsonPrimitive("delete"),
-                        "ids" to JsonArray(listOf(JsonPrimitive(rootId))),
+                        "itemIds" to JsonArray(listOf(JsonPrimitive(rootId))),
                         "recursive" to JsonPrimitive(true)
                     ),
                     context
@@ -1490,7 +1502,7 @@ class ManageItemsToolTest {
                 tool.execute(
                     params(
                         "operation" to JsonPrimitive("delete"),
-                        "ids" to JsonArray(listOf(JsonPrimitive(parentId)))
+                        "itemIds" to JsonArray(listOf(JsonPrimitive(parentId)))
                     ),
                     context
                 ) as JsonObject
@@ -1529,7 +1541,7 @@ class ManageItemsToolTest {
                 tool.execute(
                     params(
                         "operation" to JsonPrimitive("delete"),
-                        "ids" to JsonArray(listOf(JsonPrimitive(leafId))),
+                        "itemIds" to JsonArray(listOf(JsonPrimitive(leafId))),
                         "recursive" to JsonPrimitive(true)
                     ),
                     context
@@ -1764,7 +1776,7 @@ class ManageItemsToolTest {
                             JsonArray(
                                 listOf(
                                     buildJsonObject {
-                                        put("id", JsonPrimitive(itemId))
+                                        put("itemId", JsonPrimitive(itemId))
                                         put("type", JsonPrimitive("bug"))
                                     }
                                 )
@@ -1821,7 +1833,7 @@ class ManageItemsToolTest {
                             JsonArray(
                                 listOf(
                                     buildJsonObject {
-                                        put("id", JsonPrimitive(itemId))
+                                        put("itemId", JsonPrimitive(itemId))
                                         put("type", JsonNull)
                                     }
                                 )
@@ -1904,7 +1916,7 @@ class ManageItemsToolTest {
                             JsonArray(
                                 listOf(
                                     buildJsonObject {
-                                        put("id", JsonPrimitive(itemId))
+                                        put("itemId", JsonPrimitive(itemId))
                                         put("role", JsonPrimitive("work"))
                                         put("title", JsonPrimitive("Updated title"))
                                     }
@@ -1954,7 +1966,7 @@ class ManageItemsToolTest {
                             JsonArray(
                                 listOf(
                                     buildJsonObject {
-                                        put("id", JsonPrimitive(itemId))
+                                        put("itemId", JsonPrimitive(itemId))
                                         put("title", JsonPrimitive("Updated title"))
                                     }
                                 )
@@ -2123,7 +2135,7 @@ class ManageItemsToolTest {
                             JsonArray(
                                 listOf(
                                     buildJsonObject {
-                                        put("id", JsonPrimitive(itemId))
+                                        put("itemId", JsonPrimitive(itemId))
                                         put("traits", JsonPrimitive("new-trait"))
                                     }
                                 )
@@ -2201,7 +2213,7 @@ class ManageItemsToolTest {
                             JsonArray(
                                 listOf(
                                     buildJsonObject {
-                                        put("id", JsonPrimitive(itemId))
+                                        put("itemId", JsonPrimitive(itemId))
                                         put("title", JsonPrimitive("Updated"))
                                     }
                                 )
@@ -2234,7 +2246,7 @@ class ManageItemsToolTest {
                 tool.execute(
                     params(
                         "operation" to JsonPrimitive("delete"),
-                        "ids" to JsonArray(listOf(JsonPrimitive(itemId)))
+                        "itemIds" to JsonArray(listOf(JsonPrimitive(itemId)))
                     ),
                     context
                 )
@@ -2333,7 +2345,7 @@ class ManageItemsToolTest {
                             JsonArray(
                                 listOf(
                                     buildJsonObject {
-                                        put("id", JsonPrimitive(bId))
+                                        put("itemId", JsonPrimitive(bId))
                                         put("parentId", JsonPrimitive(rootDId))
                                     }
                                 )
@@ -2390,7 +2402,7 @@ class ManageItemsToolTest {
                             JsonArray(
                                 listOf(
                                     buildJsonObject {
-                                        put("id", JsonPrimitive(bId))
+                                        put("itemId", JsonPrimitive(bId))
                                         put("parentId", JsonNull)
                                     }
                                 )

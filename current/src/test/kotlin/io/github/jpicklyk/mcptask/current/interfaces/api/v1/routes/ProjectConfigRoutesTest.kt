@@ -108,7 +108,7 @@ class ProjectConfigPutRouteTest {
 
             assertEquals(HttpStatusCode.OK, response.status)
             val body = response.bodyAsText()
-            assertTrue(body.contains(root.id.toString()), "Response should echo rootItemId: $body")
+            assertTrue(body.contains(root.id.toString()), "Response should echo rootId: $body")
             val etag = response.headers[HttpHeaders.ETag]
             assertNotNull(etag, "ETag header should be present")
             assertTrue(etag.startsWith("\"cfg-"), "ETag should use the cfg- prefix: $etag")
@@ -753,7 +753,7 @@ class ProjectConfigConvergenceTest {
                 tool.execute(
                     buildJsonObject {
                         put("operation", JsonPrimitive("push"))
-                        put("rootItemId", JsonPrimitive(rootViaTool.id.toString()))
+                        put("rootId", JsonPrimitive(rootViaTool.id.toString()))
                         put("configYaml", JsonPrimitive(VALID_YAML))
                     },
                     context,

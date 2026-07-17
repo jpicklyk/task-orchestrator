@@ -675,9 +675,9 @@ components:
 
     ProjectConfigResponseDto:
       type: object
-      required: [rootItemId, fingerprint, updatedAt]
+      required: [rootId, fingerprint, updatedAt]
       properties:
-        rootItemId:
+        rootId:
           type: string
           format: uuid
         fingerprint:
@@ -714,12 +714,12 @@ components:
 
     PlanDocumentResponseDto:
       type: object
-      required: [id, rootItemId, slug, contentHash, status, createdAt, updatedAt]
+      required: [id, rootId, slug, contentHash, status, createdAt, updatedAt]
       properties:
         id:
           type: string
           format: uuid
-        rootItemId:
+        rootId:
           type: string
           format: uuid
         slug:
@@ -750,13 +750,13 @@ components:
 
     PlanDocumentSummaryDto:
       type: object
-      required: [id, rootItemId, slug, contentHash, status, createdAt, updatedAt]
+      required: [id, rootId, slug, contentHash, status, createdAt, updatedAt]
       description: Same shape as PlanDocumentResponseDto minus body, which list responses never include.
       properties:
         id:
           type: string
           format: uuid
-        rootItemId:
+        rootId:
           type: string
           format: uuid
         slug:
@@ -779,9 +779,9 @@ components:
 
     PlanDocumentListResponseDto:
       type: object
-      required: [rootItemId, plans]
+      required: [rootId, plans]
       properties:
-        rootItemId:
+        rootId:
           type: string
           format: uuid
         plans:

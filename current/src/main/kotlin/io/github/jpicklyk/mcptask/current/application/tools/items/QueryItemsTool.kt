@@ -55,11 +55,11 @@ description for the available filters. `claimedBy` identity is NEVER included in
 (list mode's `claimStatus` filter only adds a boolean `isClaimed`) — use `get_context(itemId)` for
 full claim details.
 
-**overview** without `itemId`/`ancestorId` returns a global summary of all root items; with `itemId`
+**overview** without `itemId`/`anchorId` returns a global summary of all root items; with `itemId`
 it returns that item's metadata, child counts by role, and direct children (scoped overview). With
-`ancestorId` instead, that item's direct children become the roots set (each enriched with
+`anchorId` instead, that item's direct children become the roots set (each enriched with
 full-subtree role-count roll-ups) — the anchored/project-dashboard entry point. `itemId` and
-`ancestorId` are mutually exclusive for this operation; supplying both is a validation error.
+`anchorId` are mutually exclusive for this operation; supplying both is a validation error.
 
 **schema** requires exactly one of `type` or `itemId`. Returns the full note schema (description +
 guidance + skill + maxLength per entry) — the reference target for keys-only `expectedNotes` /
@@ -124,12 +124,23 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
                                         "In list mode (search without `query`): results are limited to this item's " +
                                         "subtree (any depth, inclusive) — mirrors scope.ancestorId's semantics as a " +
                                         "top-level list-mode param; omitted = unscoped, byte-identical to current " +
-                                        "behavior. In the overview operation: this item's direct children become " +
-                                        "the roots set (instead of true depth-0 items), each enriched with " +
-                                        "full-subtree role-count roll-ups — overview's counterpart of list-mode " +
-                                        "ancestorId, for anchoring a dashboard on a project/feature container; " +
-                                        "mutually exclusive with itemId there. Not used in FTS mode — use " +
-                                        "scope.ancestorId there instead."
+                                        "behavior. Not used in the overview operation (see `anchorId`) or in FTS " +
+                                        "mode (use scope.ancestorId there instead)."
+                                )
+                            )
+                        }
+                    )
+                    put(
+                        "anchorId",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("string"))
+                            put(
+                                "description",
+                                JsonPrimitive(
+                                    "Overview operation only. UUID or hex prefix (4+ chars) of an item whose direct " +
+                                        "children become the roots set (instead of true depth-0 items), each " +
+                                        "enriched with full-subtree role-count roll-ups — anchors a dashboard on a " +
+                                        "project/feature container; mutually exclusive with itemId there."
                                 )
                             )
                         }
@@ -457,12 +468,12 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
                 }
             }
             "overview" -> {
-                validateIdOrPrefix(params, "ancestorId", required = false)
+                validateIdOrPrefix(params, "anchorId", required = false)
                 val itemIdStr = optionalString(params, "itemId")
-                val ancestorIdStr = optionalString(params, "ancestorId")
-                if (itemIdStr != null && ancestorIdStr != null) {
+                val anchorIdStr = optionalString(params, "anchorId")
+                if (itemIdStr != null && anchorIdStr != null) {
                     throw ToolValidationException(
-                        "operation=overview accepts at most one of: itemId, ancestorId — they select " +
+                        "operation=overview accepts at most one of: itemId, anchorId — they select " +
                             "mutually exclusive overview modes (scoped vs. anchored)"
                     )
                 }
@@ -1116,14 +1127,14 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
     ): JsonElement {
         val (itemId, itemIdError) = resolveItemId(params, "itemId", context, required = false)
         if (itemIdError != null) return itemIdError
-        val (ancestorId, ancestorIdError) = resolveItemId(params, "ancestorId", context, required = false)
-        if (ancestorIdError != null) return ancestorIdError
+        val (anchorId, anchorIdError) = resolveItemId(params, "anchorId", context, required = false)
+        if (anchorIdError != null) return anchorIdError
 
-        // validateParams rejects itemId+ancestorId together for real callers (McpToolAdapter);
+        // validateParams rejects itemId+anchorId together for real callers (McpToolAdapter);
         // itemId takes priority here as a defensive fallback for direct execute() calls.
         return when {
             itemId != null -> executeScopedOverview(itemId, params, context)
-            ancestorId != null -> executeAnchoredOverview(ancestorId, params, context)
+            anchorId != null -> executeAnchoredOverview(anchorId, params, context)
             else -> executeGlobalOverview(params, context)
         }
     }
@@ -1179,8 +1190,8 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
     }
 
     /**
-     * Anchored overview: [ancestorId]'s DIRECT CHILDREN act as the roots set (instead of true
-     * depth-0 items) — the project-dashboard entry point when [ancestorId] is a project/feature
+     * Anchored overview: [anchorId]'s DIRECT CHILDREN act as the roots set (instead of true
+     * depth-0 items) — the project-dashboard entry point when [anchorId] is a project/feature
      * anchor. Distinct from [executeScopedOverview] (`itemId`), which returns the item itself plus
      * its children with DIRECT childCounts: here each child is enriched with a FULL-SUBTREE
      * role-count roll-up via [WorkItemRepository.countInScopeByRole], one call per child.
@@ -1194,7 +1205,7 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
      * where `excludeTerminal` only trims the `children` array and `childCounts` stays unfiltered).
      */
     private suspend fun executeAnchoredOverview(
-        ancestorId: java.util.UUID,
+        anchorId: java.util.UUID,
         params: JsonElement,
         context: ToolExecutionContext
     ): JsonElement {
@@ -1203,7 +1214,7 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
         val excludeTerminal = optionalBoolean(params, "excludeTerminal", false)
 
         val anchorItem =
-            when (val result = context.workItemRepository().getById(ancestorId)) {
+            when (val result = context.workItemRepository().getById(anchorId)) {
                 is Result.Success -> result.data
                 is Result.Error -> return errorResponse(
                     result.error.message,
@@ -1213,7 +1224,7 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
 
         // Direct children of the anchor act as the roots set for this view.
         val allChildren =
-            when (val result = context.workItemRepository().findChildren(ancestorId)) {
+            when (val result = context.workItemRepository().findChildren(anchorId)) {
                 is Result.Success -> result.data
                 is Result.Error -> return errorResponse(
                     result.error.message,

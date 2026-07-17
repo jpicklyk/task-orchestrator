@@ -33,9 +33,9 @@ Unified write operations for WorkItem dependencies (create, delete).
 ATOMIC — all succeed or all fail (cycle/duplicate detection across the whole batch).
 
 **Pattern shortcuts** (exclusive with dependencies array): `linear`+itemIds chains A→B→C→D;
-`fan-out`+source+targets fans one item out to many; `fan-in`+sources+target fans many into one.
+`fan-out`+fromItemId+toItemIds fans one item out to many; `fan-in`+fromItemIds+toItemId fans many into one.
 
-**Delete:** by `id`; by `fromItemId`+`toItemId` (+ optional `type`); or by `fromItemId`/`toItemId`
+**Delete:** by `dependencyId`; by `fromItemId`+`toItemId` (+ optional `type`); or by `fromItemId`/`toItemId`
 with `deleteAll=true` for every dependency on that item.
         """.trimIndent()
 
@@ -90,17 +90,7 @@ with `deleteAll=true` for every dependency on that item.
                         }
                     )
                     put(
-                        "source",
-                        buildJsonObject {
-                            put("type", JsonPrimitive("string"))
-                            put(
-                                "description",
-                                JsonPrimitive("Source item UUID or hex prefix (4+ chars) for fan-out pattern")
-                            )
-                        }
-                    )
-                    put(
-                        "targets",
+                        "toItemIds",
                         buildJsonObject {
                             put("type", JsonPrimitive("array"))
                             put(
@@ -110,22 +100,12 @@ with `deleteAll=true` for every dependency on that item.
                         }
                     )
                     put(
-                        "sources",
+                        "fromItemIds",
                         buildJsonObject {
                             put("type", JsonPrimitive("array"))
                             put(
                                 "description",
                                 JsonPrimitive("Source item UUIDs or hex prefixes (4+ chars) for fan-in pattern")
-                            )
-                        }
-                    )
-                    put(
-                        "target",
-                        buildJsonObject {
-                            put("type", JsonPrimitive("string"))
-                            put(
-                                "description",
-                                JsonPrimitive("Target item UUID or hex prefix (4+ chars) for fan-in pattern")
                             )
                         }
                     )
@@ -152,7 +132,7 @@ with `deleteAll=true` for every dependency on that item.
                         }
                     )
                     put(
-                        "id",
+                        "dependencyId",
                         buildJsonObject {
                             put("type", JsonPrimitive("string"))
                             put("description", JsonPrimitive("Dependency UUID for delete by ID"))
@@ -164,7 +144,10 @@ with `deleteAll=true` for every dependency on that item.
                             put("type", JsonPrimitive("string"))
                             put(
                                 "description",
-                                JsonPrimitive("Source item UUID or hex prefix (4+ chars) for delete by relationship")
+                                JsonPrimitive(
+                                    "Source item UUID or hex prefix (4+ chars) for delete by relationship, or the " +
+                                        "single source item for the fan-out pattern"
+                                )
                             )
                         }
                     )
@@ -174,7 +157,10 @@ with `deleteAll=true` for every dependency on that item.
                             put("type", JsonPrimitive("string"))
                             put(
                                 "description",
-                                JsonPrimitive("Target item UUID or hex prefix (4+ chars) for delete by relationship")
+                                JsonPrimitive(
+                                    "Target item UUID or hex prefix (4+ chars) for delete by relationship, or the " +
+                                        "single target item for the fan-in pattern"
+                                )
                             )
                         }
                     )
@@ -249,23 +235,23 @@ with `deleteAll=true` for every dependency on that item.
                     }
                 }
                 "fan-out" -> {
-                    val source = optionalString(params, "source")
-                    val targets = optionalJsonArray(params, "targets")
-                    if (source == null) {
-                        throw ToolValidationException("Fan-out pattern requires 'source' parameter")
+                    val fromItemId = optionalString(params, "fromItemId")
+                    val toItemIds = optionalJsonArray(params, "toItemIds")
+                    if (fromItemId == null) {
+                        throw ToolValidationException("Fan-out pattern requires 'fromItemId' parameter")
                     }
-                    if (targets == null || targets.isEmpty()) {
-                        throw ToolValidationException("Fan-out pattern requires non-empty 'targets' array")
+                    if (toItemIds == null || toItemIds.isEmpty()) {
+                        throw ToolValidationException("Fan-out pattern requires non-empty 'toItemIds' array")
                     }
                 }
                 "fan-in" -> {
-                    val sources = optionalJsonArray(params, "sources")
-                    val target = optionalString(params, "target")
-                    if (sources == null || sources.isEmpty()) {
-                        throw ToolValidationException("Fan-in pattern requires non-empty 'sources' array")
+                    val fromItemIds = optionalJsonArray(params, "fromItemIds")
+                    val toItemId = optionalString(params, "toItemId")
+                    if (fromItemIds == null || fromItemIds.isEmpty()) {
+                        throw ToolValidationException("Fan-in pattern requires non-empty 'fromItemIds' array")
                     }
-                    if (target == null) {
-                        throw ToolValidationException("Fan-in pattern requires 'target' parameter")
+                    if (toItemId == null) {
+                        throw ToolValidationException("Fan-in pattern requires 'toItemId' parameter")
                     }
                 }
                 else -> throw ToolValidationException("Invalid pattern: $pattern. Must be linear, fan-out, or fan-in")
@@ -274,14 +260,14 @@ with `deleteAll=true` for every dependency on that item.
     }
 
     private fun validateDeleteParams(params: JsonElement) {
-        val id = optionalString(params, "id")
+        val id = optionalString(params, "dependencyId")
         val fromItemId = optionalString(params, "fromItemId")
         val toItemId = optionalString(params, "toItemId")
         val deleteAll = optionalBoolean(params, "deleteAll", false)
 
         if (id == null && fromItemId == null && toItemId == null && !deleteAll) {
             throw ToolValidationException(
-                "Delete operation requires at least one of: 'id', 'fromItemId'+'toItemId', or 'fromItemId'/'toItemId' with 'deleteAll=true'"
+                "Delete operation requires at least one of: 'dependencyId', 'fromItemId'+'toItemId', or 'fromItemId'/'toItemId' with 'deleteAll=true'"
             )
         }
 
@@ -547,20 +533,20 @@ with `deleteAll=true` for every dependency on that item.
                 }
             }
             "fan-out" -> {
-                val sourceStr = requireString(params, "source")
+                val sourceStr = requireString(params, "fromItemId")
                 val (sourceId, sourceErr) = resolveIdString(sourceStr, context)
                 if (sourceErr != null || sourceId == null) {
-                    throw ToolValidationException("Could not resolve 'source': $sourceStr")
+                    throw ToolValidationException("Could not resolve 'fromItemId': $sourceStr")
                 }
-                val targetsArray = requireJsonArray(params, "targets")
+                val targetsArray = requireJsonArray(params, "toItemIds")
                 val targetIds = mutableListOf<UUID>()
                 for (element in targetsArray) {
                     val str =
                         (element as? JsonPrimitive)?.content
-                            ?: throw ToolValidationException("Each target must be a string")
+                            ?: throw ToolValidationException("Each toItemId must be a string")
                     val (resolved, err) = resolveIdString(str, context)
                     if (err != null || resolved == null) {
-                        throw ToolValidationException("Could not resolve target: $str")
+                        throw ToolValidationException("Could not resolve toItemId: $str")
                     }
                     targetIds.add(resolved)
                 }
@@ -569,20 +555,20 @@ with `deleteAll=true` for every dependency on that item.
                 }
             }
             "fan-in" -> {
-                val targetStr = requireString(params, "target")
+                val targetStr = requireString(params, "toItemId")
                 val (targetId, targetErr) = resolveIdString(targetStr, context)
                 if (targetErr != null || targetId == null) {
-                    throw ToolValidationException("Could not resolve 'target': $targetStr")
+                    throw ToolValidationException("Could not resolve 'toItemId': $targetStr")
                 }
-                val sourcesArray = requireJsonArray(params, "sources")
+                val sourcesArray = requireJsonArray(params, "fromItemIds")
                 val sourceIds = mutableListOf<UUID>()
                 for (element in sourcesArray) {
                     val str =
                         (element as? JsonPrimitive)?.content
-                            ?: throw ToolValidationException("Each source must be a string")
+                            ?: throw ToolValidationException("Each fromItemId must be a string")
                     val (resolved, err) = resolveIdString(str, context)
                     if (err != null || resolved == null) {
-                        throw ToolValidationException("Could not resolve source: $str")
+                        throw ToolValidationException("Could not resolve fromItemId: $str")
                     }
                     sourceIds.add(resolved)
                 }
@@ -602,7 +588,7 @@ with `deleteAll=true` for every dependency on that item.
         context: ToolExecutionContext
     ): JsonElement {
         val repo = context.dependencyRepository()
-        val id = extractUUID(params, "id", required = false)
+        val id = extractUUID(params, "dependencyId", required = false)
         val (fromItemId, fromError) = resolveItemId(params, "fromItemId", context, required = false)
         if (fromError != null) return fromError
         val (toItemId, toError) = resolveItemId(params, "toItemId", context, required = false)
@@ -675,7 +661,7 @@ with `deleteAll=true` for every dependency on that item.
 
                 else ->
                     errorResponse(
-                        "Delete requires 'id', 'fromItemId'+'toItemId', or 'deleteAll' with an item ID",
+                        "Delete requires 'dependencyId', 'fromItemId'+'toItemId', or 'deleteAll' with an item ID",
                         ErrorCodes.VALIDATION_ERROR
                     )
             }

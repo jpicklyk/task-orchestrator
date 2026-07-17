@@ -50,6 +50,20 @@ class QueryItemsToolTest {
 
     private fun params(vararg pairs: Pair<String, JsonElement>) = JsonObject(mapOf(*pairs))
 
+    // ──────────────────────────────────────────────
+    // Parameter naming regression (de711807 — API parameter naming normalization)
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `parameterSchema exposes overview's anchorId alongside the unchanged list-mode ancestorId`() {
+        val propNames = tool.parameterSchema.properties!!.keys
+        assertTrue(propNames.contains("anchorId"), "expected new 'anchorId' param for the overview operation")
+        assertTrue(
+            propNames.contains("ancestorId"),
+            "list-mode/scope 'ancestorId' semantics must be unchanged and remain present"
+        )
+    }
+
     /**
      * Directly blanks a row's title via Exposed, bypassing [io.github.jpicklyk.mcptask.current.domain.model.WorkItem.validate].
      * Simulates a corrupt/legacy row that the repository's `toWorkItemOrNull` must drop rather
@@ -1683,7 +1697,7 @@ class QueryItemsToolTest {
         }
 
     // ──────────────────────────────────────────────
-    // Anchored overview (ancestorId) — T2.5
+    // Anchored overview (anchorId) — T2.5
     // ──────────────────────────────────────────────
 
     @Test
@@ -1720,7 +1734,7 @@ class QueryItemsToolTest {
                 tool.execute(
                     params(
                         "operation" to JsonPrimitive("overview"),
-                        "ancestorId" to JsonPrimitive(anchorId)
+                        "anchorId" to JsonPrimitive(anchorId)
                     ),
                     context
                 ) as JsonObject
@@ -1776,7 +1790,7 @@ class QueryItemsToolTest {
                 tool.execute(
                     params(
                         "operation" to JsonPrimitive("overview"),
-                        "ancestorId" to JsonPrimitive(anchorId),
+                        "anchorId" to JsonPrimitive(anchorId),
                         "excludeTerminal" to JsonPrimitive(true)
                     ),
                     context
@@ -1794,7 +1808,7 @@ class QueryItemsToolTest {
         }
 
     @Test
-    fun `anchored overview resolves ancestorId via hex prefix`(): Unit =
+    fun `anchored overview resolves anchorId via hex prefix`(): Unit =
         runBlocking {
             val anchorId = createItem("Prefix Anchor")
             createItem("Only Child", parentId = anchorId, role = "queue")
@@ -1804,7 +1818,7 @@ class QueryItemsToolTest {
                 tool.execute(
                     params(
                         "operation" to JsonPrimitive("overview"),
-                        "ancestorId" to JsonPrimitive(prefix)
+                        "anchorId" to JsonPrimitive(prefix)
                     ),
                     context
                 ) as JsonObject
@@ -1816,13 +1830,13 @@ class QueryItemsToolTest {
         }
 
     @Test
-    fun `overview rejects itemId and ancestorId supplied together`() {
+    fun `overview rejects itemId and anchorId supplied together`() {
         assertFailsWith<ToolValidationException> {
             tool.validateParams(
                 params(
                     "operation" to JsonPrimitive("overview"),
                     "itemId" to JsonPrimitive(UUID.randomUUID().toString()),
-                    "ancestorId" to JsonPrimitive(UUID.randomUUID().toString())
+                    "anchorId" to JsonPrimitive(UUID.randomUUID().toString())
                 )
             )
         }

@@ -20,11 +20,11 @@ import java.nio.file.Paths
  * sync path for [PlanDocumentService], mirroring [ManageProjectConfigTool]'s push/get shape.
  *
  * Supports three operations:
- * - **stash**: upsert the document at a `rootItemId`+`slug`, validating the target root (must
+ * - **stash**: upsert the document at a `rootId`+`slug`, validating the target root (must
  *   exist, must be depth 0) via [PlanDocumentService]. A slug already `adopted` is rejected — see
  *   [PlanDocumentStashResult.AdoptedConflict].
- * - **get**: reads back the full stored document (including body) for a `rootItemId`+`slug`.
- * - **list**: reads back metadata-only summaries (no body) for every document under a `rootItemId`.
+ * - **get**: reads back the full stored document (including body) for a `rootId`+`slug`.
+ * - **list**: reads back metadata-only summaries (no body) for every document under a `rootId`.
  *
  * @param agentConfigBaseDir The trusted root that `bodyFromFile` paths are resolved strictly
  *   relative to (see [PathContainment]) — same `AGENT_CONFIG_DIR` -> `user.dir` resolution as
@@ -41,15 +41,15 @@ class ManagePlanDocumentsTool(
 Stash, read back, or list per-root plan documents — free-floating planning docs an agent stashes
 ahead of adoption into a real work item.
 
-**stash** — upserts the document at `rootItemId`+`slug`; the body comes from `body` (inline) or
+**stash** — upserts the document at `rootId`+`slug`; the body comes from `body` (inline) or
 `bodyFromFile` (server-side path), mutually exclusive — providing both, or neither, fails.
 Re-stashing an existing `pending` slug overwrites it in place. A slug already `adopted` is rejected
 with a CONFLICT_ERROR: adoption is a one-way transition and cannot be undone by stashing over it.
 
-**get** — returns the full stored document (including body) for `rootItemId`+`slug`, or a
+**get** — returns the full stored document (including body) for `rootId`+`slug`, or a
 not-found error when no document exists at that slug.
 
-**list** — returns metadata-only summaries (never the body) for every document under `rootItemId`,
+**list** — returns metadata-only summaries (never the body) for every document under `rootId`,
 optionally filtered to a single `status` (pending or adopted).
         """.trimIndent()
 
@@ -76,7 +76,7 @@ optionally filtered to a single `status` (pending or adopted).
                         }
                     )
                     put(
-                        "rootItemId",
+                        "rootId",
                         buildJsonObject {
                             put("type", JsonPrimitive("string"))
                             put(
@@ -93,7 +93,7 @@ optionally filtered to a single `status` (pending or adopted).
                             put("type", JsonPrimitive("string"))
                             put(
                                 "description",
-                                JsonPrimitive("Document identifier, unique within rootItemId (stash, get only)")
+                                JsonPrimitive("Document identifier, unique within rootId (stash, get only)")
                             )
                         }
                     )
@@ -133,14 +133,14 @@ optionally filtered to a single `status` (pending or adopted).
                         }
                     )
                 },
-            required = listOf("operation", "rootItemId")
+            required = listOf("operation", "rootId")
         )
 
     override fun validateParams(params: JsonElement) {
         val operation = requireString(params, "operation")
         when (operation) {
             "stash" -> {
-                validateIdOrPrefix(params, "rootItemId", required = true)
+                validateIdOrPrefix(params, "rootId", required = true)
                 requireString(params, "slug")
                 val body = optionalString(params, "body")
                 val bodyFromFile = optionalString(params, "bodyFromFile")
@@ -152,11 +152,11 @@ optionally filtered to a single `status` (pending or adopted).
                 }
             }
             "get" -> {
-                validateIdOrPrefix(params, "rootItemId", required = true)
+                validateIdOrPrefix(params, "rootId", required = true)
                 requireString(params, "slug")
             }
             "list" -> {
-                validateIdOrPrefix(params, "rootItemId", required = true)
+                validateIdOrPrefix(params, "rootId", required = true)
                 optionalString(params, "status")?.let { value ->
                     if (value != "pending" && value != "adopted") {
                         throw ToolValidationException("Invalid status: $value. Must be pending or adopted")
@@ -186,11 +186,11 @@ optionally filtered to a single `status` (pending or adopted).
         val op = (params as? JsonObject)?.get("operation")?.let { (it as? JsonPrimitive)?.content } ?: "unknown"
         if (isError) return "manage_plan_documents($op) failed"
         val data = (result as? JsonObject)?.get("data") as? JsonObject
-        val rootItemId = data?.get("rootItemId")?.let { (it as? JsonPrimitive)?.content } ?: "unknown"
+        val rootId = data?.get("rootId")?.let { (it as? JsonPrimitive)?.content } ?: "unknown"
         return when (op) {
-            "stash" -> "Stashed plan document for root $rootItemId"
-            "get" -> "Retrieved plan document for root $rootItemId"
-            "list" -> "Listed plan documents for root $rootItemId"
+            "stash" -> "Stashed plan document for root $rootId"
+            "get" -> "Retrieved plan document for root $rootId"
+            "list" -> "Listed plan documents for root $rootId"
             else -> super.userSummary(params, result, isError)
         }
     }
@@ -203,7 +203,7 @@ optionally filtered to a single `status` (pending or adopted).
         params: JsonElement,
         context: ToolExecutionContext
     ): JsonElement {
-        val (rootItemId, idError) = resolveItemId(params, "rootItemId", context)
+        val (rootId, idError) = resolveItemId(params, "rootId", context)
         if (idError != null) return idError
         val slug = requireString(params, "slug")
 
@@ -217,7 +217,7 @@ optionally filtered to a single `status` (pending or adopted).
             }
 
         val service = PlanDocumentService(context.repositoryProvider)
-        return when (val result = service.stash(rootItemId!!, slug, body)) {
+        return when (val result = service.stash(rootId!!, slug, body)) {
             is PlanDocumentStashResult.Success -> successResponse(documentToJson(result.document, includeBody = false))
             is PlanDocumentStashResult.NotFound ->
                 errorResponse(
@@ -226,7 +226,7 @@ optionally filtered to a single `status` (pending or adopted).
                 )
             is PlanDocumentStashResult.NotDepthZero ->
                 errorResponse(
-                    "rootItemId must reference a depth-0 (root) WorkItem; '${result.rootItemId}' has depth ${result.depth}",
+                    "rootId must reference a depth-0 (root) WorkItem; '${result.rootItemId}' has depth ${result.depth}",
                     ErrorCodes.VALIDATION_ERROR
                 )
             is PlanDocumentStashResult.TooLarge ->
@@ -258,16 +258,16 @@ optionally filtered to a single `status` (pending or adopted).
         params: JsonElement,
         context: ToolExecutionContext
     ): JsonElement {
-        val (rootItemId, idError) = resolveItemId(params, "rootItemId", context)
+        val (rootId, idError) = resolveItemId(params, "rootId", context)
         if (idError != null) return idError
         val slug = requireString(params, "slug")
 
         val service = PlanDocumentService(context.repositoryProvider)
-        return when (val result = service.get(rootItemId!!, slug)) {
+        return when (val result = service.get(rootId!!, slug)) {
             is Result.Success -> {
                 val document =
                     result.data ?: return errorResponse(
-                        "No plan document found for root $rootItemId, slug $slug",
+                        "No plan document found for root $rootId, slug $slug",
                         ErrorCodes.RESOURCE_NOT_FOUND
                     )
                 successResponse(documentToJson(document, includeBody = true))
@@ -288,16 +288,16 @@ optionally filtered to a single `status` (pending or adopted).
         params: JsonElement,
         context: ToolExecutionContext
     ): JsonElement {
-        val (rootItemId, idError) = resolveItemId(params, "rootItemId", context)
+        val (rootId, idError) = resolveItemId(params, "rootId", context)
         if (idError != null) return idError
         val statusFilter = optionalString(params, "status")?.let { PlanDocumentStatus.fromDbValue(it) }
 
         val service = PlanDocumentService(context.repositoryProvider)
-        return when (val result = service.list(rootItemId!!, statusFilter)) {
+        return when (val result = service.list(rootId!!, statusFilter)) {
             is Result.Success ->
                 successResponse(
                     buildJsonObject {
-                        put("rootItemId", JsonPrimitive(rootItemId.toString()))
+                        put("rootId", JsonPrimitive(rootId.toString()))
                         put("plans", JsonArray(result.data.map { summaryToJson(it) }))
                     }
                 )
@@ -319,7 +319,7 @@ optionally filtered to a single `status` (pending or adopted).
     ): JsonObject =
         buildJsonObject {
             put("id", JsonPrimitive(document.id.toString()))
-            put("rootItemId", JsonPrimitive(document.rootItemId.toString()))
+            put("rootId", JsonPrimitive(document.rootItemId.toString()))
             put("slug", JsonPrimitive(document.slug))
             put("contentHash", JsonPrimitive(document.contentHash))
             put("status", JsonPrimitive(document.status.toDbValue()))
@@ -332,7 +332,7 @@ optionally filtered to a single `status` (pending or adopted).
     private fun summaryToJson(summary: PlanDocumentSummary): JsonObject =
         buildJsonObject {
             put("id", JsonPrimitive(summary.id.toString()))
-            put("rootItemId", JsonPrimitive(summary.rootItemId.toString()))
+            put("rootId", JsonPrimitive(summary.rootItemId.toString()))
             put("slug", JsonPrimitive(summary.slug))
             put("contentHash", JsonPrimitive(summary.contentHash))
             put("status", JsonPrimitive(summary.status.toDbValue()))
