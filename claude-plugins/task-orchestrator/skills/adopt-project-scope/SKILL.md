@@ -85,7 +85,7 @@ Build a probe where a grandchild's depth MUST change when a middle node is re-pa
    ```
 3. Re-parent the middle node M **under A** (making it deeper):
    ```
-   manage_items(operation="update", items=[{ id: M, parentId: A }])
+   manage_items(operation="update", items=[{ itemId: M, parentId: A }])
    ```
    Post-fix, M becomes depth 2 and G becomes depth 3.
 4. Read the grandchild's depth and capture it:
@@ -187,8 +187,8 @@ Capture the new UUID as `ANCHOR_ID`.
 
 ```
 manage_items(operation="update", items=[
-  { id: "<move-root-1>", parentId: ANCHOR_ID },
-  { id: "<move-root-2>", parentId: ANCHOR_ID },
+  { itemId: "<move-root-1>", parentId: ANCHOR_ID },
+  { itemId: "<move-root-2>", parentId: ANCHOR_ID },
   ...
 ])
 ```
@@ -258,7 +258,7 @@ Render a before/after table:
 ```
 ⚠ Reconciliation mismatch — expected <X> children under the anchor, found <Y>.
   No rollback was performed. To undo: re-parent the affected roots back to depth 0
-  with manage_items(operation="update", items=[{ id, parentId: null }]) for each,
+  with manage_items(operation="update", items=[{ itemId, parentId: null }]) for each,
   then delete the anchor. Investigate before retrying.
 ```
 

@@ -198,7 +198,7 @@ If a new category container was created, add one line:
 
 **Wrong container chosen for the item**
 - Cause: Item type was ambiguous or the category mapping didn't match intent
-- Solution: Move the item after creation with `manage_items(operation="update", items=[{id: "<uuid>", parentId: "<correct-container-uuid>"}])`
+- Solution: Move the item after creation with `manage_items(operation="update", items=[{itemId: "<uuid>", parentId: "<correct-container-uuid>"}])`
 
 **Type not matching a schema — `expectedNotes` is empty**
 - Cause: The `type` field doesn't match any key in `.taskorchestrator/config.yaml`, or the config hasn't been loaded
