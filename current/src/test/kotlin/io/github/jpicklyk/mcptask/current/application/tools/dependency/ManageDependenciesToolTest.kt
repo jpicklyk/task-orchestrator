@@ -667,6 +667,8 @@ class ManageDependenciesToolTest {
             assertTrue(data["failed"]!!.jsonPrimitive.int > 0)
             val failures = data["failures"]!!.jsonArray
             assertEquals(1, failures.size)
+            // Invariant: `failed` count must equal the number of documented failures (no phantom count).
+            assertEquals(failures.size, data["failed"]!!.jsonPrimitive.int)
             assertTrue(
                 failures[0]
                     .jsonObject["error"]!!
@@ -677,6 +679,94 @@ class ManageDependenciesToolTest {
             // Verify nothing was created (atomic)
             val deps = context.dependencyRepository().findByItemId(itemA)
             assertTrue(deps.isEmpty())
+        }
+
+    @Test
+    fun `create batch reports failed count matching failures length (phantom count regression)`(): Unit =
+        runBlocking {
+            // Exact repro from the bug report: two specs where only the FIRST is invalid (bad type).
+            // Before the fix this returned failed=2 (whole batch size) with a single failure detail.
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("create"),
+                        "dependencies" to
+                            JsonArray(
+                                listOf(
+                                    buildJsonObject {
+                                        put("fromItemId", JsonPrimitive(itemA.toString()))
+                                        put("toItemId", JsonPrimitive(itemB.toString()))
+                                        put("type", JsonPrimitive("INVALID_TYPE"))
+                                    },
+                                    buildJsonObject {
+                                        put("fromItemId", JsonPrimitive(itemC.toString()))
+                                        put("toItemId", JsonPrimitive(itemD.toString()))
+                                    }
+                                )
+                            )
+                    ),
+                    context
+                ) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val data = result["data"] as JsonObject
+            assertEquals(0, data["created"]!!.jsonPrimitive.int)
+            val failures = data["failures"]!!.jsonArray
+            assertEquals(1, failures.size, "only the first spec is invalid; the second is well-formed")
+            assertEquals(1, data["failed"]!!.jsonPrimitive.int, "failed must equal failures.length, not batch size")
+            assertEquals(0, failures[0].jsonObject["index"]!!.jsonPrimitive.int)
+            assertTrue(
+                failures[0]
+                    .jsonObject["error"]!!
+                    .jsonPrimitive.content
+                    .contains("invalid type", ignoreCase = true)
+            )
+
+            // Atomic: nothing created even though the second spec was valid.
+            assertTrue(context.dependencyRepository().findByItemId(itemC).isEmpty())
+        }
+
+    @Test
+    fun `create batch collects all per-element validation errors with correct indices`(): Unit =
+        runBlocking {
+            // Non-contiguous invalid indices: index 0 (bad type), index 1 valid, index 2 (bad UUID).
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("create"),
+                        "dependencies" to
+                            JsonArray(
+                                listOf(
+                                    buildJsonObject {
+                                        put("fromItemId", JsonPrimitive(itemA.toString()))
+                                        put("toItemId", JsonPrimitive(itemB.toString()))
+                                        put("type", JsonPrimitive("INVALID_TYPE"))
+                                    },
+                                    buildJsonObject {
+                                        put("fromItemId", JsonPrimitive(itemC.toString()))
+                                        put("toItemId", JsonPrimitive(itemD.toString()))
+                                    },
+                                    buildJsonObject {
+                                        put("fromItemId", JsonPrimitive("not-a-uuid"))
+                                        put("toItemId", JsonPrimitive(itemE.toString()))
+                                    }
+                                )
+                            )
+                    ),
+                    context
+                ) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val data = result["data"] as JsonObject
+            assertEquals(0, data["created"]!!.jsonPrimitive.int)
+            val failures = data["failures"]!!.jsonArray
+            assertEquals(2, failures.size, "both invalid elements should be reported")
+            assertEquals(2, data["failed"]!!.jsonPrimitive.int)
+            val reportedIndices = failures.map { it.jsonObject["index"]!!.jsonPrimitive.int }.toSet()
+            assertEquals(setOf(0, 2), reportedIndices, "indices must reflect the actual offending positions")
+
+            // Atomic: the valid middle element is not created.
+            assertTrue(context.dependencyRepository().findByItemId(itemC).isEmpty())
         }
 
     @Test
