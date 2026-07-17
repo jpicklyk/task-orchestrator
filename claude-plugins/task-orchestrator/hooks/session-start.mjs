@@ -118,7 +118,7 @@ Active project: ${label}
 
 - Pass \`ancestorId: "${project.rootId}"\` on \`query_items\` (list mode), \`get_next_item\`, \`get_context\`, and \`get_blocked_items\` to scope results to this project.
 - Anchor new root-level items under this project by setting \`parentId: "${project.rootId}"\`.
-- Process-global containers (Session Retrospectives, Improvement Proposals, agent-observations) stay OUTSIDE the project root at depth 0 — do not anchor them under \`${project.rootId}\`.`;
+- Process-global items stay OUTSIDE the project root at depth 0: the Session Retrospectives and Improvement Proposals containers, and standalone agent-observation items — do not anchor any of them under \`${project.rootId}\`.`;
 }
 
 let additionalContext;

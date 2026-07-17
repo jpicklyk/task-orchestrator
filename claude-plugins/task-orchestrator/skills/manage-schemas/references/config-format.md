@@ -132,6 +132,46 @@ Schema resolution uses **type-first lookup with tag fallback**:
 
 ---
 
+## Trait Merge Semantics
+
+How trait notes merge into an item's resolved schema (`ToolExecutionContext.resolveSchema()` /
+`mergeTraits()`):
+
+1. **Base-schema note keys always win.** If a trait declares a note with the same `key` as one
+   already in the schema's own `notes` list, the trait's note is dropped — the base schema's
+   version (role, required, guidance, skill) is kept unchanged.
+2. **`default_traits` merge before per-item `traits`.** The schema-level trait list is applied
+   first; traits carried on the item's own `properties.traits` are layered on after.
+3. **First-trait-in-order wins on duplicate trait keys.** When two traits being applied (across
+   `default_traits` and per-item `traits`, in application order) both declare a note with the same
+   key, the earlier one keeps its note — the later duplicate is dropped, same as rule 1.
+4. **Trait notes append after base notes.** The final note list order is: base schema notes, then
+   surviving trait notes in application order.
+5. **Per-root trait definitions replace the global trait wholesale, per trait name.** There is no
+   note-level merge between a per-root and a global trait sharing a name — resolution picks
+   `perRoot ?: global` for the *entire* trait definition (all its notes), not a union of the two.
+6. **Traits can only add note keys — never override or relax a base-schema gate.** A trait cannot
+   turn a base-schema `required: true` note optional, and it cannot change a base note's role; the
+   only way a trait can affect an existing base key is to be silently ignored (rule 1).
+
+**Example — base key wins:**
+
+```yaml
+work_item_schemas:
+  feature-task:
+    default_traits: [needs-task-review]
+    notes:
+      - {key: implementation-notes, role: work, required: true}
+
+traits:
+  needs-task-review:
+    notes:
+      - {key: implementation-notes, role: review, required: false}  # dropped — key collides with base
+      - {key: review-checklist, role: review, required: true}       # added
+```
+
+---
+
 ## Phase Flow
 
 ```
@@ -427,6 +467,18 @@ per-root config has been pushed.
 
 **Layer roles:** global = server-wide floor; per-root = the project's complete self-description,
 which can lower the floor to zero via the empty default (see below).
+
+**This project's own split.** In this repository, the **global** config
+(`deploy/global-config/.taskorchestrator/config.yaml`, mounted via `AGENT_CONFIG_DIR`) carries
+*only* the process/self-improvement schemas that every project sharing the server should get for
+free — `agent-observation`, `session-retrospective`, `improvement-proposal`, and the generic
+`container` schema. Project-specific schemas (`feature-implementation`, `feature-task`, `bug-fix`,
+and the `traits:` section) live entirely in this project's own git-tracked
+`.taskorchestrator/config.yaml` and reach the server per-root via the `config-sync` SessionStart
+hook — they are never part of the global floor. Because per-root resolution is whole-algorithm-first
+(see above), this project's per-root `default` schema (if any) or exact-type match for its own
+schemas beats a global exact-type match, even though in practice the global floor only defines
+process schemas this project's config doesn't redeclare.
 
 **Precedence — the workspace file is canonical; the per-root DB row is a synced replica.** The `config-sync.mjs` SessionStart hook (and the `manage-schemas` / `quick-start` push steps) copy the local `.taskorchestrator/config.yaml` into the per-root store whenever it changes. Durable edits belong in the **file**: a runtime `manage_project_config` push that isn't reflected in the file is overwritten at the next session's sync. A byte-identical file is a no-op (fingerprints match).
 

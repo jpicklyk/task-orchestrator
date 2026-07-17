@@ -78,7 +78,7 @@ Empty (no project root exists):
   → No: create category container at depth 0 → create item under it
 ```
 
-**Exception (all branches):** `agent-observation` items never anchor under a project root or category container — they are process-global containers that live at depth 0 alongside (not under) any project root, per Step 2.
+**Exception (all branches):** `agent-observation` items never anchor under a project root or category container — they are standalone process-global items (each its own root, not a child of any container) that live at depth 0 alongside (not under) any project root, per Step 2.
 
 ---
 
