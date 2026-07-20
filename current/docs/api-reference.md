@@ -236,7 +236,7 @@ snippets, filtered list search, or hierarchical overview.
 | `includeChildren` | boolean | No | Include direct children on each root item (global mode only, default: false) |
 | `limit` | integer | No | Max root items (default: 50; global and anchored modes only) |
 | `offset` | integer | No | Skip N root items for pagination (default: 0; global and anchored modes only — scoped overview always returns all direct children, unpaginated) |
-| `excludeTerminal` | boolean | No | Default false. Global and anchored modes: drop terminal-role roots from `items` before their children/counts are even fetched, and `total`/`truncated` reflect the filtered set. Scoped mode: drop terminal-role items from `children` only — the parent is always returned regardless of its own role, and `childCounts` stays unfiltered. |
+| `excludeTerminal` | boolean | No | Default false. Global mode: drop terminal-role roots from `items` at the SQL level before their children/counts are even fetched, and `total`/`truncated` reflect the filtered set. Anchored and scoped modes: drop terminal-role items from the `items`/`children` array, **except** a terminal-role item that still has non-terminal descendants, which is retained (it represents active work parked under a done container). The scoped parent is always returned regardless of its own role, and `childCounts` stays unfiltered. |
 
 #### Key Parameters — schema
 
@@ -1039,8 +1039,14 @@ detection → unblock detection. The MCP path enforces claim ownership; the REST
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `transitions` | array | Yes | Array of transition objects: `[{ itemId, trigger, summary?, actor? }]` |
+| `transitions` | array | Conditional | Array of transition objects: `[{ itemId, trigger, summary?, actor? }]`. Required unless the singular-form sugar (`itemId` + `trigger`) is used instead. |
+| `itemId` | string (UUID or 4+ char prefix) | Conditional | Singular-form sugar: advance a single item without a `transitions` array. Provide with `trigger` (and optional top-level `summary`/`actor`); the server wraps it into a one-element `transitions` array. Ignored when `transitions` is present. |
+| `trigger` | string | Conditional | Singular-form sugar: the trigger for the single item named by top-level `itemId`. |
+| `summary` | string | No | Singular-form sugar (optional): transition summary for the single top-level `itemId`. |
+| `actor` | object | No | Singular-form sugar (optional): actor claim for the single top-level `itemId`, same shape as a transition's `actor`. |
 | `requestId` | string (UUID) | No | Client-generated UUID for idempotency. Repeated calls with the same `(actor.id, requestId)` within ~10 minutes return the cached response without re-executing. Uses the first transition's `actor.id` as the idempotency key actor. |
+
+Provide **either** a `transitions` array **or** the singular `itemId` + `trigger`. If `transitions` is present, the top-level singular fields are ignored.
 
 **Transition object fields:**
 
@@ -1102,6 +1108,9 @@ All cascade types are recorded in `cascadeEvents`.
 ```json
 // Single transition
 { "transitions": [{ "itemId": "550e8400-e29b-41d4-a716-446655440001", "trigger": "start" }] }
+
+// Single transition — singular-form sugar (equivalent to the above)
+{ "itemId": "550e8400-e29b-41d4-a716-446655440001", "trigger": "start" }
 
 // Batch
 {

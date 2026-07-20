@@ -1083,6 +1083,40 @@ class QueryItemsToolTest {
         }
 
     @Test
+    fun `scoped overview excludeTerminal retains a terminal child that has open descendants`(): Unit =
+        runBlocking {
+            // Regression for 18fd99a7: a done-labeled container that still holds open work is a
+            // live workstream and must not vanish from a scoped excludeTerminal view.
+            val parentId = createItem("Dashboard Root")
+            val doneContainerId = createItem("Done Container", parentId = parentId, role = "terminal")
+            createItem("Open Grandchild", parentId = doneContainerId, role = "queue")
+            // A terminal child with NO open descendants stays hidden — the filter still works.
+            createItem("Fully Done", parentId = parentId, role = "terminal")
+
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("overview"),
+                        "itemId" to JsonPrimitive(parentId),
+                        "excludeTerminal" to JsonPrimitive(true)
+                    ),
+                    context
+                ) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val data = result["data"] as JsonObject
+            val childTitles = data["children"]!!.jsonArray.map { it.jsonObject["title"]!!.jsonPrimitive.content }
+            assertTrue(
+                childTitles.contains("Done Container"),
+                "terminal container with open descendants must be retained (18fd99a7); got $childTitles"
+            )
+            assertFalse(
+                childTitles.contains("Fully Done"),
+                "terminal child with no open descendants must stay hidden; got $childTitles"
+            )
+        }
+
+    @Test
     fun `overview excludeTerminal omitted defaults to false and preserves current behavior`(): Unit =
         runBlocking {
             val parentId = createItem("Parent")
@@ -1805,6 +1839,43 @@ class QueryItemsToolTest {
             // excludeTerminal (unlike scoped overview, where childCounts stays unfiltered but
             // here the roots set itself is what's filtered).
             assertEquals(1, data["total"]!!.jsonPrimitive.int)
+        }
+
+    @Test
+    fun `anchored overview excludeTerminal retains a terminal child that has open descendants`(): Unit =
+        runBlocking {
+            // Regression for 18fd99a7: work-summary anchors the overview to the project root, so
+            // a terminal-role container with open descendants must survive the anchored filter too.
+            val anchorId = createItem("Project Anchor")
+            val doneContainerId = createItem("Done Container", parentId = anchorId, role = "terminal")
+            createItem("Open Grandchild", parentId = doneContainerId, role = "queue")
+            createItem("Fully Done Container", parentId = anchorId, role = "terminal")
+            createItem("Active Child", parentId = anchorId, role = "queue")
+
+            val result =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("overview"),
+                        "anchorId" to JsonPrimitive(anchorId),
+                        "excludeTerminal" to JsonPrimitive(true)
+                    ),
+                    context
+                ) as JsonObject
+
+            assertTrue(result["success"]!!.jsonPrimitive.boolean)
+            val data = result["data"] as JsonObject
+            val titles = data["items"]!!.jsonArray.map { it.jsonObject["title"]!!.jsonPrimitive.content }
+            assertTrue(titles.contains("Active Child"), "non-terminal child must appear; got $titles")
+            assertTrue(
+                titles.contains("Done Container"),
+                "terminal container with open descendants must be retained (18fd99a7); got $titles"
+            )
+            assertFalse(
+                titles.contains("Fully Done Container"),
+                "terminal child with no open descendants must stay hidden; got $titles"
+            )
+            // total reflects the retained set: Active Child + Done Container.
+            assertEquals(2, data["total"]!!.jsonPrimitive.int)
         }
 
     @Test
