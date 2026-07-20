@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.12.0] - 2026-07-20
+
 ### Added
 
 - **REST per-root config write endpoint.** `GET`/`PUT`/`DELETE /api/v1/roots/{rootId}/config`,
@@ -43,6 +45,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (plus optional `summary`/`actor`) as shorthand for a one-element `transitions` array, wrapped
   server-side. The batch `transitions` array is unchanged and takes precedence when both are
   supplied; the missing-parameter error now names both accepted shapes (#255).
+- **Plan-document ingestion.** New `manage_plan_documents` MCP tool and REST `PUT`/`GET
+  /api/v1/roots/{rootId}/plans/{slug}` (plus `GET .../plans`) — stash a plan once and materialize
+  work items from it instead of duplicating the plan text into every item. Both ingestion paths
+  converge on a shared `PlanDocumentService` with identical content hashing; the pending→adopted
+  lifecycle is one-way and enforced at the repository layer (#243).
+- **Plugin: native deterministic retrospective trigger.** Plugin hooks now fire the session
+  retrospective deterministically when work reaches terminal, replacing the earlier best-effort
+  nudge (#248).
+- **Plugin: `schema-orchestrator` output style.** A lean orchestration style focused on schema- and
+  gate-driven workflows (#233).
+
+### Changed
+
+- **⚠ Breaking (MCP + REST): normalized identity/cascade parameter names.** `manage_items`
+  `items[].id`→`itemId` and `ids`→`itemIds`; `query_notes` get `id`→`noteId`; `manage_dependencies`
+  fan-out/fan-in source/target(s)→`fromItemId(s)`/`toItemId(s)` and delete `id`→`dependencyId`;
+  `manage_project_config`/`manage_plan_documents` `rootItemId`→`rootId` (including REST DTOs);
+  `query_items` overview `ancestorId`→`anchorId`. Behavior is unchanged — only the parameter names
+  differ. The bundled plugin skills are updated in lockstep, so plugin users are unaffected;
+  **direct MCP or REST integrations must update their call sites** (#246).
 
 ### Fixed
 
@@ -54,6 +76,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `advance_item` now reports the received type (string vs object vs other) instead of an
   undiagnosable "must be a JSON array", so a JSON-encoded-string argument is distinguishable from
   malformed input (#254).
+- FTS5 search now returns correct results under the REST API, plus status-label stamping
+  corrections (three bugs) (#244).
+- `manage_dependencies` now reports a failed count that matches its failures detail list (#253).
+- **Plugin robustness.** Corrected tool-call shapes and schema-key drift across skills, a
+  shape-tolerant retrospective-trigger response parser, and the documented PreToolUse deny shape in
+  actor-attribution enforcement (#245, #249, #251, #252).
 
 ### Documentation
 
@@ -61,6 +89,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   row is a hot-reloaded synced replica; the file wins at session boundaries) and reframed
   `AGENT_CONFIG_DIR` in `CLAUDE.md` as the global/fallback config layer, with a pointer to the
   per-root DB layer and the `config-sync` hook (#236).
+
+### Plugin
+
+- Bumped plugin version to **3.4.0** — new `/configure-server` skill, `schema-orchestrator` output
+  style, and native retrospective-trigger hooks.
 
 ## [3.11.0] - 2026-07-15
 
