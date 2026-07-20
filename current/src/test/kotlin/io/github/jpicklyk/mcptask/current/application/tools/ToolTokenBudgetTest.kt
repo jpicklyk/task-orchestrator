@@ -106,7 +106,7 @@ class ToolTokenBudgetTest {
             "manage_notes" to 2057,
             "complete_tree" to 1760, // was 1712; see note above
             "query_dependencies" to 1708,
-            "advance_item" to 1450, // was 1407; see note above
+            "advance_item" to 2100, // was 1450; measured 2006 after singular itemId+trigger call-shape sugar (eb4b3fd5)
             "get_blocked_items" to 1250, // was 830; T2.3 added the `ancestorId` scope parameter
             "get_next_status" to 470,
             "manage_project_config" to 3150, // measured 2698 after get `fingerprint` param + relation (fast-forward guard, t5)

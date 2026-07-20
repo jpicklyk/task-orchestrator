@@ -40,6 +40,10 @@ class AdvanceItemTool :
         """
 Trigger-based role transitions for WorkItems with validation, cascade detection, and unblock reporting.
 
+**Call shapes:** `transitions=[{itemId, trigger, summary?, actor?}, ...]` (batch), OR top-level
+singular sugar `itemId`+`trigger` (+ optional `summary`, `actor`) for one item — the server wraps it
+into a one-element array. If `transitions` is present the singular fields are ignored.
+
 **Trigger effects:**
 - start: QUEUE->WORK, WORK->REVIEW (or TERMINAL if no review phase in schema), REVIEW->TERMINAL
 - complete: any non-TERMINAL/BLOCKED -> TERMINAL
@@ -85,6 +89,26 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                         }
                     )
                     put(
+                        "itemId",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("string"))
+                            put(
+                                "description",
+                                JsonPrimitive(
+                                    "Singular-form sugar (UUID or hex prefix): advance one item with `trigger` instead of " +
+                                        "a `transitions` array; optional `summary`/`actor` are accepted too. See the description."
+                                )
+                            )
+                        }
+                    )
+                    put(
+                        "trigger",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("string"))
+                            put("description", JsonPrimitive("Singular-form sugar: the trigger for the single `itemId`."))
+                        }
+                    )
+                    put(
                         "requestId",
                         buildJsonObject {
                             put("type", JsonPrimitive("string"))
@@ -98,11 +122,46 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
                         }
                     )
                 },
-            required = listOf("transitions")
+            required = emptyList()
         )
 
+    /**
+     * Normalizes the singular call shape into the canonical `transitions` array (eb4b3fd5).
+     *
+     * If `transitions` is already present, params pass through unchanged. Otherwise, a top-level
+     * `itemId` is wrapped into a one-element `transitions=[{itemId, trigger?, summary?, actor?}]`,
+     * carrying the singular sugar fields; any other top-level params (e.g. `requestId`) are
+     * preserved. With neither `transitions` nor `itemId`, params pass through so downstream
+     * validation raises the (now shape-naming) missing-parameter error.
+     */
+    private fun normalizeParams(params: JsonElement): JsonElement {
+        val obj = params as? JsonObject ?: return params
+        if (obj.containsKey("transitions")) return params
+        val itemId = obj["itemId"] ?: return params
+        val sugarKeys = setOf("itemId", "trigger", "summary", "actor")
+        val singular =
+            buildJsonObject {
+                put("itemId", itemId)
+                obj["trigger"]?.let { put("trigger", it) }
+                obj["summary"]?.let { put("summary", it) }
+                obj["actor"]?.let { put("actor", it) }
+            }
+        return buildJsonObject {
+            obj.forEach { (k, v) -> if (k !in sugarKeys) put(k, v) }
+            put("transitions", JsonArray(listOf(singular)))
+        }
+    }
+
     override fun validateParams(params: JsonElement) {
-        val transitions = requireJsonArray(params, "transitions")
+        val normalized = normalizeParams(params)
+        val normalizedObj = normalized as? JsonObject
+        if (normalizedObj == null || !normalizedObj.containsKey("transitions")) {
+            throw ToolValidationException(
+                "advance_item requires either a `transitions` array or the singular `itemId` + `trigger`. " +
+                    "Example: transitions=[{\"itemId\": \"...\", \"trigger\": \"complete\"}]"
+            )
+        }
+        val transitions = requireJsonArray(normalized, "transitions")
         if (transitions.isEmpty()) {
             throw ToolValidationException("transitions array must not be empty")
         }
@@ -183,8 +242,9 @@ Trigger-based role transitions for WorkItems with validation, cascade detection,
         params: JsonElement,
         context: ToolExecutionContext
     ): JsonElement {
-        val transitions = requireJsonArray(params, "transitions")
-        val requestIdStr = optionalString(params, "requestId")
+        val normalized = normalizeParams(params)
+        val transitions = requireJsonArray(normalized, "transitions")
+        val requestIdStr = optionalString(normalized, "requestId")
         val requestId =
             requestIdStr?.let {
                 try {

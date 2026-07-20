@@ -391,10 +391,12 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
                                     "Overview operation only, default false. Global overview (no itemId): excludes " +
                                         "terminal-role roots from `items` — they are filtered at the SQL level before " +
                                         "child counts/claim summaries are fetched, and `total`/`truncated` reflect the " +
-                                        "filtered (non-terminal) root count. Scoped overview (itemId set): excludes " +
-                                        "terminal-role items from the `children` array only — the parent item is always " +
-                                        "returned regardless of its own role, and `childCounts` still reflects the full, " +
-                                        "unfiltered role breakdown."
+                                        "filtered (non-terminal) root count. Scoped (itemId) and anchored (anchorId) " +
+                                        "overviews: exclude terminal-role items from the `children`/`items` array, EXCEPT " +
+                                        "a terminal-role item that still has non-terminal descendants, which is retained " +
+                                        "(it represents active work parked under a done container). The scoped parent " +
+                                        "item is always returned regardless of its own role, and `childCounts` still " +
+                                        "reflects the full, unfiltered role breakdown."
                                 )
                             )
                         }
@@ -1177,7 +1179,18 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
             }
         // excludeTerminal filters the emitted list only — childCounts above stays unfiltered so
         // callers can still see how many terminal children exist even when they're hidden here.
-        val visibleChildren = if (excludeTerminal) children.filterNot { it.role == Role.TERMINAL } else children
+        // A terminal-role child that still holds open descendants is RETAINED (bug 18fd99a7): it
+        // represents active work parked under a done container and must not silently disappear.
+        val visibleChildren =
+            if (excludeTerminal) {
+                buildList {
+                    for (child in children) {
+                        if (child.role != Role.TERMINAL || hasOpenDescendants(child.id, context)) add(child)
+                    }
+                }
+            } else {
+                children
+            }
 
         val data =
             buildJsonObject {
@@ -1234,9 +1247,19 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
         // findChildren has no SQL-level excludeTerminal or ordering — filter and sort in memory.
         // excludeTerminal narrows the roots set itself (same layer as the global path), so
         // total/truncated below reflect the filtered count, not the raw direct-children count.
-        val visibleChildren =
-            (if (excludeTerminal) allChildren.filterNot { it.role == Role.TERMINAL } else allChildren)
-                .sortedByDescending { it.createdAt }
+        // A terminal-role child that still holds open descendants is RETAINED (bug 18fd99a7):
+        // it is a live workstream parked under a done container and must stay in the roots set.
+        val retainedChildren =
+            if (excludeTerminal) {
+                buildList {
+                    for (child in allChildren) {
+                        if (child.role != Role.TERMINAL || hasOpenDescendants(child.id, context)) add(child)
+                    }
+                }
+            } else {
+                allChildren
+            }
+        val visibleChildren = retainedChildren.sortedByDescending { it.createdAt }
         val totalChildren = visibleChildren.size
         val pagedChildren = visibleChildren.drop(offset).take(limit)
 
@@ -1387,6 +1410,29 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
             }
 
         return successResponse(data)
+    }
+
+    /**
+     * True when [itemId] has at least one non-terminal descendant (QUEUE/WORK/REVIEW/BLOCKED)
+     * anywhere in its subtree. Used by `excludeTerminal` overview filtering so a terminal-role
+     * container that still holds open work is NOT dropped from a scoped view (bug 18fd99a7):
+     * filtering on a child's own role alone hid active workstreams parked under a done container.
+     *
+     * `countInScopeByRole` is roots-inclusive, but this is only called for terminal-role items,
+     * so the item's own role lands in the TERMINAL bucket — any non-terminal bucket therefore
+     * reflects descendants only. On a count error we fail closed (treat as no open descendants)
+     * to preserve the prior filtering behavior rather than surfacing a partial view.
+     */
+    private suspend fun hasOpenDescendants(
+        itemId: java.util.UUID,
+        context: ToolExecutionContext
+    ): Boolean {
+        val counts =
+            when (val result = context.workItemRepository().countInScopeByRole(rootIds = setOf(itemId))) {
+                is Result.Success -> result.data
+                is Result.Error -> return false
+            }
+        return counts.any { (role, count) -> role != Role.TERMINAL && count > 0 }
     }
 
     /**

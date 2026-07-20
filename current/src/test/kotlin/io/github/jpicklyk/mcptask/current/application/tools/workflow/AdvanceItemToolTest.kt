@@ -901,6 +901,117 @@ class AdvanceItemToolTest {
     }
 
     // ──────────────────────────────────────────────
+    // Singular call-shape sugar (eb4b3fd5)
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `singular itemId plus trigger advances a single item`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            val item = makeItem(id = itemId, role = Role.QUEUE)
+
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            every { depRepo.findByToItemId(itemId) } returns emptyList()
+            every { depRepo.findByFromItemId(itemId) } returns emptyList()
+
+            // Singular sugar: no transitions array, top-level itemId + trigger.
+            val params =
+                buildJsonObject {
+                    put("itemId", JsonPrimitive(itemId.toString()))
+                    put("trigger", JsonPrimitive("start"))
+                }
+            val result = tool.execute(params, context)
+
+            val results = extractResults(result)
+            assertEquals(1, results.size)
+            val r = results[0].jsonObject
+            assertTrue(r["applied"]!!.jsonPrimitive.boolean)
+            assertEquals("work", r["newRole"]!!.jsonPrimitive.content)
+            assertEquals(itemId.toString(), r["itemId"]!!.jsonPrimitive.content)
+
+            val summary = extractSummary(result)
+            assertEquals(1, summary["succeeded"]!!.jsonPrimitive.int)
+        }
+
+    @Test
+    fun `singular form carries summary through to the result`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            val item = makeItem(id = itemId, role = Role.QUEUE)
+
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            every { depRepo.findByToItemId(itemId) } returns emptyList()
+            every { depRepo.findByFromItemId(itemId) } returns emptyList()
+
+            val params =
+                buildJsonObject {
+                    put("itemId", JsonPrimitive(itemId.toString()))
+                    put("trigger", JsonPrimitive("start"))
+                    put("summary", JsonPrimitive("Kicking off"))
+                }
+            val result = tool.execute(params, context)
+
+            val r = extractResults(result)[0].jsonObject
+            assertTrue(r["applied"]!!.jsonPrimitive.boolean)
+            assertEquals("Kicking off", r["summary"]!!.jsonPrimitive.content)
+        }
+
+    @Test
+    fun `singular itemId plus trigger passes validation`() {
+        // No exception thrown = valid.
+        tool.validateParams(
+            buildJsonObject {
+                put("itemId", JsonPrimitive(UUID.randomUUID().toString()))
+                put("trigger", JsonPrimitive("complete"))
+            }
+        )
+    }
+
+    @Test
+    fun `missing both transitions and singular itemId fails with shape-naming message`() {
+        val ex =
+            assertFailsWith<ToolValidationException> {
+                tool.validateParams(buildJsonObject { })
+            }
+        assertTrue(ex.message!!.contains("transitions"), "message should name the transitions array form")
+        assertTrue(ex.message!!.contains("itemId"), "message should name the singular itemId form")
+    }
+
+    @Test
+    fun `transitions array takes precedence over singular itemId`(): Unit =
+        runBlocking {
+            val batchId = UUID.randomUUID()
+            val ignoredId = UUID.randomUUID()
+            val item = makeItem(id = batchId, role = Role.QUEUE)
+
+            coEvery { workItemRepo.getById(batchId) } returns Result.Success(item)
+            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            every { depRepo.findByToItemId(any()) } returns emptyList()
+            every { depRepo.findByFromItemId(any()) } returns emptyList()
+
+            // Both shapes present: the transitions array wins; the singular itemId is ignored.
+            // getById(ignoredId) is intentionally NOT stubbed — if the singular form leaked
+            // through, the transition would fail to resolve and this assertion would break.
+            val params =
+                buildJsonObject {
+                    put("transitions", buildJsonArray { add(transitionObj(batchId, "start")) })
+                    put("itemId", JsonPrimitive(ignoredId.toString()))
+                    put("trigger", JsonPrimitive("complete"))
+                }
+            val result = tool.execute(params, context)
+
+            val results = extractResults(result)
+            assertEquals(1, results.size)
+            assertEquals(batchId.toString(), results[0].jsonObject["itemId"]!!.jsonPrimitive.content)
+            assertTrue(results[0].jsonObject["applied"]!!.jsonPrimitive.boolean)
+        }
+
+    // ──────────────────────────────────────────────
     // userSummary tests
     // ──────────────────────────────────────────────
 
