@@ -39,6 +39,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Bearer+token-file) and a config-mount chooser (this-project fallback / none for multi-project).
   Resolved settings persist to `~/.taskorchestrator/deploy.env` so they survive a full container
   removal (#238).
+- **`advance_item` singular-form sugar.** `advance_item` now accepts a top-level `itemId` + `trigger`
+  (plus optional `summary`/`actor`) as shorthand for a one-element `transitions` array, wrapped
+  server-side. The batch `transitions` array is unchanged and takes precedence when both are
+  supplied; the missing-parameter error now names both accepted shapes (#255).
+
+### Fixed
+
+- `query_items` overview (scoped and anchored modes) with `excludeTerminal=true` no longer drops a
+  terminal-role container that still has non-terminal descendants — such a container represents
+  active work and was silently disappearing from `/work-summary`. The global (unscoped) overview
+  path has the same latent behavior pending a separate follow-up (#255).
+- Array-parameter validation across `manage_items`, `manage_notes`, `manage_dependencies`, and
+  `advance_item` now reports the received type (string vs object vs other) instead of an
+  undiagnosable "must be a JSON array", so a JSON-encoded-string argument is distinguishable from
+  malformed input (#254).
 
 ### Documentation
 
