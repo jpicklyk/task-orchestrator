@@ -379,6 +379,36 @@ class BaseToolDefinitionTest {
     }
 
     @Test
+    fun `requireJsonArray error distinguishes string from object from other primitive`() {
+        val stringErr =
+            assertFailsWith<ToolValidationException> {
+                tool.testRequireJsonArray(params("items" to JsonPrimitive("[1,2]")), "items")
+            }
+        assertTrue(
+            stringErr.message!!.contains("received as a string"),
+            "string value should be flagged as such, was: ${stringErr.message}"
+        )
+
+        val objectErr =
+            assertFailsWith<ToolValidationException> {
+                tool.testRequireJsonArray(params("items" to buildJsonObject { put("a", 1) }), "items")
+            }
+        assertTrue(
+            objectErr.message!!.contains("received an object"),
+            "object value should be flagged as such, was: ${objectErr.message}"
+        )
+
+        val numberErr =
+            assertFailsWith<ToolValidationException> {
+                tool.testRequireJsonArray(params("items" to JsonPrimitive(42)), "items")
+            }
+        assertTrue(
+            numberErr.message!!.contains("expected a JSON array"),
+            "non-string primitive should fall through to the generic hint, was: ${numberErr.message}"
+        )
+    }
+
+    @Test
     fun `optionalJsonArray returns array when present`() {
         val array = JsonArray(listOf(JsonPrimitive(1), JsonPrimitive(2)))
         val p = params("items" to array)
@@ -399,6 +429,27 @@ class BaseToolDefinitionTest {
         assertFailsWith<ToolValidationException> {
             tool.testOptionalJsonArray(p, "items")
         }
+    }
+
+    @Test
+    fun `optionalJsonArray error distinguishes string from object from other primitive`() {
+        val stringErr =
+            assertFailsWith<ToolValidationException> {
+                tool.testOptionalJsonArray(params("items" to JsonPrimitive("[1,2]")), "items")
+            }
+        assertTrue(stringErr.message!!.contains("received as a string"))
+
+        val objectErr =
+            assertFailsWith<ToolValidationException> {
+                tool.testOptionalJsonArray(params("items" to buildJsonObject { put("a", 1) }), "items")
+            }
+        assertTrue(objectErr.message!!.contains("received an object"))
+
+        val numberErr =
+            assertFailsWith<ToolValidationException> {
+                tool.testOptionalJsonArray(params("items" to JsonPrimitive(42)), "items")
+            }
+        assertTrue(numberErr.message!!.contains("expected a JSON array"))
     }
 
     // ────────────────────────────────────────────────────────

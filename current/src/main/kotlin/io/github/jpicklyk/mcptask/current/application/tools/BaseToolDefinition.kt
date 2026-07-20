@@ -297,7 +297,7 @@ abstract class BaseToolDefinition : ToolDefinition {
             return element
         }
 
-        throw ToolValidationException("Parameter $name must be a JSON array")
+        throw jsonArrayTypeError(name, element)
     }
 
     /**
@@ -324,7 +324,26 @@ abstract class BaseToolDefinition : ToolDefinition {
             return element
         }
 
-        throw ToolValidationException("Parameter $name must be a JSON array")
+        throw jsonArrayTypeError(name, element)
+    }
+
+    /**
+     * Builds a [ToolValidationException] whose message distinguishes the received type when a
+     * JSON array was expected. The contract stays strict — string-encoded arrays are still
+     * rejected — but the message tells the caller *why* so the call can be fixed at a glance.
+     */
+    private fun jsonArrayTypeError(
+        name: String,
+        element: JsonElement
+    ): ToolValidationException {
+        val hint =
+            when {
+                element is JsonPrimitive && element.isString ->
+                    "received as a string; pass a native JSON array, not string-encoded"
+                element is JsonObject -> "received an object; expected a JSON array"
+                else -> "expected a JSON array"
+            }
+        return ToolValidationException("Parameter $name $hint")
     }
 
     // ──────────────────────────────────────────────
