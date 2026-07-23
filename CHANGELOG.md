@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [Plugin 3.5.0] - 2026-07-23
+
+Plugin-only release — no server changes, no image rebuild. Server stays at 3.12.0.
+
+### Changed
+
+- **Retrospective dispatch is now gated by run substance.** In `dispatch` mode, the plugin
+  auto-launches a background retrospective only when the number of items reaching terminal since
+  the last retrospective meets `dispatchThreshold` (default 3); below the threshold it emits a
+  nudge instead of spawning an agent. Stops a single closed housekeeping item from triggering a
+  full retrospective run.
+- **Stop-hook backstop downgraded to nudge-only.** The end-of-turn backstop no longer hard-
+  dispatches a retrospective and no longer falls back to whole-project scope when it has no
+  specific root — eliminating the most expensive accidental firing.
+
+### Added
+
+- **New `retrospective` config keys:** `dispatchThreshold` (items reaching terminal since the last
+  retrospective required to auto-dispatch, default 3) and `cooldownMinutes` (default 30, replacing
+  the previously hardcoded value). Absent or invalid values fall back to defaults.
+
+### Fixed
+
+- **Config parser no longer mis-reads a comment as end-of-section.** A column-0 `#` comment inside
+  a `retrospective:`, `project:`, or `actor_authentication:` block previously ended the block
+  early, silently breaking `rootId` discovery and actor-authentication detection across six hooks.
+  Consolidated onto a shared section parser and covered by the plugin's first hook test suite (71
+  cases).
+- **Retrospective substance no longer leaks across runs.** `retro-ack` now resets the terminal
+  counter, so items closed during a retrospective can't accumulate and trigger a spurious dispatch
+  on the next run.
+
+### Plugin
+
+- Bumped plugin version to **3.5.0** — substance-gated retrospective dispatch, nudge-only Stop
+  backstop, and the six-hook section-exit parser fix.
+
 ## [3.12.0] - 2026-07-20
 
 ### Added
