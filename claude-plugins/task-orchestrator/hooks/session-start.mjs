@@ -4,6 +4,7 @@
 
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
+import { readSection, scalar } from './yaml-lite.mjs';
 
 // Locate config.yaml — check AGENT_CONFIG_DIR, then walk up from cwd to find
 // the project root containing .taskorchestrator/. This handles worktrees where
@@ -39,36 +40,11 @@ function findConfigPath() {
 function parseProjectBlock(configContent) {
   if (!configContent) return null;
 
-  let inProjectSection = false;
-  let rootId = null;
-  let name = null;
+  const section = readSection(configContent, 'project', { blockOnly: true });
+  if (!section) return null;
 
-  for (const line of configContent.split('\n')) {
-    const trimmed = line.trim();
-
-    if (/^project\s*:\s*$/.test(trimmed)) {
-      inProjectSection = true;
-      continue;
-    }
-
-    // Any other top-level (non-indented, non-empty) line ends the section.
-    if (inProjectSection && /^\S/.test(line)) {
-      inProjectSection = false;
-    }
-
-    if (inProjectSection) {
-      const rootIdMatch = trimmed.match(/^rootId\s*:\s*["']?([^"'#]+?)["']?\s*(#.*)?$/);
-      if (rootIdMatch) {
-        rootId = rootIdMatch[1].trim();
-        continue;
-      }
-      const nameMatch = trimmed.match(/^name\s*:\s*["']?([^"'#]+?)["']?\s*(#.*)?$/);
-      if (nameMatch) {
-        name = nameMatch[1].trim();
-        continue;
-      }
-    }
-  }
+  const rootId = scalar(section.lines, 'rootId');
+  const name = scalar(section.lines, 'name');
 
   if (!rootId) return null;
   return { rootId, name };

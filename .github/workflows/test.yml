@@ -34,6 +34,22 @@ jobs:
     - name: Run tests
       run: ./gradlew :current:test --no-daemon
 
+    - name: Set up Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+
+    - name: Run plugin hook tests
+      run: |
+        set -o pipefail
+        node --test "claude-plugins/task-orchestrator/hooks/tests/*.test.mjs" | tee /tmp/hook-test-output.txt
+        test_count=$(grep '^# tests ' /tmp/hook-test-output.txt | awk '{print $3}')
+        if [ -z "$test_count" ] || [ "$test_count" -lt 1 ]; then
+          echo "::error::No plugin hook tests ran (test_count=${test_count:-0}) — the test glob matched nothing. Failing so an empty glob can't go silently green."
+          exit 1
+        fi
+        echo "Ran $test_count plugin hook tests."
+
     - name: Publish Test Report
       uses: mikepenz/action-junit-report@v4
       if: always()

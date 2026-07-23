@@ -4,6 +4,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { resolve, join, dirname } from 'path';
 import os from 'os';
+import { readSection, scalar, inlineScalar } from './yaml-lite.mjs';
 
 // Locate and read .taskorchestrator/config.yaml — check AGENT_CONFIG_DIR, then walk up from
 // cwd. Handles worktrees where cwd is nested under .claude/worktrees/<name>/.
@@ -30,79 +31,64 @@ export function findConfigContent() {
 }
 
 const VALID_MODES = ['nudge', 'dispatch', 'off'];
+const DEFAULT_MODE = 'nudge';
+const DEFAULT_DISPATCH_THRESHOLD = 3;
+const DEFAULT_COOLDOWN_MINUTES = 30;
 
 // Parses the top-level `retrospective:` block:
 //   retrospective:
 //     mode: dispatch
-// Also supports the inline form `retrospective: { mode: dispatch }`. Strips quotes and
-// trailing `#` comments. Returns 'nudge' | 'dispatch' | 'off' — defaults to 'nudge' when the
-// file, block, or key is absent, or the value is unrecognized.
-export function parseRetrospectiveMode(configContent) {
-  if (!configContent) return 'nudge';
+//     dispatchThreshold: 3
+//     cooldownMinutes: 30
+// Also supports the inline form `retrospective: { mode: dispatch }`. Absent keys, an absent
+// block, or an unrecognized/invalid value all fall back to the documented default for that key
+// — this never throws. Returns `{ mode, dispatchThreshold, cooldownMinutes }`.
+export function parseRetrospectiveConfig(configContent) {
+  const result = {
+    mode: DEFAULT_MODE,
+    dispatchThreshold: DEFAULT_DISPATCH_THRESHOLD,
+    cooldownMinutes: DEFAULT_COOLDOWN_MINUTES,
+  };
+  if (!configContent) return result;
 
-  let inSection = false;
+  const section = readSection(configContent, 'retrospective');
+  if (!section) return result;
 
-  for (const line of configContent.split('\n')) {
-    const trimmed = line.trim();
+  const read = (key) => (section.inline !== null ? inlineScalar(section.inline, key) : scalar(section.lines, key));
 
-    if (/^retrospective\s*:/.test(trimmed)) {
-      const inlineMatch = trimmed.match(/^retrospective\s*:\s*\{(.+)\}/);
-      if (inlineMatch) {
-        const modeMatch = inlineMatch[1].match(/mode\s*:\s*([^,}]+)/);
-        if (modeMatch) {
-          const val = modeMatch[1].replace(/#.*$/, '').trim().replace(/^["']|["']$/g, '').toLowerCase();
-          return VALID_MODES.includes(val) ? val : 'nudge';
-        }
-        return 'nudge';
-      }
-      inSection = true;
-      continue;
-    }
-
-    if (inSection && /^\S/.test(line)) {
-      inSection = false;
-    }
-
-    if (inSection) {
-      const match = trimmed.match(/^mode\s*:\s*(.+)/);
-      if (match) {
-        const val = match[1].replace(/#.*$/, '').trim().replace(/^["']|["']$/g, '').toLowerCase();
-        return VALID_MODES.includes(val) ? val : 'nudge';
-      }
-    }
+  const rawMode = read('mode');
+  if (rawMode !== null) {
+    const val = rawMode.toLowerCase();
+    if (VALID_MODES.includes(val)) result.mode = val;
   }
 
-  return 'nudge';
+  const rawThreshold = read('dispatchThreshold');
+  if (rawThreshold !== null) {
+    const n = Number(rawThreshold);
+    if (Number.isInteger(n) && n >= 0) result.dispatchThreshold = n;
+  }
+
+  const rawCooldown = read('cooldownMinutes');
+  if (rawCooldown !== null) {
+    const n = Number(rawCooldown);
+    if (Number.isFinite(n) && n > 0) result.cooldownMinutes = n;
+  }
+
+  return result;
+}
+
+// Thin wrapper for any caller that only wants the mode.
+export function parseRetrospectiveMode(configContent) {
+  return parseRetrospectiveConfig(configContent).mode;
 }
 
 // Parses the top-level `project:` block for its `rootId` value. Mirrors parseProjectBlock in
 // session-start.mjs, but returns only the rootId string (or null).
 export function parseProjectRootId(configContent) {
   if (!configContent) return null;
-
-  let inProjectSection = false;
-
-  for (const line of configContent.split('\n')) {
-    const trimmed = line.trim();
-
-    if (/^project\s*:\s*$/.test(trimmed)) {
-      inProjectSection = true;
-      continue;
-    }
-
-    if (inProjectSection && /^\S/.test(line)) {
-      inProjectSection = false;
-    }
-
-    if (inProjectSection) {
-      const rootIdMatch = trimmed.match(/^rootId\s*:\s*["']?([^"'#]+?)["']?\s*(#.*)?$/);
-      if (rootIdMatch) {
-        return rootIdMatch[1].trim();
-      }
-    }
-  }
-
-  return null;
+  const section = readSection(configContent, 'project', { blockOnly: true });
+  if (!section) return null;
+  return scalar(section.lines, 'rootId');
 }
 
 export function markerPath(key) {
@@ -126,7 +112,10 @@ export function writeMarker(path, obj) {
   }
 }
 
-export const COOLDOWN_MS = 30 * 60 * 1000;
+// Default cooldown, in ms — overridden per-config by `retrospective.cooldownMinutes` (see
+// parseRetrospectiveConfig). Kept as an export so callers still have a concrete fallback
+// constant available without re-deriving it from DEFAULT_COOLDOWN_MINUTES themselves.
+export const COOLDOWN_MS = DEFAULT_COOLDOWN_MINUTES * 60 * 1000;
 
 // Extracts the tool's JSON payload from a PostToolUse hook's tool_response field. The exact
 // delivered shape is not pinned down by the hooks docs for MCP tools, so this is deliberately
@@ -172,8 +161,14 @@ export function debugCapture(raw) {
 }
 
 export function buildNudge(roots) {
-  const ids = (roots || []).join(', ');
-  const first = (roots || [])[0] || '';
+  const list = (roots || []).filter(Boolean);
+  if (list.length === 0) {
+    return `Retrospective suggested — an implementation run reached terminal. ` +
+      `Consider running \`/session-retrospective\` to capture learnings before the session ends. ` +
+      `Skip if the feature still has items in progress, or if this was minor housekeeping.`;
+  }
+  const ids = list.join(', ');
+  const first = list[0];
   return `Retrospective suggested — an implementation run reached terminal (root(s): ${ids}). ` +
     `Consider running \`/session-retrospective ${first}\` to capture learnings before the session ends. ` +
     `Skip if the feature still has items in progress, or if this was minor housekeeping.`;

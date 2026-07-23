@@ -28,6 +28,7 @@ function ackMarker(path) {
     handledAt: Date.now(),
     sawTerminal: false,
     pendingRoots: [],
+    terminalCount: 0,
   });
 }
 
