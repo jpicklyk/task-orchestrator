@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [Plugin 3.5.1] - 2026-07-23
+
+Plugin-only release — no server changes, no image rebuild. Server stays at 3.12.0.
+
+### Fixed
+
+- **`/work-summary` now computes each workstream's "next up" correctly on project-scoped
+  workspaces.** The dashboard previously pulled the highest-priority queue child from an overview
+  *children array that the anchored (project-scoped) overview never returns* — so scoped boards
+  silently lost their per-workstream next-up recommendation. It now sources queue children from a
+  single `role="queue"` list call, the canonical queue source.
+
+### Changed
+
+- **Queued headline count excludes container/anchor shelves.** A freshly-created container or
+  project anchor sitting in `queue` role until its first advance no longer inflates the `N queued`
+  figure.
+- **Dropped the redundant `includeChildren` fetch** from the work-summary overview call — a no-op
+  on the anchored path and redundant on the global path, now that the queue list supplies queue
+  children.
+
+### Plugin
+
+- Bumped plugin version to **3.5.1** — work-summary queue-children sourcing and headline-count
+  fixes.
+
 ## [Plugin 3.5.0] - 2026-07-23
 
 Plugin-only release — no server changes, no image rebuild. Server stays at 3.12.0.

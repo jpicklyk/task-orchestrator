@@ -3,14 +3,11 @@
   "owner": {
     "name": "Jeff Picklyk"
   },
-  "metadata": {
-    "description": "Server-enforced workflow discipline for AI agents — persistent work items, dependency graphs, note-gated transitions, and actor attribution",
-    "version": "3.2.2"
-  },
+  "description": "Server-enforced workflow discipline for AI agents — persistent work items, dependency graphs, note-gated transitions, and actor attribution",
   "plugins": [
     {
       "name": "task-orchestrator",
-      "version": "3.5.0",
+      "version": "3.5.1",
       "description": "Skills, hooks, and workflows for MCP Task Orchestrator. Schema-aware context, note-driven workflow, and session hooks.",
       "author": {
         "name": "Jeff Picklyk",
