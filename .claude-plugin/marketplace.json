@@ -3,10 +3,7 @@
   "owner": {
     "name": "Jeff Picklyk"
   },
-  "metadata": {
-    "description": "Server-enforced workflow discipline for AI agents — persistent work items, dependency graphs, note-gated transitions, and actor attribution",
-    "version": "3.2.2"
-  },
+  "description": "Server-enforced workflow discipline for AI agents — persistent work items, dependency graphs, note-gated transitions, and actor attribution",
   "plugins": [
     {
       "name": "task-orchestrator",
