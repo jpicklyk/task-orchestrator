@@ -11,6 +11,7 @@
 
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
+import { readSection, scalar, inlineScalar } from './yaml-lite.mjs';
 
 let input = '';
 try {
@@ -62,38 +63,14 @@ function readConfigContent() {
 function isActorAuthenticationEnabled(configContent) {
   if (!configContent) return false;
 
-  let inActorAuthSection = false;
+  const section = readSection(configContent, 'actor_authentication');
+  if (!section) return false;
 
-  for (const line of configContent.split('\n')) {
-    const trimmed = line.trim();
+  const raw = section.inline !== null
+    ? inlineScalar(section.inline, 'enabled')
+    : scalar(section.lines, 'enabled');
 
-    // Detect top-level "actor_authentication:" — check for inline form first
-    if (/^actor_authentication\s*:/.test(trimmed)) {
-      // Handle inline: `actor_authentication: { enabled: true }`
-      const inlineMatch = trimmed.match(/^actor_authentication\s*:\s*\{(.+)\}/);
-      if (inlineMatch) {
-        const inner = inlineMatch[1];
-        const enabledMatch = inner.match(/enabled\s*:\s*(\S+)/);
-        return enabledMatch ? enabledMatch[1].replace(/#.*$/, '').trim().toLowerCase() === 'true' : false;
-      }
-      inActorAuthSection = true;
-      continue;
-    }
-
-    // Any other top-level key (non-indented, non-empty) ends the actor_authentication section
-    if (inActorAuthSection && /^\S/.test(line)) {
-      inActorAuthSection = false;
-    }
-
-    if (inActorAuthSection) {
-      const match = trimmed.match(/^enabled\s*:\s*(.+)/);
-      if (match) {
-        return match[1].replace(/#.*$/, '').trim().toLowerCase() === 'true';
-      }
-    }
-  }
-
-  return false;
+  return raw !== null && raw.toLowerCase() === 'true';
 }
 
 const configContent = readConfigContent();

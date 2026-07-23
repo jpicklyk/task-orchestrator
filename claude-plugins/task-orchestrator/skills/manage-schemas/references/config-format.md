@@ -412,7 +412,9 @@ The `retrospective:` section is a top-level key alongside `work_item_schemas`, `
 
 ```yaml
 retrospective:
-  mode: nudge   # nudge (default) | dispatch | off | headless (reserved)
+  mode: nudge          # nudge (default) | dispatch | off | headless (reserved)
+  dispatchThreshold: 3 # items terminal since the last retrospective directive required to auto-spawn (default 3)
+  cooldownMinutes: 30  # minutes before the same run can trigger another directive (default 30)
 ```
 
 Default: `nudge` — applied when the `retrospective:` block or `mode` key is absent, or the value is unrecognized.
@@ -422,15 +424,19 @@ Default: `nudge` — applied when the `retrospective:` block or `mode` key is ab
 | Field | Required | Type | Notes |
 |-------|----------|------|-------|
 | `mode` | no | string | `nudge`, `dispatch`, `off`, or the reserved `headless`. Defaults to `nudge` |
+| `dispatchThreshold` | no | integer >= 0 | Only meaningful in `mode: dispatch`. Count of items that reached terminal since the last retrospective directive (nudge or dispatch) required before a hard background dispatch fires. Below this, the run still gets a nudge — it is never silent. Defaults to `3`; a non-integer or negative value falls back to the default. |
+| `cooldownMinutes` | no | number > 0 | Minutes before the same run can trigger another nudge/dispatch directive. Defaults to `30`; an invalid value falls back to the default. |
 
 ### Modes
 
 | Mode | Behavior |
 |------|----------|
 | `nudge` (default) | Hooks inject a suggestion to run `/session-retrospective` when an implementation run reaches terminal. The agent decides whether to act on it. |
-| `dispatch` | Hooks inject a directive that launches exactly one background retrospective agent per run — no suggestion, an instruction to act. |
+| `dispatch` | Hooks inject a directive that launches exactly one background retrospective agent, but only once the run's substance (items reached terminal since the last directive) clears `dispatchThreshold`. Below threshold, the hook still injects the `nudge` suggestion instead of staying silent — nothing goes unreported, only the automatic background spawn is reserved for substantial runs. |
 | `off` | Hooks stay silent — no retrospective suggestion or dispatch directive is injected. |
 | `headless` (reserved) | **Not implemented yet.** Intended for a future version where the hook spawns a detached `claude -p` retrospective session outside the current conversation. Today, setting `mode: headless` falls back to `nudge` behavior, same as any other unrecognized value. |
+
+**Backstop is always nudge-only.** The `Stop` hook (`retro-backstop.mjs`) — which escalates a lone terminal item that never got a `PARENT_COMPLETION` follow-up — always injects a nudge, regardless of configured mode. It fires on a signal that, by construction, is not a confirmed run boundary, so it never escalates to a hard dispatch even in `mode: dispatch`. When it has no identifiable root to scope the suggestion to, it omits the UUID argument entirely rather than falling back to the whole project — letting `/session-retrospective`'s own narrower fallback scan apply.
 
 ### Behavior
 

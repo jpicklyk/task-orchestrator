@@ -4,6 +4,7 @@ project:
 
 retrospective:
   mode: dispatch
+  dispatchThreshold: 3
 
 work_item_schemas:
 

@@ -16,6 +16,8 @@
 
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
+import { fileURLToPath } from 'url';
+import { readSection, scalar } from './yaml-lite.mjs';
 
 const REQUEST_TIMEOUT_MS = 2000;
 const MAX_SLUG_LENGTH = 64;
@@ -43,21 +45,10 @@ function findConfigText() {
 }
 
 /** Extract project.rootId from the config text (mirrors config-sync.mjs's parser). */
-function parseRootId(text) {
-  let inProject = false;
-  for (const line of text.split('\n')) {
-    const trimmed = line.trim();
-    if (/^project\s*:\s*$/.test(trimmed)) {
-      inProject = true;
-      continue;
-    }
-    if (inProject && /^\S/.test(line)) inProject = false;
-    if (inProject) {
-      const m = trimmed.match(/^rootId\s*:\s*["']?([^"'#]+?)["']?\s*(#.*)?$/);
-      if (m) return m[1].trim();
-    }
-  }
-  return null;
+export function parseRootId(text) {
+  const section = readSection(text, 'project', { blockOnly: true });
+  if (!section) return null;
+  return scalar(section.lines, 'rootId');
 }
 
 /** Derives a URL-safe slug from the plan's first H1 heading; falls back to a timestamp slug. */
@@ -149,5 +140,10 @@ async function main() {
   }
 }
 
+// Only auto-run when invoked directly as a hook (`node plan-capture.mjs`), not when imported
+// (e.g. by a test importing `parseRootId` for direct unit coverage) — importing must never
+// trigger a synchronous stdin read as a side effect.
 // Fail-open: swallow every error so the hook always exits 0 and never blocks ExitPlanMode.
-main().catch(() => {});
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch(() => {});
+}

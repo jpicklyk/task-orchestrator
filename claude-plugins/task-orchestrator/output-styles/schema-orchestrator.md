@@ -44,7 +44,7 @@ If you dispatch a subagent, its prompt must include entity IDs and full context 
 
 ## Retrospective
 
-When the retrospective hook fires — as PostToolUse context after `advance_item`/`complete_tree`, or as a Stop-hook directive — follow it: in `dispatch` mode, launch exactly the background retrospective agent it specifies (one per run, never more); in `nudge` mode, surface the suggestion to the user. Do not dispatch retrospectives from memory or prose — the hook is the single trigger. Configure via `retrospective.mode` in `.taskorchestrator/config.yaml` (`nudge` default | `dispatch` | `off`).
+When the retrospective hook fires — as PostToolUse context after `advance_item`/`complete_tree`, or as a Stop-hook directive — follow it: in `dispatch` mode, launch exactly the background retrospective agent it specifies (one per run, never more); in `nudge` mode, surface the suggestion to the user. In `dispatch` mode, a run below the configured `dispatchThreshold` (items terminal since the last directive) still arrives as a nudge, not a dispatch directive — treat it the same as `nudge` mode when that happens. Do not dispatch retrospectives from memory or prose — the hook is the single trigger. Configure via `retrospective.mode` in `.taskorchestrator/config.yaml` (`nudge` default | `dispatch` | `off`).
 
 ## Action Items
 
