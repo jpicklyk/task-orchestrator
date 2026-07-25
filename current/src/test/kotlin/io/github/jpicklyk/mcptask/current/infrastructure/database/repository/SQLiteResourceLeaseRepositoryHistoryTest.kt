@@ -16,6 +16,7 @@ import java.time.Instant
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -41,7 +42,13 @@ class SQLiteResourceLeaseRepositoryHistoryTest : SQLiteRepositoryTestBase() {
         return result.data.id
     }
 
-    /** Backdates every LIVE lease row for (resourceKey, holderItemId) to an already-expired expires_at. */
+    /**
+     * Backdates the lease for (resourceKey, holderItemId) to an already-expired expires_at — in
+     * BOTH the live table and the open history interval. Production writes keep the two tables'
+     * expiry in agreement (history is written from the live row's values in the same transaction),
+     * so simulating time-passage must age them together; diverging them would exercise a state the
+     * repository never produces.
+     */
     private fun expireLease(
         resourceKey: String,
         holderItemId: UUID
@@ -54,6 +61,14 @@ class SQLiteResourceLeaseRepositoryHistoryTest : SQLiteRepositoryTestBase() {
                 UPDATE resource_leases
                    SET expires_at = datetime('now', '-10 seconds')
                  WHERE resource_key = ? AND holder_item_id = ?
+                """.trimIndent(),
+                args = listOf(keyType to resourceKey, uuidType to holderItemId)
+            )
+            exec(
+                """
+                UPDATE resource_lease_history
+                   SET expires_at = datetime('now', '-10 seconds')
+                 WHERE resource_key = ? AND holder_item_id = ? AND released_at IS NULL
                 """.trimIndent(),
                 args = listOf(keyType to resourceKey, uuidType to holderItemId)
             )
@@ -128,6 +143,61 @@ class SQLiteResourceLeaseRepositoryHistoryTest : SQLiteRepositoryTestBase() {
             )
 
             assertNull(bInterval.releasedAt, "B's new interval must be open")
+        }
+
+    @Test
+    fun `re-take after an intervening expired holder closes that holder's interval — no double-holder at-T`(): Unit =
+        runBlocking {
+            // Regression for the post-merge field report on PR #262: A holds K, expires; B steals,
+            // expires; A RE-TAKES (own expired row still present -> refresh branch). Before the fix,
+            // staleOtherRows was only computed when A had no prior row, so B's interval stayed open —
+            // and a later releaseAllForItem(B) closed it at 'now', making an at-T query report both
+            // A and B as simultaneous holders.
+            val holderA = createHolder("Holder A")
+            val holderB = createHolder("Holder B")
+
+            assertIs<LeaseAcquireResult.Success>(repository.acquireAll(holderA, "agent-a", listOf("staging-db" to 900)))
+            expireLease("staging-db", holderA)
+            assertIs<LeaseAcquireResult.Success>(repository.acquireAll(holderB, "agent-b", listOf("staging-db" to 900)))
+            expireLease("staging-db", holderB)
+
+            // A re-takes: own stale row exists (refresh path) AND B's stale row exists.
+            val retaken = repository.acquireAll(holderA, "agent-a", listOf("staging-db" to 900))
+            assertIs<LeaseAcquireResult.Success>(retaken)
+
+            val bInterval =
+                repository
+                    .findRecentIntervals("staging-db", 10)
+                    .single { it.holderItemId == holderB }
+            assertEquals("expired", bInterval.releaseReason, "B's interval must be closed as expired by A's re-take")
+            assertNotNull(bInterval.releasedAt)
+
+            // Even if B's item releases later, the audit must never show two holders at once:
+            assertIs<LeaseReleaseResult.Success>(repository.releaseAllForItem(holderB))
+            val now = Instant.now()
+            val holdersNow = repository.findHoldersAt("staging-db", now)
+            assertEquals(1, holdersNow.size, "exactly one holder at T — got: ${holdersNow.map { it.holderItemId }}")
+            assertEquals(holderA, holdersNow.single().holderItemId)
+        }
+
+    @Test
+    fun `releasing an already-expired lease clamps releasedAt to expiresAt with reason expired`(): Unit =
+        runBlocking {
+            // The close timestamp must never extend an interval past its own expiry — otherwise a
+            // late releaseAllForItem inflates the apparent hold window for at-T queries.
+            val holder = createHolder()
+            assertIs<LeaseAcquireResult.Success>(repository.acquireAll(holder, "agent-a", listOf("staging-db" to 900)))
+            expireLease("staging-db", holder)
+
+            assertIs<LeaseReleaseResult.Success>(repository.releaseAllForItem(holder))
+
+            val interval = repository.findRecentIntervals("staging-db", 10).single()
+            assertEquals("expired", interval.releaseReason, "an already-lapsed hold closes as expired, not released")
+            val releasedAt = requireNotNull(interval.releasedAt)
+            assertTrue(
+                !releasedAt.isAfter(Instant.now().minusSeconds(5)),
+                "releasedAt must be clamped to the (backdated) expiry, not stamped 'now': $releasedAt",
+            )
         }
 
     // -----------------------------------------------------------------------
