@@ -15,7 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   entry (`start` and `resume`) — no new MCP tool, no explicit acquire/release verb. `exclusive`
   resources take a TTL-bounded lease (default 3600s, max 86400s); contention rejects with a
   transient `resource_unavailable` error (MCP) or `409` + `Retry-After` (REST), disclosing the
-  contended keys only, never the current holder. `advisory` resources are audit-only.
+  contended keys only, never the current holder. `advisory` resources are audit-only. Lease
+  acquisition retries up to 5 times (40ms delay) on `SQLITE_BUSY`/`SQLITE_LOCKED` contention before
+  falling through to a transient DB-error response, so a losing writer in a genuine cross-connection
+  race gets a clean re-evaluation instead of a spurious failure.
 - **`credentialRefs` audit field.** `advance_item` transitions accept an optional `credentialRefs`
   array of opaque credential/resource labels (never secret values), persisted to
   `role_transitions.consumed_credentials` and surfaced read-only via `RoleTransitionDto.consumedCredentials`.

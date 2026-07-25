@@ -700,9 +700,13 @@ Requires `ADMIN` capability. Responses: `200` with `{ resourceKey, releasedCount
 `404 not_found` if no active lease exists on that key (idempotent-safe — a repeat call after a
 successful release 404s rather than double-counting); `400 validation_error` if `{key}` fails the
 `^[a-z0-9][a-z0-9\-_./]*$` / 128-char check. Every successful force-release is WARN-logged with the
-acting principal's token id — check server logs to attribute the override after the fact. There is
-**no equivalent MCP tool/verb** — force-release is REST-only, by design (see Non-Goals in the
-implementation plan: no MCP acquire/release/renew verbs).
+acting principal's token id — check server logs to attribute the override after the fact. The same
+token id is also threaded through to `releasedByActorId` on the closed `resource_lease_history`
+interval(s) for that key (`releaseReason: "force_released"`), so the override is attributable from
+`GET /api/v1/resources/leases/history?key=<key>` (`ADMIN` capability for actor identity) even after
+server logs have rotated — see [Workflow Guide §11, "Lease-interval history"](workflow-guide.md#11-resource-leasing)
+and [`api-rest.md`](api-rest.md) §14. There is **no equivalent MCP tool/verb** — force-release is
+REST-only, by design (see Non-Goals in the implementation plan: no MCP acquire/release/renew verbs).
 
 **Diagnosing before you force-release:** `GET /api/v1/resources/leases` (`READ` capability; add
 `ADMIN` to see `acquiredByActorId`) lists every active lease with its `holderItemId` and

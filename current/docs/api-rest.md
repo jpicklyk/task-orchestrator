@@ -229,10 +229,11 @@ All error responses use:
 | `scope_forbidden` | 403 | Item exists but is outside the caller's scope |
 | `field_not_patchable` | 400 | PATCH attempted on a server-owned field |
 | `cycle_detected` | 400 | Dependency would create a cycle |
-| `unsupported_media_type` | 415 | Wrong `Content-Type` for PATCH (see §22) |
+| `unsupported_media_type` | 415 | Wrong `Content-Type` for PATCH (see §23) |
 | `etag_mismatch` | 412 | `If-Match` header does not match current ETag |
 | `unauthenticated` | 401 | No authenticated principal (missing/invalid token) |
 | `verification_failed` | 401 | JWKS verification failed under `reject` policy |
+| `insufficient_capability` | 403 | Caller's token lacks a capability required by the request itself (distinct from `scope_forbidden`'s root-scope check) — e.g. a non-ADMIN caller sets `overrideResourceLeases: true` on `POST /items/{id}/advance`, or calls `DELETE /api/v1/resources/leases/{key}` without `ADMIN` |
 | `transition_failed` | 422 | Role transition rejected (invalid trigger, gate failure, dependency blocker) |
 | `resource_unavailable` | 409 | Resource-lease gate contention on `POST /items/{id}/advance` into WORK — transient, retryable. Carries a `Retry-After` header and `details.contendedResources`/`details.retryAfterMs`. Never discloses the current holder. |
 | `db_error` | 500 | Database query failed |
@@ -716,7 +717,7 @@ Supports `Idempotency-Key` header.
 
 JSON Merge Patch update. Requires `WRITE_ITEMS`, `If-Match`, and `Content-Type: application/merge-patch+json` (or `application/json`).
 
-**Request body:** A partial JSON object following RFC 7396 merge-patch semantics (see §22).
+**Request body:** A partial JSON object following RFC 7396 merge-patch semantics (see §23).
 
 **Tags deviation:** In PATCH, `tags` must be a comma-separated **string** (not a JSON array). Example: `"tags": "feature,auth"`. Sending a JSON array in PATCH → `400 validation_error`.
 
