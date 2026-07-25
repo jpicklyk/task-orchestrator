@@ -481,6 +481,54 @@ components:
         releasedCount:
           type: integer
 
+    ResourceLeaseIntervalDto:
+      type: object
+      required: [resourceKey, holderItemId, acquiredAt, expiresAt]
+      description: >-
+        One row per lease hold interval (append-only, never pruned in v1) — see the
+        resource_lease_history table.
+      properties:
+        resourceKey:
+          type: string
+        holderItemId:
+          type: string
+          format: uuid
+        acquiredByActorId:
+          type: string
+          nullable: true
+          description: Present only for callers with ADMIN capability; omitted (not null) otherwise.
+        acquiredAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+        releasedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Null while the interval is still open.
+        releaseReason:
+          type: string
+          nullable: true
+          enum: [released, expired, force_released]
+          description: Null while the interval is still open.
+        releasedByActorId:
+          type: string
+          nullable: true
+          description: >-
+            Present only for callers with ADMIN capability; omitted (not null) otherwise. Null for a
+            passive "expired" close (no explicit release action performed it).
+
+    ResourceLeaseHistoryResponseDto:
+      type: object
+      required: [intervals]
+      properties:
+        intervals:
+          type: array
+          items:
+            $ref: "#/components/schemas/ResourceLeaseIntervalDto"
+
     MissingNoteDto:
       type: object
       required: [key, description]
@@ -1654,6 +1702,53 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorDto"
+
+  /resources/leases/history:
+    get:
+      summary: Lease-interval audit history (who held resource R at time T)
+      operationId: listResourceLeaseHistory
+      tags: [resources]
+      description: >-
+        Append-only lease-interval audit log — answers "who held resource R at time T" after a
+        lease has already been released, stolen, or force-released, which the current-holders-only
+        /resources/leases list cannot. No pruning/retention in v1.
+      parameters:
+        - name: key
+          in: query
+          required: false
+          schema:
+            type: string
+            pattern: '^[a-z0-9][a-z0-9\-_./]*$'
+            maxLength: 128
+        - name: at
+          in: query
+          required: false
+          description: >-
+            ISO-8601 instant. When present, returns every interval held at that instant
+            (acquiredAt <= at < coalesce(releasedAt, expiresAt)). When absent, returns the most
+            recent intervals, newest-first.
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          required: false
+          description: Default 100, clamped to [1, 500].
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: >-
+            Matching intervals. acquiredByActorId / releasedByActorId are present per-entry only
+            for ADMIN callers (omitted, not null, for others).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResourceLeaseHistoryResponseDto"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
 
   /transitions:
     get:

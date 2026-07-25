@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceLease
+import io.github.jpicklyk.mcptask.current.domain.model.ResourceLeaseInterval
 import io.github.jpicklyk.mcptask.current.domain.repository.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.domain.repository.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseRepository
@@ -17,6 +18,7 @@ import org.junit.jupiter.api.Test
 import java.time.Instant
 import java.util.UUID
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -32,6 +34,12 @@ import kotlin.test.assertTrue
 private class FakeResourceLeaseRepository : ResourceLeaseRepository {
     val leases = mutableListOf<ResourceLease>()
 
+    /**
+     * Mirrors (a simplified version of) `SQLiteResourceLeaseRepository`'s interval bookkeeping,
+     * for the `/resources/leases/history` route tests.
+     */
+    val intervals = mutableListOf<ResourceLeaseInterval>()
+
     override suspend fun acquireAll(
         holderItemId: UUID,
         actorId: String?,
@@ -45,12 +53,46 @@ private class FakeResourceLeaseRepository : ResourceLeaseRepository {
         val now = Instant.now()
         val acquired =
             requirements.map { (key, ttl) ->
+                val expiresAt = now.plusSeconds(ttl.toLong())
+                val ownRowExisted = leases.any { it.resourceKey == key && it.holderItemId == holderItemId }
+                if (ownRowExisted) {
+                    val openIdx =
+                        intervals.indexOfLast { it.resourceKey == key && it.holderItemId == holderItemId && it.releasedAt == null }
+                    if (openIdx >= 0) {
+                        intervals[openIdx] = intervals[openIdx].copy(expiresAt = expiresAt)
+                    } else {
+                        intervals +=
+                            ResourceLeaseInterval(
+                                resourceKey = key,
+                                holderItemId = holderItemId,
+                                acquiredByActorId = actorId,
+                                acquiredAt = now,
+                                expiresAt = expiresAt,
+                            )
+                    }
+                } else {
+                    intervals.replaceAll { iv ->
+                        if (iv.resourceKey == key && iv.holderItemId != holderItemId && iv.releasedAt == null) {
+                            iv.copy(releasedAt = iv.expiresAt, releaseReason = "expired")
+                        } else {
+                            iv
+                        }
+                    }
+                    intervals +=
+                        ResourceLeaseInterval(
+                            resourceKey = key,
+                            holderItemId = holderItemId,
+                            acquiredByActorId = actorId,
+                            acquiredAt = now,
+                            expiresAt = expiresAt,
+                        )
+                }
                 ResourceLease(
                     resourceKey = key,
                     holderItemId = holderItemId,
                     acquiredByActorId = actorId,
                     acquiredAt = now,
-                    expiresAt = now.plusSeconds(ttl.toLong()),
+                    expiresAt = expiresAt,
                     originalAcquiredAt = now,
                 )
             }
@@ -61,12 +103,31 @@ private class FakeResourceLeaseRepository : ResourceLeaseRepository {
     override suspend fun releaseAllForItem(holderItemId: UUID): LeaseReleaseResult {
         val before = leases.size
         leases.removeAll { it.holderItemId == holderItemId }
+        val now = Instant.now()
+        intervals.replaceAll { iv ->
+            if (iv.holderItemId == holderItemId && iv.releasedAt == null) {
+                iv.copy(releasedAt = now, releaseReason = "released")
+            } else {
+                iv
+            }
+        }
         return LeaseReleaseResult.Success(before - leases.size)
     }
 
-    override suspend fun forceReleaseByKey(resourceKey: String): LeaseReleaseResult {
+    override suspend fun forceReleaseByKey(
+        resourceKey: String,
+        actorId: String?,
+    ): LeaseReleaseResult {
         val before = leases.size
         leases.removeAll { it.resourceKey == resourceKey }
+        val now = Instant.now()
+        intervals.replaceAll { iv ->
+            if (iv.resourceKey == resourceKey && iv.releasedAt == null) {
+                iv.copy(releasedAt = now, releaseReason = "force_released", releasedByActorId = actorId)
+            } else {
+                iv
+            }
+        }
         return LeaseReleaseResult.Success(before - leases.size)
     }
 
@@ -75,6 +136,26 @@ private class FakeResourceLeaseRepository : ResourceLeaseRepository {
     override suspend fun findActiveForItem(holderItemId: UUID): List<ResourceLease> = leases.filter { it.holderItemId == holderItemId }
 
     override suspend fun findAllActive(): List<ResourceLease> = leases.toList()
+
+    override suspend fun findHoldersAt(
+        resourceKey: String?,
+        at: Instant,
+    ): List<ResourceLeaseInterval> =
+        intervals
+            .filter { iv ->
+                (resourceKey == null || iv.resourceKey == resourceKey) &&
+                    !at.isBefore(iv.acquiredAt) &&
+                    at.isBefore(iv.releasedAt ?: iv.expiresAt)
+            }.sortedByDescending { it.acquiredAt }
+
+    override suspend fun findRecentIntervals(
+        resourceKey: String?,
+        limit: Int,
+    ): List<ResourceLeaseInterval> =
+        intervals
+            .filter { resourceKey == null || it.resourceKey == resourceKey }
+            .sortedByDescending { it.acquiredAt }
+            .take(limit)
 }
 
 private fun leaseTestProvider(fake: FakeResourceLeaseRepository): RepositoryProvider {
@@ -231,5 +312,206 @@ class ResourceLeaseDeleteRouteTest {
                 }
 
             assertEquals(HttpStatusCode.BadRequest, response.status)
+        }
+}
+
+class ResourceLeaseHistoryRouteTest {
+    @Test
+    fun `GET resources leases history with READ token returns 200 without actor fields`(): Unit =
+        io.ktor.server.testing.testApplication {
+            val fake = FakeResourceLeaseRepository()
+            fake.seedLease(actorId = "agent-77")
+            application { configureTestApp(routeBlock = { resourceLeaseRoutes(leaseTestProvider(fake)) }) }
+
+            val response =
+                client.get("/api/v1/resources/leases/history") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                }
+
+            assertEquals(HttpStatusCode.OK, response.status)
+            val body = response.bodyAsText()
+            assertTrue(body.contains("db-migration-lock"))
+            assertTrue(
+                !body.contains("agent-77") && !body.contains("\"acquiredByActorId\""),
+                "non-admin caller must not see acquiredByActorId, got: $body",
+            )
+        }
+
+    @Test
+    fun `GET resources leases history with ADMIN token returns 200 including actor fields`(): Unit =
+        io.ktor.server.testing.testApplication {
+            val fake = FakeResourceLeaseRepository()
+            fake.seedLease(actorId = "agent-77")
+            application { configureTestApp(routeBlock = { resourceLeaseRoutes(leaseTestProvider(fake)) }) }
+
+            val response =
+                client.get("/api/v1/resources/leases/history") {
+                    header("Authorization", "Bearer $ADMIN_TOKEN")
+                }
+
+            assertEquals(HttpStatusCode.OK, response.status)
+            val body = response.bodyAsText()
+            assertTrue(body.contains("\"acquiredByActorId\":\"agent-77\""), "admin caller must see acquiredByActorId, got: $body")
+        }
+
+    @Test
+    fun `GET resources leases history without any token returns 401`(): Unit =
+        io.ktor.server.testing.testApplication {
+            val fake = FakeResourceLeaseRepository()
+            application { configureTestApp(routeBlock = { resourceLeaseRoutes(leaseTestProvider(fake)) }) }
+
+            val response = client.get("/api/v1/resources/leases/history")
+
+            assertEquals(HttpStatusCode.Unauthorized, response.status)
+        }
+
+    @Test
+    fun `GET resources leases history with an invalid at value returns 400`(): Unit =
+        io.ktor.server.testing.testApplication {
+            val fake = FakeResourceLeaseRepository()
+            application { configureTestApp(routeBlock = { resourceLeaseRoutes(leaseTestProvider(fake)) }) }
+
+            val response =
+                client.get("/api/v1/resources/leases/history?at=not-a-timestamp") {
+                    header("Authorization", "Bearer $ADMIN_TOKEN")
+                }
+
+            assertEquals(HttpStatusCode.BadRequest, response.status)
+        }
+
+    @Test
+    fun `GET resources leases history with an invalid key returns 400`(): Unit =
+        io.ktor.server.testing.testApplication {
+            val fake = FakeResourceLeaseRepository()
+            application { configureTestApp(routeBlock = { resourceLeaseRoutes(leaseTestProvider(fake)) }) }
+
+            val response =
+                client.get("/api/v1/resources/leases/history?key=Invalid_Key!") {
+                    header("Authorization", "Bearer $ADMIN_TOKEN")
+                }
+
+            assertEquals(HttpStatusCode.BadRequest, response.status)
+        }
+
+    @Test
+    fun `GET resources leases history with an at filter returns only intervals held at that instant`(): Unit =
+        io.ktor.server.testing.testApplication {
+            val fake = FakeResourceLeaseRepository()
+            val now = Instant.now()
+            val holderA = UUID.randomUUID()
+            val holderB = UUID.randomUUID()
+            // A: held from now-3600s to now-1800s (closed, released).
+            fake.intervals +=
+                ResourceLeaseInterval(
+                    resourceKey = "staging-db",
+                    holderItemId = holderA,
+                    acquiredAt = now.minusSeconds(3600),
+                    expiresAt = now.minusSeconds(1200),
+                    releasedAt = now.minusSeconds(1800),
+                    releaseReason = "released",
+                )
+            // B: held from now-900s onward, still open.
+            fake.intervals +=
+                ResourceLeaseInterval(
+                    resourceKey = "staging-db",
+                    holderItemId = holderB,
+                    acquiredAt = now.minusSeconds(900),
+                    expiresAt = now.plusSeconds(900),
+                )
+            application { configureTestApp(routeBlock = { resourceLeaseRoutes(leaseTestProvider(fake)) }) }
+
+            val at = now.minusSeconds(2400) // inside A's held window, before B even acquired
+            val response =
+                client.get("/api/v1/resources/leases/history?at=$at") {
+                    header("Authorization", "Bearer $ADMIN_TOKEN")
+                }
+
+            assertEquals(HttpStatusCode.OK, response.status)
+            val body = response.bodyAsText()
+            assertTrue(body.contains(holderA.toString()), "holder A should be reported held at $at, body: $body")
+            assertFalse(body.contains(holderB.toString()), "holder B must not be reported held at $at, body: $body")
+        }
+
+    @Test
+    fun `GET resources leases history without at returns recent intervals newest-first`(): Unit =
+        io.ktor.server.testing.testApplication {
+            val fake = FakeResourceLeaseRepository()
+            val now = Instant.now()
+            val older = UUID.randomUUID()
+            val newer = UUID.randomUUID()
+            fake.intervals +=
+                ResourceLeaseInterval(
+                    resourceKey = "staging-db",
+                    holderItemId = older,
+                    acquiredAt = now.minusSeconds(600),
+                    expiresAt = now.plusSeconds(600),
+                )
+            fake.intervals +=
+                ResourceLeaseInterval(
+                    resourceKey = "staging-db",
+                    holderItemId = newer,
+                    acquiredAt = now.minusSeconds(60),
+                    expiresAt = now.plusSeconds(600),
+                )
+            application { configureTestApp(routeBlock = { resourceLeaseRoutes(leaseTestProvider(fake)) }) }
+
+            val response =
+                client.get("/api/v1/resources/leases/history?limit=1") {
+                    header("Authorization", "Bearer $ADMIN_TOKEN")
+                }
+
+            assertEquals(HttpStatusCode.OK, response.status)
+            val body = response.bodyAsText()
+            assertTrue(body.contains(newer.toString()), "the single most-recent interval must be returned, body: $body")
+            assertFalse(body.contains(older.toString()), "limit=1 must exclude the older interval, body: $body")
+        }
+
+    @Test
+    fun `GET resources leases history clamps limit=0 up to the minimum of 1`(): Unit =
+        io.ktor.server.testing.testApplication {
+            val fake = FakeResourceLeaseRepository()
+            val now = Instant.now()
+            val older = UUID.randomUUID()
+            val newer = UUID.randomUUID()
+            fake.intervals +=
+                ResourceLeaseInterval(
+                    resourceKey = "staging-db",
+                    holderItemId = older,
+                    acquiredAt = now.minusSeconds(600),
+                    expiresAt = now.plusSeconds(600),
+                )
+            fake.intervals +=
+                ResourceLeaseInterval(
+                    resourceKey = "staging-db",
+                    holderItemId = newer,
+                    acquiredAt = now.minusSeconds(60),
+                    expiresAt = now.plusSeconds(600),
+                )
+            application { configureTestApp(routeBlock = { resourceLeaseRoutes(leaseTestProvider(fake)) }) }
+
+            val response =
+                client.get("/api/v1/resources/leases/history?limit=0") {
+                    header("Authorization", "Bearer $ADMIN_TOKEN")
+                }
+
+            assertEquals(HttpStatusCode.OK, response.status)
+            val body = response.bodyAsText()
+            assertTrue(body.contains(newer.toString()))
+            assertFalse(body.contains(older.toString()), "limit=0 must clamp to 1, not 0/unlimited, body: $body")
+        }
+
+    @Test
+    fun `GET resources leases history accepts a limit far above the max without erroring`(): Unit =
+        io.ktor.server.testing.testApplication {
+            val fake = FakeResourceLeaseRepository()
+            fake.seedLease()
+            application { configureTestApp(routeBlock = { resourceLeaseRoutes(leaseTestProvider(fake)) }) }
+
+            val response =
+                client.get("/api/v1/resources/leases/history?limit=99999") {
+                    header("Authorization", "Bearer $ADMIN_TOKEN")
+                }
+
+            assertEquals(HttpStatusCode.OK, response.status)
         }
 }

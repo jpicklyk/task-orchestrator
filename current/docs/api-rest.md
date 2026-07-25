@@ -560,6 +560,29 @@ caller; it carries no more information than an item ID already readable via `GET
 { "resourceKey": "staging-db", "releasedCount": 1 }
 ```
 
+### ResourceLeaseIntervalDto (see §14)
+
+```json
+{
+  "resourceKey": "staging-db",
+  "holderItemId": "<uuid>",
+  "acquiredByActorId": "agent-worker-42",  // ADMIN callers only — omitted (not null) otherwise
+  "acquiredAt": "ISO-8601",
+  "expiresAt": "ISO-8601",
+  "releasedAt": "ISO-8601",                // null (omitted) while the interval is still open
+  "releaseReason": "released",             // "released" | "expired" | "force_released"; null while open
+  "releasedByActorId": "admin-token-id"    // ADMIN callers only; null for a passive "expired" close
+}
+```
+
+One row per lease hold INTERVAL, not per lease event — append-only, never pruned in v1. See §14.
+
+### ResourceLeaseHistoryResponseDto
+
+```json
+{ "intervals": [<ResourceLeaseIntervalDto>] }
+```
+
 ### SSE / ApiEvent
 
 ```json
@@ -1009,7 +1032,30 @@ server-wide" into a one-call fix.
 
 Every successful force-release is WARN-logged with the acting principal's token id, the key, and the
 released count — sufficient to attribute the action to a specific bearer token from server logs
-alone, without needing to correlate against the response body.
+alone, without needing to correlate against the response body. The acting principal's token id is
+also threaded through to `released_by_actor_id` on the closed history interval(s) — see below.
+
+### GET /api/v1/resources/leases/history
+
+Append-only lease-interval audit log — answers "who held resource R at time T" after a lease has
+already been released, stolen, or force-released, which `GET /resources/leases` (current holders
+only) cannot. Requires `READ`.
+
+**Query parameters** (all optional):
+- `key` — restrict to one resource key. Same validation as `{key}` on the DELETE route above (400
+  `validation_error` on mismatch).
+- `at` — an ISO-8601 instant. When present, returns every interval held at that instant (per
+  `acquiredAt <= at < coalesce(releasedAt, expiresAt)`), open or closed. **400 `validation_error`**
+  if the value does not parse as an instant. When absent, returns the most recent intervals
+  (open or closed), newest-first by `acquiredAt`.
+- `limit` — max rows, default `100`, clamped to `[1, 500]`.
+
+**Response `200 OK`:** `ResourceLeaseHistoryResponseDto` → `{ "intervals": [<ResourceLeaseIntervalDto>] }`.
+`acquiredByActorId` / `releasedByActorId` are present per-entry only for callers with `ADMIN`
+capability — same inline redaction rule `GET /resources/leases` applies to `acquiredByActorId`.
+
+No pruning/retention in v1 — the table is append-only and grows with lease-event cardinality
+(documented, accepted behavior; see `current/src/main/resources/db/migration/V16__Resource_Lease_History.sql`).
 
 ---
 

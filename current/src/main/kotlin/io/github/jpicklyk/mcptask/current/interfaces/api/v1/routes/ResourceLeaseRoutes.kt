@@ -7,6 +7,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.hasCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.requireCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ResourceLeaseHistoryResponseDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ResourceLeaseListResponseDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ResourceLeaseReleaseResponseDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.toDto
@@ -18,12 +19,16 @@ import io.ktor.server.routing.delete
 import io.ktor.server.routing.get
 import io.ktor.server.routing.route
 import org.slf4j.LoggerFactory
+import java.time.Instant
+import java.time.format.DateTimeParseException
 
 private val resourceLeaseLogger = LoggerFactory.getLogger("ResourceLeaseRoutes")
 
 /** Lowercase-slug-like resource key pattern, matching [io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition.key]. */
 private val RESOURCE_KEY_PATTERN = Regex("^[a-z0-9][a-z0-9\\-_./]*$")
 private const val RESOURCE_KEY_MAX_LENGTH = 128
+private const val HISTORY_DEFAULT_LIMIT = 100
+private const val HISTORY_MAX_LIMIT = 500
 
 /**
  * Registers the operator-facing resource-lease read/force-release routes under
@@ -44,7 +49,16 @@ private const val RESOURCE_KEY_MAX_LENGTH = 128
  *   the repository layer, but this operator surface treats "nothing to release" as not-found), 200
  *   with `{resourceKey, releasedCount}` otherwise. Every successful force-release is logged at WARN
  *   naming the acting principal and the key — this bypasses normal TTL-based mutual exclusion, so it
- *   must be auditable from logs alone.
+ *   must be auditable from logs alone. The acting principal's token id is also threaded through as
+ *   `released_by_actor_id` on the closed `resource_lease_history` interval(s) — see
+ *   `GET /resources/leases/history` below.
+ * - `GET    /resources/leases/history` — append-only lease-interval audit log, answering "who held
+ *   resource R at time T" ([ApiCapability.READ]). Optional `key` (validated like the DELETE route's
+ *   `{key}`, 400 on mismatch), `at` (ISO-8601 instant — when present, returns every interval held at
+ *   that instant; 400 `validation_error` if unparseable), and `limit` (default 100, clamped to
+ *   [1, 500]). Without `at`, returns the most recent intervals (open or closed), newest-first.
+ *   `acquiredByActorId` / `releasedByActorId` are ADMIN-only, same inline redaction as the list
+ *   route above.
  *
  * **No scope enforcement:** resource leases are a cross-project, server-wide concurrency primitive
  * (unlike per-root items/config/plans) — there is no `rootId` to scope against, so only capability
@@ -86,14 +100,14 @@ fun Route.resourceLeaseRoutes(repositoryProvider: RepositoryProvider) {
                     return@delete
                 }
 
-                when (val result = leaseRepo.forceReleaseByKey(key)) {
+                val principal = call.attributes.getOrNull(ApiPrincipalKey)
+                when (val result = leaseRepo.forceReleaseByKey(key, principal?.tokenId)) {
                     is LeaseReleaseResult.Success -> {
                         if (result.releasedCount == 0) {
                             call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "No active lease found for key '$key'"))
                             return@delete
                         }
 
-                        val principal = call.attributes.getOrNull(ApiPrincipalKey)
                         resourceLeaseLogger.warn(
                             "Operator force-release: {} lease row(s) released for resourceKey='{}' by principal tokenId='{}'",
                             result.releasedCount,
@@ -111,6 +125,54 @@ fun Route.resourceLeaseRoutes(repositoryProvider: RepositoryProvider) {
                         call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Failed to force-release lease"))
                     }
                 }
+            }
+        }
+
+        // ─── GET /resources/leases/history ─────────────────────────────────────
+        requireCapability(ApiCapability.READ) {
+            get("/history") {
+                val isAdmin = hasCapability(call, ApiCapability.ADMIN)
+
+                val key = call.request.queryParameters["key"]
+                if (key != null && (key.isBlank() || key.length > RESOURCE_KEY_MAX_LENGTH || !RESOURCE_KEY_PATTERN.matches(key))) {
+                    call.respond(
+                        HttpStatusCode.BadRequest,
+                        ErrorDto(
+                            "validation_error",
+                            "key must be 1-$RESOURCE_KEY_MAX_LENGTH characters matching " +
+                                "^[a-z0-9][a-z0-9\\-_./]*$",
+                        ),
+                    )
+                    return@get
+                }
+
+                val atParam = call.request.queryParameters["at"]
+                val at =
+                    if (atParam != null) {
+                        try {
+                            Instant.parse(atParam)
+                        } catch (e: DateTimeParseException) {
+                            call.respond(
+                                HttpStatusCode.BadRequest,
+                                ErrorDto("validation_error", "at must be a valid ISO-8601 instant"),
+                            )
+                            return@get
+                        }
+                    } else {
+                        null
+                    }
+
+                val limit =
+                    (call.request.queryParameters["limit"]?.toIntOrNull() ?: HISTORY_DEFAULT_LIMIT)
+                        .coerceIn(1, HISTORY_MAX_LIMIT)
+
+                val found = if (at != null) leaseRepo.findHoldersAt(key, at) else leaseRepo.findRecentIntervals(key, limit)
+                val intervals =
+                    found.take(limit).map { interval ->
+                        val dto = interval.toDto()
+                        if (isAdmin) dto else dto.copy(acquiredByActorId = null, releasedByActorId = null)
+                    }
+                call.respond(HttpStatusCode.OK, ResourceLeaseHistoryResponseDto(intervals = intervals))
             }
         }
     }

@@ -1161,6 +1161,22 @@ invariant, and not fairness. Read this section before relying on it for anything
   the implementation plan) — treat `resource_unavailable` as a normal, expected outcome to handle in
   your retry loop, not a bug.
 
+### Lease-interval history (audit)
+
+Every lease acquire/refresh/release/steal/force-release also writes to an append-only
+`resource_lease_history` table — one row per hold INTERVAL, not per event — answering "who held
+resource `R` at time `T`" after the fact, which the live `resource_leases` table (current holder
+only) cannot: it still has the answer once a lease has already been released, stolen by another
+item, or force-released by an operator. Query it via
+`GET /api/v1/resources/leases/history?key=&at=&limit=` (see [`api-rest.md`](./api-rest.md) §14) —
+omit `at` for a recent-activity feed (newest-first, default 100 rows, max 500); pass `at` as an
+ISO-8601 instant to ask "who held this at exactly this moment" (an open interval is bounded by its
+own `expiresAt`, so a crashed holder's interval reads as "not held" once its TTL lapses, even though
+the operator hasn't force-released it yet). Holder/closer actor identity is ADMIN-only, same
+redaction rule as the live list. History rows carry no foreign key to the holder work item and
+deliberately survive its deletion — this is an audit trail, not a live-state mirror. There is no
+pruning or retention policy in v1: the table is append-only and grows with lease-event cardinality.
+
 ---
 
 ## Quick Reference

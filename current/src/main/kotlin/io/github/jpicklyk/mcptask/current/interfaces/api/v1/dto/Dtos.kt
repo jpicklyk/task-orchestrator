@@ -560,3 +560,29 @@ data class ResourceLeaseReleaseResponseDto(
     val resourceKey: String,
     val releasedCount: Int,
 )
+
+/**
+ * DTO for one append-only lease hold interval (see
+ * [io.github.jpicklyk.mcptask.current.domain.model.ResourceLeaseInterval]).
+ *
+ * `acquiredByActorId` / `releasedByActorId` are holder/closer identity — included only for callers
+ * with `admin` capability, same inline redaction rule the live `GET /resources/leases` route
+ * applies to `ResourceLeaseDto.acquiredByActorId`.
+ */
+@Serializable
+data class ResourceLeaseIntervalDto(
+    val resourceKey: String,
+    val holderItemId: String,
+    val acquiredByActorId: String? = null,
+    val acquiredAt: String,
+    val expiresAt: String,
+    val releasedAt: String? = null,
+    val releaseReason: String? = null,
+    val releasedByActorId: String? = null,
+)
+
+/** Response DTO for `GET /api/v1/resources/leases/history`. */
+@Serializable
+data class ResourceLeaseHistoryResponseDto(
+    val intervals: List<ResourceLeaseIntervalDto>,
+)

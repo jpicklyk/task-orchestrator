@@ -1,6 +1,8 @@
 package io.github.jpicklyk.mcptask.current.domain.repository
 
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceLease
+import io.github.jpicklyk.mcptask.current.domain.model.ResourceLeaseInterval
+import java.time.Instant
 import java.util.UUID
 
 /**
@@ -107,8 +109,14 @@ interface ResourceLeaseRepository {
      *
      * Authorization is the CALLER's responsibility — this layer performs no permission checks; the
      * REST surface gates this behind the ADMIN capability.
+     *
+     * @param actorId Optional opaque actor identifier of the acting principal, recorded as
+     *   `released_by_actor_id` on every closed [ResourceLeaseInterval] history row (audit-only).
      */
-    suspend fun forceReleaseByKey(resourceKey: String): LeaseReleaseResult
+    suspend fun forceReleaseByKey(
+        resourceKey: String,
+        actorId: String? = null
+    ): LeaseReleaseResult
 
     /** Returns the active (non-expired) leases among [keys], across all holders. */
     suspend fun findActiveByKeys(keys: List<String>): List<ResourceLease>
@@ -118,4 +126,25 @@ interface ResourceLeaseRepository {
 
     /** Returns every active (non-expired) lease in the table, across all keys and holders. */
     suspend fun findAllActive(): List<ResourceLease>
+
+    /**
+     * Returns every [ResourceLeaseInterval] (open or closed) that was held at instant [at] —
+     * i.e. `acquiredAt <= at < coalesce(releasedAt, expiresAt)` — optionally restricted to
+     * [resourceKey]. Ordered newest-first by [ResourceLeaseInterval.acquiredAt]. Answers "who held
+     * resource R at time T" for post-incident diagnosis; see the `resource_lease_history` table.
+     */
+    suspend fun findHoldersAt(
+        resourceKey: String?,
+        at: Instant
+    ): List<ResourceLeaseInterval>
+
+    /**
+     * Returns the most recent [ResourceLeaseInterval] rows (open or closed), newest-first by
+     * [ResourceLeaseInterval.acquiredAt], optionally restricted to [resourceKey] and capped at
+     * [limit] rows. Backs the no-`at` "recent activity" view.
+     */
+    suspend fun findRecentIntervals(
+        resourceKey: String?,
+        limit: Int
+    ): List<ResourceLeaseInterval>
 }

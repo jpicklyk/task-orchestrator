@@ -31,6 +31,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   non-admin callers who set it, WARN-logged when used). New `RESOURCE_LEASES_ENFORCED` env var
   (default `true`) is a deployment-wide kill switch, read per advance call rather than once at
   startup. `CORS_EXPOSE_HEADERS` now defaults to include `Retry-After`.
+- **Lease-interval history (audit log).** New append-only `resource_lease_history` table records one
+  row per lease hold interval — answering "who held resource R at time T" after a lease has already
+  been released, stolen, or force-released. Every acquire/refresh/release/steal/force-release write
+  is mirrored into history in the same transaction as the live-row write; `ResourceLeaseRepository`
+  gains `findHoldersAt` / `findRecentIntervals`, and `forceReleaseByKey` gains an optional `actorId`
+  parameter recorded on the closed interval. New REST route
+  `GET /api/v1/resources/leases/history?key=&at=&limit=` (holder/closer actor identity ADMIN-only,
+  `at` optional ISO-8601 instant, 400 on an unparseable value, `limit` default 100 max 500). No
+  pruning/retention in v1 — append-only, cardinality tracks lease events.
 
 ## [Plugin 3.5.1] - 2026-07-23
 

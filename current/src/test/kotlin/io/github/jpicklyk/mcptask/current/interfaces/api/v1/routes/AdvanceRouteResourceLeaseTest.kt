@@ -6,6 +6,7 @@ import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaServ
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceLease
+import io.github.jpicklyk.mcptask.current.domain.model.ResourceLeaseInterval
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceMode
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.Role
@@ -54,6 +55,7 @@ import kotlin.test.assertTrue
  */
 private class LeaseGateFakeRepository : ResourceLeaseRepository {
     val leases = mutableListOf<ResourceLease>()
+    val intervals = mutableListOf<ResourceLeaseInterval>()
 
     /** When non-null, every acquire is forced to report these keys contended. */
     var forceContended: List<String>? = null
@@ -72,12 +74,46 @@ private class LeaseGateFakeRepository : ResourceLeaseRepository {
         val now = Instant.now()
         val acquired =
             requirements.map { (key, ttl) ->
+                val expiresAt = now.plusSeconds(ttl.toLong())
+                val ownRowExisted = leases.any { it.resourceKey == key && it.holderItemId == holderItemId }
+                if (ownRowExisted) {
+                    val openIdx =
+                        intervals.indexOfLast { it.resourceKey == key && it.holderItemId == holderItemId && it.releasedAt == null }
+                    if (openIdx >= 0) {
+                        intervals[openIdx] = intervals[openIdx].copy(expiresAt = expiresAt)
+                    } else {
+                        intervals +=
+                            ResourceLeaseInterval(
+                                resourceKey = key,
+                                holderItemId = holderItemId,
+                                acquiredByActorId = actorId,
+                                acquiredAt = now,
+                                expiresAt = expiresAt,
+                            )
+                    }
+                } else {
+                    intervals.replaceAll { iv ->
+                        if (iv.resourceKey == key && iv.holderItemId != holderItemId && iv.releasedAt == null) {
+                            iv.copy(releasedAt = iv.expiresAt, releaseReason = "expired")
+                        } else {
+                            iv
+                        }
+                    }
+                    intervals +=
+                        ResourceLeaseInterval(
+                            resourceKey = key,
+                            holderItemId = holderItemId,
+                            acquiredByActorId = actorId,
+                            acquiredAt = now,
+                            expiresAt = expiresAt,
+                        )
+                }
                 ResourceLease(
                     resourceKey = key,
                     holderItemId = holderItemId,
                     acquiredByActorId = actorId,
                     acquiredAt = now,
-                    expiresAt = now.plusSeconds(ttl.toLong()),
+                    expiresAt = expiresAt,
                     originalAcquiredAt = now,
                 )
             }
@@ -88,12 +124,31 @@ private class LeaseGateFakeRepository : ResourceLeaseRepository {
     override suspend fun releaseAllForItem(holderItemId: UUID): LeaseReleaseResult {
         val before = leases.size
         leases.removeAll { it.holderItemId == holderItemId }
+        val now = Instant.now()
+        intervals.replaceAll { iv ->
+            if (iv.holderItemId == holderItemId && iv.releasedAt == null) {
+                iv.copy(releasedAt = now, releaseReason = "released")
+            } else {
+                iv
+            }
+        }
         return LeaseReleaseResult.Success(before - leases.size)
     }
 
-    override suspend fun forceReleaseByKey(resourceKey: String): LeaseReleaseResult {
+    override suspend fun forceReleaseByKey(
+        resourceKey: String,
+        actorId: String?,
+    ): LeaseReleaseResult {
         val before = leases.size
         leases.removeAll { it.resourceKey == resourceKey }
+        val now = Instant.now()
+        intervals.replaceAll { iv ->
+            if (iv.resourceKey == resourceKey && iv.releasedAt == null) {
+                iv.copy(releasedAt = now, releaseReason = "force_released", releasedByActorId = actorId)
+            } else {
+                iv
+            }
+        }
         return LeaseReleaseResult.Success(before - leases.size)
     }
 
@@ -102,6 +157,26 @@ private class LeaseGateFakeRepository : ResourceLeaseRepository {
     override suspend fun findActiveForItem(holderItemId: UUID): List<ResourceLease> = leases.filter { it.holderItemId == holderItemId }
 
     override suspend fun findAllActive(): List<ResourceLease> = leases.toList()
+
+    override suspend fun findHoldersAt(
+        resourceKey: String?,
+        at: Instant,
+    ): List<ResourceLeaseInterval> =
+        intervals
+            .filter { iv ->
+                (resourceKey == null || iv.resourceKey == resourceKey) &&
+                    !at.isBefore(iv.acquiredAt) &&
+                    at.isBefore(iv.releasedAt ?: iv.expiresAt)
+            }.sortedByDescending { it.acquiredAt }
+
+    override suspend fun findRecentIntervals(
+        resourceKey: String?,
+        limit: Int,
+    ): List<ResourceLeaseInterval> =
+        intervals
+            .filter { resourceKey == null || it.resourceKey == resourceKey }
+            .sortedByDescending { it.acquiredAt }
+            .take(limit)
 }
 
 /** H2-backed provider with only [resourceLeaseRepository] swapped for the in-memory fake. */
