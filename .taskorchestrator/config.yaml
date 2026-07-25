@@ -175,6 +175,10 @@ traits:
 # See claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md
 # → "Resources (Trait Dimension)" for the full field reference and merge semantics.
 #
+# WARNING: this file already has a live top-level `traits:` block above. Do NOT uncomment the
+# `traits:` line below as-is — a duplicate top-level key resolves last-wins and silently drops
+# every existing trait. Merge the example trait INTO the existing `traits:` block instead.
+#
 # resources:
 #   staging-db:
 #     description: "Single shared staging database — only one migration/test run at a time"
