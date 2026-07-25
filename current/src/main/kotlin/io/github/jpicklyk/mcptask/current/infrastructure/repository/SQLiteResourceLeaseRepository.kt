@@ -240,16 +240,19 @@ class SQLiteResourceLeaseRepository(
                         // now-stale row — a key can accumulate more than one expired other-holder row
                         // across repeated steals. All of them are guaranteed expired here (the
                         // contention pre-pass above already rejected any ACTIVE other holder).
+                        // Computed UNCONDITIONALLY — including on the own-row refresh/re-take path.
+                        // A re-take of a key this item held before (own expired row still present)
+                        // can follow an intervening holder whose expired row also lingers; guarding
+                        // this on `ownRow == null` left that holder's history interval open, and a
+                        // later releaseAllForItem would then close it at 'now' — making an at-T
+                        // query report two simultaneous holders (found in post-merge field review
+                        // of PR #262).
                         val staleOtherRows =
-                            if (ownRow == null) {
-                                ResourceLeasesTable
-                                    .selectAll()
-                                    .where {
-                                        (ResourceLeasesTable.resourceKey eq key) and (ResourceLeasesTable.holderItemId neq holderItemId)
-                                    }.toList()
-                            } else {
-                                emptyList()
-                            }
+                            ResourceLeasesTable
+                                .selectAll()
+                                .where {
+                                    (ResourceLeasesTable.resourceKey eq key) and (ResourceLeasesTable.holderItemId neq holderItemId)
+                                }.toList()
 
                         exec(
                             """
@@ -307,18 +310,18 @@ class SQLiteResourceLeaseRepository(
      * the live-row upsert `acquireAll` just performed for [key]. Three cases, distinguished by the
      * pre-write state captured before the live upsert ran:
      *
+     * On EVERY branch, stale OTHER-holder rows still on the key (necessarily expired — the
+     * contention pre-pass rejected any active other holder; there can be more than one, since a
+     * steal never deletes the row it supersedes) first have their OPEN history intervals closed
+     * with `releaseReason = "expired"` at each row's own last-known `expiresAt`. This runs on
+     * refresh/re-take too, not only on steals — a re-take of a previously-held key can follow an
+     * intervening expired holder whose interval must not stay open (post-merge fix, PR #262
+     * field review). Then, for the acquiring holder:
+     *
      * 1. **Refresh** ([ownRowExisted] true) — the OPEN history interval for `(key, holderItemId)`
      *    has its `expiresAt` extended in place. If none is open (the bootstrap gap for a lease that
      *    predates V16 — see the migration header), a new interval opens instead.
-     * 2. **Steal** ([ownRowExisted] false, [staleOtherRows] non-empty) — every OTHER holder row
-     *    still on this key (necessarily expired, or `acquireAll`'s contention pre-pass would have
-     *    rejected this call — there can be more than one, since a steal never deletes the row it
-     *    supersedes) has its OPEN history interval closed with `releaseReason = "expired"` at its
-     *    own last-known `expiresAt` (read from the live row BEFORE it was overwritten —
-     *    authoritative regardless of whether history was already in sync; a no-op for any stale row
-     *    with no open interval to close). A new interval then opens for the new holder.
-     * 3. **Fresh** ([ownRowExisted] false, [staleOtherRows] empty) — a never-before-seen (or
-     *    previously fully released) key: a new interval simply opens.
+     * 2. **Fresh/steal** ([ownRowExisted] false) — a new interval opens.
      *
      * [liveRow] is the freshly-upserted `resource_leases` row, read back after the write — its
      * `acquiredAt` / `expiresAt` (both DB-computed) are reused verbatim for the history row so the
@@ -346,6 +349,23 @@ class SQLiteResourceLeaseRepository(
             }
         }
 
+        // Close stale OTHER holders' open intervals FIRST, on every branch — not only on steals.
+        // The refresh/re-take branch can also follow an intervening expired holder (see the
+        // staleOtherRows comment at the call site); each closes at its own last-known live-row
+        // expiry, which is when its hold factually ended.
+        staleOtherRows.forEach { stale ->
+            val staleHolderId = stale[ResourceLeasesTable.holderItemId]
+            val staleExpiresAt = stale[ResourceLeasesTable.expiresAt]
+            ResourceLeaseHistoryTable.update({
+                (ResourceLeaseHistoryTable.resourceKey eq key) and
+                    (ResourceLeaseHistoryTable.holderItemId eq staleHolderId) and
+                    ResourceLeaseHistoryTable.releasedAt.isNull()
+            }) {
+                it[releasedAt] = staleExpiresAt
+                it[releaseReason] = "expired"
+            }
+        }
+
         if (ownRowExisted) {
             val updated =
                 ResourceLeaseHistoryTable.update({
@@ -357,18 +377,6 @@ class SQLiteResourceLeaseRepository(
                 }
             if (updated == 0) openNewInterval()
         } else {
-            staleOtherRows.forEach { stale ->
-                val staleHolderId = stale[ResourceLeasesTable.holderItemId]
-                val staleExpiresAt = stale[ResourceLeasesTable.expiresAt]
-                ResourceLeaseHistoryTable.update({
-                    (ResourceLeaseHistoryTable.resourceKey eq key) and
-                        (ResourceLeaseHistoryTable.holderItemId eq staleHolderId) and
-                        ResourceLeaseHistoryTable.releasedAt.isNull()
-                }) {
-                    it[releasedAt] = staleExpiresAt
-                    it[releaseReason] = "expired"
-                }
-            }
             openNewInterval()
         }
     }
@@ -383,7 +391,8 @@ class SQLiteResourceLeaseRepository(
                 exec(
                     """
                     UPDATE resource_lease_history
-                       SET released_at = datetime('now'), release_reason = 'released'
+                       SET released_at = min(datetime('now'), expires_at),
+                           release_reason = CASE WHEN expires_at < datetime('now') THEN 'expired' ELSE 'released' END
                      WHERE holder_item_id = ? AND released_at IS NULL
                     """.trimIndent(),
                     args = listOf(uuidType to holderItemId)
@@ -409,7 +418,9 @@ class SQLiteResourceLeaseRepository(
                 exec(
                     """
                     UPDATE resource_lease_history
-                       SET released_at = datetime('now'), release_reason = 'force_released', released_by_actor_id = ?
+                       SET released_at = min(datetime('now'), expires_at),
+                           release_reason = CASE WHEN expires_at < datetime('now') THEN 'expired' ELSE 'force_released' END,
+                           released_by_actor_id = ?
                      WHERE resource_key = ? AND released_at IS NULL
                     """.trimIndent(),
                     args = listOf(actorType to actorId, keyType to resourceKey)
