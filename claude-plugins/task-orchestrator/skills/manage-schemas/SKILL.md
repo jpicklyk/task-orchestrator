@@ -41,7 +41,7 @@ Check if `.taskorchestrator/config.yaml` exists by reading it.
 
 **If the file exists:** Read and parse it. Proceed to Step 3.
 
-> **Note:** `project:` is a recognized top-level key alongside `work_item_schemas`, `traits`, and `actor_authentication` — it anchors this repo to a project root item and is read only by other skills (`quick-start`, `/adopt-project-scope`), never by this skill. Do not treat it as unknown, and never drop or rewrite it — every write operation in Step 3 (CREATE/EDIT/DELETE) must carry it through unchanged. See `references/config-format.md` → Project Scoping for its fields.
+> **Note:** `project:` is a recognized top-level key alongside `work_item_schemas`, `traits`, `resources`, and `actor_authentication` — it anchors this repo to a project root item and is read only by other skills (`quick-start`, `/adopt-project-scope`), never by this skill. Do not treat it as unknown, and never drop or rewrite it — every write operation in Step 3 (CREATE/EDIT/DELETE) must carry it through unchanged. See `references/config-format.md` → Project Scoping for its fields. (`resources:` is the optional shared-resource registry — see `references/config-format.md` → "Resources (Trait Dimension)"; it must be preserved the same way.)
 
 ---
 

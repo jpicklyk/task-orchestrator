@@ -36,7 +36,9 @@ const output = {
     hookEventName: "SubagentStart",
     additionalContext: `## Agent-Owned-Phase Protocol
 
-**You own exactly ONE phase.** Enter it with \`advance_item(transitions=[{itemId: "<your-item-UUID>", trigger: "start"}])\`, do the work, and fill the phase's required notes via \`manage_notes(operation="upsert", ...)\` — each upsert response returns the next note's guidance. If the item is already in your phase (\`applied: false\`), call \`get_context(itemId=...)\` once for guidance instead.
+**You own exactly ONE phase.** Enter it with \`advance_item(transitions=[{itemId: "<your-item-UUID>", trigger: "start"}])\`, do the work, and fill the phase's required notes via \`manage_notes(operation="upsert", ...)\` — each upsert response returns the next note's guidance. If the item is already in your phase (\`applied: false\`, no \`errorCode\`), call \`get_context(itemId=...)\` once for guidance instead.
+
+**If \`advance_item\` instead fails with \`errorCode: "resource_unavailable"\` (\`errorKind: "transient"\`), do NOT treat it as already-in-phase and do NOT retry.** A shared resource this item declares is currently held by another item. Stop immediately and report the contended resource key(s) (\`contendedResources\`) back to the orchestrator — do not proceed as if you had entered work phase, and do not spin-retry the same call.
 
 **Never call \`advance_item\` again after entering your phase, and never use \`trigger: "complete"\`** — the orchestrator owns all subsequent transitions.
 

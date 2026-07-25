@@ -169,3 +169,21 @@ traits:
         required: true
         description: "Session context — what was done, how it went, and anything the retrospective should know."
         guidance: "Record what happened during implementation. Structure: - **Outcome**: success | partial | failure - **Files changed**: list with brief rationale - **Deviations**: anything that differed from the specification or plan - **Friction**: tool errors, roundtrips, workarounds, API confusion (type + description) - **Gate interactions**: note fill attempts, gate failures encountered - **Observations**: anything worth tracking for process improvement - **Test results**: pass/fail counts, new tests added. Keep it factual and concise — this feeds the session retrospective."
+
+# Resource leasing — reference example only, NOT activated on this project's items.
+# Uncomment and adapt to declare a shared-resource registry and reference it from a trait.
+# See claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md
+# → "Resources (Trait Dimension)" for the full field reference and merge semantics.
+#
+# resources:
+#   staging-db:
+#     description: "Single shared staging database — only one migration/test run at a time"
+#     defaultTtlSeconds: 3600
+#
+# traits:
+#   needs-staging-slot:
+#     resources:
+#       - staging-db                # short form — bare key = mode: exclusive, registry default TTL
+#       # - key: github-deploy-token  # long form — explicit mode + ttlSeconds override
+#       #   mode: advisory
+#       #   ttlSeconds: 1800

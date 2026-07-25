@@ -152,6 +152,12 @@ materialization. Advance: `advance_item(trigger="start")`.
 The gate will reject advancement if required notes are missing. If rejected, fill
 the missing notes and retry.
 
+**Do not confuse this with resource-lease contention.** A queue→work `advance_item` can also
+fail with `applied: false`, `errorCode: "resource_unavailable"`, `errorKind: "transient"` — a
+resource a trait on this item declares (`resources:`) is currently held by another item. This
+is not a note gate failure: filling notes will not fix it. Work a different item and retry
+later (`retryAfterMs` is a hint), or report the contended key(s) to the user.
+
 ---
 
 ## Step 4 — Work Phase: Implementation

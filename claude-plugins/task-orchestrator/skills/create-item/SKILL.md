@@ -127,6 +127,8 @@ Only assign traits that exist in the config. If no `traits:` section exists, ski
 
 If multiple traits apply, combine them: `traits: "needs-migration-review,needs-api-compat-review"`
 
+**Resource-bearing traits (informational):** if a chosen trait's config entry carries its own `resources:` list, note this to the user — items with that trait will acquire an exclusive lease on the named resource key(s) when they enter work phase, and `advance_item(start)` can transiently fail with `resource_unavailable` if another item currently holds it. No extra action is needed here; this is just so the choice isn't a surprise later.
+
 ---
 
 ## Step 5 — Create the item(s)

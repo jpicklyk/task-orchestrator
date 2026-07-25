@@ -30,6 +30,7 @@ Parse the file. If YAML is invalid, report the parse error with line number (if 
 - `did_loose_kid_match` (if present) must be a boolean
 - `did_allowlist` and `did_pattern` are mutually exclusive — error if both are set
 - DID-trust mode (non-empty `did_allowlist` or non-null `did_pattern`) is mutually exclusive with static-JWKS mode (`oidc_discovery`/`jwks_uri`/`jwks_path`) — error if both are configured
+- `resources` is an optional top-level key — recognized, not schema-related; if present, must be a mapping of resource key → `{ description?, defaultTtlSeconds?, maxHolders? }`. Do not flag as unknown. See `references/config-format.md` → "Resources (Trait Dimension)"
 - No other top-level keys expected (warn if found)
 
 ### 3. Schema Entry Structure
