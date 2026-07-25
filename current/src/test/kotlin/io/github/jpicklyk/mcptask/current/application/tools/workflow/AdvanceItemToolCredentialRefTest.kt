@@ -65,6 +65,10 @@ class AdvanceItemToolCredentialRefTest {
         coEvery { defaultNoteRepo.findByItemId(any(), any()) } returns Result.Success(emptyList())
         every { repoProvider.noteRepository() } returns defaultNoteRepo
         every { repoProvider.roleTransitionRepository() } returns roleTransitionRepo
+        // AdvanceItemTool wires the lease store into AdvanceService on every transition; a strict
+        // mockk provider must answer it even for items that declare no resources (the resource gate
+        // itself short-circuits before touching the repository).
+        every { repoProvider.resourceLeaseRepository() } returns mockk(relaxed = true)
         coEvery { workItemRepo.dbNow() } returns Instant.now()
         coEvery { workItemRepo.inTransaction(any()) } coAnswers {
             firstArg<suspend () -> Unit>().invoke()

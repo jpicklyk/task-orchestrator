@@ -344,6 +344,21 @@ data class AdvanceRequestDto(
      * Omitted/null preserves existing behavior (no credentialRefs recorded).
      */
     val credentialRefs: List<String>? = null,
+    /**
+     * Operator escape hatch: when `true`, skips the resource-lease gate for a transition entering
+     * the work phase, letting the advance proceed even though another item holds one of this item's
+     * declared exclusive resources.
+     *
+     * **Requires [io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability.ADMIN].**
+     * A non-admin principal that sends `true` is REJECTED with 403 rather than silently ignored — a
+     * caller that believes it bypassed the gate but did not must never proceed as if it had.
+     * Omitted/null (the default) leaves the gate enforced, so existing request bodies are unchanged.
+     *
+     * Note the asymmetry with claim ownership: the REST surface bypasses claim ownership for every
+     * caller by design (operators override an agent's bookkeeping), but a resource lease protects a
+     * shared EXTERNAL resource and stays enforced unless an admin explicitly opts out here.
+     */
+    val overrideResourceLeases: Boolean? = null,
 )
 
 /**
