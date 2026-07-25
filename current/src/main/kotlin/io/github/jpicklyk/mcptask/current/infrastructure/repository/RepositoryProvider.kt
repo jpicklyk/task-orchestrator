@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.PlanDocumentRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository
+import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 
@@ -24,6 +25,8 @@ interface RepositoryProvider {
     fun projectConfigRepository(): ProjectConfigRepository
 
     fun planDocumentRepository(): PlanDocumentRepository
+
+    fun resourceLeaseRepository(): ResourceLeaseRepository
 
     fun database(): org.jetbrains.exposed.v1.jdbc.Database?
 

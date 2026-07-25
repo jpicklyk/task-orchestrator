@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.Depende
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.NotesTable
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.PlanDocumentsTable
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.ProjectConfigTable
+import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.ResourceLeasesTable
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.RoleTransitionsTable
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.WorkItemsTable
 import org.jetbrains.exposed.v1.core.vendors.H2Dialect
@@ -18,17 +19,18 @@ import org.slf4j.LoggerFactory
  *
  * Table dependency graph:
  * 1. WorkItemsTable (no external dependencies, self-referencing parentId)
- * 2. ProjectConfigTable (depends on WorkItemsTable)
- * 3. PlanDocumentsTable (depends on WorkItemsTable, two FKs — root_item_id and adopted_by_item_id)
- * 4. NotesTable (depends on WorkItemsTable)
- * 5. DependenciesTable (depends on WorkItemsTable)
- * 6. RoleTransitionsTable (depends on WorkItemsTable)
+ * 2. ResourceLeasesTable (depends on WorkItemsTable — holder_item_id, CASCADE)
+ * 3. ProjectConfigTable (depends on WorkItemsTable)
+ * 4. PlanDocumentsTable (depends on WorkItemsTable, two FKs — root_item_id and adopted_by_item_id)
+ * 5. NotesTable (depends on WorkItemsTable)
+ * 6. DependenciesTable (depends on WorkItemsTable)
+ * 7. RoleTransitionsTable (depends on WorkItemsTable)
  *
  * Virtual tables (FTS5, follow their backing tables):
- * 6. work_items_fts_trigram (external-content over WorkItemsTable)
- * 7. work_items_fts_text    (external-content over WorkItemsTable)
- * 8. notes_fts_trigram      (external-content over NotesTable)
- * 9. notes_fts_text         (external-content over NotesTable)
+ * 8. work_items_fts_trigram (external-content over WorkItemsTable)
+ * 9. work_items_fts_text    (external-content over WorkItemsTable)
+ * 10. notes_fts_trigram     (external-content over NotesTable)
+ * 11. notes_fts_text        (external-content over NotesTable)
  *
  * Triggers (registered after their backing tables):
  * - work_items_cycle_check, work_items_cycle_check_update (cycle detection on parent_id)
@@ -42,6 +44,7 @@ class DirectDatabaseSchemaManager : DatabaseSchemaManager {
     private val tables =
         arrayOf(
             WorkItemsTable,
+            ResourceLeasesTable,
             ProjectConfigTable,
             PlanDocumentsTable,
             NotesTable,
