@@ -7,9 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.13.0] - 2026-07-25
+
+> **Resource/credential leasing ships in this release as a beta feature.** The interfaces below are
+> stable enough for evaluation and feedback, but the capability is deliberately v1-scoped —
+> multi-holder admission (`maxHolders > 1`), budget counting, and phase-scoped leases are designed-for
+> but deferred, and details may evolve based on real-world usage. Deployments that declare no
+> `resources:` see zero behavior change.
+
 ### Added
 
-- **Resource leasing.** Work items can now declare exclusive or advisory access to shared resources
+- **Resource leasing (beta).** Work items can now declare exclusive or advisory access to shared resources
   (a staging slot, a test database, a deploy credential, a fleet-wide deployment mutex) via a new
   `resources:` dimension on trait definitions, enforced as a gate inside `advance_item` at WORK
   entry (`start` and `resume`) — no new MCP tool, no explicit acquire/release verb. `exclusive`
@@ -19,7 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   acquisition retries up to 5 times (40ms delay) on `SQLITE_BUSY`/`SQLITE_LOCKED` contention before
   falling through to a transient DB-error response, so a losing writer in a genuine cross-connection
   race gets a clean re-evaluation instead of a spurious failure.
-- **`credentialRefs` audit field.** `advance_item` transitions accept an optional `credentialRefs`
+- **`credentialRefs` audit field (beta).** `advance_item` transitions accept an optional `credentialRefs`
   array of opaque credential/resource labels (never secret values), persisted to
   `role_transitions.consumed_credentials` and surfaced read-only via `RoleTransitionDto.consumedCredentials`.
   Once an item declares `resources:`, the field becomes a closed set validated against the
@@ -34,7 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   non-admin callers who set it, WARN-logged when used). New `RESOURCE_LEASES_ENFORCED` env var
   (default `true`) is a deployment-wide kill switch, read per advance call rather than once at
   startup. `CORS_EXPOSE_HEADERS` now defaults to include `Retry-After`.
-- **Lease-interval history (audit log).** New append-only `resource_lease_history` table records one
+- **Lease-interval history (beta, audit log).** New append-only `resource_lease_history` table records one
   row per lease hold interval — answering "who held resource R at time T" after a lease has already
   been released, stolen, or force-released. Every acquire/refresh/release/steal/force-release write
   is mirrored into history in the same transaction as the live-row write; `ResourceLeaseRepository`
@@ -43,6 +51,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `GET /api/v1/resources/leases/history?key=&at=&limit=` (holder/closer actor identity ADMIN-only,
   `at` optional ISO-8601 instant, 400 on an unparseable value, `limit` default 100 max 500). No
   pruning/retention in v1 — append-only, cardinality tracks lease events.
+
+### Changed
+
+- Every exit from the work phase — primary transitions, cascades, and `complete_tree` — now releases
+  the item's resource leases automatically; TTL expiry remains the crash backstop.
+- Bumped plugin version to 3.5.2 — skills and hooks distinguish transient lease contention from
+  note-gate blocks (`schema-workflow`, `dependency-manager`, `status-progression`, the dispatched-agent
+  context, both orchestrator output styles), `/manage-schemas` recognizes and preserves the
+  `resources:` config section, and `/configure-server` documents the `RESOURCE_LEASES_ENFORCED`
+  kill switch.
+
+---
 
 ## [Plugin 3.5.1] - 2026-07-23
 
