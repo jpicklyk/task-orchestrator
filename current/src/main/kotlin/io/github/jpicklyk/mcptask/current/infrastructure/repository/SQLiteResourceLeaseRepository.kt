@@ -94,8 +94,12 @@ class SQLiteResourceLeaseRepository(
         holderItemId: UUID,
         actorId: String?,
         requirements: List<Pair<String, Int>>
-    ): LeaseAcquireResult =
-        try {
+    ): LeaseAcquireResult {
+        require(requirements.all { it.second > 0 }) {
+            "ttlSeconds must be positive for every requirement: " +
+                requirements.filter { it.second <= 0 }.joinToString { "${it.first}=${it.second}" }
+        }
+        return try {
             if (requirements.isEmpty()) {
                 LeaseAcquireResult.Success(emptyList())
             } else {
@@ -205,6 +209,7 @@ class SQLiteResourceLeaseRepository(
             logger.error("Failed to acquire resource leases for holder $holderItemId: ${e.message}", e)
             LeaseAcquireResult.DBError(e)
         }
+    }
 
     override suspend fun releaseAllForItem(holderItemId: UUID): LeaseReleaseResult =
         try {

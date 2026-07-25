@@ -84,7 +84,13 @@ interface ResourceLeaseRepository {
      *   (audit-only — see [ResourceLease.acquiredByActorId]).
      * @param requirements Pre-resolved `(resourceKey, ttlSeconds)` pairs — TTL resolution
      *   (registry default vs. per-requirement override) is the caller's responsibility; this method
-     *   performs no config lookups.
+     *   performs no config lookups. Each `ttlSeconds` must be positive.
+     *
+     * Concurrency note: under a genuine cross-transaction race on the same key, the losing writer
+     * may surface as [LeaseAcquireResult.DBError] (SQLite write-conflict) rather than
+     * [LeaseAcquireResult.Contended] — mutual exclusion still holds, but `retryAfterMs` is not
+     * available on that path. Callers should treat a `DBError` from this method as transient and
+     * retry with a default backoff.
      */
     suspend fun acquireAll(
         holderItemId: UUID,
@@ -98,6 +104,9 @@ interface ResourceLeaseRepository {
     /**
      * Force-releases every row (any holder) for [resourceKey] — an administrative override for
      * unsticking a resource without waiting out its TTL. Not used by normal acquire/release flow.
+     *
+     * Authorization is the CALLER's responsibility — this layer performs no permission checks; the
+     * REST surface gates this behind the ADMIN capability.
      */
     suspend fun forceReleaseByKey(resourceKey: String): LeaseReleaseResult
 
