@@ -551,6 +551,18 @@ docker run --rm -i \
 
 SQLite is a single-writer database backed by a file on a single host. Understanding this constraint is essential for fleet sizing.
 
+### Item Granularity — One Concurrent Actor Per Item
+
+Before sizing the fleet, size the *items*. Both the claim mechanism and resource leasing assume
+**one concurrent actor per work item**: claims bind one actor to an item, and resource leases are
+item-keyed — two sessions working inside the same item share its lease and its claim, and the
+server cannot detect the interference (it arbitrates transitions, not actions). Field pattern to
+avoid: modelling "one conceptual task" as one item while multiple sessions (a watcher and an
+extractor, say) operate inside it — the lease holds, and the sessions still collide on the shared
+browser tab / compose window / rate budget underneath. Cut items at actor granularity: if two
+sessions run concurrently, give each its own item (children of a shared parent work well), let
+each claim its own item, and declare the shared resource on both so the lease serializes them.
+
 ### Write Rate Estimates
 
 | Activity | Write rate estimate |
