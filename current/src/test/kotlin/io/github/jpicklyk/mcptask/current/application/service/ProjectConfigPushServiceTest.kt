@@ -235,6 +235,9 @@ class ProjectConfigPushServiceTest {
                   mode: reject
                 status_labels:
                   start: "custom-started"
+                resources:
+                  staging-db-credential:
+                    description: "Shared staging DB credential"
                 """.trimIndent()
 
             val result = service.push(rootId, yaml)

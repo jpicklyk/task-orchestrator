@@ -4,6 +4,8 @@ import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.Depende
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.NotesTable
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.PlanDocumentsTable
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.ProjectConfigTable
+import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.ResourceLeaseHistoryTable
+import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.ResourceLeasesTable
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.RoleTransitionsTable
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.WorkItemsTable
 import org.jetbrains.exposed.v1.core.vendors.H2Dialect
@@ -18,17 +20,21 @@ import org.slf4j.LoggerFactory
  *
  * Table dependency graph:
  * 1. WorkItemsTable (no external dependencies, self-referencing parentId)
- * 2. ProjectConfigTable (depends on WorkItemsTable)
- * 3. PlanDocumentsTable (depends on WorkItemsTable, two FKs — root_item_id and adopted_by_item_id)
- * 4. NotesTable (depends on WorkItemsTable)
- * 5. DependenciesTable (depends on WorkItemsTable)
- * 6. RoleTransitionsTable (depends on WorkItemsTable)
+ * 2. ResourceLeasesTable (depends on WorkItemsTable — holder_item_id, CASCADE)
+ * 3. ResourceLeaseHistoryTable (NO dependency on WorkItemsTable — holder_item_id is deliberately
+ *    FK-less so the audit trail survives holder deletion; see V16__Resource_Lease_History.sql.
+ *    Positioned after ResourceLeasesTable for readability only, not FK ordering.)
+ * 4. ProjectConfigTable (depends on WorkItemsTable)
+ * 5. PlanDocumentsTable (depends on WorkItemsTable, two FKs — root_item_id and adopted_by_item_id)
+ * 6. NotesTable (depends on WorkItemsTable)
+ * 7. DependenciesTable (depends on WorkItemsTable)
+ * 8. RoleTransitionsTable (depends on WorkItemsTable)
  *
  * Virtual tables (FTS5, follow their backing tables):
- * 6. work_items_fts_trigram (external-content over WorkItemsTable)
- * 7. work_items_fts_text    (external-content over WorkItemsTable)
- * 8. notes_fts_trigram      (external-content over NotesTable)
- * 9. notes_fts_text         (external-content over NotesTable)
+ * 9. work_items_fts_trigram (external-content over WorkItemsTable)
+ * 10. work_items_fts_text   (external-content over WorkItemsTable)
+ * 11. notes_fts_trigram     (external-content over NotesTable)
+ * 12. notes_fts_text        (external-content over NotesTable)
  *
  * Triggers (registered after their backing tables):
  * - work_items_cycle_check, work_items_cycle_check_update (cycle detection on parent_id)
@@ -42,6 +48,8 @@ class DirectDatabaseSchemaManager : DatabaseSchemaManager {
     private val tables =
         arrayOf(
             WorkItemsTable,
+            ResourceLeasesTable,
+            ResourceLeaseHistoryTable,
             ProjectConfigTable,
             PlanDocumentsTable,
             NotesTable,

@@ -13,6 +13,9 @@ import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeExecutor
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
+import io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition
+import io.github.jpicklyk.mcptask.current.domain.model.ResourceMode
+import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
@@ -166,6 +169,92 @@ class ToolExecutionContext(
      * Returns false when no schema matches (schema-free mode — skip REVIEW).
      */
     suspend fun resolveHasReviewPhase(item: WorkItem): Boolean = resolveSchema(item)?.hasReviewPhase() ?: false
+
+    /**
+     * Resolves the effective [ResourceRequirement] list for [item]'s traits — the config/domain
+     * layer only; nothing here acquires or enforces a lease (a follow-on task consumes this list to
+     * do that).
+     *
+     * Trait list = `(base schema's defaultTraits, if a schema resolves) + PropertiesHelper.extractTraits(item.properties)`,
+     * deduplicated preserving order — the exact same trait set [mergeTraits] uses for note merging.
+     * Deliberately reuses [resolveBaseSchemaWithSource] ONLY for its `defaultTraits`, tolerating a
+     * null base schema: an item with no resolvable schema (schema-free type/tags) is NOT exempt from
+     * resource resolution — its `properties`-carried traits are still honored, so a schema-free item
+     * can still declare (and later have leased) a resource.
+     *
+     * Per trait, resource requirements are layered exactly like trait notes ([mergeTraits]): the
+     * ALREADY-fetched per-root [snapshotFor] snapshot's `traitResources[name]` wins over the global
+     * [NoteSchemaService.getTraitResources]; a trait absent from both layers contributes nothing (no
+     * warning — an unknown trait is already warned about by [mergeTraits] when notes are resolved).
+     *
+     * Merge across traits is a UNION of keys (a requirement is never dropped for being a duplicate):
+     * on a duplicate key, [ResourceMode.EXCLUSIVE] wins over [ResourceMode.ADVISORY] regardless of
+     * which trait declared which mode, and `ttlSeconds` keeps the FIRST-seen (in trait-iteration
+     * order) non-null value — a later trait's ttl override for the same key is ignored once one is
+     * already recorded.
+     */
+    suspend fun resolveResourceRequirements(item: WorkItem): List<ResourceRequirement> {
+        val service = noteSchemaService()
+        val snapshot = snapshotFor(item.rootId)
+        val baseSchema = resolveBaseSchemaWithSource(item, snapshot, service)?.first
+        val defaultTraits = baseSchema?.defaultTraits ?: emptyList()
+        val itemTraits = PropertiesHelper.extractTraits(item.properties)
+        val allTraits = (defaultTraits + itemTraits).distinct()
+
+        if (allTraits.isEmpty()) return emptyList()
+
+        val merged = LinkedHashMap<String, ResourceRequirement>()
+        for (traitName in allTraits) {
+            val perRootRequirements = snapshot?.traitResources?.get(traitName)
+            val requirements = perRootRequirements ?: service.getTraitResources(traitName)
+            for (requirement in requirements) {
+                val existing = merged[requirement.key]
+                if (existing == null) {
+                    merged[requirement.key] = requirement
+                } else if (existing.mode != ResourceMode.EXCLUSIVE && requirement.mode == ResourceMode.EXCLUSIVE) {
+                    merged[requirement.key] = existing.copy(mode = ResourceMode.EXCLUSIVE)
+                }
+                // else: keep the first-seen entry as-is — first-seen wins for ttlSeconds, and the
+                // mode is already EXCLUSIVE (nothing beats it) or unchanged ADVISORY-vs-ADVISORY.
+            }
+        }
+        return merged.values.toList()
+    }
+
+    /**
+     * Resolves the effective resource registry (top-level `resources:`) visible to [rootId].
+     *
+     * ## GLOBAL WINS on collision — the inverse of trait/note layering
+     *
+     * Every other per-root resolver in this class has the per-root layer win over the global layer
+     * (a project's own config is treated as more specific). This resolver inverts that: it starts
+     * from [rootId]'s per-root registry, then OVERWRITES any colliding key with the GLOBAL entry.
+     * Rationale: a resource key is a lock/lease NAMESPACE that is server-global by construction (the
+     * whole point of `exclusive` mode is coordinating holders across possibly-different projects
+     * sharing the same server) — a per-root redefinition of a globally-known key would otherwise
+     * silently fork the namespace two ways depending on which config layer a caller consulted. A
+     * collision (the same key present in both layers) is logged as a warning; the global definition
+     * is used either way. A null [rootId] or no wired [perRootConfigService] simply yields the global
+     * registry unchanged (no per-root entries to start from).
+     */
+    suspend fun resolveResourceRegistry(rootId: UUID?): Map<String, ResourceDefinition> {
+        val perRootRegistry = snapshotFor(rootId)?.resourceRegistry ?: emptyMap()
+        val globalRegistry = noteSchemaService().getResourceRegistry()
+
+        val merged = LinkedHashMap<String, ResourceDefinition>(perRootRegistry)
+        for ((key, definition) in globalRegistry) {
+            if (merged.containsKey(key)) {
+                logger.warn(
+                    "Resource registry key '{}' is defined in both per-root and global config for root '{}'; " +
+                        "global definition wins",
+                    key,
+                    rootId
+                )
+            }
+            merged[key] = definition
+        }
+        return merged
+    }
 
     /**
      * Layered `note_limits.mode` resolution: [rootId]'s per-root config wins when it explicitly

@@ -31,17 +31,18 @@ ongoing fleet or multi-project work.
 11. [Endpoints — Notes (Read)](#11-endpoints--notes-read)
 12. [Endpoints — Notes (Write)](#12-endpoints--notes-write)
 13. [Endpoints — Dependencies](#13-endpoints--dependencies)
-14. [Endpoints — Transitions (Audit)](#14-endpoints--transitions-audit)
-15. [Endpoints — Search](#15-endpoints--search)
-16. [Endpoints — Config / Schema Discovery](#16-endpoints--config--schema-discovery)
-17. [Endpoints — Project Config (Per-Root)](#17-endpoints--project-config-per-root)
-18. [Endpoints — Plan Documents (Per-Root)](#18-endpoints--plan-documents-per-root)
-19. [Endpoints — Service Meta](#19-endpoints--service-meta)
-20. [Server-Sent Events (SSE)](#20-server-sent-events-sse)
-21. [Audit Model](#21-audit-model)
-22. [Merge Patch Semantics](#22-merge-patch-semantics)
-23. [Status-Graph Caveat](#23-status-graph-caveat)
-24. [Known Limitations](#24-known-limitations)
+14. [Endpoints — Resource Leases](#14-endpoints--resource-leases)
+15. [Endpoints — Transitions (Audit)](#15-endpoints--transitions-audit)
+16. [Endpoints — Search](#16-endpoints--search)
+17. [Endpoints — Config / Schema Discovery](#17-endpoints--config--schema-discovery)
+18. [Endpoints — Project Config (Per-Root)](#18-endpoints--project-config-per-root)
+19. [Endpoints — Plan Documents (Per-Root)](#19-endpoints--plan-documents-per-root)
+20. [Endpoints — Service Meta](#20-endpoints--service-meta)
+21. [Server-Sent Events (SSE)](#21-server-sent-events-sse)
+22. [Audit Model](#22-audit-model)
+23. [Merge Patch Semantics](#23-merge-patch-semantics)
+24. [Status-Graph Caveat](#24-status-graph-caveat)
+25. [Known Limitations](#25-known-limitations)
 
 ---
 
@@ -184,10 +185,10 @@ Config/schema endpoints (`/config`, `/config/schemas`, etc.) use a fingerprint-b
 - Stable across reads when the config has not changed
 - `If-None-Match` → `304` when fingerprint matches
 
-The per-root project config endpoints (§17, `/roots/{rootId}/config`) use the SAME `"cfg-<fingerprint>"`
+The per-root project config endpoints (§18, `/roots/{rootId}/config`) use the SAME `"cfg-<fingerprint>"`
 format, but the fingerprint is a SHA-256 over the stored `configYaml`'s raw UTF-8 bytes (see
 `SQLiteProjectConfigRepository.computeFingerprint`) rather than the global config file. `PUT` additionally
-accepts `If-Match` for optimistic-concurrency writes (see §17).
+accepts `If-Match` for optimistic-concurrency writes (see §18).
 
 ---
 
@@ -228,11 +229,13 @@ All error responses use:
 | `scope_forbidden` | 403 | Item exists but is outside the caller's scope |
 | `field_not_patchable` | 400 | PATCH attempted on a server-owned field |
 | `cycle_detected` | 400 | Dependency would create a cycle |
-| `unsupported_media_type` | 415 | Wrong `Content-Type` for PATCH (see §21) |
+| `unsupported_media_type` | 415 | Wrong `Content-Type` for PATCH (see §23) |
 | `etag_mismatch` | 412 | `If-Match` header does not match current ETag |
 | `unauthenticated` | 401 | No authenticated principal (missing/invalid token) |
 | `verification_failed` | 401 | JWKS verification failed under `reject` policy |
+| `insufficient_capability` | 403 | Caller's token lacks a capability required by the request itself (distinct from `scope_forbidden`'s root-scope check) — e.g. a non-ADMIN caller sets `overrideResourceLeases: true` on `POST /items/{id}/advance`, or calls `DELETE /api/v1/resources/leases/{key}` without `ADMIN` |
 | `transition_failed` | 422 | Role transition rejected (invalid trigger, gate failure, dependency blocker) |
+| `resource_unavailable` | 409 | Resource-lease gate contention on `POST /items/{id}/advance` into WORK — transient, retryable. Carries a `Retry-After` header and `details.contendedResources`/`details.retryAfterMs`. Never discloses the current holder. |
 | `db_error` | 500 | Database query failed |
 
 ---
@@ -344,9 +347,17 @@ For REST API writes, `id` is always `"api:<tokenId>"` and `kind` is always `"ext
   "statusLabel": "string|null",
   "occurredAt": "ISO-8601",
   "actor": null,        // redacted unless ADMIN
-  "verification": null  // redacted unless ADMIN
+  "verification": null, // redacted unless ADMIN
+  "consumedCredentials": ["vault:prod-db-password"] // nullable; omitted when empty
 }
 ```
+
+`consumedCredentials` is the audit trail of opaque credential/resource-lease labels this transition
+consumed — caller-supplied `credentialRefs` from the advance request, unioned with any keys the
+resource-lease gate auto-derived (held exclusive leases + advisory-mode declarations) when the item
+declares `resources:`. **Not subject to `API_REDACT_NOTE_ATTRIBUTION`** — unlike `actor`/`verification`
+on this same DTO, it is visible to any caller with `READ` capability, regardless of `ADMIN` status;
+the field's purpose is external verifiability, so it is deliberately not redacted.
 
 ### DependenciesDto
 
@@ -472,7 +483,7 @@ Note: `"<previousRole>"` is a literal sentinel string — dashboards must resolv
 }
 ```
 
-**ProjectConfigResponseDto** (see §17):
+**ProjectConfigResponseDto** (see §18):
 ```json
 {
   "rootId": "550e8400-e29b-41d4-a716-446655440000",
@@ -486,12 +497,12 @@ Note: `"<previousRole>"` is a literal sentinel string — dashboards must resolv
 ```
 `configYaml` is populated on `GET` only (omitted on `PUT`). `warning` is populated only when the
 root's `type` is not `"project"` (non-fatal — the push still succeeds). `relation` is populated on
-`GET` only, and only when `?fingerprint=` was supplied — see §17. `ignoredSections` is populated on
+`GET` only, and only when `?fingerprint=` was supplied — see §18. `ignoredSections` is populated on
 `PUT` only, and only when the pushed document contains top-level keys the per-root resolution layer
 does not honor (e.g. `actor_authentication`, which stays global-only) — omitted entirely when empty.
-See §17 for the full list of honored per-root keys.
+See §18 for the full list of honored per-root keys.
 
-**PlanDocumentResponseDto** (see §18):
+**PlanDocumentResponseDto** (see §19):
 ```json
 {
   "id": "550e8400-e29b-41d4-a716-446655440000",
@@ -509,15 +520,68 @@ See §17 for the full list of honored per-root keys.
 is `"adopted"`; null while `"pending"`, and null again if the adopting item is later deleted
 (`ON DELETE SET NULL` — the document's own `status` does not revert).
 
-**PlanDocumentSummaryDto** — one row of `PlanDocumentListResponseDto.plans` (see §18); same shape as
+**PlanDocumentSummaryDto** — one row of `PlanDocumentListResponseDto.plans` (see §19); same shape as
 `PlanDocumentResponseDto` minus `body`, which is never included in list responses.
 
-**PlanDocumentListResponseDto** (see §18):
+**PlanDocumentListResponseDto** (see §19):
 ```json
 {
   "rootId": "550e8400-e29b-41d4-a716-446655440000",
   "plans": [<PlanDocumentSummaryDto>]
 }
+```
+
+### ResourceLeaseDto (see §14)
+
+```json
+{
+  "resourceKey": "staging-db",
+  "holderItemId": "<uuid>",
+  "acquiredByActorId": "agent-worker-42",  // ADMIN callers only — omitted (not null) otherwise
+  "acquiredAt": "ISO-8601",
+  "expiresAt": "ISO-8601",
+  "originalAcquiredAt": "ISO-8601"
+}
+```
+
+`acquiredByActorId` is present only when the caller has `ADMIN` capability; non-admin `READ` callers
+receive the object without this field at all (server-wide `explicitNulls=false` — omitted, not
+serialized as `null`). `holderItemId` (the exclusivity subject — see §14) is visible to any `READ`
+caller; it carries no more information than an item ID already readable via `GET /items/{id}`.
+
+### ResourceLeaseListResponseDto
+
+```json
+{ "leases": [<ResourceLeaseDto>] }
+```
+
+### ResourceLeaseReleaseResponseDto
+
+```json
+{ "resourceKey": "staging-db", "releasedCount": 1 }
+```
+
+### ResourceLeaseIntervalDto (see §14)
+
+```json
+{
+  "resourceKey": "staging-db",
+  "holderItemId": "<uuid>",
+  "acquiredByActorId": "agent-worker-42",  // ADMIN callers only — omitted (not null) otherwise
+  "acquiredAt": "ISO-8601",
+  "expiresAt": "ISO-8601",
+  "releasedAt": "ISO-8601",                // null (omitted) while the interval is still open
+  "releaseReason": "released",             // "released" | "expired" | "force_released"; null while open
+  "releasedByActorId": "admin-token-id"    // ADMIN callers only; null for a passive "expired" close
+}
+```
+
+One row per lease hold INTERVAL, not per lease event — append-only, never pruned in v1. See §14.
+
+### ResourceLeaseHistoryResponseDto
+
+```json
+{ "intervals": [<ResourceLeaseIntervalDto>] }
 ```
 
 ### SSE / ApiEvent
@@ -653,7 +717,7 @@ Supports `Idempotency-Key` header.
 
 JSON Merge Patch update. Requires `WRITE_ITEMS`, `If-Match`, and `Content-Type: application/merge-patch+json` (or `application/json`).
 
-**Request body:** A partial JSON object following RFC 7396 merge-patch semantics (see §21).
+**Request body:** A partial JSON object following RFC 7396 merge-patch semantics (see §23).
 
 **Tags deviation:** In PATCH, `tags` must be a comma-separated **string** (not a JSON array). Example: `"tags": "feature,auth"`. Sending a JSON array in PATCH → `400 validation_error`.
 
@@ -684,18 +748,85 @@ Cascade delete (removes item and all descendants, notes, and dependencies). Requ
 
 Trigger a role transition. Requires `ADVANCE`.
 
-This route runs the **same advance pipeline as the MCP `advance_item` tool**, unified behind `AdvanceService`: resolve → validate dependencies → **required-note gate** → apply → cascade detection → unblock detection. Previously the REST path skipped the gate, cascades, and unblock detection; those are now enforced and reported.
+This route runs the **same advance pipeline as the MCP `advance_item` tool**, unified behind `AdvanceService`: resolve → validate dependencies → **required-note gate** → **resource-lease gate** → apply → cascade detection → unblock detection. Previously the REST path skipped the gate, cascades, and unblock detection; those are now enforced and reported.
 
 **Request body:**
 ```json
 {
-  "trigger": "start|complete|block|hold|resume|cancel|reopen"
+  "trigger": "start|complete|block|hold|resume|cancel|reopen",
+  "credentialRefs": ["vault:prod-db-password"],     // optional; audit labels, never secret values
+  "overrideResourceLeases": false                    // optional; ADMIN-only, see below
 }
 ```
+
+`credentialRefs`: opaque audit labels for credentials/resources this transition consumed — max 8
+entries, each 1-128 chars matching `^[a-z0-9][a-z0-9\-_./]*$`. Validated with the identical
+`CredentialRefValidation` object the MCP `advance_item` tool uses, so the two surfaces reject the
+same inputs. **Closed-set rule:** once the target item declares at least one resource via its traits'
+`resources:` (registry state alone does not trigger this), each supplied ref must name a
+declared/registered key
+— an unrecognized ref is rejected with `400 validation_error` naming the ref and the known-key list.
+Items with no declared resources are unaffected (an open, format-only check, unchanged from rung 1).
+Declared exclusive/advisory keys are auto-recorded into `consumedCredentials` on work entry — you do
+not need to repeat them.
+
+`overrideResourceLeases`: **ADMIN-only.** When `true`, skips the resource-lease gate for this
+transition entirely — no lease is taken, the gate is bypassed, not satisfied. A non-admin caller
+setting this field to `true` gets **`403 insufficient_capability`**, checked before the item is even
+loaded — the flag is never silently ignored. A successful override is WARN-logged (principal token
+id, item id, trigger) and the persisted transition's `summary` is stamped `"(resource leases
+overridden)"`. Omitted, `null`, or `false` are indistinguishable — the gate stays enforced.
 
 **Claimed-item behavior:** The REST API bypasses MCP claim ownership — a claimed item advances successfully even if a different MCP agent holds the claim. A WARN is emitted to the server log (`API_WARN_ON_CLAIMED_ADVANCE=false` to suppress). The response does NOT disclose `claimedBy` (tiered-disclosure principle).
 
 **Note-gate enforcement:** When the item's schema declares required notes, the gate is enforced exactly as in MCP — a `start` requires the current phase's required notes; a `complete` requires all required notes across every phase. An advance that leaves a required note unfilled is **rejected with `422 gate_blocked`** (it no longer silently advances). The missing notes are returned in `details.missingNotes`.
+
+**Resource-lease gate — the ownership/lease asymmetry.** REST bypasses MCP claim *ownership* for
+every caller unconditionally (see above), but it does **not** bypass the resource-lease gate the
+same way: leases stay enforced for every REST caller by default, and only an explicit ADMIN
+`overrideResourceLeases: true` opts out. The rationale: a claim is one agent's own bookkeeping, which
+an operator may reasonably overrule; a lease protects a shared *external* resource, which operator
+authority over the item does not make safe to double-acquire. This is the single most surprising
+behavior on this route — read it twice if you're building an operator dashboard.
+
+Entry into WORK is gated on **both** the `start` and `resume` triggers (`resume` re-enters WORK from
+BLOCKED and re-resolves/re-acquires leases against config as it stands at resume time — it is not
+exempt just because the note gate's `start`/`complete` check is). `complete`, `cancel`, `block`,
+`hold`, and `reopen` never acquire; every trigger that leaves WORK releases held leases inside the
+same transition (best-effort — a release failure is WARN-logged and never fails the transition; the
+lease TTL is the backstop).
+
+**Contention response (`409 resource_unavailable`):**
+```json
+{
+  "error": "resource_unavailable",
+  "message": "Resource lease contended: staging-db",
+  "details": {
+    "targetRole": "work",
+    "contendedResources": ["staging-db"],
+    "retryAfterMs": 30000
+  }
+}
+```
+A `Retry-After` response header accompanies the body — whole seconds, **rounded up** from
+`retryAfterMs` with a floor of 1, so a client never retries before the lease can possibly have
+expired. `CORS_EXPOSE_HEADERS` includes `Retry-After` by default (see `fleet-deployment.md`) so
+browser-based dashboards behind CORS can read it directly; `details.retryAfterMs` is present as a
+fallback regardless. **No holder identity is ever disclosed** on this path — neither the holding
+item's id nor its actor. Use `GET /api/v1/resources/leases` (§14, `ADMIN` capability for actor
+identity) to diagnose a stuck lease, or `get_context(itemId=...)` on the MCP side.
+
+An item that declares no resources (no `resources:` trait, whether or not a registry exists) can
+never produce `resource_unavailable` — the gate short-circuits before any lease-repository query, so
+non-adopters see byte-identical behavior to the feature's absence.
+
+**Known REST/MCP parity gap:** a start-cascade suppressed by resource contention is recorded in
+`cascadeEvents` with `"applied": false` (same as a gate-blocked cascade), but — unlike the MCP
+surface, which adds `resourceBlocked`/`contendedResources` to the cascade JSON — the REST
+`CascadeEventDto` does not yet carry those fields. A REST caller currently cannot distinguish a
+resource-suppressed cascade from any other unapplied one by field alone; this is flagged as a small
+additive follow-up, not a blocking gap (the child item's own transition still fully succeeds either
+way).
 
 **Response `200 OK`:** `AdvanceResponseDto`
 ```json
@@ -728,7 +859,10 @@ The `cascadeEvents`, `unblockedItems`, and `expectedNotes` fields are **additive
 
 **Responses:**
 - `200 OK` → `AdvanceResponseDto`
-- `400 validation_error` — invalid trigger string
+- `400 validation_error` — invalid trigger string, or a `credentialRefs` entry fails format/closed-set validation
+- `403 insufficient_capability` — `overrideResourceLeases: true` sent by a non-ADMIN caller
+- `409 resource_unavailable` — resource-lease gate contention; `Retry-After` header + `details.contendedResources`/`details.retryAfterMs` (see above)
+- `409 not_claim_holder` — pre-existing, defensive-only on this route (REST bypasses claim ownership by default — see "Claimed-item behavior" above); not expected to occur in normal REST usage
 - `422 gate_blocked` — a required-note gate failed; `details.missingNotes` lists the unfilled required notes
 - `422 transition_blocked` — a dependency blocker prevents the transition; `details.blockers` lists the blocking edges
 - `422 transition_failed` — invalid state transition (resolution/apply failure)
@@ -863,7 +997,70 @@ Scope check: both `fromItemId` and `toItemId` of the edge must be accessible to 
 
 ---
 
-## 14. Endpoints — Transitions (Audit)
+## 14. Endpoints — Resource Leases
+
+Server-wide primitive backing the resource-lease gate on `POST /items/{id}/advance` (§10) and the
+`resources:` trait dimension (see `config-format.md`). **Cross-project, not per-root** — unlike
+every other `/api/v1` resource in this document, these routes carry no `rootId` scoping; a lease key
+is a server-wide namespace (see the "global-wins" registry precedence note in `config-format.md`).
+
+### GET /api/v1/resources/leases
+
+Lists all currently active (unexpired) resource leases. Requires `READ`.
+
+**Response `200 OK`:** `ResourceLeaseListResponseDto` → `{ "leases": [<ResourceLeaseDto>] }`.
+`acquiredByActorId` is present per-entry only for callers with `ADMIN` capability — non-admin `READ`
+callers see every other field (including `holderItemId`, which is not considered sensitive; see
+`ResourceLeaseDto` in §8). No pagination — lease cardinality is bounded by design (one row per
+declared resource key per active holder, TTL-bounded), not a user-facing high-cardinality collection.
+
+### DELETE /api/v1/resources/leases/{key}
+
+Force-releases the active lease(s) held on `{key}`. Requires `ADMIN`. This is the operator recovery
+path for a crashed holder — it turns "wait out the TTL (up to 24h) or disable enforcement
+server-wide" into a one-call fix.
+
+**Path parameter:** `{key}` — validated against `^[a-z0-9][a-z0-9\-_./]*$`, max 128 chars, checked
+**before** any repository access.
+
+**Responses:**
+- `200 OK` → `ResourceLeaseReleaseResponseDto` → `{ "resourceKey": "...", "releasedCount": 1 }`
+- `400 validation_error` — `{key}` fails the pattern/length check
+- `403 insufficient_capability` — caller lacks `ADMIN`
+- `404 not_found` — no active lease exists on `{key}` (idempotent-safe: a repeat call after a
+  successful release returns `404`, not a second `200`)
+- `500 db_error` — repository failure
+
+Every successful force-release is WARN-logged with the acting principal's token id, the key, and the
+released count — sufficient to attribute the action to a specific bearer token from server logs
+alone, without needing to correlate against the response body. The acting principal's token id is
+also threaded through to `released_by_actor_id` on the closed history interval(s) — see below.
+
+### GET /api/v1/resources/leases/history
+
+Append-only lease-interval audit log — answers "who held resource R at time T" after a lease has
+already been released, stolen, or force-released, which `GET /resources/leases` (current holders
+only) cannot. Requires `READ`.
+
+**Query parameters** (all optional):
+- `key` — restrict to one resource key. Same validation as `{key}` on the DELETE route above (400
+  `validation_error` on mismatch).
+- `at` — an ISO-8601 instant. When present, returns every interval held at that instant (per
+  `acquiredAt <= at < coalesce(releasedAt, expiresAt)`), open or closed. **400 `validation_error`**
+  if the value does not parse as an instant. When absent, returns the most recent intervals
+  (open or closed), newest-first by `acquiredAt`.
+- `limit` — max rows, default `100`, clamped to `[1, 500]`.
+
+**Response `200 OK`:** `ResourceLeaseHistoryResponseDto` → `{ "intervals": [<ResourceLeaseIntervalDto>] }`.
+`acquiredByActorId` / `releasedByActorId` are present per-entry only for callers with `ADMIN`
+capability — same inline redaction rule `GET /resources/leases` applies to `acquiredByActorId`.
+
+No pruning/retention in v1 — the table is append-only and grows with lease-event cardinality
+(documented, accepted behavior; see `current/src/main/resources/db/migration/V16__Resource_Lease_History.sql`).
+
+---
+
+## 15. Endpoints — Transitions (Audit)
 
 All require `READ`. `actor` and `verification` fields are redacted (null) for non-admin callers; admin callers see them subject to `API_REDACT_NOTE_ATTRIBUTION` and `API_REDACT_ACTOR_PROOF` env vars. Proof requires `ADMIN` + `?include=proof`.
 
@@ -887,7 +1084,7 @@ Scope-filtered: scoped tokens only see transitions for items within their scope 
 
 ---
 
-## 15. Endpoints — Search
+## 16. Endpoints — Search
 
 All require `READ`.
 
@@ -921,7 +1118,7 @@ Returns up to 50 hits. `noteKey` is populated on every hit (note-body search alw
 
 ---
 
-## 16. Endpoints — Config / Schema Discovery
+## 17. Endpoints — Config / Schema Discovery
 
 All require `READ`. All config endpoints emit a fingerprint-based ETag (`"cfg-<fingerprint>"`) and support `If-None-Match` → `304 Not Modified`.
 
@@ -963,11 +1160,11 @@ Structural role-transition graph across all schema types.
 
 **Response:** `200 OK` → `StatusGraphDto`
 
-See §22 for the important caveat about what the status graph does and does not reflect.
+See §23 for the important caveat about what the status graph does and does not reflect.
 
 ---
 
-## 17. Endpoints — Project Config (Per-Root)
+## 18. Endpoints — Project Config (Per-Root)
 
 Per-root config YAML documents pushed by a client (or the fail-open SessionStart config-sync hook,
 in a later phase) and layered over the global `.taskorchestrator/config.yaml` on every
@@ -1005,10 +1202,12 @@ fingerprint guard (guard 6 below).
 7. Optional `If-Match` (see below), evaluated against the CURRENT stored fingerprint
 
 On success, the parsed document's top-level keys are checked against the honored allowlist —
-`work_item_schemas`, `note_schemas`, `traits`, `project`, `note_limits`, `status_labels` — and any
-other key present (e.g. `actor_authentication`, which stays global-only — see
+`work_item_schemas`, `note_schemas`, `traits`, `project`, `note_limits`, `status_labels`,
+`resources` — and any other key present (e.g. `actor_authentication`, which stays global-only — see
 [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md))
 is reported in the response's `ignoredSections` array so a push is never silently partial.
+`resources` is honored with an inverted precedence versus the other six keys — global wins on a
+registry key collision, not per-root — see "Per-root honorable settings" in `config-format.md`.
 
 **Responses:**
 - `200 OK` → `ProjectConfigResponseDto` (no `configYaml` field on this verb; `ignoredSections`
@@ -1051,7 +1250,7 @@ Removes the stored config row for `{rootId}`. Requires `WRITE_CONFIG`.
 
 ---
 
-## 18. Endpoints — Plan Documents (Per-Root)
+## 19. Endpoints — Plan Documents (Per-Root)
 
 Per-root plan documents — free-floating planning docs an agent stashes ahead of adoption into a
 real WorkItem. See [`PlanDocumentService`](../src/main/kotlin/io/github/jpicklyk/mcptask/current/application/service/PlanDocumentService.kt)
@@ -1107,7 +1306,7 @@ Lists metadata-only summaries (never the body) for every document under `{rootId
 
 ---
 
-## 19. Endpoints — Service Meta
+## 20. Endpoints — Service Meta
 
 ### GET /api/v1/info
 
@@ -1149,7 +1348,7 @@ Requires `READ`. Returns server metadata and the caller's resolved capabilities.
 
 ---
 
-## 20. Server-Sent Events (SSE)
+## 21. Server-Sent Events (SSE)
 
 ### GET /api/v1/events
 
@@ -1197,7 +1396,7 @@ Ktor's `sse {}` handler runs inside the response-body phase — after the HTTP 2
 
 ---
 
-## 21. Audit Model
+## 22. Audit Model
 
 All write endpoints (POST, PATCH, PUT, DELETE) synthesize an actor server-side from the authenticated principal. Client-supplied `actor.*` fields in the request body are **silently dropped** — callers cannot override audit attribution.
 
@@ -1218,7 +1417,7 @@ All write endpoints (POST, PATCH, PUT, DELETE) synthesize an actor server-side f
 
 ---
 
-## 22. Merge Patch Semantics
+## 23. Merge Patch Semantics
 
 `PATCH /items/{id}` implements [RFC 7396 JSON Merge Patch](https://datatracker.ietf.org/doc/html/rfc7396).
 
@@ -1238,7 +1437,7 @@ All write endpoints (POST, PATCH, PUT, DELETE) synthesize an actor server-side f
 
 ---
 
-## 23. Status-Graph Caveat
+## 24. Status-Graph Caveat
 
 `GET /config/status-graph` returns the **structural** (schema-defined) transition graph — which triggers are valid for each role per type.
 
@@ -1254,7 +1453,7 @@ The `"<previousRole>"` sentinel in `blocked.resume` is a literal string — reso
 
 ---
 
-## 24. Known Limitations
+## 25. Known Limitations
 
 **SSE dependency-event scoping depends on a warm ancestor cache.** Live root-filtering and `Last-Event-ID` replay are both correctly root-scoped — ring-buffer entries carry `affectedRoots` metadata and the replay path applies the same root-intersection filter as the live fan-out. One residual caveat remains for dependency events: `dependency.added` / `dependency.removed` resolve their affected roots from an in-memory ancestor cache populated by prior item create/update writes. On a cache miss (e.g., a dependency change with no preceding item write on that subtree during the connection's lifetime), the event falls back to an unscoped broadcast. This is a deliberate tradeoff; root-scoped subscribers that require exact dependency-event scoping should re-fetch state rather than relying solely on the event stream.
 

@@ -3,9 +3,11 @@ package io.github.jpicklyk.mcptask.current.application.tools.workflow
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceFailure
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceService
+import io.github.jpicklyk.mcptask.current.application.service.CredentialRefValidation
 import io.github.jpicklyk.mcptask.current.application.service.buildExpectedNotesJson
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
 import io.github.jpicklyk.mcptask.current.application.tools.*
+import io.github.jpicklyk.mcptask.current.domain.model.ErrorKind
 import io.github.jpicklyk.mcptask.current.domain.model.ToolError
 import io.github.jpicklyk.mcptask.current.domain.model.UserTrigger
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
@@ -56,6 +58,10 @@ into a one-element array. If `transitions` is present the singular fields are ig
 - start: required notes for the current phase must be filled before advancing
 - complete: all required notes across all phases must be filled
 
+**Resource-lease gate:** transitions entering the work phase acquire an exclusive lease per resource
+declared by the item's traits; contention rejects with transient `resource_unavailable` +
+`retryAfterMs` + `contendedResources` (holder never disclosed). Leases release on every work exit.
+
 **Batch actor constraint:** all transitions in a call must either all omit `actor` or all use the same
 `actor.id`; cascade-triggered transitions always have a null actor.
         """.trimIndent()
@@ -83,7 +89,12 @@ into a one-element array. If `transitions` is present the singular fields are ig
                                 JsonPrimitive(
                                     "Array of transition objects: { itemId (required, UUID or hex prefix), " +
                                         "trigger (required), summary?, actor? ({ id (required), " +
-                                        "kind (required: orchestrator|subagent|user|external), parent?, proof? }) }"
+                                        "kind (required: orchestrator|subagent|user|external), parent?, proof? }), " +
+                                        "credentialRefs? (audit labels of credentials this transition consumed — " +
+                                        "opaque labels, never secret values; string or string array, max 8, " +
+                                        "each 1-128 chars matching ^[a-z0-9][a-z0-9\\-_./]*$; must name a " +
+                                        "declared/registered resource key when any exist; declared keys are " +
+                                        "auto-recorded on work entry) }"
                                 )
                             )
                         }
@@ -152,6 +163,20 @@ into a one-element array. If `transitions` is present the singular fields are ig
         }
     }
 
+    /**
+     * Parses a `credentialRefs` JSON value into a `List<String>`: a bare string is coerced to a
+     * one-element list; a JSON array is accepted only if every element is a string. Returns null
+     * for any other shape (wrong type, non-string array element) so the caller can raise a
+     * shape-specific validation error.
+     */
+    private fun parseCredentialRefsElement(element: JsonElement): List<String>? =
+        when (element) {
+            is JsonArray ->
+                element.map { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content ?: return null }
+            is JsonPrimitive -> if (element.isString) listOf(element.content) else null
+            else -> null
+        }
+
     override fun validateParams(params: JsonElement) {
         val normalized = normalizeParams(params)
         val normalizedObj = normalized as? JsonObject
@@ -190,6 +215,27 @@ into a one-element array. If `transitions` is present the singular fields are ig
                     "transitions[$index].trigger '${triggerPrim.content}' is not a valid trigger. " +
                         "Valid triggers: $validTriggers"
                 )
+
+            // Optional credentialRefs: a bare string or an array of strings, validated against the
+            // shared rules in CredentialRefValidation. Malformed shape or a rule violation fails
+            // validateParams up front — nothing is persisted for ANY transition in the batch.
+            val credentialRefsElement = obj["credentialRefs"]
+            if (credentialRefsElement != null && credentialRefsElement !is JsonNull) {
+                val parsed =
+                    parseCredentialRefsElement(credentialRefsElement)
+                        ?: throw ToolValidationException(
+                            "transitions[$index].credentialRefs must be a string or an array of strings"
+                        )
+                when (val result = CredentialRefValidation.validate(parsed)) {
+                    is CredentialRefValidation.Result.Invalid ->
+                        throw ToolValidationException(
+                            "transitions[$index].credentialRefs" +
+                                (if (result.index >= 0) "[${result.index}]" else "") +
+                                " ${result.reason}"
+                        )
+                    is CredentialRefValidation.Result.Valid -> {} // ok
+                }
+            }
         }
 
         // Validate that all transitions share the same actor presence and actor.id.
@@ -358,6 +404,17 @@ into a one-element array. If `transitions` is present the singular fields are ig
                     if (it.isString && it.content.isNotBlank()) it.content else null
                 }
 
+            // credentialRefs already validated (shape + rules) in validateParams; re-parse here to
+            // thread the resolved list into AdvanceService. Absent/null field -> empty list (no
+            // behavior change).
+            val credentialRefsElement = obj["credentialRefs"]
+            val credentialRefs =
+                if (credentialRefsElement != null && credentialRefsElement !is JsonNull) {
+                    parseCredentialRefsElement(credentialRefsElement) ?: emptyList()
+                } else {
+                    emptyList()
+                }
+
             // Extract optional actor claim
             val actorResult = parseActorClaim(obj["actor"] as? JsonObject, context)
             val actorClaim =
@@ -401,10 +458,17 @@ into a one-element array. If `transitions` is present the singular fields are ig
                     dependencyRepository = context.dependencyRepository(),
                     noteRepository = context.noteRepository(),
                     statusLabelService = context.rootAwareStatusLabelService(item.rootId, trigger),
-                    schemaResolver = { context.resolveSchema(it) }
+                    schemaResolver = { context.resolveSchema(it) },
+                    resourceLeaseRepository = context.repositoryProvider.resourceLeaseRepository(),
+                    resourceRequirementsResolver = { context.resolveResourceRequirements(it) },
+                    resourceRegistryResolver = { context.resolveResourceRegistry(it) },
+                    resourceLeasesEnforced = AdvanceService.resourceLeasesEnforcedFromEnv()
                 )
 
             // Delegate the full pipeline to the per-item AdvanceService above.
+            // MCP ALWAYS enforces resource leases — there is no tool-level override. An operator
+            // who must bypass a lease uses the ADMIN-gated REST surface (an `overrideResourceLeases`
+            // advance, or DELETE /api/v1/resources/leases/{key}), both of which are logged at WARN.
             val outcome =
                 advanceService.advance(
                     item = item,
@@ -413,7 +477,9 @@ into a one-element array. If `transitions` is present the singular fields are ig
                     actorClaim = actorClaim,
                     verification = verification,
                     degradedModePolicy = context.degradedModePolicy,
-                    enforceOwnership = true
+                    enforceOwnership = true,
+                    credentialRefs = credentialRefs,
+                    enforceResourceLeases = true
                 )
 
             val advanceResult =
@@ -442,6 +508,13 @@ into a one-element array. If `transitions` is present the singular fields are ig
                         if (event.gateBlocked) {
                             put("gateBlocked", JsonPrimitive(true))
                             put("missingNotes", NoteSchemaJsonHelpers.buildMissingNotesArray(event.gateMissingNotes))
+                        }
+                        if (event.resourceBlocked) {
+                            put("resourceBlocked", JsonPrimitive(true))
+                            put(
+                                "contendedResources",
+                                JsonArray(event.contendedResources.map { JsonPrimitive(it) })
+                            )
                         }
                         event.statusLabel?.let { put("statusLabel", JsonPrimitive(it)) }
                     }
@@ -556,6 +629,11 @@ into a one-element array. If `transitions` is present the singular fields are ig
      * error JSON shapes (preserved byte-for-byte from the pre-unification inline logic):
      * - Ownership rejection → structured `not_claim_holder` error (+ `contendedItemId`)
      * - Policy rejection → structured `rejected_by_policy` error
+     * - Resource-lease contention → structured `resource_unavailable` error with
+     *   `errorKind=transient`, `retryAfterMs`, and a `contendedResources` array of key strings.
+     *   **No holder identity** (`contendedItemId` is deliberately left null, and no actor id
+     *   appears anywhere in the payload) — an agent that can trigger an advance must not be able to
+     *   enumerate who holds a resource; that is ADMIN-only via `GET /api/v1/resources/leases`.
      * - Validation failure → `error` + `blockers` array
      * - Gate block → `error` + `missingNotes` array
      * - Resolution / apply failure → plain `error` string
@@ -579,6 +657,18 @@ into a one-element array. If `transitions` is present the singular fields are ig
                     itemId,
                     trigger,
                     ToolError.permanent(code = "rejected_by_policy", message = failure.reason)
+                )
+            is AdvanceFailure.ResourceLeaseUnavailable ->
+                buildStructuredErrorResult(
+                    itemId,
+                    trigger,
+                    ToolError(
+                        kind = ErrorKind.TRANSIENT,
+                        code = "resource_unavailable",
+                        message = failure.message,
+                        retryAfterMs = failure.retryAfterMs
+                    ),
+                    contendedResources = failure.contendedResources
                 )
             is AdvanceFailure.ResolutionFailed ->
                 buildErrorResult(itemId, trigger, failure.message)
@@ -633,13 +723,18 @@ into a one-element array. If `transitions` is present the singular fields are ig
     /**
      * Builds a per-transition error result with structured [ToolError] fields.
      *
-     * Adds `kind`, `errorCode`, and `contendedItemId` alongside the legacy `error` string so
-     * agents can make programmatic retry decisions on ownership rejections and policy rejections.
+     * Adds `kind`, `errorCode`, `retryAfterMs`, and `contendedItemId` alongside the legacy `error`
+     * string so agents can make programmatic retry decisions on ownership rejections, policy
+     * rejections, and resource-lease contention.
+     *
+     * @param contendedResources contended resource KEYS for a `resource_unavailable` rejection.
+     *   Keys only — the holding item and actor are never disclosed here.
      */
     private fun buildStructuredErrorResult(
         itemId: UUID,
         trigger: String,
-        toolError: ToolError
+        toolError: ToolError,
+        contendedResources: List<String> = emptyList()
     ): JsonObject =
         buildJsonObject {
             put("itemId", JsonPrimitive(itemId.toString()))
@@ -648,6 +743,10 @@ into a one-element array. If `transitions` is present the singular fields are ig
             put("error", JsonPrimitive(toolError.message))
             put("errorKind", JsonPrimitive(toolError.kind.toJsonString()))
             put("errorCode", JsonPrimitive(toolError.code))
+            toolError.retryAfterMs?.let { put("retryAfterMs", JsonPrimitive(it)) }
             toolError.contendedItemId?.let { put("contendedItemId", JsonPrimitive(it.toString())) }
+            if (contendedResources.isNotEmpty()) {
+                put("contendedResources", JsonArray(contendedResources.map { JsonPrimitive(it) }))
+            }
         }
 }

@@ -84,6 +84,8 @@ advance_item(transitions=[{ itemId: "<uuid>", trigger: "start" }])
 ```
 
 Gate check: `feature-summary` must be filled. If gate rejects, fill the missing note and retry.
+If instead the response has `errorCode: "resource_unavailable"` (`errorKind: "transient"`), this
+is resource-lease contention, not a note gate failure — see Quick Reference below.
 
 Confirm `newRole: "work"` in the response before dispatching implementation subagents.
 
@@ -236,3 +238,8 @@ Confirm `newRole: "terminal"`. Run `get_context()` health check to verify no sta
 
 **Gate error pattern:** `"required notes not filled for <phase> phase: <keys>"`
 → Fill the listed notes, then retry `advance_item`.
+
+**Resource-lease contention pattern:** `applied: false`, `errorCode: "resource_unavailable"`,
+`errorKind: "transient"`, `contendedResources: [...]` on a `start` into work — a different
+failure mode than the gate error above. Do NOT fill notes or spin-retry; the resource is held by
+another item. Work a different item and retry later, or report contention upstream.

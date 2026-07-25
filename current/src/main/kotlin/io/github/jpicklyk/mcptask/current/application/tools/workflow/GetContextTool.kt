@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.application.tools.workflow
 import io.github.jpicklyk.mcptask.current.application.service.buildExpectedNotesJson
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
 import io.github.jpicklyk.mcptask.current.application.tools.*
+import io.github.jpicklyk.mcptask.current.domain.model.ResourceMode
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
@@ -239,6 +240,31 @@ session-resume, neither → health-check); explicit `mode` takes precedence.
                 JsonArray(emptyList())
             }
 
+        // Resource lease disclosure inputs — declared resources (from traits) plus any leases this
+        // item actively holds. Items that declare no resources skip the lease repository entirely
+        // (the overwhelmingly common path pays zero lease queries); a lease held by an item whose
+        // declarations were since removed from config is not surfaced here — TTL reclaims it.
+        val declaredResources = context.resolveResourceRequirements(item)
+        val declaredKeys = declaredResources.map { it.key }
+        val heldLeaseByKey =
+            if (declaredKeys.isNotEmpty()) {
+                context.repositoryProvider
+                    .resourceLeaseRepository()
+                    .findActiveForItem(item.id)
+                    .associateBy { it.resourceKey }
+            } else {
+                emptyMap()
+            }
+        val anyHolderByKey =
+            if (declaredKeys.isNotEmpty()) {
+                context.repositoryProvider
+                    .resourceLeaseRepository()
+                    .findActiveByKeys(declaredKeys)
+                    .associateBy { it.resourceKey }
+            } else {
+                emptyMap()
+            }
+
         val data =
             buildJsonObject {
                 put("mode", JsonPrimitive("item"))
@@ -281,6 +307,36 @@ session-resume, neither → health-check); explicit `mode` takes precedence.
                             val isExpired = item.claimExpiresAt != null && !item.claimExpiresAt.isAfter(dbNowInstant)
                             put("isExpired", JsonPrimitive(isExpired))
                         }
+                    )
+                }
+                // Resource lease disclosure — item mode is the sanctioned holder-identity diagnostic
+                // for resource leases too, mirroring claimDetail above. Omitted entirely when the
+                // item neither declares nor holds any resource (zero payload for the common case).
+                if (declaredResources.isNotEmpty() || heldLeaseByKey.isNotEmpty()) {
+                    val requirementByKey = declaredResources.associateBy { it.key }
+                    val allKeys = (declaredKeys + heldLeaseByKey.keys).distinct()
+                    put(
+                        "resourceLeases",
+                        JsonArray(
+                            allKeys.map { key ->
+                                val requirement = requirementByKey[key]
+                                val ownLease = heldLeaseByKey[key]
+                                // For declared keys, holder identity comes from the all-holders lookup
+                                // above; for a held-but-no-longer-declared key (trait removed while the
+                                // lease is still active), fall back to the item's own lease record.
+                                val anyLease = anyHolderByKey[key] ?: ownLease
+                                buildJsonObject {
+                                    put("key", JsonPrimitive(key))
+                                    put("mode", JsonPrimitive((requirement?.mode ?: ResourceMode.ADVISORY).name.lowercase()))
+                                    put("held", JsonPrimitive(ownLease != null))
+                                    anyLease?.let { lease ->
+                                        put("holderItemId", JsonPrimitive(lease.holderItemId.toString()))
+                                        lease.acquiredByActorId?.let { actorId -> put("acquiredByActorId", JsonPrimitive(actorId)) }
+                                        put("expiresAt", JsonPrimitive(lease.expiresAt.toString()))
+                                    }
+                                }
+                            }
+                        )
                     )
                 }
             }

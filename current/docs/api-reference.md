@@ -1031,9 +1031,11 @@ Each backlink entry represents another item that holds a dependency edge pointin
 gate enforcement, cascade detection, and unblock reporting. Supports batch transitions.
 
 This tool and the REST `POST /items/{id}/advance` route share a single advance pipeline
-(`AdvanceService`): ownership pre-check → resolve → validate → required-note gate → apply → cascade
-detection → unblock detection. The MCP path enforces claim ownership; the REST path bypasses it (see
-`api-rest.md`). Both enforce the same note gates and report the same cascade/unblock results.
+(`AdvanceService`): ownership pre-check → resolve → validate → required-note gate → resource-lease
+gate → apply → cascade detection → unblock detection. The MCP path enforces claim ownership; the
+REST path bypasses it (see `api-rest.md`). Both enforce the same note gates and the same
+resource-lease gate (REST accepts an ADMIN-only override for the lease gate; MCP does not), and
+report the same cascade/unblock results.
 
 #### Key Parameters
 
@@ -1056,6 +1058,7 @@ Provide **either** a `transitions` array **or** the singular `itemId` + `trigger
 | `trigger` | string | Yes | One of: `start`, `complete`, `block`, `hold`, `resume`, `cancel`, `reopen`. Only `UserTrigger` values are accepted — `cascade` is system-internal and is rejected at the API boundary. |
 | `summary` | string | No | Optional annotation stored on the transition record |
 | `actor` | object | No | Optional actor claim — see Actor Attribution section |
+| `credentialRefs` | string or array of strings | No | Opaque audit labels for credentials/resources this transition consumed — never secret values. A bare string is coerced to a one-element array. Max 8 entries, each 1-128 chars matching `^[a-z0-9][a-z0-9\-_./]*$`. See **Resource-lease gate** below for the closed-set rule that applies once the item declares `resources:`. |
 
 Each transition element may include an optional `actor` object:
 - `id` (required string): Identifier for the actor making this transition
@@ -1198,6 +1201,62 @@ All cascade types are recorded in `cascadeEvents`.
 
 **Ownership / policy rejection.** When a transition is rejected because another agent holds a live claim, or by `degradedModePolicy=reject`, the failed result carries structured fields alongside `error`: `errorKind`, `errorCode` (`not_claim_holder` or `rejected_by_policy`), and — for ownership rejections — `contendedItemId`.
 
+**Resource-lease gate.** When an item's resolved traits declare `resources:` (see
+[`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md)),
+entering the `work` role — via **both** `start` (queue→work) and `resume` (blocked→work) — acquires
+an exclusive lease per `mode: exclusive` resource key the item declares, atomically (all keys or
+none). `mode: advisory` keys never lock; they are recorded into `consumedCredentials` (below) for
+audit visibility only. The lease is released on every exit from `work` (`complete`, `cancel`,
+`block`/`hold`, `reopen`, or a terminal cascade) and is not re-validated while the item stays in
+`work` — it is a precondition captured at entry, not a continuously-checked invariant. Items that
+declare no resources are entirely unaffected (zero extra queries, byte-identical behavior).
+
+*Contention.* When an exclusive key is already held, the transition is rejected as **transient**,
+not gate-blocked — the fix is to wait and retry (or work a different item), not to write more notes:
+
+```json
+{
+  "results": [
+    {
+      "itemId": "uuid",
+      "trigger": "start",
+      "applied": false,
+      "error": "Resource lease contended: staging-db",
+      "errorKind": "transient",
+      "errorCode": "resource_unavailable",
+      "retryAfterMs": 30000,
+      "contendedResources": ["staging-db"]
+    }
+  ],
+  "summary": { "total": 1, "succeeded": 0, "failed": 1 }
+}
+```
+
+`contendedResources` names the contended keys only. **The current holder's identity is never
+disclosed on this path** — no item id, no actor id — by the same tiered-disclosure principle
+`claim_item`'s `already_claimed` outcome follows. Diagnose a specific stuck lease via
+`get_context(itemId=...)` (below) or, for operators, `GET /api/v1/resources/leases` (REST, `ADMIN`
+capability for holder actor identity — see `api-rest.md`).
+
+*`credentialRefs` becomes a closed set.* Once an item declares at least one resource via its
+traits' `resources:` (registry state alone does not trigger this), each supplied `credentialRefs`
+entry must name a
+declared/registered key — an unrecognized ref is rejected before anything is persisted. Declared
+resource keys (both the exclusive keys just acquired and any advisory keys) are **auto-recorded**
+into the persisted transition's `consumedCredentials`, unioned with any caller-supplied
+`credentialRefs` — you do not need to repeat a declared key yourself. Items with no declared
+resources keep the open, format-only-validated behavior of the plain `credentialRefs` field
+(unchanged from its baseline behavior).
+
+A start-cascade into `work` acquires leases the same way; on contention the cascade event is
+recorded with `applied: false`, `resourceBlocked: true`, and `contendedResources` — the **child's
+own transition still succeeds**, only the parent's automatic promotion is deferred.
+
+See [Workflow Guide §11 — Resource Leasing](workflow-guide.md#11-resource-leasing) for the full
+guarantees-vs-non-guarantees statement (no fairness/queueing, crash recovery via TTL or ADMIN
+force-release, item-keyed exclusivity, single-DB arbiter, opaque-labels-never-secrets) and the
+`exclusive` vs `advisory` modeling guidance.
+
 ---
 
 ### get_next_status
@@ -1335,6 +1394,37 @@ Each entry in the `schema` array is keys-only: `key`, `role`, `required`, `exist
 | `claimExpiresAt` | ISO 8601 UTC | TTL-based expiry (DB-computed). Passive: the claim is not auto-released; expired claims are filtered at read time. |
 | `originalClaimedAt` | ISO 8601 UTC | First claim timestamp by the current agent. Preserved across re-claims (heartbeats). Reset when a different agent claims the item. |
 | `isExpired` | boolean | `true` when `claimExpiresAt` is in the past at the time of the query |
+
+**`resourceLeases`** (array, optional) — present only when the item declares at least one
+`resources:` requirement (via its resolved traits) or actively holds at least one lease; omitted
+entirely otherwise (zero payload for the common case). Item mode is the sanctioned holder-identity
+diagnostic for resource leases, mirroring `claimDetail` above:
+
+```json
+{
+  "resourceLeases": [
+    {
+      "key": "staging-db",
+      "mode": "exclusive",
+      "held": true,
+      "holderItemId": "uuid",
+      "acquiredByActorId": "agent-worker-42",
+      "expiresAt": "2026-07-25T13:00:00Z"
+    },
+    { "key": "deploy-credential", "mode": "advisory", "held": false }
+  ]
+}
+```
+
+One entry per key the item either declares or currently holds (union of both sets). `mode` is
+`"exclusive"` or `"advisory"` from the resolved trait requirement; for a key the item still holds a
+lease on but no longer declares (trait removed while the lease is active), `mode` defaults to
+`"advisory"` (the least presumptuous fallback). `held` is `true` only when **this item's own** lease
+is active for that key. `holderItemId`/`acquiredByActorId`/`expiresAt` are present only when *some*
+lease is currently active for that key (self lease takes priority for an undeclared-but-held key;
+otherwise the current holder across all items) — omitted for a declared-but-unheld key with no
+active lease anywhere. See [Workflow Guide §11](workflow-guide.md#11-resource-leasing) for the
+exclusive/advisory modeling guidance and the full guarantees statement.
 
 **Response (session-resume mode).**
 

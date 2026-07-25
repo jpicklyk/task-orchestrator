@@ -18,7 +18,12 @@ data class RoleTransition(
     val summary: String? = null,
     val transitionedAt: Instant = Instant.now(),
     val actorClaim: ActorClaim? = null,
-    val verification: VerificationResult? = null
+    val verification: VerificationResult? = null,
+    /**
+     * Opaque credential/secret labels consumed by this transition (e.g. "vault:prod-db-password",
+     * "github-pat-ci") — never raw secret material. Optional audit trail; empty when not supplied.
+     */
+    val consumedCredentials: List<String> = emptyList()
 ) {
     companion object {
         val VALID_TRIGGERS = setOf("start", "complete", "block", "hold", "resume", "cancel", "reopen", "cascade")

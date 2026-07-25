@@ -171,6 +171,33 @@ If any required notes across queue, work, or review phases are unfilled, the gat
 
 ---
 
+**Problem: `advance_item` fails with `errorCode: "resource_unavailable"`**
+
+Cause: The item declares a shared resource (via a `resources:` trait, `mode: exclusive`) that
+another item currently holds — a real resource-lease conflict, not a note-schema gate failure.
+`errorKind` is `"transient"`, distinct from the gate-block/ownership/policy error codes above.
+
+**Do NOT treat this like a gate failure — do not "fill in more notes" and do not spin-retry the
+same `advance_item` call.** The fix is to wait (`retryAfterMs` names a backoff hint) or work a
+different item; retrying immediately will almost always fail again since the response never
+discloses when — only that — the key is contended. `contendedResources` names the contended key(s)
+only; the current holder's identity is never included in this response by design.
+
+Solution:
+1. Report the contended key(s) to the user/operator rather than retrying silently.
+2. To diagnose who holds it: `get_context(itemId="<uuid>")` → `resourceLeases` block (shows
+   `holderItemId`/`acquiredByActorId`/`expiresAt` for the contended key), or the REST route
+   `GET /api/v1/resources/leases` for a fleet-wide view (`ADMIN` capability needed to see the
+   holder's actor identity).
+3. If the holder is confirmed stale/crashed, an operator can force-release via
+   `DELETE /api/v1/resources/leases/{key}` (`ADMIN` capability) rather than waiting out the TTL.
+4. Otherwise, move on to a different item and revisit this one later.
+
+See [Workflow Guide §11 — Resource Leasing](../../../../current/docs/workflow-guide.md#11-resource-leasing)
+for the full contention/retry model and the guarantees-vs-non-guarantees statement.
+
+---
+
 **Problem: Parent item cascaded unexpectedly**
 
 Cause: Cascade is by design. When the first child of a container starts (queue → work), the container cascades to work automatically. When the last child reaches terminal, the container cascades to terminal automatically.

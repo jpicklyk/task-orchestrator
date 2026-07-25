@@ -43,6 +43,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.noteRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.noteWriteRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.planDocumentRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.projectConfigRoutes
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.resourceLeaseRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.searchRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.serviceRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.transitionRoutes
@@ -528,6 +529,8 @@ internal fun Application.installRestApiRoutes(
             // plan_documents store: per-root plan document read/write —
             // converges on the same PlanDocumentService the manage_plan_documents MCP tool uses.
             planDocumentRoutes(effectiveProvider)
+            // Operator resource-lease read + force-release — cross-project, server-wide (no rootId scope).
+            resourceLeaseRoutes(effectiveProvider)
         }
         // Phase 6: real-time SSE event stream — registered OUTSIDE the ApiBearerAuth block (as a
         // sibling `route("/api/v1/events")`) so the ApiBearerAuth plugin does NOT intercept it. The

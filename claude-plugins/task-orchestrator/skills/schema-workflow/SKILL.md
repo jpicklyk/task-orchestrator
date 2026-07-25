@@ -111,6 +111,13 @@ The response confirms the transition:
 **If the gate rejects:** The response lists which notes are missing. Fill them (Step 2),
 then retry. Do not call `get_context` first — `advance_item` already told you what's needed.
 
+**If the response instead has `applied: false` with `errorCode: "resource_unavailable"`
+(`errorKind: "transient"`):** this is NOT a note-gate rejection — do not fill more notes and
+do not retry the same call. A shared resource this item declares via a `resources:` trait is
+currently held by another item entering WORK. Report the contended `contendedResources` key(s)
+(and `retryAfterMs` if present) back to the orchestrator/user rather than spin-retrying; see
+`/status-progression` → "resource_unavailable" for the full recovery pattern.
+
 ### Step 4 — Repeat or finish
 
 After advancing, check whether the new phase has its own required notes:
@@ -188,6 +195,12 @@ phases. Begin filling queue-phase notes immediately, then follow the progression
 
 **Gate rejection:** `advance_item` returns `applied: false` with the missing note keys.
 Fill them and retry — no need for a separate `get_context` call.
+
+**Resource-lease contention:** `advance_item` returns `applied: false` with
+`errorCode: "resource_unavailable"` and `errorKind: "transient"` instead of missing notes —
+distinct from a gate rejection. Do not fill notes in response to this; it means another item
+currently holds a resource this item's traits declare. Wait (`retryAfterMs` is a hint) or work
+a different item; never spin-retry the same `advance_item` call.
 
 **Wrong phase notes:** If you try to upsert a note with a `role` that doesn't match the
 item's current role, the note is still created (notes are not phase-locked), but it won't

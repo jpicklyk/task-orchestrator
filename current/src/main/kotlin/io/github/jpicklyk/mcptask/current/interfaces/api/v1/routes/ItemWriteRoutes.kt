@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceFailure
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceService
+import io.github.jpicklyk.mcptask.current.application.service.CredentialRefValidation
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
 import io.github.jpicklyk.mcptask.current.application.service.ItemHierarchyValidator
 import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
@@ -23,6 +24,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.audit.ApiAuditBridge
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.enforceScopeForItem
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.hasCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.requireCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.AdvanceRequestDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
@@ -108,6 +110,11 @@ private fun errorCaptured(
  *   advance that fails a required-note gate is now REJECTED instead of silently advancing.
  * - [AdvanceFailure.ValidationFailed] → **422** `transition_blocked`, with the dependency blockers.
  * - [AdvanceFailure.ResolutionFailed] / [AdvanceFailure.ApplyFailed] → **422** `transition_failed`.
+ * - [AdvanceFailure.ResourceLeaseUnavailable] → **409** `resource_unavailable`, with a
+ *   `Retry-After` header (whole seconds, rounded UP from the millisecond hint so a client never
+ *   retries early) and `details.contendedResources` / `details.retryAfterMs`. 409 rather than 422:
+ *   the request is well-formed and will succeed once the holder finishes. The response carries
+ *   resource KEYS only — never the holding item or actor.
  * - [AdvanceFailure.PolicyRejected] → **401** `verification_failed` (defensive — ownership is not
  *   enforced on the REST path, so this is not expected to occur here).
  * - [AdvanceFailure.OwnershipRejected] → **409** `not_claim_holder` (defensive — same caveat).
@@ -163,6 +170,28 @@ private suspend fun respondAdvanceFailure(
             call.respond(
                 HttpStatusCode.UnprocessableEntity,
                 ErrorDto("transition_blocked", failure.message, details),
+            )
+        }
+        is AdvanceFailure.ResourceLeaseUnavailable -> {
+            // Round UP to whole seconds: Retry-After has second granularity, and rounding down
+            // would tell the client to retry before the lease can possibly have expired.
+            failure.retryAfterMs?.let { ms ->
+                call.response.header(HttpHeaders.RetryAfter, ((ms + 999) / 1000).coerceAtLeast(1).toString())
+            }
+            val details =
+                buildJsonObject {
+                    put("targetRole", JsonPrimitive(failure.targetRole.name.lowercase()))
+                    put(
+                        "contendedResources",
+                        kotlinx.serialization.json.buildJsonArray {
+                            failure.contendedResources.forEach { add(JsonPrimitive(it)) }
+                        },
+                    )
+                    failure.retryAfterMs?.let { put("retryAfterMs", JsonPrimitive(it)) }
+                }
+            call.respond(
+                HttpStatusCode.Conflict,
+                ErrorDto("resource_unavailable", failure.message, details),
             )
         }
         is AdvanceFailure.ResolutionFailed ->
@@ -720,6 +749,36 @@ fun Route.itemWriteRoutes(
                     return@post
                 }
 
+            // Optional credentialRefs: same shared rules as the MCP advance_item tool
+            // (CredentialRefValidation) — a violation fails the request before anything is persisted.
+            val credentialRefs = advanceDto.credentialRefs ?: emptyList()
+            when (val credentialRefsResult = CredentialRefValidation.validate(credentialRefs)) {
+                is CredentialRefValidation.Result.Invalid -> {
+                    val suffix = if (credentialRefsResult.index >= 0) "[${credentialRefsResult.index}]" else ""
+                    call.respond(
+                        HttpStatusCode.BadRequest,
+                        ErrorDto("validation_error", "credentialRefs$suffix ${credentialRefsResult.reason}"),
+                    )
+                    return@post
+                }
+                is CredentialRefValidation.Result.Valid -> {} // ok
+            }
+
+            // Optional ADMIN-only resource-lease override. Sent by a non-admin principal this is a
+            // hard 403, never a silent no-op: an operator who thinks they bypassed the lease and
+            // did not would go on to touch a resource another item is actively holding.
+            val overrideResourceLeases = advanceDto.overrideResourceLeases == true
+            if (overrideResourceLeases && !hasCapability(call, ApiCapability.ADMIN)) {
+                call.respond(
+                    HttpStatusCode.Forbidden,
+                    ErrorDto(
+                        "insufficient_capability",
+                        "overrideResourceLeases requires the admin capability",
+                    ),
+                )
+                return@post
+            }
+
             val itemResult = workItemRepo.getById(id)
             if (itemResult is Result.Error) {
                 call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Item $id not found"))
@@ -748,17 +807,42 @@ fun Route.itemWriteRoutes(
                 )
             }
 
+            // A lease override is always audited: it is the one way an exclusive resource can be
+            // entered by two items at once, so it must be reconstructible from logs alone. The
+            // transition summary carries the same fact into the durable role_transitions row.
+            if (overrideResourceLeases) {
+                writeLogger.warn(
+                    "Resource-lease override: admin principal tokenId='{}' bypassed the resource gate for " +
+                        "itemId={}, trigger={}. Another work item may hold this item's exclusive resources.",
+                    principal.tokenId,
+                    id,
+                    advanceDto.trigger,
+                )
+            }
+            val transitionSummary = if (overrideResourceLeases) "(resource leases overridden)" else null
+
             // Build the synthesized actor for the transition audit trail (server-side only)
             val actorClaim = ApiAuditBridge.toActorClaim(principal)
             val verification = ApiAuditBridge.toVerificationResult(principal)
 
             // Delegate to the shared AdvanceService — the SAME pipeline the MCP advance_item tool
-            // uses (resolve → validate → required-note gate → apply → cascade → unblock). The schema
-            // resolver mirrors AdvanceItemTool's trait-merged resolution. enforceOwnership = false:
-            // the REST API bypasses claim ownership entirely (plan §2 — API callers are operators,
-            // not fleet agents). The advance SUCCEEDS even when the item is claimed by a different
-            // MCP agent, while the synthesized API actor is still recorded on the role_transitions
-            // row for audit. Unlike the prior userTransition() path, the gate is now ENFORCED.
+            // uses (resolve → validate → required-note gate → resource-lease gate → apply → cascade
+            // → unblock). The schema resolver mirrors AdvanceItemTool's trait-merged resolution.
+            //
+            // The two enforcement flags are DELIBERATELY ASYMMETRIC:
+            //
+            //  * enforceOwnership = false — the REST API bypasses claim ownership entirely (plan §2
+            //    — API callers are operators, not fleet agents). The advance SUCCEEDS even when the
+            //    item is claimed by a different MCP agent, while the synthesized API actor is still
+            //    recorded on the role_transitions row for audit. A claim is one agent's bookkeeping,
+            //    and an operator is entitled to overrule it.
+            //  * enforceResourceLeases = true (unless an ADMIN explicitly sent overrideResourceLeases)
+            //    — a resource lease protects a shared EXTERNAL resource (a credential, a staging
+            //    environment). Operator authority cannot make two concurrent holders of a single
+            //    credential safe, so this gate is NOT waived by virtue of being an operator; it takes
+            //    an explicit, admin-gated, WARN-logged opt-out per request.
+            //
+            // Unlike the prior userTransition() path, the required-note gate is now ENFORCED.
             // statusLabelService is bound to THIS item's rootId via the SAME root-aware factory
             // AdvanceItemTool uses, so REST advances stamp identical (config-driven, per-root)
             // status labels instead of applying none at all (bug 80e48e55).
@@ -774,17 +858,23 @@ fun Route.itemWriteRoutes(
                             userTrigger.triggerString,
                         ),
                     schemaResolver = { schemaResolutionContext.resolveSchema(it) },
+                    resourceLeaseRepository = repositoryProvider.resourceLeaseRepository(),
+                    resourceRequirementsResolver = { schemaResolutionContext.resolveResourceRequirements(it) },
+                    resourceRegistryResolver = { schemaResolutionContext.resolveResourceRegistry(it) },
+                    resourceLeasesEnforced = AdvanceService.resourceLeasesEnforcedFromEnv(),
                 )
 
             val outcome =
                 advanceService.advance(
                     item = item,
                     trigger = userTrigger.triggerString,
-                    summary = null,
+                    summary = transitionSummary,
                     actorClaim = actorClaim,
                     verification = verification,
                     degradedModePolicy = degradedModePolicy,
                     enforceOwnership = false,
+                    credentialRefs = credentialRefs,
+                    enforceResourceLeases = !overrideResourceLeases,
                 )
 
             val advanceResult =

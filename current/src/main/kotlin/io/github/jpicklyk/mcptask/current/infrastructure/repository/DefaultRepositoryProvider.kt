@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.PlanDocumentRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository
+import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
@@ -26,6 +27,7 @@ class DefaultRepositoryProvider(
     private val roleTransitionRepo by lazy { SQLiteRoleTransitionRepository(databaseManager) }
     private val projectConfigRepo by lazy { SQLiteProjectConfigRepository(databaseManager) }
     private val planDocumentRepo by lazy { SQLitePlanDocumentRepository(databaseManager) }
+    private val resourceLeaseRepo by lazy { SQLiteResourceLeaseRepository(databaseManager) }
     private val workTreeExecutorInstance by lazy { SQLiteWorkTreeService(databaseManager, workItemRepo, noteRepo, planDocumentRepo) }
 
     override fun workItemRepository(): WorkItemRepository = workItemRepo
@@ -39,6 +41,8 @@ class DefaultRepositoryProvider(
     override fun projectConfigRepository(): ProjectConfigRepository = projectConfigRepo
 
     override fun planDocumentRepository(): PlanDocumentRepository = planDocumentRepo
+
+    override fun resourceLeaseRepository(): ResourceLeaseRepository = resourceLeaseRepo
 
     override fun database(): org.jetbrains.exposed.v1.jdbc.Database? = databaseManager.getDatabase()
 

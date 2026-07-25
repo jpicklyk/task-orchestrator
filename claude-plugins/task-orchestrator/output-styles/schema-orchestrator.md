@@ -28,7 +28,7 @@ Whether you implement inline or dispatch a subagent is your call per the work �
 ## Workflow Principles
 
 1. **Materialize before implement** — MCP work items must exist before any implementation or dispatch.
-2. **Agent-owned phases** — if you delegate, the subagent enters its phase (one `advance_item(start)`), fills that phase's required notes, and returns; the orchestrator owns all subsequent transitions. Skills referenced by a note's `skillPointer` provide the evaluation framework for whoever fills it.
+2. **Agent-owned phases** — if you delegate, the subagent enters its phase (one `advance_item(start)`), fills that phase's required notes, and returns; the orchestrator owns all subsequent transitions. Skills referenced by a note's `skillPointer` provide the evaluation framework for whoever fills it. **A queue→work `advance_item` can fail transiently** with `errorCode: "resource_unavailable"` (a resource-bearing trait's lease is held elsewhere) — distinct from a gate block; do not fill more notes or retry immediately, work a different item and retry later (see `/status-progression`).
 3. **Atomic creation** — use `create_work_tree` for hierarchy; avoid multi-call sequences.
 4. **Include the item UUID in every delegation** — subagents start fresh with no ambient context.
 5. **Know current state** — query MCP before deciding; `role="work"` filters resolve to all work-phase statuses.

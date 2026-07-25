@@ -41,6 +41,17 @@ traits:
         description: "Security review"
         skill: "security-review"
         guidance: "Evaluate input validation, injection risks, access control..."
+    resources:                  # Optional — resources this trait's items need at WORK entry (see below)
+      - staging-db               # short form: bare key = mode: exclusive, no ttlSeconds override
+      - key: github-deploy-token  # long form: explicit mode + ttlSeconds
+        mode: advisory
+        ttlSeconds: 1800
+
+resources:                      # Optional top-level registry — describes keys, does not declare usage
+  staging-db:
+    description: "Single shared staging database — only one migration/test run at a time"
+    defaultTtlSeconds: 3600
+    maxHolders: 1                # values > 1 are rejected at config load ("not yet supported")
 ```
 
 ---
@@ -169,6 +180,119 @@ traits:
       - {key: implementation-notes, role: review, required: false}  # dropped — key collides with base
       - {key: review-checklist, role: review, required: true}       # added
 ```
+
+---
+
+## Resources (Trait Dimension)
+
+A trait can declare `resources:` — a list of shared-resource requirements enforced by the server as
+a **gate at WORK entry** (`advance_item(trigger="start")` from queue, and `trigger="resume"` from
+blocked — both re-enter WORK). This is independent of the note-requirement dimension: a trait can
+carry notes, resources, both, or neither.
+
+### Declaration forms
+
+```yaml
+traits:
+  needs-staging-slot:
+    resources:
+      - staging-db                     # short form — bare string
+      - key: github-deploy-token       # long form — explicit fields
+        mode: advisory                 # exclusive (default) | advisory
+        ttlSeconds: 1800                # optional; overrides the registry default for this trait
+```
+
+| Field | Required | Default | Notes |
+|-------|----------|---------|-------|
+| `key` | yes | — | Resource key. Same charset as `credentialRefs`: `^[a-z0-9][a-z0-9\-_./]*$`, max 128 chars. An invalid key is warned-and-skipped (that one entry only — not fatal to the config load). |
+| `mode` | no | `exclusive` | `exclusive` — server takes a lease at WORK entry; contention rejects the transition. `advisory` — no lease, no lock; the key is recorded into the transition's `consumedCredentials` audit trail only. |
+| `ttlSeconds` | no | registry's `defaultTtlSeconds`, else `3600` | Bounds: clamped to `[1, 86400]`. |
+
+### The optional top-level `resources:` registry
+
+```yaml
+resources:
+  staging-db:
+    description: "Human-readable note — what this key protects"
+    defaultTtlSeconds: 3600    # bounds 1-86400; out-of-range or non-numeric warns and falls back to 3600
+    maxHolders: 1              # v1 only supports 1 — see below
+```
+
+The registry is optional metadata: TTL defaults and a human-readable description for a key. A trait
+can reference a key that has **no** registry entry at all — see "Undeclared keys" below. `maxHolders`
+values greater than `1` are a **load error**: the whole registry entry is skipped (not clamped) with
+a warning containing the literal text `maxHolders > 1 not yet supported` — storage is
+semaphore-ready for a future multi-holder release, but v1 admission is capped at exactly 1 regardless
+of what a config author writes here. A `maxHolders` value less than `1` is warned-and-clamped to `1`
+(entry still created, unlike the `> 1` case). Reserved budget fields (`budgetLimit`,
+`budgetWindowSeconds`) are parsed and warned as "reserved for future use" but never stored on either
+the registry entry or a trait's resource requirement.
+
+### Merge semantics — read this before combining traits
+
+Resource requirements merge differently from notes in three specific ways — do not assume the note
+merge rules (`Trait Merge Semantics` above) apply here.
+
+1. **Union across traits, never dropped.** Unlike notes (where a base-schema key always wins and a
+   colliding trait note is silently dropped), two traits declaring the *same resource key* both
+   contribute — the merge is a union, deduplicated by key. Nothing is ever silently lost to a
+   collision the way a duplicate note key would be.
+2. **On a mode conflict for the same key, `exclusive` wins.** If one trait declares a key
+   `advisory` and another (applied to the same item) declares it `exclusive`, the merged result is
+   `exclusive` — the stricter declaration always wins, regardless of application order. `ttlSeconds`
+   for a duplicate key keeps the **first-seen** value in trait-application order (base schema's
+   `default_traits` first, then per-item `traits`); a later trait's `ttlSeconds` for an
+   already-recorded key is ignored.
+3. **The registry layers in the OPPOSITE direction from every other per-root setting — read this
+   twice.** Every other per-root-honorable setting in this document (schemas, traits, `note_limits`,
+   `status_labels`) is **per-root-wins**: a project's own config overrides the global floor for that
+   project. The `resources:` **registry** inverts this: on a key collision between a per-root
+   registry entry and the global registry entry, **the global entry wins**, and the collision is
+   logged. Rationale: a resource key is a **server-global lock/lease namespace** — a real shared
+   credential or staging slot is a singleton across the whole server, so one project must not be
+   able to silently redefine another project's shared key's TTL or holder cap by pushing its own
+   per-root config. (The *trait declarations themselves* — which resources a trait requires — still
+   follow the normal per-root-wins layering; only the registry's global-wins inversion is special.)
+
+### Undeclared keys — warn and honor, never skip
+
+A trait can declare a resource key with **no matching registry entry** (in either layer). This is
+**not** an error and does **not** disable enforcement — the key is warned (`"undeclared resource"`
+in the log) and enforced anyway using default TTL (3600s). The registry is fail-open (an absent
+entry never widens or weakens the lock); the lock itself is fail-closed (absence of registry
+metadata never skips enforcement). Known residual risk: two projects that happen to pick the same
+generic key name (e.g. `db`) for two genuinely different resources will falsely serialize against
+each other. Mitigate with a naming convention that scopes keys to your project
+(`proj-a/staging-db` rather than `staging-db`) — the config loader also warns when one key is
+declared by three or more traits/schemas (fan-out), which is a useful early signal for this exact
+collision.
+
+### LEAF TASK TYPES ONLY for exclusive resources — a hard rule, not a suggestion
+
+**Declare `mode: exclusive` resources on leaf task-level schemas only — never on a container/feature
+schema (`lifecycle: manual` or `permanent` root containers, or any type with children).** The lease
+is held for the ENTIRE time the declaring item sits in WORK. A feature container commonly stays in
+WORK for the full duration of its child tree's implementation — hours to days. If a container-level
+schema (or a container item's own `traits`) declares an exclusive resource, that resource is locked
+for the container's whole WORK lifetime, not just for whichever child task actually needs it —
+starving every other item that needs the same key for as long as the feature is in flight. This is
+almost never the intended effect. Put the exclusive declaration on the leaf task type/trait that
+actually performs the resource-touching work; use `advisory` (or no declaration at all) on container
+types if you want audit visibility without the lock.
+
+### Interaction with `credentialRefs`
+
+Once an item declares at least one resource via its traits' `resources:` (registry state alone
+does not trigger this — an item declaring nothing keeps the open rung-1 behavior), the `credentialRefs`
+field on that item's `advance_item` transitions becomes a **closed set** — each supplied ref must
+name a declared/registered key, or the transition is rejected with a validation error naming the
+unrecognized ref and the known-key list. Declared keys (both `exclusive`, once acquired, and
+`advisory`) are **auto-recorded** into `consumedCredentials` on work entry — you do not need to
+repeat them in `credentialRefs`. Items that declare no resources are unaffected — `credentialRefs`
+there stays an open, format-only-validated field (rung-1 behavior, unchanged). See
+[`api-reference.md`](../../../../../current/docs/api-reference.md) for the full `credentialRefs`
+validation contract and [`workflow-guide.md`](../../../../../current/docs/workflow-guide.md#11-resource-leasing)
+for the contention/retry model and the full guarantees-vs-non-guarantees statement.
 
 ---
 
@@ -500,15 +624,29 @@ server's config back before editing, rather than pushing over it. `current` (alr
 returned) both proceed as before. `force: true` (or `?force=true`) bypasses the guard when a
 deliberate revert or overwrite is intended.
 
-**Per-root honorable settings.** `note_limits` and `status_labels` are layered the same way as
-schemas/traits: a per-root document that **explicitly** sets `note_limits.mode` or a trigger under
-`status_labels` wins for that root; a per-root document that **omits the key entirely** falls
-through to the global value, unchanged. `status_labels` falls through **per trigger** — a per-root
-map that only overrides `start` still defers to the global config for `complete`, `block`, etc.
-(and a trigger explicitly mapped to `null` in the per-root doc means "no label for this trigger",
-which is different from the trigger being absent). A pushed document's response (`manage_project_config`
-push, or `PUT /roots/{rootId}/config`) reports which top-level keys it contains that are NOT honored
-per-root in an additive `ignoredSections` field.
+**Per-root honorable settings.** `note_limits`, `status_labels`, and `resources` are layered the
+same way as schemas/traits: a per-root document that **explicitly** sets `note_limits.mode`, a
+trigger under `status_labels`, or the `resources` top-level key wins for that root; a per-root
+document that **omits the key entirely** falls through to the global value, unchanged.
+`status_labels` falls through **per trigger** — a per-root map that only overrides `start` still
+defers to the global config for `complete`, `block`, etc. (and a trigger explicitly mapped to
+`null` in the per-root doc means "no label for this trigger", which is different from the trigger
+being absent). A pushed document's response (`manage_project_config` push, or
+`PUT /roots/{rootId}/config`) reports which top-level keys it contains that are NOT honored per-root
+in an additive `ignoredSections` field.
+
+> **`resources` is the one exception to "per-root wins" in this list — read it separately.** Every
+> other honored section above (schemas, traits, `note_limits`, `status_labels`) resolves
+> per-root-wins: the project's own config beats the global floor. The `resources:` **registry**
+> specifically inverts this — on a key collision, the **global** registry entry wins over a
+> per-root one, because a resource key is a server-wide lock namespace, not a per-project setting.
+> This applies only to the registry entries (`resources: <key>: {...}`), not to which resources a
+> trait declares — trait resource declarations still layer per-root-wins like every other trait
+> field. See "Resources (Trait Dimension)" above for the full merge semantics and the rationale.
+>
+> Also unlike every other validation failure documented in this file (which degrades gracefully to
+> a default), a registry entry with `maxHolders > 1` is dropped entirely rather than clamped — see
+> "Resources (Trait Dimension)" above.
 
 **Global-only settings.** `actor_authentication` is **not** part of the per-root layer — the
 resolver reads it only from the global file. A per-root document may carry it, but it is ignored

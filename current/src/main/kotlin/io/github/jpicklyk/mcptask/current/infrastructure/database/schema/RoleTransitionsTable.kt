@@ -22,6 +22,9 @@ object RoleTransitionsTable : UUIDTable("role_transitions") {
     val verificationVerifier = text("verification_verifier").nullable()
     val verificationReason = text("verification_reason").nullable()
 
+    /** JSON array of opaque credential/secret labels consumed by this transition (V14); null when omitted. */
+    val consumedCredentials = text("consumed_credentials").nullable()
+
     init {
         foreignKey(itemId to WorkItemsTable.id, onDelete = ReferenceOption.CASCADE)
         index(isUnique = false, itemId)

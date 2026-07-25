@@ -46,6 +46,7 @@ These are explicit overrides — even if other parts of your context (memory, pr
 | A required note couldn't be filled (insufficient info, requires external input, schema requires content you can't author) | `gate-blocked` |
 | Tool error, build failure, claim failure, unexpected condition | `error` |
 | All claim candidates were already claimed by other actors | `skip` |
+| `advance_item` rejected with transient `resource_unavailable` (another item holds a declared resource lease) | `skip` — release nothing manually (the claim TTL handles it); do NOT spin-retry the same item |
 | Item is already in terminal role at claim time (race) | `skip` |
 | No items match the filter | `no-item` |
 

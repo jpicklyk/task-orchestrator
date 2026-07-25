@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.application.service.RoleTransitionHand
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.domain.repository.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
@@ -451,6 +452,8 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
                 continue
             }
 
+            releaseLeasesOnWorkExit(item, resolution.targetRole, context)
+
             completedCount++
             resultsList.add(
                 buildJsonObject {
@@ -576,6 +579,8 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
             return
         }
 
+        releaseLeasesOnWorkExit(item, resolution.targetRole, context)
+
         onComplete()
         resultsList.add(
             buildJsonObject {
@@ -609,6 +614,34 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
             }
         val filledKeys = notes.filter { it.body.isNotBlank() }.map { it.key }.toSet()
         return allRequired.filter { it.key !in filledKeys }.map { it.key }
+    }
+
+    /**
+     * Releases [item]'s resource leases when a `complete_tree`-applied transition exits WORK.
+     *
+     * `complete_tree` applies transitions via [RoleTransitionHandler.applyTransition] directly,
+     * bypassing [io.github.jpicklyk.mcptask.current.application.service.AdvanceService]'s own
+     * WORK-exit release (`AdvanceService.releaseLeases`, step 5.5). Without this call, an item
+     * completed through `complete_tree` while holding leases would orphan them until their TTL
+     * expires. A release failure must NEVER fail the completion — the TTL is the backstop that
+     * frees the resource anyway, mirroring [AdvanceService]'s log-and-continue release policy.
+     */
+    private suspend fun releaseLeasesOnWorkExit(
+        item: WorkItem,
+        targetRole: Role,
+        context: ToolExecutionContext
+    ) {
+        if (item.role != Role.WORK || targetRole == Role.WORK) return
+        when (val release = context.repositoryProvider.resourceLeaseRepository().releaseAllForItem(item.id)) {
+            is LeaseReleaseResult.Success -> {}
+            is LeaseReleaseResult.DBError ->
+                logger.warn(
+                    "Failed to release resource leases for item {} on complete_tree work-exit: {}. " +
+                        "The completion is NOT failed; the lease TTL remains the backstop.",
+                    item.id,
+                    release.cause.message
+                )
+        }
     }
 
     override fun userSummary(

@@ -90,6 +90,12 @@ data class RoleTransitionDto(
     val occurredAt: String,
     val actor: ActorClaimDto?,
     val verification: VerificationDto?,
+    /**
+     * Opaque credential/secret labels consumed by this transition (e.g. "vault:prod-db-password"),
+     * never raw secret material. Omitted (null) when empty. Deliberately NOT subject to attribution
+     * redaction — the labels themselves are not sensitive.
+     */
+    val consumedCredentials: List<String>? = null,
 )
 
 /** DTO for the combined dependencies view of a work item. */
@@ -331,6 +337,28 @@ data class DependencyCreateDto(
 @Serializable
 data class AdvanceRequestDto(
     val trigger: String,
+    /**
+     * Optional audit list of opaque credential/secret labels consumed by this transition (e.g.
+     * "vault:prod-db-password"), never raw secret material. Validated with the same rules as the
+     * MCP `advance_item` tool's `credentialRefs` field (see [io.github.jpicklyk.mcptask.current.application.service.CredentialRefValidation]).
+     * Omitted/null preserves existing behavior (no credentialRefs recorded).
+     */
+    val credentialRefs: List<String>? = null,
+    /**
+     * Operator escape hatch: when `true`, skips the resource-lease gate for a transition entering
+     * the work phase, letting the advance proceed even though another item holds one of this item's
+     * declared exclusive resources.
+     *
+     * **Requires [io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability.ADMIN].**
+     * A non-admin principal that sends `true` is REJECTED with 403 rather than silently ignored — a
+     * caller that believes it bypassed the gate but did not must never proceed as if it had.
+     * Omitted/null (the default) leaves the gate enforced, so existing request bodies are unchanged.
+     *
+     * Note the asymmetry with claim ownership: the REST surface bypasses claim ownership for every
+     * caller by design (operators override an agent's bookkeeping), but a resource lease protects a
+     * shared EXTERNAL resource and stays enforced unless an admin explicitly opts out here.
+     */
+    val overrideResourceLeases: Boolean? = null,
 )
 
 /**
@@ -499,4 +527,62 @@ data class PlanDocumentSummaryDto(
 data class PlanDocumentListResponseDto(
     val rootId: String,
     val plans: List<PlanDocumentSummaryDto>,
+)
+
+/**
+ * DTO for a single active resource lease row (see
+ * [io.github.jpicklyk.mcptask.current.domain.model.ResourceLease]).
+ *
+ * `acquiredByActorId` is holder-identity — included only for callers with `admin` capability;
+ * non-admin callers get it redacted to null by the route handler (mirrors [NoteDto]'s
+ * attribution redaction, applied via [io.github.jpicklyk.mcptask.current.interfaces.api.v1.redaction.AttributionRedactor]-style
+ * gating rather than that class itself, since resource leases have no note/verification shape).
+ */
+@Serializable
+data class ResourceLeaseDto(
+    val resourceKey: String,
+    val holderItemId: String,
+    val acquiredByActorId: String? = null,
+    val acquiredAt: String,
+    val expiresAt: String,
+    val originalAcquiredAt: String,
+)
+
+/** Response DTO for `GET /api/v1/resources/leases`. */
+@Serializable
+data class ResourceLeaseListResponseDto(
+    val leases: List<ResourceLeaseDto>,
+)
+
+/** Response DTO for `DELETE /api/v1/resources/leases/{key}` on a successful force-release. */
+@Serializable
+data class ResourceLeaseReleaseResponseDto(
+    val resourceKey: String,
+    val releasedCount: Int,
+)
+
+/**
+ * DTO for one append-only lease hold interval (see
+ * [io.github.jpicklyk.mcptask.current.domain.model.ResourceLeaseInterval]).
+ *
+ * `acquiredByActorId` / `releasedByActorId` are holder/closer identity — included only for callers
+ * with `admin` capability, same inline redaction rule the live `GET /resources/leases` route
+ * applies to `ResourceLeaseDto.acquiredByActorId`.
+ */
+@Serializable
+data class ResourceLeaseIntervalDto(
+    val resourceKey: String,
+    val holderItemId: String,
+    val acquiredByActorId: String? = null,
+    val acquiredAt: String,
+    val expiresAt: String,
+    val releasedAt: String? = null,
+    val releaseReason: String? = null,
+    val releasedByActorId: String? = null,
+)
+
+/** Response DTO for `GET /api/v1/resources/leases/history`. */
+@Serializable
+data class ResourceLeaseHistoryResponseDto(
+    val intervals: List<ResourceLeaseIntervalDto>,
 )

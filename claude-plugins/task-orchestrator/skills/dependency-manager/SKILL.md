@@ -225,6 +225,17 @@ For each blocker, determine what must happen:
 
 If any blocker is itself blocked, offer to recurse: "The blocker is also blocked. Would you like to diagnose that item too?"
 
+**Not every "why can't this start" is a dependency.** This skill diagnoses `BLOCKED`-role items
+and unsatisfied `BLOCKS` edges only. A separate, unrelated cause can produce a similar symptom:
+`advance_item` rejecting a `start`/`resume` transition with `errorCode: "resource_unavailable"`
+(`errorKind: "transient"`) — a shared resource the item declares via a `resources:` trait is
+currently held by another item. That item's role does **not** change to `blocked`; it stays in
+its current role (typically `queue`) and the transition simply fails transiently. If
+`query_dependencies` shows no incoming edges yet the item still won't advance, suspect resource
+contention instead — check the `advance_item` error for `errorCode`/`contendedResources`, or
+inspect `get_context(itemId=...)` → `resourceLeases` for the item's declared/held keys. Do not
+treat this as a dependency problem; retrying the dependency diagnosis will not help.
+
 After the diagnosis, link to the resolution path:
 - To advance the blocking item: use `/status-progression` with its UUID
 - To fill missing notes on the blocker first: use `manage_notes(operation="upsert")` to fill required notes

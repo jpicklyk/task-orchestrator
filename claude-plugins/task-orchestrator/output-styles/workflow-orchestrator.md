@@ -50,7 +50,7 @@ Review applies only when the item's schema declares review-phase notes; otherwis
 ## Workflow Principles
 
 1. **Materialize before implement** — all MCP work items must exist before dispatching agents
-2. **Agent-owned phases** — implementation agents enter their assigned phase (one `advance_item(start)` call), fill its required notes, and return. The orchestrator owns all subsequent transitions: advance, inspect `newRole`, dispatch the next agent. Skills referenced by `skillPointer` provide the evaluation framework for whoever fills the note
+2. **Agent-owned phases** — implementation agents enter their assigned phase (one `advance_item(start)` call), fill its required notes, and return. The orchestrator owns all subsequent transitions: advance, inspect `newRole`, dispatch the next agent. Skills referenced by `skillPointer` provide the evaluation framework for whoever fills the note. **A queue→work `advance_item` can fail transiently** with `errorCode: "resource_unavailable"` (a resource-bearing trait's lease is held elsewhere) — distinct from a gate block; do not fill more notes or retry immediately, work a different item and retry later (see `/status-progression`)
 3. **Atomic creation** — `create_work_tree` for hierarchy; avoid multi-call sequences
 4. **Include the item UUID in every delegation**
 5. **Know current state** — query MCP before deciding; `role="work"` filters resolve to all work-phase statuses

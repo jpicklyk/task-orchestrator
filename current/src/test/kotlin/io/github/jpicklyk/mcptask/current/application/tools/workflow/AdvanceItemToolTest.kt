@@ -51,6 +51,10 @@ class AdvanceItemToolTest {
         coEvery { defaultNoteRepo.findByItemId(any(), any()) } returns Result.Success(emptyList())
         every { repoProvider.noteRepository() } returns defaultNoteRepo
         every { repoProvider.roleTransitionRepository() } returns roleTransitionRepo
+        // AdvanceItemTool wires the lease store into AdvanceService on every transition; a strict
+        // mockk provider must answer it even for items that declare no resources (the resource gate
+        // itself short-circuits before touching the repository).
+        every { repoProvider.resourceLeaseRepository() } returns mockk(relaxed = true)
         // dbNow() is called for ownership checks; default to JVM time for non-clock-skew tests.
         coEvery { workItemRepo.dbNow() } returns Instant.now()
         // inTransaction delegates to its block directly — no real DB transaction in unit tests
@@ -1095,6 +1099,7 @@ class AdvanceItemToolTest {
         every { repoProvider.dependencyRepository() } returns depRepo
         every { repoProvider.noteRepository() } returns noteRepo
         every { repoProvider.roleTransitionRepository() } returns roleTransitionRepo
+        every { repoProvider.resourceLeaseRepository() } returns mockk(relaxed = true)
         return ToolExecutionContext(repoProvider, noteSchemaService)
     }
 
@@ -2099,11 +2104,13 @@ class AdvanceItemToolTest {
             assertTrue(r["applied"]!!.jsonPrimitive.boolean)
             assertEquals("root-started", r["statusLabel"]!!.jsonPrimitive.content)
             // A single advance resolves the per-root layer from exactly two snapshot fetches — one
-            // for schema resolution (AdvanceService's schemaResolver) and one for status-label
-            // resolution (resolveRootAwareStatusLabelService) — NOT one fetch per trigger and NOT
-            // the old 8-wide (every UserTrigger + "cascade") fan-out. The status-label fetch alone
-            // resolves both consulted triggers ("start" + "cascade") from a SINGLE snapshot.
-            coVerify(exactly = 2) { perRoot.getSnapshot(rootId) }
+            // for schema resolution (AdvanceService's schemaResolver), one for status-label
+            // resolution (resolveRootAwareStatusLabelService), and one for resource-requirement
+            // resolution (resolveResourceRequirements' per-root trait lookup on WORK entry) — NOT
+            // one fetch per trigger and NOT the old 8-wide (every UserTrigger + "cascade") fan-out.
+            // The status-label fetch alone resolves both consulted triggers ("start" + "cascade")
+            // from a SINGLE snapshot.
+            coVerify(exactly = 3) { perRoot.getSnapshot(rootId) }
         }
 
     @Test
@@ -3578,6 +3585,7 @@ class AdvanceItemToolTest {
                     every { provider.dependencyRepository() } returns depRepo
                     every { provider.noteRepository() } returns noteRepo
                     every { provider.roleTransitionRepository() } returns roleTransitionRepo
+                    every { provider.resourceLeaseRepository() } returns mockk(relaxed = true)
                     ToolExecutionContext(provider, noteSchemaService)
                 }
 
@@ -3649,6 +3657,7 @@ class AdvanceItemToolTest {
                     every { provider.dependencyRepository() } returns depRepo
                     every { provider.noteRepository() } returns noteRepo
                     every { provider.roleTransitionRepository() } returns roleTransitionRepo
+                    every { provider.resourceLeaseRepository() } returns mockk(relaxed = true)
                     ToolExecutionContext(provider, noteSchemaService)
                 }
 

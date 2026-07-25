@@ -9,8 +9,14 @@ argument-hint: "[optional: 'recommended', 'http', 'stdio', 'bearer', or a change
 Decides **how the MCP Task Orchestrator container is launched and reached**: transport, REST API mode,
 port publishing, config mount, and config-sync. This is a runtime/deployment concern, distinct from
 `quick-start` (first-time onboarding narrative) and `manage-schemas` (workflow gates/traits/
-`actor_authentication` content inside `.taskorchestrator/config.yaml`). If the user wants schema or
-gate changes, redirect to `/manage-schemas` instead of proceeding here.
+`resources:`/`actor_authentication` content inside `.taskorchestrator/config.yaml`). If the user wants
+schema or gate changes — including resource-lease declarations — redirect to `/manage-schemas` instead
+of proceeding here.
+
+One operator escape hatch worth knowing when launching the container: `RESOURCE_LEASES_ENFORCED=false`
+(env, default true) disables resource-lease gate enforcement server-wide — a kill switch for lease
+contention incidents, same gate-policy category as `DEGRADED_MODE_POLICY`. Configuring which resources
+exist and which traits declare them stays in `/manage-schemas`; this skill only knows the switch.
 
 The full fragment catalog (exact env tuples, loopback caveat, Windows/MSYS caveat, `.mcp.json` shapes)
 lives in `references/runtime-config.md` — this skill's job is the **decision flow** and **rendering**,

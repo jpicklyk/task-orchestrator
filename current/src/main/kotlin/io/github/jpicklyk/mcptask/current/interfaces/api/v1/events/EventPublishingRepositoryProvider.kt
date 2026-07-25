@@ -9,6 +9,7 @@ import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.PlanDocumentRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository
+import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
@@ -357,6 +358,9 @@ class EventPublishingRepositoryProvider(
     override fun projectConfigRepository(): ProjectConfigRepository = delegate.projectConfigRepository()
 
     override fun planDocumentRepository(): PlanDocumentRepository = delegate.planDocumentRepository()
+
+    // No event publishing for resource leases — pure pass-through decorator.
+    override fun resourceLeaseRepository(): ResourceLeaseRepository = delegate.resourceLeaseRepository()
 
     override fun database() = delegate.database()
 

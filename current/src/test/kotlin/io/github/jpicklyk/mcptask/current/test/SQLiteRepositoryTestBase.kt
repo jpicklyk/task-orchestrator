@@ -3,6 +3,8 @@ package io.github.jpicklyk.mcptask.current.test
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.DependenciesTable
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.NotesTable
+import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.ResourceLeaseHistoryTable
+import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.ResourceLeasesTable
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.RoleTransitionsTable
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.WorkItemsTable
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
@@ -58,6 +60,8 @@ abstract class SQLiteRepositoryTestBase {
                 NotesTable,
                 DependenciesTable,
                 RoleTransitionsTable,
+                ResourceLeasesTable,
+                ResourceLeaseHistoryTable,
             )
         }
 

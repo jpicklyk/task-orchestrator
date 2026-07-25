@@ -438,4 +438,63 @@ class SQLiteRoleTransitionRepositoryTest {
             assertEquals(VerificationStatus.VERIFIED, actorFound.verification.status)
             assertEquals("test-verifier", actorFound.verification.verifier)
         }
+
+    // --- consumedCredentials (V14) ---
+
+    @Test
+    fun `create transition with empty consumedCredentials round-trips to empty list, not null`() =
+        runBlocking {
+            val transition =
+                RoleTransition(
+                    itemId = testItemId,
+                    fromRole = "queue",
+                    toRole = "work",
+                    trigger = "start"
+                    // consumedCredentials defaults to emptyList()
+                )
+            transitionRepository.create(transition)
+
+            val result = transitionRepository.findByItemId(testItemId)
+            assertIs<Result.Success<List<RoleTransition>>>(result)
+            assertEquals(1, result.data.size)
+            assertTrue(result.data[0].consumedCredentials.isEmpty())
+        }
+
+    @Test
+    fun `create transition with multi-entry consumedCredentials round-trips in order`() =
+        runBlocking {
+            val refs = listOf("vault:prod-db-password", "github-pat-ci", "aws-role/deploy")
+            val transition =
+                RoleTransition(
+                    itemId = testItemId,
+                    fromRole = "work",
+                    toRole = "review",
+                    trigger = "complete",
+                    consumedCredentials = refs
+                )
+            transitionRepository.create(transition)
+
+            val result = transitionRepository.findByItemId(testItemId)
+            assertIs<Result.Success<List<RoleTransition>>>(result)
+            assertEquals(1, result.data.size)
+            assertEquals(refs, result.data[0].consumedCredentials)
+        }
+
+    @Test
+    fun `create transition with single-entry consumedCredentials round-trips`() =
+        runBlocking {
+            val transition =
+                RoleTransition(
+                    itemId = testItemId,
+                    fromRole = "queue",
+                    toRole = "work",
+                    trigger = "start",
+                    consumedCredentials = listOf("vault:prod-db-password")
+                )
+            transitionRepository.create(transition)
+
+            val result = transitionRepository.findByItemId(testItemId)
+            assertIs<Result.Success<List<RoleTransition>>>(result)
+            assertEquals(listOf("vault:prod-db-password"), result.data[0].consumedCredentials)
+        }
 }

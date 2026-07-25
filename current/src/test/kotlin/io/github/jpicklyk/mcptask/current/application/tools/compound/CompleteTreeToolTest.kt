@@ -6,7 +6,9 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.domain.model.*
 import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
+import io.github.jpicklyk.mcptask.current.domain.repository.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
+import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
@@ -44,6 +46,7 @@ class CompleteTreeToolTest {
         every { repoProvider.dependencyRepository() } returns depRepo
         every { repoProvider.noteRepository() } returns noteRepo
         every { repoProvider.roleTransitionRepository() } returns roleTransitionRepo
+        every { repoProvider.resourceLeaseRepository() } returns mockk(relaxed = true)
         // dbNow() is called for ownership checks; default to JVM time for non-clock-skew tests.
         coEvery { workItemRepo.dbNow() } returns Instant.now()
         // inTransaction delegates to its block directly — no real DB transaction in unit tests
@@ -201,6 +204,7 @@ class CompleteTreeToolTest {
             every { repoProvider.dependencyRepository() } returns depRepo
             every { repoProvider.noteRepository() } returns noteRepo
             every { repoProvider.roleTransitionRepository() } returns roleTransitionRepo
+            every { repoProvider.resourceLeaseRepository() } returns mockk(relaxed = true)
             val gatedContext = ToolExecutionContext(repoProvider, noteSchemaService)
 
             coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
@@ -271,6 +275,7 @@ class CompleteTreeToolTest {
             every { repoProvider.dependencyRepository() } returns depRepo
             every { repoProvider.noteRepository() } returns noteRepo
             every { repoProvider.roleTransitionRepository() } returns roleTransitionRepo
+            every { repoProvider.resourceLeaseRepository() } returns mockk(relaxed = true)
             val gatedContext = ToolExecutionContext(repoProvider, noteSchemaService)
 
             coEvery { workItemRepo.getById(idA) } returns Result.Success(itemA)
@@ -376,6 +381,7 @@ class CompleteTreeToolTest {
         every { gatedRepoProvider.dependencyRepository() } returns depRepo
         every { gatedRepoProvider.noteRepository() } returns noteRepo
         every { gatedRepoProvider.roleTransitionRepository() } returns roleTransitionRepo
+        every { gatedRepoProvider.resourceLeaseRepository() } returns mockk(relaxed = true)
         return ToolExecutionContext(gatedRepoProvider, noteSchemaService)
     }
 
@@ -830,6 +836,7 @@ class CompleteTreeToolTest {
             every { repoProvider.dependencyRepository() } returns depRepo
             every { repoProvider.noteRepository() } returns noteRepo
             every { repoProvider.roleTransitionRepository() } returns roleTransitionRepo
+            every { repoProvider.resourceLeaseRepository() } returns mockk(relaxed = true)
             val gatedContext = ToolExecutionContext(repoProvider, noteSchemaService)
 
             coEvery { workItemRepo.findDescendants(rootId) } returns Result.Success(listOf(child))
@@ -908,6 +915,7 @@ class CompleteTreeToolTest {
             every { repoProvider.dependencyRepository() } returns depRepo
             every { repoProvider.noteRepository() } returns noteRepo
             every { repoProvider.roleTransitionRepository() } returns roleTransitionRepo
+            every { repoProvider.resourceLeaseRepository() } returns mockk(relaxed = true)
             val gatedContext = ToolExecutionContext(repoProvider, noteSchemaService)
 
             // Note exists with non-blank body — gate should pass
@@ -968,6 +976,7 @@ class CompleteTreeToolTest {
             every { repoProvider.dependencyRepository() } returns depRepo
             every { repoProvider.noteRepository() } returns noteRepo
             every { repoProvider.roleTransitionRepository() } returns roleTransitionRepo
+            every { repoProvider.resourceLeaseRepository() } returns mockk(relaxed = true)
             val gatedContext = ToolExecutionContext(repoProvider, noteSchemaService)
 
             // No notes at all — gate would fail for "complete" but should be bypassed by "cancel"
@@ -1025,6 +1034,7 @@ class CompleteTreeToolTest {
             every { repoProvider.dependencyRepository() } returns depRepo
             every { repoProvider.noteRepository() } returns noteRepo
             every { repoProvider.roleTransitionRepository() } returns roleTransitionRepo
+            every { repoProvider.resourceLeaseRepository() } returns mockk(relaxed = true)
             val gatedContext = ToolExecutionContext(repoProvider, noteSchemaService)
 
             coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
@@ -1278,6 +1288,7 @@ class CompleteTreeToolTest {
             every { provider.dependencyRepository() } returns depRepo
             every { provider.noteRepository() } returns noteRepo
             every { provider.roleTransitionRepository() } returns roleTransitionRepo
+            every { provider.resourceLeaseRepository() } returns mockk(relaxed = true)
             return ToolExecutionContext(provider, noteSchemaService)
         }
 
@@ -1439,4 +1450,70 @@ class CompleteTreeToolTest {
                 assertEquals(1, summary["gateFailures"]!!.jsonPrimitive.int)
             }
     }
+
+    // ──────────────────────────────────────────────
+    // Resource-lease release on WORK-exit (complete_tree bypasses AdvanceService, so this tool
+    // must release leases itself — see releaseLeasesOnWorkExit).
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `completing an item in WORK releases its resource leases`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            val item = makeItem(id = itemId, title = "Working Item", role = Role.WORK)
+
+            val leaseRepo = mockk<ResourceLeaseRepository>()
+            coEvery { leaseRepo.releaseAllForItem(itemId) } returns LeaseReleaseResult.Success(1)
+
+            val leaseRepoProvider = mockk<RepositoryProvider>()
+            every { leaseRepoProvider.workItemRepository() } returns workItemRepo
+            every { leaseRepoProvider.dependencyRepository() } returns depRepo
+            every { leaseRepoProvider.noteRepository() } returns noteRepo
+            every { leaseRepoProvider.roleTransitionRepository() } returns roleTransitionRepo
+            every { leaseRepoProvider.resourceLeaseRepository() } returns leaseRepo
+            val leaseContext = ToolExecutionContext(leaseRepoProvider)
+
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            every { depRepo.findByToItemId(itemId) } returns emptyList()
+
+            val params = buildItemIdsParams(listOf(itemId))
+            val result = tool.execute(params, leaseContext)
+
+            val r = extractResults(result)[0].jsonObject
+            assertTrue(r["applied"]!!.jsonPrimitive.boolean, "WORK item should complete")
+
+            coVerify { leaseRepo.releaseAllForItem(itemId) }
+        }
+
+    @Test
+    fun `completing an item from QUEUE never releases resource leases`(): Unit =
+        runBlocking {
+            val itemId = UUID.randomUUID()
+            val item = makeItem(id = itemId, title = "Queued Item", role = Role.QUEUE)
+
+            val leaseRepo = mockk<ResourceLeaseRepository>()
+
+            val leaseRepoProvider = mockk<RepositoryProvider>()
+            every { leaseRepoProvider.workItemRepository() } returns workItemRepo
+            every { leaseRepoProvider.dependencyRepository() } returns depRepo
+            every { leaseRepoProvider.noteRepository() } returns noteRepo
+            every { leaseRepoProvider.roleTransitionRepository() } returns roleTransitionRepo
+            every { leaseRepoProvider.resourceLeaseRepository() } returns leaseRepo
+            val leaseContext = ToolExecutionContext(leaseRepoProvider)
+
+            coEvery { workItemRepo.getById(itemId) } returns Result.Success(item)
+            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+            coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
+            every { depRepo.findByToItemId(itemId) } returns emptyList()
+
+            val params = buildItemIdsParams(listOf(itemId))
+            val result = tool.execute(params, leaseContext)
+
+            val r = extractResults(result)[0].jsonObject
+            assertTrue(r["applied"]!!.jsonPrimitive.boolean, "QUEUE item should complete (jumps straight to TERMINAL)")
+
+            coVerify(exactly = 0) { leaseRepo.releaseAllForItem(any()) }
+        }
 }
