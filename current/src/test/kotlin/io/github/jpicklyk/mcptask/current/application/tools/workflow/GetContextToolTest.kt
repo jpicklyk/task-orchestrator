@@ -54,6 +54,7 @@ class GetContextToolTest {
         every { noteSchemaService.getSchemaForType(any()) } returns null
         every { noteSchemaService.getDefaultTraits(any()) } returns emptyList()
         every { noteSchemaService.getTraitNotes(any()) } returns null
+        every { noteSchemaService.getTraitResources(any()) } returns emptyList()
 
         val repoProvider = mockk<RepositoryProvider>()
         every { repoProvider.workItemRepository() } returns workItemRepo

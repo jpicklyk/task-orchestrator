@@ -513,3 +513,35 @@ data class PlanDocumentListResponseDto(
     val rootId: String,
     val plans: List<PlanDocumentSummaryDto>,
 )
+
+/**
+ * DTO for a single active resource lease row (see
+ * [io.github.jpicklyk.mcptask.current.domain.model.ResourceLease]).
+ *
+ * `acquiredByActorId` is holder-identity — included only for callers with `admin` capability;
+ * non-admin callers get it redacted to null by the route handler (mirrors [NoteDto]'s
+ * attribution redaction, applied via [io.github.jpicklyk.mcptask.current.interfaces.api.v1.redaction.AttributionRedactor]-style
+ * gating rather than that class itself, since resource leases have no note/verification shape).
+ */
+@Serializable
+data class ResourceLeaseDto(
+    val resourceKey: String,
+    val holderItemId: String,
+    val acquiredByActorId: String? = null,
+    val acquiredAt: String,
+    val expiresAt: String,
+    val originalAcquiredAt: String,
+)
+
+/** Response DTO for `GET /api/v1/resources/leases`. */
+@Serializable
+data class ResourceLeaseListResponseDto(
+    val leases: List<ResourceLeaseDto>,
+)
+
+/** Response DTO for `DELETE /api/v1/resources/leases/{key}` on a successful force-release. */
+@Serializable
+data class ResourceLeaseReleaseResponseDto(
+    val resourceKey: String,
+    val releasedCount: Int,
+)

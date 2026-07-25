@@ -6,6 +6,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
+import io.github.jpicklyk.mcptask.current.domain.model.ResourceLease
 import io.github.jpicklyk.mcptask.current.domain.model.RoleTransition
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
@@ -18,6 +19,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ExpectedNoteDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ItemDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.MissingNoteDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.NoteDto
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ResourceLeaseDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.RoleTransitionDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.UnblockedItemDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.VerificationDto
@@ -284,3 +286,24 @@ fun AdvanceResult.toDto(existingNoteKeys: Set<String>): AdvanceResponseDto {
         expectedNotes = expectedNotes,
     )
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ResourceLeaseMapper
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Maps a [ResourceLease] domain entity to a [ResourceLeaseDto].
+ *
+ * The caller is responsible for redacting `acquiredByActorId` for non-admin callers (see
+ * `ResourceLeaseRoutes` — the route handler nulls it out before responding) — this function
+ * always includes it when present.
+ */
+fun ResourceLease.toDto(): ResourceLeaseDto =
+    ResourceLeaseDto(
+        resourceKey = resourceKey,
+        holderItemId = holderItemId.toString(),
+        acquiredByActorId = acquiredByActorId,
+        acquiredAt = acquiredAt.toString(),
+        expiresAt = expiresAt.toString(),
+        originalAcquiredAt = originalAcquiredAt.toString(),
+    )
