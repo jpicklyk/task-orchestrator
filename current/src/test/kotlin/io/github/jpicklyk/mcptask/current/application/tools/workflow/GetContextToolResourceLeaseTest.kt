@@ -90,15 +90,20 @@ class GetContextToolResourceLeaseTest {
         resourceKey: String,
         holderItemId: UUID,
         actorId: String? = "agent-1",
-        expiresAt: Instant = Instant.now().plusSeconds(300)
-    ) = ResourceLease(
-        resourceKey = resourceKey,
-        holderItemId = holderItemId,
-        acquiredByActorId = actorId,
-        acquiredAt = Instant.now().minusSeconds(60),
-        expiresAt = expiresAt,
-        originalAcquiredAt = Instant.now().minusSeconds(60)
-    )
+        expiresAt: Instant? = null
+    ): ResourceLease {
+        // Single Instant.now() — two separate calls can differ by microseconds, and
+        // originalAcquiredAt > acquiredAt trips ResourceLease.validate() (seen on CI).
+        val now = Instant.now()
+        return ResourceLease(
+            resourceKey = resourceKey,
+            holderItemId = holderItemId,
+            acquiredByActorId = actorId,
+            acquiredAt = now.minusSeconds(60),
+            expiresAt = expiresAt ?: now.plusSeconds(300),
+            originalAcquiredAt = now.minusSeconds(60)
+        )
+    }
 
     // ──────────────────────────────────────────────
     // Item mode — declared + held resources with holder identity
