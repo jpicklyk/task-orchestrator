@@ -1,6 +1,8 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
+import io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition
+import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 
@@ -119,6 +121,22 @@ interface WorkItemSchemaService {
      * Default implementation returns `"warn"` (schema-free / unconfigured mode).
      */
     fun getNoteLimitsMode(): String = "warn"
+
+    /**
+     * Returns the resource requirements declared for trait [traitName] (its `resources:` list under
+     * `traits.<traitName>.resources:`), or an empty list when the trait declares no `resources:` key
+     * or the trait itself is undefined.
+     *
+     * Default implementation returns an empty list (schema-free / unconfigured mode).
+     */
+    fun getTraitResources(traitName: String): List<ResourceRequirement> = emptyList()
+
+    /**
+     * Returns the top-level `resources:` registry, keyed by resource key.
+     *
+     * Default implementation returns an empty map (schema-free / unconfigured mode).
+     */
+    fun getResourceRegistry(): Map<String, ResourceDefinition> = emptyMap()
 }
 
 /**

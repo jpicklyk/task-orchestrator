@@ -183,6 +183,10 @@ class AdvanceService(
      * @param degradedModePolicy the deployment's degraded-mode policy.
      * @param enforceOwnership when true, the claim-ownership pre-check runs (MCP); when false it is
      *   skipped entirely (REST) — the transition proceeds regardless of claim state.
+     * @param credentialRefs optional audit list of opaque credential/secret labels consumed by this
+     *   transition (never raw secret material). Defaults to empty — additive, no behavior change
+     *   when omitted. Caller (MCP tool / REST route) is responsible for format validation before
+     *   calling [advance]; this service persists the list as-is.
      * @return [AdvanceOutcome.Success] with a structured [AdvanceResult], or
      *   [AdvanceOutcome.Failure] with a structured [AdvanceFailure].
      */
@@ -193,7 +197,8 @@ class AdvanceService(
         actorClaim: ActorClaim?,
         verification: VerificationResult?,
         degradedModePolicy: DegradedModePolicy,
-        enforceOwnership: Boolean
+        enforceOwnership: Boolean,
+        credentialRefs: List<String> = emptyList()
     ): AdvanceOutcome {
         val previousRole = item.role
         val itemSchema = schemaResolver(item)
@@ -266,7 +271,8 @@ class AdvanceService(
                 roleTransitionRepository,
                 actorClaim = actorClaim,
                 verification = verification,
-                roleChangedAt = dbNow
+                roleChangedAt = dbNow,
+                consumedCredentials = credentialRefs
             )
         if (!applyResult.success || applyResult.item == null) {
             return AdvanceOutcome.Failure(

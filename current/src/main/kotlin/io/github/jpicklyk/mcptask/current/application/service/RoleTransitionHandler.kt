@@ -684,6 +684,9 @@ class RoleTransitionHandler {
      *   pass the DB-side current time (via [WorkItemRepository.dbNow]) to keep this
      *   timestamp consistent with DB-clock-based range filter queries. Defaults to
      *   [Instant.now] for backward compatibility with existing unit tests.
+     * @param consumedCredentials Optional audit list of opaque credential/secret labels consumed
+     *   by this transition (never raw secret material). Defaults to empty — additive, no behavior
+     *   change when omitted. Cascade transitions always pass the default (empty).
      */
     suspend fun applyTransition(
         item: WorkItem,
@@ -695,7 +698,8 @@ class RoleTransitionHandler {
         roleTransitionRepository: RoleTransitionRepository,
         actorClaim: ActorClaim? = null,
         verification: VerificationResult? = null,
-        roleChangedAt: Instant = Instant.now()
+        roleChangedAt: Instant = Instant.now(),
+        consumedCredentials: List<String> = emptyList()
     ): TransitionApplyResult {
         val previousRole = item.role
 
@@ -754,7 +758,8 @@ class RoleTransitionHandler {
                                 trigger = trigger,
                                 summary = summary,
                                 actorClaim = actorClaim,
-                                verification = verification
+                                verification = verification,
+                                consumedCredentials = consumedCredentials
                             )
                         when (val createResult = roleTransitionRepository.create(transition)) {
                             is Result.Success -> {

@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceFailure
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceService
+import io.github.jpicklyk.mcptask.current.application.service.CredentialRefValidation
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
 import io.github.jpicklyk.mcptask.current.application.service.ItemHierarchyValidator
 import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
@@ -720,6 +721,21 @@ fun Route.itemWriteRoutes(
                     return@post
                 }
 
+            // Optional credentialRefs: same shared rules as the MCP advance_item tool
+            // (CredentialRefValidation) — a violation fails the request before anything is persisted.
+            val credentialRefs = advanceDto.credentialRefs ?: emptyList()
+            when (val credentialRefsResult = CredentialRefValidation.validate(credentialRefs)) {
+                is CredentialRefValidation.Result.Invalid -> {
+                    val suffix = if (credentialRefsResult.index >= 0) "[${credentialRefsResult.index}]" else ""
+                    call.respond(
+                        HttpStatusCode.BadRequest,
+                        ErrorDto("validation_error", "credentialRefs$suffix ${credentialRefsResult.reason}"),
+                    )
+                    return@post
+                }
+                is CredentialRefValidation.Result.Valid -> {} // ok
+            }
+
             val itemResult = workItemRepo.getById(id)
             if (itemResult is Result.Error) {
                 call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Item $id not found"))
@@ -785,6 +801,7 @@ fun Route.itemWriteRoutes(
                     verification = verification,
                     degradedModePolicy = degradedModePolicy,
                     enforceOwnership = false,
+                    credentialRefs = credentialRefs,
                 )
 
             val advanceResult =

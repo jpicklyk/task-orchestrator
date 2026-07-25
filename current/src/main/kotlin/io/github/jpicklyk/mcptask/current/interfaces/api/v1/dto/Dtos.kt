@@ -90,6 +90,12 @@ data class RoleTransitionDto(
     val occurredAt: String,
     val actor: ActorClaimDto?,
     val verification: VerificationDto?,
+    /**
+     * Opaque credential/secret labels consumed by this transition (e.g. "vault:prod-db-password"),
+     * never raw secret material. Omitted (null) when empty. Deliberately NOT subject to attribution
+     * redaction — the labels themselves are not sensitive.
+     */
+    val consumedCredentials: List<String>? = null,
 )
 
 /** DTO for the combined dependencies view of a work item. */
@@ -331,6 +337,13 @@ data class DependencyCreateDto(
 @Serializable
 data class AdvanceRequestDto(
     val trigger: String,
+    /**
+     * Optional audit list of opaque credential/secret labels consumed by this transition (e.g.
+     * "vault:prod-db-password"), never raw secret material. Validated with the same rules as the
+     * MCP `advance_item` tool's `credentialRefs` field (see [io.github.jpicklyk.mcptask.current.application.service.CredentialRefValidation]).
+     * Omitted/null preserves existing behavior (no credentialRefs recorded).
+     */
+    val credentialRefs: List<String>? = null,
 )
 
 /**

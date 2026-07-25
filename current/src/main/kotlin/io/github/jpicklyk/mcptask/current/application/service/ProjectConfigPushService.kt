@@ -243,7 +243,7 @@ class ProjectConfigPushService(
          * so a push is never silently partial.
          */
         private val HONORED_TOP_LEVEL_SECTIONS =
-            setOf("work_item_schemas", "note_schemas", "traits", "project", "note_limits", "status_labels")
+            setOf("work_item_schemas", "note_schemas", "traits", "project", "note_limits", "status_labels", "resources")
     }
 }
 

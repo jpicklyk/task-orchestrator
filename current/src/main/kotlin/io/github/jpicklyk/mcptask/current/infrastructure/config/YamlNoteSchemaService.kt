@@ -2,6 +2,8 @@ package io.github.jpicklyk.mcptask.current.infrastructure.config
 
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
+import io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition
+import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.infrastructure.security.sha256Hex
 import org.slf4j.LoggerFactory
@@ -94,6 +96,10 @@ class YamlWorkItemSchemaService(
     override fun getAllSchemas(): Map<String, WorkItemSchema> = workItemSchemas
 
     override fun getAllTraits(): Map<String, List<NoteSchemaEntry>> = traitDefs
+
+    override fun getTraitResources(traitName: String): List<ResourceRequirement> = loadResult.traitResources[traitName] ?: emptyList()
+
+    override fun getResourceRegistry(): Map<String, ResourceDefinition> = loadResult.resourceRegistry
 
     /**
      * Returns the configured `note_limits.mode` ("warn" or "reject"), defaulting to "warn"

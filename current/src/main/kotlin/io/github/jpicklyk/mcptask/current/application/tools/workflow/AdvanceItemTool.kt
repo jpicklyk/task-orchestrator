@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.application.tools.workflow
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceFailure
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceService
+import io.github.jpicklyk.mcptask.current.application.service.CredentialRefValidation
 import io.github.jpicklyk.mcptask.current.application.service.buildExpectedNotesJson
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
 import io.github.jpicklyk.mcptask.current.application.tools.*
@@ -83,7 +84,10 @@ into a one-element array. If `transitions` is present the singular fields are ig
                                 JsonPrimitive(
                                     "Array of transition objects: { itemId (required, UUID or hex prefix), " +
                                         "trigger (required), summary?, actor? ({ id (required), " +
-                                        "kind (required: orchestrator|subagent|user|external), parent?, proof? }) }"
+                                        "kind (required: orchestrator|subagent|user|external), parent?, proof? }), " +
+                                        "credentialRefs? (audit labels of credentials this transition consumed — " +
+                                        "opaque labels, never secret values; string or string array, max 8, " +
+                                        "each 1-128 chars matching ^[a-z0-9][a-z0-9\\-_./]*$) }"
                                 )
                             )
                         }
@@ -152,6 +156,20 @@ into a one-element array. If `transitions` is present the singular fields are ig
         }
     }
 
+    /**
+     * Parses a `credentialRefs` JSON value into a `List<String>`: a bare string is coerced to a
+     * one-element list; a JSON array is accepted only if every element is a string. Returns null
+     * for any other shape (wrong type, non-string array element) so the caller can raise a
+     * shape-specific validation error.
+     */
+    private fun parseCredentialRefsElement(element: JsonElement): List<String>? =
+        when (element) {
+            is JsonArray ->
+                element.map { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content ?: return null }
+            is JsonPrimitive -> if (element.isString) listOf(element.content) else null
+            else -> null
+        }
+
     override fun validateParams(params: JsonElement) {
         val normalized = normalizeParams(params)
         val normalizedObj = normalized as? JsonObject
@@ -190,6 +208,27 @@ into a one-element array. If `transitions` is present the singular fields are ig
                     "transitions[$index].trigger '${triggerPrim.content}' is not a valid trigger. " +
                         "Valid triggers: $validTriggers"
                 )
+
+            // Optional credentialRefs: a bare string or an array of strings, validated against the
+            // shared rules in CredentialRefValidation. Malformed shape or a rule violation fails
+            // validateParams up front — nothing is persisted for ANY transition in the batch.
+            val credentialRefsElement = obj["credentialRefs"]
+            if (credentialRefsElement != null && credentialRefsElement !is JsonNull) {
+                val parsed =
+                    parseCredentialRefsElement(credentialRefsElement)
+                        ?: throw ToolValidationException(
+                            "transitions[$index].credentialRefs must be a string or an array of strings"
+                        )
+                when (val result = CredentialRefValidation.validate(parsed)) {
+                    is CredentialRefValidation.Result.Invalid ->
+                        throw ToolValidationException(
+                            "transitions[$index].credentialRefs" +
+                                (if (result.index >= 0) "[${result.index}]" else "") +
+                                " ${result.reason}"
+                        )
+                    is CredentialRefValidation.Result.Valid -> {} // ok
+                }
+            }
         }
 
         // Validate that all transitions share the same actor presence and actor.id.
@@ -358,6 +397,17 @@ into a one-element array. If `transitions` is present the singular fields are ig
                     if (it.isString && it.content.isNotBlank()) it.content else null
                 }
 
+            // credentialRefs already validated (shape + rules) in validateParams; re-parse here to
+            // thread the resolved list into AdvanceService. Absent/null field -> empty list (no
+            // behavior change).
+            val credentialRefsElement = obj["credentialRefs"]
+            val credentialRefs =
+                if (credentialRefsElement != null && credentialRefsElement !is JsonNull) {
+                    parseCredentialRefsElement(credentialRefsElement) ?: emptyList()
+                } else {
+                    emptyList()
+                }
+
             // Extract optional actor claim
             val actorResult = parseActorClaim(obj["actor"] as? JsonObject, context)
             val actorClaim =
@@ -413,7 +463,8 @@ into a one-element array. If `transitions` is present the singular fields are ig
                     actorClaim = actorClaim,
                     verification = verification,
                     degradedModePolicy = context.degradedModePolicy,
-                    enforceOwnership = true
+                    enforceOwnership = true,
+                    credentialRefs = credentialRefs
                 )
 
             val advanceResult =

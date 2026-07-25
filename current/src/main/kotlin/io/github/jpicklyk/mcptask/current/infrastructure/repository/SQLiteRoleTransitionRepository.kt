@@ -9,6 +9,9 @@ import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.RoleTransitionsTable
+import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.builtins.serializer
+import kotlinx.serialization.json.Json
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.SortOrder
 import org.jetbrains.exposed.v1.core.and
@@ -49,6 +52,10 @@ class SQLiteRoleTransitionRepository(
                 it[RoleTransitionsTable.verificationStatus] = transition.verification?.status?.toJsonString()
                 it[RoleTransitionsTable.verificationVerifier] = transition.verification?.verifier
                 it[RoleTransitionsTable.verificationReason] = transition.verification?.reason
+                it[RoleTransitionsTable.consumedCredentials] =
+                    transition.consumedCredentials.takeIf { creds -> creds.isNotEmpty() }?.let { creds ->
+                        Json.encodeToString(ListSerializer(String.serializer()), creds)
+                    }
             }
             Result.Success(transition)
         }
@@ -158,6 +165,19 @@ class SQLiteRoleTransitionRepository(
                     null
                 }
             }
+        val consumedCredentials: List<String> =
+            row[RoleTransitionsTable.consumedCredentials]?.let { raw ->
+                try {
+                    Json.decodeFromString(ListSerializer(String.serializer()), raw)
+                } catch (e: Exception) {
+                    logger.warn(
+                        "RoleTransition {}: invalid consumedCredentials JSON '{}'; defaulting to empty list",
+                        transitionId,
+                        raw
+                    )
+                    emptyList<String>()
+                }
+            } ?: emptyList()
         return RoleTransition(
             id = transitionId,
             itemId = row[RoleTransitionsTable.itemId],
@@ -169,7 +189,8 @@ class SQLiteRoleTransitionRepository(
             summary = row[RoleTransitionsTable.summary],
             transitionedAt = row[RoleTransitionsTable.transitionedAt],
             actorClaim = actorClaim,
-            verification = verification
+            verification = verification,
+            consumedCredentials = consumedCredentials
         )
     }
 

@@ -210,6 +210,7 @@ fun RoleTransition.toDto(): RoleTransitionDto =
         occurredAt = transitionedAt.toString(),
         actor = actorClaim?.toDto(),
         verification = verification?.toDto(),
+        consumedCredentials = consumedCredentials.takeIf { it.isNotEmpty() },
     )
 
 // ─────────────────────────────────────────────────────────────────────────────
