@@ -505,8 +505,9 @@ class AdvanceService(
      *    the common path for every item that does not use resources, and it must stay free.
      * 2. Resolve the registry (TTL defaults + the known-key set).
      * 3. Tighten `credentialRefs` validation: reject any caller-supplied ref outside
-     *    `declared keys ∪ registry keys`. Only reachable when the item declares a resource or the
-     *    registry is non-empty, so non-adopters keep rung-1 behavior (format validation only).
+     *    `declared keys ∪ registry keys`. Only reachable when the item declares at least one
+     *    resource — step (1) short-circuits before this regardless of registry state, so
+     *    non-adopters keep rung-1 behavior (format validation only).
      * 4. Acquire all EXCLUSIVE keys in one all-or-nothing call. ADVISORY keys are never locked.
      * 5. Derive the final `consumedCredentials`: derived keys (exclusive, then advisory) first, then
      *    any caller-supplied extras, deduped.
@@ -758,14 +759,18 @@ class AdvanceService(
      * Apply a list of pre-detected cascade events (start cascade, reopen cascade). Each apply runs
      * in its own transaction via [RoleTransitionHandler.cascadeTransition].
      *
-     * Resource handling mirrors the primary transition, keyed on the cascade's target role:
-     * - **Into WORK** (start cascades): the parent's own EXCLUSIVE leases are acquired BEFORE the
-     *   cascade is applied. On contention the cascade event is SUPPRESSED — recorded with
+     * Resource handling mirrors the primary transition, keyed on the cascade's target role. Both
+     * cascade kinds applied here — start and reopen — target [Role.WORK] (a reopen cascade re-enters
+     * WORK from a TERMINAL parent; it does not leave WORK), so only one path is ever reachable:
+     * - **Into WORK** (start or reopen cascades): the parent's own EXCLUSIVE leases are acquired
+     *   BEFORE the cascade is applied. On contention the cascade event is SUPPRESSED — recorded with
      *   `applied = false`, `resourceBlocked = true` and the contended keys, exactly mirroring the
      *   `gateBlocked` suppression shape used for terminal cascades. The child's own advance, which
      *   already succeeded, is unaffected: a parent that cannot take the resource simply stays queued.
-     * - **Out of WORK** (reopen cascades from a working parent): leases are released after a
-     *   successful apply, log-and-continue.
+     *
+     * The release call below is defensive and currently unreachable — no event this method applies
+     * ever has `targetRole != WORK` — but it is kept in case a future cascade kind routed through
+     * this method does exit WORK; releasing an item with no leases is always a safe no-op.
      *
      * @param leaseGateActive false when either the caller passed `enforceResourceLeases = false` or
      *   the deployment kill switch is off; acquisition is skipped, releases still run.
@@ -823,6 +828,9 @@ class AdvanceService(
                 )
             )
 
+            // Defensive and currently unreachable: every event this method applies targets WORK (see
+            // the KDoc above), so `event.targetRole != Role.WORK` is never true here. Kept as a
+            // safety net for a future cascade kind that DOES exit WORK.
             if (cascadeApply.success && event.currentRole == Role.WORK && event.targetRole != Role.WORK) {
                 releaseLeases(event.itemId, "cascade work-exit")
             }

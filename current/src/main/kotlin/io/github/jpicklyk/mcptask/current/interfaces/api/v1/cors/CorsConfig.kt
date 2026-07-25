@@ -12,7 +12,7 @@ import io.ktor.server.plugins.cors.CORSConfig
  *   Empty / unset = no cross-origin requests allowed (all preflight returns 403).
  * - `CORS_ALLOWED_METHODS` — comma-separated HTTP methods. Default: GET, POST, PATCH, PUT, DELETE, OPTIONS.
  * - `CORS_ALLOWED_HEADERS` — comma-separated request headers. Default: Authorization, Content-Type, If-Match.
- * - `CORS_EXPOSE_HEADERS` — comma-separated response headers exposed to JS. Default: ETag, Last-Event-ID.
+ * - `CORS_EXPOSE_HEADERS` — comma-separated response headers exposed to JS. Default: ETag, Last-Event-ID, Retry-After.
  * - `CORS_MAX_AGE_SECONDS` — preflight cache duration in seconds. Default: 3600.
  *
  * Design decisions:

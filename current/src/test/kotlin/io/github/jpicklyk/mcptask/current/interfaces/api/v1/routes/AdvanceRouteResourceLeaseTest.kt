@@ -170,6 +170,20 @@ class AdvanceRouteResourceLeaseTest {
             val fake = LeaseGateFakeRepository()
             val item = h2.createTracedItem("Needs staging DB")
             fake.forceContended = listOf("staging-db-credential")
+            // Distinctive seeds so their absence in the serialized 409 body is unambiguous — mirrors
+            // AdvanceItemToolLeaseBlockedTest's disclosure assertion for the MCP surface.
+            val holderItemId = UUID.fromString("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
+            val holderActorId = "holder-actor-zzz999"
+            val now = Instant.now()
+            fake.leases +=
+                ResourceLease(
+                    resourceKey = "staging-db-credential",
+                    holderItemId = holderItemId,
+                    acquiredByActorId = holderActorId,
+                    acquiredAt = now,
+                    expiresAt = now.plusSeconds(600),
+                    originalAcquiredAt = now,
+                )
             application { configureLeaseTestApp(LeaseOverridingProvider(h2, fake)) }
 
             val response =
@@ -185,6 +199,8 @@ class AdvanceRouteResourceLeaseTest {
             val body = response.bodyAsText()
             assertTrue(body.contains("resource_unavailable"), "body: $body")
             assertTrue(body.contains("staging-db-credential"), "body: $body")
+            assertFalse(body.contains(holderItemId.toString()), "holder item id must never appear in a 409 body: $body")
+            assertFalse(body.contains(holderActorId), "holder actor id must never appear in a 409 body: $body")
 
             // Hard negative: the item did NOT advance.
             val persisted = runBlocking { h2.workItemRepository().getById(item.id) }
