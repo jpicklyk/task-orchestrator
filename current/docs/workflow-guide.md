@@ -1150,6 +1150,15 @@ invariant, and not fairness. Read this section before relying on it for anything
   lease — there is no per-actor "only the acquiring actor can release" check. This is a deliberate
   simplification, not an oversight: the exclusivity guarantee above is about the item, not about who
   is allowed to touch it.
+- **One item = one concurrent actor is an assumed modelling obligation.** Item-keyed exclusivity
+  arbitrates between *items*, not between actors working inside the same item — two sessions
+  operating under one work item share its lease, and the schema cannot detect that violation (the
+  server sees transitions, not actions). Identity still matters, one level up, in how you cut
+  items: model concurrent actors as separate work items at actor granularity. In fleet
+  deployments, `claim_item` is the opt-in enforcement of exactly this assumption — it binds one
+  verified actor to an item with a TTL, and an agent can hold its item claim and the item's
+  resource leases simultaneously by design. The release-side corollary of the same assumption:
+  any actor's work-exit transition on the shared item releases the lease for all of them.
 - **The kill switch is read per request, not once at startup.** `RESOURCE_LEASES_ENFORCED=false`
   disables acquisition (releases still always run) — and because the pipeline is constructed fresh
   per `advance_item`/`POST .../advance` call, flipping this env var takes effect on the **next
