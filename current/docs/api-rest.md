@@ -738,8 +738,9 @@ This route runs the **same advance pipeline as the MCP `advance_item` tool**, un
 `credentialRefs`: opaque audit labels for credentials/resources this transition consumed — max 8
 entries, each 1-128 chars matching `^[a-z0-9][a-z0-9\-_./]*$`. Validated with the identical
 `CredentialRefValidation` object the MCP `advance_item` tool uses, so the two surfaces reject the
-same inputs. **Closed-set rule:** once the target item declares `resources:` (via traits) or the
-server has a non-empty `resources:` registry, each supplied ref must name a declared/registered key
+same inputs. **Closed-set rule:** once the target item declares at least one resource via its traits'
+`resources:` (registry state alone does not trigger this), each supplied ref must name a
+declared/registered key
 — an unrecognized ref is rejected with `400 validation_error` naming the ref and the known-key list.
 Items with no declared resources are unaffected (an open, format-only check, unchanged from rung 1).
 Declared exclusive/advisory keys are auto-recorded into `consumedCredentials` on work entry — you do

@@ -425,9 +425,10 @@ components:
           maxItems: 8
           description: >-
             Opaque audit labels for credentials/resources consumed by this transition (never secret
-            values). Each entry 1-128 chars matching the pattern. Once the target item declares
-            resources: (traits) or the server registry is non-empty, each ref must name a
-            declared/registered key (closed set) — an unrecognized ref returns 400 validation_error.
+            values). Each entry 1-128 chars matching the pattern. Once the target item declares at
+            least one resource via its traits (registry state alone does not trigger this), each
+            ref must name a declared/registered key (closed set) — an unrecognized ref returns 400
+            validation_error.
             Declared resource keys are auto-recorded on work entry; you do not need to repeat them.
         overrideResourceLeases:
           type: boolean

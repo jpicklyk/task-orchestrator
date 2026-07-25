@@ -282,7 +282,8 @@ types if you want audit visibility without the lock.
 
 ### Interaction with `credentialRefs`
 
-Once an item declares `resources:` (or the server's registry is non-empty), the `credentialRefs`
+Once an item declares at least one resource via its traits' `resources:` (registry state alone
+does not trigger this — an item declaring nothing keeps the open rung-1 behavior), the `credentialRefs`
 field on that item's `advance_item` transitions becomes a **closed set** — each supplied ref must
 name a declared/registered key, or the transition is rejected with a validation error naming the
 unrecognized ref and the known-key list. Declared keys (both `exclusive`, once acquired, and

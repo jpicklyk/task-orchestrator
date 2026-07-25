@@ -1238,8 +1238,9 @@ disclosed on this path** — no item id, no actor id — by the same tiered-disc
 `get_context(itemId=...)` (below) or, for operators, `GET /api/v1/resources/leases` (REST, `ADMIN`
 capability for holder actor identity — see `api-rest.md`).
 
-*`credentialRefs` becomes a closed set.* Once an item declares `resources:` (or the server's
-`resources:` registry is non-empty), each supplied `credentialRefs` entry must name a
+*`credentialRefs` becomes a closed set.* Once an item declares at least one resource via its
+traits' `resources:` (registry state alone does not trigger this), each supplied `credentialRefs`
+entry must name a
 declared/registered key — an unrecognized ref is rejected before anything is persisted. Declared
 resource keys (both the exclusive keys just acquired and any advisory keys) are **auto-recorded**
 into the persisted transition's `consumedCredentials`, unioned with any caller-supplied
