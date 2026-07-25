@@ -1038,6 +1038,131 @@ get_context(itemId="uuid")
 
 ---
 
+## 11. Resource Leasing
+
+Resource leasing lets a work item declare — via **traits** — that it needs exclusive or advisory
+access to a named shared resource (a staging slot, a test database, a deploy credential, a
+fleet-wide deployment mutex) before it enters the `work` phase. The server enforces this as a
+**gate inside `advance_item`**, the same call agents already use to advance — there is no separate
+acquire/release verb and no new MCP tool.
+
+> Full config syntax (`resources:` on a trait, the optional top-level registry, merge semantics,
+> the leaf-task-types-only rule) is in
+> [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md).
+> This section covers the runtime behavior and operating discipline.
+
+### What it is (and isn't)
+
+A trait can declare one or more `resources:` — each a short opaque key (e.g. `staging-db`,
+`github-deploy-token`) with a **mode**:
+
+- **`exclusive`** (default) — the server takes a lease on the key when the item enters WORK (via
+  `start` or `resume` — both re-enter WORK). At most one item holds an exclusive key at a time in
+  v1 (the storage is semaphore-ready for `maxHolders > 1` later; admission is capped at 1 today). A
+  second item entering WORK while the key is held gets rejected — see Contention below.
+- **`advisory`** — no lease, no lock, no contention possible. The key is recorded into the
+  transition's `consumedCredentials` audit trail (alongside any caller-supplied `credentialRefs`)
+  purely for visibility — "this item touched this resource" — without serializing anything.
+
+**The single biggest modeling mistake to avoid:** `exclusive` means *"this item's work phase must
+not overlap another item's work phase for this key"* — reserve it for genuinely single-occupancy
+resources (a staging slot only one deployment can hold, a test DB only one suite can migrate at a
+time, a fleet-wide "one deployment in flight" mutex). A credential that is safe for several agents
+to *use concurrently* (most read-only API tokens, most service credentials with their own
+rate-limit budget) should be declared `advisory`, not `exclusive` — tagging it `exclusive` just
+because it's "a credential" needlessly serializes unrelated work. Use `advisory` for "record that
+this item touched this credential"; reserve `exclusive` for "this item must have this resource to
+itself."
+
+### Contention and retry discipline
+
+When an item enters WORK and an exclusive key it declares is already held, `advance_item` rejects
+the transition with a **transient** error, not a gate block:
+
+```json
+{
+  "itemId": "uuid",
+  "trigger": "start",
+  "applied": false,
+  "error": "Resource lease contended: staging-db",
+  "errorKind": "transient",
+  "errorCode": "resource_unavailable",
+  "retryAfterMs": 30000,
+  "contendedResources": ["staging-db"]
+}
+```
+
+This is deliberately shaped differently from a gate-blocked failure (`missingNotes` / write-more-notes)
+because the fix is different: **wait and retry, or work a different item** — not "fill in more
+context." `contendedResources` names the contended keys only; **the current holder's identity is
+never disclosed** on this path, by design (see Guarantees below). Agents and Ralph-style loop
+workers should treat `resource_unavailable` the same way they treat `already_claimed` from
+`claim_item`: release any claim on the item and move to a different item, never spin-retry the same
+item against the same lock.
+
+On the REST surface, the same contention maps to `409 resource_unavailable` with a `Retry-After`
+header (whole seconds, rounded up) — see [`api-rest.md`](./api-rest.md) §10/§14.
+
+An item that declares **no** `resources:` can never produce `resource_unavailable` — the check
+short-circuits before any lease-repository access, so the overwhelmingly common case (items with no
+resource traits) pays zero extra cost and sees byte-identical behavior to a deployment without this
+feature at all.
+
+### Guarantees vs non-guarantees
+
+Resource leasing gives you a real exclusivity guarantee at a specific moment, not a continuous
+invariant, and not fairness. Read this section before relying on it for anything safety-critical.
+
+**What it DOES guarantee:**
+- **A precondition at WORK entry, not a continuous invariant.** At the instant an item's `start`/`resume`
+  transition acquires an exclusive key, no other item holds that key. The lease is **not**
+  re-checked or re-validated for the remainder of the item's time in WORK — it holds the key until
+  it leaves WORK (complete, cancel, block/hold, reopen, or the TTL elapses), full stop. Both exit
+  paths release leases: `advance_item` (and the equivalent REST advance route) release inline on
+  every WORK exit, and `complete_tree` — which applies completions/cancellations directly rather
+  than through `advance_item` — independently releases leases on the same "leaving WORK" condition,
+  so a batch completion via `complete_tree` does not orphan leases until TTL expiry.
+- **The exclusivity subject is the work item, not the actor.** Leases are keyed on `holder_item_id`,
+  not on `acquired_by_actor_id` (audit metadata only). This makes the guarantee independent of actor
+  identity quality — it holds the same whether or not `actor_authentication` is configured, and
+  regardless of how many processes share a self-reported actor id like `"orchestrator"`.
+- **A single-DB arbiter.** Admission is enforced by one SQLite transaction (count-guard + insert, or
+  refresh) against the `resource_leases` table. There is no distributed coordination — this is not
+  a substitute for a distributed lock service across multiple database instances.
+- **Keys are opaque labels, never secrets.** A resource key (`staging-db`, `github-deploy-token`) is
+  a name, not a value — no credential material is ever stored by this feature. This is enforced by
+  construction (the key/label charset is deliberately narrow), not by redaction — labels are
+  intentionally NOT hidden from readers, since external verifiability is the point.
+
+**What it does NOT guarantee:**
+- **No fairness, no queueing, no waiting acquire.** A contended item is rejected immediately with
+  `resource_unavailable` — it does not wait in line. Whichever retry happens to land after the
+  holder releases wins; there is no FIFO ordering across contending items. If you need fair
+  ordering, build it in your retry/dispatch logic, not in this feature.
+- **Crash recovery is TTL expiry or an explicit ADMIN force-release — nothing automatic beyond
+  that.** If a holder crashes mid-WORK, the lease sits until its TTL elapses (default 3600s,
+  operator-configurable up to a max of 86400s per resource) or an operator calls
+  `DELETE /api/v1/resources/leases/{key}` (ADMIN capability — see
+  [`fleet-deployment.md`](./fleet-deployment.md)). There is no background reaper/sweeper process
+  actively watching for crashed holders.
+- **Identity governs early release, not exclusion.** Because leases are item-keyed (not
+  actor-keyed), *any* successful transition that moves the holding item out of WORK releases the
+  lease — there is no per-actor "only the acquiring actor can release" check. This is a deliberate
+  simplification, not an oversight: the exclusivity guarantee above is about the item, not about who
+  is allowed to touch it.
+- **The kill switch is read per request, not once at startup.** `RESOURCE_LEASES_ENFORCED=false`
+  disables acquisition (releases still always run) — and because the pipeline is constructed fresh
+  per `advance_item`/`POST .../advance` call, flipping this env var takes effect on the **next
+  call**, not after a server restart. Do not assume the usual "env vars need a restart" convention
+  applies here.
+- **No selector-level awareness.** `get_next_item` and `claim_item`'s selector mode do not know
+  about resource contention — they can still hand an agent an item that will immediately reject with
+  `resource_unavailable` on `start`. This is a known, deliberately deferred gap (see Non-Goals in
+  the implementation plan) — treat `resource_unavailable` as a normal, expected outcome to handle in
+  your retry loop, not a bug.
+
+---
+
 ## Quick Reference
 
 ### Common Call Patterns
@@ -1064,3 +1189,6 @@ get_context(itemId="uuid")
 | Diagnose stalled claim            | `get_context(itemId="uuid")` — returns `claimDetail` with `claimedBy` |
 | Filter next item by tag           | `get_next_item(tags="task-implementation", priority="high")` |
 | FIFO queue drain                  | `get_next_item(orderBy="oldest")` |
+| Record a consumed credential/resource | `advance_item(transitions=[{itemId, trigger:"start", credentialRefs:["vault:prod-db-password"]}])` |
+| Diagnose a stuck resource lease   | `get_context(itemId="uuid")` — `resourceLeases` block; or `GET /api/v1/resources/leases` (ADMIN sees holder actor) |
+| Force-release a stuck lease (operator) | `DELETE /api/v1/resources/leases/{key}` (ADMIN capability) |

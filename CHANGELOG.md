@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Resource leasing.** Work items can now declare exclusive or advisory access to shared resources
+  (a staging slot, a test database, a deploy credential, a fleet-wide deployment mutex) via a new
+  `resources:` dimension on trait definitions, enforced as a gate inside `advance_item` at WORK
+  entry (`start` and `resume`) — no new MCP tool, no explicit acquire/release verb. `exclusive`
+  resources take a TTL-bounded lease (default 3600s, max 86400s); contention rejects with a
+  transient `resource_unavailable` error (MCP) or `409` + `Retry-After` (REST), disclosing the
+  contended keys only, never the current holder. `advisory` resources are audit-only.
+- **`credentialRefs` audit field.** `advance_item` transitions accept an optional `credentialRefs`
+  array of opaque credential/resource labels (never secret values), persisted to
+  `role_transitions.consumed_credentials` and surfaced read-only via `RoleTransitionDto.consumedCredentials`.
+  Once an item declares `resources:`, the field becomes a closed set validated against the
+  declared/registered keys, and declared keys are auto-recorded on work entry.
+- **Resource-lease read/recovery surfaces.** `get_context(itemId=...)` item mode gains a
+  `resourceLeases` block (mirroring `claimDetail`). New REST routes `GET /api/v1/resources/leases`
+  (list active leases; holder actor identity ADMIN-only) and
+  `DELETE /api/v1/resources/leases/{key}` (ADMIN-only force-release — the operator recovery path for
+  a crashed holder, without waiting out the TTL or disabling enforcement server-wide).
+- **Enforcement matrix and kill switch.** Both MCP and REST enforce the resource-lease gate by
+  default; REST additionally accepts an ADMIN-only `overrideResourceLeases` request flag (403 for
+  non-admin callers who set it, WARN-logged when used). New `RESOURCE_LEASES_ENFORCED` env var
+  (default `true`) is a deployment-wide kill switch, read per advance call rather than once at
+  startup. `CORS_EXPOSE_HEADERS` now defaults to include `Retry-After`.
+
 ## [Plugin 3.5.1] - 2026-07-23
 
 Plugin-only release — no server changes, no image rebuild. Server stays at 3.12.0.

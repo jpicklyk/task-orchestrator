@@ -8,7 +8,8 @@ For single-agent or local-dev setups, the defaults are appropriate and this guid
 - [REST API Reference](api-rest.md) — HTTP endpoint docs, DTOs, error codes, SSE
 - [API Reference — `claim_item`](api-reference.md#claim_item) — tool spec: parameters, outcome codes, examples
 - [Workflow Guide §10 — Claim Mechanism](workflow-guide.md#10-claim-mechanism-for-multi-agent-fleets) — agent-side lifecycle, heartbeat pattern, discovery
-- This guide — operator-side: identity policy, capacity, disclosure, observability
+- [Workflow Guide §11 — Resource Leasing](workflow-guide.md#11-resource-leasing) — agent-side model: exclusive vs advisory, contention/retry, guarantees vs non-guarantees
+- This guide — operator-side: identity policy, capacity, disclosure, observability, resource-lease TTL/runbook
 
 ---
 
@@ -87,7 +88,7 @@ API_ALLOW_UNAUTHENTICATED=true
 | `CORS_ALLOWED_ORIGINS` | browser clients | _(none)_ | Comma-separated allowed origins. Empty = no cross-origin access. |
 | `CORS_ALLOWED_METHODS` | CORS enabled | `GET,POST,PATCH,PUT,DELETE,OPTIONS` | Comma-separated methods. |
 | `CORS_ALLOWED_HEADERS` | CORS enabled | `Authorization,Content-Type,If-Match` | Comma-separated request headers. |
-| `CORS_EXPOSE_HEADERS` | CORS enabled | `ETag,Last-Event-ID` | Response headers JS may read. |
+| `CORS_EXPOSE_HEADERS` | CORS enabled | `ETag,Last-Event-ID,Retry-After` | Response headers JS may read. `Retry-After` is exposed by default so browser dashboards can read the resource-lease contention backoff hint directly off `POST /items/{id}/advance`'s `409` response (see Resource Leasing below) without falling back to the `details.retryAfterMs` body field. |
 | `CORS_MAX_AGE_SECONDS` | CORS enabled | `3600` | Preflight cache duration. |
 | `API_SSE_BUFFER_SIZE` | SSE in use | `1000` | Ring-buffer size for Last-Event-ID replay. |
 | `API_ALLOW_QUERY_TOKEN_FOR_SSE` | SSE + browser | `false` | Allow `?token=` auth for SSE (browser EventSource workaround). |
@@ -95,6 +96,7 @@ API_ALLOW_UNAUTHENTICATED=true
 | `API_REDACT_NOTE_ATTRIBUTION` | always | `true` | When `true`, non-admin callers see no `actor`/`verification` on notes/transitions. |
 | `API_REDACT_ACTOR_PROOF` | always | `true` | When `true`, `actor.proof` is redacted even from admin callers unless `?include=proof`. |
 | `API_WARN_ON_CLAIMED_ADVANCE` | always | `true` | Log WARN when API caller advances a claimed item. |
+| `RESOURCE_LEASES_ENFORCED` | always | `true` | Deployment-wide kill switch for the resource-lease gate (see Resource Leasing below). Only the literal `false` (case-insensitive) disables it — any other value, including unset, leaves enforcement on. Disables **acquisition only**; releases always run regardless. Unlike every other flag in this table, this is read **per advance call**, not once at process start — `AdvanceService` is constructed fresh per `advance_item`/`POST .../advance` invocation, so flipping this var takes effect on the very next call, no restart required. |
 
 ### Bearer token secret file
 
@@ -637,6 +639,87 @@ The server intentionally restricts where `claimedBy` identity is visible. This d
 | `get_context()` health-check | `claimSummary: { active, expired }` globally — counts only |
 
 `get_context(itemId)` is the operator diagnostic tool. All other surfaces use count-only or boolean signals.
+
+---
+
+## Resource Leasing
+
+Resource leasing is a **separate primitive from `claim_item`**, deliberately: a claim leases a work
+*item* to a single actor; a resource lease serializes access to a shared *external* resource
+(a staging slot, a test database, a deploy credential, a fleet-wide deployment mutex) across
+whichever items declare it. An agent can hold a work-item claim and one or more resource leases
+simultaneously — the two systems do not interact, and one released is not implicitly released
+alongside the other. See [Workflow Guide §11](workflow-guide.md#11-resource-leasing) for the
+agent-facing model (declaration modes, contention/retry discipline, the full guarantees/non-
+guarantees statement) and
+[`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md)
+for the `resources:` trait/registry YAML syntax. This section covers the operator-facing runbook.
+
+### Item-keyed holder model
+
+The exclusivity subject is the **holding work item**, not the actor that triggered acquisition
+(`acquired_by_actor_id` is audit metadata only, nullable). This is deliberate: actor identity is
+optional and often self-reported or shared across processes (ten worker processes all reporting
+`actor.id: "orchestrator"` would otherwise all be treated as "the same holder," reproducing the
+exact multi-instance credential-collision failure this feature exists to prevent). Practical
+consequence for operators: **you cannot release a lease by matching on actor identity** — the only
+release paths are (1) the holding item's own transition out of WORK, (2) TTL expiry, or (3) an
+explicit `DELETE /api/v1/resources/leases/{key}` force-release. There is no "kick this actor's
+leases" operation.
+
+### TTL guidance
+
+Default TTL is **3600 seconds** (1 hour), configurable per resource key up to a hard maximum of
+**86400 seconds** (24 hours) via the registry's `defaultTtlSeconds`, or per-declaration via a
+trait's `ttlSeconds` (precedence: `requirement.ttlSeconds` > `registry.defaultTtlSeconds` > 3600,
+clamped to `[1, 86400]`). This is a materially longer default than the work-item claim TTL (900s) —
+size it to the resource, not the item: a resource lease should comfortably outlast the WORK phase
+of the item holding it, since there is no lease heartbeat/renewal call (unlike `claim_item`, which
+agents heartbeat explicitly). A lease that expires while the holding item is still legitimately in
+WORK does not get cleaned up automatically — the item keeps working, but a contending item could
+then acquire the "expired" key out from under it (a lost-exclusivity edge case; size TTL generously
+enough that this is a non-event in practice).
+
+| Resource type | Guidance |
+|---|---|
+| Fast single-step operation (e.g. a schema migration against a shared test DB) | Default (3600s) is comfortable headroom |
+| Multi-hour feature work touching a shared staging slot | Size `ttlSeconds` to 2-3x your realistic worst-case WORK duration |
+| Fleet-wide deployment mutex | Size to the deployment window, not the calendar — a stuck deploy should free the mutex well before an operator would otherwise notice |
+
+### Force-release runbook
+
+When a holder crashes or hangs mid-WORK, the lease sits until TTL expiry unless an operator
+intervenes:
+
+```bash
+curl -X DELETE https://orchestrator.internal:3001/api/v1/resources/leases/staging-db \
+  -H "Authorization: Bearer <admin-token>"
+```
+
+Requires `ADMIN` capability. Responses: `200` with `{ resourceKey, releasedCount }` on success;
+`404 not_found` if no active lease exists on that key (idempotent-safe — a repeat call after a
+successful release 404s rather than double-counting); `400 validation_error` if `{key}` fails the
+`^[a-z0-9][a-z0-9\-_./]*$` / 128-char check. Every successful force-release is WARN-logged with the
+acting principal's token id — check server logs to attribute the override after the fact. There is
+**no equivalent MCP tool/verb** — force-release is REST-only, by design (see Non-Goals in the
+implementation plan: no MCP acquire/release/renew verbs).
+
+**Diagnosing before you force-release:** `GET /api/v1/resources/leases` (`READ` capability; add
+`ADMIN` to see `acquiredByActorId`) lists every active lease with its `holderItemId` and
+`expiresAt`. Cross-reference `holderItemId` against `get_context(itemId=<that-uuid>)` (MCP) to
+confirm the holder is actually dead (stale `roleChangedAt`, no recent transitions) before force-
+releasing — a live holder that gets force-released will simply lose its lease silently; there is no
+notification back to the holder.
+
+### Enforcement kill switch
+
+`RESOURCE_LEASES_ENFORCED=false` (see the env var table above) disables **acquisition** fleet-wide
+without a restart — releases keep running regardless, so no lease is ever stranded by flipping the
+switch. Use this as an emergency valve if the gate itself is suspected of misbehaving (e.g.
+falsely rejecting every WORK entry) — it degrades the deployment to rung-1/rung-2 behavior
+(the audit field and the lease table both still exist and are still readable/force-releasable via
+REST) without requiring a config edit or redeploy. Re-enable by unsetting the var or setting it to
+anything other than the literal `false` — takes effect on the next `advance_item`/advance-route call.
 
 ---
 

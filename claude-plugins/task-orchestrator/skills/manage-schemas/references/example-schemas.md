@@ -195,3 +195,38 @@ traits:
 ```
 
 Apply traits at item creation: `manage_items(operation="create", items=[{..., traits: "needs-migration-review"}])` or via schema-level `default_traits`. Most schemas in this project apply `session-tracked` (and often `delegated`) via `default_traits` rather than per-item, since nearly every item needs session tracking for `/session-retrospective`; `needs-task-review` is the opt-in trait that layers a review phase onto `feature-task`.
+
+## Resources Example — trait `resources:` + registry
+
+Traits can also declare shared-resource requirements enforced as a gate at WORK entry (see
+"Resources (Trait Dimension)" in `config-format.md` for the full merge/precedence rules). This
+example locks a shared staging database for the duration of a deploy task's work phase, while
+recording (but not locking) a deploy credential for audit purposes:
+
+```yaml
+traits:
+  needs-staging-deploy:
+    notes:
+      - key: deploy-plan
+        role: queue
+        required: true
+        description: "What gets deployed and the rollback plan."
+        guidance: "State the target environment, the change being deployed, and how to roll back if it fails."
+    resources:
+      - key: staging-db           # exclusive (default) — only one deploy task holds this at a time
+        mode: exclusive
+      - key: deploy-credential    # advisory — recorded in consumedCredentials, never locks
+        mode: advisory
+
+resources:
+  staging-db:
+    description: "Shared staging database — exclusive during deploy verification"
+    defaultTtlSeconds: 3600
+    maxHolders: 1
+```
+
+Apply `needs-staging-deploy` on a **leaf task type** (e.g. `deploy-task`), never on a feature
+container — a container commonly sits in WORK for the whole duration of its child tree, which would
+lock `staging-db` far longer than any single deploy actually needs it (see the leaf-task-types-only
+rule in `config-format.md`). A second item entering WORK while `staging-db` is held gets a transient
+`resource_unavailable` rejection with a retry hint — not a gate-style "write more notes" error.

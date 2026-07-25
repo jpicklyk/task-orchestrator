@@ -72,6 +72,27 @@ If `/schema-workflow` cannot complete because a required note can't be filled (y
 RALPH_OUTCOME: {"status": "gate-blocked", "itemId": "<uuid>", "reason": "<which note key, why it can't be filled>"}
 ```
 
+**If `advance_item` rejects a transition into WORK with `errorCode: "resource_unavailable"`** (a
+shared resource the item declares — via a `resources:` trait — is currently held by another item;
+`errorKind` is `"transient"`, distinct from a gate block), this is **not** a gate-blocked or error
+condition — it is expected contention, and the claimed item did not do anything wrong. Do NOT retry
+`advance_item` on the same item; the lock will not free up within this iteration's lifetime, and
+spin-retrying just burns budget against a lock this iteration cannot control. Instead:
+
+1. Release the claim on this item: `claim_item(releases=[{"itemId": "<uuid>"}], actor={...})`.
+2. Emit the skip outcome, naming the contended resource key(s) from the failure's
+   `contendedResources` field:
+
+```
+RALPH_OUTCOME: {"status": "skip", "itemId": "<uuid>", "reason": "resource_unavailable: <contendedResources>"}
+```
+
+The loop driver treats `skip` as a neutral outcome — no circuit-breaker penalty — and the next
+iteration will claim a *different* item (this one stays unclaimed and claimable again once you
+release it). If every candidate the loop encounters is contended on the same key, that is a signal
+for the human operator to inspect `GET /api/v1/resources/leases` or `get_context(itemId=...)`, not
+something this iteration should try to resolve by waiting.
+
 If a tool fails, build breaks unexpectedly, or any other condition prevents progress:
 
 ```

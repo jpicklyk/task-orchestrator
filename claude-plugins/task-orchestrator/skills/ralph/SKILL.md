@@ -176,6 +176,16 @@ The iteration agent emits `RALPH_OUTCOME: {...}` as its final message. The loop 
 | `skip` | Counter —; no counter changes; loop continues |
 | `no-item` | Loop exits cleanly (queue empty) |
 
+**`skip` includes resource-lease contention.** When `advance_item` rejects a transition into WORK
+with `errorCode: "resource_unavailable"` (transient — a shared resource the item declares via a
+`resources:` trait is currently held by another item), the iteration prompt releases its claim on
+that item and emits `skip` naming the contended key, rather than retrying the same item or treating
+it as an error. This is deliberate: a `resource_unavailable` rejection is expected contention, not a
+failure of this iteration, and the lock is not going to free up within the iteration's own lifetime
+— the next iteration should pick a *different* item, not spin against the same lock. See
+[Workflow Guide §11 — Resource Leasing](../../../../current/docs/workflow-guide.md#11-resource-leasing)
+for the full contention/retry model.
+
 The script's own exit code:
 | Code | Meaning |
 |---|---|

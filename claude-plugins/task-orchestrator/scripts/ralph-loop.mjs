@@ -702,7 +702,9 @@ Outcomes (signaled by RALPH_OUTCOME marker in iteration agent stdout):
   terminal       Item reached terminal role per its schema
   gate-blocked   Required notes couldn't be filled autonomously
   error          Tool error, build failure, budget cap hit
-  skip           Already-terminal, claim contention, or filter mismatch
+  skip           Already-terminal, claim contention, resource-lease contention
+                 (advance_item errorCode=resource_unavailable -- claim released,
+                 iteration moves to a different item), or filter mismatch
   no-item        No claimable items match filter -- queue drained
 
 Compose with /loop for autonomous cadence:

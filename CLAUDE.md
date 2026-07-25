@@ -91,11 +91,12 @@ The optional `actor_authentication` config block adds JWKS-based identity verifi
 
 ## Trait System (Orchestration Signals)
 
-Traits are **composable orchestration signals** declared in `.taskorchestrator/config.yaml` under the `traits:` key. They are NOT merely note requirements. Each trait carries three dimensions:
+Traits are **composable orchestration signals** declared in `.taskorchestrator/config.yaml` under the `traits:` key. They are NOT merely note requirements. Each trait carries four dimensions:
 
 1. **Note requirements** -- notes with `key`, `role`, `required` that merge into an item's resolved schema and enforce gates
 2. **Guidance** -- `guidance` text on each note telling agents HOW to fill it (context, constraints, structure)
 3. **Skill routing** -- optional `skill` pointer (e.g., `skill: "migration-review"`) that routes evaluation to a specialized skill
+4. **Resources** -- optional `resources:` list declaring shared-resource requirements (`exclusive` or `advisory` mode) enforced as a lease gate at WORK entry, independent of the note-requirement dimension. See `claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md` -> "Resources (Trait Dimension)" for declaration syntax, merge semantics, and the leaf-task-types-only rule.
 
 **Resolution flow:** `ToolExecutionContext.resolveSchema(item)` merges trait notes from two sources:
 - `defaultTraits` on the schema type definition (always applied to items of that type)
@@ -214,7 +215,7 @@ Add to `gradle/libs.versions.toml` (`[versions]` + `[libraries]`), then referenc
 - `CORS_ALLOWED_ORIGINS` — comma-separated origins; empty = no CORS
 - `CORS_ALLOWED_METHODS` — default: `GET,POST,PATCH,PUT,DELETE,OPTIONS`
 - `CORS_ALLOWED_HEADERS` — default: `Authorization,Content-Type,If-Match`
-- `CORS_EXPOSE_HEADERS` — default: `ETag,Last-Event-ID`
+- `CORS_EXPOSE_HEADERS` — default: `ETag,Last-Event-ID,Retry-After`
 - `CORS_MAX_AGE_SECONDS` — default: `3600`
 - `API_SSE_BUFFER_SIZE` — SSE ring-buffer size for Last-Event-ID replay (default: `1000`)
 - `API_ALLOW_QUERY_TOKEN_FOR_SSE` — allow `?token=` auth on SSE endpoint (default: `false`)
@@ -222,6 +223,7 @@ Add to `gradle/libs.versions.toml` (`[versions]` + `[libraries]`), then referenc
 - `API_REDACT_NOTE_ATTRIBUTION` — default `true`; when `true` non-admin callers see no actor/verification on notes/transitions
 - `API_REDACT_ACTOR_PROOF` — default `true`; when `true` actor.proof redacted unless ADMIN + `?include=proof`
 - `API_WARN_ON_CLAIMED_ADVANCE` — default `true`; WARN when REST API caller advances a claimed item
+- `RESOURCE_LEASES_ENFORCED` — default `true`; only the literal `false` disables the resource-lease gate (acquisition only — releases always run). Read per `advance_item`/advance-route call (not once at startup), so a change takes effect on the next call, not after a restart
 
 **Migration files:** `current/src/main/resources/db/migration/`
 

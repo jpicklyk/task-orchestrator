@@ -227,6 +227,16 @@ components:
           $ref: "#/components/schemas/ActorClaimDto"
         verification:
           $ref: "#/components/schemas/VerificationDto"
+        consumedCredentials:
+          type: array
+          nullable: true
+          items:
+            type: string
+          description: >-
+            Opaque audit labels for credentials/resources this transition consumed — caller-supplied
+            credentialRefs unioned with any resource-lease keys the gate auto-derived. Omitted/null
+            when empty. NOT subject to API_REDACT_NOTE_ATTRIBUTION — visible to any READ caller,
+            unlike actor/verification on this same DTO.
 
     DependenciesDto:
       type: object
@@ -406,6 +416,69 @@ components:
         trigger:
           type: string
           enum: [start, complete, block, hold, resume, cancel, reopen]
+        credentialRefs:
+          type: array
+          nullable: true
+          items:
+            type: string
+            pattern: '^[a-z0-9][a-z0-9\-_./]*$'
+          maxItems: 8
+          description: >-
+            Opaque audit labels for credentials/resources consumed by this transition (never secret
+            values). Each entry 1-128 chars matching the pattern. Once the target item declares
+            resources: (traits) or the server registry is non-empty, each ref must name a
+            declared/registered key (closed set) — an unrecognized ref returns 400 validation_error.
+            Declared resource keys are auto-recorded on work entry; you do not need to repeat them.
+        overrideResourceLeases:
+          type: boolean
+          nullable: true
+          default: false
+          description: >-
+            ADMIN-only. When true, skips the resource-lease gate for this transition (no lease taken,
+            gate bypassed not satisfied). A non-ADMIN caller setting this to true receives 403
+            insufficient_capability before the item is even loaded. WARN-logged; stamps
+            "(resource leases overridden)" on the persisted transition's summary.
+
+    ResourceLeaseDto:
+      type: object
+      required: [resourceKey, holderItemId, acquiredAt, expiresAt, originalAcquiredAt]
+      properties:
+        resourceKey:
+          type: string
+        holderItemId:
+          type: string
+          format: uuid
+        acquiredByActorId:
+          type: string
+          nullable: true
+          description: Present only for callers with ADMIN capability; omitted (not null) otherwise.
+        acquiredAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+        originalAcquiredAt:
+          type: string
+          format: date-time
+
+    ResourceLeaseListResponseDto:
+      type: object
+      required: [leases]
+      properties:
+        leases:
+          type: array
+          items:
+            $ref: "#/components/schemas/ResourceLeaseDto"
+
+    ResourceLeaseReleaseResponseDto:
+      type: object
+      required: [resourceKey, releasedCount]
+      properties:
+        resourceKey:
+          type: string
+        releasedCount:
+          type: integer
 
     MissingNoteDto:
       type: object
@@ -1120,7 +1193,8 @@ paths:
       tags: [items]
       description: |
         Runs the SAME advance pipeline as the MCP advance_item tool (resolve → validate →
-        required-note gate → apply → cascade → unblock), unified behind AdvanceService.
+        required-note gate → resource-lease gate → apply → cascade → unblock), unified behind
+        AdvanceService.
 
         Bypasses MCP claim ownership — a claimed item advances successfully regardless of
         which MCP agent holds the claim. Response does NOT include claimedBy. WARN is logged
@@ -1130,6 +1204,12 @@ paths:
         is rejected with 422 (error code "gate_blocked") and the missing notes in details.missingNotes,
         rather than silently advancing. The response includes cascadeEvents, unblockedItems, and
         expectedNotes (additive — older clients can ignore the new fields).
+
+        Resource-lease gate ALSO enforced on both start and resume (both re-enter WORK) — unlike
+        claim ownership above, this gate is NOT bypassed for ordinary callers; only an explicit
+        ADMIN overrideResourceLeases:true opts out (403 for non-admin callers who set it). Contention
+        returns 409 resource_unavailable with a Retry-After header — never the current holder's
+        identity. An item with no declared resources can never produce this response.
       parameters:
         - $ref: "#/components/parameters/itemId"
       requestBody:
@@ -1153,6 +1233,26 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          description: >-
+            Two independent discriminants share this status, both defensive on the REST path since
+            REST bypasses claim ownership by default (see the ownership/lease asymmetry above):
+            error="resource_unavailable" — resource lease contended; details.contendedResources lists
+            the contended keys and details.retryAfterMs the suggested backoff (echoed as a Retry-After
+            header, whole seconds, rounded up); no holder identity disclosed, use
+            GET /api/v1/resources/leases (ADMIN) to diagnose. Only reachable for items that declare
+            resources: via traits. error="not_claim_holder" — a different agent holds a live claim on
+            the item (not expected to occur on the REST path, which bypasses ownership enforcement,
+            but defensively mapped).
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Present only for resource_unavailable. Whole seconds until the contended lease can possibly free up (rounded up, floor 1).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDto"
         "422":
           description: >-
             Transition rejected. error="gate_blocked" with details.missingNotes when a required-note
@@ -1497,6 +1597,62 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+
+  /resources/leases:
+    get:
+      summary: List active resource leases
+      operationId: listResourceLeases
+      tags: [resources]
+      description: >-
+        Cross-project, server-wide — not root-scoped, unlike the rest of this API. Backs the
+        resource-lease gate on POST /items/{id}/advance and the resources: trait dimension.
+      responses:
+        "200":
+          description: >-
+            Active leases. acquiredByActorId is present per-entry only for ADMIN callers
+            (omitted, not null, for others).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResourceLeaseListResponseDto"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /resources/leases/{key}:
+    delete:
+      summary: Force-release a resource lease (operator recovery)
+      operationId: forceReleaseResourceLease
+      tags: [resources]
+      description: >-
+        ADMIN only. Recovers a lease stuck by a crashed holder without waiting out the TTL (up to
+        24h) or disabling enforcement server-wide. WARN-logged with the acting principal's token id.
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^[a-z0-9][a-z0-9\-_./]*$'
+            maxLength: 128
+      responses:
+        "200":
+          description: Released
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResourceLeaseReleaseResponseDto"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: No active lease exists on this key (idempotent-safe — a repeat call 404s, not a second 200)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDto"
 
   /transitions:
     get:
