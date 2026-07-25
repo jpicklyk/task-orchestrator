@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Lease-interval history close comparisons now normalize timestamp shapes with `datetime()`: Exposed
+  timestamp columns store fractional seconds while `datetime('now')` is second-precision, so a hold
+  lapsing inside the current second could compare as unexpired in SQLite's lexicographic TEXT
+  comparison — skipping the expiry clamp and recording `released` instead of `expired`. Sub-second
+  window, audit view only (beta field report).
+
 ## [3.13.0] - 2026-07-25
 
 > **Resource/credential leasing ships in this release as a beta feature.** The interfaces below are

@@ -200,6 +200,35 @@ class SQLiteResourceLeaseRepositoryHistoryTest : SQLiteRepositoryTestBase() {
             )
         }
 
+    @Test
+    fun `history close comparisons normalize mixed timestamp shapes via datetime()`(): Unit =
+        runBlocking {
+            // Constants-only pin of the sub-second cross-shape bug (beta field report, PR #262):
+            // Exposed timestamp columns store fractional seconds; datetime('now') is
+            // second-precision; raw TEXT comparison misorders them within a shared second. The
+            // clamp SQL must therefore normalize both sides with datetime(). No wall clock here —
+            // the boundary cannot be exercised deterministically with real time.
+            transaction(db = database) {
+                var sameSecondRaw = ""
+                var normLt = ""
+                var normMin = ""
+                exec(
+                    "SELECT '2026-01-01 00:00:00.937' < '2026-01-01 00:00:00', " +
+                        "datetime('2026-01-01 00:00:00.937') < '2026-01-01 00:00:01', " +
+                        "min('2026-01-01 00:00:01', datetime('2026-01-01 00:00:00.937'))"
+                ) { rs ->
+                    if (rs.next()) {
+                        sameSecondRaw = rs.getString(1)
+                        normLt = rs.getString(2)
+                        normMin = rs.getString(3)
+                    }
+                }
+                assertEquals("0", sameSecondRaw, "raw cross-shape compare within a shared second misorders (the bug shape)")
+                assertEquals("1", normLt, "datetime() normalization restores chronological ordering")
+                assertEquals("2026-01-01 00:00:00", normMin, "the clamp picks the normalized expiry, not 'now'")
+            }
+        }
+
     // -----------------------------------------------------------------------
     // Release / force-release close reasons
     // -----------------------------------------------------------------------

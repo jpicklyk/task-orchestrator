@@ -388,11 +388,18 @@ class SQLiteResourceLeaseRepository(
                 // Close every OPEN interval this holder has, across all its keys. releasedAt is
                 // stamped DB-side (datetime('now')) — never the JVM clock, matching every other
                 // write in this class.
+                //
+                // datetime(expires_at) wrapping is load-bearing, here and in forceReleaseByKey:
+                // Exposed timestamp columns store fractional seconds ('...:49.937') while
+                // datetime('now') is second-precision ('...:49'), and SQLite compares TEXT
+                // lexicographically — so within a shared second the fractional value sorts LATER
+                // and a just-lapsed hold would compare as unexpired (no clamp, reason 'released').
+                // datetime() canonicalizes both sides to second precision.
                 exec(
                     """
                     UPDATE resource_lease_history
-                       SET released_at = min(datetime('now'), expires_at),
-                           release_reason = CASE WHEN expires_at < datetime('now') THEN 'expired' ELSE 'released' END
+                       SET released_at = min(datetime('now'), datetime(expires_at)),
+                           release_reason = CASE WHEN datetime(expires_at) < datetime('now') THEN 'expired' ELSE 'released' END
                      WHERE holder_item_id = ? AND released_at IS NULL
                     """.trimIndent(),
                     args = listOf(uuidType to holderItemId)
@@ -418,8 +425,8 @@ class SQLiteResourceLeaseRepository(
                 exec(
                     """
                     UPDATE resource_lease_history
-                       SET released_at = min(datetime('now'), expires_at),
-                           release_reason = CASE WHEN expires_at < datetime('now') THEN 'expired' ELSE 'force_released' END,
+                       SET released_at = min(datetime('now'), datetime(expires_at)),
+                           release_reason = CASE WHEN datetime(expires_at) < datetime('now') THEN 'expired' ELSE 'force_released' END,
                            released_by_actor_id = ?
                      WHERE resource_key = ? AND released_at IS NULL
                     """.trimIndent(),
