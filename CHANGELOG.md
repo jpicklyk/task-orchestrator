@@ -61,6 +61,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   context, both orchestrator output styles), `/manage-schemas` recognizes and preserves the
   `resources:` config section, and `/configure-server` documents the `RESOURCE_LEASES_ENFORCED`
   kill switch.
+- Documented the **one item = one concurrent actor** modelling assumption (from beta field
+  feedback): item-keyed exclusivity arbitrates between items, not between actors sharing one item —
+  cut items at actor granularity; `claim_item` is the opt-in enforcement. Stated in the
+  workflow-guide guarantees section and fleet capacity planning.
+
+### Fixed
+
+- Lease-interval history could report two simultaneous holders for one key (beta field report): a
+  re-take of a previously-held key after an intervening expired holder left that holder's interval
+  open, and a late release then stamped it closed at "now". Stale holder intervals now close on
+  every acquire path, and history closes are clamped to the interval's own expiry with a truthful
+  `expired` reason. Live-lease exclusivity was never affected — audit-view accuracy only.
 
 ---
 
