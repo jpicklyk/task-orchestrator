@@ -150,6 +150,8 @@ Identify themes across entries (e.g., "3 friction entries related to gate failur
 
 Read the trend memory file `memory/retrospectives.md` from the auto memory directory (file read, not MCP call). The auto memory path is shown at session start — typically `~/.claude/projects/<project-key>/memory/`.
 
+A sibling `memory/retrospectives-history.md` may exist, holding archived (addressed / obsolete / accepted-environmental) patterns and superseded records. **Do not read it during a normal run** — it is a provenance archive kept out of the working file to bound its size. Read it only when tracing the evidence chain of an entry that cites an archived pattern by name.
+
 **If the file does not exist:** This is the first retrospective. Skip trend comparison — all findings are new baselines.
 
 **If the file exists:** For each dimension finding from step 3:
@@ -246,7 +248,9 @@ Read `memory/retrospectives.md` from the auto memory directory. Update each sect
 - **Schema Effectiveness:** Add or update entries from dimension 3a findings. Format: `- <schema-note-key>: <observation>. Sessions: N. Last seen: YYYY-MM-DD`
 - **Delegation Patterns:** Add or update from dimension 3b. Format: `- <pattern>. Sessions: N. Last seen: YYYY-MM-DD`
 - **Note Quality:** Add or update from dimension 3c. Format: `- <note-key>: <observation>. Sessions: N. Last seen: YYYY-MM-DD`
-- **Improvement Proposals:** Add new proposal references if created in step 7.
+- **Improvement Proposals:** Record the proposal ID *inline on the trend entry that graduated* (`GRADUATED -> proposal <id>`). Do NOT write proposal status, priority, dates, or descriptions into this file — MCP owns those, and a mirrored copy drifts. Resolve current state on demand with `query_items(operation="overview", anchorId="<proposals-container-uuid>", includeChildren=true)`. Per-proposal outcome narrative belongs on the proposal item's own `adoption-decision` / `outcome-verification` notes.
+
+**Retire, don't accumulate.** When a pattern becomes archived (addressed and non-recurring, obsolete, or accepted-environmental), move its entry to `memory/retrospectives-history.md` rather than leaving an `[ARCHIVED]` line in the working file. Likewise, when appending new evidence to a long-running entry, condense the older per-session detail rather than appending indefinitely — the working file is read whole on every run, so unbounded entries are the dominant cost.
 
 Write the updated file.
 
@@ -302,8 +306,14 @@ query_items(operation="search", tags="session-retrospective", limit=20)
 
 **If 3+ retrospectives exist**, evaluate:
 
-1. **Trend durability:** Did previously identified trends get addressed? Check if improvement proposals in terminal state exist for prior trends.
-2. **Proposal staleness:** Any proposals created 3+ retrospectives ago with no movement (still in queue)?
+Proposal state for both checks below comes from MCP, never from the trend file — query the container once and read roles off the result:
+
+```
+query_items(operation="overview", anchorId="<proposals-container-uuid>", includeChildren=true)
+```
+
+1. **Trend durability:** Did previously identified trends get addressed? Check whether the proposal a trend graduated into is terminal.
+2. **Proposal staleness:** Any proposals created 3+ retrospectives ago with no movement (still in queue)? Also flag any stuck in `work` — a proposal sitting in-progress across runs is usually a stalled adoption, not active work.
 3. **Self-quality:** Are retrospective notes converging on useful patterns, or repeating the same observations without resolution? Are notes too verbose (>800 tokens each) or too shallow (<100 tokens)?
 
 If meta-findings warrant it, add a brief note to the current retrospective's `improvement-signals` note via:
