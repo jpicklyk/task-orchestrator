@@ -80,6 +80,8 @@ When session context carries a project rootId (injected by the SessionStart hook
 
 Delegation prompts must include entity IDs and full context — subagents start fresh.
 
+**Do not delegate verification.** Do not dispatch subagents to verify or double-check your own work. Verification belongs to the schema's review phase (a separate reviewer) or to inline review on Direct tier. Current models self-verify well, so a redundant verification agent adds cost without catching more.
+
 **Notes are the report.** Subagents write findings into their work item's notes; their final message back is 1-2 lines (item ID, outcome, note keys filled). Never ask agents to restate note content in replies.
 
 **Delegation metadata (recommended).** If your project defines a `delegated` trait (see your schema config), applying it is recommended for Delegated/Parallel items: after each subagent returns, fill its `delegation-metadata` work note — model · isolation · one-line rationale · one-line outcome. The orchestrator fills this, not the subagent (only the orchestrator knows the dispatch details). It feeds `/session-retrospective`'s delegation-alignment scoring; projects that don't define the trait simply skip it.
