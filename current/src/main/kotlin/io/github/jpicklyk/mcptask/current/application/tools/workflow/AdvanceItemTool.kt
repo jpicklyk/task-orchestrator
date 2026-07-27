@@ -64,6 +64,8 @@ declared by the item's traits; contention rejects with transient `resource_unava
 
 **Batch actor constraint:** all transitions in a call must either all omit `actor` or all use the same
 `actor.id`; cascade-triggered transitions always have a null actor.
+
+Call to move an item between phases once its work is done — never edit status via manage_items.
         """.trimIndent()
 
     override val category = ToolCategory.WORKFLOW

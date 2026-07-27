@@ -35,6 +35,8 @@ Recommends next work item(s) based on role, dependencies, priority, and complexi
 Selection pipeline: finds items in the requested role, filters out dependency-blocked items and
 (by default) actively-claimed items, then ranks by `orderBy` and returns the top `limit`. See each
 parameter's schema description for field-level semantics.
+
+Call when choosing what to work on next — at session start or after finishing an item.
         """.trimIndent()
 
     override val category = ToolCategory.WORKFLOW

@@ -55,6 +55,8 @@ document is marked adopted by the created/attached root. Precedence on `(itemRef
 explicit `notes` win over `noteAnchors`; `noteAnchors` win over `createNotes=true` blanks. Any anchor
 miss, an unresolved document, a `docRef.rootId` mismatch, or an already-adopted document fails the
 WHOLE call atomically — no items are created. Without `docRef`, behavior is unchanged.
+
+Call when materializing a planned hierarchy — one atomic call instead of per-item create sequences.
         """.trimIndent()
 
     override val category = ToolCategory.ITEM_MANAGEMENT

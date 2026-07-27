@@ -46,6 +46,8 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
   to be skipped.
 - Items already in TERMINAL role are recorded as skipped.
 - When rootId is used with includeRoot=true (the default), the root item is processed last, after all its descendants.
+
+Call when closing out a finished hierarchy — one atomic call instead of per-item advance sequences.
         """.trimIndent()
 
     override val category = ToolCategory.WORKFLOW

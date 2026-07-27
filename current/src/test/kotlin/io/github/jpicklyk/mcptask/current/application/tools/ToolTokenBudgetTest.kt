@@ -102,13 +102,13 @@ class ToolTokenBudgetTest {
             "manage_items" to 2950, // was 2520; measured 2526 after items[].id -> itemId / ids -> itemIds (de711807)
             "query_notes" to 2386,
             "get_context" to 2650, // was 1909; T2.3 added the `ancestorId` scope parameter
-            "claim_item" to 2100,
+            "claim_item" to 2200, // was 2100; +when-to-call trigger sentence, measured 2181
             "manage_notes" to 2057,
-            "complete_tree" to 1760, // was 1712; see note above
+            "complete_tree" to 1850, // was 1760; +when-to-call trigger sentence, measured 1819
             "query_dependencies" to 1708,
-            "advance_item" to 2650, // was 2100; credentialRefs param (T1) + resource-lease gate semantics (T5), measured 2602
+            "advance_item" to 2750, // was 2650; +when-to-call trigger sentence, measured 2701
             "get_blocked_items" to 1250, // was 830; T2.3 added the `ancestorId` scope parameter
-            "get_next_status" to 470,
+            "get_next_status" to 600, // was 470; +when-to-call trigger sentence, measured 559
             "manage_project_config" to 3150, // measured 2698 after get `fingerprint` param + relation (fast-forward guard, t5)
             "manage_plan_documents" to 2150, // measured 1834; new tool: stash/get/list per-root plan documents (dual REST+MCP ingestion)
         )

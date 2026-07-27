@@ -86,6 +86,8 @@ Each `claims` entry uses exactly one of `itemId` (ID mode) or `selector` (find-a
 `rejected_by_policy`.
 
 **Release outcomes:** `success`, `not_claimed_by_you`, `not_found`.
+
+Call only in claim-mode deployments, to take ownership before working an item.
         """.trimIndent()
 
     override val category = ToolCategory.WORKFLOW
