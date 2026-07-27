@@ -434,6 +434,10 @@ Read ALL files from that directory. Do NOT read from the main working directory.
 Tests have already been verified green by the orchestrator after the most recent
 commit batch. Do NOT re-run gradle — focus on plan alignment, test quality, and
 simplification per the review-quality skill.
+
+Report every finding at every severity — do not self-filter to a high-severity-only
+bar. Mark each finding blocking or observation and state your confidence; the
+orchestrator's verdict handling is the downstream filter, not your own judgment.
 ```
 
 **If using Direct or Delegated tier** (single working branch on the main directory),

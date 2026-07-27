@@ -152,10 +152,17 @@ Every review must end with a clear verdict:
 
 ### Findings Format
 
+Report every finding you observe, at every severity. Do not withhold minor findings
+and do not apply a high-severity-only bar — current models follow severity filters
+literally, which suppresses real findings. Mark each finding blocking or observation
+and state your confidence; the orchestrator's verdict handling (see Verdict, above)
+is the downstream filter, not your own judgment about what is worth mentioning.
+
 For each finding, state:
 - **What was expected** (from the planning note or test strategy)
 - **What was found** (in the code or test output)
 - **Severity** (blocking or observation)
+- **Confidence** (how sure you are this is a real issue, not a false positive)
 
 Be specific. "Tests could be better" is not actionable. "Test `testCreateItem` asserts
 only that the result is not null — it should verify the item's title and status match
