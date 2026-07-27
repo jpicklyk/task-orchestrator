@@ -252,6 +252,24 @@ Read `memory/retrospectives.md` from the auto memory directory. Update each sect
 
 **Retire, don't accumulate.** When a pattern becomes archived (addressed and non-recurring, obsolete, or accepted-environmental), move its entry to `memory/retrospectives-history.md` rather than leaving an `[ARCHIVED]` line in the working file. Likewise, when appending new evidence to a long-running entry, condense the older per-session detail rather than appending indefinitely — the working file is read whole on every run, so unbounded entries are the dominant cost.
 
+### One-time migration from the legacy layout
+
+Files written before the pointer/history split carry content the rules above will otherwise never clean up: the retire rule only fires when a pattern *becomes* archived, and the proposals rule only governs what gets written next. Left alone, a legacy `## Improvement Proposals` status mirror freezes in place and drifts further from MCP on every run while still being read whole at Step 4.
+
+Check both conditions before writing. This is self-terminating — once it has run for a project, neither condition matches again.
+
+- **Condition A — legacy proposal-status mirror.** A `## Improvement Proposals` section whose entries carry status, dates, or descriptions — lines shaped like *proposal-id: proposed — description. Created: date.* — instead of the pointer form.
+- **Condition B — inline archived entries.** One or more `- <trend-key>: … [ARCHIVED …]` lines in the working file.
+
+If neither matches, the file is already current — skip this block entirely.
+
+If either matches, migrate once:
+
+1. **Extract by header, not by position.** Read each affected section from its `## ` header to the *next* `## ` header or end of file. Do not assume the proposals section is last — section order is not guaranteed across projects.
+2. **Append to history first.** Add the extracted content to `memory/retrospectives-history.md`, creating the file with a brief header if absent. Append only: never truncate or rewrite existing history. Doing this before touching the working file means an interrupted migration leaves content duplicated (recoverable) rather than lost.
+3. **Then rewrite the working file.** Replace the proposals section body with the pointer form — the Improvement Proposals container UUID plus the `query_items` overview call that resolves status — and drop the migrated `[ARCHIVED]` lines.
+4. **Record it** in the current retrospective's `actions-taken` note (Step 8b), so the one-time rewrite is attributable.
+
 Write the updated file.
 
 ---
