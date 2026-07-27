@@ -25,6 +25,8 @@ class GetNextStatusTool : BaseToolDefinition() {
 Read-only status progression recommendation for a WorkItem: "Ready" (can advance via the "start"
 trigger), "Blocked" (unsatisfied dependencies, or explicit BLOCKED role — use "resume" to return to
 its previous role), or "Terminal" (workflow already complete).
+
+Call to check one item's advance-readiness when a full context snapshot is not needed.
         """.trimIndent()
 
     override val category = ToolCategory.WORKFLOW

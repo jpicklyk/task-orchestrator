@@ -22,7 +22,8 @@ work_item_schemas:
         role: work
         required: true
         description: "Context handoff for downstream agents — deviations, surprises, and decisions that affect dependent work."
-        guidance: "Document decisions made during implementation that weren't in the feature-summary. Focus on what downstream agents need to know: deviations from the plan, API or interface surprises, assumptions that turned out wrong, and any patterns discovered that affect dependent tasks."
+        guidance: "Document decisions made during implementation that weren't in the feature-summary. Focus on what downstream agents need to know: deviations from the plan, API or interface surprises, assumptions that turned out wrong, and any patterns discovered that affect dependent tasks. Cover the substance — do not pad with boilerplate, restated spec content, or redundant summaries."
+        maxLength: 3000
       - key: review-checklist
         role: review
         required: true
@@ -44,7 +45,8 @@ work_item_schemas:
         role: work
         required: true
         description: "Context handoff — deviations, surprises, and decisions that affect dependent work."
-        guidance: "Document decisions made during implementation that weren't in the task scope. Focus on what downstream agents need to know: deviations from the plan, API or interface surprises, assumptions that turned out wrong, and any patterns discovered that affect dependent tasks."
+        guidance: "Document decisions made during implementation that weren't in the task scope. Focus on what downstream agents need to know: deviations from the plan, API or interface surprises, assumptions that turned out wrong, and any patterns discovered that affect dependent tasks. Cover the substance — do not pad with boilerplate, restated spec content, or redundant summaries."
+        maxLength: 3000
 
   bug-fix:
     lifecycle: auto
@@ -60,7 +62,8 @@ work_item_schemas:
         role: work
         required: true
         description: "Context handoff for downstream agents — what changed, deviations from the diagnosis, and patterns to apply elsewhere."
-        guidance: "Document what was changed and why. Focus on what downstream agents need to know: deviations from the planned fix, whether the root cause was different than diagnosed, patterns that should be applied elsewhere (e.g., same bug exists in similar code paths), and any assumptions that turned out wrong."
+        guidance: "Document what was changed and why. Focus on what downstream agents need to know: deviations from the planned fix, whether the root cause was different than diagnosed, patterns that should be applied elsewhere (e.g., same bug exists in similar code paths), and any assumptions that turned out wrong. Cover the substance — do not pad with boilerplate, restated spec content, or redundant summaries."
+        maxLength: 3000
       - key: review-checklist
         role: review
         required: true
@@ -168,7 +171,8 @@ traits:
         role: work
         required: true
         description: "Session context — what was done, how it went, and anything the retrospective should know."
-        guidance: "Record what happened during implementation. Structure: - **Outcome**: success | partial | failure - **Files changed**: list with brief rationale - **Deviations**: anything that differed from the specification or plan - **Friction**: tool errors, roundtrips, workarounds, API confusion (type + description) - **Gate interactions**: note fill attempts, gate failures encountered - **Observations**: anything worth tracking for process improvement - **Test results**: pass/fail counts, new tests added. Keep it factual and concise — this feeds the session retrospective."
+        guidance: "Record what happened during implementation. Structure: - **Outcome**: success | partial | failure - **Files changed**: list with brief rationale - **Deviations**: anything that differed from the specification or plan - **Friction**: tool errors, roundtrips, workarounds, API confusion (type + description) - **Gate interactions**: note fill attempts, gate failures encountered - **Observations**: anything worth tracking for process improvement - **Test results**: pass/fail counts, new tests added. Keep it factual and concise — this feeds the session retrospective. Cover the substance — do not pad with boilerplate, restated spec content, or redundant summaries."
+        maxLength: 2000
 
 # Resource leasing — reference example only, NOT activated on this project's items.
 # Uncomment and adapt to declare a shared-resource registry and reference it from a trait.

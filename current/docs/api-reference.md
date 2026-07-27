@@ -443,6 +443,8 @@ attach children, deps, and notes directly to an existing item. When `root.id` is
 is optional (ignored if both are given). The existing item is NOT re-inserted; children are created
 under it at `existing.depth + 1`. Providing both `root.id` and `parentId` is rejected with `VALIDATION_ERROR`.
 
+**When to call.** Call when materializing a planned hierarchy — one atomic call instead of per-item create sequences.
+
 **Operations.** Single operation (no `operation` parameter).
 
 #### Key Parameters
@@ -565,6 +567,8 @@ When both `notes` and `createNotes: true` are provided, explicit `notes` entries
 **Purpose.** Batch-complete (or cancel) all descendants of a root item, or an explicit list of
 items, in topological dependency order. Gate enforcement applies per item: if required notes are
 missing, that item fails and its downstream dependents within the set are skipped.
+
+**When to call.** Call when closing out a finished hierarchy — one atomic call instead of per-item advance sequences.
 
 **Operations.** Single operation (no `operation` parameter).
 
@@ -1037,6 +1041,8 @@ REST path bypasses it (see `api-rest.md`). Both enforce the same note gates and 
 resource-lease gate (REST accepts an ADMIN-only override for the lease gate; MCP does not), and
 report the same cascade/unblock results.
 
+**When to call.** Call to move an item between phases once its work is done — never edit status via `manage_items`.
+
 #### Key Parameters
 
 | Parameter | Type | Required | Description |
@@ -1264,6 +1270,8 @@ force-release, item-keyed exclusivity, single-DB arbiter, opaque-labels-never-se
 **Purpose.** Read-only status progression recommendation for a single WorkItem. Returns whether
 the item is Ready to advance, Blocked, or Terminal, without making any changes.
 
+**When to call.** Call to check one item's advance-readiness when a full context snapshot is not needed.
+
 #### Key Parameters
 
 | Parameter | Type | Required | Description |
@@ -1325,6 +1333,8 @@ supplied. Use for session startup, work-summary dashboards, and pre-advance gate
 - **Health check** — pass `mode: "health-check"` (or omit all mode-selecting params): all active items (work/review), blocked items, and stalled items.
 
 When `mode` is omitted, the mode is inferred from which parameters are present (`itemId` → item, `since` → session-resume, neither → health-check).
+
+**When to call.** Call with no arguments to resume a session; call with `itemId` before any advance or dispatch decision.
 
 #### Key Parameters
 
@@ -1476,6 +1486,8 @@ be competing with the feature's orchestrator. Root items (no parent) are unaffec
 `includeClaimed=true`, ancestor-claim filtering is NOT applied — that path uses `findForNextItem`
 and is intentionally inclusive.
 
+**When to call.** Call when choosing what to work on next — at session start or after finishing an item.
+
 #### Key Parameters
 
 | Parameter | Type | Required | Description |
@@ -1609,6 +1621,8 @@ FIFO queue drain — oldest unclaimed item first:
 claiming a new item auto-releases any prior claim held by the same agent. Claims are
 time-bounded (TTL, default 900s). Re-claiming an already-held item refreshes the TTL without
 changing the claim holder.
+
+**When to call.** Call only in claim-mode deployments, to take ownership before working an item.
 
 > **See also:** [Workflow Guide §10 — Claim Mechanism](./workflow-guide.md#10-claim-mechanism-for-multi-agent-fleets) for the agent-side lifecycle, heartbeat pattern, and discovery patterns. [Fleet Deployment Guide](./fleet-deployment.md) for `degradedModePolicy`, capacity planning, tiered disclosure, and Claims Troubleshooting.
 
@@ -1806,6 +1820,8 @@ On `already_claimed`, `retryAfterMs` approximates the remaining TTL of the exist
 **Purpose.** Identifies all WorkItems that are blocked, either explicitly (role=blocked via a
 block/hold trigger) or implicitly (items in queue/work/review with unsatisfied blocking
 dependency edges). Terminal items are never included.
+
+**When to call.** Call when work appears stalled or someone asks why an item cannot start.
 
 #### Key Parameters
 

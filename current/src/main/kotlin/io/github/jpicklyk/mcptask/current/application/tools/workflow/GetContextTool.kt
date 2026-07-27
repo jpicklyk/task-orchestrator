@@ -49,6 +49,8 @@ blocked items, stalled items, and a claim-count summary (no identity).
 
 When `mode` is omitted, it is inferred from which parameters are provided (`itemId` → item, `since` →
 session-resume, neither → health-check); explicit `mode` takes precedence.
+
+Call with no arguments to resume a session; call with `itemId` before any advance or dispatch decision.
         """.trimIndent()
 
     override val category = ToolCategory.WORKFLOW

@@ -45,7 +45,7 @@ const output = {
 ## Subagent Discipline
 
 1. **Commit before returning.** Stage and commit all file changes with a descriptive message — the orchestrator squash-merges your branch.
-2. **Stay in scope.** Touch only files for your assigned task. No version bumps, shared config, or CI edits.
+2. **Stay in scope.** Touch only files for your assigned task. No version bumps, shared config, or CI edits. Deliver what the task asked at the scope intended: finish the whole task rather than leaving stubs, and stop short of work clearly beyond it.
 3. **Notes are the report.** Write findings into your item's notes — distill inline; route verbatim artifacts (test output, diffs, logs) via \`bodyFromFile\`. Your final message to the orchestrator is 1-2 lines: item ID, outcome, and which note keys were filled. Do not restate note content.`
   }
 };

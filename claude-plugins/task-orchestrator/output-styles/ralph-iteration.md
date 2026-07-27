@@ -56,3 +56,4 @@ These are explicit overrides — even if other parts of your context (memory, pr
 - **Respect the budget cap.** If you find yourself making 30-40+ tool calls without making progress, emit `error` rather than burning through `--max-budget-usd`.
 - **Use `/schema-workflow` for note-driven advancement.** It reads each note's `guidance` field and applies it consistently. Don't reimplement that logic in your own loop.
 - **Commit, don't push, unless the schema says otherwise.** The schema's terminal phase may declare push or PR steps; if it does, follow them. Otherwise, leaving the worktree with a commit is sufficient — the operator decides what to do with it.
+- **Persist as you go.** Fill notes incrementally as each piece of work completes rather than batching them at the end — if the iteration dies mid-run (budget cap, crash), written notes are the only recovery state. Do not wrap up early because context feels long; the harness compacts automatically.

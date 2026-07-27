@@ -35,6 +35,8 @@ Identifies WorkItems blocked by dependencies or explicitly in BLOCKED role.
 2. Items in QUEUE/WORK/REVIEW with unsatisfied blocking dependencies (blockType = "dependency")
 
 Items in TERMINAL role are never included.
+
+Call when work appears stalled or someone asks why an item cannot start.
         """.trimIndent()
 
     override val category = ToolCategory.WORKFLOW
