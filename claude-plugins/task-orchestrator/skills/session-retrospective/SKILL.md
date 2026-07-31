@@ -148,16 +148,49 @@ Identify themes across entries (e.g., "3 friction entries related to gate failur
 
 ## Step 4 — Check Trend Memory
 
-Read the trend memory file `memory/retrospectives.md` from the auto memory directory (file read, not MCP call). The auto memory path is shown at session start — typically `~/.claude/projects/<project-key>/memory/`.
+Trend memory lives in MCP as items under a `Retrospective Trends` container — not in a file. Reads are targeted queries, not a whole-file load.
 
-A sibling `memory/retrospectives-history.md` may exist, holding archived (addressed / obsolete / accepted-environmental) patterns and superseded records. **Do not read it during a normal run** — it is a provenance archive kept out of the working file to bound its size. Read it only when tracing the evidence chain of an entry that cites an archived pattern by name.
+### 4.1 Discover the Trends container
 
-**If the file does not exist:** This is the first retrospective. Skip trend comparison — all findings are new baselines.
+This container is process-global by design — the shared, cross-project learning layer, same rationale as the `Session Retrospectives` / `Improvement Proposals` containers (5a/7a) — it deliberately lives outside any project root and this search stays unscoped even when a project rootId is known.
 
-**If the file exists:** For each dimension finding from step 3:
-- Search existing trend entries for matches (same schema note, same delegation pattern, same friction type)
-- If a finding matches an existing trend, note the incremented session count
-- If a finding is new, mark it as a candidate for the trends section
+```
+query_items(operation="search", query="Retrospective Trends", limit=5)
+```
+
+Cross-check with a list-mode search (`query_items(operation="search", tags="container", limit=20)`, filter to title) if the FTS hit is ambiguous or empty — an FTS-desync lesson from other containers in this skill.
+
+**If the container is absent or empty AND `memory/retrospectives.md` exists containing at least one `- <kebab-key>: ...` entry line:** run the one-time migration under Step 6 FIRST, then continue with 4.2 below against the freshly migrated container.
+
+**If both are absent** (no container, and no legacy file with entries): this is the first retrospective ever run against this database. Skip the rest of Step 4 — all findings are new baselines.
+
+### 4.2 Read the active trends listing
+
+```
+query_items(operation="search", tags="retrospective-trend", role="queue", limit=100)
+```
+
+This is list-mode (structured filter, no `query`), so it returns every non-retired trend's title + summary — roughly 3-4k tokens for ~60 trends. This replaces the old whole-file read outright.
+
+### 4.3 Match findings
+
+Match each Step 3 dimension finding against the listing (titles + summaries):
+- If a finding matches an existing trend (same schema note, same delegation pattern, same friction type), note the incremented session count for Step 6.
+- If a finding is new, mark it as a candidate for a new trend item in Step 6.
+- For uncertain matches where title/summary keyword matching isn't conclusive, run a per-finding FTS query for semantic reach:
+  ```
+  query_items(operation="search", query="<finding keywords>", scope={tags: ["retrospective-trend"]})
+  ```
+
+### 4.4 Fetch full evidence (only when it matters)
+
+For matched trends where per-session history changes the assessment (e.g., judging whether a pattern is worsening, stabilizing, or was already flagged as environmental), fetch evidence notes:
+
+```
+query_notes(operation="list", itemId="<trend-uuid>", includeBody=true)
+```
+
+Do not read `retrospectives-history.md` during a normal run — it stays a frozen provenance archive for the legacy file layout. Read it only when tracing the evidence chain of an entry that cites an archived legacy pattern by name.
 
 ---
 
@@ -243,34 +276,70 @@ Do **not** complete the item yet — the `actions-taken` work-phase note is stil
 
 **Skip entirely in dry-run mode.**
 
-Read `memory/retrospectives.md` from the auto memory directory. Update each section:
+Write trend items from the Step 3/4 findings as MCP items, batched — one `manage_notes` call for all evidence-note upserts this run, one `manage_items` call for all summary updates this run:
 
-- **Schema Effectiveness:** Add or update entries from dimension 3a findings. Format: `- <schema-note-key>: <observation>. Sessions: N. Last seen: YYYY-MM-DD`
-- **Delegation Patterns:** Add or update from dimension 3b. Format: `- <pattern>. Sessions: N. Last seen: YYYY-MM-DD`
-- **Note Quality:** Add or update from dimension 3c. Format: `- <note-key>: <observation>. Sessions: N. Last seen: YYYY-MM-DD`
-- **Improvement Proposals:** Record the proposal ID *inline on the trend entry that graduated* (`GRADUATED -> proposal <id>`). Do NOT write proposal status, priority, dates, or descriptions into this file — MCP owns those, and a mirrored copy drifts. Resolve current state on demand with `query_items(operation="overview", anchorId="<proposals-container-uuid>", includeChildren=true)`. Per-proposal outcome narrative belongs on the proposal item's own `adoption-decision` / `outcome-verification` notes.
+- **Recurrence** (finding matched an existing trend in Step 4.3): upsert an evidence note `evidence-<YYYY-MM-DD>-<retro-short-id>` (role `work`, body = this session's specific evidence: what happened, retro item ID, cost/impact) AND update the trend item's `summary` — increment `Sessions: N`, update `Last seen: YYYY-MM-DD`, and condense the observation if drift warrants it.
+- **New pattern**: create a trend item (shape below) with `Sessions: 1` in its summary, plus its first evidence note.
+- **Retire** (a previously-active trend is now addressed, obsolete, superseded, or accepted-environmental): `advance_item(itemId="<trend-uuid>", trigger="cancel", summary="archived: <reason>")`. `cancel` is gate-free — it moves any non-terminal role straight to terminal with no note check. `statusLabel: cancelled` on a trend item means "retired from active watching", not failure; the transition's `summary` line carries the actual semantic. A cancelled trend drops out of the Step 4.2 active listing automatically (it filters `role="queue"`).
+- **Graduation** (Step 7 creates a proposal from this trend): record `GRADUATED -> proposal <short-id>` in the trend's `summary`. This does **not** change the trend's role — cancelling a graduated trend, if ever warranted, is a separate later decision once the proposal resolves.
 
-**Retire, don't accumulate.** When a pattern becomes archived (addressed and non-recurring, obsolete, or accepted-environmental), move its entry to `memory/retrospectives-history.md` rather than leaving an `[ARCHIVED]` line in the working file. Likewise, when appending new evidence to a long-running entry, condense the older per-session detail rather than appending indefinitely — the working file is read whole on every run, so unbounded entries are the dominant cost.
+**Never call `advance_item` with `start` or `complete` on a trend item** — only `create`, `update`, note upserts, and `cancel`. This keeps the lifecycle gate-free under any user's schema config: an external user's `default` schema could otherwise gate-block `start`/`complete` on these untyped items, and trend items carry no note schema of their own to satisfy such a gate.
+
+### New trend item shape
+
+```
+manage_items(operation="create", items=[{
+  title: "trend: <kebab-key> — <one-line claim>",
+  summary: "<distilled observation>. Sessions: 1. Last seen: YYYY-MM-DD.",
+  tags: "retrospective-trend,<dimension>",
+  parentId: "<trends-container-uuid>",
+  priority: "low"
+}])
+```
+
+`<dimension>` is one of `schema-effectiveness | delegation | note-quality | friction | extension-candidate`; append `,positive` for a positive pattern. The kebab key in the title is the stable identity to match on across sessions — not exact summary text. Batch up to ~10 creates per call.
+
+Then upsert its first evidence note:
+
+```
+manage_notes(operation="upsert", notes=[{
+  itemId: "<new-trend-uuid>",
+  key: "evidence-<YYYY-MM-DD>-<retro-short-id>",
+  role: "work",
+  body: "<this session's specific evidence: what happened, retro item ID, cost/impact>"
+}])
+```
+
+**Condense, don't accumulate.** The trend's `summary` is the single distilled current truth — rewrite it on every update rather than appending to it. Per-session detail belongs in evidence notes, which are naturally bounded (one per recurrence) rather than growing a single blob indefinitely. Sessions count is derivable as the number of `evidence-*` notes (`query_notes(operation="list", itemId=..., includeBody=false)`), but the summary's `Sessions: N` is a denormalized convenience kept in sync in the same write that adds the evidence note — never let it drift out of step.
+
+**Improvement Proposals stay MCP-only, as before.** Proposal status, priority, and dates live on the proposal item, never mirrored into a trend's summary beyond the one-line `GRADUATED -> proposal <short-id>` pointer. Resolve current proposal state on demand with `query_items(operation="overview", anchorId="<proposals-container-uuid>", includeChildren=true)`. Per-proposal outcome narrative belongs on the proposal item's own `adoption-decision` / `outcome-verification` notes.
 
 ### One-time migration from the legacy layout
 
-Files written before the pointer/history split carry content the rules above will otherwise never clean up: the retire rule only fires when a pattern *becomes* archived, and the proposals rule only governs what gets written next. Left alone, a legacy `## Improvement Proposals` status mirror freezes in place and drifts further from MCP on every run while still being read whole at Step 4.
+Replaces the old pointer/history-split migration entirely — any `memory/retrospectives.md` content, in whatever legacy shape it's in, now migrates to MCP instead of to a history file.
 
-Check both conditions before writing. This is self-terminating — once it has run for a project, neither condition matches again.
+**Condition** (checked at Step 4.1): the Trends container is absent or empty AND `memory/retrospectives.md` exists containing at least one `- <kebab-key>: ...` entry line. This is self-terminating: after migration the file is a pointer stub with no entry lines, so the condition can never match again for this project.
 
-- **Condition A — legacy proposal-status mirror.** A `## Improvement Proposals` section whose entries carry status, dates, or descriptions — lines shaped like *proposal-id: proposed — description. Created: date.* — instead of the pointer form.
-- **Condition B — inline archived entries.** One or more `- <trend-key>: … [ARCHIVED …]` lines in the working file.
+**Procedure** — create-and-verify BEFORE touching the file. An interrupted migration then leaves content duplicated (recoverable), never lost:
 
-If neither matches, the file is already current — skip this block entirely.
+1. **Create the Trends container** (if it wasn't already found empty in 4.1).
+2. **Read `retrospectives.md` in full** — the last expensive whole-file read this skill will ever do. Parse every `- <kebab-key>: ...` entry under each `## ` section, mapping section header to dimension tag:
 
-If either matches, migrate once:
+   | Section header | Dimension tag |
+   |---|---|
+   | Schema Effectiveness | `schema-effectiveness` |
+   | Delegation Patterns | `delegation` |
+   | Note Quality | `note-quality` |
+   | Friction | `friction` |
+   | Extension Candidates | `extension-candidate` |
 
-1. **Extract by header, not by position.** Read each affected section from its `## ` header to the *next* `## ` header or end of file. Do not assume the proposals section is last — section order is not guaranteed across projects.
-2. **Append to history first.** Add the extracted content to `memory/retrospectives-history.md`, creating the file with a brief header if absent. Append only: never truncate or rewrite existing history. Doing this before touching the working file means an interrupted migration leaves content duplicated (recoverable) rather than lost.
-3. **Then rewrite the working file.** Replace the proposals section body with the pointer form — the Improvement Proposals container UUID plus the `query_items` overview call that resolves status — and drop the migrated `[ARCHIVED]` lines.
-4. **Record it** in the current retrospective's `actions-taken` note (Step 8b), so the one-time rewrite is attributable.
+   Ignore `## Meta` narrative sections and the Improvement Proposals pointer section (already MCP-owned — nothing to migrate there). Entries still marked `[ARCHIVED]` from a prior partial legacy migration are migrated as trend items and then immediately retired: `advance_item(itemId="<uuid>", trigger="cancel", summary="archived: migrated from legacy file, was already archived")`.
+3. **Create one trend item per entry**, batched (~10 per `manage_items` call): title from the kebab key plus a distilled claim; summary = the condensed observation with the existing `Sessions: N` / `Last seen` carried over verbatim, plus any `GRADUATED -> proposal <id>` pointer already present in the entry. Then upsert one `evidence-migrated` note per item (role `work`), batched, holding the ORIGINAL entry text verbatim — this is the provenance record for the migration.
+4. **Verify**: parsed entry count == created item count, via `query_items(operation="overview", anchorId="<trends-container-uuid>", includeChildren=true)` (or a `tags="retrospective-trend"` list search scoped to the container). **On mismatch, stop and report — do NOT stub the file.** Leave the migration to retry on the next run; the condition still matches until the file is stubbed.
+5. **Only then rewrite `retrospectives.md`** to a pointer stub containing: the Trends container UUID, the active-trends query snippet from Step 4.2, a note that history stays frozen in `retrospectives-history.md` (do not migrate it — it remains a provenance archive, never itself migrated), and the migration date + this retrospective's item ID.
+6. **Record it** in the current retrospective's `actions-taken` note (Step 8b) — entry count migrated, container UUID.
 
-Write the updated file.
+**Multi-project note.** `retrospectives.md` was per-project memory (one file per Claude Code project directory); the Trends container is per-DATABASE. Users running several projects against one MCP server converge on one shared Trends container once each project has migrated — this is intended, the same process-global model already used for `Session Retrospectives` and `Improvement Proposals`.
 
 ---
 
@@ -278,7 +347,7 @@ Write the updated file.
 
 **Skip entirely in dry-run mode.**
 
-Check the updated trend memory (from step 6). For each trend with **Sessions >= 2**:
+Check the trend items created or updated in Step 6 (their `summary` field carries `Sessions: N`). For each trend with **Sessions >= 2**:
 
 ### 7a. Find or create proposals container
 
@@ -380,7 +449,7 @@ query_items(operation="search", tags="session-retrospective", limit=20)
 
 **If 3+ retrospectives exist**, evaluate:
 
-Proposal state for both checks below comes from MCP, never from the trend file — query the container once and read roles off the result:
+Proposal and trend state for both checks below comes from MCP — query the container once and read roles off the result:
 
 ```
 query_items(operation="overview", anchorId="<proposals-container-uuid>", includeChildren=true)
@@ -395,7 +464,7 @@ query_items(operation="search", tags="improvement-proposal", ancestorId="<rootId
 
 Fold both result sets into the durability and staleness checks below.
 
-1. **Trend durability:** Did previously identified trends get addressed? Check whether the proposal a trend graduated into is terminal.
+1. **Trend durability:** Did previously identified trends get addressed? Query trend items whose summary carries a `GRADUATED -> proposal <id>` pointer (`query_items(operation="search", query="GRADUATED", scope={tags: ["retrospective-trend"]})`, or scan the Step 4.2 listing) and check whether the proposal each one graduated into is terminal.
 2. **Proposal staleness:** Any proposals created 3+ retrospectives ago with no movement (still in queue)? Also flag any stuck in `work` — a proposal sitting in-progress across runs is usually a stalled adoption, not active work. When stale queue proposals exist (global or project-scoped), the report (step 9) should suggest running `/task-orchestrator:review-proposals`. Treat `cancelled` proposals as **resolved-rejected**, not stale — read their `adoption-decision` note before proposing anything similar again (do-not-re-propose rule); a rejected idea resurfacing under a new title is a signal to check history first, not to recreate it.
 3. **Self-quality:** Are retrospective notes converging on useful patterns, or repeating the same observations without resolution? Are notes too verbose (>800 tokens each) or too shallow (<100 tokens)?
 
@@ -423,7 +492,7 @@ manage_notes(operation="upsert", notes=[{
   itemId: "<retro-uuid>",
   key: "actions-taken",
   role: "work",
-  body: "<closure record: improvement-proposal items created/updated in Step 7 (title + short-id each); for each **global** proposal append its GitHub filing outcome — `filed <url>`, `linked existing <url>`, or `github filing skipped: <reason>`; for each **project-scoped** proposal append `anchored under project <rootId>`; or 'none graduated (≥2 sessions) this run'; plus trend-memory sections updated and any memory writes>"
+  body: "<closure record: improvement-proposal items created/updated in Step 7 (title + short-id each); for each **global** proposal append its GitHub filing outcome — `filed <url>`, `linked existing <url>`, or `github filing skipped: <reason>`; for each **project-scoped** proposal append `anchored under project <rootId>`; or 'none graduated (≥2 sessions) this run'; plus trend items created/updated/retired this run (short-ids each); plus, if the one-time legacy migration ran this session, the entry count migrated and the Trends container UUID>"
 }])
 ```
 
@@ -494,13 +563,17 @@ Omit sections with no data (e.g., no improvement proposals -> omit that table). 
 - Cause: `session-retrospective` tag not in `.taskorchestrator/config.yaml`, or MCP not reconnected after config edit
 - Solution: Run `/mcp` to reconnect, verify config has the schema
 
-**Trend memory file missing**
-- Cause: First retrospective ever run
-- Solution: Skill creates the file at step 6 with initial structure. No action needed.
-
 **Container not found**
-- Cause: First time creating retrospectives or improvement proposals
-- Solution: Skill creates containers lazily at steps 5a and 7a. No action needed.
+- Cause: First time creating retrospectives, trends, or improvement proposals in this database.
+- Solution: Containers are created lazily — `Session Retrospectives` at step 5a, `Retrospective Trends` at step 4.1 (or on the first trend write in step 6), `Improvement Proposals` at step 7a. No action needed.
+
+**Legacy trend file detected**
+- Cause: `memory/retrospectives.md` exists with `- <key>: ...` entry lines and the Trends container is absent or empty — the one-time migration condition (step 4.1 / step 6) matches.
+- Solution: The skill runs the migration automatically this pass — see "One-time migration from the legacy layout" under step 6. No manual action needed. If the migration reports a count mismatch, it stops without stubbing the file and reports the discrepancy; re-run the retrospective to retry — the condition still matches until the file is stubbed.
+
+**Trend item advance blocked by a gate**
+- Cause: Should never happen — the skill only ever uses `create`, `update`, note upserts, and `cancel` on trend items, all of which are gate-free. If it does happen, an unexpected schema in the user's config is intercepting an operation this skill assumes is unconditionally safe.
+- Solution: Fill the named required note minimally so the operation can proceed, then record the anomaly as an observation in the current retrospective's own notes — it's worth a bug report against the skill's gate-free assumption.
 
 **Retrospective pulled in another project's items**
 - Cause: Shared multi-project DB with no project scope configured, so the step 1a fallback scan searched globally instead of within the current project's subtree.
