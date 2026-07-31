@@ -1,27 +1,105 @@
 # Create Schema Workflow
 
-Full interactive flow for building a new note schema. Offers starter templates before falling back to from-scratch Q&A.
+Full interactive flow for building a new note schema. Three entry paths: a pattern-driven
+advisor that recommends a configuration from the user's described workflow, starter templates,
+and from-scratch Q&A.
 
 ---
 
 ## Step 1 — Choose Starting Point
 
-If `$ARGUMENTS` already contains a schema name that matches a starter template (e.g., "create feature-implementation"), skip to Step 2 with that template pre-selected.
+Fast paths from `$ARGUMENTS` and conversation context — check these before asking anything:
+
+- **Schema name matching a starter template** (e.g., "create feature-implementation") → skip to
+  Step 2 with that template pre-selected.
+- **A workflow description rather than a schema name** (e.g., "create schemas for our support
+  triage", "set up gates for my content pipeline", "what schema should I use for X") → skip to
+  Step 2A (advisor) with the description as seed context.
 
 Otherwise, ask via `AskUserQuestion`:
 
 ```
 ◆ How would you like to create the schema?
-  1. Feature implementation — lean feature-summary gate (queue), implementation evidence
-     + session tracking (work), review checklist (review) — 4 notes
-  2. Bug fix — diagnosis gate (queue), implementation evidence + session tracking (work),
-     review checklist (review) — 4 notes
-  3. Start from scratch — answer questions to build a custom schema
+  1. Recommend from my workflow — describe the work you manage; get a recommended
+     configuration from a library of workflow patterns
+  2. Feature implementation template — lean feature-summary gate (queue), implementation
+     evidence + session tracking (work), review checklist (review) — 4 notes
+  3. Bug fix template — diagnosis gate (queue), implementation evidence + session tracking
+     (work), review checklist (review) — 4 notes
+  4. Start from scratch — answer questions to build a custom schema
 ```
 
 ---
 
-## Step 2 — Template Path (options 1 or 2)
+## Step 2A — Advisor Path (option 1)
+
+Recommend a configuration by classifying the user's workflow against the pattern library.
+Read `references/workflow-patterns.md` (in this skill folder) before proceeding — it carries
+the classification dimensions, a capsule index of all ten profiles, selection tables, the
+cross-domain trait library, and the anti-pattern warnings. The full profiles (YAML + rationale)
+live one-per-file in `references/profiles/` — do NOT read them at this stage; you will read
+only the matched one(s) in 2A.2.
+
+### 2A.1 — Gather workflow facts
+
+Extract answers from what the user has already said first — the conversation usually contains
+most of them. Then ask ONLY for genuine gaps, batched into a single `AskUserQuestion` round
+(max 4 questions), covering the four classification dimensions from `workflow-patterns.md` §1:
+
+1. **Work shape** — what kind of work flows through (features, loop tasks, research, content,
+   tickets, pipeline runs, incidents, documents, generic tasks)
+2. **Sign-off** — does anything need human or second-agent approval before closing, and what
+   evidence does the approver need?
+3. **Executors** — one orchestrated agent, or multiple workers pulling from a shared pool?
+4. **Contention & recurrence** — shared resources that tolerate one user at a time? standing
+   queues? work that reopens later?
+
+Do not run a second interview round unless an answer is genuinely uninterpretable.
+
+### 2A.2 — Classify and recommend
+
+Classify against the profile index in `workflow-patterns.md` §1 — the capsules carry enough
+signal to compare all ten candidates without opening files. Then read ONLY the matched profile
+file from `references/profiles/` (a second file when the classification is ambiguous or the
+workflow is a hybrid; never the whole directory — the two-stage read exists to keep unmatched
+profiles out of context). Then present:
+
+1. **The recommendation** — primary profile, plus any traits pulled from §4 or a second
+   profile. Name the pattern in plain language ("this is a claim-mode triage shape").
+2. **The YAML** — the profile's schema adapted to the user's terms (rename types/keys to the
+   user's vocabulary; keep the structure). Kebab-case keys, explicit `required` on every note,
+   explicit `lifecycle`.
+3. **The rationale, per gate** — one line each on why the gate exists and what failure it
+   prevents, drawn from the profile's "rationale to present". A gate whose purpose the user
+   can't restate will be worked around, not filled.
+4. **Conventions that aren't config** — if the recommendation involves claim mode, actor
+   authentication, or dispatch discipline (e.g., review notes filled by a different agent),
+   say explicitly that these are usage conventions the config cannot enforce.
+
+Where the user's workflow steers toward an anti-pattern (§5 — over-gating, exclusive resources
+on containers, self-review, generic resource keys), raise the warning with its reason as part
+of the recommendation, not after writing.
+
+### 2A.3 — Confirm and hand off
+
+Ask via `AskUserQuestion`:
+
+```
+◆ This is the recommended configuration. What would you like to do?
+  1. Use as-is — write it to config
+  2. Customize first — add, remove, or modify notes before writing
+  3. Cancel — go back
+```
+
+- **Use as-is / Customize:** continue exactly as the template path does (Step 2's "After
+  showing the template" — customize loop, then Write Config, companion skill, smoke test).
+  A companion lifecycle skill (Step 5) is worth offering for any recommendation with 3+ notes
+  or claim-mode conventions.
+- **Cancel:** return to Step 1.
+
+---
+
+## Step 2 — Template Path (options 2 or 3)
 
 ### Feature Implementation Template
 
@@ -106,7 +184,7 @@ Ask via `AskUserQuestion`:
 
 ---
 
-## Step 3 — From-Scratch Path (option 3)
+## Step 3 — From-Scratch Path (option 4)
 
 Ask the user the following questions (use `AskUserQuestion` for structured input):
 
