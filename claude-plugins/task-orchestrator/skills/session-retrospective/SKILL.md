@@ -290,25 +290,81 @@ query_items(operation="search", query="Improvement Proposals", limit=5)
 
 Create if missing (same pattern as 5a — include `type: "container"` and `tags: "container"`).
 
-### 7b. Create proposal items
+### 7b. Create proposal items — scope-based anchoring
 
-For each graduating trend:
+For each graduating trend, first read the **scope** classification already captured in the
+`improvement-signals` note (steps 3/4): **global** (plugin skills/hooks, output styles, server floor
+config) or **project-specific** (one project's schemas/traits/config). If the scope cannot be parsed
+from the classification, treat it as **global** — never guess and auto-anchor a proposal under a
+project on ambiguous evidence.
+
+**Global scope** — anchor under the process-global container found/created in step 7a (unchanged):
 
 ```
 manage_items(operation="create", items=[{
   title: "Proposal: <concrete change description>",
   summary: "<what to change and why — reference retrospective item IDs that surfaced the trend>",
   tags: "improvement-proposal",
-  parentId: "<proposals-container-uuid>",
+  parentId: "<7a-proposals-container-uuid>",
   priority: "low"
 }])
 ```
+
+**Project-specific scope** — find or create a per-project "Improvement Proposals" container under
+that project's `rootId` instead, and anchor there:
+
+```
+query_items(operation="search", query="Improvement Proposals", ancestorId="<rootId>", limit=5)
+```
+
+If no match, create it:
+
+```
+manage_items(operation="create", items=[{
+  title: "Improvement Proposals",
+  type: "container",
+  tags: "container",
+  parentId: "<rootId>",
+  priority: "low"
+}])
+```
+
+Then create the proposal item exactly as in the global case above, but with
+`parentId: "<per-project-container-uuid>"`.
 
 The proposal should include a **concrete suggestion** — not just "this is a problem" but the specific change:
 - Schema edits: include the exact YAML to add/modify
 - Skill updates: reference the section and describe the change
 - Output style adjustments: specify the zone and content
 - Hook additions: specify the event, matcher, and purpose
+
+### 7c. File GitHub issues (global proposals only)
+
+For each proposal created in step 7b with **global** scope this run — never project-scoped ones —
+attempt to file or link a GitHub issue. Full conventions, the issue template, and the dedup procedure
+live in `references/github-feedback.md`; this step carries only the call shapes. Every sub-step here
+is best-effort: a failure anywhere is caught, recorded as a one-line reason, and the retrospective
+continues (mirrors the step 8c acknowledgment pattern).
+
+1. **Config gate** — read `retrospective.github_feedback` from the workspace `.taskorchestrator/config.yaml`
+   (direct file read). Not `enabled: true` ⇒ skip all of 7c for this run; record
+   `github filing: disabled` for step 8b.
+2. **gh guard** — `gh auth status` via Bash; non-zero exit ⇒ skip filing, record the reason (e.g.
+   `gh unavailable/unauthenticated`).
+3. **Dedup (cheapest first)** — check sibling proposals' `github-issue:` lines (cap 10 note reads),
+   then:
+   ```bash
+   gh issue list --repo <repo> --state all --search "<3-5 distinctive keywords>" --json number,title,url --limit 10
+   ```
+   Reuse a matching issue's URL when the same change is already tracked.
+4. **File** (only if no match found):
+   ```bash
+   gh issue create --repo <repo> --title "[proposal] <...>" --body-file <scratchpad-tmp-path> --label enhancement
+   ```
+   Retry once without `--label` if the label doesn't exist on the repo.
+5. **Record back** — re-upsert the proposal note with a final `github-issue: <url>` line appended to
+   its body (see `references/github-feedback.md` C2).
+6. Every one of the above is best-effort — 7c must never fail the retrospective.
 
 ---
 
@@ -330,8 +386,17 @@ Proposal state for both checks below comes from MCP, never from the trend file �
 query_items(operation="overview", anchorId="<proposals-container-uuid>", includeChildren=true)
 ```
 
+**If a project rootId is known**, also pull project-scoped proposals — these anchor outside the
+global container per step 7b's scope-based anchoring, so the overview above won't surface them:
+
+```
+query_items(operation="search", tags="improvement-proposal", ancestorId="<rootId>", limit=20)
+```
+
+Fold both result sets into the durability and staleness checks below.
+
 1. **Trend durability:** Did previously identified trends get addressed? Check whether the proposal a trend graduated into is terminal.
-2. **Proposal staleness:** Any proposals created 3+ retrospectives ago with no movement (still in queue)? Also flag any stuck in `work` — a proposal sitting in-progress across runs is usually a stalled adoption, not active work.
+2. **Proposal staleness:** Any proposals created 3+ retrospectives ago with no movement (still in queue)? Also flag any stuck in `work` — a proposal sitting in-progress across runs is usually a stalled adoption, not active work. When stale queue proposals exist (global or project-scoped), the report (step 9) should suggest running `/task-orchestrator:review-proposals`. Treat `cancelled` proposals as **resolved-rejected**, not stale — read their `adoption-decision` note before proposing anything similar again (do-not-re-propose rule); a rejected idea resurfacing under a new title is a signal to check history first, not to recreate it.
 3. **Self-quality:** Are retrospective notes converging on useful patterns, or repeating the same observations without resolution? Are notes too verbose (>800 tokens each) or too shallow (<100 tokens)?
 
 If meta-findings warrant it, add a brief note to the current retrospective's `improvement-signals` note via:
@@ -358,7 +423,7 @@ manage_notes(operation="upsert", notes=[{
   itemId: "<retro-uuid>",
   key: "actions-taken",
   role: "work",
-  body: "<closure record: improvement-proposal items created/updated in Step 7 (title + short-id each), or 'none graduated (≥2 sessions) this run'; plus trend-memory sections updated and any memory writes>"
+  body: "<closure record: improvement-proposal items created/updated in Step 7 (title + short-id each); for each **global** proposal append its GitHub filing outcome — `filed <url>`, `linked existing <url>`, or `github filing skipped: <reason>`; for each **project-scoped** proposal append `anchored under project <rootId>`; or 'none graduated (≥2 sessions) this run'; plus trend-memory sections updated and any memory writes>"
 }])
 ```
 
@@ -407,9 +472,9 @@ Render a dashboard using the output style visual conventions:
 
 ### Improvement Proposals Created
 
-| ID | Proposal | Trigger |
-|----|----------|---------|
-| `<short-id>` | <description> | <trend that graduated> |
+| ID | Proposal | Trigger | Issue |
+|----|----------|---------|-------|
+| `<short-id>` | <description> | <trend that graduated> | <url or —> |
 ```
 
 **Conditional prefix:**
