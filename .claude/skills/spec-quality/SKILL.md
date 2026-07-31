@@ -61,6 +61,29 @@ deliberate two-phase approach. Document it as such, scope the first phase explic
 and create a separate work item for the second phase. Don't leave the choice latent
 in the spec.
 
+### Cite Contracts, Don't Restate Them
+
+When a spec prescribes call sequences, API semantics, or any fact owned by another
+artifact (a tool description, a source file, another spec), cite the authoritative
+location and direct the implementer to verify against it before relying on it. A
+restated copy drifts from its source — and a spec's confident restatement reads as
+authority to the agent that implements it faithfully.
+
+If the spec claims something was verified, name exactly what was checked. "Verified
+against source" that checked one path while prescribing another is how a partially
+verified claim ships a defect (two sessions of evidence: task-scope facts contradicting
+target files, 2026-07-27; a design prescribing `advance_item` trigger sequences that
+gate-block, 2026-07-31).
+
+### Verification Commands
+
+Before writing a verification command into a spec, plan, or skill, run it twice: once
+on the target platform against known-good input (it must succeed) and once against
+known-bad input (it must fail). A command that has not been shown to fail on bad input
+has not been shown to verify anything — a check that silently always passes is worse
+than no check, because it is trusted. Record the command in the form actually executed,
+not a reconstruction.
+
 ### Non-Goals
 
 Name what someone might reasonably expect this work to include but that is deliberately
@@ -79,6 +102,11 @@ change a domain model default, what tests assume the old value?
 This analysis exists to catch "I didn't realize changing X breaks Y" before it happens.
 Read `references/project-concerns.md` for cross-cutting constraints specific to this
 codebase that frequently expand blast radius in non-obvious ways.
+
+If the blast radius touches a surface with an automated budget, ceiling, or quota test
+(e.g. `ToolTokenBudgetTest`), measure current headroom while writing the spec and record
+both the measured values and the predicted post-change values. Do not defer the
+measurement to implementation — by then the scope decision is already made.
 
 ### Risk Flags
 
@@ -123,6 +151,9 @@ Validate spec completeness before advancing past queue phase:
 - [ ] No "open decisions" or "options under consideration" sections remain in the spec
 - [ ] At least 1 non-goal named (scope boundary explicit)
 - [ ] Downstream consumers of changed interfaces traced
+- [ ] Contracts cited (with location), not restated; any "verified" claim names what was checked
+- [ ] Verification commands proven (succeed on good input, fail on bad input)
+- [ ] Automated budget/ceiling headroom measured, if the blast radius touches one
 - [ ] 1-2 concrete risk flags identified
 - [ ] Test scenarios named for happy paths, failure paths, and edge cases
 - [ ] Shared interface breakage assessed (if applicable)

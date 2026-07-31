@@ -473,6 +473,12 @@ The shape of Step 6 depends on tier.
 
 After review passes:
 
+0. **Post-dispatch commit audit (non-blocking):** run `git log --oneline -3` and
+   `git status --short` and compare against what the orchestrator itself committed.
+   Any commit a subagent made despite stop-boundary instructions is flagged for
+   review here — inspect its scope before it rides into the squash-merge (a
+   subagent commit lacks the co-author trailer; reconcile at merge time).
+
 1. Verify the working branch is committed (orchestrator commits if Direct tier;
    subagent committed if Delegated). Stage only the files related to the
    implementation:
