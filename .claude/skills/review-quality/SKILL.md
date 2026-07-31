@@ -45,7 +45,8 @@ you need — do not expect context to be pre-loaded for you.
    and `test-manifest` notes via `query_notes(operation="list", itemId=...,
    includeBody=true)`, which carries the test author's own commit SHA range field, and
    obtain the orchestrator-provided per-child SHA table (Pre-SHA/Post-SHA/Test-Pre-SHA/
-   Test-Post-SHA) for cross-checking. A trait-bearing item with no `test-plan` note is a
+   Test-Post-SHA) plus any declared orchestrator fixture-repair commit SHAs from the review
+   handoff, for cross-checking. A trait-bearing item with no `test-plan` note is a
    blocking issue on its own — do not proceed to the Area 3 independence verification
    until the note exists.
 

@@ -194,7 +194,7 @@ later (`retryAfterMs` is a hint), or report the contended key(s) to the user.
 
 **Seat timing for `needs-test-author` items.** The queue-phase `test-plan` note is filled by the
 **planning seat** — the orchestrator (Direct tier) or the plan author (Delegated/Parallel tier),
-invoking the `/test-author` skill's scenario-derivation and oracle-derivation sections — and this
+invoking the `test-author` skill's scenario-derivation and oracle-derivation sections — and this
 happens **before** `advance_item(trigger="start")` moves the item queue→work. This is by design:
 `test-plan` gates work entry, the same way any other required queue-phase note does. This is a
 distinct seat from Step 4b's **test author** seat, which writes test code and fills
@@ -264,7 +264,10 @@ clean run; ordinary incremental builds are safe afterwards.
 This step is **tier-conditional**:
 
 **Direct tier:** Implement directly. Edit the files, run the test suite. No subagent
-dispatch. No `/simplify` pass. Fill the `session-tracking` note (required by both
+dispatch. No `/simplify` pass. **Exception — a Direct-tier `bug-fix` carrying
+`needs-test-author`:** follow Step 4b's Direct-tier test-first-then-fix sequence
+(test-plan frozen at queue → regression test observed red → fix → green) instead of
+implementing first. Fill the `session-tracking` note (required by both
 `quick-fix` and `default` schemas) with a brief summary of what changed and test
 results. Advance to review:
 `advance_item(trigger="start")`.
@@ -423,7 +426,8 @@ A violation is reverted (`git -C <feature-worktree> revert` the offending commit
 
 Applies only to items carrying the `needs-test-author` trait. Runs after implementation agents
 return (their commits exist on the branch/worktree) and before the orchestrator's build
-verification below — the test author compiles against the real implemented surface, not a
+verification below (Direct tier inverts this ordering — see the Direct-tier bullet below) —
+the test author compiles against the real implemented surface, not a
 predicted one. **Two distinct seats, do not conflate them:** the **planning seat** already froze
 `test-plan` at queue phase, before this step, gating work entry (see Step 3's seat-timing rule);
 the **test author** seat here writes test CODE and fills `test-manifest` — it does not fill or
