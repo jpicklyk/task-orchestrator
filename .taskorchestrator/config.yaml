@@ -5,6 +5,9 @@ project:
 retrospective:
   mode: dispatch
   dispatchThreshold: 3
+  github_feedback:
+    enabled: true
+    repo: jpicklyk/task-orchestrator
 
 work_item_schemas:
 
