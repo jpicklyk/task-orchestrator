@@ -23,6 +23,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `session-start.mjs` SessionStart hook now returns `hookSpecificOutput.watchPaths` for the
   discovered config file, and a new `FileChanged` hook entry re-runs `config-sync.mjs` when it's
   edited mid-session. Requires Claude Code ≥ 2.1.220.
+- **New `needs-test-author` trait separates test authoring from implementation.** Adds a
+  `test-author` skill and a three-note gate (`test-plan` at queue, `test-manifest` at work,
+  `test-independence-audit` at review) so scenarios and oracles are frozen before implementation
+  exists rather than derived from it. `/implement` gains a dedicated test-author wave between the
+  implementation wave and orchestrator verification; `review-quality` gains an independence
+  verification check. Applied by default to `bug-fix`; opt-in for `feature-task` via the
+  `/implement` Step 1 trigger rule. Direct tier uses a temporal-only degraded mode (single actor,
+  ordering-only separation) instead of a second dispatch.
 
 ### Changed
 
