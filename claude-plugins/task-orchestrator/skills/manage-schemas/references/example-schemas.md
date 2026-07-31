@@ -59,7 +59,7 @@ Root cause analysis before code, verification after.
 ```yaml
   bug-fix:
     lifecycle: auto
-    default_traits: [delegated, session-tracked]
+    default_traits: [delegated, session-tracked, needs-test-author]
     notes:
       - key: diagnosis
         role: queue

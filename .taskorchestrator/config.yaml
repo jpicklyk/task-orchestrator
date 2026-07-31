@@ -214,7 +214,7 @@ traits:
         description: "Reviewer attestation that test authorship was independent of implementation."
         skill: "review-quality"
         maxLength: 1500
-        guidance: "Attest to: separation held (test files first appear in the author's commit SHA range; actor id differs from the implementer's, or a temporal-only separation is explicitly declared), the coverage mapping spot-checked by reading note bodies rather than trusting the manifest alone, at least one oracle traced back to its cited source, and the declared probes actually run. Verdict — one of: **independent** | **independent-degraded** (temporal-only separation) | **not-independent** (blocking, regardless of suite pass/fail)."
+        guidance: "Attest to: separation held (test files first appear in the author's commit SHA range; actor id differs from the implementer's, or a temporal-only separation is explicitly declared), the coverage mapping spot-checked by opening at least two mapped tests and reading their bodies rather than trusting the manifest alone, at least one oracle traced back to its cited source, and the declared probes actually run. Verdict — one of: **independent** | **independent-degraded** (temporal-only separation) | **not-independent** (blocking, regardless of suite pass/fail)."
 
   session-tracked:
     notes:

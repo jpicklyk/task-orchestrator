@@ -75,14 +75,14 @@ After each dispatch returns (agent has committed), capture HEAD again. The diff 
 the two SHAs is exactly that child's work — used for scoping the review agent.
 
 ```
-| Child UUID | Agent ID    | Pre-SHA  | Post-SHA | Test-SHA (range)   | Status        |
-|------------|-------------|----------|----------|---------------------|---------------|
-| <uuid>     | agent-g1    | abc123   | def456   | <test-pre>..<test-post> | reviewing     |
-| <uuid>     | agent-g2    | def456   | ghi789   | (no needs-test-author)  | done          |
+| Child UUID | Agent ID    | Pre-SHA  | Post-SHA | Test-Pre-SHA | Test-Post-SHA | Status        |
+|------------|-------------|----------|----------|--------------|---------------|---------------|
+| <uuid>     | agent-g1    | abc123   | def456   | <test-pre>   | <test-post>   | reviewing     |
+| <uuid>     | agent-g2    | def456   | ghi789   | (no needs-test-author) |    | done          |
 ```
 
-The `Test-SHA` column records the test author's pre/post commit range (Step 4b of
-`/implement`) for items carrying `needs-test-author`. It stays blank/marked "(no
+The `Test-Pre-SHA`/`Test-Post-SHA` columns record the test author's pre/post commit range
+(Step 4b of `/implement`) for items carrying `needs-test-author`. They stay blank/marked "(no
 needs-test-author)" for items that don't carry the trait. Used for the disjointness check
 (impl-range never touches `src/test/**`, test-range never touches `src/main/**`) and to scope
 the review agent's second diff range alongside `<pre-sha>..<post-sha>`.

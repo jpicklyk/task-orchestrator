@@ -101,7 +101,7 @@ Write the modified config back to `.taskorchestrator/config.yaml`. Show a diff-s
 
 ```
 ✓ Schema "bug-fix" updated:
-  + Added: test-plan (work, required)
+  + Added: rollout-plan (work, required)
   Gate impact: work phase now requires 3 notes (was 2)
 ```
 

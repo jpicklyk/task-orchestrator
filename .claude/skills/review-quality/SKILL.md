@@ -43,9 +43,11 @@ you need — do not expect context to be pre-loaded for you.
    Do not assume tests pass because the implementation agent said they did.
 4. **For items carrying the `needs-test-author` trait** — load the trait's `test-plan`
    and `test-manifest` notes via `query_notes(operation="list", itemId=...,
-   includeBody=true)`, and obtain the per-child commit-SHA table from the orchestrator.
-   A trait-bearing item with no `test-plan` note is a blocking issue on its own — do not
-   proceed to the Area 3 independence verification until the note exists.
+   includeBody=true)`, which carries the test author's own commit SHA range field, and
+   obtain the orchestrator-provided per-child SHA table (Pre-SHA/Post-SHA/Test-Pre-SHA/
+   Test-Post-SHA) for cross-checking. A trait-bearing item with no `test-plan` note is a
+   blocking issue on its own — do not proceed to the Area 3 independence verification
+   until the note exists.
 
 If the planning note (feature-summary / task-scope / diagnosis) or implementation notes
 are missing, the review cannot proceed. Report this as a blocking issue.
@@ -142,12 +144,15 @@ other finding above it:
 
 - **Separation held.** Confirm the test files were *introduced* within the test author's
   commit range, not the implementer's — check `git log` over both ranges using the
-  `test-manifest`'s commit-SHA table. Record the result as `independent` when actor and
-  commit-range separation both hold, `independent-degraded (temporal-only)` when only
-  ordering separates them (for example a Direct-tier bug-fix run in single-actor mode),
-  or `not-independent` when separation did not hold. Any silent implementer edit to a
-  test file after the author's range is a blocking issue, regardless of whether the edit
-  looks benign.
+  `test-manifest`'s commit SHA range field together with the orchestrator's per-child SHA
+  table. Record the result as `independent` when actor and commit-range separation both
+  hold, `independent-degraded (temporal-only)` when only ordering separates them (for
+  example a Direct-tier bug-fix run in single-actor mode), or `not-independent` when
+  separation did not hold. Any silent implementer edit to a test file after the author's
+  range is a blocking issue, regardless of whether the edit looks benign — **except**
+  orchestrator fixture-repair commits that were declared in the review handoff (listed
+  with their SHAs). Those are not silent edits; verify they touched only construction/
+  setup code, never assertions, before excluding them from the blocking rule.
 - **Manifest maps to spec scenarios.** Cross-check the `test-manifest`'s S-id-to-test
   mapping against the `test-plan`'s numbered scenarios (S1…): every scenario must be
   marked covered or explicitly not-covered with a reason. Do not take "covered" on
@@ -191,7 +196,10 @@ around findings, not process.
 Every review must end with a clear verdict:
 
 - **Pass** — all acceptance criteria met, tests pass and have substance, no blocking
-  issues. The item can advance.
+  issues. The item can advance. An independence-verification result of
+  `independent-degraded (temporal-only)` maps to **Pass** — record it in the audit note
+  as the observed mode, not as a finding; it is the sanctioned outcome for Direct-tier
+  single-actor runs, not a degradation to flag.
 - **Fail — blocking issues** — test failures, missing acceptance criteria, critical
   gaps in test coverage, or (for items with the `needs-test-author` trait) a
   `not-independent` independence-verification result or an unexplained implementer edit
