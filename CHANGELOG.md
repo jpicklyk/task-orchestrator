@@ -17,6 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Plugin: `/review-proposals` dispositions now write back to the source trend item.** Rejecting a
+  proposal appends a do-not-re-graduate line to the trend that graduated it; accepting one whose
+  change is applied/landed retires the trend (gate-free `cancel`); the maintainer tracked-only path
+  leaves the trend active until a later retrospective verifies the change. Closes the loop the
+  trend-memory MCP migration made possible — previously the skill could not touch file-based trends.
 - **Plugin: retrospective trend memory moved from a per-project memory file into MCP work items.**
   `/session-retrospective` previously read and rewrote a whole-file `memory/retrospectives.md`
   (~55k tokens at steady state, exceeding the 25k read cap on a single call) on every run; trend
