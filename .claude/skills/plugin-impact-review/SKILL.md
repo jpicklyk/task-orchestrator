@@ -56,3 +56,8 @@ Check output styles for stale references:
 ## Output
 
 Compose the `plugin-impact` note listing specific files and sections that need changes. Note `/mcp reconnect` requirements.
+
+Before asserting any skill/hook/doc file is missing, verify with a direct existence check
+(Read the exact expected path, or an exact-path Glob) — skills live in BOTH
+`claude-plugins/task-orchestrator/skills/` and project-level `.claude/skills/`; checking
+only one directory has produced a false "missing skill" finding before.

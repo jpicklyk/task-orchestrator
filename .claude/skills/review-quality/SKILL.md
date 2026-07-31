@@ -39,6 +39,11 @@ you need — do not expect context to be pre-loaded for you.
 If the planning note (feature-summary / task-scope / diagnosis) or implementation notes
 are missing, the review cannot proceed. Report this as a blocking issue.
 
+Before reporting any file or artifact as missing, or any behavior as broken, verify with
+a direct check — Read the exact expected path, an exact-path Glob, or a reproduction —
+rather than inferring absence from one plausible directory or from a prior bug's pattern.
+Two review false-positives reached verdicts this way before being caught downstream.
+
 ---
 
 ## Review Areas

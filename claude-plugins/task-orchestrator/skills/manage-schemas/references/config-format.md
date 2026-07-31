@@ -539,6 +539,9 @@ retrospective:
   mode: nudge          # nudge (default) | dispatch | off | headless (reserved)
   dispatchThreshold: 3 # items terminal since the last retrospective directive required to auto-spawn (default 3)
   cooldownMinutes: 30  # minutes before the same run can trigger another directive (default 30)
+  github_feedback:                     # optional
+    enabled: true                      # default false — opt-in
+    repo: jpicklyk/task-orchestrator   # optional; this is the default
 ```
 
 Default: `nudge` — applied when the `retrospective:` block or `mode` key is absent, or the value is unrecognized.
@@ -550,6 +553,8 @@ Default: `nudge` — applied when the `retrospective:` block or `mode` key is ab
 | `mode` | no | string | `nudge`, `dispatch`, `off`, or the reserved `headless`. Defaults to `nudge` |
 | `dispatchThreshold` | no | integer >= 0 | Only meaningful in `mode: dispatch`. Count of items that reached terminal since the last retrospective directive (nudge or dispatch) required before a hard background dispatch fires. Below this, the run still gets a nudge — it is never silent. Defaults to `3`; a non-integer or negative value falls back to the default. |
 | `cooldownMinutes` | no | number > 0 | Minutes before the same run can trigger another nudge/dispatch directive. Defaults to `30`; an invalid value falls back to the default. |
+| `github_feedback.enabled` | no | boolean | Opt-in. When `true`, the session-retrospective skill files a GitHub enhancement issue for **global-scoped** improvement proposals via the `gh` CLI. Defaults to `false`. Requires `gh` installed and authenticated; filing is skipped gracefully otherwise. |
+| `github_feedback.repo` | no | string | `owner/repo` target for filed issues. Defaults to `jpicklyk/task-orchestrator` (the plugin's upstream). |
 
 ### Modes
 
@@ -564,9 +569,10 @@ Default: `nudge` — applied when the `retrospective:` block or `mode` key is ab
 
 ### Behavior
 
-- **Client-side only.** This block is read directly from the workspace file by the plugin hooks (`PostToolUse` hook `retro-trigger.mjs` and `Stop` hook `retro-backstop.mjs`) — the MCP server never interprets it. Per-root `config-sync` still pushes the file verbatim; the server reports `retrospective` under `ignoredSections` in the push response, same as any other section it doesn't resolve against (see "Global vs Per-Project Config" below).
+- **Client-side only.** This block is read directly from the workspace file by the plugin hooks (`PostToolUse` hook `retro-trigger.mjs` and `Stop` hook `retro-backstop.mjs`) — the MCP server never interprets it. Per-root `config-sync` still pushes the file verbatim; the server reports `retrospective` under `ignoredSections` in the push response, same as any other section it doesn't resolve against (see "Global vs Per-Project Config" below) — the nested `github_feedback` keys ride along in that same ignored `retrospective` section on per-root push.
 - **No hot-reload needed.** Because hooks read the file fresh on every fire (unlike the server's cached/per-root schema resolution), an edit to `retrospective.mode` takes effect on the next hook trigger — no `/mcp` reconnect required.
 - **`project.rootId` recommended.** The hooks key their dedup marker (which prevents a duplicate nudge or dispatch directive from firing twice for the same run) on `project.rootId` when present. This gives reliable self-suppression once the background retrospective subagent completes its own item and the run is recognized as closed out. Without a configured `rootId`, dedup falls back to a weaker session-local signal.
+- **`github_feedback` is skill-read, not hook-read.** Unlike `mode`, `dispatchThreshold`, and `cooldownMinutes` (read by the hooks as scalars), the nested `github_feedback` block is read by the skills (`session-retrospective`, `review-proposals`) as plain YAML — the hooks' scalar reads are unaffected by its presence.
 - **Held directives can be lost — known trade-off.** Because the dedup marker is stamped when a directive is *emitted* (not when it is acted on), a directive the orchestrator is holding for a run boundary exists only in conversation context. If the session is killed or the context compacts before the last background task completes, that retrospective is silently skipped — the `Stop` backstop cannot re-raise it. This is accepted by design (the alternative — re-raising from the marker — would recreate mid-run noise); recover by running `/session-retrospective` manually. Nothing is lost in fidelity by the delay itself: dispatched retrospectives work only from durable MCP state, never conversation context.
 
 ---
