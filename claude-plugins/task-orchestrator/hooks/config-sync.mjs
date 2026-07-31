@@ -52,6 +52,28 @@ export function parseRootId(text) {
   return scalar(section.lines, 'rootId');
 }
 
+/**
+ * Best-effort read of the hook's stdin JSON. Fail-open: an unreadable stream or unparseable
+ * body (including no stdin at all, as when this script is run manually) yields null, and the
+ * caller treats that exactly like a SessionStart invocation — proceed to the existing sync logic.
+ */
+function readHookInput() {
+  try {
+    return JSON.parse(readFileSync(0, 'utf-8'));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * True when `filePath` is (some path form of) this workspace's `.taskorchestrator/config.yaml`.
+ * Normalizes `\` to `/` first since FileChanged on Windows reports native backslash paths.
+ */
+export function isTargetConfigPath(filePath) {
+  if (typeof filePath !== 'string' || !filePath) return false;
+  return filePath.replace(/\\/g, '/').endsWith('.taskorchestrator/config.yaml');
+}
+
 function emit(line) {
   process.stdout.write(
     JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: line } }),
@@ -90,6 +112,14 @@ function decideSyncAction(relation, updatedAt) {
 
 async function main() {
   if (typeof fetch !== 'function') return; // node < 18 — no global fetch; nothing we can do, stay silent
+
+  // FileChanged fires for every watched path, not just ours. Only config.yaml's own change
+  // should trigger a push — a FileChanged event for some other watched file is a silent no-op.
+  // SessionStart invocations (and any unreadable/unparseable stdin) fall through unchanged.
+  const hookInput = readHookInput();
+  if (hookInput?.hook_event_name === 'FileChanged' && !isTargetConfigPath(hookInput.file_path)) {
+    return;
+  }
 
   const bytes = findConfigBytes();
   if (!bytes) return; // no config file → nothing to sync

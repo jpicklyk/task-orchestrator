@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, isAbsolute } from 'node:path';
 
 const HOOK = fileURLToPath(new URL('../session-start.mjs', import.meta.url));
 
@@ -78,6 +78,33 @@ test('project block with only rootId (no name) still resolves', () => {
     const res = runHook(dir);
     const out = JSON.parse(res.stdout);
     assert.ok(out.hookSpecificOutput.additionalContext.includes('bare-root-id'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('config found -> watchPaths present, absolute, and points at the found config.yaml', () => {
+  const dir = tmpConfigDir();
+  try {
+    writeConfig(dir, 'project:\n  rootId: bare-root-id\n');
+    const res = runHook(dir);
+    assert.equal(res.status, 0);
+    const out = JSON.parse(res.stdout);
+    const expectedPath = join(dir, '.taskorchestrator', 'config.yaml');
+    assert.deepEqual(out.hookSpecificOutput.watchPaths, [expectedPath]);
+    assert.ok(isAbsolute(out.hookSpecificOutput.watchPaths[0]));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('no config discoverable -> no watchPaths key at all', () => {
+  const dir = tmpConfigDir();
+  try {
+    const res = runHook(dir);
+    assert.equal(res.status, 0);
+    const out = JSON.parse(res.stdout);
+    assert.ok(!('watchPaths' in out.hookSpecificOutput));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

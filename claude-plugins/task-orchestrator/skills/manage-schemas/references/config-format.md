@@ -605,20 +605,21 @@ which can lower the floor to zero via the empty default (see below).
 free — `agent-observation`, `session-retrospective`, `improvement-proposal`, and the generic
 `container` schema. Project-specific schemas (`feature-implementation`, `feature-task`, `bug-fix`,
 and the `traits:` section) live entirely in this project's own git-tracked
-`.taskorchestrator/config.yaml` and reach the server per-root via the `config-sync` SessionStart
-hook — they are never part of the global floor. Because per-root resolution is whole-algorithm-first
+`.taskorchestrator/config.yaml` and reach the server per-root via the `config-sync` hook — run at
+SessionStart and again mid-session whenever the file changes, via the SessionStart hook's
+`watchPaths` + a `FileChanged` hook entry — they are never part of the global floor. Because per-root resolution is whole-algorithm-first
 (see above), this project's per-root `default` schema (if any) or exact-type match for its own
 schemas beats a global exact-type match, even though in practice the global floor only defines
 process schemas this project's config doesn't redeclare.
 
-**Precedence — the workspace file is canonical; the per-root DB row is a synced replica.** The `config-sync.mjs` SessionStart hook (and the `manage-schemas` / `quick-start` push steps) copy the local `.taskorchestrator/config.yaml` into the per-root store whenever it changes. Durable edits belong in the **file**: a runtime `manage_project_config` push that isn't reflected in the file is overwritten at the next session's sync. A byte-identical file is a no-op (fingerprints match).
+**Precedence — the workspace file is canonical; the per-root DB row is a synced replica.** The `config-sync.mjs` hook (fired at SessionStart, and again mid-session on a `FileChanged` event for the watched config.yaml — plus the `manage-schemas` / `quick-start` push steps) copies the local `.taskorchestrator/config.yaml` into the per-root store whenever it changes. Durable edits belong in the **file**: a runtime `manage_project_config` push that isn't reflected in the file is overwritten at the next sync (session start, or a mid-session file-change re-sync). A byte-identical file is a no-op (fingerprints match).
 
 **Fast-forward guarded.** The server keeps a per-root fingerprint history (newest first, pruned to
 20), so file-canonical precedence is enforced, not just assumed. A push whose fingerprint is
 **known-old** — present in that history but not the root's current fingerprint (e.g. a stale
 checkout that missed a later push made from another machine) — is rejected server-side (REST `409
 superseded`; MCP tool `CONFLICT_ERROR`) instead of silently reverting the later change.
-`config-sync.mjs` checks this on every session start via `GET .../config?fingerprint=<local-sha256>`:
+`config-sync.mjs` checks this on every sync — session start, or a mid-session `FileChanged` re-sync — via `GET .../config?fingerprint=<local-sha256>`:
 a `superseded` relation skips the push and surfaces a message telling the agent to pull or copy the
 server's config back before editing, rather than pushing over it. `current` (already in sync) and
 `unknown` (brand-new content, or an older server that predates this guard — no `relation` field

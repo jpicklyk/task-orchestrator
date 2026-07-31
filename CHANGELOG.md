@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Mid-session config re-sync.** The plugin now pushes a project's `.taskorchestrator/config.yaml`
+  to the server's per-root config store as soon as the file changes, not just at session start — the
+  `session-start.mjs` SessionStart hook now returns `hookSpecificOutput.watchPaths` for the
+  discovered config file, and a new `FileChanged` hook entry re-runs `config-sync.mjs` when it's
+  edited mid-session. Requires Claude Code ≥ 2.1.220.
+
 ### Changed
 
 - **Plugin: retrospective dispatch directives are now durable, not immediate.** The `retro-trigger`
