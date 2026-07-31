@@ -17,6 +17,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Plugin: retrospective trend memory moved from a per-project memory file into MCP work items.**
+  `/session-retrospective` previously read and rewrote a whole-file `memory/retrospectives.md`
+  (~55k tokens at steady state, exceeding the 25k read cap on a single call) on every run; trend
+  patterns now live as items under a process-global `Retrospective Trends` container, with one
+  evidence note per recurrence. Active-trend reads are now a targeted `query_items` list-mode call
+  (title + summary only) instead of a whole-file load — roughly an 80% reduction in token cost for a
+  typical retrospective's trend read. Retirement is gate-free via `advance_item(trigger="cancel")`,
+  with no `start`/`complete` ever used on trend items, so the lifecycle stays safe under any user's
+  schema config. A one-time automatic migration ships in the skill: it runs at each project's next
+  `/session-retrospective` invocation, migrating any existing `memory/retrospectives.md` entries into
+  the new container and rewriting the file to a pointer stub.
+
 - **Plugin: retrospective dispatch directives are now durable, not immediate.** The `retro-trigger`
   hook's `mode: dispatch` directive previously said "dispatch now", so orchestrators launched (and
   later surfaced) the background retrospective mid-session while implementation subagents were still
