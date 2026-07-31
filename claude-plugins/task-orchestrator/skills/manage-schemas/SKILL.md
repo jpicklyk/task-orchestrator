@@ -1,7 +1,7 @@
 ---
 name: manage-schemas
-description: "Creates, views, edits, deletes, and validates note schemas for the MCP Task Orchestrator in .taskorchestrator/config.yaml — the templates that define which notes agents must fill at each workflow phase. Also manages the actor_authentication config block: set actor authentication policy, configure degraded mode, show actor_authentication config, set degradedModePolicy to reject, what's the current degraded mode policy. Use when user says: create schema, show schemas, edit schema, delete schema, validate config, what schemas exist, add a note to schema, remove note from schema, or configure gates."
-argument-hint: "[optional: action + schema name or 'actor_authentication', e.g. 'view bug-fix', 'create research-spike', 'validate', 'set degradedModePolicy reject']"
+description: "Creates, views, edits, deletes, and validates note schemas for the MCP Task Orchestrator in .taskorchestrator/config.yaml — the templates that define which notes agents must fill at each workflow phase. Also recommends schema designs from a library of workflow patterns (autonomous coding loops, spec-driven teams, research pipelines, content production, support triage, data pipelines, incident response, document review) — use this skill whenever the user describes a workflow they want tracked or gated, even without the word 'schema': what schema should I use, help me design schemas, recommend gates for X, set up schemas for my team/workflow/pipeline. Also manages the actor_authentication config block: set actor authentication policy, configure degraded mode, show actor_authentication config, set degradedModePolicy to reject, what's the current degraded mode policy. Use when user says: create schema, show schemas, edit schema, delete schema, validate config, what schemas exist, add a note to schema, remove note from schema, or configure gates."
+argument-hint: "[optional: action + schema name, workflow description, or 'actor_authentication', e.g. 'view bug-fix', 'create research-spike', 'recommend schemas for support triage', 'validate', 'set degradedModePolicy reject']"
 ---
 
 # Manage Schemas — Note Schema Lifecycle
@@ -17,6 +17,7 @@ Classify from `$ARGUMENTS` and conversation context before making any tool calls
 | Signal words | Action |
 |---|---|
 | "create", "build", "new", "add schema", "define", "set up" | CREATE |
+| "recommend", "advise", "design", "what schema should I use", "help me choose", a described workflow with no schema name | CREATE (advisor path) |
 | "show", "view", "list", "what schemas", "display" | VIEW |
 | "edit", "modify", "change", "update", "add note to", "remove note from" | EDIT |
 | "delete", "remove schema", "drop" | DELETE |
@@ -49,7 +50,11 @@ Check if `.taskorchestrator/config.yaml` exists by reading it.
 
 ### CREATE — Build a New Schema
 
-Interactive Q&A flow that gathers schema requirements, generates YAML, merges into config, and optionally creates a companion lifecycle skill.
+Three entry paths: a pattern-driven **advisor** (the user describes their workflow; classify it
+against `references/workflow-patterns.md` and recommend a configuration with per-gate
+rationale), starter **templates**, and from-scratch **Q&A**. All three converge on the same
+customize → write → smoke-test machinery. When the user described a workflow rather than naming
+a schema, go straight to the advisor path.
 
 For detailed workflow, see `references/create-workflow.md` in this skill folder.
 
