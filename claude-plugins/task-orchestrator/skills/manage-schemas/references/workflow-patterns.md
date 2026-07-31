@@ -116,6 +116,12 @@ traits:
         required: true
         description: "Input validation, injection risk, access control, data handling."
         skill: "security-review"    # Claude Code built-in — official review of the pending diff
+  needs-perf-review:            # non-gating reminder for changes touching hot paths
+    notes:
+      - key: performance-baseline
+        role: queue
+        required: false
+        description: "Hot paths affected, expected impact, and how acceptable performance will be verified."
   needs-rollback-plan:
     notes:
       - key: rollback-plan
@@ -129,6 +135,12 @@ traits:
         required: true
         description: "What happened — outcome, deviations, friction; feeds retrospectives."
         maxLength: 2000
+  delegated:                    # pairs with session-tracked — the second /session-retrospective feed
+    notes:
+      - key: delegation-metadata
+        role: work
+        required: false
+        description: "Model, isolation, rationale, outcome per dispatch — orchestrator-filled after the subagent returns."
   needs-staging-slot:           # exclusive lease — leaf task types only
     resources:
       - key: staging-env
