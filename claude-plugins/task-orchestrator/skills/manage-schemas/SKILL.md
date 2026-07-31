@@ -108,7 +108,7 @@ Or `◆ Actor authentication: disabled` (or omit if the section is absent). When
 
 Read current config, display the target schema, ask what to change (add note, remove note, toggle required, change description/guidance/skill, change lifecycle mode, add/remove default_traits, rename key), apply changes, write back.
 
-When adding or editing a note, offer the `skill` field: "Should this note have a skill framework? If so, provide the skill name (e.g., `review-quality`). The skill will be invoked before the agent fills the note."
+When adding or editing a note, offer the `skill` field: "Should this note have a skill framework? If so, provide the skill name (e.g., `review-quality`, or a Claude Code built-in like `security-review`). The skill will be invoked before the agent fills the note."
 
 If the target schema is not found in config.yaml, inform the user and offer to CREATE instead.
 
