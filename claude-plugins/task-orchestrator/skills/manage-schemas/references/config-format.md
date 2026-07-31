@@ -111,6 +111,24 @@ These fields serve different purposes and work together:
 | Both | The skill provides the structured process; guidance adds project-specific requirements the skill doesn't cover. The agent invokes the skill first, then uses guidance to fill in domain-specific details. |
 | Neither | The note key and description are self-explanatory — no additional direction needed. |
 
+### `skill` — exact-name rule
+
+A `skill:` value must be the **exact name** the Skill tool accepts in the workspace where the
+note gets filled — the Skill tool resolves strictly (no fuzzy matching, unlike a user typing a
+slash command):
+
+- **Plugin-shipped skills** (this plugin's `claude-plugins/task-orchestrator/skills/`) are
+  **qualified**: `task-orchestrator:session-retrospective`, `task-orchestrator:review-quality`, etc.
+- **Project-level skills** (`.claude/skills/`) and **Claude Code built-in skills** are **bare**:
+  `review-quality`, `security-review`, `plan`, `review`, etc.
+
+**Watch for built-in name collisions.** A short, generic `skill:` value can silently resolve to
+the wrong built-in instead of your intended framework skill — especially `review` (Claude Code's
+GitHub-PR review skill, not a note-quality framework), and also `plan`, `run`, `init`. If you want
+a review-quality framework, point at the actual framework skill name (e.g. `review-quality`), not
+the collision-prone generic word. `manage-schemas`'s `validate` operation flags known collisions
+in this set — see `SKILL.md` → VALIDATE.
+
 ---
 
 ## Lifecycle Modes
