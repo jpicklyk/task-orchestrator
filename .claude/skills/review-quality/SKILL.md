@@ -20,6 +20,12 @@ the code or the tests. An agent reviewing its own work will rationalize rather t
 evaluate. The reviewer reads, runs, and reports — it never fixes. If issues are found,
 they go back to the implementation agent for resolution.
 
+This is the same principle the `needs-test-author` trait applies one step earlier, to
+test authorship itself — the test author must not be the implementer, for the same
+rationalize-not-evaluate reason. Verifying that separation actually held (see
+"Independence verification" in Area 3) is this rule applied to test authorship, not an
+optional extra.
+
 ---
 
 ## Getting Started
@@ -35,6 +41,11 @@ you need — do not expect context to be pre-loaded for you.
    modified, then read them directly. Review the actual code, not just summaries.
 3. **Run the test suite** — execute the project's test command and capture the results.
    Do not assume tests pass because the implementation agent said they did.
+4. **For items carrying the `needs-test-author` trait** — load the trait's `test-plan`
+   and `test-manifest` notes via `query_notes(operation="list", itemId=...,
+   includeBody=true)`, and obtain the per-child commit-SHA table from the orchestrator.
+   A trait-bearing item with no `test-plan` note is a blocking issue on its own — do not
+   proceed to the Area 3 independence verification until the note exists.
 
 If the planning note (feature-summary / task-scope / diagnosis) or implementation notes
 are missing, the review cannot proceed. Report this as a blocking issue.
@@ -113,10 +124,43 @@ without catching real bugs:
 - **Overly broad assertions** — `result != null` or `list.isNotEmpty()` when specific
   values, sizes, or contents should be checked. These pass even when the implementation
   is wrong.
+- **Assumption escapes** — `assumeTrue` (or an equivalent guard) gating out a real
+  failure instead of asserting against it, so the test silently skips rather than
+  reporting the bug it was written to catch.
+- **Implementation-derived oracles** — an expected value computed from the
+  implementation's own formula or output rather than from an independent oracle source.
+  These pass by construction and verify nothing.
 
 **Check edge cases.** Verify each boundary condition from the test strategy has a
 corresponding test. If implementation notes documented new edge cases discovered during
 development, check whether tests were added for those too.
+
+**Independence verification (items with the `needs-test-author` trait).** When the item
+carries this trait, verify the test-author/implementer separation actually held before
+trusting anything else found in this area — a compromised separation undermines every
+other finding above it:
+
+- **Separation held.** Confirm the test files were *introduced* within the test author's
+  commit range, not the implementer's — check `git log` over both ranges using the
+  `test-manifest`'s commit-SHA table. Record the result as `independent` when actor and
+  commit-range separation both hold, `independent-degraded (temporal-only)` when only
+  ordering separates them (for example a Direct-tier bug-fix run in single-actor mode),
+  or `not-independent` when separation did not hold. Any silent implementer edit to a
+  test file after the author's range is a blocking issue, regardless of whether the edit
+  looks benign.
+- **Manifest maps to spec scenarios.** Cross-check the `test-manifest`'s S-id-to-test
+  mapping against the `test-plan`'s numbered scenarios (S1…): every scenario must be
+  marked covered or explicitly not-covered with a reason. Do not take "covered" on
+  faith — open at least two of the claimed tests and read their bodies to verify the
+  claimed coverage is real.
+- **Oracle spot-check.** Pick one non-trivial scenario and trace its expected value back
+  to the oracle source recorded in the `test-plan` (spec clause, stated algorithm, or
+  external reference). If the expected value matches what the implementation produces
+  but not what the named oracle source specifies, that is a blocking issue — it means
+  the oracle was derived from the implementation rather than the spec.
+- **Arbitration record.** Every ambiguity the test author flagged must have a named
+  resolver in the manifest's arbitration record. Give oracle-degraded scenarios — ones
+  where the oracle source itself was uncertain — a second, closer look.
 
 ### 4. Simplification
 
@@ -148,9 +192,12 @@ Every review must end with a clear verdict:
 
 - **Pass** — all acceptance criteria met, tests pass and have substance, no blocking
   issues. The item can advance.
-- **Fail — blocking issues** — test failures, missing acceptance criteria, or critical
-  gaps in test coverage. The item must go back for fixes before it can advance. List
-  every blocking issue.
+- **Fail — blocking issues** — test failures, missing acceptance criteria, critical
+  gaps in test coverage, or (for items with the `needs-test-author` trait) a
+  `not-independent` independence-verification result or an unexplained implementer edit
+  to test files. These fail the item even when the test suite is green — a compromised
+  separation makes a passing suite untrustworthy. The item must go back for fixes before
+  it can advance. List every blocking issue.
 - **Pass with observations** — no blocking issues, but simplification findings or
   minor test quality concerns worth addressing. The item can advance, but the
   observations should be tracked for follow-up.

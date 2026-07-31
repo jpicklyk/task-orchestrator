@@ -141,6 +141,15 @@ If the change modifies shared interfaces (domain models, repository contracts, t
 parameters), note which existing tests may break and how you'll handle that — update
 them, or confirm they still pass with the new behavior.
 
+**Give every scenario a stable numbered id and an oracle source.** Number scenarios
+sequentially (S1, S2, S3…) across all three coverage areas, and for each one record the
+oracle source the expected result comes from — a spec clause, a stated algorithm, or an
+external reference. Never "what the code returns," and never just the ticket's worked
+example restated as if it were independent confirmation. Stable ids let downstream
+artifacts map coverage back to this spec without duplicating it — most directly the
+`needs-test-author` trait's `test-plan` and `test-manifest` notes, which reference these
+same ids; cite the trait by name rather than restating its note schema here.
+
 ---
 
 ## Completion Checklist
@@ -156,6 +165,7 @@ Validate spec completeness before advancing past queue phase:
 - [ ] Automated budget/ceiling headroom measured, if the blast radius touches one
 - [ ] 1-2 concrete risk flags identified
 - [ ] Test scenarios named for happy paths, failure paths, and edge cases
+- [ ] Scenarios carry stable numbered ids (S1…) with an oracle source recorded for each
 - [ ] Shared interface breakage assessed (if applicable)
 
 ---
