@@ -198,6 +198,8 @@ If the user picks Reject or Defer, either take a one-line reason from their foll
    dwells in `review` with `outcome-verification` intentionally unfilled — a future
    `/session-retrospective` run verifies whether the applied change actually helped, and fills that
    note then. This is by design, not an oversight.
+9. Apply the **Source-trend write-back** below — the config change is applied, so the source trend
+   retires now.
 
 ### Accept — global
 
@@ -240,6 +242,9 @@ If the user picks Reject or Defer, either take a one-line reason from their foll
      `start` enters work; `complete` then goes straight to terminal — its all-phases note gate
      passes because `proposal`, `adoption-decision`, AND `outcome-verification` are all filled.
      The item is now fully terminal — the GitHub issue is the living tracker, not this workspace.
+   Either way, finish with the **Source-trend write-back** below: community handoff (terminal)
+   retires the source trend now; the maintainer path leaves it active until a later retrospective
+   verifies the landed change.
 
 ### Reject
 
@@ -255,7 +260,7 @@ advance_item(transitions=[{itemId: "<uuid>", trigger: "cancel"}])
 
 `cancel` is a single gate-free call — it goes straight to terminal from any non-terminal role, no
 note gate involved. Do **not** fill `outcome-verification` for a rejection; there is no change to
-verify.
+verify. Then apply the **Source-trend write-back** below.
 
 ### Defer
 
@@ -271,6 +276,33 @@ manage_notes(operation="upsert", notes=[{
 No `advance_item` call — the item stays in `queue`. A later Accept decision overwrites this same
 note via upsert (last-writer-wins), so re-running this skill and accepting a previously-deferred
 proposal works without any special-casing.
+
+### Source-trend write-back
+
+Most proposals graduated from a trend item (tags `retrospective-trend`, one item per cross-session
+pattern) whose summary carries `GRADUATED -> proposal <short-id>`. After carrying out a disposition,
+close the loop at the source. Everything here uses only gate-free operations (`manage_items` update,
+`advance_item` with `cancel`) — never `start` or `complete` on a trend item — so it is safe under
+any schema config. Locate the source trend:
+
+```
+query_items(operation="search", query="<proposal-short-id>", scope={tags: ["retrospective-trend"]})
+```
+
+Skip this write-back silently when no trend matches — proposals can also be created ad hoc without
+a graduating trend.
+
+- **After Reject:** append one line to the trend item's summary via `manage_items(operation="update")`:
+  `proposal <short-id> rejected <YYYY-MM-DD> — do not re-graduate; see its adoption-decision note.`
+  The trend stays active and keeps accumulating evidence, but every future retrospective now sees
+  the rejection inline in the Step 4.2 listing instead of having to discover the cancelled proposal.
+- **After Accept, once the change is actually applied or landed** (project-scoped config pushed, or
+  a community-handoff issue filed and the item taken terminal): retire the trend —
+  `advance_item(itemId="<trend-uuid>", trigger="cancel", summary="archived: addressed via proposal <short-id>")`.
+  When adoption is only *tracked* so far (maintainer path dwelling in `review` awaiting
+  implementation), leave the trend active — the later retrospective that fills
+  `outcome-verification` retires it once the change demonstrably held.
+- **After Defer:** no trend write-back.
 
 ---
 
