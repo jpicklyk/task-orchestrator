@@ -52,6 +52,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   lapsing inside the current second could compare as unexpired in SQLite's lexicographic TEXT
   comparison — skipping the expiry clamp and recording `released` instead of `expired`. Sub-second
   window, audit view only (beta field report).
+- **Plugin: `skill-enforcement` hook no longer nags in a loop.** The hook's `additionalContext`
+  previously told the model to "abort this call, invoke the skill, then retry" — the model obeyed,
+  retried, and re-triggered the same warning forever, since the hook kept no state and its 200-char
+  substantive floor was unreachable for concise-by-design notes bound to a small `maxLength`.
+  Now: advisory-once semantics (a per-session/item/key marker suppresses a repeat warning for the
+  same note), a `maxLength`-aware substantive floor (scales down when a key's configured
+  `maxLength` is small), and honest wording that no longer claims the call is blocked and adds an
+  "Unknown skill" escape hatch for invalid skill pointers. Also documented the skill-pointer
+  exact-name rule (qualified vs. bare names, built-in name collisions like `review`) in
+  `config-format.md`, and added a `manage-schemas` `validate` check that flags `skill:` values
+  colliding with built-in skill names (`review`, `plan`, `run`, `init`).
 
 ## [3.13.0] - 2026-07-25
 
