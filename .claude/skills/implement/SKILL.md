@@ -49,6 +49,13 @@ For each item, call `get_context(itemId=...)` to understand:
 
 If the item has no schema tag, apply `quick-fix` for Direct tier or leave untagged for Delegated/Parallel (the `default` schema catches these).
 
+**Trait application on classification.** When the tier resolves to Delegated or Parallel and the
+workspace defines a `delegated` trait (it appears in `availableTraits` on create responses), apply
+it before any dispatch — `traits: "delegated"` at item creation, or
+`manage_items(operation="update", items=[{itemId: "<uuid>", traits: "delegated"}])` for an existing
+item. This makes the orchestrator-filled `delegation-metadata` note schema-visible instead of
+convention-only. Direct tier: do not apply it — nothing is delegated.
+
 **Interaction mode** — orthogonal to tier:
 
 | Signal | Mode |
@@ -83,6 +90,18 @@ git checkout -b <branch-name>
 ```
 
 **Delegated tier** (single subagent) — same as Direct: orchestrator creates the branch on the main directory, the subagent works against it. No worktree.
+
+**If the main checkout is unavailable** (another branch checked out, uncommitted changes present)
+**or the orchestrator itself runs from a worktree** — Direct and Delegated tiers both: do not touch
+the occupied checkout. Create a dedicated worktree instead:
+
+```bash
+git worktree add .claude/worktrees/<slug> -b <branch-name> origin/main
+```
+
+Work there using absolute paths and `git -C` (never `cd`); after the PR merges, remove the worktree
+and delete the branch. Sync local `main` via `git fetch origin main:main` while `main` is not
+checked out anywhere, or a normal `git pull` from the main checkout when it is.
 
 **Parallel tier** (parent feature with multiple children) — create a **single feature worktree** that all child agents share:
 

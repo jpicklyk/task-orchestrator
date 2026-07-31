@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Adopted three retrospective improvement proposals** (002fa6c6, d7662676, 4aa8d058): `/implement`
+  Step 2 gains the dedicated-worktree fallback for an unavailable/dirty main checkout; CLAUDE.md's
+  plugin-refresh instruction is replaced with the verified version-keyed-cache procedure (purge +
+  lazy extraction + verification); `/implement` Step 1 and the `workflow-orchestrator` output style
+  now apply the `delegated` trait at Delegated/Parallel classification so `delegation-metadata`
+  notes are schema-visible.
+
 ### Added
 
 - **Mid-session config re-sync.** The plugin now pushes a project's `.taskorchestrator/config.yaml`
