@@ -561,7 +561,7 @@ Default: `nudge` — applied when the `retrospective:` block or `mode` key is ab
 | Mode | Behavior |
 |------|----------|
 | `nudge` (default) | Hooks inject a suggestion to run `/session-retrospective` when an implementation run reaches terminal. The agent decides whether to act on it. |
-| `dispatch` | Hooks inject a directive that launches exactly one background retrospective agent, but only once the run's substance (items reached terminal since the last directive) clears `dispatchThreshold`. Below threshold, the hook still injects the `nudge` suggestion instead of staying silent — nothing goes unreported, only the automatic background spawn is reserved for substantial runs. |
+| `dispatch` | Hooks inject a directive that launches exactly one background retrospective agent, but only once the run's substance (items reached terminal since the last directive) clears `dispatchThreshold`. Below threshold, the hook still injects the `nudge` suggestion instead of staying silent — nothing goes unreported, only the automatic background spawn is reserved for substantial runs. The directive is **durable, not immediate**: it instructs the orchestrator to dispatch at the next run boundary — holding it while background tasks or subagents are still in flight, and merging any directives that accumulate while holding into a single dispatch covering the union of their roots. |
 | `off` | Hooks stay silent — no retrospective suggestion or dispatch directive is injected. |
 | `headless` (reserved) | **Not implemented yet.** Intended for a future version where the hook spawns a detached `claude -p` retrospective session outside the current conversation. Today, setting `mode: headless` falls back to `nudge` behavior, same as any other unrecognized value. |
 
@@ -573,6 +573,7 @@ Default: `nudge` — applied when the `retrospective:` block or `mode` key is ab
 - **No hot-reload needed.** Because hooks read the file fresh on every fire (unlike the server's cached/per-root schema resolution), an edit to `retrospective.mode` takes effect on the next hook trigger — no `/mcp` reconnect required.
 - **`project.rootId` recommended.** The hooks key their dedup marker (which prevents a duplicate nudge or dispatch directive from firing twice for the same run) on `project.rootId` when present. This gives reliable self-suppression once the background retrospective subagent completes its own item and the run is recognized as closed out. Without a configured `rootId`, dedup falls back to a weaker session-local signal.
 - **`github_feedback` is skill-read, not hook-read.** Unlike `mode`, `dispatchThreshold`, and `cooldownMinutes` (read by the hooks as scalars), the nested `github_feedback` block is read by the skills (`session-retrospective`, `review-proposals`) as plain YAML — the hooks' scalar reads are unaffected by its presence.
+- **Held directives can be lost — known trade-off.** Because the dedup marker is stamped when a directive is *emitted* (not when it is acted on), a directive the orchestrator is holding for a run boundary exists only in conversation context. If the session is killed or the context compacts before the last background task completes, that retrospective is silently skipped — the `Stop` backstop cannot re-raise it. This is accepted by design (the alternative — re-raising from the marker — would recreate mid-run noise); recover by running `/session-retrospective` manually. Nothing is lost in fidelity by the delay itself: dispatched retrospectives work only from durable MCP state, never conversation context.
 
 ---
 
@@ -610,20 +611,21 @@ which can lower the floor to zero via the empty default (see below).
 free — `agent-observation`, `session-retrospective`, `improvement-proposal`, and the generic
 `container` schema. Project-specific schemas (`feature-implementation`, `feature-task`, `bug-fix`,
 and the `traits:` section) live entirely in this project's own git-tracked
-`.taskorchestrator/config.yaml` and reach the server per-root via the `config-sync` SessionStart
-hook — they are never part of the global floor. Because per-root resolution is whole-algorithm-first
+`.taskorchestrator/config.yaml` and reach the server per-root via the `config-sync` hook — run at
+SessionStart and again mid-session whenever the file changes, via the SessionStart hook's
+`watchPaths` + a `FileChanged` hook entry — they are never part of the global floor. Because per-root resolution is whole-algorithm-first
 (see above), this project's per-root `default` schema (if any) or exact-type match for its own
 schemas beats a global exact-type match, even though in practice the global floor only defines
 process schemas this project's config doesn't redeclare.
 
-**Precedence — the workspace file is canonical; the per-root DB row is a synced replica.** The `config-sync.mjs` SessionStart hook (and the `manage-schemas` / `quick-start` push steps) copy the local `.taskorchestrator/config.yaml` into the per-root store whenever it changes. Durable edits belong in the **file**: a runtime `manage_project_config` push that isn't reflected in the file is overwritten at the next session's sync. A byte-identical file is a no-op (fingerprints match).
+**Precedence — the workspace file is canonical; the per-root DB row is a synced replica.** The `config-sync.mjs` hook (fired at SessionStart, and again mid-session on a `FileChanged` event for the watched config.yaml — plus the `manage-schemas` / `quick-start` push steps) copies the local `.taskorchestrator/config.yaml` into the per-root store whenever it changes. Durable edits belong in the **file**: a runtime `manage_project_config` push that isn't reflected in the file is overwritten at the next sync (session start, or a mid-session file-change re-sync). A byte-identical file is a no-op (fingerprints match).
 
 **Fast-forward guarded.** The server keeps a per-root fingerprint history (newest first, pruned to
 20), so file-canonical precedence is enforced, not just assumed. A push whose fingerprint is
 **known-old** — present in that history but not the root's current fingerprint (e.g. a stale
 checkout that missed a later push made from another machine) — is rejected server-side (REST `409
 superseded`; MCP tool `CONFLICT_ERROR`) instead of silently reverting the later change.
-`config-sync.mjs` checks this on every session start via `GET .../config?fingerprint=<local-sha256>`:
+`config-sync.mjs` checks this on every sync — session start, or a mid-session `FileChanged` re-sync — via `GET .../config?fingerprint=<local-sha256>`:
 a `superseded` relation skips the push and surfaces a message telling the agent to pull or copy the
 server's config back before editing, rather than pushing over it. `current` (already in sync) and
 `unknown` (brand-new content, or an older server that predates this guard — no `relation` field

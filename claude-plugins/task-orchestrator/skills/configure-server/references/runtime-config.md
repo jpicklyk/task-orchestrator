@@ -98,7 +98,8 @@ exposure is controlled by the `-p` mapping, not `MCP_HTTP_HOST`, for Docker depl
 
 ## config-sync — the easy way to silently no-op it
 
-`config-sync` (the SessionStart hook, `config-sync.mjs`) pushes this workspace's
+`config-sync` (`config-sync.mjs`, run at SessionStart and again mid-session via a `FileChanged` hook
+when the workspace config.yaml changes) pushes this workspace's
 `.taskorchestrator/config.yaml` into the server's per-root config store over the REST API. It requires,
 on the **client side** (the environment the Claude Code session itself runs in — not the container):
 

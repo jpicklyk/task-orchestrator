@@ -6,6 +6,10 @@ import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import { readSection, scalar } from './yaml-lite.mjs';
 
+// Absolute path of the config.yaml found by findConfigPath(), if any — surfaced to the
+// caller so it can be reported as a SessionStart watchPaths entry (mid-session re-sync).
+let foundConfigPath = null;
+
 // Locate config.yaml — check AGENT_CONFIG_DIR, then walk up from cwd to find
 // the project root containing .taskorchestrator/. This handles worktrees where
 // cwd is nested under .claude/worktrees/<name>/ but config is at the repo root.
@@ -23,7 +27,9 @@ function findConfigPath() {
   }
   for (const candidate of candidates) {
     try {
-      return readFileSync(candidate, 'utf-8');
+      const content = readFileSync(candidate, 'utf-8');
+      foundConfigPath = candidate;
+      return content;
     } catch {
       continue;
     }
@@ -112,4 +118,9 @@ const output = {
     additionalContext
   }
 };
+// Ask the harness to watch the config file we actually found, so a mid-session edit fires a
+// FileChanged event that re-triggers config-sync.mjs without waiting for the next session.
+if (foundConfigPath) {
+  output.hookSpecificOutput.watchPaths = [foundConfigPath];
+}
 process.stdout.write(JSON.stringify(output));

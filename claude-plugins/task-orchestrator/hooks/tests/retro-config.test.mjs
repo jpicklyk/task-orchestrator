@@ -117,11 +117,24 @@ test('buildNudge: non-empty roots renders the root list and the first root as th
   assert.ok(text.includes('`/session-retrospective aaa`'));
 });
 
+test('buildNudge: includes the background-tasks skip condition', () => {
+  for (const text of [buildNudge([]), buildNudge(['aaa'])]) {
+    assert.ok(text.includes('background tasks or subagents are still running'), text);
+  }
+});
+
 test('buildDispatch: includes roots and the ancestor rootId', () => {
   const text = buildDispatch(['aaa'], 'root-1');
   assert.ok(text.includes('aaa'));
   assert.ok(text.includes('root-1'));
   assert.ok(text.includes('Retrospective dispatch'));
+});
+
+test('buildDispatch: directive is durable — defers past in-flight background work and merges held directives', () => {
+  const text = buildDispatch(['aaa'], 'root-1');
+  assert.ok(text.includes('durable'), text);
+  assert.ok(text.includes('next run boundary'), text);
+  assert.ok(text.includes('union of their roots'), text);
 });
 
 test('COOLDOWN_MS default equals 30 minutes', () => {
