@@ -59,7 +59,7 @@ Root cause analysis before code, verification after.
 ```yaml
   bug-fix:
     lifecycle: auto
-    default_traits: [delegated, session-tracked]
+    default_traits: [delegated, session-tracked, needs-test-author]
     notes:
       - key: diagnosis
         role: queue
@@ -193,9 +193,33 @@ traits:
         required: true
         description: "Task-level quality gate — scope alignment and test coverage."
         guidance: "Verify: (1) what was built matches the task-scope note — flag scope creep or missed acceptance criteria, (2) tests cover the stated acceptance criteria and aren't strawman tests, (3) no unintended side effects on files outside the task scope."
+
+  needs-test-author:
+    notes:
+      - key: test-plan
+        role: queue
+        required: true
+        description: "Numbered scenarios with frozen oracles, written before implementation starts."
+        skill: "test-author"
+        maxLength: 3000
+        guidance: "Numbered scenarios (S1...) derived from acceptance criteria, each with input, expected result, and oracle source (spec clause / algorithm / external reference — never 'what the code returns'). Include an adversarial probe list, the public signature contract tests will compile against, and a separation declaration. Queue placement freezes the oracle by gate before implementation exists."
+      - key: test-manifest
+        role: work
+        required: true
+        description: "Test-author's record of files, SHA range, and scenario coverage."
+        skill: "test-author"
+        maxLength: 3000
+        guidance: "Filled by the test author: actor id, test file paths, commit SHA range; S-id-to-test coverage mapping; probes executed with results; forbidden-pattern declaration (assumeTrue/@Disabled/escapes with justification); arbitration record; any implementer edits to test files with rationale."
+      - key: test-independence-audit
+        role: review
+        required: true
+        description: "Reviewer attestation that test authorship was independent of implementation."
+        skill: "review-quality"
+        maxLength: 1500
+        guidance: "Attest that separation held (test files first appear in the author's SHA range; actor ids differ, or temporal-only is declared), spot-check the coverage mapping, trace one oracle to its source, confirm probes were run. Verdict: independent | independent-degraded (temporal-only) | not-independent (blocking)."
 ```
 
-Apply traits at item creation: `manage_items(operation="create", items=[{..., traits: "needs-migration-review"}])` or via schema-level `default_traits`. Most schemas in this project apply `session-tracked` (and often `delegated`) via `default_traits` rather than per-item, since nearly every item needs session tracking for `/session-retrospective`; `needs-task-review` is the opt-in trait that layers a review phase onto `feature-task`.
+Apply traits at item creation: `manage_items(operation="create", items=[{..., traits: "needs-migration-review"}])` or via schema-level `default_traits`. Most schemas in this project apply `session-tracked` (and often `delegated`) via `default_traits` rather than per-item, since nearly every item needs session tracking for `/session-retrospective`; `needs-task-review` is the opt-in trait that layers a review phase onto `feature-task`. `needs-test-author` follows the opposite pattern on `bug-fix`: it ships in `default_traits: [delegated, session-tracked, needs-test-author]` rather than being applied per-item, since bug-fix regression tests are written test-first from the diagnosis reproduction and every bug-fix benefits from a frozen oracle. It stays opt-in (apply per-item) on `feature-task` and other schemas, where not every acceptance criterion involves a predicate worth a frozen oracle.
 
 ## Resources Example — trait `resources:` + registry
 

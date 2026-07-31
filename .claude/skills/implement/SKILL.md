@@ -56,6 +56,19 @@ it before any dispatch — `traits: "delegated"` at item creation, or
 item. This makes the orchestrator-filled `delegation-metadata` note schema-visible instead of
 convention-only. Direct tier: do not apply it — nothing is delegated.
 
+**Test-author trigger rule.** `bug-fix.default_traits` already includes `needs-test-author` — no
+action needed, it applies automatically. For `feature-task` items, apply `needs-test-author` per
+item (`manage_items(operation="update", items=[{itemId: "<uuid>", traits: "needs-test-author"}])`)
+when acceptance criteria involve a predicate, algorithm, parser, validator, or state transition,
+or when any force-ON signal is present: new public API surface, a database migration, a security
+predicate, or a prior vacuous-test finding in this item's area. Other schema tags
+(`feature-implementation`, `plugin-change`, `quick-fix`, and the global floor) do not carry the
+trait. Direct tier: apply the trait only in its **temporal-only degraded mode**, and only on
+bug-fixes — the `test-plan` gate and red-first rule still apply, `test-manifest` declares a single
+actor, and there is no separate test-author dispatch. Other Direct-tier items are exempt
+regardless of the criteria above — the tier is too small to separate authorship into a second
+dispatch.
+
 **Interaction mode** — orthogonal to tier:
 
 | Signal | Mode |
@@ -140,7 +153,9 @@ This step is **tier-conditional**:
 
 **Direct tier:** Skip this step entirely. No plan mode. No queue-phase notes. Call
 `advance_item(trigger="start")` immediately to move queue→work. The `quick-fix`
-schema has no queue-phase required notes, so the gate passes.
+schema has no queue-phase required notes, so the gate passes. **Exception:** if the item
+carries `needs-test-author` (temporal-only degraded mode, Step 1), `test-plan` is a
+queue-phase note and must be filled before this advance — see the seat-timing rule below.
 
 **Delegated tier:** Fill queue-phase notes per schema. Use `get_context(itemId=...)`
 to see `expectedNotes` and `guidancePointer`. Pre-plan-workflow is optional — use
@@ -176,6 +191,14 @@ fail with `applied: false`, `errorCode: "resource_unavailable"`, `errorKind: "tr
 resource a trait on this item declares (`resources:`) is currently held by another item. This
 is not a note gate failure: filling notes will not fix it. Work a different item and retry
 later (`retryAfterMs` is a hint), or report the contended key(s) to the user.
+
+**Seat timing for `needs-test-author` items.** The queue-phase `test-plan` note is filled by the
+**planning seat** — the orchestrator (Direct tier) or the plan author (Delegated/Parallel tier),
+invoking the `test-author` skill's scenario-derivation and oracle-derivation sections — and this
+happens **before** `advance_item(trigger="start")` moves the item queue→work. This is by design:
+`test-plan` gates work entry, the same way any other required queue-phase note does. This is a
+distinct seat from Step 4b's **test author** seat, which writes test code and fills
+`test-manifest` at work phase — see Step 4b's intro for the two-seat distinction.
 
 ---
 
@@ -241,7 +264,10 @@ clean run; ordinary incremental builds are safe afterwards.
 This step is **tier-conditional**:
 
 **Direct tier:** Implement directly. Edit the files, run the test suite. No subagent
-dispatch. No `/simplify` pass. Fill the `session-tracking` note (required by both
+dispatch. No `/simplify` pass. **Exception — a Direct-tier `bug-fix` carrying
+`needs-test-author`:** follow Step 4b's Direct-tier test-first-then-fix sequence
+(test-plan frozen at queue → regression test observed red → fix → green) instead of
+implementing first. Fill the `session-tracking` note (required by both
 `quick-fix` and `default` schemas) with a brief summary of what changed and test
 results. Advance to review:
 `advance_item(trigger="start")`.
@@ -260,6 +286,12 @@ formats, UUID inclusion). The key decisions at this step are:
 - **Multiple child tasks, dependent:** dispatch sequentially into the shared feature
   worktree. Wait for each agent's commit to land before dispatching the next.
 
+**Test-file ownership boundary.** Every implementation dispatch (Delegated single agent or
+Parallel per-child agent) excludes `src/test/**` from scope — implementers do not create or
+modify test files. When a change surfaces a needed test update, the agent reports it in its
+return (or in `implementation-notes`) rather than editing the test itself; the test author
+(Step 4b) owns that file tree exclusively on items carrying `needs-test-author`.
+
 **Parallel dispatch into a shared feature worktree:**
 
 ```
@@ -268,6 +300,9 @@ Agent(
   Working directory: <feature-worktree-path>
   Branch (already checked out): feat/<feature-slug>
   Scope (modify ONLY these files): <explicit list>
+  Do NOT create or modify any file under src/test/** — test authoring is a separate,
+  independent dispatch (Step 4b) on items carrying needs-test-author. If your change
+  surfaces a needed test update, report it in your return; never edit the test yourself.
 
   Format + compile self-check (REQUIRED before returning):
     ./gradlew -p <feature-worktree-path> :current:ktlintFormat :current:compileKotlin :current:compileTestKotlin > /tmp/agent-compile.log 2>&1; EXIT=$?
@@ -315,7 +350,16 @@ For each contract-tightening change in this run:
 3. Verify every usage is consistent with the new contract. Update any that are not.
 4. Re-run the full `:current:test` suite (orchestrator-owned, not the agent) to
    confirm no fixture-vs-contract conflicts surfaced elsewhere.
-5. **Doc-claims sweep after behavior-changing fixes:** when an orchestrator-owned
+5. **Fixture repairs are orchestrator-owned and construction-only.** When a fixture fails under
+   the tightened contract, the orchestrator may adjust how the fixture is *constructed* (fix the
+   stale call site) but must never adjust what it *asserts*. Anything that would touch an
+   expectation instead of a construction call is not a fixture repair — re-dispatch the test
+   author (this preserves the independence the trait exists to protect). **Declare these commits
+   in the review handoff:** list each orchestrator fixture-repair commit's SHA alongside the
+   impl-range/author-range pair (see Step 4's tracking table and Step 4b's disjointness check) so
+   review-quality can tell a declared fixture repair apart from a silent implementer edit to
+   `src/test/**`.
+6. **Doc-claims sweep after behavior-changing fixes:** when an orchestrator-owned
    bug-fix changes shipped behavior after documentation was authored (e.g. a
    tokenizer or default flips mid-run), grep all changed docs for claims about
    the OLD behavior before finalizing (retro `ac25db89`: "case-insensitive"
@@ -329,7 +373,8 @@ fixture surface.
 
 | Agent purpose | Model |
 |--------------|-------|
-| Implementation, code changes, test writing | `model="sonnet"` |
+| Implementation (production code only) | `model="sonnet"` |
+| Independent test authoring (Step 4b) | `model="sonnet"` |
 | Architecture, complex multi-file synthesis | `model="opus"` |
 | MCP bulk ops, materialization | `model="haiku"` |
 
@@ -343,9 +388,9 @@ inside the shared feature worktree. Record each agent's commit SHA range alongsi
 the child's MCP item ID — needed for scoping the review agent later:
 
 ```
-| Child UUID | Agent ID | Pre-SHA | Post-SHA | Changed Files |
-|------------|----------|---------|----------|---------------|
-| <uuid>     | <id>     | <sha>   | <sha>    | <file list>   |
+| Child UUID | Agent ID | Pre-SHA | Post-SHA | Test-Pre-SHA | Test-Post-SHA | Changed Files |
+|------------|----------|---------|----------|--------------|---------------|---------------|
+| <uuid>     | <id>     | <sha>   | <sha>    | <sha>        | <sha>         | <file list>   |
 ```
 
 Capture pre-commit SHA before dispatch (`git -C <feature-worktree> rev-parse HEAD`)
@@ -355,6 +400,154 @@ child's work:
 ```bash
 git -C <feature-worktree> diff <pre-sha>..<post-sha> --name-only
 ```
+
+`Test-Pre-SHA`/`Test-Post-SHA` are captured the same way around the test author's dispatch
+(Step 4b) and stay blank until that wave runs.
+
+**Disjointness check (required whenever `needs-test-author` applies).** After both ranges are
+captured, verify:
+
+```bash
+git -C <feature-worktree> diff <pre-sha>..<post-sha> --name-only          # impl range
+git -C <feature-worktree> diff <test-pre-sha>..<test-post-sha> --name-only # author range
+```
+
+- impl-range ∩ `src/test/**` = ∅ (the implementer touched no test files)
+- author-range ∩ `src/main/**` = ∅ **and** author-range is non-empty (the author touched only
+  test files, and touched at least one)
+
+A violation is reverted (`git -C <feature-worktree> revert` the offending commit, or a targeted
+`git checkout` of the crossed-boundary file back to the prior SHA) and recorded in
+`implementation-notes` — do not silently keep a cross-ownership commit.
+
+---
+
+### Step 4b — Test Authoring
+
+Applies only to items carrying the `needs-test-author` trait. Runs after implementation agents
+return (their commits exist on the branch/worktree) and before the orchestrator's build
+verification below (Direct tier inverts this ordering — see the Direct-tier bullet below) —
+the test author compiles against the real implemented surface, not a
+predicted one. **Two distinct seats, do not conflate them:** the **planning seat** already froze
+`test-plan` at queue phase, before this step, gating work entry (see Step 3's seat-timing rule);
+the **test author** seat here writes test CODE and fills `test-manifest` — it does not fill or
+re-open `test-plan`.
+
+**Per-tier sequencing:**
+
+- **Direct tier:** temporal-only degraded mode only (see Step 1) — no separate agent, and on a
+  bug-fix the sequence is **test-first-then-fix**, not "tests after implementation":
+  (a) fill `test-plan` at queue phase, before any implementation begins;
+  (b) write the regression test from the `diagnosis` note's reproduction steps and **observe it
+  red against the pre-fix code**, recording the red evidence (assertion, observed value) in
+  `test-manifest`;
+  (c) implement the fix;
+  (d) confirm the test is green post-fix and record that confirmation too.
+  `test-manifest` declares the single actor, and the disjointness check above does not apply (one
+  actor, one range) — see Step 5's verdict rule for how this tier is scored.
+- **Delegated tier:** one additional **sequential** dispatch on the same branch, after the
+  implementation agent's commit lands. The test author owns its own gradle cycle on that branch
+  (`ktlintCheck` → `ktlintFormat` → re-verify, same rule as Step 4's "Who runs the lint cycle")
+  and runs `:current:test` itself before committing.
+- **Parallel tier:** one test-author agent **per child**, dispatched as a dedicated wave between
+  the implementation wave and the orchestrator's build verification (below). Authors in this
+  tier do NOT run `:current:test` or `:current:ktlintCheck` — only `ktlintFormat` plus a compile
+  self-check, mirroring the implementation dispatch template, since the orchestrator owns full
+  build verification for the wave.
+
+**Blindness rule.** The test author may read: the item's `test-plan` note, public signatures,
+domain models, existing test conventions/docs, and the implementer's changed-file **names** (not
+content). The test author must NOT read: the implementation diff content, the implementer's own
+tests, `implementation-notes`, or `session-tracking`. This is what makes the separation real
+rather than nominal — tests probe the spec, not the implementation's behavior.
+
+**Oracle-provenance obligation.** Every scenario's expected result must trace to a source
+declared in `test-plan` (spec clause, stated algorithm, external reference) — never "what the
+code returns" and never the ticket's own worked example.
+
+**Manifest duty.** Before returning, the test author fills `test-manifest` (work, required):
+actor id, test file paths, commit SHA range, S-id→test coverage mapping (covered /
+not-covered:reason), probes executed with results, forbidden-pattern declaration (every
+`assumeTrue`/escape with justification, or none), and any implementer-modification-to-test-files
+rationale (should be none if ownership held).
+
+**Skill routing.** Invoke the `test-author` skill before filling `test-manifest` — it carries the
+scenario-derivation, oracle-derivation, blindness, and forbidden-pattern framework this step
+depends on. (The planning seat also invokes it earlier, at queue phase, for the
+scenario-derivation sections that inform `test-plan` — see Step 3.)
+
+#### Arbitration — Red Author-Authored Tests
+
+When a test the author wrote comes back red against the implementation, the test author does not
+decide who is at fault (`test-author` §8/§9) — it reports. The **orchestrator arbitrates**, with
+exactly three dispositions:
+
+1. **Implementation wrong.** Re-dispatch the implementer, scoped to `src/main/**` only.
+2. **Test wrong.** REQUIRES a spec citation before this disposition is available: the note key
+   plus the quoted acceptance criterion plus the asserted-vs-observed values. "The implementation
+   does X" is not evidence for this case — it is evidence for case 1. If no covering criterion
+   exists to cite, this disposition is not available; fall through to case 3. Once cited,
+   re-dispatch the test author, scoped to `src/test/**` only.
+3. **Spec wrong or silent.** Escalate to the user. Amend `task-scope`/`diagnosis` first, then
+   dispatch whichever side the amendment implicates.
+
+**Record every arbitration** — case number, the citation (for case 2), and the resolving commit
+SHA — as a bullet in the child's `implementation-notes`. **Never weaken, skip, or `@Disable` a
+test to unblock a wave**, regardless of disposition; that is exactly the failure mode this trait
+exists to prevent (`test-author` §7, §9).
+
+This carve-out also modifies the build-verification rule below: a red author-authored test is
+**not** a broken build. Route it to arbitration above; if unresolved, hold the child in work and
+report — do not dispatch a generic "fix agent" against it.
+
+**Test-author dispatch template (Delegated or Parallel):**
+
+```
+Agent(
+  prompt="""
+  Working directory: <worktree-or-branch-path>
+  Branch (already checked out): <branch-name>
+  Scope (modify ONLY): src/test/** for this item's changed surface. Do NOT create or
+  modify any file under src/main/**.
+
+  You are the TEST AUTHOR for this item, independent of implementation. Read ONLY:
+  the item's test-plan note, public signatures, domain models, existing test
+  conventions, and the implementer's changed FILE NAMES (not diff content). Do NOT
+  read: the implementation diff, the implementer's tests, implementation-notes, or
+  session-tracking.
+
+  Invoke the test-author skill before filling test-manifest — it defines scenario
+  derivation, oracle derivation, blindness, and forbidden patterns. test-plan was
+  already filled and frozen by the planning seat at queue phase; you do not fill it.
+
+  Every scenario's expected result must trace to a stated oracle (spec clause,
+  algorithm, external reference) — never "what the code returns."
+
+  If a test you wrote fails: report it — never weaken the assertion, never add a
+  skip; the orchestrator arbitrates.
+
+  [Parallel tier only] Format + compile self-check (REQUIRED before returning):
+    ./gradlew -p <worktree-path> :current:ktlintFormat :current:compileKotlin :current:compileTestKotlin
+  Do NOT run :current:test or :current:ktlintCheck — orchestrator owns full build
+  verification for this wave.
+  [Delegated tier only] Run the full lint cycle yourself (ktlintCheck -> ktlintFormat
+  -> re-verify) and :current:test before committing — you own gradle on this branch.
+
+  Fill test-manifest (actor id, file paths, SHA range, S-id-to-test mapping, probes,
+  forbidden-pattern declaration) before returning. Commit your changes with a
+  descriptive message.
+  """,
+  model="sonnet",
+  subagent_type="general-purpose"
+)
+```
+
+Capture the test author's pre/post commit SHAs the same way as implementation agents
+(`Test-Pre-SHA` / `Test-Post-SHA` in the tracking table above), then run the disjointness check.
+
+---
+
+### Step 4c — Build Verification and Wrap-Up
 
 **Build verification (orchestrator-owned, serialized).** After each parallel-batch
 completes (or between sequential children), run from the feature worktree:
@@ -369,6 +562,13 @@ A failure means a recently-committed child broke something. Dispatch a fix agent
 (same shared worktree) before continuing. Do **not** advance any child to review
 until the build is green — the trend memory has multiple sessions of
 `flaky-test-hides-real-bug` showing why retry-until-green is wrong.
+
+**Carve-out: a red author-authored test is not a build failure.** On items carrying
+`needs-test-author`, a test failure traced to a test the test author wrote (Step 4b) is not
+"the build broke" — do not dispatch a generic fix agent against it. Route it to the
+Arbitration subsection in Step 4b instead. If arbitration doesn't resolve before this
+verification pass needs to conclude, hold the child in work phase and report the unresolved
+red test rather than forcing green through a fix-agent dispatch.
 
 **Why orchestrator owns gradle invocations:** `./gradlew` runs against a single
 Gradle daemon and a single `build/` cache per project directory. Parallel
@@ -386,9 +586,12 @@ the working branch for Direct/Delegated):
 
 1. Run the `/simplify` skill on the changed code to check for reuse, quality, and
    efficiency — this is a cleanup pass before review, not a review itself
-2. **If `/simplify` made changes**, write or update tests to cover them. The simplify
-   pass is still part of the work phase — all code changes require test coverage
-   before advancing to review.
+2. **If `/simplify` made changes**, the resulting test coverage work follows the
+   ownership boundary above. On items carrying `needs-test-author`, re-dispatch the
+   test author to write or update the covering tests (Step 4b) — the implementer/orchestrator
+   does not touch `src/test/**` even for a simplify-driven update. On items without the trait,
+   write or update tests inline as before. Either way, the simplify pass is still part of the
+   work phase — all code changes require test coverage before advancing to review.
 3. **Log findings as work items** — any issues surfaced by `/simplify` or during
    implementation that are not immediately addressed (pre-existing tech debt,
    optimization opportunities, related bugs) must be logged via
@@ -469,7 +672,32 @@ The review agent:
 3. Reads the changed files (from the worktree path if isolated, or the working branch)
 4. Runs the test suite AND the linter (both commands from Step 4's "Verification commands") — from the worktree if isolated. A PR with failing lint will not merge.
 5. Evaluates plan alignment, test quality, and simplification
-6. Fills the review-phase notes per `guidancePointer` with a verdict
+6. **On items carrying `needs-test-author`, additionally:**
+   - **Two-range ownership check:** confirm the impl-range/author-range disjointness recorded
+     during Step 4b actually holds by spot-checking `git diff <impl-range> --name-only` touches
+     no `src/test/**` path and `git diff <test-range> --name-only` touches no `src/main/**` path.
+     **N/A-by-declaration on Direct-tier temporal-only items** (Step 1, Step 4b): there is one
+     actor and one range by design, so there is no second range to diff — record it as
+     `N/A: temporal-only, single actor` rather than attempting the diff, and it cannot fail.
+   - **Temporal checks (Direct-tier temporal-only items only):** confirm `test-plan` was filled
+     and frozen at queue phase, before implementation began (Step 3's seat-timing rule), and —
+     for a bug-fix — confirm the red-first evidence (the regression test observed failing
+     against pre-fix code, per Step 4b/B3) is recorded in `test-manifest`.
+   - **Arbitration-record check:** if any red author-test required arbitration (implementation
+     wrong / test wrong / spec wrong), confirm the outcome is recorded in `implementation-notes`
+     with the required detail (spec citation for a "test wrong" call: note key + quoted
+     criterion + asserted-vs-observed).
+   - **`assumeTrue`/`@Disabled` scan on author-owned files:** grep the test author's changed
+     files for `assumeTrue`, `@Disabled`, or other weakening introduced *after* the author's
+     first commit in this range. Any such introduction is an automatic blocking finding —
+     independence does not permit softening a red test to unblock a wave.
+   **Verdict rule:** `test-independence-audit` fails to `not-independent` (blocking) if any
+   *applicable* check above fails, regardless of how green the test suite is — the ownership
+   two-range check is not applicable, and cannot fail, on a Direct-tier temporal-only item.
+   On a Direct-tier temporal-only item where every applicable check (temporal checks,
+   arbitration-record, `assumeTrue`/`@Disabled` scan) passes, the verdict is
+   `independent-degraded (temporal-only)` — never plain `independent`, matching `test-author` §11.
+7. Fills the review-phase notes per `guidancePointer` with a verdict
 
 **Handling the verdict:**
 
@@ -496,7 +724,11 @@ After review passes:
    `git status --short` and compare against what the orchestrator itself committed.
    Any commit a subagent made despite stop-boundary instructions is flagged for
    review here — inspect its scope before it rides into the squash-merge (a
-   subagent commit lacks the co-author trailer; reconcile at merge time).
+   subagent commit lacks the co-author trailer; reconcile at merge time). On items
+   carrying `needs-test-author`, additionally check each commit's file list for
+   cross-ownership: an implementer commit touching `src/test/**`, or a test-author
+   commit touching `src/main/**`, is flagged here even if it slipped past the
+   Step 4b disjointness check — do not let it ride into the squash-merge unreconciled.
 
 1. Verify the working branch is committed (orchestrator commits if Direct tier;
    subagent committed if Delegated). Stage only the files related to the
@@ -646,22 +878,29 @@ When processing a Parallel-tier feature with multiple child tasks autonomously:
    `isolation: "worktree"`. Independent children dispatch in parallel waves; dependent
    children dispatch sequentially. Orchestrator scopes each agent's file list to
    prevent overlap.
-3. **Build verification — orchestrator-owned, serialized.** After each parallel wave
-   (or between sequential children), the orchestrator runs `:current:test` and
+3. **Step 4b — Test-author wave.** For children carrying `needs-test-author`, dispatch one
+   test-author agent per child as its own wave, after that child's implementation wave and
+   before build verification. Authors run `ktlintFormat` + compile self-check only (never
+   `:current:test`/`:current:ktlintCheck` — the orchestrator owns those next). Capture
+   Test-Pre-SHA/Test-Post-SHA per child and run the disjointness check before proceeding.
+4. **Build verification — orchestrator-owned, serialized.** After each parallel wave
+   (implementation or test-author), the orchestrator runs `:current:test` and
    `:current:ktlintCheck` from the feature worktree. Fix failures before advancing
    any child to review.
-4. **Step 5 — Review per child, scoped to that child's commit range, when the child has
+5. **Step 5 — Review per child, scoped to that child's commit range, when the child has
    a review phase.** `feature-task` children skip review by default (work→terminal
-   directly) unless the `needs-task-review` trait is set. When a review phase applies,
+   directly) unless the `needs-task-review` trait is set, or `needs-test-author` is set
+   (its `test-independence-audit` note adds a review phase). When a review phase applies,
    the review agent reads from the shared worktree but scopes its diff to
-   `<pre-sha>..<post-sha>` for the child being reviewed.
-5. **Step 6 — One PR at parent finalization.** Children advance to terminal without
+   `<pre-sha>..<post-sha>` for the child being reviewed, plus `<test-pre-sha>..<test-post-sha>`
+   when a test-author wave ran for that child.
+6. **Step 6 — One PR at parent finalization.** Children advance to terminal without
    pushing or PR'ing. Only when the parent feature itself reaches terminal does the
    orchestrator push `feat/<slug>` and open the single feature-level PR.
-6. **Track child commits** — maintain a table mapping child UUID → pre-commit SHA →
-   post-commit SHA → status (implementing / reviewing / done / failed). Worktree
-   path is shared across all children.
-7. **Report at the end** — summarize children completed, review failures, and the
+7. **Track child commits** — maintain a table mapping child UUID → pre-commit SHA →
+   post-commit SHA → Test-Pre-SHA → Test-Post-SHA → status (implementing / test-authoring /
+   reviewing / done / failed). Worktree path is shared across all children.
+8. **Report at the end** — summarize children completed, review failures, and the
    single PR URL.
 
 If any child hits a review failure, continue processing siblings (their commits are

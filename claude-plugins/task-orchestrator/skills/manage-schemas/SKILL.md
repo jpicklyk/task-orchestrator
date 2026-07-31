@@ -186,7 +186,7 @@ User says: "What schemas do I have?"
 
 **Example 2: Add a required note to an existing schema**
 
-User says: "Add a test-plan note to the bug-fix schema"
+User says: "Add a rollout-plan note to the bug-fix schema"
 1. Read config, find `bug-fix` schema
 2. Ask: which phase (queue/work/review), required?, description, guidance
 3. Append the new note entry, write config back

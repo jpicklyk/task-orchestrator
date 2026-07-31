@@ -65,6 +65,7 @@ The skill reads the item's schema at runtime and drives note-fill + phase advanc
 - **Author note content** per each note's `guidance` field. The guidance is authoritative — follow it.
 - **Do the actual work** the notes describe. Could be code changes, research, configuration edits, batch updates, anything. The schema decides what; you execute.
 - **Run any verification** the spec note calls for (tests, linters, etc.).
+- **Bug-fix items may carry the `needs-test-author` notes** (when the project's bug-fix schema includes that trait — check `expectedNotes`) — if so, fill `test-plan` before advancing to work, write the regression test red-first, and record verdict `independent-degraded (temporal-only)` in the `test-independence-audit` note.
 
 If `/schema-workflow` cannot complete because a required note can't be filled (you don't have the information, or filling it would require input the iteration can't get), emit:
 

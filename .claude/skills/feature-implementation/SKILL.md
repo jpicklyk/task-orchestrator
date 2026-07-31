@@ -9,7 +9,9 @@ End-to-end workflow for a `feature-implementation` tagged item — the **feature
 that holds the plan and holistic review. Child work items under this container use the
 `feature-task` tag with lighter gates (`task-scope` instead of the feature-level
 `feature-summary`, and no review phase by default — task-level review is opt-in via the
-`needs-task-review` trait, which adds a `review-checklist` note to that child).
+`needs-task-review` trait, which adds a `review-checklist` note to that child). A second
+child-level trait, `needs-test-author`, is opt-in the same way (applied per the
+`/implement` Step 1 trigger rule) and adds its own gate-enforced notes.
 
 Covers all three phases (queue → work → review) with gate-enforced notes at each transition.
 
@@ -113,7 +115,8 @@ Each subagent must:
 By default, `feature-task` items have no review phase — `advance_item(trigger="start")`
 from work goes straight to terminal. A child only gets a review phase if it (or its
 schema's `default_traits`) carries the `needs-task-review` trait, which adds the
-`review-checklist` note back in.
+`review-checklist` note back in, or the `needs-test-author` trait, which adds
+`test-independence-audit`.
 
 ### 2b. Fill `implementation-notes`
 
