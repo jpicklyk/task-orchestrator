@@ -275,7 +275,16 @@ Two skill systems — do not confuse them:
 ```
 - Marketplace name: `task-orchestrator-marketplace` (from `.claude-plugin/marketplace.json` → `name`)
 - If plugin stops loading: `/plugin marketplace add .claude-plugin` then `/plugin enable task-orchestrator@task-orchestrator-marketplace`
-- After editing plugin files: remove and re-add the marketplace (content is cached)
+- After editing plugin files: the plugin cache is **version-keyed** — while the plugin version is
+  unchanged, `claude plugin marketplace update` AND full remove/re-add both silently reuse the stale
+  cached copy at `~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/`. Force a refresh:
+  `rm -rf ~/.claude/plugins/cache/task-orchestrator-marketplace`, then
+  `claude plugin marketplace update task-orchestrator-marketplace`. Re-extraction is **lazy** (next
+  session start) — an empty cache dir right after the update is normal, not broken. Verify after the
+  next session starts by grepping the cached files for your change. A session that amends plugin
+  content must treat same-session invocations of those skills/hooks as stale (diff loaded content
+  against disk before following it). The marketplace serves the working **tree** — confirm the
+  checkout is on the branch you intend to install before refreshing.
 
 ## Documentation
 
