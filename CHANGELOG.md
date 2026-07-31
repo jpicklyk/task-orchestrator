@@ -15,6 +15,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   discovered config file, and a new `FileChanged` hook entry re-runs `config-sync.mjs` when it's
   edited mid-session. Requires Claude Code ≥ 2.1.220.
 
+### Changed
+
+- **Plugin: retrospective dispatch directives are now durable, not immediate.** The `retro-trigger`
+  hook's `mode: dispatch` directive previously said "dispatch now", so orchestrators launched (and
+  later surfaced) the background retrospective mid-session while implementation subagents were still
+  running — no Claude Code hook event signals "all background tasks finished", and the model is the
+  only party that knows. The directive and the `workflow-orchestrator` output style now instruct
+  dispatch at the next run boundary: hold while background tasks/subagents are in flight, merge any
+  directives that accumulate while holding into one dispatch covering the union of their roots.
+  Nudges gain a matching "background tasks still running" skip condition. The known trade-off — a
+  held directive is lost if the session is killed or compacts first (recover with a manual
+  `/session-retrospective`) — is documented in `config-format.md` §Retrospective.
+
 ### Fixed
 
 - Lease-interval history close comparisons now normalize timestamp shapes with `datetime()`: Exposed

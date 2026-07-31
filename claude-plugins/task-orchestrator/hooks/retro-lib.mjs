@@ -165,24 +165,30 @@ export function buildNudge(roots) {
   if (list.length === 0) {
     return `Retrospective suggested — an implementation run reached terminal. ` +
       `Consider running \`/session-retrospective\` to capture learnings before the session ends. ` +
-      `Skip if the feature still has items in progress, or if this was minor housekeeping.`;
+      `Skip if the feature still has items in progress, if background tasks or subagents are still ` +
+      `running (revisit once they finish), or if this was minor housekeeping.`;
   }
   const ids = list.join(', ');
   const first = list[0];
   return `Retrospective suggested — an implementation run reached terminal (root(s): ${ids}). ` +
     `Consider running \`/session-retrospective ${first}\` to capture learnings before the session ends. ` +
-    `Skip if the feature still has items in progress, or if this was minor housekeeping.`;
+    `Skip if the feature still has items in progress, if background tasks or subagents are still ` +
+    `running (revisit once they finish), or if this was minor housekeeping.`;
 }
 
 export function buildDispatch(roots, rootId) {
   const rootsJoined = (roots || []).join(', ');
   const ancestorId = rootId || 'none configured';
   return `Retrospective dispatch (mode: dispatch). Run ${rootsJoined} reached terminal. ` +
-    `Dispatch exactly ONE background retrospective now via the Agent tool: subagent_type "general-purpose", ` +
-    `model "sonnet", run_in_background true, prompt: invoke /session-retrospective ${rootsJoined}, ` +
-    `project ancestorId ${ancestorId}, work ONLY from durable MCP state (session-tracking + delegation-metadata ` +
-    `notes, schema config, agent-observation items — no conversation context), write the retrospective into ` +
-    `the process-global 'Session Retrospectives' container at depth 0 OUTSIDE any project root, return only the ` +
-    `retrospective item UUID plus a 2-3 line headline. Do not dispatch more than one retrospective for this run; ` +
-    `skip entirely if the feature still has active items.`;
+    `This directive is durable — act on it at the next run boundary: if background tasks or subagents ` +
+    `are still running, hold it and dispatch only after the last of them completes and its results are ` +
+    `processed. If further dispatch directives arrive while holding, merge them: dispatch ONE retrospective ` +
+    `covering the union of their roots. Dispatch exactly ONE background retrospective via the Agent tool: ` +
+    `subagent_type "general-purpose", model "sonnet", run_in_background true, prompt: invoke ` +
+    `/session-retrospective ${rootsJoined}, project ancestorId ${ancestorId}, work ONLY from durable MCP ` +
+    `state (session-tracking + delegation-metadata notes, schema config, agent-observation items — no ` +
+    `conversation context), write the retrospective into the process-global 'Session Retrospectives' ` +
+    `container at depth 0 OUTSIDE any project root, return only the retrospective item UUID plus a 2-3 line ` +
+    `headline. Do not dispatch more than one retrospective for this run; skip entirely if the feature still ` +
+    `has active items.`;
 }
