@@ -158,7 +158,8 @@ traits:
         role: review
         required: true
         description: "Security review of auth, data handling, and access control."
-        guidance: "Evaluate input validation, injection risks, access control, data handling. Flag OWASP Top 10 concerns."
+        skill: "security-review"
+        guidance: "Run the built-in /security-review skill against the pending changes and record its findings and verdict in this note. Evaluate input validation, injection risks, access control, data handling. Flag OWASP Top 10 concerns."
 
   needs-perf-review:
     notes:

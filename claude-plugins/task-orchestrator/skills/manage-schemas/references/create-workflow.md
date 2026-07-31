@@ -203,7 +203,7 @@ Ask the user the following questions (use `AskUserQuestion` for structured input
 **Question 4:** "What must be documented *before* work starts (queue phase)?"
 - Prompt with examples: requirements/acceptance criteria, research question, change scope
 - Aim for 1-3 notes; ask for each: key name, whether required, what agents should capture
-- For each note, ask: "Should this note have a skill framework? If so, what skill name?"
+- For each note, ask: "Should this note have a skill framework? If so, what skill name?" (a project skill, plugin skill, or Claude Code built-in — e.g., `security-review` for security gates)
 
 **Question 5:** "What must be documented *after* implementation (work phase)?"
 - Prompt with examples: implementation summary, test results, files changed

@@ -138,7 +138,8 @@ traits:
         role: review
         required: true
         description: "Security review of auth, data handling, and access control."
-        guidance: "Evaluate: (1) input validation — are all user/external inputs validated before use? (2) injection risk — SQL injection via Exposed ORM (parameterized queries), command injection, XSS in response payloads, (3) access control — does the change respect existing authorization patterns? (4) data handling — sensitive data not logged, not stored in plain text unnecessarily. Flag any OWASP Top 10 concerns."
+        skill: "security-review"
+        guidance: "Run the built-in /security-review skill against the branch diff before advancing past review, and record its findings and verdict in this note. A green author-written test suite is necessary but not sufficient for validation code — the author's suite tests the cases the author thought of. For any validation predicate in the diff (prefix/suffix/containment checks especially), also probe the predicate directly with adversarial bypass inputs — boundary/suffix cases, alternate separators, UNC/encoded paths, mixed case, @/. host tricks — and record the inputs tried and their results."
 
   needs-perf-review:
     notes:

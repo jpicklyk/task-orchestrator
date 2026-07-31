@@ -83,6 +83,10 @@ Use these when explaining a recommendation or resolving a customization question
 | Must cover project specifics | `required: true` + `guidance` |
 | Body must stay distilled | `maxLength` (+ top-level `note_limits.mode: reject` to enforce hard) |
 
+`skill` may name a project skill, a plugin skill, or a Claude Code built-in. For sensitive
+domains, prefer an official built-in when one covers the need (e.g., `security-review` for
+security assessment of pending changes) over authoring a custom methodology.
+
 ---
 
 ## 3. Cross-Domain Trait Library
@@ -111,6 +115,7 @@ traits:
         role: review
         required: true
         description: "Input validation, injection risk, access control, data handling."
+        skill: "security-review"    # Claude Code built-in — official review of the pending diff
   needs-rollback-plan:
     notes:
       - key: rollback-plan
