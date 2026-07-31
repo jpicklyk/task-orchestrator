@@ -153,7 +153,9 @@ This step is **tier-conditional**:
 
 **Direct tier:** Skip this step entirely. No plan mode. No queue-phase notes. Call
 `advance_item(trigger="start")` immediately to move queue→work. The `quick-fix`
-schema has no queue-phase required notes, so the gate passes.
+schema has no queue-phase required notes, so the gate passes. **Exception:** if the item
+carries `needs-test-author` (temporal-only degraded mode, Step 1), `test-plan` is a
+queue-phase note and must be filled before this advance — see the seat-timing rule below.
 
 **Delegated tier:** Fill queue-phase notes per schema. Use `get_context(itemId=...)`
 to see `expectedNotes` and `guidancePointer`. Pre-plan-workflow is optional — use
@@ -189,6 +191,14 @@ fail with `applied: false`, `errorCode: "resource_unavailable"`, `errorKind: "tr
 resource a trait on this item declares (`resources:`) is currently held by another item. This
 is not a note gate failure: filling notes will not fix it. Work a different item and retry
 later (`retryAfterMs` is a hint), or report the contended key(s) to the user.
+
+**Seat timing for `needs-test-author` items.** The queue-phase `test-plan` note is filled by the
+**planning seat** — the orchestrator (Direct tier) or the plan author (Delegated/Parallel tier),
+invoking the `/test-author` skill's scenario-derivation and oracle-derivation sections — and this
+happens **before** `advance_item(trigger="start")` moves the item queue→work. This is by design:
+`test-plan` gates work entry, the same way any other required queue-phase note does. This is a
+distinct seat from Step 4b's **test author** seat, which writes test code and fills
+`test-manifest` at work phase — see Step 4b's intro for the two-seat distinction.
 
 ---
 
@@ -341,7 +351,11 @@ For each contract-tightening change in this run:
    the tightened contract, the orchestrator may adjust how the fixture is *constructed* (fix the
    stale call site) but must never adjust what it *asserts*. Anything that would touch an
    expectation instead of a construction call is not a fixture repair — re-dispatch the test
-   author (this preserves the independence the trait exists to protect).
+   author (this preserves the independence the trait exists to protect). **Declare these commits
+   in the review handoff:** list each orchestrator fixture-repair commit's SHA alongside the
+   impl-range/author-range pair (see Step 4's tracking table and Step 4b's disjointness check) so
+   review-quality can tell a declared fixture repair apart from a silent implementer edit to
+   `src/test/**`.
 6. **Doc-claims sweep after behavior-changing fixes:** when an orchestrator-owned
    bug-fix changes shipped behavior after documentation was authored (e.g. a
    tokenizer or default flips mid-run), grep all changed docs for claims about
@@ -405,19 +419,28 @@ A violation is reverted (`git -C <feature-worktree> revert` the offending commit
 
 ---
 
-## Step 4b — Test Authoring
+### Step 4b — Test Authoring
 
 Applies only to items carrying the `needs-test-author` trait. Runs after implementation agents
 return (their commits exist on the branch/worktree) and before the orchestrator's build
 verification below — the test author compiles against the real implemented surface, not a
-predicted one.
+predicted one. **Two distinct seats, do not conflate them:** the **planning seat** already froze
+`test-plan` at queue phase, before this step, gating work entry (see Step 3's seat-timing rule);
+the **test author** seat here writes test CODE and fills `test-manifest` — it does not fill or
+re-open `test-plan`.
 
 **Per-tier sequencing:**
 
-- **Direct tier:** temporal-only degraded mode only (see Step 1) — no separate agent. The
-  orchestrator itself writes the tests in a distinct pass after implementation, `test-manifest`
-  declares the single actor, and the disjointness check above does not apply (one actor, one
-  range).
+- **Direct tier:** temporal-only degraded mode only (see Step 1) — no separate agent, and on a
+  bug-fix the sequence is **test-first-then-fix**, not "tests after implementation":
+  (a) fill `test-plan` at queue phase, before any implementation begins;
+  (b) write the regression test from the `diagnosis` note's reproduction steps and **observe it
+  red against the pre-fix code**, recording the red evidence (assertion, observed value) in
+  `test-manifest`;
+  (c) implement the fix;
+  (d) confirm the test is green post-fix and record that confirmation too.
+  `test-manifest` declares the single actor, and the disjointness check above does not apply (one
+  actor, one range) — see Step 5's verdict rule for how this tier is scored.
 - **Delegated tier:** one additional **sequential** dispatch on the same branch, after the
   implementation agent's commit lands. The test author owns its own gradle cycle on that branch
   (`ktlintCheck` → `ktlintFormat` → re-verify, same rule as Step 4's "Who runs the lint cycle")
@@ -444,9 +467,34 @@ not-covered:reason), probes executed with results, forbidden-pattern declaration
 `assumeTrue`/escape with justification, or none), and any implementer-modification-to-test-files
 rationale (should be none if ownership held).
 
-**Skill routing.** Invoke the `test-author` skill before filling `test-plan` or `test-manifest`
-— it carries the scenario-derivation, oracle-derivation, blindness, and forbidden-pattern
-framework this step depends on.
+**Skill routing.** Invoke the `test-author` skill before filling `test-manifest` — it carries the
+scenario-derivation, oracle-derivation, blindness, and forbidden-pattern framework this step
+depends on. (The planning seat also invokes it earlier, at queue phase, for the
+scenario-derivation sections that inform `test-plan` — see Step 3.)
+
+#### Arbitration — Red Author-Authored Tests
+
+When a test the author wrote comes back red against the implementation, the test author does not
+decide who is at fault (`test-author` §8/§9) — it reports. The **orchestrator arbitrates**, with
+exactly three dispositions:
+
+1. **Implementation wrong.** Re-dispatch the implementer, scoped to `src/main/**` only.
+2. **Test wrong.** REQUIRES a spec citation before this disposition is available: the note key
+   plus the quoted acceptance criterion plus the asserted-vs-observed values. "The implementation
+   does X" is not evidence for this case — it is evidence for case 1. If no covering criterion
+   exists to cite, this disposition is not available; fall through to case 3. Once cited,
+   re-dispatch the test author, scoped to `src/test/**` only.
+3. **Spec wrong or silent.** Escalate to the user. Amend `task-scope`/`diagnosis` first, then
+   dispatch whichever side the amendment implicates.
+
+**Record every arbitration** — case number, the citation (for case 2), and the resolving commit
+SHA — as a bullet in the child's `implementation-notes`. **Never weaken, skip, or `@Disable` a
+test to unblock a wave**, regardless of disposition; that is exactly the failure mode this trait
+exists to prevent (`test-author` §7, §9).
+
+This carve-out also modifies the build-verification rule below: a red author-authored test is
+**not** a broken build. Route it to arbitration above; if unresolved, hold the child in work and
+report — do not dispatch a generic "fix agent" against it.
 
 **Test-author dispatch template (Delegated or Parallel):**
 
@@ -464,11 +512,15 @@ Agent(
   read: the implementation diff, the implementer's tests, implementation-notes, or
   session-tracking.
 
-  Invoke the test-author skill before filling test-plan/test-manifest content — it
-  defines scenario derivation, oracle derivation, blindness, and forbidden patterns.
+  Invoke the test-author skill before filling test-manifest — it defines scenario
+  derivation, oracle derivation, blindness, and forbidden patterns. test-plan was
+  already filled and frozen by the planning seat at queue phase; you do not fill it.
 
   Every scenario's expected result must trace to a stated oracle (spec clause,
   algorithm, external reference) — never "what the code returns."
+
+  If a test you wrote fails: report it — never weaken the assertion, never add a
+  skip; the orchestrator arbitrates.
 
   [Parallel tier only] Format + compile self-check (REQUIRED before returning):
     ./gradlew -p <worktree-path> :current:ktlintFormat :current:compileKotlin :current:compileTestKotlin
@@ -491,6 +543,8 @@ Capture the test author's pre/post commit SHAs the same way as implementation ag
 
 ---
 
+### Step 4c — Build Verification and Wrap-Up
+
 **Build verification (orchestrator-owned, serialized).** After each parallel-batch
 completes (or between sequential children), run from the feature worktree:
 
@@ -504,6 +558,13 @@ A failure means a recently-committed child broke something. Dispatch a fix agent
 (same shared worktree) before continuing. Do **not** advance any child to review
 until the build is green — the trend memory has multiple sessions of
 `flaky-test-hides-real-bug` showing why retry-until-green is wrong.
+
+**Carve-out: a red author-authored test is not a build failure.** On items carrying
+`needs-test-author`, a test failure traced to a test the test author wrote (Step 4b) is not
+"the build broke" — do not dispatch a generic fix agent against it. Route it to the
+Arbitration subsection in Step 4b instead. If arbitration doesn't resolve before this
+verification pass needs to conclude, hold the child in work phase and report the unresolved
+red test rather than forcing green through a fix-agent dispatch.
 
 **Why orchestrator owns gradle invocations:** `./gradlew` runs against a single
 Gradle daemon and a single `build/` cache per project directory. Parallel
@@ -611,6 +672,13 @@ The review agent:
    - **Two-range ownership check:** confirm the impl-range/author-range disjointness recorded
      during Step 4b actually holds by spot-checking `git diff <impl-range> --name-only` touches
      no `src/test/**` path and `git diff <test-range> --name-only` touches no `src/main/**` path.
+     **N/A-by-declaration on Direct-tier temporal-only items** (Step 1, Step 4b): there is one
+     actor and one range by design, so there is no second range to diff — record it as
+     `N/A: temporal-only, single actor` rather than attempting the diff, and it cannot fail.
+   - **Temporal checks (Direct-tier temporal-only items only):** confirm `test-plan` was filled
+     and frozen at queue phase, before implementation began (Step 3's seat-timing rule), and —
+     for a bug-fix — confirm the red-first evidence (the regression test observed failing
+     against pre-fix code, per Step 4b/B3) is recorded in `test-manifest`.
    - **Arbitration-record check:** if any red author-test required arbitration (implementation
      wrong / test wrong / spec wrong), confirm the outcome is recorded in `implementation-notes`
      with the required detail (spec citation for a "test wrong" call: note key + quoted
@@ -619,8 +687,12 @@ The review agent:
      files for `assumeTrue`, `@Disabled`, or other weakening introduced *after* the author's
      first commit in this range. Any such introduction is an automatic blocking finding —
      independence does not permit softening a red test to unblock a wave.
-   Verdict rule: `test-independence-audit` fails to `not-independent` (blocking) if any of the
-   three checks above fails, regardless of how green the test suite is.
+   **Verdict rule:** `test-independence-audit` fails to `not-independent` (blocking) if any
+   *applicable* check above fails, regardless of how green the test suite is — the ownership
+   two-range check is not applicable, and cannot fail, on a Direct-tier temporal-only item.
+   On a Direct-tier temporal-only item where every applicable check (temporal checks,
+   arbitration-record, `assumeTrue`/`@Disabled` scan) passes, the verdict is
+   `independent-degraded (temporal-only)` — never plain `independent`, matching `test-author` §11.
 7. Fills the review-phase notes per `guidancePointer` with a verdict
 
 **Handling the verdict:**
@@ -813,7 +885,8 @@ When processing a Parallel-tier feature with multiple child tasks autonomously:
    any child to review.
 5. **Step 5 — Review per child, scoped to that child's commit range, when the child has
    a review phase.** `feature-task` children skip review by default (work→terminal
-   directly) unless the `needs-task-review` trait is set. When a review phase applies,
+   directly) unless the `needs-task-review` trait is set, or `needs-test-author` is set
+   (its `test-independence-audit` note adds a review phase). When a review phase applies,
    the review agent reads from the shared worktree but scopes its diff to
    `<pre-sha>..<post-sha>` for the child being reviewed, plus `<test-pre-sha>..<test-post-sha>`
    when a test-author wave ran for that child.

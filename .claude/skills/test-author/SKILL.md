@@ -238,10 +238,10 @@ must surface every `oracle-degraded` scenario individually; it cannot be waved t
 an overall "independent" verdict.
 
 This is distinct from implementation-vs-test arbitration proper (red author-test → is the
-implementation wrong, or the test wrong, or the spec wrong) — that triage is orchestrator-owned
-per the parent feature's arbitration protocol, not something the test author decides. The test
-author's job when a written test comes back red is to report it (§9), not to guess which side is
-at fault.
+implementation wrong, or the test wrong, or the spec wrong) — that triage is orchestrator-owned,
+per the `/implement` skill's Step 4b "Arbitration — Red Author-Authored Tests" subsection, not
+something the test author decides. The test author's job when a written test comes back red is
+to report it (§9), not to guess which side is at fault.
 
 ---
 
