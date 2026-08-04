@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.13.1] - 2026-08-04
 
 ### Changed
 
@@ -61,6 +61,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Nudges gain a matching "background tasks still running" skip condition. The known trade-off — a
   held directive is lost if the session is killed or compacts first (recover with a manual
   `/session-retrospective`) — is documented in `config-format.md` §Retrospective.
+- Bumped plugin version to 3.6.0 (minor): adds a `FileChanged` hook for mid-session config re-sync,
+  the pattern-driven schema advisor in `manage-schemas` with 12 workflow profiles, and the
+  retrospective trend-memory migration to MCP items.
 
 ### Fixed
 
