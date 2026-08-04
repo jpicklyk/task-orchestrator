@@ -80,6 +80,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   exact-name rule (qualified vs. bare names, built-in name collisions like `review`) in
   `config-format.md`, and added a `manage-schemas` `validate` check that flags `skill:` values
   colliding with built-in skill names (`review`, `plan`, `run`, `init`).
+- **`advance_item` gate-blocked results now name the blocked transition.** The gate-block error JSON
+  gains structured `previousRole`/`targetRole` fields alongside `missingNotes`, so a rejected
+  transition identifies which phase's note set it failed instead of leaving the caller to infer it
+  from the trigger. The tool description now also states that `start`'s gate is scoped to the item's
+  CURRENT phase — successive `start` calls gate different note sets as the role advances, which is
+  deterministic and not timing-dependent — and that a transition can cascade a parent to terminal
+  when the parent's downstream gates are already satisfied by prefilled notes. MCP surface only: the
+  REST `422 gate_blocked` payload already carried `targetRole` and does not yet carry `previousRole`.
+- **`manage_items(update)` now honors the top-level `traits` parameter.** It was previously accepted
+  and silently ignored — the call returned `{updated:1, failed:0}` having merged nothing, with no
+  error — because the update branch never read the parameter, while `create` always had. Precedence
+  now matches `create`: a per-item `traits` field overrides the shared top-level default, and traits
+  absent at both levels leave the item's existing traits untouched. Merge semantics are replace, not
+  union. The per-item form (`items: [{itemId, traits: "..."}]`) was never affected and needs no
+  migration.
+  **Behavior change:** `traits: ""` on update now **clears** an item's traits, where it was
+  previously a silent no-op. Because trait-derived note requirements merge into an item's resolved
+  schema, clearing traits also drops their gates — a caller that passes an empty `traits` string on
+  update (e.g. a template that always sets the field) will now strip both. Omit the field entirely
+  to leave traits unchanged.
 
 ## [3.13.0] - 2026-07-25
 
