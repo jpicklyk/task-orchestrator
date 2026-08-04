@@ -36,6 +36,7 @@ class UpdateItemHandler(
      */
     suspend fun execute(
         items: JsonArray,
+        sharedTraits: String?,
         context: ToolExecutionContext
     ): JsonElement {
         val repo = context.workItemRepository()
@@ -85,7 +86,7 @@ class UpdateItemHandler(
                 val newTags = extractItemStringAllowNull(itemObj, "tags", existing.tags)
                 val newType = extractItemStringAllowNull(itemObj, "type", existing.type)
                 val rawNewProperties = extractItemStringAllowNull(itemObj, "properties", existing.properties)
-                val traitsStr = extractItemString(itemObj, "traits")
+                val traitsStr = extractTraitsOverride(itemObj) ?: sharedTraits
                 val newProperties = PropertiesHelper.mergeTraitsFromString(rawNewProperties, traitsStr)
 
                 // Parse priority if provided
@@ -245,6 +246,23 @@ class UpdateItemHandler(
             }
 
         return ResponseUtil.createSuccessResponse(data)
+    }
+
+    /**
+     * Extracts the per-item "traits" override, distinguishing an absent field from a
+     * present-but-blank one.
+     *
+     * Unlike [extractItemString] (which squashes blank strings to null for every other field so
+     * that "not provided" and "provided empty" collapse to the same no-op), an explicit blank
+     * `traits: ""` on update is the caller's signal to clear all traits — it must reach
+     * [PropertiesHelper.mergeTraitsFromString] as `""` (which resolves to an empty trait list and
+     * replaces the traits key), not as `null` (which means "leave traits untouched"). Returns null
+     * only when the key is absent or not a JSON string, so the caller can still fall back to
+     * `sharedTraits` exactly when the per-item field was never provided.
+     */
+    private fun extractTraitsOverride(obj: JsonObject): String? {
+        val value = obj["traits"] as? JsonPrimitive ?: return null
+        return if (value.isString) value.content else null
     }
 
     /**
