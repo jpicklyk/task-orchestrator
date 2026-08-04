@@ -8,6 +8,7 @@ import io.github.jpicklyk.mcptask.current.application.service.buildExpectedNotes
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.model.ErrorKind
+import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.ToolError
 import io.github.jpicklyk.mcptask.current.domain.model.UserTrigger
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
@@ -57,6 +58,11 @@ into a one-element array. If `transitions` is present the singular fields are ig
 **Gate enforcement (when tags match a note schema):**
 - start: required notes for the current phase must be filled before advancing
 - complete: all required notes across all phases must be filled
+- `start`'s gate is scoped to the item's CURRENT phase, so successive `start` calls gate different
+  note sets as the role advances (QUEUE notes, then WORK notes, then REVIEW notes) — this is
+  deterministic per-phase behavior, not a timing-dependent artifact. A transition can also cascade
+  a parent straight to TERMINAL when the parent's downstream gates are already satisfied by
+  previously prefilled notes.
 
 **Resource-lease gate:** transitions entering the work phase acquire an exclusive lease per resource
 declared by the item's traits; contention rejects with transient `resource_unavailable` +
@@ -698,7 +704,9 @@ Call to move an item between phases once its work is done — never edit status 
                     itemId,
                     trigger,
                     failure.message,
-                    missingNotes = NoteSchemaJsonHelpers.buildMissingNotesArray(failure.missingNotes)
+                    missingNotes = NoteSchemaJsonHelpers.buildMissingNotesArray(failure.missingNotes),
+                    previousRole = failure.previousRole,
+                    targetRole = failure.targetRole
                 )
         }
 
@@ -707,7 +715,9 @@ Call to move an item between phases once its work is done — never edit status 
         trigger: String,
         error: String,
         blockers: JsonArray? = null,
-        missingNotes: JsonArray? = null
+        missingNotes: JsonArray? = null,
+        previousRole: Role? = null,
+        targetRole: Role? = null
     ): JsonObject =
         buildJsonObject {
             put("itemId", JsonPrimitive(itemId.toString()))
@@ -720,6 +730,8 @@ Call to move an item between phases once its work is done — never edit status 
             if (missingNotes != null) {
                 put("missingNotes", missingNotes)
             }
+            previousRole?.let { put("previousRole", JsonPrimitive(it.toJsonString())) }
+            targetRole?.let { put("targetRole", JsonPrimitive(it.toJsonString())) }
         }
 
     /**

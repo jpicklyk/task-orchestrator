@@ -157,6 +157,7 @@ class AdvanceServiceTest {
             val failure = assertIs<AdvanceOutcome.Failure>(outcome)
             val gate = assertIs<AdvanceFailure.GateBlocked>(failure.failure)
             assertEquals(listOf("spec"), gate.missingNotes.map { it.key })
+            assertEquals(Role.QUEUE, gate.previousRole)
             assertEquals(Role.WORK, gate.targetRole)
             assertTrue(gate.message.contains("queue"))
         }
@@ -202,6 +203,7 @@ class AdvanceServiceTest {
             val failure = assertIs<AdvanceOutcome.Failure>(outcome)
             val gate = assertIs<AdvanceFailure.GateBlocked>(failure.failure)
             assertEquals(listOf("impl"), gate.missingNotes.map { it.key })
+            assertEquals(Role.WORK, gate.previousRole)
         }
 
     @Test

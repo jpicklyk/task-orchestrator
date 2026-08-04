@@ -1370,6 +1370,9 @@ class AdvanceItemToolTest {
             assertEquals("scope-definition", second["key"]!!.jsonPrimitive.content)
             assertEquals("Scope definition", second["description"]!!.jsonPrimitive.content)
             assertEquals("Describe what is in and out of scope", second["guidance"]!!.jsonPrimitive.content)
+
+            assertEquals("queue", r["previousRole"]!!.jsonPrimitive.content)
+            assertEquals("work", r["targetRole"]!!.jsonPrimitive.content)
         }
 
     @Test
@@ -1475,6 +1478,9 @@ class AdvanceItemToolTest {
             assertEquals("implementation-notes", entry["key"]!!.jsonPrimitive.content)
             assertEquals("Implementation notes", entry["description"]!!.jsonPrimitive.content)
             assertNull(entry["guidance"], "guidance key should not be present when guidance is null")
+
+            assertEquals("work", r["previousRole"]!!.jsonPrimitive.content)
+            assertEquals("terminal", r["targetRole"]!!.jsonPrimitive.content)
         }
 
     // ──────────────────────────────────────────────
