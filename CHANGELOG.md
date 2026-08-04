@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **`/prepare-release` release-notes extraction silently produced an empty body.** The awk step built
+  a *dynamic* regex from the version string (`$0 ~ "^## \\[" ver "\\]"`); the bracket escaping is
+  interpreted twice in a string-built regex and degrades to a character class on gawk, so the header
+  never matched and the extraction yielded zero lines. Because `gh release edit --notes-file` accepts
+  an empty file without complaint, the curated notes were replaced with nothing. Now matches the
+  header literally via `index($0, hdr) == 1` and fails loudly on an empty extraction instead of
+  publishing it. Observed live during the v3.13.1 release.
+
 ## [3.13.1] - 2026-08-04
 
 ### Changed
