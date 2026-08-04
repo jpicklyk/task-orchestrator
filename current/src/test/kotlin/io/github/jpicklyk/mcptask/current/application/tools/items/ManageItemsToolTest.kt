@@ -2163,6 +2163,306 @@ class ManageItemsToolTest {
             assertEquals(listOf("new-trait"), propsJson["traits"]!!.jsonArray.map { it.jsonPrimitive.content })
         }
 
+    private suspend fun traitsOf(itemId: String): List<String> {
+        val queryTool = QueryItemsTool()
+        val getResult =
+            queryTool.execute(
+                params("operation" to JsonPrimitive("get"), "itemId" to JsonPrimitive(itemId)),
+                context
+            ) as JsonObject
+        val properties = (getResult["data"] as JsonObject)["properties"]?.jsonPrimitive?.contentOrNull
+        if (properties.isNullOrBlank()) return emptyList()
+        val propsJson =
+            kotlinx.serialization.json.Json
+                .parseToJsonElement(properties)
+                .jsonObject
+        val traitsElement = propsJson["traits"] ?: return emptyList()
+        return traitsElement.jsonArray.map { it.jsonPrimitive.content }
+    }
+
+    @Test
+    fun `update with top-level traits param merges the trait into properties (regression for silent no-op bug)`(): Unit =
+        runBlocking {
+            val createResult =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("create"),
+                        "items" to
+                            JsonArray(
+                                listOf(buildJsonObject { put("title", JsonPrimitive("Top-level traits update item")) })
+                            )
+                    ),
+                    context
+                ) as JsonObject
+            val itemId =
+                (createResult["data"] as JsonObject)["items"]!!
+                    .jsonArray[0]
+                    .jsonObject["id"]!!
+                    .jsonPrimitive.content
+
+            val updateResult =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("update"),
+                        "items" to
+                            JsonArray(
+                                listOf(buildJsonObject { put("itemId", JsonPrimitive(itemId)) })
+                            ),
+                        "traits" to JsonPrimitive("delegated")
+                    ),
+                    context
+                ) as JsonObject
+
+            assertTrue(updateResult["success"]!!.jsonPrimitive.boolean)
+            val data = updateResult["data"] as JsonObject
+            assertEquals(1, data["updated"]!!.jsonPrimitive.int)
+            assertEquals(0, data["failed"]!!.jsonPrimitive.int)
+            assertEquals(listOf("delegated"), traitsOf(itemId))
+        }
+
+    @Test
+    fun `update per-item traits overrides the top-level shared traits default`(): Unit =
+        runBlocking {
+            val createResult =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("create"),
+                        "items" to
+                            JsonArray(
+                                listOf(buildJsonObject { put("title", JsonPrimitive("Per-item override update item")) })
+                            )
+                    ),
+                    context
+                ) as JsonObject
+            val itemId =
+                (createResult["data"] as JsonObject)["items"]!!
+                    .jsonArray[0]
+                    .jsonObject["id"]!!
+                    .jsonPrimitive.content
+
+            val updateResult =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("update"),
+                        "items" to
+                            JsonArray(
+                                listOf(
+                                    buildJsonObject {
+                                        put("itemId", JsonPrimitive(itemId))
+                                        put("traits", JsonPrimitive("per-item-trait"))
+                                    }
+                                )
+                            ),
+                        "traits" to JsonPrimitive("shared-default-trait")
+                    ),
+                    context
+                ) as JsonObject
+
+            assertTrue(updateResult["success"]!!.jsonPrimitive.boolean)
+            assertEquals(listOf("per-item-trait"), traitsOf(itemId))
+        }
+
+    @Test
+    fun `update with no traits anywhere leaves pre-existing traits untouched`(): Unit =
+        runBlocking {
+            val createResult =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("create"),
+                        "items" to
+                            JsonArray(
+                                listOf(
+                                    buildJsonObject {
+                                        put("title", JsonPrimitive("Untouched traits item"))
+                                        put("traits", JsonPrimitive("keep-me"))
+                                    }
+                                )
+                            )
+                    ),
+                    context
+                ) as JsonObject
+            val itemId =
+                (createResult["data"] as JsonObject)["items"]!!
+                    .jsonArray[0]
+                    .jsonObject["id"]!!
+                    .jsonPrimitive.content
+            assertEquals(listOf("keep-me"), traitsOf(itemId))
+
+            // Update an unrelated field with no traits field anywhere (per-item or top-level).
+            val updateResult =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("update"),
+                        "items" to
+                            JsonArray(
+                                listOf(
+                                    buildJsonObject {
+                                        put("itemId", JsonPrimitive(itemId))
+                                        put("summary", JsonPrimitive("unrelated change"))
+                                    }
+                                )
+                            )
+                    ),
+                    context
+                ) as JsonObject
+
+            assertTrue(updateResult["success"]!!.jsonPrimitive.boolean)
+            assertEquals(listOf("keep-me"), traitsOf(itemId), "traits must be left untouched when absent from both per-item and top-level")
+        }
+
+    @Test
+    fun `create with top-level traits param applies to all items in the batch`(): Unit =
+        runBlocking {
+            val createResult =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("create"),
+                        "items" to
+                            JsonArray(
+                                listOf(
+                                    buildJsonObject { put("title", JsonPrimitive("Batch item one")) },
+                                    buildJsonObject { put("title", JsonPrimitive("Batch item two")) }
+                                )
+                            ),
+                        "traits" to JsonPrimitive("batch-trait")
+                    ),
+                    context
+                ) as JsonObject
+
+            assertTrue(createResult["success"]!!.jsonPrimitive.boolean)
+            val data = createResult["data"] as JsonObject
+            assertEquals(2, data["created"]!!.jsonPrimitive.int)
+            val items = data["items"]!!.jsonArray
+            for (item in items) {
+                val itemId = item.jsonObject["id"]!!.jsonPrimitive.content
+                assertEquals(listOf("batch-trait"), traitsOf(itemId))
+            }
+        }
+
+    @Test
+    fun `create per-item traits overrides the top-level shared traits default`(): Unit =
+        runBlocking {
+            val createResult =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("create"),
+                        "items" to
+                            JsonArray(
+                                listOf(
+                                    buildJsonObject {
+                                        put("title", JsonPrimitive("Per-item override create item"))
+                                        put("traits", JsonPrimitive("item-trait"))
+                                    }
+                                )
+                            ),
+                        "traits" to JsonPrimitive("shared-default-trait")
+                    ),
+                    context
+                ) as JsonObject
+
+            assertTrue(createResult["success"]!!.jsonPrimitive.boolean)
+            val itemId =
+                (createResult["data"] as JsonObject)["items"]!!
+                    .jsonArray[0]
+                    .jsonObject["id"]!!
+                    .jsonPrimitive.content
+            assertEquals(listOf("item-trait"), traitsOf(itemId))
+        }
+
+    @Test
+    fun `update traits replaces the traits key rather than unioning with existing traits`(): Unit =
+        runBlocking {
+            val createResult =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("create"),
+                        "items" to
+                            JsonArray(
+                                listOf(
+                                    buildJsonObject {
+                                        put("title", JsonPrimitive("Replace semantics item"))
+                                        put("traits", JsonPrimitive("a,b"))
+                                    }
+                                )
+                            )
+                    ),
+                    context
+                ) as JsonObject
+            val itemId =
+                (createResult["data"] as JsonObject)["items"]!!
+                    .jsonArray[0]
+                    .jsonObject["id"]!!
+                    .jsonPrimitive.content
+            assertEquals(listOf("a", "b"), traitsOf(itemId))
+
+            val updateResult =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("update"),
+                        "items" to
+                            JsonArray(
+                                listOf(
+                                    buildJsonObject {
+                                        put("itemId", JsonPrimitive(itemId))
+                                        put("traits", JsonPrimitive("c"))
+                                    }
+                                )
+                            )
+                    ),
+                    context
+                ) as JsonObject
+
+            assertTrue(updateResult["success"]!!.jsonPrimitive.boolean)
+            assertEquals(listOf("c"), traitsOf(itemId), "traits must be replaced, not unioned with the prior list")
+        }
+
+    @Test
+    fun `update with blank traits string clears traits to an empty list`(): Unit =
+        runBlocking {
+            val createResult =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("create"),
+                        "items" to
+                            JsonArray(
+                                listOf(
+                                    buildJsonObject {
+                                        put("title", JsonPrimitive("Removal semantics item"))
+                                        put("traits", JsonPrimitive("a,b"))
+                                    }
+                                )
+                            )
+                    ),
+                    context
+                ) as JsonObject
+            val itemId =
+                (createResult["data"] as JsonObject)["items"]!!
+                    .jsonArray[0]
+                    .jsonObject["id"]!!
+                    .jsonPrimitive.content
+            assertEquals(listOf("a", "b"), traitsOf(itemId))
+
+            val updateResult =
+                tool.execute(
+                    params(
+                        "operation" to JsonPrimitive("update"),
+                        "items" to
+                            JsonArray(
+                                listOf(
+                                    buildJsonObject {
+                                        put("itemId", JsonPrimitive(itemId))
+                                        put("traits", JsonPrimitive(""))
+                                    }
+                                )
+                            )
+                    ),
+                    context
+                ) as JsonObject
+
+            assertTrue(updateResult["success"]!!.jsonPrimitive.boolean)
+            assertEquals(emptyList(), traitsOf(itemId))
+        }
+
     // ──────────────────────────────────────────────
     // userSummary tests
     // ──────────────────────────────────────────────

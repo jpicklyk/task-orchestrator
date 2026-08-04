@@ -147,7 +147,10 @@ Unified write operations for WorkItems (create, update, delete).
                                 "description",
                                 JsonPrimitive(
                                     "Comma-separated trait names adding note requirements from the traits: config; " +
-                                        "merged into properties automatically."
+                                        "merged into properties automatically. Shared default for every item in the " +
+                                        "create or update batch; a per-item `traits` field overrides it for that item. " +
+                                        "On update, absent from both levels leaves existing traits untouched; an " +
+                                        "explicit empty string clears them."
                                 )
                             )
                         }
@@ -281,6 +284,7 @@ Unified write operations for WorkItems (create, update, delete).
             "update" ->
                 updateHandler.execute(
                     requireJsonArray(params, "items"),
+                    optionalString(params, "traits"),
                     context
                 )
             "delete" ->
