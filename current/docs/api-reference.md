@@ -1184,7 +1184,7 @@ All cascade types are recorded in `cascadeEvents`.
 
 `blockers` is only present when the transition failed due to dependency constraints. `error` contains a human-readable description of why the transition was rejected. Note that (unlike success results) `trigger` **is** present on failed results, while `previousRole`, `newRole`, and `expectedNotes` are absent.
 
-**Gate-blocked failure.** When the gate itself rejects the transition (missing required notes), the result includes a `missingNotes` array instead of `blockers`. Each entry carries the **full** guidance text — this and `manage_notes(upsert)`'s `itemContext.guidancePointer` are the only two places full guidance text is returned directly (everywhere else you get a `guidanceKey`/`skillPointer` reference and resolve via `query_items(operation="schema")`):
+**Gate-blocked failure.** When the gate itself rejects the transition (missing required notes), the result includes a `missingNotes` array instead of `blockers`, plus `previousRole` and `targetRole` naming the blocked transition (the phase the item was in when the gate fired, and the phase it would have moved to). Each `missingNotes` entry carries the **full** guidance text — this and `manage_notes(upsert)`'s `itemContext.guidancePointer` are the only two places full guidance text is returned directly (everywhere else you get a `guidanceKey`/`skillPointer` reference and resolve via `query_items(operation="schema")`):
 
 ```json
 {
@@ -1196,14 +1196,16 @@ All cascade types are recorded in `cascadeEvents`.
       "error": "Gate check failed: required notes not filled for queue phase: feature-summary",
       "missingNotes": [
         { "key": "feature-summary", "description": "...", "guidance": "...", "skill": "spec-quality" }
-      ]
+      ],
+      "previousRole": "queue",
+      "targetRole": "work"
     }
   ],
   "summary": { "total": 1, "succeeded": 0, "failed": 1 }
 }
 ```
 
-`guidance` and `skill` are omitted per-entry when unset.
+`guidance` and `skill` are omitted per-entry when unset. `previousRole`/`targetRole` are present only on gate-blocked failures — other failure shapes (dependency `blockers`, ownership/policy rejection, resource-lease contention) do not carry them.
 
 **Ownership / policy rejection.** When a transition is rejected because another agent holds a live claim, or by `degradedModePolicy=reject`, the failed result carries structured fields alongside `error`: `errorKind`, `errorCode` (`not_claim_holder` or `rejected_by_policy`), and — for ownership rejections — `contendedItemId`.
 

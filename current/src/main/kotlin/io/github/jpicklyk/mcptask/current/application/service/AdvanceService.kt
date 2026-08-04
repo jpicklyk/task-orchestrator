@@ -52,11 +52,14 @@ sealed class AdvanceFailure {
      * A required-note gate blocked the transition (start or complete).
      *
      * @property message human-readable summary including the missing keys
+     * @property previousRole the item's role at the time the transition was attempted (the phase
+     *   whose gate rejected it)
      * @property targetRole the role the transition would have moved to (for context)
      * @property missingNotes the structured required notes that are still unfilled
      */
     data class GateBlocked(
         val message: String,
+        val previousRole: Role,
         val targetRole: Role,
         val missingNotes: List<NoteSchemaEntry>
     ) : AdvanceFailure()
@@ -481,7 +484,7 @@ class AdvanceService(
             } else {
                 "Gate check failed: required notes not filled: $missingKeys"
             }
-        return AdvanceFailure.GateBlocked(message, targetRole, missingEntries)
+        return AdvanceFailure.GateBlocked(message, item.role, targetRole, missingEntries)
     }
 
     /** Result of the step-4.5 resource gate: proceed (with derived refs) or reject the advance. */
