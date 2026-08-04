@@ -471,14 +471,31 @@ as the release body:
 ```bash
 RELNOTES="$(mktemp)"
 awk -v ver="X.Y.Z" '
-  $0 ~ "^## \\[" ver "\\]" { capture=1; next }   # skip the version header line (redundant with the release title)
-  capture && /^## \[/ { exit }                    # stop at the next version section
+  BEGIN { hdr = "## [" ver "]" }
+  index($0, hdr) == 1 { capture=1; next }          # skip the version header line (redundant with the release title)
+  capture && index($0, "## [") == 1 { exit }       # stop at the next version section
   capture { print }
 ' CHANGELOG.md > "$RELNOTES"
+
+# Never publish an empty body. `gh release edit --notes-file` accepts an empty file without
+# complaint, so a silently-failed extraction replaces the auto-generated notes with NOTHING —
+# strictly worse than leaving them. Fail loudly instead.
+if [ ! -s "$RELNOTES" ]; then
+  echo "ERROR: extracted release notes are empty — check that CHANGELOG.md contains a '## [X.Y.Z]' header" >&2
+  rm -f "$RELNOTES"
+  exit 1
+fi
 
 gh release edit vX.Y.Z --notes-file "$RELNOTES"
 rm -f "$RELNOTES"
 ```
+
+**Match the header literally — do not build a regex from the version string.** `X.Y.Z` contains
+`.` (any-char in a regex) and sits inside `[`…`]`, so the obvious `$0 ~ "^## \\[" ver "\\]"` form
+is fragile: in a *dynamic* (string-built) regex the bracket escaping is interpreted twice, and on
+gawk it degrades to a character class — the match never fires and the extraction silently yields
+zero lines. `index($0, hdr) == 1` compares plain strings, so version dots and brackets carry no
+special meaning. Verified failing on gawk 2026-08-04 during the v3.13.1 release.
 
 Verify the body now leads with the curated notes:
 ```bash
