@@ -27,6 +27,11 @@ For each item, call `get_context(itemId=...)` to understand:
 - Existing notes already filled
 - Dependencies and blocked status
 
+When the user or an item references a PR or commit as already landed, verify its merge state
+before relying on it — `gh pr view <n> --json state,mergeCommit` plus `git log origin/main` —
+and confirm the working tree is current (Step 2, base-freshness precondition) before any pass
+that checks whether a change is present in the codebase.
+
 **Execution tier** — classify by this table (canonical source shared with the Workflow Orchestrator output style; edit the fragment, not this copy):
 
 <!-- BEGIN GENERATED:tier-classification | source: claude-plugins/task-orchestrator/output-styles/_fragments/tier-classification.md · regen: node claude-plugins/task-orchestrator/output-styles/generate.mjs -->
@@ -94,6 +99,26 @@ git checkout main
 git pull origin main --tags
 ```
 
+**Base-freshness precondition.** Before creating any branch or worktree, and before any
+source-verification pass (a grep or file read that decides whether a change is present),
+confirm the intended base is current:
+
+```bash
+git fetch origin
+git log --oneline -1 origin/main
+git rev-parse --short HEAD
+```
+
+The two SHAs must match, or HEAD must be a descendant of `origin/main` on the intended branch.
+**A source-verification pass must never run against a working tree that has not been confirmed
+current** — this includes the orchestrator's own session worktree. If the tree is behind, read
+the file directly from the remote (`git show origin/main:<path>`, from PowerShell on Windows —
+the Bash tool's MSYS layer mangles the `ref:path` colon) or create a fresh worktree from
+`origin/main` (fallback block below). A stale base manufactures absent-looking evidence and
+absence reads as a discovery, not an error: a 6-commit-stale tree reported four already-adopted
+proposals as missing (2026-08-04), and a one-commit-stale dispatch re-implemented existing
+runtime into a conflicting 17-file commit (2026-05-01) — trend `760be80d`.
+
 The branching/worktree strategy depends on tier:
 
 **Direct tier** (orchestrator implements 1–2 files inline) — create a working branch on the main directory:
@@ -136,6 +161,16 @@ fi
 ```
 
 All child-task agents will be dispatched into this **shared** worktree (Step 4). The feature branch is pushed and PR'd **once**, when the parent feature reaches terminal (Step 6).
+
+**Plan file as dispatch contract (3+ children).** Author the full shared design — trait and
+schema names, note keys, skill pointers, per-child file ownership, shared vocabulary — into
+`plans/<slug>.md` once, and have every Step 4 dispatch prompt reference it by path with an
+explicit conflict rule ("the plan wins on conflict with this prompt") instead of restating
+design details per prompt. Two runs (retros `202b5d42`, `6d562acb`) produced zero vocabulary
+deviations across up to five concurrent authors this way, with prompts roughly 60% smaller.
+The contract guarantees deviation-free execution, not plan correctness — pair it with Step 3's
+"plans are spec inputs" rule so the plan's own factual claims are verified by the implementer
+rather than merely followed.
 
 **Why one worktree per feature, not per child:** the feature is the natural PR boundary. Per-child PRs created cross-PR test contamination and PR-body staleness during the #117 follow-up (see retro `a7f6024f`). Shared worktree means one commit history, one CI cycle, one PR — and the parent feature's review-checklist gives a coherent point at which to finalize.
 
@@ -185,6 +220,12 @@ materialization. Advance: `advance_item(trigger="start")`.
 
 The gate will reject advancement if required notes are missing. If rejected, fill
 the missing notes and retry.
+
+**Plans are spec inputs.** Every file path, tool contract, or call sequence a plan names must
+cite its authoritative location and be verified on disk or in source before the plan is
+approved — child items' specification notes are generated from the plan and inherit its errors
+silently (spec-quality, "Cite Contracts, Don't Restate Them"). This reminder lives here because
+spec-quality is reached via note `guidance` pointers that plan mode does not traverse.
 
 **Do not confuse this with resource-lease contention.** A queue→work `advance_item` can also
 fail with `applied: false`, `errorCode: "resource_unavailable"`, `errorKind: "transient"` — a
@@ -632,6 +673,20 @@ the overhead exceeds the risk for 1-2 file changes with known fixes.
 
 **Delegated and Parallel tiers:** Dispatch a **separate** review agent. The agent
 that implemented the code must not review its own work.
+
+**Reviewer scoping for Parallel waves.** Per-child reviewers remain the default for code-bearing
+waves. When every child in the wave is content-only (config, skill, or doc edits — no `src/main`
+or `src/test` changes) AND the wave shares a pinned plan-file contract (Step 2), dispatch ONE
+consolidated `opus` reviewer over the full feature-branch diff (`git diff main...<FEATURE_BRANCH>`)
+instead of N per-child reviewers. Cross-file coherence defects — sibling skills stating
+contradictory rules, gate placement contradicting seat timing, an example contradicting its own
+rule — are visible only to a reviewer holding the whole diff; per-child reviewers structurally
+cannot see them, and a shared naming contract does not prevent them, since naming consistency
+and semantic coherence are orthogonal. Evidence: 5 blocking cross-file contradictions caught
+this way at 5-item scale (retro `6d562acb`) and canonical-config consistency issues at 7-item
+scale (retro `bd4ec109`) — trend `028c7b5d`. The consolidated reviewer fills the review-phase
+notes of whichever items carry a review phase (typically the parent feature's
+`review-checklist`, since `feature-task` children skip review by default).
 
 **If the implementation used the shared feature worktree** (Parallel tier), the
 review agent operates in that worktree, scoped to **just this child's commits**.
