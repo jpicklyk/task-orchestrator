@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **MCP Registry record followed the mutable `:latest` image tag.** `server.json` pinned
+  `ghcr.io/jpicklyk/task-orchestrator:latest` under an immutable registry version, so the published
+  3.2.0 record resolved to whichever image later owned `latest` — and the file itself had not been
+  bumped since 3.2.0 despite `/prepare-release` instructing it. Now pins the per-release tag
+  (`:3.13.1`), `docker-publish.yml` fails the release if `server.json` disagrees with
+  `version.properties`, and every tagged release publishes its own registry record via
+  `mcp-publisher` (GitHub OIDC). The `/prepare-release` skill spells out the identifier bump. (#297)
 - **`/prepare-release` release-notes extraction silently produced an empty body.** The awk step built
   a *dynamic* regex from the version string (`$0 ~ "^## \\[" ver "\\]"`); the bracket escaping is
   interpreted twice in a string-built regex and degrades to a character class on gawk, so the header
