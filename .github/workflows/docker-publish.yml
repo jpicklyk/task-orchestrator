@@ -16,6 +16,7 @@ jobs:
     permissions:
       contents: write
       packages: write
+      id-token: write   # GitHub OIDC login for mcp-publisher
 
     steps:
     - name: Checkout repository
@@ -64,6 +65,21 @@ jobs:
           exit 1
         fi
 
+    - name: Verify server.json matches release version
+      run: |
+        VERSION=${{ steps.version.outputs.version }}
+        SJ_VERSION=$(jq -r '.version' server.json)
+        SJ_IMAGE=$(jq -r '.packages[] | select(.registryType == "oci") | .identifier' server.json)
+        EXPECTED_IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${VERSION}"
+        if [ "$SJ_VERSION" != "$VERSION" ]; then
+          echo "ERROR: server.json version (${SJ_VERSION}) does not match release version (${VERSION})"
+          exit 1
+        fi
+        if [ "$SJ_IMAGE" != "$EXPECTED_IMAGE" ]; then
+          echo "ERROR: server.json OCI identifier (${SJ_IMAGE}) must be the immutable release tag (${EXPECTED_IMAGE})"
+          exit 1
+        fi
+
     - name: Extract Docker metadata
       id: meta
       uses: docker/metadata-action@v5
@@ -85,6 +101,22 @@ jobs:
         labels: ${{ steps.meta.outputs.labels }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
+
+    - name: Install mcp-publisher
+      run: |
+        OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+        ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
+        URL="https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_${OS}_${ARCH}.tar.gz"
+        curl -fsSL "$URL" | tar xz mcp-publisher
+        ./mcp-publisher --version
+
+    # Publishes the immutable per-release record (server.json pins the :<version> image tag,
+    # so the registry entry never follows a mutable tag). OIDC authenticates the io.github.jpicklyk
+    # namespace; the registry also verifies the image's io.modelcontextprotocol.server.name label.
+    - name: Publish to MCP Registry
+      run: |
+        ./mcp-publisher login github-oidc
+        ./mcp-publisher publish
 
     - name: Create GitHub Release
       env:

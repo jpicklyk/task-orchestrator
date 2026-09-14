@@ -218,7 +218,17 @@ VERSION_PATCH=Z
 
 **All releases** — also edit `server.json` and `.claude-plugin/marketplace.json`:
 - Update `version` in `server.json` to match the new server version
+- Update the OCI `identifier` in `server.json` to the **immutable** release image tag:
+  `ghcr.io/jpicklyk/task-orchestrator:X.Y.Z` (no `v` prefix — this is the Docker tag, not the git
+  tag). Never leave it on `:latest`; the MCP Registry record for a version is immutable, so a mutable
+  tag makes that record drift to whatever image later owns `latest` (#297). `docker-publish.yml`
+  fails the release if either field disagrees with `version.properties`, and then publishes the
+  record to the registry via `mcp-publisher`.
 - Update `metadata.version` in `.claude-plugin/marketplace.json` to match the new server version
+
+**Do not skip the `server.json` edit.** It is the one file in this step that no build reads, so a
+missed bump is invisible until the registry publish fails (or, before the guard existed, silently
+published a stale record — v3.3.0 through v3.13.1 shipped with `server.json` still at 3.2.0).
 
 **Both releases** — also edit `claude-plugins/task-orchestrator/.claude-plugin/plugin.json`
 and `.claude-plugin/marketplace.json`:
