@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
+import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.config.EnvBoolean
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
@@ -8,6 +9,8 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStor
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.JwksApiVerifier
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.LOCAL_UNAUTH_PRINCIPAL
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.allowedItemIdsForTagScope
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.hasTagScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEvent
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventBus
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventType
@@ -72,6 +75,14 @@ private class SseInlineAuthConfig {
      * Unauthenticated branch so unauthenticated mode does not 401 every SSE connection.
      */
     var authConfig: ApiAuthConfig = ApiAuthConfig.Disabled
+
+    /**
+     * Repository used to look up item tags for tag-scoped principals (`hasTagScope()`), both
+     * here (pre-flight 403 when unavailable) and in the `sse { }` collect body (per-event drop).
+     * Null when the caller wired [eventRoutes] without one -- tag-scoped connections are then
+     * rejected rather than streamed unfiltered.
+     */
+    var workItemRepository: WorkItemRepository? = null
 }
 
 /**
@@ -95,6 +106,7 @@ private val sseInlineAuthPlugin =
         val allowQueryToken = pluginConfig.allowQueryToken
         val jwksVerifier = pluginConfig.jwksVerifier
         val authConfig = pluginConfig.authConfig
+        val workItemRepository = pluginConfig.workItemRepository
 
         onCall { call ->
             // Opt-in unauthenticated mode (API_AUTH_MODE=none + API_ALLOW_UNAUTHENTICATED=true):
@@ -183,6 +195,20 @@ private val sseInlineAuthPlugin =
                 return@onCall
             }
 
+            // Fail closed: a tag-scoped principal can only be safely streamed to when we can
+            // look up item tags per event (the collect-site filter below). Without a repository
+            // wired, reject rather than fall back to the pre-fix unfiltered stream.
+            if (principal.hasTagScope() && workItemRepository == null) {
+                call.respond(
+                    HttpStatusCode.Forbidden,
+                    mapOf(
+                        "error" to "insufficient_scope",
+                        "error_description" to "Tag-scoped tokens require event filtering, which is unavailable",
+                    ),
+                )
+                return@onCall
+            }
+
             // Auth OK — stash for the SSE handler.
             call.attributes.put(SsePrincipalKey, principal)
             if (expiry != null) call.attributes.put(SseTokenExpiryKey, expiry)
@@ -212,6 +238,15 @@ private val sseInlineAuthPlugin =
  * `?root=<uuid>[&root=<uuid>...]` restricts events to those root subtrees.
  * Effective subscription = intersection(`?root=`, `principal.scope.rootIds`).
  *
+ * The `tags_include` half of scope is NOT applied at the bus-subscription level ([ApiEventBus]
+ * has no tag dimension) -- it is enforced per event, in the `sse { }` collect body below, using
+ * the same [io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.allowsItemTags] predicate
+ * every other read route uses, via [workItemRepository]. This applies identically to live events
+ * and to `Last-Event-ID` replay, since both flow through the one collect site. A tag-scoped
+ * principal connecting when [workItemRepository] is null is rejected with 403 in the pre-flight
+ * plugin -- fail closed rather than stream unfiltered. Non-tag-scoped principals take exactly
+ * the pre-fix code path (no lookups, no behavior change).
+ *
  * ## Event-ID namespace separation
  * IDs from [ApiEventBus] are INDEPENDENT of `/mcp`'s `EventStore`. Do NOT mix
  * `Last-Event-ID` values across the two SSE channels.
@@ -225,6 +260,10 @@ private val sseInlineAuthPlugin =
  * @param authConfig The resolved REST auth mode; only [ApiAuthConfig.Unauthenticated] changes
  *   behavior here (bypasses the token check entirely). Defaults to [ApiAuthConfig.Disabled],
  *   which falls through to the normal header/`?token=` resolution above.
+ * @param workItemRepository Used to resolve item tags for the `tags_include` scope filter
+ *   described above. Null (the default) preserves prior behavior for callers that do not pass
+ *   it, EXCEPT that a tag-scoped principal is now rejected with 403 rather than streamed
+ *   unfiltered.
  */
 fun Route.eventRoutes(
     eventBus: ApiEventBus,
@@ -235,6 +274,7 @@ fun Route.eventRoutes(
     authCheckIntervalSeconds: Int =
         System.getenv("API_SSE_AUTH_CHECK_INTERVAL_SECONDS")?.toIntOrNull() ?: 30,
     authConfig: ApiAuthConfig = ApiAuthConfig.Disabled,
+    workItemRepository: WorkItemRepository? = null,
 ) {
     // Wrap the SSE handler in a dedicated child route so the pre-flight auth plugin is scoped
     // ONLY to /events and does not affect sibling routes.
@@ -244,6 +284,7 @@ fun Route.eventRoutes(
             this.allowQueryToken = allowQueryToken
             this.jwksVerifier = jwksVerifier
             this.authConfig = authConfig
+            this.workItemRepository = workItemRepository
         }
 
         sse {
@@ -305,6 +346,14 @@ fun Route.eventRoutes(
             val session = this
             val flow = eventBus.subscribe(subscriberId, effectiveRoots, lastEventId)
 
+            // -----------------------------------------------------------------
+            // Tag-scope filter (tags_include half of scope; see "Scope filtering" above)
+            // -----------------------------------------------------------------
+            // Per-connection cache of item id -> allowed, so a tag-scoped connection does not
+            // re-query the repository for every event about an item it has already resolved.
+            // The collect loop below runs on a single coroutine, so no synchronization is needed.
+            val tagScopeCache = mutableMapOf<UUID, Boolean>()
+
             try {
                 coroutineScope {
                     // Periodic token-expiry check
@@ -335,6 +384,15 @@ fun Route.eventRoutes(
                         try {
                             flow.collect { event ->
                                 if (typeFilter != null && event.event !in typeFilter) return@collect
+                                if (!isEventVisibleToTagScope(
+                                        event = event,
+                                        principal = principal,
+                                        repository = workItemRepository,
+                                        cache = tagScopeCache,
+                                    )
+                                ) {
+                                    return@collect
+                                }
                                 session.send(event.toServerSentEvent())
                             }
                         } catch (_: CancellationException) {
@@ -350,6 +408,54 @@ fun Route.eventRoutes(
             }
         }
     }
+}
+
+/**
+ * Applies the `tags_include` half of scope filtering to a single event, for the `flow.collect`
+ * site in [eventRoutes] -- the one place that sees both replayed and live events.
+ *
+ * Returns `true` immediately (no lookup) when [principal] has no tag scope, so non-tag-scoped
+ * and unscoped connections are byte-identical to the pre-fix behavior.
+ *
+ * Bus-level events ([ApiEvent.itemId] null, e.g. `sync.lost`/`auth.expired`) always pass --
+ * there is no item to check tags against.
+ *
+ * Fails CLOSED: an unparsable [ApiEvent.itemId], a missing [repository] (should not happen --
+ * the pre-flight plugin already rejected this connection in that case), or a repository lookup
+ * error (via [allowedItemIdsForTagScope]) all result in the event being dropped.
+ *
+ * [cache] holds the per-connection id -> allowed decision. `item.*` and `scope.*` events bypass
+ * and refresh the cache so a mid-stream tag change (add/remove) is honoured starting with the
+ * very next event about that item; `note.*`/`dependency.*` events reuse the cached decision.
+ */
+private suspend fun isEventVisibleToTagScope(
+    event: ApiEvent,
+    principal: ApiPrincipal,
+    repository: WorkItemRepository?,
+    cache: MutableMap<UUID, Boolean>,
+): Boolean {
+    if (!principal.hasTagScope()) return true
+    val itemId = event.itemId ?: return true
+    val uuid =
+        try {
+            UUID.fromString(itemId)
+        } catch (_: IllegalArgumentException) {
+            return false
+        }
+
+    val bypassCache = event.event.startsWith("item.") || event.event.startsWith("scope.")
+    if (!bypassCache) {
+        cache[uuid]?.let { return it }
+    }
+
+    val allowed =
+        if (repository == null) {
+            false
+        } else {
+            allowedItemIdsForTagScope(principal, setOf(uuid), repository).contains(uuid)
+        }
+    cache[uuid] = allowed
+    return allowed
 }
 
 /** Converts an [ApiEvent] to a Ktor [ServerSentEvent]. */
