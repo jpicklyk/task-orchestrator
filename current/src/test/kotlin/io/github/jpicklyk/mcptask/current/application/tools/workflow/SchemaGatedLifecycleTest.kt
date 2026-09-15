@@ -529,12 +529,12 @@ class SchemaGatedLifecycleTest {
         }
 
     // ──────────────────────────────────────────────
-    // 7. Parent with schema tag — cascade does NOT
-    //    bypass parent's gate
+    // 7. Parent with schema tag — a START cascade IS
+    //    gated on the parent's own required notes
     // ──────────────────────────────────────────────
 
     @Test
-    fun `parent with schema tag cascades to work without gate check on cascade trigger`(): Unit =
+    fun `parent with schema tag suppresses the start cascade until its required note is filled`(): Unit =
         runBlocking {
             // Parent with schema tag (but cascade trigger is not "start", so gate does not apply)
             val parent = createItem("Schema parent", tags = "feature-implementation")
@@ -554,9 +554,14 @@ class SchemaGatedLifecycleTest {
                 )
             assertTransitionSuccess(result, "work")
 
-            // Parent should be in WORK even though specification note is NOT filled
-            // (cascade bypasses start-trigger gate check)
-            assertEquals(Role.WORK, getItem(parent.id).role)
+            // Parent should remain QUEUE — a START cascade into WORK is now gated on the parent's
+            // own required queue-phase notes (item 473e4f49, Path C decision): the cascade is
+            // suppressed exactly like a terminal cascade would be, reporting gateBlocked +
+            // missingNotes, while the child's own advance above still succeeded.
+            assertEquals(Role.QUEUE, getItem(parent.id).role)
+            val cascade = extractResults(result)[0].jsonObject["cascadeEvents"]!!.jsonArray[0].jsonObject
+            assertFalse(cascade["applied"]!!.jsonPrimitive.boolean, "start cascade must be suppressed")
+            assertTrue(cascade["gateBlocked"]!!.jsonPrimitive.boolean, "cascade must report gateBlocked")
         }
 
     // ──────────────────────────────────────────────
