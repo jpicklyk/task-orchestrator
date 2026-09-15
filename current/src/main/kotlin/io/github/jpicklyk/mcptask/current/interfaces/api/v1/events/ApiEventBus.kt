@@ -31,8 +31,10 @@ import java.util.concurrent.atomic.AtomicLong
  *   replayed or live event. See [replayGapSentinel] for the gap predicate and the id contract.
  *
  * @param bufferSize Number of recent events retained for `Last-Event-ID` replay (default 1000).
- *   Values below 1 (e.g. `API_SSE_BUFFER_SIZE=0`) are coerced to 1 — a zero-capacity deque would
- *   make the first [publish] call `removeFirst()` on an empty buffer.
+ *   `0` (e.g. `API_SSE_BUFFER_SIZE=0`) is legal and means retain nothing: [publish] keeps the
+ *   buffer empty instead of calling `removeFirst()` on it, and every resume then reports
+ *   [SyncLostReason.BUFFER_EVICTED] with a sentinel id at the high-water mark. Negative values
+ *   are treated as 0.
  * @param connectionQueueSize Per-connection bounded queue capacity (default 256).
  */
 class ApiEventBus(
@@ -55,11 +57,13 @@ class ApiEventBus(
     )
 
     /**
-     * Effective retention capacity. [bufferSize] is coerced to at least 1: a non-positive value
-     * (`API_SSE_BUFFER_SIZE=0`, or a negative override) would otherwise make [publish] call
-     * `removeFirst()` on an empty deque and throw `NoSuchElementException` on the very first event.
+     * Effective retention capacity. `0` means retain nothing — a legitimate configuration, not an
+     * error — and a negative override is treated the same way. [publish] guards on this rather
+     * than coercing it upward, so zero retention never makes the first event call `removeFirst()`
+     * on an empty deque (`NoSuchElementException`) and never silently retains an event the
+     * operator asked not to keep.
      */
-    private val retainedBufferSize: Int = bufferSize.coerceAtLeast(1)
+    private val retainedBufferSize: Int = bufferSize.coerceAtLeast(0)
 
     /** Ring buffer of recent events for Last-Event-ID replay. Protected by synchronized access. */
     private val ringBuffer = ArrayDeque<RingBufferEntry>(retainedBufferSize)
@@ -95,10 +99,14 @@ class ApiEventBus(
     ) {
         // Add to ring buffer — store alongside affectedRoots so replay can apply scope filtering
         synchronized(ringBuffer) {
-            if (ringBuffer.isNotEmpty() && ringBuffer.size >= retainedBufferSize) {
-                ringBuffer.removeFirst()
+            // retainedBufferSize == 0 means retain nothing: skip the append entirely rather than
+            // evict from an empty deque.
+            if (retainedBufferSize > 0) {
+                while (ringBuffer.isNotEmpty() && ringBuffer.size >= retainedBufferSize) {
+                    ringBuffer.removeFirst()
+                }
+                ringBuffer.addLast(RingBufferEntry(event, affectedRoots))
             }
-            ringBuffer.addLast(RingBufferEntry(event, affectedRoots))
         }
 
         // Fan out to subscribers
@@ -159,7 +167,9 @@ class ApiEventBus(
      *
      * If the resume cursor is no longer replayable, a [ApiEventType.SYNC_LOST] sentinel is emitted
      * FIRST — before any replayed or live event — so the client learns about the gap instead of
-     * seeing a stream that merely looks contiguous. See [replayGapSentinel].
+     * seeing a stream that merely looks contiguous, and the replay then starts from the sentinel's
+     * id (i.e. the whole retained buffer) rather than from the unusable cursor. See
+     * [replayGapSentinel].
      *
      * @param subscriberId Stable identifier for this connection (used for cleanup).
      * @param rootIds Root UUIDs to subscribe to. Empty = subscribe to all events.
@@ -189,9 +199,12 @@ class ApiEventBus(
                 val (sentinel, buffered) =
                     synchronized(ringBuffer) {
                         val gap = replayGapSentinel(lastEventId, resumeRequested)
-                        // An unparsable cursor has no numeric value to replay from; resume at the
-                        // sentinel's id, which by construction replays the whole retained buffer.
-                        val replayFrom = lastEventId ?: gap?.id?.takeIf { resumeRequested }
+                        // When a gap was detected the sentinel's id wins over the client's cursor:
+                        // the cursor is exactly the value we just declared unusable (evicted,
+                        // beyond the high-water mark, or unparsable), and replaying from it would
+                        // deliver nothing. The sentinel id is oldestRetained.id - 1, so the client
+                        // gets the FULL retained buffer behind the sentinel and reconverges.
+                        val replayFrom = gap?.id ?: lastEventId
                         val entries =
                             if (replayFrom == null) {
                                 emptyList()
@@ -262,10 +275,15 @@ class ApiEventBus(
      *
      * ## Id contract
      * `sentinel.id = oldestRetained.id - 1`, or the current high-water mark when the buffer is
-     * empty — always BELOW every event that follows it on the connection. SSE clients set their
-     * reconnect cursor from each `id:` field, so a sentinel numbered from [idCounter] would let a
-     * disconnect right after it skip the entire replayed tail. Reconnecting at the sentinel's own
-     * id yields no sentinel plus the full retained replay, so the client reconverges.
+     * empty (including `bufferSize = 0`, which retains nothing) — always BELOW every event that
+     * follows it on the connection. SSE clients set their reconnect cursor from each `id:` field,
+     * so a sentinel numbered from [idCounter] would let a disconnect right after it skip the
+     * entire replayed tail. Reconnecting at the sentinel's own id yields no sentinel plus the full
+     * retained replay, so the client reconverges.
+     *
+     * Because of that, [subscribe] replays from the sentinel's id rather than the client's cursor
+     * whenever a sentinel is produced — for BOTH reasons. The cursor is by definition the value
+     * just declared unusable, so replaying from it would strand the client on live events only.
      *
      * The sentinel is never published: it does not enter the ring buffer, does not consume an id
      * from [idCounter], and reaches no other subscriber.
