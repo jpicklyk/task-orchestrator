@@ -262,6 +262,35 @@ happens **before** `advance_item(trigger="start")` moves the item queue→work. 
 distinct seat from Step 4b's **test author** seat, which writes test code and fills
 `test-manifest` at work phase — see Step 4b's intro for the two-seat distinction.
 
+**Planning seat (Parallel tier, one `opus` agent per stream).** Dispatch one `opus` agent per
+stream after child items are materialized (post-plan-workflow) and before Step 4's implementer
+dispatch — this is the concrete, per-stream instantiation of the planning seat named above.
+Inputs: the stream's `diagnosis`/`task-scope` note and the CURRENT codebase, not the plan text
+alone. Task: verify every claim in that note against source, citing `file:line` for each
+correction; write the note if materialization left it missing, or revise it if verification
+finds it wrong; fill and freeze `test-plan` per the seat-timing rule above; then return the
+structured template below instead of free-form prose.
+
+**Structured return (seven fields, each required — `none` is a valid value):**
+
+| Field | Semantics |
+|---|---|
+| `diagnosis-corrections` | What the diagnosis/task-scope got wrong or missed, with current `file:line` — or `none`. |
+| `cross-stream-file-overlaps` | Files this stream must write that another stream in the same wave also touches — drives wave sequencing (serialize the overlap, parallelize the rest) — or `none`. |
+| `missing-api-or-seam` | A surface the fix needs that does not exist yet, with the exact proposed NEW signature — or `none`. |
+| `test-plan-status` | Whether `test-plan` is filled and frozen (`filled (<n> chars)`) or still open, and why. |
+| `main-files` | The stream's production files (`src/main`), comma-separated. |
+| `test-files` | The stream's NEW test files (author-owned), comma-separated. |
+| `red-proof-shape` | Per scenario in `test-plan`: `EXISTING-SURFACE` (the test targets code that exists before the fix — revert-the-fix red-proof applies directly) or `NEW-SURFACE` (the test targets a surface the fix itself introduces). Every `NEW-SURFACE` scenario needs the narrowest-revert recipe — typically revert only the call sites and keep the new type/parameter — or, when no revert can produce a behavioural red, an explicit substitute: `no behavioural red possible, reviewer verifies <X>`. |
+
+**The fields are the budget.** The return may exceed any line budget when the fields have
+content — trimming a field to fit a target length is the failure this stage exists to prevent,
+not a virtue.
+
+**Evidence.** This seat produced a material correction on 15/15 items across three bug waves
+(retros `1b8bba5a`, `cc69671b`, `8e6a7cf7`) — every wave that ran it found at least one diagnosis
+error, cross-stream overlap, or missing seam the plan had missed.
+
 ---
 
 ## Step 4 — Work Phase: Implementation

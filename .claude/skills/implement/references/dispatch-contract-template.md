@@ -42,7 +42,20 @@ oracles, and the public signatures tests compile against>`.
 
 ## Planning seat return template
 
-_RESERVED — owned by task `e19e6b4b` (planning seat as a named Parallel-tier stage, #304/#306); filled there, not here._
+One `opus` agent per stream returns this block verbatim (field names fixed; `none` is a valid
+value for any field except `main-files`/`test-files`). Field semantics: `/implement` SKILL.md
+Step 3, "Planning seat" subsection — prose describes, this states.
+
+```
+<short-uuid>:
+diagnosis-corrections: <file:line corrections to diagnosis/task-scope, or none>
+cross-stream-file-overlaps: <files also owned by another stream in this wave, or none>
+missing-api-or-seam: <proposed NEW signature for a missing surface, or none>
+test-plan-status: <filled (<n> chars) | open — and why>
+main-files: <comma list>
+test-files: <comma list of NEW test files>
+red-proof-shape: <per scenario — EXISTING-SURFACE | NEW-SURFACE + narrowest-revert recipe | no behavioural red possible, reviewer verifies <X>>
+```
 
 ## Commit discipline
 
