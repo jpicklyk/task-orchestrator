@@ -35,7 +35,9 @@ This is **by design**: MCP-over-HTTP clients (Claude Code and other agents) conn
 ## Startup, Readiness, and Health Checks
 
 Server startup returns a `StartupOutcome` (`Started` or `Failed(reason, detail)` with
-`reason` one of `DATABASE_INIT`, `SCHEMA_UPDATE`, `UNKNOWN_TRANSPORT`, `READINESS_MARKER`). A
+`reason` one of `DATABASE_INIT`, `SCHEMA_UPDATE`, `UNKNOWN_TRANSPORT`, `READINESS_MARKER`,
+`TRANSPORT_START` — the transport (stdio session creation or the HTTP Ktor engine) failed to
+bind/start after DB init and schema update had already succeeded). A
 `Failed` outcome throws `StartupFailedException` from `main()`, so the JVM exits non-zero and
 container orchestrators (Docker, Kubernetes, systemd) see a real startup failure instead of a
 process that silently logged an error and kept running.

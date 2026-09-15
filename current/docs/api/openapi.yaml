@@ -1174,10 +1174,12 @@ paths:
         A re-parent that would create a cycle is rejected as 400 validation_error: parentId equal
         to the item's own id ("An item cannot be its own parent") or naming one of the item's own
         descendants ("Cannot re-parent an item under its own descendant"). Checked via an identity
-        comparison plus an upward walk of the proposed parent's ancestor chain, bounded by that
-        parent's depth + 1 hops. Ordering: 404 not_found (unknown parent) -> 403 scope_forbidden
-        (parent outside scope) -> this 400 validation_error (self/descendant cycle); nothing is
-        written until all three clear.
+        comparison plus a full walk of the proposed parent's real ancestor chain (one batched
+        findAncestorChains lookup) — not bounded by the parent row's denormalized depth, so a stale
+        depth value can no longer let a cycle through. Ordering: 404 not_found (unknown parent) ->
+        403 scope_forbidden (parent outside scope) -> this 400 validation_error (self/descendant
+        cycle); nothing is written until all three clear. If the ancestor-chain lookup itself fails,
+        the patch returns 500 db_error rather than admitting the re-parent.
       parameters:
         - $ref: "#/components/parameters/itemId"
         - name: If-Match
@@ -1250,6 +1252,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorDto"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 
     delete:
       summary: Cascade delete item
@@ -1586,7 +1590,10 @@ paths:
         - $ref: "#/components/parameters/itemId"
       responses:
         "200":
-          description: Dependencies split by direction and type
+          description: >-
+            Dependencies split by direction and type. For a tags_include-scoped caller, edges whose
+            counterparty item is outside the caller's scope are dropped from the response — this is
+            not a guarantee of completeness for scoped callers (see api-rest.md §3).
           content:
             application/json:
               schema:
@@ -1607,7 +1614,10 @@ paths:
         - $ref: "#/components/parameters/itemId"
       responses:
         "200":
-          description: Backlinks
+          description: >-
+            Backlinks. For a tags_include-scoped caller, backlink rows whose source item is outside
+            the caller's scope are dropped from the response — this is not a guarantee of
+            completeness for scoped callers (see api-rest.md §3).
           content:
             application/json:
               schema:
@@ -2444,8 +2454,18 @@ paths:
         Use a fetch-based SSE library (e.g. @microsoft/fetch-event-source) with
         Authorization: Bearer, or enable API_ALLOW_QUERY_TOKEN_FOR_SSE=true for ?token= access.
 
-        KNOWN LIMITATION: Last-Event-ID replay is unfiltered by root — buffered events may
-        include metadata from outside the requested ?root= scope. See api-rest.md §22.
+        Scope filtering: root scope (?root= intersected with principal.scope.rootIds) is applied
+        identically to the live stream and to Last-Event-ID replay — ring-buffer entries carry
+        affectedRoots metadata so replay is not unfiltered. A principal with scope.tags_include set
+        is additionally filtered per event (live and replay alike), using the same allowsItemTags
+        predicate as the REST collection endpoints; see api-rest.md §21/§3. KNOWN LIMITATION:
+        item.deleted is dropped for a tag-scoped connection (its tags can no longer be resolved once
+        the item is gone) and dependency.* events fall back to an unscoped broadcast on an ancestor
+        cache miss — see api-rest.md §25.
+
+        A tags_include-scoped token additionally requires the route's WorkItemRepository wiring;
+        if that is unavailable the pre-flight plugin rejects the connection with 403
+        insufficient_scope rather than serving an unfiltered stream.
 
         Event ID namespace is independent from /mcp SSE channel. Do NOT reuse Last-Event-ID
         values across the two channels.
@@ -2470,7 +2490,9 @@ paths:
           in: header
           schema:
             type: string
-          description: Resume from this event ID; replay unfiltered by root (known limitation)
+          description: >-
+            Resume from this event ID; replay is filtered by root and tags_include the same way
+            the live stream is
       responses:
         "200":
           description: SSE stream (text/event-stream)
