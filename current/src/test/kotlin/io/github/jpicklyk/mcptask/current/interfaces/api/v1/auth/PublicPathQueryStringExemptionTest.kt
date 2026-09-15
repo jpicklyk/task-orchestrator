@@ -5,12 +5,15 @@ import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
 import io.ktor.server.application.install
+import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
 import io.ktor.server.testing.testApplication
+import io.modelcontextprotocol.kotlin.sdk.types.McpJson
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -60,6 +63,10 @@ class PublicPathQueryStringExemptionTest {
      * prefix/suffix look-alikes, a protected path, and a well-known-prefixed path. */
     private fun Application.wireProbeApp(publicPaths: Set<String>) {
         val config = bearerConfig()
+        // Required so ApiBearerAuth's 401/403 JSON body can actually be serialized -- without it
+        // Ktor answers 406 Not Acceptable (no negotiated content type) instead of the auth plugin's
+        // intended 401/403, exactly as the existing full-wiring route tests install it.
+        install(ContentNegotiation) { json(McpJson) }
         install(ApiBearerAuth) {
             authConfig = config
             tokenEntries = config.tokens.mapValues { (_, p) -> BearerTokenStore.TokenEntry(p, expiresAt = null) }
