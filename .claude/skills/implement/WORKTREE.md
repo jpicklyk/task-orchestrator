@@ -45,10 +45,12 @@ Agent(
   prompt="""
   Working directory: <FEATURE_WORKTREE>
   Branch (already checked out): <FEATURE_BRANCH>
+  Dispatch contract: plans/<slug>.md — read it first; it wins on conflict with this prompt.
   Scope (modify ONLY these files): <explicit list>
 
-  After making changes, commit with a descriptive message. Do NOT run gradle —
-  the orchestrator owns build verification.
+  After making changes, commit exactly as the contract's "Commit discipline" slot states.
+  Run gradle only through the contract's "Compile self-check" slot — the orchestrator owns
+  full build verification.
   """,
   model="sonnet",
   subagent_type="general-purpose"
@@ -63,6 +65,27 @@ confusion.
 **Sequential dispatch:** when children share files, or when they have dependency edges,
 dispatch sequentially.
 
+### Committing in a shared worktree
+
+One worktree means **one git index**, shared by every agent in the wave. `git add` stages into
+that shared index, so a bare `git commit` sweeps up whatever another agent staged in flight —
+the mechanism behind three cross-contaminated commits and one dropped commit in the 2026-09 bug
+wave (proposal `568e7f7e` / #301). Three consequences:
+
+- **Commit by pathspec, then verify.** `git commit --only -- <owned paths>` commits the named
+  paths regardless of what else is staged, and `git show --stat HEAD` proves it did; a mismatch
+  is undone with `reset --soft HEAD~1` and re-committed the same way. The exact sequence agents
+  are given — staging, commit, verification, recovery — is the **Commit discipline** slot of
+  [`references/dispatch-contract-template.md`](references/dispatch-contract-template.md);
+  dispatch prompts point there rather than restating it, so every agent in a wave uses one form.
+- **`--only` scopes by PATH, not by hunk.** It protects you from other agents' *files*, not from
+  unreviewed changes inside your own. A `ktlintFormat` pass that reformatted a neighbouring file
+  is excluded because that file is unowned; an unrelated edit inside a file you own is not. Read
+  the diff of your own paths before committing whenever a formatter has run.
+- **There is no git equivalent of the gradle lock.** Gradle contention is serialized by a lock
+  helper the orchestrator provides; the git index has no such gate, so path scoping is the
+  entire safety mechanism, not a belt-and-braces addition to one.
+
 ### Capturing per-child commit metadata
 
 Before each dispatch, capture HEAD:
@@ -71,8 +94,9 @@ Before each dispatch, capture HEAD:
 git -C <FEATURE_WORKTREE> rev-parse HEAD
 ```
 
-After each dispatch returns (agent has committed), capture HEAD again. The diff between
-the two SHAs is exactly that child's work — used for scoping the review agent.
+After each dispatch returns (agent has committed), capture HEAD again. The two SHAs bound
+what that child committed — used for the ownership check below, **not** for scoping the
+review agent (see "Review per child").
 
 ```
 | Child UUID | Agent ID    | Pre-SHA  | Post-SHA | Test-Pre-SHA | Test-Post-SHA | Status        |
@@ -83,9 +107,9 @@ the two SHAs is exactly that child's work — used for scoping the review agent.
 
 The `Test-Pre-SHA`/`Test-Post-SHA` columns record the test author's pre/post commit range
 (Step 4b of `/implement`) for items carrying `needs-test-author`. They stay blank/marked "(no
-needs-test-author)" for items that don't carry the trait. Used for the disjointness check
-(impl-range never touches `src/test/**`, test-range never touches `src/main/**`) and to scope
-the review agent's second diff range alongside `<pre-sha>..<post-sha>`.
+needs-test-author)" for items that don't carry the trait. Their job is the disjointness check
+(impl-range never touches `src/test/**`, test-range never touches `src/main/**`) — a per-commit
+`git show --stat <sha>` question, answered from the map rather than from a review diff.
 
 ### Orchestrator-owned build verification
 
@@ -103,8 +127,21 @@ cache, or hit file locks.
 
 ### Review per child
 
-Review agent reads from the shared worktree, scoped to one child's commit range
-(`<pre-sha>..<post-sha>`). See Step 5 of `/implement` for the agent template.
+Review agents read from the shared worktree, scoped to the child's **owned files**:
+
+```bash
+git -C <FEATURE_WORKTREE> diff <base-sha>..HEAD -- <that child's owned files>
+```
+
+Not its commit range. In a shared worktree the commits between a child's pre- and post-SHA
+interleave other children's work, and a later fix-up, formatter or orchestrator fixture-repair
+commit falls outside the range entirely — so a SHA range both over-reports (other streams) and
+under-reports (later edits to the same files). The owned-file diff is exactly the surface that
+child is accountable for, at whatever state the branch has reached. The pre/post map is still
+captured, for the ownership check above. The rule agents and reviewers are handed is the
+**Review scoping** slot of
+[`references/dispatch-contract-template.md`](references/dispatch-contract-template.md); see
+Step 5 of `/implement` for the agent template.
 
 ### Finalization
 

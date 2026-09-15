@@ -162,15 +162,36 @@ fi
 
 All child-task agents will be dispatched into this **shared** worktree (Step 4). The feature branch is pushed and PR'd **once**, when the parent feature reaches terminal (Step 6).
 
-**Plan file as dispatch contract (3+ children).** Author the full shared design — trait and
-schema names, note keys, skill pointers, per-child file ownership, shared vocabulary — into
-`plans/<slug>.md` once, and have every Step 4 dispatch prompt reference it by path with an
-explicit conflict rule ("the plan wins on conflict with this prompt") instead of restating
-design details per prompt. Two runs (retros `202b5d42`, `6d562acb`) produced zero vocabulary
-deviations across up to five concurrent authors this way, with prompts roughly 60% smaller.
-The contract guarantees deviation-free execution, not plan correctness — pair it with Step 3's
-"plans are spec inputs" rule so the plan's own factual claims are verified by the implementer
-rather than merely followed.
+**Plan file as dispatch contract (3+ children).** For every Parallel-tier run, instantiate
+[`references/dispatch-contract-template.md`](references/dispatch-contract-template.md) into
+`plans/<slug>.md` before the first dispatch, fill every placeholder, and have every Step 4, 4b
+and 5 dispatch prompt reference it by path under the template's conflict rule instead of
+restating design or process details per prompt. **The template states the rules; this table only
+says what each slot is for** — do not paraphrase a slot's rule into a prompt.
+
+| Slot | Why it exists |
+|---|---|
+| Header | One place agents read branch, worktree path, base SHA, PR boundary, scratchpad and the gradle lock helper, so no prompt repeats them. |
+| Conflict rule | Makes the plan file authoritative over prompt text, and names the per-item note that outranks the plan for its own dimension. |
+| Items | Freezes each item's scope anchor so an agent cannot re-litigate scope mid-wave. |
+| Planning seat return template | Fixes the fields each planning seat returns, so streams compose without re-reading every plan. |
+| Commit discipline | The shared index makes a bare commit unsafe: pathspec staging and commit, post-commit verification, and the recovery step (proposal `568e7f7e` / #301). |
+| Compile self-check | One pinned invocation through the lock helper, the foreign-file early exit, and the owned-file retry bound (proposal `b82537e4` / #302). |
+| File ownership | Each agent's entire writable scope, with cross-stream overlaps declared up front rather than discovered mid-wave. |
+| Test author protocol | The blindness, oracle and scope rules that keep test authorship independent of the implementation. |
+| Docs | Routes doc edits to one serialized seat so parallel agents never write the same doc. |
+| Notes | Who fills which note key, and the maxLength each must respect. |
+| Review scoping | Reviews diff owned files, not SHA ranges; the commit map serves only the ownership check (#301). |
+
+Two runs (retros `202b5d42`, `6d562acb`) produced zero vocabulary deviations across up to five
+concurrent authors this way, with prompts roughly 60% smaller. The delivery surface is itself
+the point (proposal `728a3e57` / #307): in a same-day controlled comparison, the wave with no
+contract file recurred every previously-adopted failure class, while the waves that ran from one
+held the gains — a rule that lives only in skill prose does not reach the agents, because agents
+read the dispatch prompt and their item's schema guidance. The contract guarantees
+deviation-free execution, not plan correctness — pair it with Step 3's "plans are spec inputs"
+rule so the plan's own factual claims are verified by the implementer rather than merely
+followed.
 
 **Why one worktree per feature, not per child:** the feature is the natural PR boundary. Per-child PRs created cross-PR test contamination and PR-body staleness during the #117 follow-up (see retro `a7f6024f`). Shared worktree means one commit history, one CI cycle, one PR — and the parent feature's review-checklist gives a coherent point at which to finalize.
 
@@ -262,10 +283,10 @@ Include both commands in every implementation-agent and review-agent prompt.
 - **Delegated tier** (agent owns gradle): the implementation agent runs the
   `ktlintCheck` → `ktlintFormat` → re-verify cycle itself before committing.
   Validated 2026-07-13 (PRs #213/#214/#215): zero orchestrator fix-up commits.
-- **Parallel tier** (orchestrator owns gradle): agents include `:current:ktlintFormat`
-  in their compile self-check (see the dispatch template below); the orchestrator
-  additionally runs `ktlintFormat` before `ktlintCheck` after each commit batch —
-  historically 3-5 fix-up commits per multi-phase run when skipped.
+- **Parallel tier** (orchestrator owns gradle): agents run `:current:ktlintFormat` only as
+  part of the single self-check pinned in the dispatch contract's **Compile self-check** slot;
+  the orchestrator additionally runs `ktlintFormat` before `ktlintCheck` after each commit
+  batch — historically 3-5 fix-up commits per multi-phase run when skipped.
 
 **Capturing gradle's real exit code (use this pattern, not `2>&1 | tail -N`).**
 Piping gradle into `tail` discards gradle's exit code — `tail` always exits 0
@@ -292,6 +313,11 @@ failure was invisible in the captured log until the ordering was fixed).
 Read the captured exit code AND the tail of the log; never trust the tail
 alone. This applies to every orchestrator-owned gradle invocation throughout
 this step.
+
+**Agent-side gradle is not this pattern.** In a Parallel-tier wave, agents get exactly one
+lock-serialized invocation, pinned verbatim — argument form included — in the dispatch
+contract's **Compile self-check** slot, together with the rule for what to do when it fails.
+Do not hand an agent an ad-hoc gradle command line; point it at that slot.
 
 **Use `--rerun-tasks` after dependency upgrades or large refactors.** Gradle's
 incremental compile cache retains class files from prior good builds. After a
@@ -340,31 +366,37 @@ Agent(
   prompt="""
   Working directory: <feature-worktree-path>
   Branch (already checked out): feat/<feature-slug>
-  Scope (modify ONLY these files): <explicit list>
+  Dispatch contract: plans/<slug>.md — read it first; it wins on conflict with this prompt.
+  Scope (modify ONLY these files): <explicit list> — the same list as your row in the
+  contract's File ownership slot.
   Do NOT create or modify any file under src/test/** — test authoring is a separate,
   independent dispatch (Step 4b) on items carrying needs-test-author. If your change
   surfaces a needed test update, report it in your return; never edit the test yourself.
 
-  Format + compile self-check (REQUIRED before returning):
-    ./gradlew -p <feature-worktree-path> :current:ktlintFormat :current:compileKotlin :current:compileTestKotlin > /tmp/agent-compile.log 2>&1; EXIT=$?
-  If EXIT != 0, fix the reported error — a compile error OR a lint violation
-  ktlintFormat could not auto-correct (e.g. line >140 chars, colons in backticked
-  test names) — before committing and returning.
-  Do NOT run :current:test or :current:ktlintCheck — orchestrator owns full build
-  verification. ktlintFormat is formatting-only and idempotent; it prevents the
-  recurring lint fix-up commits (proposal ee6f5d32). The compile self-check is
-  fast (~3s) and catches type-mismatch /
-  signature errors that gradle's incremental cache may otherwise mask in the
-  orchestrator's later test run (retro `568a8584`: H3's `dbNow()` shipped with a
-  Result<T> vs Instant return type mismatch that was hidden for ~6 hours).
-
-  After self-check passes, commit your changes with a descriptive message.
+  Before returning: run the compile self-check exactly as the contract's "Compile self-check"
+  slot pins it, and handle its outcome by that slot's rules. Then commit exactly as the
+  "Commit discipline" slot states, including the post-commit verification.
+  Do NOT run :current:test or :current:ktlintCheck — the orchestrator owns full build
+  verification.
   """,
   model="sonnet",
   subagent_type="general-purpose"
   // NOTE: no isolation parameter — agents share the feature worktree
 )
 ```
+
+Why the prompt points at slots instead of carrying the commands: the self-check is fast (~3s)
+and catches type-mismatch / signature errors that gradle's incremental cache may otherwise mask
+in the orchestrator's later test run (retro `568a8584`: H3's `dbNow()` shipped with a
+`Result<T>` vs `Instant` return type mismatch hidden for ~6 hours), and its `ktlintFormat` step
+is formatting-only and idempotent, preventing the recurring lint fix-up commits (proposal
+`ee6f5d32`). But the invocation's exact argument form, the foreign-file early exit and the
+retry bound only work if every agent gets them identically — six agents in one wave each burned
+three lock-serialized runs against another agent's mid-refactor file, and a re-typed nested
+invocation flattened a `[string[]]` argument (#302). A prompt that restates the command drifts
+from the contract; a prompt that points at the slot cannot. The same applies to the commit step:
+never tell an agent to "commit your changes with a descriptive message" in a shared worktree —
+the Commit discipline slot is the only safe form (#301).
 
 **File-edit overlap discipline:** Parallel agents in a shared worktree must operate on
 non-overlapping files. The orchestrator scopes each agent's prompt to a specific file list
@@ -426,7 +458,9 @@ opus), wasting tokens on sonnet-eligible implementation work.
 
 For Parallel-tier features, agents return having committed to `feat/<feature-slug>`
 inside the shared feature worktree. Record each agent's commit SHA range alongside
-the child's MCP item ID — needed for scoping the review agent later:
+the child's MCP item ID — this map feeds the ownership two-range check below and the
+dispatch contract's **Review scoping** slot, where reviews are diffed by owned file rather
+than by SHA range:
 
 ```
 | Child UUID | Agent ID | Pre-SHA | Post-SHA | Test-Pre-SHA | Test-Post-SHA | Changed Files |
@@ -435,8 +469,9 @@ the child's MCP item ID — needed for scoping the review agent later:
 ```
 
 Capture pre-commit SHA before dispatch (`git -C <feature-worktree> rev-parse HEAD`)
-and post-commit SHA after the agent returns. The diff between them is exactly that
-child's work:
+and post-commit SHA after the agent returns. In a shared worktree this range can
+interleave other streams' commits and misses later fix-ups, so use it to confirm ownership,
+not to bound a review:
 
 ```bash
 git -C <feature-worktree> diff <pre-sha>..<post-sha> --name-only
