@@ -1017,10 +1017,14 @@ class SchemaGatedLifecycleTest {
             val child = createItem("Only child", parentId = parent.id)
 
             // Advance child through to TERMINAL
-            transitionTool.execute(buildTransitionParams(transitionObj(child.id, "start")), context)
+            val rStart = transitionTool.execute(buildTransitionParams(transitionObj(child.id, "start")), context)
             assertEquals(Role.WORK, getItem(child.id).role)
-            // Parent should have start-cascaded to WORK
-            assertEquals(Role.WORK, getItem(parent.id).role)
+            // Parent should NOT have start-cascaded to WORK — its required "specification" note
+            // is unfilled, so the start cascade is gate-blocked (item 473e4f49, Path C decision).
+            assertEquals(Role.QUEUE, getItem(parent.id).role)
+            val startCascade = extractResults(rStart)[0].jsonObject["cascadeEvents"]!!.jsonArray[0].jsonObject
+            assertFalse(startCascade["applied"]!!.jsonPrimitive.boolean, "start cascade must be suppressed")
+            assertTrue(startCascade["gateBlocked"]!!.jsonPrimitive.boolean, "start cascade must report gateBlocked")
 
             val rComplete =
                 transitionTool.execute(
@@ -1030,8 +1034,9 @@ class SchemaGatedLifecycleTest {
             assertTransitionSuccess(rComplete, "terminal")
             assertEquals(Role.TERMINAL, getItem(child.id).role)
 
-            // Parent should NOT have cascaded to TERMINAL (gate blocked)
-            assertEquals(Role.WORK, getItem(parent.id).role)
+            // Parent should still be in QUEUE — it never left QUEUE (the start cascade above was
+            // gate-blocked), and the terminal cascade is independently gate-blocked too.
+            assertEquals(Role.QUEUE, getItem(parent.id).role)
 
             // Verify cascade event reports gate block
             val results = extractResults(rComplete)
