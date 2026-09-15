@@ -543,6 +543,13 @@ fun Route.itemWriteRoutes(
                     if (parentResult is Result.Error) {
                         return errorCaptured(HttpStatusCode.BadRequest, "not_found", "Parent item $newParentId not found")
                     }
+                    // A re-parent target is the same authorization object as a create-time parent,
+                    // so it gets the same check the POST /items path applies — otherwise PATCH is a
+                    // way to move items under a parent the caller is not scoped to. Ordered after
+                    // the existence check so a bogus UUID still reports not_found, not 403.
+                    if (!enforceScopeForItem(call, newParentId, workItemRepo)) {
+                        return errorCaptured(HttpStatusCode.Forbidden, "scope_forbidden", "Access denied for parent $newParentId")
+                    }
                     val parentData = (parentResult as Result.Success).data
                     newDepth = parentData.depth + 1
                     // Inherit the new parent's root (or the parent's own id, if the parent
