@@ -40,7 +40,7 @@ FTS5 search (two-tokenizer design, RRF fusion, scope filtering, backlinks, score
 ### manage_items
 
 **Purpose.** Write operations for WorkItems: batch-create, partial-update, or batch-delete. Depth
-is computed automatically from the parent; nesting depth is unbounded (cycle protection is enforced at the database level).
+is computed automatically from the parent; nesting depth is unbounded at creation time (cycle protection is enforced at the database level). Read-side traversals (subtree search, ancestor-chain resolution) are bounded to 1000 levels — a cyclic or over-deep chain fails the read with a data error instead of hanging.
 
 **Operations.** `create`, `update`, `delete`
 
@@ -461,7 +461,7 @@ under it at `existing.depth + 1`. Providing both `root.id` and `parentId` is rej
 | `actor` | object | No | Actor claim `{ id, kind: orchestrator\|subagent\|user\|external, parent?, proof? }`. Used for idempotency keying AND propagated as the actor attribution on every persisted note (explicit, `noteAnchors`-sourced, and `createNotes=true` blanks alike). |
 | `requestId` | string (UUID) | No | Client-generated UUID for idempotency. See [Idempotency](#idempotency). Requires `actor` to function. |
 
-Nesting depth is unbounded. The root item can be at any depth; each child's depth is its resolved parent's depth + 1 — root.depth + 1 for direct children (default `parentRef: "root"`), deeper when nested under another child via `parentRef`. In attach mode, children derive depth from the existing root's depth. `parentRef` cycles are rejected at validation; cycle protection is also enforced at the database level.
+Nesting depth is unbounded. The root item can be at any depth; each child's depth is its resolved parent's depth + 1 — root.depth + 1 for direct children (default `parentRef: "root"`), deeper when nested under another child via `parentRef`. In attach mode, children derive depth from the existing root's depth. `parentRef` cycles are rejected at validation; cycle protection is also enforced at the database level. Read-side traversals (subtree search, ancestor-chain resolution) are additionally bounded to 1000 levels; a cyclic or over-deep chain errors the read rather than hanging.
 
 #### Materialize-from-document (`docRef` + `noteAnchors`)
 
@@ -2241,7 +2241,7 @@ Seven mutating tools support `requestId: UUID` for idempotency: `manage_items`, 
 
 **`claim_item` requires `requestId` (mandatory).** `claim_item` is a fleet-mode tool by definition — single-orchestrator deployments don't claim items. Fleet deployments using `claim_item` are by definition in a multi-agent context where network retries are a real concern, so `claim_item` enforces idempotency as a contract. Calls missing `requestId` are rejected at validation. For `claim_item`, the cache key uses the trusted agent identity (post-`DegradedModePolicy` resolution), matching the actor key used by the claim itself.
 
-**The other 6 mutating tools keep `requestId` optional.** `manage_items`, `manage_notes`, `manage_dependencies`, `advance_item`, `create_work_tree`, and `complete_tree` serve both orchestrator-mode (single dispatcher, no idempotency needed) and fleet-mode (idempotency desired) callers. Omitting `requestId` skips the cache entirely — execution is always fresh.
+**The other 6 mutating tools keep `requestId` optional.** `manage_items`, `manage_notes`, `manage_dependencies`, `advance_item`, `create_work_tree`, and `complete_tree` serve both orchestrator-mode (single dispatcher, no idempotency needed) and fleet-mode (idempotency desired) callers. Omitting `requestId` skips the cache entirely — execution is always fresh. When present, it must be a valid UUID — a malformed value is rejected at validation (see Constraints below), not silently ignored.
 
 **How it works.** When `requestId` and `actor.id` are both present, the server checks an in-memory LRU cache keyed on `(actor.id, requestId)`. If a cached result exists, the original response is returned immediately without re-executing the operation. The cache window is approximately 10 minutes.
 
@@ -2249,7 +2249,7 @@ Seven mutating tools support `requestId: UUID` for idempotency: `manage_items`, 
 - Cache is single-instance and in-memory. It is not persisted across server restarts and is not shared across multiple server processes.
 - For `advance_item`, the `actor.id` of the **first** transition in the batch is used as the cache key actor.
 - For `manage_items`, `manage_notes`, `manage_dependencies`, `create_work_tree`, and `complete_tree`, the top-level `actor.id` is used. (Implementation note: these tools extract actor from the request-level field, not per-item fields.)
-- A non-parseable `requestId` string is silently ignored on the 6 optional tools (no cache lookup or store). For `claim_item`, a non-UUID `requestId` is rejected at validation.
+- A non-UUID `requestId` string is rejected at validation on **all seven** mutating tools — `claim_item` was already strict; the other six (`manage_items`, `manage_notes`, `manage_dependencies`, `advance_item`, `create_work_tree`, `complete_tree`) now match it. There is no silent-ignore path.
 
 **Usage.** Generate a fresh UUID per logical operation:
 
