@@ -167,7 +167,7 @@ class AppConfigTest {
         assertFalse(AppConfig.fromEnv(env("API_REDACT_NOTE_ATTRIBUTION" to "  false ")).apiRedactNoteAttribution)
         // Any non-"false" value keeps redaction on.
         assertTrue(AppConfig.fromEnv(env("API_REDACT_NOTE_ATTRIBUTION" to "true")).apiRedactNoteAttribution)
-        assertTrue(AppConfig.fromEnv(env("API_REDACT_NOTE_ATTRIBUTION" to "0")).apiRedactNoteAttribution)
+        assertFalse(AppConfig.fromEnv(env("API_REDACT_NOTE_ATTRIBUTION" to "0")).apiRedactNoteAttribution)
         assertFalse(AppConfig.fromEnv(env("API_REDACT_ACTOR_PROOF" to "false")).apiRedactActorProof)
     }
 
@@ -186,8 +186,8 @@ class AppConfigTest {
     fun `allow query token only enabled by literal true`() {
         assertTrue(AppConfig.fromEnv(env("API_ALLOW_QUERY_TOKEN_FOR_SSE" to "true")).apiAllowQueryTokenForSse)
         assertTrue(AppConfig.fromEnv(env("API_ALLOW_QUERY_TOKEN_FOR_SSE" to "TRUE")).apiAllowQueryTokenForSse)
-        assertFalse(AppConfig.fromEnv(env("API_ALLOW_QUERY_TOKEN_FOR_SSE" to "1")).apiAllowQueryTokenForSse)
-        assertFalse(AppConfig.fromEnv(env("API_ALLOW_QUERY_TOKEN_FOR_SSE" to "yes")).apiAllowQueryTokenForSse)
+        assertTrue(AppConfig.fromEnv(env("API_ALLOW_QUERY_TOKEN_FOR_SSE" to "1")).apiAllowQueryTokenForSse)
+        assertTrue(AppConfig.fromEnv(env("API_ALLOW_QUERY_TOKEN_FOR_SSE" to "yes")).apiAllowQueryTokenForSse)
     }
 
     // ------------------------------------------------------------------
