@@ -40,7 +40,7 @@ FTS5 search (two-tokenizer design, RRF fusion, scope filtering, backlinks, score
 ### manage_items
 
 **Purpose.** Write operations for WorkItems: batch-create, partial-update, or batch-delete. Depth
-is computed automatically from the parent; nesting depth is unbounded at creation time (cycle protection is enforced at the database level). Read-side traversals (subtree search, ancestor-chain resolution) are bounded to 1000 levels — a cyclic or over-deep chain fails the read with a data error instead of hanging.
+is computed automatically from the parent; nesting depth is unbounded at creation time (cycle protection is enforced at the database level). `delete` walks descendants via a traversal bounded to 1000 levels — a cycle or a subtree at/beyond the bound fails the delete with a data error instead of hanging or silently truncating.
 
 **Operations.** `create`, `update`, `delete`
 
@@ -461,7 +461,7 @@ under it at `existing.depth + 1`. Providing both `root.id` and `parentId` is rej
 | `actor` | object | No | Actor claim `{ id, kind: orchestrator\|subagent\|user\|external, parent?, proof? }`. Used for idempotency keying AND propagated as the actor attribution on every persisted note (explicit, `noteAnchors`-sourced, and `createNotes=true` blanks alike). |
 | `requestId` | string (UUID) | No | Client-generated UUID for idempotency. See [Idempotency](#idempotency). Requires `actor` to function. |
 
-Nesting depth is unbounded. The root item can be at any depth; each child's depth is its resolved parent's depth + 1 — root.depth + 1 for direct children (default `parentRef: "root"`), deeper when nested under another child via `parentRef`. In attach mode, children derive depth from the existing root's depth. `parentRef` cycles are rejected at validation; cycle protection is also enforced at the database level. Read-side traversals (subtree search, ancestor-chain resolution) are additionally bounded to 1000 levels; a cyclic or over-deep chain errors the read rather than hanging.
+Nesting depth is unbounded. The root item can be at any depth; each child's depth is its resolved parent's depth + 1 — root.depth + 1 for direct children (default `parentRef: "root"`), deeper when nested under another child via `parentRef`. In attach mode, children derive depth from the existing root's depth. `parentRef` cycles are rejected at validation; cycle protection is also enforced at the database level. Descendant traversal (e.g. cascade delete, re-parent depth recompute) is additionally bounded to 1000 levels and fails with a data error on a cycle or a subtree at/beyond the bound, instead of hanging or silently truncating; subtree search instead bounds-and-continues, excluding anything past the cap.
 
 #### Materialize-from-document (`docRef` + `noteAnchors`)
 

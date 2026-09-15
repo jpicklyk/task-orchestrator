@@ -2497,9 +2497,12 @@ paths:
             the live stream is. When the id is no longer replayable — older than the retained
             ring buffer, above the current high-water mark (e.g. after a server restart, since
             the id counter restarts at 0), or unparsable — the server emits a sync.lost event
-            with a reason (buffer_evicted or unknown_event_id) as the first frame, before any
-            replayed event. A blank or absent header is not a resume attempt and never triggers
-            sync.lost.
+            with a reason (buffer_evicted or unknown_event_id) as the first frame, then
+            immediately replays the FULL retained buffer after it (replay resumes from the
+            sentinel's own id, not the client's cursor — no second reconnect needed). A blank or
+            absent header is not a resume attempt and never triggers sync.lost.
+            API_SSE_BUFFER_SIZE=0 legally retains nothing, so every resume attempt that carries a
+            Last-Event-ID yields buffer_evicted with no events to replay.
       responses:
         "200":
           description: SSE stream (text/event-stream)
