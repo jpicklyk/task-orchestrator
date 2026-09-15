@@ -60,43 +60,62 @@ class DeleteItemHandler {
                 }
 
             if (recursive) {
-                // Find all descendants, delete leaves-first, then the root
-                val descendantsResult = repo.findDescendants(id)
-                if (descendantsResult is Result.Error) {
+                // Recursive delete of this root id and all its descendants must be all-or-nothing:
+                // a failure anywhere in the subtree must leave every row of that subtree untouched.
+                // repo.delete() returns Result.Error rather than throwing, so any failure inside the
+                // transaction block is surfaced by throwing DeleteFailureException, which aborts the
+                // transaction and rolls back every write made so far for this root id. The exception
+                // is caught immediately below (outside the block) to produce the usual per-id failure
+                // entry — the transaction scope is this one root id, not the whole batch, so an
+                // earlier or later id in the same call is unaffected.
+                var localDescendantsDeleted = 0
+                var rootDeleted = false
+                try {
+                    repo.inTransaction {
+                        // Find all descendants, delete leaves-first, then the root
+                        val descendantsResult = repo.findDescendants(id)
+                        if (descendantsResult is Result.Error) {
+                            throw DeleteFailureException("Failed to find descendants: ${descendantsResult.error.message}")
+                        }
+                        val descendants = (descendantsResult as Result.Success).data
+                        if (descendants.isNotEmpty()) {
+                            // Sort leaves-first (deepest depth first) so FK constraints are satisfied.
+                            // Delete individually to ensure each row is removed before referencing
+                            // parents are removed (batch DELETE can trigger FK violations mid-statement).
+                            val sortedDescendants = descendants.sortedByDescending { it.depth }
+                            for (descendant in sortedDescendants) {
+                                when (val delResult = repo.delete(descendant.id)) {
+                                    is Result.Success -> if (delResult.data) localDescendantsDeleted++
+                                    is Result.Error ->
+                                        throw DeleteFailureException(
+                                            "Failed to delete descendant ${descendant.id}: ${delResult.error.message}"
+                                        )
+                                }
+                            }
+                        }
+
+                        when (val result = repo.delete(id)) {
+                            is Result.Success ->
+                                if (result.data) {
+                                    rootDeleted = true
+                                } else {
+                                    throw DeleteFailureException("Item '$idStr' not found")
+                                }
+                            is Result.Error -> throw DeleteFailureException(result.error.message)
+                        }
+                    }
+                } catch (e: DeleteFailureException) {
                     failures.add(
                         buildJsonObject {
                             put("id", JsonPrimitive(idStr))
-                            put("error", JsonPrimitive("Failed to find descendants: ${descendantsResult.error.message}"))
+                            put("error", JsonPrimitive(e.message ?: "Failed to delete item '$idStr'"))
                         }
                     )
                     continue
                 }
-                val descendants = (descendantsResult as Result.Success).data
-                if (descendants.isNotEmpty()) {
-                    // Sort leaves-first (deepest depth first) so FK constraints are satisfied.
-                    // Delete individually to ensure each row is removed before referencing parents
-                    // are removed (batch DELETE can trigger FK violations mid-statement).
-                    val sortedDescendants = descendants.sortedByDescending { it.depth }
-                    var descendantDeleteFailed = false
-                    for (descendant in sortedDescendants) {
-                        when (val delResult = repo.delete(descendant.id)) {
-                            is Result.Success -> if (delResult.data) descendantsDeleted++
-                            is Result.Error -> {
-                                failures.add(
-                                    buildJsonObject {
-                                        put("id", JsonPrimitive(idStr))
-                                        put(
-                                            "error",
-                                            JsonPrimitive("Failed to delete descendant ${descendant.id}: ${delResult.error.message}")
-                                        )
-                                    }
-                                )
-                                descendantDeleteFailed = true
-                                break
-                            }
-                        }
-                    }
-                    if (descendantDeleteFailed) continue
+                descendantsDeleted += localDescendantsDeleted
+                if (rootDeleted) {
+                    deletedIds.add(idStr)
                 }
             } else {
                 // Non-recursive: guard against FK constraint violation by checking for children first
@@ -125,27 +144,27 @@ class DeleteItemHandler {
                     )
                     continue
                 }
-            }
 
-            when (val result = repo.delete(id)) {
-                is Result.Success ->
-                    if (result.data) {
-                        deletedIds.add(idStr)
-                    } else {
+                when (val result = repo.delete(id)) {
+                    is Result.Success ->
+                        if (result.data) {
+                            deletedIds.add(idStr)
+                        } else {
+                            failures.add(
+                                buildJsonObject {
+                                    put("id", JsonPrimitive(idStr))
+                                    put("error", JsonPrimitive("Item '$idStr' not found"))
+                                }
+                            )
+                        }
+                    is Result.Error -> {
                         failures.add(
                             buildJsonObject {
                                 put("id", JsonPrimitive(idStr))
-                                put("error", JsonPrimitive("Item '$idStr' not found"))
+                                put("error", JsonPrimitive(result.error.message))
                             }
                         )
                     }
-                is Result.Error -> {
-                    failures.add(
-                        buildJsonObject {
-                            put("id", JsonPrimitive(idStr))
-                            put("error", JsonPrimitive(result.error.message))
-                        }
-                    )
                 }
             }
         }
@@ -165,4 +184,15 @@ class DeleteItemHandler {
 
         return ResponseUtil.createSuccessResponse(data)
     }
+
+    /**
+     * Internal marker exception used to abort the shared [io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository.inTransaction]
+     * block for a single root id's recursive delete when any descendant lookup or delete (or the
+     * root delete itself) fails or reports "not found". Thrown inside the block so the transaction
+     * rolls back every row deleted so far for that root id; caught immediately outside the block
+     * and converted into that id's per-id failure entry. Never surfaced past [execute].
+     */
+    private class DeleteFailureException(
+        message: String?
+    ) : Exception(message)
 }
