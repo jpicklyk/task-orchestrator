@@ -88,27 +88,31 @@ data class AppConfig(
                 mcpHttpPort = env("MCP_HTTP_PORT")?.toIntOrNull() ?: 3001,
                 // Database — preserves DatabaseConfig defaults exactly.
                 databasePath = env("DATABASE_PATH") ?: "data/current-tasks.db",
-                useFlyway = env("USE_FLYWAY")?.toBoolean() ?: true,
+                useFlyway = EnvBoolean.parse("USE_FLYWAY", env("USE_FLYWAY"), true),
                 logLevel = env("LOG_LEVEL") ?: "INFO",
                 agentConfigDir = env("AGENT_CONFIG_DIR"),
                 databaseMaxConnections = env("DATABASE_MAX_CONNECTIONS")?.toIntOrNull() ?: 10,
-                databaseShowSql = env("DATABASE_SHOW_SQL")?.toBoolean() ?: false,
+                databaseShowSql = EnvBoolean.parse("DATABASE_SHOW_SQL", env("DATABASE_SHOW_SQL"), false),
                 databaseBusyTimeoutMs = resolveBusyTimeoutMs(env("DATABASE_BUSY_TIMEOUT_MS")),
                 databaseBusyTimeoutRaw = env("DATABASE_BUSY_TIMEOUT_MS"),
                 // Flyway.
-                flywayRepair = env("FLYWAY_REPAIR")?.toBoolean() ?: false,
+                flywayRepair = EnvBoolean.parse("FLYWAY_REPAIR", env("FLYWAY_REPAIR"), false),
                 // REST API SSE / events.
-                apiAllowQueryTokenForSse = env("API_ALLOW_QUERY_TOKEN_FOR_SSE")?.lowercase() == "true",
+                apiAllowQueryTokenForSse =
+                    EnvBoolean.parse("API_ALLOW_QUERY_TOKEN_FOR_SSE", env("API_ALLOW_QUERY_TOKEN_FOR_SSE"), false),
                 apiSseAuthCheckIntervalSeconds = env("API_SSE_AUTH_CHECK_INTERVAL_SECONDS")?.toIntOrNull() ?: 30,
                 apiSseBufferSize = env("API_SSE_BUFFER_SIZE")?.toIntOrNull() ?: 1000,
                 // REST API bearer tokens.
                 apiTokensPath =
                     env("API_TOKENS_PATH")?.trim()?.takeIf { it.isNotBlank() } ?: DEFAULT_API_TOKENS_PATH,
-                // REST API redaction — default true (redact); only the literal "false" disables.
-                apiRedactNoteAttribution = parseRedactFlag(env("API_REDACT_NOTE_ATTRIBUTION")),
-                apiRedactActorProof = parseRedactFlag(env("API_REDACT_ACTOR_PROOF")),
-                // REST API advance warning — default true; only the literal "false" disables.
-                apiWarnOnClaimedAdvance = env("API_WARN_ON_CLAIMED_ADVANCE")?.lowercase() != "false",
+                // REST API redaction — default true (redact); unified EnvBoolean vocabulary
+                // (true/1/yes vs false/0/no) now disables via "0"/"no" too, not only "false".
+                apiRedactNoteAttribution =
+                    EnvBoolean.parse("API_REDACT_NOTE_ATTRIBUTION", env("API_REDACT_NOTE_ATTRIBUTION"), true),
+                apiRedactActorProof = EnvBoolean.parse("API_REDACT_ACTOR_PROOF", env("API_REDACT_ACTOR_PROOF"), true),
+                // REST API advance warning — default true; unified vocabulary as above.
+                apiWarnOnClaimedAdvance =
+                    EnvBoolean.parse("API_WARN_ON_CLAIMED_ADVANCE", env("API_WARN_ON_CLAIMED_ADVANCE"), true),
                 // CORS — comma-separated lists, blank entries dropped; defaults mirror CorsConfig.
                 corsAllowedOrigins = parseCsv(env("CORS_ALLOWED_ORIGINS")) ?: emptyList(),
                 corsAllowedMethods = parseCsv(env("CORS_ALLOWED_METHODS")) ?: DEFAULT_CORS_METHODS,
@@ -127,12 +131,6 @@ data class AppConfig(
         fun resolveConfigBaseDir(agentConfigDir: String?): String = agentConfigDir ?: System.getProperty("user.dir")
 
         // ---- Pure parsing helpers (preserve original call-site semantics exactly) ----
-
-        /**
-         * Redaction flags ([AttributionRedactor], [TransitionRoutes]) default to `true` and are only
-         * turned off by the literal string `"false"` (case-insensitive, trimmed).
-         */
-        internal fun parseRedactFlag(raw: String?): Boolean = raw?.trim()?.lowercase()?.let { it != "false" } ?: true
 
         /**
          * Comma-separated env list → trimmed, blank-filtered list, or `null` when unset so callers
