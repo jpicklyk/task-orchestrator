@@ -566,10 +566,12 @@ When both `notes` and `createNotes: true` are provided, explicit `notes` entries
 
 **Purpose.** Batch-complete (or cancel) all descendants of a root item, or an explicit list of
 items, in topological dependency order. Each item is advanced through the SAME `AdvanceService`
-pipeline as `advance_item` — resolve → validate dependencies → required-note gate →
-resource-lease gate → apply → cascade detection → unblock detection — run per item, one item at a
-time in topological order, so claim ownership, dependency validation, and the resource-lease gate
-all apply here exactly as they do on a single `advance_item` call. If required notes are missing
+pipeline as `advance_item` — ownership check → resolve → validate dependencies → required-note
+gate → apply → cascade detection → unblock detection — run per item, one item at a time in
+topological order, so claim ownership and dependency validation apply here exactly as they do on a
+single `advance_item` call. (The resource-lease gate never fires here: `complete`/`cancel` always
+target TERMINAL, and leases are acquired only on work entry; any leases the item holds are released
+on the way out.) If required notes are missing
 (and the trigger doesn't bypass the gate — see below), that item fails and its downstream
 dependents within the set are skipped.
 
@@ -594,9 +596,9 @@ Exactly one of `rootId` or `itemIds` must be provided.
 items whose schema resolves (via `type`, tag match, or default fallback) must have all required
 notes filled before completing; items that fail gating are recorded as `gateErrors` and their
 dependents within the set are skipped. When `trigger="cancel"`, the **note gate** is bypassed — all
-items in the set are cancelled regardless of note state — but claim ownership and the
-resource-lease gate are **not** bypassed by `cancel`; an item held by another agent's claim, or
-blocked on a contended lease, is still rejected the same way it would be under `complete`.
+items in the set are cancelled regardless of note state — but claim ownership is **not** bypassed
+by `cancel`; an item held by another agent's claim is still rejected the same way it would be under
+`complete`.
 
 **Example.**
 
@@ -616,18 +618,16 @@ blocked on a contended lease, is still rejected the same way it would be under `
     },
     { "itemId": "uuid", "title": "Implement handler", "applied": false, "gateErrors": ["missing: done-criteria"] },
     { "itemId": "uuid", "title": "Write tests", "applied": false, "skipped": true, "skippedReason": "dependency gate failed" },
-    { "itemId": "uuid", "title": "Deploy", "applied": false, "skipped": true, "skippedReason": "rejected_by_policy", "errorKind": "permanent" },
     {
-      "itemId": "uuid", "title": "Migrate staging", "applied": false, "skipped": true,
-      "skippedReason": "resource_unavailable", "errorKind": "transient", "errorCode": "resource_unavailable",
-      "retryAfterMs": 30000, "contendedResources": ["staging-db"]
+      "itemId": "uuid", "title": "Deploy", "applied": false, "skipped": true,
+      "skippedReason": "Item is claimed by another agent", "errorCode": "not_claim_holder", "errorKind": "permanent"
     },
     {
       "itemId": "uuid", "title": "Ship release notes", "applied": false,
-      "error": "Blocked by dependency", "blockers": [{ "itemId": "uuid", "title": "External signoff", "type": "blocks" }]
+      "error": "Blocked by dependency", "blockers": [{ "fromItemId": "uuid", "currentRole": "queue", "requiredRole": "terminal" }]
     }
   ],
-  "summary": { "total": 6, "completed": 1, "skipped": 3, "gateFailures": 2 }
+  "summary": { "total": 5, "completed": 1, "skipped": 2, "gateFailures": 2 }
 }
 ```
 
@@ -642,10 +642,10 @@ implied by an earlier cascade in this same batch (e.g. completing a child cascad
 `TERMINAL` before the root's own entry in `itemIds`/`rootId` was processed) is reported as already
 terminal rather than re-applied — it is not double-counted and produces no duplicate audit row.
 
-**Rejected-entry fields (`applied: false`, ownership/policy/lease rejection):** a rejection from
-claim ownership, the resource-lease gate, or the underlying `AdvanceService` apply step carries the
-SAME error shape `advance_item` uses — `skipped: true`, `skippedReason` set to the `advance_item`
-error code (e.g. `"not_claim_holder"`, `"rejected_by_policy"`, `"resource_unavailable"`), plus
+**Rejected-entry fields (`applied: false`, ownership/policy rejection):** a rejection from claim
+ownership, policy, or the underlying `AdvanceService` apply step carries the SAME error shape
+`advance_item` uses — `skipped: true`, `skippedReason` set to the human-readable message, `errorCode`
+set to the `advance_item` error code (e.g. `"not_claim_holder"`, `"rejected_by_policy"`), plus
 whichever of `errorKind`, `errorCode`, `retryAfterMs`, `contendedItemId`, and `contendedResources`
 apply to that failure — see [Error Envelope](#error-envelope) for the full field set. These
 rejections skip in-set dependents exactly like a gate failure does.
@@ -663,9 +663,9 @@ dependents.
 **`skippedReason` values (entries that DO carry a `skipped` key):** Items can be skipped for:
 - `"dependency gate failed"` — a blocker item in the same target set failed its gate check or failed to apply, and this item is a downstream dependent.
 - `"Cannot transition"` (or a specific error message) — a **resolution failure**: the item itself could not be resolved for transition (e.g., it is already terminal or the role is incompatible with the trigger). Unlike every other non-gate rejection, a resolution failure does NOT skip this item's in-set dependents.
-- An `advance_item` error code (see "Rejected-entry fields" above) — claim ownership, policy, or resource-lease rejections; these DO skip in-set dependents.
+- The human-readable message of an `advance_item` rejection (its code is in `errorCode` — see "Rejected-entry fields" above) — claim ownership or policy rejections; these DO skip in-set dependents.
 
-**`summary` fields:** `total` = completed + skipped + gateFailures. `completed` = items successfully transitioned. `skipped` = items skipped due to upstream gate/apply failures, ownership/policy/lease rejections, or items already terminal. `gateFailures` = items that failed the required-note gate OR a dependency-validation check (a still-non-terminal blocker outside the target set); their downstream dependents are counted in `skipped`.
+**`summary` fields:** `total` = completed + skipped + gateFailures. `completed` = items successfully transitioned. `skipped` = items skipped due to upstream gate/apply failures, ownership/policy rejections, or items already terminal. `gateFailures` = items that failed the required-note gate OR a dependency-validation check (a still-non-terminal blocker outside the target set); their downstream dependents are counted in `skipped`.
 
 **Audit attribution:** the top-level `actor` (see Key Parameters) is parsed once per call and
 threaded into every item's `AdvanceService.advance(...)` call, so each resulting role-transition

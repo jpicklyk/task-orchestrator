@@ -60,8 +60,8 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
 
 **Behavior:**
 - Items are processed in topological order (respecting dependency edges within the target set).
-- Each item runs the same pipeline as `advance_item` (ownership, dependency validation, note and
-  resource-lease gates, cascade/unblock detection, per-root status labels); `actor` is recorded
+- Each item runs the same pipeline as `advance_item` (ownership, dependency validation, note gate,
+  cascade/unblock detection, per-root status labels); `actor` is recorded
   on every audit row.
 - Gate check: required notes must be filled before completing (trigger "cancel" bypasses the note
   gate, not ownership). A gate, ownership (`errorCode` "not_claim_holder"), dependency or
