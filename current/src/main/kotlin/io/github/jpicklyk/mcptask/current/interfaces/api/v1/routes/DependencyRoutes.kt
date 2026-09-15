@@ -3,6 +3,8 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.allowedItemIdsForScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.enforceScopeForItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.requireCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.BacklinkDto
@@ -30,7 +32,11 @@ private val depLogger = LoggerFactory.getLogger("DependencyRoutes")
  * POST/DELETE dependency endpoints are Phase 5.
  *
  * All routes require [ApiCapability.READ]. Scope filtering is applied at the item level —
- * only items within the principal's scope are accessible.
+ * only items within the principal's scope are accessible — AND to the counterparty of each
+ * row/edge returned (the other end of a backlink or dependency edge), via
+ * [io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.allowedItemIdsForScope]. A
+ * scope mismatch on a counterparty drops that row rather than failing the request: only the
+ * directly-named subject item can produce a 403.
  *
  * Note: [DependencyRepository] methods are non-suspend; they are called inside [withContext]
  * to avoid blocking the Ktor event loop.
@@ -65,7 +71,20 @@ fun Route.dependencyRoutes(repositoryProvider: RepositoryProvider) {
             }
 
             val deps = withContext(Dispatchers.IO) { depRepo.findByItemId(id) }
-            val dto = buildDependenciesDto(id.toString(), deps)
+
+            // Filter out edges whose counterparty (the far end from `id`) is outside the
+            // principal's scope -- enforceScopeForItem above only checked the subject `id`.
+            val counterpartyIds =
+                deps.map { dep -> if (dep.fromItemId == id) dep.toItemId else dep.fromItemId }.toSet()
+            val principal = call.attributes.getOrNull(ApiPrincipalKey)
+            val allowedIds = allowedItemIdsForScope(principal, counterpartyIds, workItemRepo)
+            val scopedDeps =
+                deps.filter { dep ->
+                    val counterpartyId = if (dep.fromItemId == id) dep.toItemId else dep.fromItemId
+                    counterpartyId in allowedIds
+                }
+
+            val dto = buildDependenciesDto(id.toString(), scopedDeps)
             call.respond(HttpStatusCode.OK, dto)
         }
 
@@ -94,8 +113,16 @@ fun Route.dependencyRoutes(repositoryProvider: RepositoryProvider) {
             }
 
             val backlinks = depRepo.backlinks(id)
+
+            // Filter out backlinks whose source item (`fromItemId`) is outside the
+            // principal's scope -- enforceScopeForItem above only checked the subject `id`.
+            val fromIds = backlinks.map { it.fromItemId }.toSet()
+            val principal = call.attributes.getOrNull(ApiPrincipalKey)
+            val allowedIds = allowedItemIdsForScope(principal, fromIds, workItemRepo)
+            val scopedBacklinks = backlinks.filter { it.fromItemId in allowedIds }
+
             val dtos =
-                backlinks.map { bl ->
+                scopedBacklinks.map { bl ->
                     BacklinkDto(
                         fromItemId = bl.fromItemId.toString(),
                         type = bl.type.name.lowercase(),

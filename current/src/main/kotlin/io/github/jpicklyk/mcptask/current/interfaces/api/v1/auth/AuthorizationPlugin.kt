@@ -188,6 +188,61 @@ suspend fun allowedItemIdsForTagScope(
     }
 }
 
+/**
+ * Resolves which of [itemIds] the principal's FULL scope admits -- both the `rootIds`
+ * ancestor-chain rule and the `tagsInclude` predicate.
+ *
+ * For surfaces that carry only a counterparty item id and neither that item's ancestry nor
+ * its tags -- backlink rows (`BacklinkRow.fromItemId`) and dependency edges (the far end of a
+ * `Dependency`) -- so both have to be looked up before the rows can be filtered. This is the
+ * batch counterpart to [enforceScopeForItem]: that function checks one subject item inline
+ * against an [ApplicationCall]; this one checks a whole set of counterparty ids against a
+ * principal directly, for routes that already scope-checked their subject item and now need
+ * to filter the OTHER side of each row/edge.
+ *
+ * Applies the rootIds rule first via a single batch [WorkItemRepository.findAncestorChains]
+ * call over all of [itemIds], then delegates the surviving ids to [allowedItemIdsForTagScope]
+ * so the two rules can never drift apart.
+ *
+ * Returns [itemIds] unchanged, with ZERO DB round-trips, when the principal has neither a
+ * `rootIds` restriction nor a `tagsInclude` restriction. Fails CLOSED on a lookup failure: an
+ * id whose ancestry could not be read is not returned, mirroring [enforceScopeForItem]'s
+ * error handling (deny rather than leak).
+ */
+suspend fun allowedItemIdsForScope(
+    principal: ApiPrincipal?,
+    itemIds: Set<UUID>,
+    repo: WorkItemRepository,
+): Set<UUID> {
+    if (itemIds.isEmpty()) return itemIds
+
+    val rootIds = principal?.scope?.rootIds
+    if (rootIds == null && !principal.hasTagScope()) return itemIds
+
+    var candidates = itemIds
+
+    if (rootIds != null) {
+        val chainResult = repo.findAncestorChains(itemIds)
+        if (chainResult.isError()) {
+            authzLogger.warn(
+                "Scope filter: failed to fetch ancestor chains for {} items: {}",
+                itemIds.size,
+                (chainResult as Result.Error).error.message,
+            )
+            return emptySet()
+        }
+        val chains = chainResult.getOrNull()!!
+        candidates =
+            candidates.filterTo(mutableSetOf()) { itemId ->
+                val ancestors = chains[itemId] ?: emptyList()
+                val idsInChain = ancestors.map { it.id }.toSet() + itemId
+                idsInChain.any { it in rootIds }
+            }
+    }
+
+    return allowedItemIdsForTagScope(principal, candidates, repo)
+}
+
 // Scope-enforcement helper for individual item access.
 //
 // Checks whether itemId is accessible to the authenticated principal by walking its
