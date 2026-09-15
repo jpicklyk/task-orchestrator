@@ -86,16 +86,18 @@ class TagScopeReadRoutesTest {
     fun `S3 GET transitions with tagsInclude alpha returns only alpha item's transitions`() =
         testApplication {
             val repo = buildH2RepositoryProvider()
-            runBlocking {
-                val itemA = repo.workItemRepository().create(WorkItem(title = "TransAlphaS3", tags = "alpha", depth = 0)).getOrNull()!!
-                val itemB = repo.workItemRepository().create(WorkItem(title = "TransBetaS3", tags = "beta", depth = 0)).getOrNull()!!
-                repo.roleTransitionRepository().create(
-                    RoleTransition(itemId = itemA.id, fromRole = "queue", toRole = "work", trigger = "start", summary = "AlphaTransitionS3")
-                )
-                repo.roleTransitionRepository().create(
-                    RoleTransition(itemId = itemB.id, fromRole = "queue", toRole = "work", trigger = "start", summary = "BetaTransitionS3")
-                )
-            }
+            val (itemA, itemB) =
+                runBlocking {
+                    val a = repo.workItemRepository().create(WorkItem(title = "TransAlphaS3", tags = "alpha", depth = 0)).getOrNull()!!
+                    val b = repo.workItemRepository().create(WorkItem(title = "TransBetaS3", tags = "beta", depth = 0)).getOrNull()!!
+                    repo.roleTransitionRepository().create(
+                        RoleTransition(itemId = a.id, fromRole = "queue", toRole = "work", trigger = "start")
+                    )
+                    repo.roleTransitionRepository().create(
+                        RoleTransition(itemId = b.id, fromRole = "queue", toRole = "work", trigger = "start")
+                    )
+                    a to b
+                }
             val authConfig = makeTestAuthConfig(tagsInclude = setOf("alpha"))
             application {
                 configureTestApp(authConfig) { transitionRoutes(repo) }
@@ -106,8 +108,11 @@ class TagScopeReadRoutesTest {
                 }
             assertEquals(HttpStatusCode.OK, response.status)
             val body = response.bodyAsText()
-            assertTrue(body.contains("AlphaTransitionS3"), "Expected alpha item's transition: $body")
-            assertFalse(body.contains("BetaTransitionS3"), "Beta item's transition must be excluded: $body")
+            // RoleTransitionDto does not serialize `summary` (see Dtos.kt / api-rest.md
+            // transitions section: id, itemId, fromRole, toRole, trigger, occurredAt only) --
+            // assert on `itemId`, the field that is actually on the wire.
+            assertTrue(body.contains(itemA.id.toString()), "Expected alpha item's transition (by itemId): $body")
+            assertFalse(body.contains(itemB.id.toString()), "Beta item's transition must be excluded (by itemId): $body")
         }
 
     // ─── S6: regression -- empty tagsInclude changes nothing ──────────────
@@ -116,20 +121,26 @@ class TagScopeReadRoutesTest {
     fun `S6 regression - empty tagsInclude returns both tags across items, roots and transitions`() =
         testApplication {
             val repo = buildH2RepositoryProvider()
-            runBlocking {
-                val itemA = repo.workItemRepository().create(WorkItem(title = "RegAlphaS6", tags = "alpha", depth = 0)).getOrNull()!!
-                val itemB = repo.workItemRepository().create(WorkItem(title = "RegBetaS6", tags = "beta", depth = 0)).getOrNull()!!
-                repo.roleTransitionRepository().create(
-                    RoleTransition(itemId = itemA.id, fromRole = "queue", toRole = "work", trigger = "start", summary = "RegAlphaTransS6")
-                )
-                repo.roleTransitionRepository().create(
-                    RoleTransition(itemId = itemB.id, fromRole = "queue", toRole = "work", trigger = "start", summary = "RegBetaTransS6")
-                )
-            }
+            val (itemA, itemB) =
+                runBlocking {
+                    val a = repo.workItemRepository().create(WorkItem(title = "RegAlphaS6", tags = "alpha", depth = 0)).getOrNull()!!
+                    val b = repo.workItemRepository().create(WorkItem(title = "RegBetaS6", tags = "beta", depth = 0)).getOrNull()!!
+                    repo.roleTransitionRepository().create(
+                        RoleTransition(itemId = a.id, fromRole = "queue", toRole = "work", trigger = "start")
+                    )
+                    repo.roleTransitionRepository().create(
+                        RoleTransition(itemId = b.id, fromRole = "queue", toRole = "work", trigger = "start")
+                    )
+                    a to b
+                }
             // Default makeTestAuthConfig(): rootIds = null, tagsInclude = emptySet() -- no constraint.
+            // Single configureTestApp call -- it already installs ContentNegotiation/SSE/routing
+            // once; calling it twice in the same Application throws DuplicatePluginException.
             application {
-                configureTestApp { itemRoutes(repo) }
-                configureTestApp { transitionRoutes(repo) }
+                configureTestApp {
+                    itemRoutes(repo)
+                    transitionRoutes(repo)
+                }
             }
             val itemsResponse =
                 client.get("/api/v1/items") {
@@ -155,8 +166,9 @@ class TagScopeReadRoutesTest {
                 }
             assertEquals(HttpStatusCode.OK, transitionsResponse.status)
             val transitionsBody = transitionsResponse.bodyAsText()
-            assertTrue(transitionsBody.contains("RegAlphaTransS6"), "Unscoped token must see alpha transition: $transitionsBody")
-            assertTrue(transitionsBody.contains("RegBetaTransS6"), "Unscoped token must see beta transition: $transitionsBody")
+            // Same RoleTransitionDto field limitation as S3 -- assert by itemId, not summary.
+            assertTrue(transitionsBody.contains(itemA.id.toString()), "Unscoped token must see alpha transition: $transitionsBody")
+            assertTrue(transitionsBody.contains(itemB.id.toString()), "Unscoped token must see beta transition: $transitionsBody")
         }
 
     // ─── S7: no-match tagsInclude -- empty collection, not 403/500 ─────────
