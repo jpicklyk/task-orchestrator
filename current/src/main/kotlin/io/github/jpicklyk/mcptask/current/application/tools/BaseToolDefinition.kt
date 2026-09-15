@@ -414,6 +414,45 @@ abstract class BaseToolDefinition : ToolDefinition {
     }
 
     // ──────────────────────────────────────────────
+    // Idempotency requestId validation
+    // ──────────────────────────────────────────────
+
+    /**
+     * Validates an optional `requestId` parameter used for idempotency (the client-generated UUID
+     * cache key, keyed by actor+requestId).
+     *
+     * No-op when [paramName] is absent from [params]. When present in ANY form — string, blank
+     * string, number, `null`, object, or array — the value (trimmed) must parse as a valid UUID,
+     * or this throws [ToolValidationException] naming [paramName] and echoing the raw value.
+     *
+     * This closes the swallow where a malformed `requestId` fell back to "absent" — silently
+     * disabling idempotency for that call instead of rejecting it — and where a non-string value
+     * (number/null) escaped as an unrelated internal error thrown later from `execute()`.
+     *
+     * MUST be called from [ToolDefinition.validateParams], not [ToolDefinition.execute]:
+     * `McpToolAdapter` only maps [ToolValidationException] to a validation-error response when it
+     * is thrown from `validateParams`; the same exception thrown from `execute()` is caught by the
+     * adapter's generic handler and surfaces as an internal error.
+     *
+     * @param params The input parameters (a no-op if not a JsonObject — nothing to check)
+     * @param paramName The parameter name to validate (default "requestId")
+     * @throws ToolValidationException if present but does not trim to a valid UUID
+     */
+    protected fun validateRequestIdParam(
+        params: JsonElement,
+        paramName: String = "requestId"
+    ) {
+        val paramsObj = params as? JsonObject ?: return
+        val element = paramsObj[paramName] ?: return
+        val raw = if (element is JsonPrimitive) element.content else element.toString()
+        try {
+            UUID.fromString(raw.trim())
+        } catch (_: IllegalArgumentException) {
+            throw ToolValidationException("$paramName must be a valid UUID, got: '$raw'")
+        }
+    }
+
+    // ──────────────────────────────────────────────
     // Short-ID prefix resolution
     // ──────────────────────────────────────────────
 

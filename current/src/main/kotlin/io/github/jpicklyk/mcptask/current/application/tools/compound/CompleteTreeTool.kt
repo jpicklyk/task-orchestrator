@@ -151,7 +151,7 @@ Call when closing out a finished hierarchy — one atomic call instead of per-it
                                 "description",
                                 JsonPrimitive(
                                     "Client-generated UUID for idempotency (10 min cache, keyed by actor+requestId). " +
-                                        "Requires actor."
+                                        "Requires actor. Rejected with a validation error if present but not a valid UUID."
                                 )
                             )
                         }
@@ -174,6 +174,7 @@ Call when closing out a finished hierarchy — one atomic call instead of per-it
         )
 
     override fun validateParams(params: JsonElement) {
+        validateRequestIdParam(params)
         val paramsObj =
             params as? JsonObject
                 ?: throw ToolValidationException("Parameters must be a JSON object")
@@ -242,15 +243,11 @@ Call when closing out a finished hierarchy — one atomic call instead of per-it
             }
         val includeRoot = (paramsObj["includeRoot"] as? JsonPrimitive)?.booleanOrNull ?: true
 
+        // Defence-in-depth: unreachable via MCP (validateParams already ran validateRequestIdParam),
+        // but guards a direct in-process call to execute() that skipped validateParams.
+        validateRequestIdParam(params)
         val requestIdStr = optionalString(params, "requestId")
-        val requestId =
-            requestIdStr?.let {
-                try {
-                    UUID.fromString(it)
-                } catch (_: IllegalArgumentException) {
-                    null
-                }
-            }
+        val requestId = requestIdStr?.let { UUID.fromString(it.trim()) }
 
         // Resolve trusted actor identity from the top-level actor for the idempotency key.
         // Must be done BEFORE the cache lookup so the cache is keyed on the verified identity,
