@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`/implement`'s shared-worktree commit and review guidance now mandates path-scoped commits.**
+  `git commit --only -- <owned paths>` plus a `git show --stat HEAD` verification replaces a bare
+  `git commit`, and reviews scope by owned-file diff instead of SHA range. (#301)
+- **Agent compile self-checks exit early on foreign-file errors.** A self-check failing entirely
+  in files outside an agent's owned list is recorded under `session-tracking` Friction and
+  committed as-is instead of retried three times; the `gradle-locked.ps1` invocation is pinned as a
+  comma-separated array literal to avoid the nested-PowerShell string-flattening bug. (#302)
+- **`test-author` skill requires fixtures to satisfy domain `validate()` invariants.** A new
+  "Fixture invariants" rule derives dependent fields from each other instead of defaulting them
+  independently, and the `test-manifest` note format gains an invariants-respected line. (#303)
+- **`/implement` adds a named planning seat for the Parallel tier.** One `opus` agent per stream
+  verifies the diagnosis against source and fills `test-plan` before any implementer is
+  dispatched, returning a structured `diagnosis-corrections` / `cross-stream-file-overlaps` /
+  `missing-api-or-seam` / `test-plan-status` block instead of free-form prose. (#304)
+- **Test plans label scenarios `EXISTING-SURFACE` or `NEW-SURFACE` with a red-proof plan.** Each
+  `NEW-SURFACE` scenario states a narrowest-possible-revert recipe (or a named substitute
+  verification), and the planning-seat return template gains a `red-proof-shape` field. (#306)
+- **Adopted process rules for Parallel-tier waves now ship through the file dispatch prompts
+  actually reference, not through skill prose.** A controlled two-wave comparison showed
+  prose-only adoption let the same failure classes re-fire, while plan-file delivery drove
+  shared-index sweeps, dropped commits, and wasted gradle runs to zero. (#307)
+- **Test-author blindness is now a structural, tool-enforced boundary.** The dispatch contract's
+  Test author protocol supplies every public declaration inline, bars any tool from reading
+  `src/main`, requires an explicit `keys=` filter on every `query_notes` call, and directs the
+  author to stop and ask rather than derive a missing declaration. (#310)
+- **New dispatch-contract reference template.** `.claude/skills/implement/references/dispatch-contract-template.md`
+  gives every Parallel-tier wave 12 fixed slots (header, conflict rule, items, planning-seat
+  return, commit discipline, compile self-check, file ownership, test-author protocol,
+  contract-change sweep, docs, notes, review scoping) to copy into the run's plan file, plus an
+  "Adoption reach" subsection mapping each prior proposal to the slot that now carries it.
+- **Contract-tightening changes get a post-wave sweep step.** After a parameter becomes required,
+  a `validate()` invariant is added, or a new accessor lands on a strict-mocked interface, the
+  orchestrator greps every call site and fixture and repairs them by construction — never by
+  relaxing the contract — declaring each repair in the contract's commit map. (`82034e9a`,
+  `31a1abeb`)
+
 ### Fixed
 
 - **MCP Registry record followed the mutable `:latest` image tag.** `server.json` pinned
