@@ -570,9 +570,15 @@ class SQLiteWorkItemRepository(
                     //
                     // Cycle guard: the `lvl` column bounds the recursive member. Without it a single
                     // cyclic parent_id edge makes the UNION ALL produce rows forever, hanging the
-                    // connection while it holds a SERIALIZABLE transaction. The arm is cut one level
-                    // ABOVE the bound so a legitimate tree of exactly MAX_TRAVERSAL_DEPTH levels is
-                    // still returned in full, and any row beyond it proves the bound was reached.
+                    // connection while it holds a SERIALIZABLE transaction.
+                    //
+                    // The boundary matches the H2 branch above exactly: direct children are lvl 1
+                    // (H2 level 1), the recursive arm stops expanding at lvl MAX_TRAVERSAL_DEPTH,
+                    // and reaching that level is an ERROR rather than a truncated Success — the same
+                    // outcome H2 produces when it dequeues a node at level >= MAX_TRAVERSAL_DEPTH.
+                    // So root + (MAX-1) descendants succeeds, root + MAX descendants fails, in both
+                    // dialects. Truncating silently here is not an option: this traversal feeds
+                    // cascade deletes and subtree restamps.
                     val descendantIds = mutableListOf<UUID>()
                     var boundExceeded = false
                     val sql =
@@ -582,7 +588,7 @@ class SQLiteWorkItemRepository(
                             UNION ALL
                             SELECT wi.id, d.lvl + 1 FROM work_items wi
                             JOIN descendants d ON wi.parent_id = d.id
-                            WHERE d.lvl <= $MAX_TRAVERSAL_DEPTH
+                            WHERE d.lvl < $MAX_TRAVERSAL_DEPTH
                         )
                         SELECT id, lvl FROM descendants
                         """.trimIndent()
@@ -600,7 +606,7 @@ class SQLiteWorkItemRepository(
                             @Suppress("UNCHECKED_CAST")
                             val uuid = (uuidType.valueFromDB(rawId!!)) as UUID
                             descendantIds.add(uuid)
-                            if ((rs.getObject("lvl") as Number).toInt() > MAX_TRAVERSAL_DEPTH) boundExceeded = true
+                            if ((rs.getObject("lvl") as Number).toInt() >= MAX_TRAVERSAL_DEPTH) boundExceeded = true
                         }
                     } finally {
                         ps.closeIfPossible()
