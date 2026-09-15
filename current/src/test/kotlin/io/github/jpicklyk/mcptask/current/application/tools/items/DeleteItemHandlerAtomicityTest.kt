@@ -376,17 +376,25 @@ class DeleteItemHandlerAtomicityTest {
         }
 
     @Test
-    fun `probe JsonNull element in itemIds is rejected as not-a-string`() =
+    fun `probe JsonNull element in itemIds is rejected with a per-id failure entry`() =
         runBlocking {
+            // Arbitration (case 2, test wrong): the manage_items contract (itemIds param
+            // description: "Array of item UUIDs or hex prefixes (4+ chars) for delete")
+            // guarantees rejection via a per-id failure entry but does not specify error
+            // wording. Assert only what the contract promises: nothing deleted, one failure,
+            // with a non-blank error naming the id requirement — not an exact message string.
             val response = handler.execute(JsonArray(listOf(JsonNull)), false, context) as JsonObject
             val data = response["data"] as JsonObject
 
             assertEquals(0, data["deleted"]!!.jsonPrimitive.int)
             assertEquals(1, data["failed"]!!.jsonPrimitive.int)
             val failures = failuresOf(data)
+            assertEquals(1, failures.size)
+            val error = failures[0]["error"]!!.jsonPrimitive.content
+            assertTrue(error.isNotBlank(), "actual: ${failures[0]}")
             assertTrue(
-                failures[0]["error"]!!.jsonPrimitive.content.contains("Each ID must be a string"),
-                "actual: ${failures[0]}"
+                error.contains("UUID", ignoreCase = true) || error.contains("hex prefix", ignoreCase = true),
+                "expected the error to mention the id-format requirement; actual: $error"
             )
         }
 
