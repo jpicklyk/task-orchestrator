@@ -386,7 +386,7 @@ Clean Architecture (Domain > Application > Infrastructure > Interface) with comp
 Key capabilities added in recent versions:
 - **REST API** — an HTTP REST layer (`API_ENABLED=true`) exposes items, notes, dependencies, transitions, config, and real-time SSE events to dashboards, CI systems, and operators. Supports static bearer tokens, JWKS JWT auth, and an opt-in unauthenticated loopback mode (`API_AUTH_MODE=none`) for single-developer local setups — see [Quick Start](#quick-start) above and `/configure-server`. See [`current/docs/api-rest.md`](current/docs/api-rest.md) for the full endpoint reference.
 - **Full-text search** — search work items and notes by keyword with ranked results (see [Full-Text Search](#full-text-search) above)
-- **Unbounded hierarchy depth** — item trees are not capped at depth 3; cycle protection is enforced at the database level via a trigger
+- **Unbounded hierarchy depth** — item trees are not capped at depth 3; cycle protection is enforced at the database level via a trigger. Descendant traversal (cascade delete, re-parent depth recompute) is additionally bounded at 1000 levels and fails loud with a data error on a cycle or a subtree at/beyond the bound; search-scope traversal instead bounds-and-continues, excluding anything past 1000 levels rather than erroring
 - **Backlinks** — `query_dependencies(operation="backlinks")` finds all items that reference a given item (reverse-direction edge lookup)
 
 ---

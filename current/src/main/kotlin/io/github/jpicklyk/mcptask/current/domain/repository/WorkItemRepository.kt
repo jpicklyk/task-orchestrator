@@ -1,11 +1,28 @@
 package io.github.jpicklyk.mcptask.current.domain.repository
 
+import io.github.jpicklyk.mcptask.current.domain.model.AncestorChain
 import io.github.jpicklyk.mcptask.current.domain.model.NextItemOrder
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import java.time.Instant
 import java.util.UUID
+
+/**
+ * Hard bound on how many levels any repository-level hierarchy traversal will walk.
+ *
+ * Item depth is intentionally unbounded from V7 onward, so this is not a product limit — it is a
+ * corruption backstop. A cyclic `parent_id` edge (reachable through pre-V7 rows, or on H2 where the
+ * cycle-check triggers are not installed) otherwise makes every recursive descent run forever.
+ * The value sits far above any plausible real tree, so hitting it means the data is cyclic, not deep.
+ *
+ * Traversals that feed destructive or whole-subtree work ([WorkItemRepository.findDescendants],
+ * scope resolution behind [WorkItemRepository.findInScope] / [WorkItemRepository.countInScope])
+ * fail loud with [RepositoryError.DatabaseError] when the bound is hit — a silently short list is
+ * worse than an error there. Search-scope traversals are merely bounded, since degraded results
+ * beat failing every search on a corrupt database.
+ */
+const val MAX_TRAVERSAL_DEPTH: Int = 1000
 
 /**
  * Sealed result type for [WorkItemRepository.claim] operations.
@@ -243,6 +260,12 @@ interface WorkItemRepository {
     /**
      * Find all descendants of the given item (children, grandchildren, etc.) recursively.
      * Does not include the item itself.
+     *
+     * The traversal is bounded at [MAX_TRAVERSAL_DEPTH] levels and never revisits a node. Cyclic
+     * or pathologically deep `parent_id` data yields [Result.Error] with a
+     * [RepositoryError.DatabaseError] naming the bound — callers of this method drive cascade
+     * deletes and subtree restamps, where a silently truncated list would corrupt more than it
+     * reports.
      */
     suspend fun findDescendants(id: UUID): Result<List<WorkItem>>
 
@@ -307,8 +330,23 @@ interface WorkItemRepository {
      * For each itemId, resolve its full ancestor chain (root -> direct parent).
      * Returns Map<itemId, List<WorkItem>> ordered root-first, ancestors only (item itself excluded).
      * Items with no parent (depth=0 root items) map to an empty list.
+     *
+     * A chain may be **silently truncated** when the `parent_id` graph is cyclic or an ancestor row
+     * is missing/domain-invalid: the returned list is then shorter than the real chain and is
+     * indistinguishable from a genuinely shallow item. Callers that make a safety decision on chain
+     * completeness must use [findAncestorChainsDetailed] instead.
      */
     suspend fun findAncestorChains(itemIds: Set<UUID>): Result<Map<UUID, List<WorkItem>>>
+
+    /**
+     * [findAncestorChains] with an explicit completeness signal per item.
+     *
+     * Same walk, same ordering and same contents — each entry additionally reports whether the
+     * upward walk reached a parentless root ([AncestorChain.truncated] false) or stopped early on a
+     * cycle or a missing ancestor, with [AncestorChain.truncationReason] naming which.
+     * [findAncestorChains] is defined as this method with the flag dropped.
+     */
+    suspend fun findAncestorChainsDetailed(itemIds: Set<UUID>): Result<Map<UUID, AncestorChain>>
 
     /**
      * Find work items for the "get next" recommendation query, supporting optional claim filtering.

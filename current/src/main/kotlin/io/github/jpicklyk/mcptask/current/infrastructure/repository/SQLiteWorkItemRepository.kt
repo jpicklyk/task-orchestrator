@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.repository
 
 import io.github.jpicklyk.mcptask.current.application.service.search.RrfFusion
+import io.github.jpicklyk.mcptask.current.domain.model.AncestorChain
 import io.github.jpicklyk.mcptask.current.domain.model.NextItemOrder
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
@@ -8,6 +9,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.ClaimResult
 import io.github.jpicklyk.mcptask.current.domain.repository.ClaimStatusCounts
 import io.github.jpicklyk.mcptask.current.domain.repository.ItemFetchResult
+import io.github.jpicklyk.mcptask.current.domain.repository.MAX_TRAVERSAL_DEPTH
 import io.github.jpicklyk.mcptask.current.domain.repository.ReleaseResult
 import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
@@ -511,18 +513,46 @@ class SQLiteWorkItemRepository(
                 // BFS loop using Exposed DSL instead.
                 // Production SQLite uses the single-query recursive CTE (faster at depth).
                 if (currentDialect is H2Dialect) {
+                    // Cycle guard: `visited` is seeded with the start id and gates BOTH the result
+                    // list and the queue — the shape resolveScopeIds() already uses. Every item has
+                    // at most one parent, so a node can only be reached twice if the parent_id graph
+                    // is cyclic; that is corruption, and this traversal feeds cascade deletes and
+                    // subtree restamps, so it fails loud rather than returning a partial subtree.
+                    // The level counter bounds the descent identically to the SQLite CTE below.
                     val results = mutableListOf<WorkItem>()
-                    val queue = ArrayDeque<UUID>()
-                    queue.add(id)
+                    val visited = mutableSetOf(id)
+                    val queue = ArrayDeque<Pair<UUID, Int>>()
+                    queue.add(id to 0)
                     while (queue.isNotEmpty()) {
-                        val current = queue.removeFirst()
+                        val (current, level) = queue.removeFirst()
+                        if (level >= MAX_TRAVERSAL_DEPTH) {
+                            logger.error("Descendant traversal of $id exceeded maximum depth $MAX_TRAVERSAL_DEPTH")
+                            return@suspendTransaction Result.Error(
+                                RepositoryError.DatabaseError(
+                                    "Failed to find descendants: traversal exceeded the maximum " +
+                                        "depth of $MAX_TRAVERSAL_DEPTH levels (item hierarchy may be cyclic)",
+                                ),
+                            )
+                        }
                         val children =
                             WorkItemsTable
                                 .selectAll()
                                 .where { WorkItemsTable.parentId eq current }
                                 .mapNotNull { toWorkItemOrNull(it) }
-                        results.addAll(children)
-                        queue.addAll(children.map { it.id })
+                        for (child in children) {
+                            if (!visited.add(child.id)) {
+                                logger.error("Cycle detected in item hierarchy under $id at ${child.id}")
+                                return@suspendTransaction Result.Error(
+                                    RepositoryError.DatabaseError(
+                                        "Failed to find descendants: cycle detected in the item " +
+                                            "hierarchy under $id at ${child.id} (traversal bounded at " +
+                                            "$MAX_TRAVERSAL_DEPTH levels)",
+                                    ),
+                                )
+                            }
+                            results.add(child)
+                            queue.add(child.id to level + 1)
+                        }
                     }
                     Result.Success(results)
                 } else {
@@ -537,16 +567,30 @@ class SQLiteWorkItemRepository(
 
                     // Collect matching IDs via recursive CTE, then load full rows via Exposed
                     // so that WorkItem mapping stays in one place (toWorkItemOrNull).
+                    //
+                    // Cycle guard: the `lvl` column bounds the recursive member. Without it a single
+                    // cyclic parent_id edge makes the UNION ALL produce rows forever, hanging the
+                    // connection while it holds a SERIALIZABLE transaction.
+                    //
+                    // The boundary matches the H2 branch above exactly: direct children are lvl 1
+                    // (H2 level 1), the recursive arm stops expanding at lvl MAX_TRAVERSAL_DEPTH,
+                    // and reaching that level is an ERROR rather than a truncated Success — the same
+                    // outcome H2 produces when it dequeues a node at level >= MAX_TRAVERSAL_DEPTH.
+                    // So root + (MAX-1) descendants succeeds, root + MAX descendants fails, in both
+                    // dialects. Truncating silently here is not an option: this traversal feeds
+                    // cascade deletes and subtree restamps.
                     val descendantIds = mutableListOf<UUID>()
+                    var boundExceeded = false
                     val sql =
                         """
-                        WITH RECURSIVE descendants(id) AS (
-                            SELECT id FROM work_items WHERE parent_id = ?
+                        WITH RECURSIVE descendants(id, lvl) AS (
+                            SELECT id, 1 FROM work_items WHERE parent_id = ?
                             UNION ALL
-                            SELECT wi.id FROM work_items wi
+                            SELECT wi.id, d.lvl + 1 FROM work_items wi
                             JOIN descendants d ON wi.parent_id = d.id
+                            WHERE d.lvl < $MAX_TRAVERSAL_DEPTH
                         )
-                        SELECT id FROM descendants
+                        SELECT id, lvl FROM descendants
                         """.trimIndent()
 
                     // Use ExposedConnection.prepareStatement() to get a JdbcPreparedStatementApi,
@@ -562,9 +606,20 @@ class SQLiteWorkItemRepository(
                             @Suppress("UNCHECKED_CAST")
                             val uuid = (uuidType.valueFromDB(rawId!!)) as UUID
                             descendantIds.add(uuid)
+                            if ((rs.getObject("lvl") as Number).toInt() >= MAX_TRAVERSAL_DEPTH) boundExceeded = true
                         }
                     } finally {
                         ps.closeIfPossible()
+                    }
+
+                    if (boundExceeded) {
+                        logger.error("Descendant traversal of $id exceeded maximum depth $MAX_TRAVERSAL_DEPTH")
+                        return@suspendTransaction Result.Error(
+                            RepositoryError.DatabaseError(
+                                "Failed to find descendants: traversal exceeded the maximum depth of " +
+                                    "$MAX_TRAVERSAL_DEPTH levels (item hierarchy may be cyclic)",
+                            ),
+                        )
                     }
 
                     if (descendantIds.isEmpty()) {
@@ -634,11 +689,15 @@ class SQLiteWorkItemRepository(
                     when {
                         scope?.ancestorId != null -> {
                             // SINGULAR path — behavior-identical to original; MCP query_items depends on this.
+                            // The `lvl` column bounds the recursive member so cyclic parent_id data
+                            // cannot spin the CTE forever. Search scope is bound-and-continue: missing
+                            // nodes past the bound degrade the result, they do not fail the search.
                             """
-                            WITH RECURSIVE subtree(id) AS (
-                                SELECT id FROM work_items WHERE id = ?
+                            WITH RECURSIVE subtree(id, lvl) AS (
+                                SELECT id, 1 FROM work_items WHERE id = ?
                                 UNION ALL
-                                SELECT wi.id FROM work_items wi JOIN subtree s ON wi.parent_id = s.id
+                                SELECT wi.id, s.lvl + 1 FROM work_items wi JOIN subtree s ON wi.parent_id = s.id
+                                WHERE s.lvl < $MAX_TRAVERSAL_DEPTH
                             )
                             """.trimIndent()
                         }
@@ -646,10 +705,11 @@ class SQLiteWorkItemRepository(
                             // PLURAL path — seed CTE with one ? per root, then walk descendants.
                             val placeholders = scope.ancestorIds.joinToString(", ") { "?" }
                             """
-                            WITH RECURSIVE subtree(id) AS (
-                                SELECT id FROM work_items WHERE id IN ($placeholders)
+                            WITH RECURSIVE subtree(id, lvl) AS (
+                                SELECT id, 1 FROM work_items WHERE id IN ($placeholders)
                                 UNION ALL
-                                SELECT wi.id FROM work_items wi JOIN subtree s ON wi.parent_id = s.id
+                                SELECT wi.id, s.lvl + 1 FROM work_items wi JOIN subtree s ON wi.parent_id = s.id
+                                WHERE s.lvl < $MAX_TRAVERSAL_DEPTH
                             )
                             """.trimIndent()
                         }
@@ -661,8 +721,8 @@ class SQLiteWorkItemRepository(
                 val extraWhereParts = mutableListOf<String>()
                 if (scope?.itemId != null) extraWhereParts.add("wi.id = ?")
                 when {
-                    scope?.ancestorId != null -> extraWhereParts.add("wi.id IN subtree")
-                    scope?.ancestorIds != null && scope.ancestorIds.isNotEmpty() -> extraWhereParts.add("wi.id IN subtree")
+                    scope?.ancestorId != null -> extraWhereParts.add("wi.id IN (SELECT id FROM subtree)")
+                    scope?.ancestorIds != null && scope.ancestorIds.isNotEmpty() -> extraWhereParts.add("wi.id IN (SELECT id FROM subtree)")
                     scope?.ancestorIds != null && scope.ancestorIds.isEmpty() -> extraWhereParts.add("1 = 0") // empty scope → no hits
                 }
                 if (scope?.role != null) extraWhereParts.add("wi.role = ?")
@@ -1591,10 +1651,22 @@ class SQLiteWorkItemRepository(
         // called from within a suspendTransaction block.
         if (currentDialect is H2Dialect) {
             // H2 BFS fallback: expand the subtree using Exposed DSL instead of a raw CTE.
+            // `result` doubles as the visited set — a node already in scope is never re-queued, so a
+            // cyclic parent_id edge terminates instead of spinning. Overlapping roots (a root and one
+            // of its own descendants) legitimately collide here, so a repeat visit is NOT treated as
+            // corruption; only the level bound is. Unlike findDescendants this method is not a
+            // Result-returning API — the throw is mapped to Result.Error by every caller's
+            // suspendedTransaction / catch block.
             val result = rootIds.toMutableSet()
-            val queue = ArrayDeque(rootIds.toList())
+            val queue = ArrayDeque(rootIds.map { it to 0 })
             while (queue.isNotEmpty()) {
-                val current = queue.removeFirst()
+                val (current, level) = queue.removeFirst()
+                if (level >= MAX_TRAVERSAL_DEPTH) {
+                    throw IllegalStateException(
+                        "Scope resolution exceeded the maximum traversal depth of $MAX_TRAVERSAL_DEPTH " +
+                            "levels under $current (item hierarchy may be cyclic)",
+                    )
+                }
                 val children =
                     WorkItemsTable
                         .selectAll()
@@ -1602,7 +1674,7 @@ class SQLiteWorkItemRepository(
                         .mapNotNull { toWorkItemOrNull(it) }
                 for (child in children) {
                     if (result.add(child.id)) {
-                        queue.add(child.id)
+                        queue.add(child.id to level + 1)
                     }
                 }
             }
@@ -1617,16 +1689,22 @@ class SQLiteWorkItemRepository(
         // Same workaround used in findDescendants() and ftsSearch().
         val uuidType = UUIDColumnType()
 
+        // Cycle guard: the `lvl` column bounds the recursive member — without it a cyclic parent_id
+        // edge makes the UNION ALL emit rows forever. Cut one level ABOVE the bound so a legitimate
+        // tree of exactly MAX_TRAVERSAL_DEPTH levels still resolves in full and any deeper row proves
+        // the bound was reached; that case throws, because the scoped queries this feeds would
+        // otherwise silently under-report a subtree.
         val placeholders = rootIds.joinToString(",") { "?" }
         val sql =
             """
-            WITH RECURSIVE scope(id) AS (
-                SELECT id FROM work_items WHERE id IN ($placeholders)
+            WITH RECURSIVE scope(id, lvl) AS (
+                SELECT id, 1 FROM work_items WHERE id IN ($placeholders)
                 UNION ALL
-                SELECT wi.id FROM work_items wi
+                SELECT wi.id, s.lvl + 1 FROM work_items wi
                 JOIN scope s ON wi.parent_id = s.id
+                WHERE s.lvl <= $MAX_TRAVERSAL_DEPTH
             )
-            SELECT id FROM scope
+            SELECT id, lvl FROM scope
             """.trimIndent()
 
         // Access the current transaction's connection via TransactionManager.current() —
@@ -1641,11 +1719,19 @@ class SQLiteWorkItemRepository(
             ps.fillParameters(args)
             val rs = ps.executeQuery()
             val ids = mutableSetOf<UUID>()
+            var boundExceeded = false
             while (rs.next()) {
                 val rawId = rs.getObject("id")
 
                 @Suppress("UNCHECKED_CAST")
                 ids.add(uuidType.valueFromDB(rawId!!) as UUID)
+                if ((rs.getObject("lvl") as Number).toInt() > MAX_TRAVERSAL_DEPTH) boundExceeded = true
+            }
+            if (boundExceeded) {
+                throw IllegalStateException(
+                    "Scope resolution exceeded the maximum traversal depth of $MAX_TRAVERSAL_DEPTH " +
+                        "levels (item hierarchy may be cyclic)",
+                )
             }
             return ids
         } finally {
@@ -1653,7 +1739,10 @@ class SQLiteWorkItemRepository(
         }
     }
 
-    override suspend fun findAncestorChains(itemIds: Set<UUID>): Result<Map<UUID, List<WorkItem>>> {
+    override suspend fun findAncestorChains(itemIds: Set<UUID>): Result<Map<UUID, List<WorkItem>>> =
+        findAncestorChainsDetailed(itemIds).map { chains -> chains.mapValues { (_, chain) -> chain.ancestors } }
+
+    override suspend fun findAncestorChainsDetailed(itemIds: Set<UUID>): Result<Map<UUID, AncestorChain>> {
         if (itemIds.isEmpty()) return Result.Success(emptyMap())
         return databaseManager.suspendedTransaction("Failed to find ancestor chains") {
             // Cache all fetched items by UUID string
@@ -1681,24 +1770,40 @@ class SQLiteWorkItemRepository(
                 toFetch = fetched.mapNotNull { it.parentId }.map { it.toString() }.toSet() - cache.keys
             }
 
-            // Build ancestor chains for each input itemId
+            // Build ancestor chains for each input itemId.
+            // Both early exits are corruption, not "this item is shallow" — each one is reported on
+            // the returned AncestorChain so callers that decide safety on chain completeness
+            // (root-scope authorization, reparent cycle guards) can tell the two apart.
             val result =
                 itemIds.associateWith { itemId ->
                     val chain = mutableListOf<WorkItem>()
                     val visited = mutableSetOf<String>()
-                    var current = cache[itemId.toString()]
+                    var truncationReason: String? = null
+                    val current = cache[itemId.toString()]
                     var parentIdStr = current?.parentId?.toString()
                     while (parentIdStr != null) {
                         if (parentIdStr in visited) {
                             logger.warn("Cycle detected in ancestor chain for item $itemId at parent $parentIdStr — breaking")
+                            truncationReason = AncestorChain.REASON_CYCLE
                             break
                         }
                         visited.add(parentIdStr)
-                        val ancestor = cache[parentIdStr] ?: break
+                        val ancestor = cache[parentIdStr]
+                        if (ancestor == null) {
+                            logger.warn(
+                                "Ancestor $parentIdStr of item $itemId is missing or failed domain validation — chain truncated",
+                            )
+                            truncationReason = AncestorChain.REASON_MISSING_ANCESTOR
+                            break
+                        }
                         chain.add(0, ancestor) // prepend so order is root -> direct parent
                         parentIdStr = ancestor.parentId?.toString()
                     }
-                    chain as List<WorkItem>
+                    AncestorChain(
+                        ancestors = chain,
+                        truncated = truncationReason != null,
+                        truncationReason = truncationReason,
+                    )
                 }
             Result.Success(result)
         }

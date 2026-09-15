@@ -1453,11 +1453,15 @@ connection-time check, distinct from the per-event filtering described below.
 
 **Query parameters:**
 - `root` (repeatable) — filter to events for items in this root's subtree. Effective subscription = intersection of `?root=` values with `principal.scope.rootIds`.
-- `types` — comma-separated event type filter (e.g., `types=item.created,item.advanced`)
+- `types` — comma-separated event type filter (e.g., `types=item.created,item.advanced`). Exempt from this filter: `sync.lost` and `auth.expired` (the control events, see Event Types below) are always delivered regardless of `types` — they report the state of the stream itself, and a filtered-out client would otherwise keep operating on incomplete state (or an expired credential) with no signal.
 
 `tags_include` is not a query parameter — it is enforced from the principal's own token scope, per event, as described next.
 
 **`Last-Event-ID` replay:** The bus maintains a ring buffer of recent events (size: `API_SSE_BUFFER_SIZE`, default 1000). On reconnect, events with `id > Last-Event-ID` are replayed before live streaming resumes. Ring-buffer entries carry `affectedRoots` metadata, so the replay path applies the **same root-intersection filter** as the live fan-out — a client reconnecting with `?root=<uuid>` receives only replayed events for roots within its subscription (and scope). Replay is consistent with the live stream.
+
+**Unreplayable cursor → `sync.lost`:** When a reconnecting client's `Last-Event-ID` can no longer be satisfied from the ring buffer — the id is older than the oldest retained event (`buffer_evicted`), above the current high-water mark (`unknown_event_id`; typically a pre-restart cursor, since the id counter restarts at 0 on restart), or the header was present but not parseable as a number (`unknown_event_id`) — the bus emits a `sync.lost` event as the **first frame of the connection**, before any replayed or live event, carrying the cause in `reason`. Detection reads the global ring buffer, not the caller's root-scoped view, so a root-scoped client can occasionally receive a `sync.lost` for an eviction that didn't affect its own roots (a false positive costing one extra re-fetch — the alternative, a scoped check, risks a false *negative*, i.e. silent loss, which is what this exists to prevent). A blank or absent `Last-Event-ID` header is not treated as a resume attempt and never produces `sync.lost`.
+
+**Replay resumes from the sentinel, not the client's cursor:** After either `sync.lost` reason, the same connection immediately replays the FULL retained ring buffer — not just events past the client's original `Last-Event-ID` — because the replay cursor becomes the sentinel's own `id` (always one below the oldest retained event, or the current high-water mark on an empty buffer) rather than the unusable client cursor. No second reconnect is needed to recover the buffered history. `API_SSE_BUFFER_SIZE=0` is a legal, explicit "retain nothing" setting: the buffer never accumulates entries, so every resume attempt that carries a `Last-Event-ID` yields `sync.lost` (`buffer_evicted`, sentinel id = the current high-water mark) with no events to replay after it.
 
 **Tag scope (`tags_include`) filtering:** Root scope is applied at the bus level (above); tag scope
 is enforced per-event on top of it, identically for the live stream and for `Last-Event-ID` replay,
@@ -1486,8 +1490,10 @@ events on the same item. See §25 for the `item.deleted` fail-closed gap this sc
 | `dependency.removed` | set | set | null | Dependency edge removed |
 | `scope.entered` | set | set | null | Item reparented into this root's subtree |
 | `scope.left` | set | set | null | Item reparented out of this root's subtree |
-| `sync.lost` | null | null | null | Client's per-connection queue overflowed; re-fetch full state |
+| `sync.lost` | null | null | null | Unrecoverable gap in the stream; re-fetch full state. Carries `reason`: `queue_overflow` (the connection's per-connection queue overflowed and events were dropped mid-stream), `buffer_evicted` (resumed `Last-Event-ID` is older than the oldest event still retained in the ring buffer), or `unknown_event_id` (resumed `Last-Event-ID` is above the current high-water mark — typically pre-restart — or was not parseable as a number) |
 | `auth.expired` | null | null | null | Connection's token has expired; reconnect with fresh credential |
+
+Both `sync.lost` and `auth.expired` are **control events** — they always bypass the `?types=` filter (see Query parameters above). All other event types additionally carry a `reason` field of `null`, and (because the SSE payload is encoded with `explicitNulls = false`) it is absent from their JSON entirely rather than present as `null`.
 
 **`item.advanced` note:** This event is emitted on role change (via `POST /items/{id}/advance` or any write path that triggers `RoleTransitionHandler`). It carries the `newRole` field. This is distinct from `item.updated` — a role change emits `item.advanced` (not `item.updated`).
 

@@ -2480,7 +2480,9 @@ paths:
           in: query
           schema:
             type: string
-          description: Comma-separated event type filter
+          description: >-
+            Comma-separated event type filter. Exempt: sync.lost and auth.expired (control
+            events) are always delivered regardless of this filter.
         - name: token
           in: query
           schema:
@@ -2492,7 +2494,15 @@ paths:
             type: string
           description: >-
             Resume from this event ID; replay is filtered by root and tags_include the same way
-            the live stream is
+            the live stream is. When the id is no longer replayable — older than the retained
+            ring buffer, above the current high-water mark (e.g. after a server restart, since
+            the id counter restarts at 0), or unparsable — the server emits a sync.lost event
+            with a reason (buffer_evicted or unknown_event_id) as the first frame, then
+            immediately replays the FULL retained buffer after it (replay resumes from the
+            sentinel's own id, not the client's cursor — no second reconnect needed). A blank or
+            absent header is not a resume attempt and never triggers sync.lost.
+            API_SSE_BUFFER_SIZE=0 legally retains nothing, so every resume attempt that carries a
+            Last-Event-ID yields buffer_evicted with no events to replay.
       responses:
         "200":
           description: SSE stream (text/event-stream)
@@ -2505,6 +2515,13 @@ paths:
                   Event types: item.created, item.updated, item.deleted, item.advanced,
                   note.upserted, note.deleted, dependency.added, dependency.removed,
                   scope.entered, scope.left, sync.lost, auth.expired
+
+                  ApiEvent JSON fields: id, event, itemId (null for sync.lost/auth.expired),
+                  modifiedAt, newRole (item.advanced only), and reason — set only on sync.lost,
+                  one of queue_overflow (per-connection queue overflowed), buffer_evicted
+                  (resumed Last-Event-ID older than the retained ring buffer), or
+                  unknown_event_id (resumed Last-Event-ID above the high-water mark or
+                  unparsable); null/absent on every other event type.
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":

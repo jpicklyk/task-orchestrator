@@ -162,8 +162,8 @@ Unified write operations for WorkItems (create, update, delete).
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Client-generated UUID for idempotency (10 min cache, keyed by actor+requestId). " +
-                                        "Requires actor."
+                                    "Client-generated UUID for idempotency (10 min cache, keyed by actor+requestId); " +
+                                        "requires actor; malformed values rejected."
                                 )
                             )
                         }
@@ -186,6 +186,7 @@ Unified write operations for WorkItems (create, update, delete).
         )
 
     override fun validateParams(params: JsonElement) {
+        validateRequestIdParam(params)
         val operation = requireString(params, "operation")
         when (operation) {
             "create" -> {
@@ -215,15 +216,11 @@ Unified write operations for WorkItems (create, update, delete).
         context: ToolExecutionContext
     ): JsonElement {
         val operation = requireString(params, "operation")
+        // Defence-in-depth: unreachable via MCP (validateParams already ran validateRequestIdParam),
+        // but guards a direct in-process call to execute() that skipped validateParams.
+        validateRequestIdParam(params)
         val requestIdStr = optionalString(params, "requestId")
-        val requestId =
-            requestIdStr?.let {
-                try {
-                    UUID.fromString(it)
-                } catch (_: IllegalArgumentException) {
-                    null
-                }
-            }
+        val requestId = requestIdStr?.let { UUID.fromString(it.trim()) }
 
         // Resolve trusted actor identity for the idempotency key.
         // Must be done BEFORE the cache lookup so the cache is keyed on the verified identity,

@@ -135,7 +135,7 @@ Call to move an item between phases once its work is done — never edit status 
                                 "description",
                                 JsonPrimitive(
                                     "Client-generated UUID for idempotency (10 min cache), keyed on the first " +
-                                        "transition's actor.id."
+                                        "transition's actor.id; malformed values rejected."
                                 )
                             )
                         }
@@ -186,6 +186,9 @@ Call to move an item between phases once its work is done — never edit status 
         }
 
     override fun validateParams(params: JsonElement) {
+        // requestId is a top-level param untouched by the singular->transitions[] normalization
+        // below, so validate it against the raw params first.
+        validateRequestIdParam(params)
         val normalized = normalizeParams(params)
         val normalizedObj = normalized as? JsonObject
         if (normalizedObj == null || !normalizedObj.containsKey("transitions")) {
@@ -298,15 +301,11 @@ Call to move an item between phases once its work is done — never edit status 
     ): JsonElement {
         val normalized = normalizeParams(params)
         val transitions = requireJsonArray(normalized, "transitions")
+        // Defence-in-depth: unreachable via MCP (validateParams already ran validateRequestIdParam),
+        // but guards a direct in-process call to execute() that skipped validateParams.
+        validateRequestIdParam(normalized)
         val requestIdStr = optionalString(normalized, "requestId")
-        val requestId =
-            requestIdStr?.let {
-                try {
-                    UUID.fromString(it)
-                } catch (_: IllegalArgumentException) {
-                    null
-                }
-            }
+        val requestId = requestIdStr?.let { UUID.fromString(it.trim()) }
 
         // Resolve trusted actor identity from the first transition's actor for the idempotency key.
         // Must be done BEFORE the cache lookup so the cache is keyed on the verified identity,

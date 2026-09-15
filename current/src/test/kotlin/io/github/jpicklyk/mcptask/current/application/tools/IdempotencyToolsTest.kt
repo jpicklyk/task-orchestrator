@@ -608,47 +608,6 @@ class IdempotencyToolsTest {
             assertEquals(2, (allItems as Result.Success).data.items.size, "Both agents' items should exist")
         }
 
-    // ──────────────────────────────────────────────
-    // Negative case: malformed requestId UUID is silently ignored
-    // ──────────────────────────────────────────────
-
-    @Test
-    fun `manage_items with invalid requestId UUID falls back to non-idempotent execution`() =
-        runBlocking {
-            val tool = ManageItemsTool()
-
-            tool.execute(
-                params(
-                    "operation" to JsonPrimitive("create"),
-                    "items" to
-                        JsonArray(
-                            listOf(buildJsonObject { put("title", JsonPrimitive("First")) })
-                        ),
-                    "requestId" to JsonPrimitive("not-a-uuid"),
-                    "actor" to actor()
-                ),
-                context
-            )
-            tool.execute(
-                params(
-                    "operation" to JsonPrimitive("create"),
-                    "items" to
-                        JsonArray(
-                            listOf(buildJsonObject { put("title", JsonPrimitive("Second")) })
-                        ),
-                    "requestId" to JsonPrimitive("not-a-uuid"),
-                    "actor" to actor()
-                ),
-                context
-            )
-
-            // Cache should be empty (invalid requestId not used as key)
-            assertEquals(0, idempotencyCache.size())
-            val items = context.workItemRepository().findRootItems()
-            assertTrue(items is Result.Success)
-            assertEquals(2, (items as Result.Success).data.items.size, "Invalid requestId must not enable caching")
-        }
-
     @Test
     fun `requestId without actor falls back to non-idempotent execution`() =
         runBlocking {

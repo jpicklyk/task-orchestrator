@@ -24,9 +24,17 @@ import java.util.concurrent.atomic.AtomicLong
  *   repository provider at decorator construction time). The cache is invalidated on reparent.
  * - **Ring buffer:** The last [bufferSize] events are retained for `Last-Event-ID` replay.
  * - **Backpressure:** Each subscriber has a bounded per-connection [Channel]. When full, the
- *   oldest event is dropped and a [ApiEventType.SYNC_LOST] sentinel is queued.
+ *   oldest event is dropped and a [ApiEventType.SYNC_LOST] sentinel
+ *   ([SyncLostReason.QUEUE_OVERFLOW]) is queued.
+ * - **Replay-gap sentinel:** A resuming subscriber whose `Last-Event-ID` is no longer replayable
+ *   receives a [ApiEventType.SYNC_LOST] event as the FIRST emission of its flow, before any
+ *   replayed or live event. See [replayGapSentinel] for the gap predicate and the id contract.
  *
  * @param bufferSize Number of recent events retained for `Last-Event-ID` replay (default 1000).
+ *   `0` (e.g. `API_SSE_BUFFER_SIZE=0`) is legal and means retain nothing: [publish] keeps the
+ *   buffer empty instead of calling `removeFirst()` on it, and every resume then reports
+ *   [SyncLostReason.BUFFER_EVICTED] with a sentinel id at the high-water mark. Negative values
+ *   are treated as 0.
  * @param connectionQueueSize Per-connection bounded queue capacity (default 256).
  */
 class ApiEventBus(
@@ -48,8 +56,17 @@ class ApiEventBus(
         val affectedRoots: Set<UUID>,
     )
 
+    /**
+     * Effective retention capacity. `0` means retain nothing — a legitimate configuration, not an
+     * error — and a negative override is treated the same way. [publish] guards on this rather
+     * than coercing it upward, so zero retention never makes the first event call `removeFirst()`
+     * on an empty deque (`NoSuchElementException`) and never silently retains an event the
+     * operator asked not to keep.
+     */
+    private val retainedBufferSize: Int = bufferSize.coerceAtLeast(0)
+
     /** Ring buffer of recent events for Last-Event-ID replay. Protected by synchronized access. */
-    private val ringBuffer = ArrayDeque<RingBufferEntry>(bufferSize)
+    private val ringBuffer = ArrayDeque<RingBufferEntry>(retainedBufferSize)
 
     /** Active subscribers: subscriber-id → Subscriber. */
     private val subscribers = ConcurrentHashMap<String, Subscriber>()
@@ -82,10 +99,14 @@ class ApiEventBus(
     ) {
         // Add to ring buffer — store alongside affectedRoots so replay can apply scope filtering
         synchronized(ringBuffer) {
-            if (ringBuffer.size >= bufferSize) {
-                ringBuffer.removeFirst()
+            // retainedBufferSize == 0 means retain nothing: skip the append entirely rather than
+            // evict from an empty deque.
+            if (retainedBufferSize > 0) {
+                while (ringBuffer.isNotEmpty() && ringBuffer.size >= retainedBufferSize) {
+                    ringBuffer.removeFirst()
+                }
+                ringBuffer.addLast(RingBufferEntry(event, affectedRoots))
             }
-            ringBuffer.addLast(RingBufferEntry(event, affectedRoots))
         }
 
         // Fan out to subscribers
@@ -104,7 +125,7 @@ class ApiEventBus(
                 // Queue full — drop oldest by draining one and sending sync.lost + event
                 logger.debug("Subscriber {} queue full, dropping oldest event", sub.id)
                 sub.channel.tryReceive() // drain one slot
-                val syncLost = buildEvent(ApiEventType.SYNC_LOST)
+                val syncLost = buildEvent(ApiEventType.SYNC_LOST, reason = SyncLostReason.QUEUE_OVERFLOW)
                 sub.channel.trySend(syncLost)
                 // Try once more for the actual event
                 sub.channel.trySend(event)
@@ -114,12 +135,16 @@ class ApiEventBus(
 
     /**
      * Build a new [ApiEvent] with the next monotonic ID.
+     *
+     * @param reason Cause code for [ApiEventType.SYNC_LOST] events ([SyncLostReason]); null for
+     *   every other event type.
      */
     fun buildEvent(
         eventType: String,
         itemId: UUID? = null,
         modifiedAt: Instant? = null,
         newRole: String? = null,
+        reason: String? = null,
     ): ApiEvent =
         ApiEvent(
             id = idCounter.incrementAndGet(),
@@ -127,6 +152,7 @@ class ApiEventBus(
             itemId = itemId?.toString(),
             modifiedAt = modifiedAt?.toString(),
             newRole = newRole,
+            reason = reason,
         )
 
     // -------------------------------------------------------------------------
@@ -139,15 +165,26 @@ class ApiEventBus(
      * Returns a [Flow] that emits events until the subscriber is removed (via [unsubscribe]).
      * The caller must call [unsubscribe] in a `finally` block when the SSE connection closes.
      *
+     * If the resume cursor is no longer replayable, a [ApiEventType.SYNC_LOST] sentinel is emitted
+     * FIRST — before any replayed or live event — so the client learns about the gap instead of
+     * seeing a stream that merely looks contiguous, and the replay then starts from the sentinel's
+     * id (i.e. the whole retained buffer) rather than from the unusable cursor. See
+     * [replayGapSentinel].
+     *
      * @param subscriberId Stable identifier for this connection (used for cleanup).
      * @param rootIds Root UUIDs to subscribe to. Empty = subscribe to all events.
      * @param lastEventId If non-null, replay all buffered events with id > [lastEventId] before
      *   streaming live events.
+     * @param resumeRequested Whether the client actually asked to resume. Defaults to
+     *   `lastEventId != null`. Transports pass `true` with a null [lastEventId] when a resume
+     *   cursor was present but unparsable (e.g. `Last-Event-ID: abc`), so the gap is reported as
+     *   [SyncLostReason.UNKNOWN_EVENT_ID] rather than silently treated as a fresh connection.
      */
     fun subscribe(
         subscriberId: String,
         rootIds: Set<UUID>,
         lastEventId: Long? = null,
+        resumeRequested: Boolean = lastEventId != null,
     ): Flow<ApiEvent> {
         val channel = Channel<ApiEvent>(capacity = connectionQueueSize)
         val sub = Subscriber(id = subscriberId, rootIds = rootIds, channel = channel)
@@ -155,27 +192,54 @@ class ApiEventBus(
 
         return flow {
             try {
-                // Replay buffered events from lastEventId forward, THEN stream live.
-                // Apply the same root-scope filter as the live publish() fan-out so that
-                // a subscriber scoped to a subset of roots does not receive buffered events
-                // for roots outside its scope.
-                if (lastEventId != null) {
-                    val buffered =
-                        synchronized(ringBuffer) {
-                            ringBuffer.filter { entry ->
-                                entry.event.id > lastEventId &&
-                                    (
-                                        sub.rootIds.isEmpty() ||
-                                            // subscriber has no root filter
-                                            entry.affectedRoots.isEmpty() ||
-                                            // bus-level event (sync.lost, auth.expired)
-                                            sub.rootIds.intersect(entry.affectedRoots).isNotEmpty()
-                                    )
+                // Gap detection and the replay snapshot are taken under ONE lock acquisition
+                // (the monitor is reentrant, so replayGapSentinel's own synchronized block
+                // nests safely) so a concurrent publish cannot evict between the two and turn a
+                // detected-gap-free resume into a silent loss.
+                val (sentinel, buffered) =
+                    synchronized(ringBuffer) {
+                        val gap = replayGapSentinel(lastEventId, resumeRequested)
+                        // When a gap was detected the sentinel's id wins over the client's cursor:
+                        // the cursor is exactly the value we just declared unusable (evicted,
+                        // beyond the high-water mark, or unparsable), and replaying from it would
+                        // deliver nothing. The sentinel id is oldestRetained.id - 1, so the client
+                        // gets the FULL retained buffer behind the sentinel and reconverges.
+                        val replayFrom = gap?.id ?: lastEventId
+                        val entries =
+                            if (replayFrom == null) {
+                                emptyList()
+                            } else {
+                                // Apply the same root-scope filter as the live publish() fan-out so
+                                // that a subscriber scoped to a subset of roots does not receive
+                                // buffered events for roots outside its scope.
+                                ringBuffer.filter { entry ->
+                                    entry.event.id > replayFrom &&
+                                        (
+                                            sub.rootIds.isEmpty() ||
+                                                // subscriber has no root filter
+                                                entry.affectedRoots.isEmpty() ||
+                                                // bus-level event (sync.lost, auth.expired)
+                                                sub.rootIds.intersect(entry.affectedRoots).isNotEmpty()
+                                        )
+                                }
                             }
-                        }
-                    for (entry in buffered) {
-                        emit(entry.event)
+                        gap to entries
                     }
+
+                // The sentinel precedes replay: the client must know the stream has a hole before
+                // it starts applying the events on the far side of it.
+                if (sentinel != null) {
+                    logger.debug(
+                        "Subscriber {} resumed with unreplayable Last-Event-ID {} (reason={})",
+                        subscriberId,
+                        lastEventId,
+                        sentinel.reason,
+                    )
+                    emit(sentinel)
+                }
+
+                for (entry in buffered) {
+                    emit(entry.event)
                 }
 
                 // Stream live events from the channel
@@ -185,6 +249,68 @@ class ApiEventBus(
             } finally {
                 unsubscribe(subscriberId)
             }
+        }
+    }
+
+    /**
+     * Returns the [ApiEventType.SYNC_LOST] sentinel a resuming subscriber must be sent before its
+     * replay, or null when the resume cursor is fully replayable (or no resume was requested).
+     *
+     * ## Gap predicate
+     * - [resumeRequested] false → null. A fresh connection has no history to miss.
+     * - [lastEventId] null while [resumeRequested] is true (unparsable cursor) →
+     *   [SyncLostReason.UNKNOWN_EVENT_ID].
+     * - [lastEventId] greater than the current high-water mark → [SyncLostReason.UNKNOWN_EVENT_ID].
+     *   This is the server-restart case: [idCounter] restarts at 0, so a pre-restart cursor would
+     *   otherwise match nothing and go silent until live ids climbed past it.
+     * - [lastEventId] older than `oldestRetained.id - 1` (or, with an empty buffer, below the
+     *   high-water mark) → [SyncLostReason.BUFFER_EVICTED].
+     *
+     * ## Global buffer, deliberately
+     * Detection reads the GLOBAL ring buffer, not the caller's root-scoped view. A root-scoped
+     * subscriber whose own events all survived can therefore receive a sentinel because some
+     * OTHER root's events were evicted — a false positive that costs the client one unnecessary
+     * re-fetch. The scoped alternative would produce false NEGATIVES (silent loss), which is the
+     * bug this exists to prevent. The asymmetry is intentional.
+     *
+     * ## Id contract
+     * `sentinel.id = oldestRetained.id - 1`, or the current high-water mark when the buffer is
+     * empty (including `bufferSize = 0`, which retains nothing) — always BELOW every event that
+     * follows it on the connection. SSE clients set their reconnect cursor from each `id:` field,
+     * so a sentinel numbered from [idCounter] would let a disconnect right after it skip the
+     * entire replayed tail. Reconnecting at the sentinel's own id yields no sentinel plus the full
+     * retained replay, so the client reconverges.
+     *
+     * Because of that, [subscribe] replays from the sentinel's id rather than the client's cursor
+     * whenever a sentinel is produced — for BOTH reasons. The cursor is by definition the value
+     * just declared unusable, so replaying from it would strand the client on live events only.
+     *
+     * The sentinel is never published: it does not enter the ring buffer, does not consume an id
+     * from [idCounter], and reaches no other subscriber.
+     */
+    internal fun replayGapSentinel(
+        lastEventId: Long?,
+        resumeRequested: Boolean,
+    ): ApiEvent? {
+        if (!resumeRequested) return null
+        return synchronized(ringBuffer) {
+            val oldestRetainedId = ringBuffer.firstOrNull()?.event?.id
+            val highWater = idCounter.get()
+            val sentinelId = oldestRetainedId?.minus(1) ?: highWater
+            val reason =
+                when {
+                    lastEventId == null -> SyncLostReason.UNKNOWN_EVENT_ID
+                    lastEventId > highWater -> SyncLostReason.UNKNOWN_EVENT_ID
+                    oldestRetainedId != null && lastEventId < oldestRetainedId - 1 ->
+                        SyncLostReason.BUFFER_EVICTED
+                    oldestRetainedId == null && lastEventId < highWater -> SyncLostReason.BUFFER_EVICTED
+                    else -> null
+                } ?: return@synchronized null
+            ApiEvent(
+                id = sentinelId,
+                event = ApiEventType.SYNC_LOST,
+                reason = reason,
+            )
         }
     }
 

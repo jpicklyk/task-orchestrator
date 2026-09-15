@@ -247,6 +247,19 @@ private val sseInlineAuthPlugin =
  * plugin -- fail closed rather than stream unfiltered. Non-tag-scoped principals take exactly
  * the pre-fix code path (no lookups, no behavior change).
  *
+ * ## Event-type filter
+ * `?types=a,b` restricts the stream to those event types — EXCEPT [ApiEventType.CONTROL_EVENTS]
+ * (`sync.lost`, `auth.expired`), which are always delivered. These report the state of the stream
+ * itself, so a filtered client would otherwise keep operating on incomplete state (or an expired
+ * credential) with no signal.
+ *
+ * ## Resume and gap reporting
+ * `Last-Event-ID` replays buffered events with a higher id. When the requested id is no longer
+ * replayable — evicted from the ring buffer, above the high-water mark (the counter restarts at 0
+ * on restart), or present but unparsable — the bus emits a `sync.lost` event carrying a
+ * [io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.SyncLostReason] as the first frame
+ * of the connection, before any replayed event. A blank header counts as no resume attempt.
+ *
  * ## Event-ID namespace separation
  * IDs from [ApiEventBus] are INDEPENDENT of `/mcp`'s `EventStore`. Do NOT mix
  * `Last-Event-ID` values across the two SSE channels.
@@ -319,6 +332,10 @@ fun Route.eventRoutes(
 
             // -----------------------------------------------------------------
             // Optional event-type filter
+            //
+            // Control events (ApiEventType.CONTROL_EVENTS) are NOT filterable — see the
+            // collect site below. A client that suppressed sync.lost would go on believing it
+            // had a contiguous stream.
             // -----------------------------------------------------------------
             val typeFilter: Set<String>? =
                 call.request.queryParameters["types"]
@@ -330,8 +347,16 @@ fun Route.eventRoutes(
 
             // -----------------------------------------------------------------
             // Last-Event-ID replay
+            //
+            // `resumeRequested` distinguishes "no resume attempted" from "resume attempted with a
+            // cursor we cannot parse". A present, non-blank but non-numeric header is a resume
+            // attempt: the bus reports it as sync.lost/unknown_event_id rather than silently
+            // treating the connection as fresh. A blank header counts as absent (per the SSE
+            // spec, a client that has no last id sends nothing meaningful).
             // -----------------------------------------------------------------
-            val lastEventId: Long? = call.request.headers["Last-Event-ID"]?.toLongOrNull()
+            val lastEventIdHeader: String? = call.request.headers["Last-Event-ID"]?.trim()
+            val resumeRequested: Boolean = !lastEventIdHeader.isNullOrEmpty()
+            val lastEventId: Long? = lastEventIdHeader?.toLongOrNull()
 
             val subscriberId = "sse-${UUID.randomUUID()}"
             sseLogger.debug(
@@ -344,7 +369,7 @@ fun Route.eventRoutes(
 
             // Capture the SseServerSession so it can be used in nested coroutines.
             val session = this
-            val flow = eventBus.subscribe(subscriberId, effectiveRoots, lastEventId)
+            val flow = eventBus.subscribe(subscriberId, effectiveRoots, lastEventId, resumeRequested)
 
             // -----------------------------------------------------------------
             // Tag-scope filter (tags_include half of scope; see "Scope filtering" above)
@@ -383,7 +408,15 @@ fun Route.eventRoutes(
                     launch {
                         try {
                             flow.collect { event ->
-                                if (typeFilter != null && event.event !in typeFilter) return@collect
+                                // Control events bypass the ?types= filter: they carry stream
+                                // state (a gap, an expired credential), not a data change, and a
+                                // filtered client needs them more than an unfiltered one does.
+                                if (typeFilter != null &&
+                                    event.event !in typeFilter &&
+                                    event.event !in ApiEventType.CONTROL_EVENTS
+                                ) {
+                                    return@collect
+                                }
                                 if (!isEventVisibleToTagScope(
                                         event = event,
                                         principal = principal,
