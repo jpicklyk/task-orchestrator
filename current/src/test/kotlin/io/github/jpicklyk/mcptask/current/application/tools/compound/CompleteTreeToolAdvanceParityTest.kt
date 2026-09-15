@@ -80,7 +80,15 @@ class CompleteTreeToolAdvanceParityTest {
         claimedBy: String? = null,
         claimExpiresAt: Instant? = null
     ): WorkItem {
-        val claimedAt = if (claimedBy != null) Instant.now() else null
+        // claimedAt must never be after claimExpiresAt (WorkItem.validate() claim invariant) — when
+        // the caller supplies an expiry (including one already in the past, for expired-claim
+        // scenarios), anchor claimedAt safely before it rather than always using "now".
+        val claimedAt =
+            when {
+                claimedBy == null -> null
+                claimExpiresAt != null -> claimExpiresAt.minusSeconds(900)
+                else -> Instant.now()
+            }
         return WorkItem(
             id = id,
             title = title,
