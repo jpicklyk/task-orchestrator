@@ -552,6 +552,34 @@ fun Route.itemWriteRoutes(
                         return errorCaptured(HttpStatusCode.Forbidden, "scope_forbidden", "Access denied for parent $newParentId")
                     }
                     val parentData = (parentResult as Result.Success).data
+
+                    // Cycle guard. Re-parenting an item onto itself, or onto one of its own
+                    // descendants, makes the hierarchy cyclic — and the descendant depth/rootId
+                    // cascade further down then walks that cycle forever, so the request hangs
+                    // instead of failing. Reject both as client errors BEFORE any write. Ordered
+                    // after the existence and scope checks so not_found / scope_forbidden
+                    // precedence is unchanged.
+                    if (newParentId == id) {
+                        return errorCaptured(HttpStatusCode.BadRequest, "validation_error", "An item cannot be its own parent")
+                    }
+                    // Walk the proposed parent's ancestor chain upward: if this item appears in
+                    // it, the proposed parent lives inside this item's own subtree. Bounded by the
+                    // parent's depth + 1 hops so an already-malformed chain cannot spin here either.
+                    var ancestorId: UUID? = parentData.parentId
+                    var hopsRemaining = parentData.depth + 1
+                    while (ancestorId != null && hopsRemaining > 0) {
+                        if (ancestorId == id) {
+                            return errorCaptured(
+                                HttpStatusCode.BadRequest,
+                                "validation_error",
+                                "Cannot re-parent an item under its own descendant",
+                            )
+                        }
+                        val ancestorResult = workItemRepo.getById(ancestorId)
+                        ancestorId = if (ancestorResult is Result.Success) ancestorResult.data.parentId else null
+                        hopsRemaining--
+                    }
+
                     newDepth = parentData.depth + 1
                     // Inherit the new parent's root (or the parent's own id, if the parent
                     // predates the root_id backfill and has no rootId yet).
