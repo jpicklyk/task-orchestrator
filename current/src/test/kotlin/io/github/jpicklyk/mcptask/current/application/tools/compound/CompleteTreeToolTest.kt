@@ -59,6 +59,7 @@ class CompleteTreeToolTest {
         // Specific per-test stubs declared later override these defaults.
         every { depRepo.findByToItemId(any()) } returns emptyList()
         every { depRepo.findByFromItemId(any()) } returns emptyList()
+        coEvery { workItemRepo.countChildrenByRole(any()) } returns Result.Success(emptyMap())
 
         context = ToolExecutionContext(repoProvider)
     }
@@ -287,7 +288,13 @@ class CompleteTreeToolTest {
             coEvery { workItemRepo.getById(idA) } returns Result.Success(itemA)
             coEvery { workItemRepo.getById(idB) } returns Result.Success(itemB)
             coEvery { workItemRepo.getById(idC) } returns Result.Success(itemC)
-            coEvery { workItemRepo.update(any()) } answers { Result.Success(firstArg()) }
+            // Construction-only: AdvanceService re-reads a blocker's role from the repository, so a
+            // persisted update must be visible to later getById calls (a real DB does this itself).
+            coEvery { workItemRepo.update(any()) } answers {
+                val u = firstArg<WorkItem>()
+                coEvery { workItemRepo.getById(u.id) } returns Result.Success(u)
+                Result.Success(u)
+            }
             coEvery { roleTransitionRepo.create(any()) } returns Result.Success(mockk())
 
             // A has no incoming deps in target set; B has A as blocker; C has B as blocker
