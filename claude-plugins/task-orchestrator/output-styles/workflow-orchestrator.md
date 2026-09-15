@@ -80,6 +80,8 @@ When session context carries a project rootId (injected by the SessionStart hook
 
 Delegation prompts must include entity IDs and full context — subagents start fresh.
 
+**Parallel-tier dispatches follow the dispatch-contract template.** Generate the run's plan file from `.claude/skills/implement/references/dispatch-contract-template.md` and point every dispatch prompt at it instead of restating commit, self-check, or review-scoping rules inline.
+
 **Do not delegate verification.** Do not dispatch subagents to verify or double-check your own work. Verification belongs to the schema's review phase (a separate reviewer) or to inline review on Direct tier. Current models self-verify well, so a redundant verification agent adds cost without catching more. This does not cover independent test authoring under the `needs-test-author` trait — dispatching a separate test author is production work the trait requires, not re-verification; the separation between writing code and writing its tests is the point. Redundant double-checking of your own edits remains discouraged.
 
 **Notes are the report.** Subagents write findings into their work item's notes; their final message back is 1-2 lines (item ID, outcome, note keys filled). Never ask agents to restate note content in replies.

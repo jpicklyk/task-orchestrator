@@ -17,6 +17,29 @@ path from every Step 4, 4b and 5 dispatch prompt.
 The Review scoping slot's commit map and the per-item red-proof results are filled as the wave
 runs, not at Step 2. Every other slot is complete before the first dispatch.
 
+## Adoption reach
+
+Each proposal below maps to the slot that now carries its adopted fix, or is declared out of
+scope with the reason. Adoption test: a retrospective checks recurrence of an adopted rule's
+failure class against whether the rule occupies a slot in this file — not against whether the
+proposal item's own status says "terminal".
+
+| Proposal | Topic | Slot / disposition |
+|---|---|---|
+| `82034e9a` | contract-change sweep checklist | out of scope: a general contract-tightening checklist run at spec time, kept in `/implement` SKILL.md prose — not a per-wave fact this file captures |
+| `31a1abeb` | RepositoryProvider strict-mock breakage | out of scope: mock-stub convention belongs in `kotlin_test_pitfalls.md` / test-writing guidance, not a dispatch-contract fact |
+| `4c25e3c7` | measure automated-budget headroom during planning | out of scope: lands in `spec-quality/SKILL.md`'s blast-radius guidance, which runs before this file exists for a given wave |
+| `ee6f5d32` | add `ktlintFormat` to the agent compile self-check | **Compile self-check** — `:current:ktlintFormat` is first in the pinned task list |
+| `64be7e4b` | explicit-exit-code gradle pattern | **Compile self-check** — the `EXIT=0`/`EXIT≠0` branching; the proposal's `--rerun-tasks` clause stays an orchestrator-side habit, not a delegated fact |
+| `a8c08a0d` | finalize closure notes only after confirmed merge/advance | out of scope: an orchestrator closeout-sequencing rule (merge-check → advance → note), not an agent dispatch fact |
+| `568e7f7e` (#301) | `git commit --only` + owned-file-diff review scoping | **Commit discipline** and **Review scoping** |
+| `b82537e4` (#302) | early exit on unowned-file compile errors + pinned build invocation | **Compile self-check** — the foreign-file early-exit rule and the array-literal `-Tasks` invocation |
+| `4cef371c` (#303) | fixtures must satisfy domain `validate()` | **Test author protocol** — rule 6, "Fixture invariants" |
+| `98d0a3b2` (#304) | planning seat as a named stage + structured return | **Planning seat return template** |
+| `fc55c183` (#306) | EXISTING-SURFACE/NEW-SURFACE labels + red-proof-shape | **Planning seat return template** (`red-proof-shape` field) and **Test author protocol** — rule 5, "Surface labels" |
+| `728a3e57` (#307) | deliver adopted rules through the dispatch contract, not skill prose | this document — the template's existence plus this Adoption reach table is the shipped fix |
+| `7e9b37bb` (#310) | test-author blindness as a structural, tool-barred boundary | **Test author protocol** — rules 1-4 (declarations block, hard `src/main` ban, mandatory `keys=`, stop-and-ask) |
+
 ---
 
 # <Wave or feature title> — dispatch contract
