@@ -605,47 +605,12 @@ This carve-out also modifies the build-verification rule below: a red author-aut
 **not** a broken build. Route it to arbitration above; if unresolved, hold the child in work and
 report — do not dispatch a generic "fix agent" against it.
 
-**Test-author dispatch template (Delegated or Parallel):**
-
-```
-Agent(
-  prompt="""
-  Working directory: <worktree-or-branch-path>
-  Branch (already checked out): <branch-name>
-  Scope (modify ONLY): src/test/** for this item's changed surface. Do NOT create or
-  modify any file under src/main/**.
-
-  You are the TEST AUTHOR for this item, independent of implementation. Read ONLY:
-  the item's test-plan note, public signatures, domain models, existing test
-  conventions, and the implementer's changed FILE NAMES (not diff content). Do NOT
-  read: the implementation diff, the implementer's tests, implementation-notes, or
-  session-tracking.
-
-  Invoke the test-author skill before filling test-manifest — it defines scenario
-  derivation, oracle derivation, blindness, and forbidden patterns. test-plan was
-  already filled and frozen by the planning seat at queue phase; you do not fill it.
-
-  Every scenario's expected result must trace to a stated oracle (spec clause,
-  algorithm, external reference) — never "what the code returns."
-
-  If a test you wrote fails: report it — never weaken the assertion, never add a
-  skip; the orchestrator arbitrates.
-
-  [Parallel tier only] Format + compile self-check (REQUIRED before returning):
-    ./gradlew -p <worktree-path> :current:ktlintFormat :current:compileKotlin :current:compileTestKotlin
-  Do NOT run :current:test or :current:ktlintCheck — orchestrator owns full build
-  verification for this wave.
-  [Delegated tier only] Run the full lint cycle yourself (ktlintCheck -> ktlintFormat
-  -> re-verify) and :current:test before committing — you own gradle on this branch.
-
-  Fill test-manifest (actor id, file paths, SHA range, S-id-to-test mapping, probes,
-  forbidden-pattern declaration) before returning. Commit your changes with a
-  descriptive message.
-  """,
-  model="sonnet",
-  subagent_type="general-purpose"
-)
-```
+**Test-author dispatch prompt:** point the agent at the **Test author protocol** slot of the
+wave's dispatch contract (`plans/<slug>.md`, instantiated from
+[`references/dispatch-contract-template.md`](references/dispatch-contract-template.md)) — it
+states the declarations block, the `src/main` tool ban, the `keys=` filter, stop-and-ask, fixture
+invariants, surface labels, commit form and manifest fields in full; on a Delegated-tier run with
+no contract file, paste that slot into the prompt instead of paraphrasing it.
 
 Capture the test author's pre/post commit SHAs the same way as implementation agents
 (`Test-Pre-SHA` / `Test-Post-SHA` in the tracking table above), then run the disjointness check.

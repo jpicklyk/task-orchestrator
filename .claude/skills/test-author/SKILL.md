@@ -74,6 +74,30 @@ written test code refers to them — the `test-manifest`'s S-id→test mapping i
 the ids are stable across the plan/manifest boundary. If a scenario is dropped, mark it
 `S4 — dropped: <reason>` rather than closing the numbering gap.
 
+**Label every scenario `EXISTING-SURFACE` or `NEW-SURFACE`.** Red-proof is obtained by reverting
+the fix and running the item's tests. That works only where the scenario binds to a surface that
+already existed: when the fix *introduces* the type, parameter, seam or enum constant a test
+references, reverting it produces a **compile** failure rather than a behavioral red. Compile-red
+proves the tests reference new code; it does not prove they detect wrong behavior. Across two bug
+waves this hit 3 of 10 items and then 2 of 5 — and in the second wave the two affected items were
+the security fix and the silent-exit fix, the two whose defects mattered most.
+
+- **`EXISTING-SURFACE`** — every declaration the scenario touches exists before the fix. A plain
+  revert yields behavioral red; no extra field is needed.
+- **`NEW-SURFACE`** — the scenario binds to a declaration the fix introduces. It MUST carry a
+  **narrowest-revert recipe**: the smallest revert that still compiles and still exercises the
+  behavior. Typically *keep the new type, parameter or enum constant; revert only its call sites*
+  — the technique that recovered genuine behavioral red on 2 of 3 such items in bug wave 1.
+- **`NEW-SURFACE` with no revert that can yield behavioral red** — say so explicitly and name the
+  **substitute verification** that replaces it (e.g. "reviewer reads each test body against the
+  implementation and confirms every asserted value traces to its oracle citation"). A substitute
+  declared in the plan is evidence; one produced at verification time is an excuse.
+
+The plan author assigns these labels, not the test author: the test author is blind to the
+implementation by design (§4) and therefore cannot tell which surfaces are new. Where a dispatch
+contract's planning seat returns a `red-proof-shape` field, it carries this same labelling, set
+before the author is dispatched. The shape actually obtained is recorded in `test-manifest` (§10).
+
 ---
 
 ## 3. Oracle-Derivation Rule
@@ -107,36 +131,115 @@ An oracle citation that instead reads `"matches current behavior"` or `"see impl
 not an oracle — it is a confession that this rule was skipped, and should block the note from
 being accepted as complete.
 
+**A `NEW-SURFACE` label (§2) does not relax any of this.** When a scenario binds to a declaration
+the fix introduces, the pull toward sourcing the expected value from the new code is strongest —
+the surface exists nowhere else yet. It still does not qualify as an oracle. Derive the expected
+result from the spec clause that motivated the new surface, or escalate per §8. A new surface with
+no oracle available outside the implementation is a spec gap to raise, not a licence to read.
+
 ---
 
-## 4. Blindness Rule
+## 4. Blindness Rule — A Capability Boundary
 
-The test author's independence is only real if its inputs are actually restricted. This section
-is the enforceable half of that — the queue-phase oracle freeze (§3) is the other half.
+The test author's independence is only real if its inputs are actually restricted. This section is
+the enforceable half of that — the queue-phase oracle freeze (§3) is the other half.
 
-**May read:**
-- Queue-phase specification notes (`task-scope`, `feature-summary`, `diagnosis`) and the
-  `test-plan` note itself.
-- Public signatures — function/class declarations, interface contracts, tool `parameterSchema`s.
-- Domain models and other declared data shapes.
-- Project documentation (`current/docs/`, `CLAUDE.md`).
-- Existing test conventions in the codebase (naming, fixture setup, assertion style) — for
-  consistency of form, not for expected values.
-- The implementer's changed-file **names** (from `git diff --name-only` or the implementation
-  notes' file list) — needed to know where to write tests, not what they contain.
+**Why this is not a reading-discipline rule.** An earlier version of this section told the author
+how to read implementation sources *narrowly*: look up the declaration, stop before the body. That
+model cannot hold, because no reading tool has a declarations-only mode. `Read` returns a window,
+`Grep -A<n>` returns context lines, `sed -n <a>,<b>p` returns a range — every one of them will put
+a function body in front of an author who is trying, in good faith, to resolve a signature.
+Restraint fails at the tool boundary, so the boundary moves.
 
-**Must not read:**
-- Diff content of the implementer's changes.
-- The implementer's own tests, if any exist (e.g., a probe or smoke test the implementer left
-  behind).
-- `implementation-notes` or `session-tracking` bodies.
+**The evidence.** Bug wave 3 (2026-09), item `a3ebd108`, consumed THREE test authors:
 
-**If the public signature contract doesn't compile against the test as planned** — a parameter
-was renamed, a return type changed shape, a method the plan assumed exists doesn't — do not
-guess the corrected shape from context clues in the diff. Escalate: this is either a
-plan-vs-implementation drift that needs arbitration (§8) or a genuine signature question the
-implementer must answer directly, not something to resolve by reading the diff to see what
-changed.
+1. The first called `query_notes(operation="list")` with no `keys=` filter, received
+   `implementation-notes` in the response, and read the implementation files it named — an ingress
+   no reading-method rule had contemplated.
+2. The second, working under the previous wave's "use Grep with `-A2`, never Read" remedy, widened
+   to `sed -n <a>,<b>p` ranges "to catch wrapped signatures" and read the sentinel function's body.
+3. The third was handed every public declaration inline in its dispatch prompt and was barred from
+   `src/main` by any tool. Zero lookups; 12/12 scenarios plus 7 probes; reviewer verdict
+   `independent`.
+
+Authors 1 and 2 both self-disclosed and stopped before committing, so no contaminated artifact was
+ever tracked — the self-disclosure protocol worked, twice. What failed was the reading model, at a
+price of two burned dispatches. The rules below are the structural replacement.
+
+**They are capability rules, not care rules.** A breach is a breach whether or not anything useful
+was seen, and it is disclosed the same way either way.
+
+### 4.1 Declarations are supplied, not looked up
+
+The dispatch prompt — or the **Test author protocol** slot of the wave's dispatch contract — MUST
+paste inline and verbatim every public declaration the author needs: types and data-class
+constructors with full parameter lists and defaults, function and method signatures, constants,
+enum values, and any KDoc that carries an oracle or states an invariant (`validate()` included,
+per §7 Fixture invariants). The author writes tests against that block and goes looking for
+nothing further.
+
+A declarations block that is missing entirely is an orchestrator error. Say so and stop (§4.4);
+do not reconstruct it.
+
+### 4.2 Hard tool ban on implementation sources
+
+Do not open any file under `src/main` with ANY tool — `Read`, `Grep`, `sed`, `cat`, `head`, `Glob`
+preview, an editor, or any shell command whose output includes file content. The ban attaches to
+the file, not to the intent: "I only wanted the signature" does not make the call permitted,
+because the tool decides what comes back, not you.
+
+Banned for the same reason: `git diff`, `git show`, `git log -p` and any other view of the
+implementer's changes on this branch.
+
+`src/test` stays fully readable. Existing tests, fixtures and harnesses are how you match the
+codebase's conventions — reading them is expected, not merely tolerated.
+
+### 4.3 `keys=` is mandatory on every `query_notes` call
+
+Every `query_notes` call carries an explicit `keys=` filter restricted to the item's queue-phase
+keys — typically `["task-scope", "diagnosis", "test-plan"]`. An unfiltered `operation="list"`
+returns `implementation-notes` and `session-tracking` in the same response and **is itself a
+breach**, whether or not their bodies were read. `includeBody=true` with a `keys=` filter is fine;
+`includeBody=true` without one is the exact call that burned wave 3's first author.
+
+The same holds for `query_notes(operation="search")`: scope it to the item, and never search for
+terms that would rank implementation prose highly.
+
+### 4.4 A missing declaration means stop and ask
+
+If a declaration you need is absent from the supplied block — or what was supplied does not
+compile against the test as planned, because a parameter was renamed, a return type reshaped, or a
+method the plan assumed exists does not — do **not** derive the corrected shape from context, from
+a compiler error that quotes surrounding source, or from the diff.
+
+Send the question back: `SendMessage` to the orchestrator (Parallel/Delegated tier), or ask the
+user (Direct tier), naming the exact declaration you need. Asking costs one round-trip; the lookup
+costs the dispatch. This is the escalation path of §8, and a plan-vs-implementation drift found
+this way is a finding worth recording, not an inconvenience to route around.
+
+### 4.5 What the author may read
+
+- Queue-phase specification notes (`task-scope`, `feature-summary`, `diagnosis`) and `test-plan`,
+  fetched with a `keys=` filter per §4.3.
+- The declarations block supplied by the dispatch (§4.1).
+- Project documentation (`current/docs/`, `CLAUDE.md`) and any external reference cited as an
+  oracle.
+- Everything under `src/test` — conventions, fixtures, harnesses, existing assertions.
+- The implementer's changed-file **names** (`git diff --name-only`, or the File ownership rows of
+  the dispatch contract) — enough to know where tests belong, not what the files contain.
+
+Never: any file under `src/main`; any diff, commit or patch content; the implementer's own tests
+where the dispatch identifies them as such; `implementation-notes`; `session-tracking`.
+
+### 4.6 Self-disclosure on breach — unchanged
+
+If you breach any rule above, deliberately or by accident: stop immediately, commit nothing, and
+report exactly what was read and when — in your return message and in `test-manifest`'s
+arbitration record. Delete any draft written after the breach and say that you did.
+
+This protocol is the part of the old model that worked, three times across two waves, and it is
+unchanged. A disclosed breach costs a re-dispatch. An undisclosed one costs the trait: every later
+`independent` verdict on the item becomes unverifiable.
 
 ---
 
@@ -217,6 +320,31 @@ is a blocking finding regardless of intent.
   ignores the exception instead of failing the test, so an assertion failure and a caught
   exception both read as a pass.
 
+### Fixture invariants
+
+Distinct from the patterns above, and their mirror image: a fixture that violates a domain
+invariant produces a **red** suite that looks like an implementation bug. The test fails for a
+reason unrelated to the behavior under test, and the cost lands on the orchestrator as an
+arbitration round-trip, after the author has already returned. The recorded instance: a claim
+fixture built with `claimedAt = Instant.now()` alongside a `claimExpiresAt` in the past, which
+`WorkItem.validate()` rejects outright.
+
+Before writing a fixture or a fixture helper, read the domain type's `validate()` — from the
+declarations supplied per §4.1, not by opening `src/main` — and satisfy it **by construction**:
+
+- **Derive dependent fields from each other, never independently.** For the case above:
+  `claimedAt = claimExpiresAt.minus(ttl)`. The same shape applies to any pair the type constrains
+  — created/modified, start/end, offset/limit, parent depth vs. child depth.
+- **Escalate rather than relax.** If a scenario cannot be constructed without violating an
+  invariant, that is a finding about the scenario or about the invariant — raise it per §8. Do not
+  weaken the fixture, do not bypass `validate()` by reflection or a test-only backdoor, and do not
+  quietly retarget the scenario at whatever state happens to be constructible.
+- **Name the invariants respected in `test-manifest`** (§10), so a reviewer can tell a fixture
+  that satisfies `validate()` by construction from one that passes by luck.
+
+If the invariant check is not among the supplied declarations, ask for it (§4.4) — it is exactly
+the kind of oracle-bearing declaration the dispatch is required to paste.
+
 ---
 
 ## 8. Ambiguity Arbitration
@@ -279,6 +407,15 @@ Fill every field — an omitted field reads as "not done," not as "not applicabl
 - **Forbidden-pattern declaration** — every use of `assumeTrue`, a disjunctive assertion, or any
   other §7 pattern present in the authored tests, each with a justification. An empty declaration
   asserts none were used — it is itself a claim the reviewer checks.
+- **Invariants respected** — for each fixture, the domain invariant it satisfies by construction
+  (§7 Fixture invariants): the `validate()` clause and the derivation used. Record any invariant
+  that forced an escalation rather than a fixture.
+- **Red-proof shape obtained** — for every scenario the plan labelled `NEW-SURFACE` (§2), which
+  shape was actually obtained: `behavioral-red (narrowest revert: <what was reverted>)`, or
+  `compile-red only — substitute verification: <what the reviewer does instead>`. Where the revert
+  is orchestrator-run rather than author-run, record `red evidence: orchestrator-run` together with
+  the recipe you expect it to use. `EXISTING-SURFACE` scenarios need nothing here beyond the §5
+  red-first result.
 - **Arbitration record** — every ambiguity raised per §8, its resolution, and any `oracle-degraded`
   markers.
 - **Implementer modifications** — if the implementer touched test files after the author's

@@ -113,7 +113,65 @@ each with where the excluded work goes instead>`.
 
 ## Test author protocol
 
-_RESERVED — owned by task `667d7814` (test-author declarations, blindness and fixture rules, #310/#303/#306); filled there, not here._
+One author per item, `src/test/**` only, dispatched after that item's implementer returns. The
+author's blindness is a CAPABILITY boundary, not a reading discipline: it holds only because the
+declarations below are supplied and the lookups are banned.
+
+**Declarations — the orchestrator fills one block per item before dispatch. The author looks up
+nothing.**
+
+```
+DECLARATIONS for <short-uuid> — verbatim and complete
+<every public declaration the tests touch: types and data-class constructors with full parameter
+lists and defaults; function and method signatures; constants; enum values; and any KDoc carrying
+an oracle or stating an invariant — including the validate() the fixtures must satisfy>
+```
+
+Rules for the author (a breach is a breach whether or not anything useful was seen):
+
+1. **Read:** this file; the item's planning notes via
+   `query_notes(operation="list", itemId="<uuid>", keys=["task-scope","diagnosis","test-plan"], includeBody=true)`;
+   anything under `src/test`. Then invoke the `test-author` skill (Skill tool).
+2. **`keys=` is mandatory on EVERY `query_notes` call**, restricted to those queue-phase keys. An
+   unfiltered `operation="list"` returns `implementation-notes` and is itself a breach.
+3. **Never open any file under `src/main` with ANY tool** — Read, Grep, sed, cat, head, Glob
+   preview, editor, or any command whose output includes file content. Never `git diff` / `show` /
+   `log -p` on this branch. Not the diff, not `implementation-notes`, not `session-tracking`.
+4. **Missing or non-compiling declaration → stop and ask** (`SendMessage` to the orchestrator),
+   naming the exact declaration. Do not derive it from context, from a compiler error, or from the
+   diff. Asking costs a round-trip; the lookup costs the dispatch.
+5. **Surface labels.** `test-plan` labels every scenario `EXISTING-SURFACE` or `NEW-SURFACE`. Write
+   each `NEW-SURFACE` test so the plan's narrowest-revert recipe (keep the new type/parameter,
+   revert only its call sites) still exercises it; where the plan names a substitute verification
+   instead, carry it into the manifest unchanged.
+6. **Fixture invariants.** Satisfy the domain type's `validate()` by construction, deriving
+   dependent fields from each other (`claimedAt = claimExpiresAt.minus(ttl)`). Escalate rather than
+   relax when a scenario is unconstructible. Never bypass `validate()` by reflection or a test-only
+   backdoor.
+7. **Oracles** come from the `test-plan` citations, never from what the code returns. Tests must
+   fail without the fix; red-proof is orchestrator-run unless this file says otherwise.
+8. **Scope:** create ONLY the new test files the File ownership slot lists for your item. Never
+   `src/main`, never docs, never another item's files, never a shared test harness.
+9. **Forbidden:** `assumeTrue` on non-platform conditions, `@Disabled` / `@Ignore`, disjunctive
+   escapes (`|| isEmpty()`), assert-not-null-only, swallowed exceptions, sleep-until-green.
+10. **Compile self-check** ONCE, per the Compile self-check slot. Foreign-file errors → record,
+    commit, do not retry.
+11. **Commit** per the Commit discipline slot:
+    `git -C <wt> add <your paths>` then
+    `git -C <wt> commit --only -m "test(<scope>): <title> [<short-uuid>]" -m "<why>" -- <your paths>`,
+    then `git -C <wt> show --stat HEAD` to verify.
+12. **`test-manifest`** (`manage_notes` upsert, role `work`, max `<3000>`): actor id
+    `test-author:<short-uuid>`; test file paths; commit SHA; S-id → test mapping (`covered:
+    <method>` / `not-covered: <reason>`); probes run, including the ones that found nothing;
+    forbidden-pattern declaration; invariants respected; red-proof shape obtained per
+    `NEW-SURFACE` scenario; arbitration record.
+13. **Call no `advance_item` and no `manage_items`.** Return ONE line:
+    `<short-uuid>: commit <sha> | files: <list> | scenarios: <covered>/<total> | compile: EXIT=<n> | missing-declaration: <none or name>`
+
+On a breach of any rule above, deliberate or accidental: stop, commit nothing, delete any draft
+written after it, and disclose exactly what was read — in the return line and in the manifest's
+arbitration record. A disclosed breach costs a re-dispatch; an undisclosed one costs the item's
+independence verdict.
 
 ## Docs
 
