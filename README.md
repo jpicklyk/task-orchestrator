@@ -286,6 +286,13 @@ config-sync:
 
 Without schemas, all 14 tools work in schema-free mode — no gates, no required notes. Add schemas when you want enforcement.
 
+**Health check.** The image ships a Docker `HEALTHCHECK` that polls a readiness marker file
+(`READINESS_FILE`, default `/tmp/mcp-task-orchestrator.ready`) written only after the server has
+fully started — DB init, schema update, and transport bind all succeeded. This covers **both**
+transports: a `stdio` container is just as much a candidate for `docker ps`/orchestrator health
+checks as an `http` one, not only the HTTP case. `docker inspect --format '{{.State.Health.Status}}'
+<container>` reports `healthy`/`unhealthy`/`starting`.
+
 ---
 
 ## Claude Code Plugin

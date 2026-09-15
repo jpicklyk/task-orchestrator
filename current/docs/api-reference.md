@@ -565,8 +565,13 @@ When both `notes` and `createNotes: true` are provided, explicit `notes` entries
 ### complete_tree
 
 **Purpose.** Batch-complete (or cancel) all descendants of a root item, or an explicit list of
-items, in topological dependency order. Gate enforcement applies per item: if required notes are
-missing, that item fails and its downstream dependents within the set are skipped.
+items, in topological dependency order. Each item is advanced through the SAME `AdvanceService`
+pipeline as `advance_item` — resolve → validate dependencies → required-note gate →
+resource-lease gate → apply → cascade detection → unblock detection — run per item, one item at a
+time in topological order, so claim ownership, dependency validation, and the resource-lease gate
+all apply here exactly as they do on a single `advance_item` call. If required notes are missing
+(and the trigger doesn't bypass the gate — see below), that item fails and its downstream
+dependents within the set are skipped.
 
 **When to call.** Call when closing out a finished hierarchy — one atomic call instead of per-item advance sequences.
 
@@ -585,7 +590,13 @@ missing, that item fails and its downstream dependents within the set are skippe
 
 Exactly one of `rootId` or `itemIds` must be provided.
 
-**Gate enforcement and `trigger`:** When `trigger="complete"`, gate enforcement applies — items whose schema resolves (via `type`, tag match, or default fallback) must have all required notes filled before completing; items that fail gating are recorded as `gateErrors` and their dependents within the set are skipped. When `trigger="cancel"`, gate enforcement is bypassed — all items in the set are cancelled regardless of note state.
+**Gate enforcement and `trigger`:** When `trigger="complete"`, the required-note gate applies —
+items whose schema resolves (via `type`, tag match, or default fallback) must have all required
+notes filled before completing; items that fail gating are recorded as `gateErrors` and their
+dependents within the set are skipped. When `trigger="cancel"`, the **note gate** is bypassed — all
+items in the set are cancelled regardless of note state — but claim ownership and the
+resource-lease gate are **not** bypassed by `cancel`; an item held by another agent's claim, or
+blocked on a contended lease, is still rejected the same way it would be under `complete`.
 
 **Example.**
 
@@ -598,21 +609,54 @@ Exactly one of `rootId` or `itemIds` must be provided.
 ```json
 {
   "results": [
-    { "itemId": "uuid", "title": "Design login flow", "applied": true, "trigger": "complete", "statusLabel": "done" },
+    {
+      "itemId": "uuid", "title": "Design login flow", "applied": true, "trigger": "complete",
+      "statusLabel": "done", "previousRole": "review", "newRole": "terminal",
+      "cascadeEvents": [], "unblockedItems": []
+    },
     { "itemId": "uuid", "title": "Implement handler", "applied": false, "gateErrors": ["missing: done-criteria"] },
-    { "itemId": "uuid", "title": "Write tests", "applied": false, "skipped": true, "skippedReason": "dependency gate failed" }
+    { "itemId": "uuid", "title": "Write tests", "applied": false, "skipped": true, "skippedReason": "dependency gate failed" },
+    { "itemId": "uuid", "title": "Deploy", "applied": false, "skipped": true, "skippedReason": "rejected_by_policy", "errorKind": "permanent" },
+    {
+      "itemId": "uuid", "title": "Migrate staging", "applied": false, "skipped": true,
+      "skippedReason": "resource_unavailable", "errorKind": "transient", "errorCode": "resource_unavailable",
+      "retryAfterMs": 30000, "contendedResources": ["staging-db"]
+    }
   ],
-  "summary": { "total": 3, "completed": 1, "skipped": 1, "gateFailures": 1 }
+  "summary": { "total": 5, "completed": 1, "skipped": 3, "gateFailures": 1 }
 }
 ```
 
 `statusLabel` is included on successfully transitioned items when the item ends up with a status label (config-driven via `status_labels`; defaults: `"done"` for `complete`, `"cancelled"` for `cancel`); omitted otherwise.
 
-**`skippedReason` values:** Items can be skipped for two reasons:
-- `"dependency gate failed"` — a blocker item in the same target set failed its gate check or failed to apply, and this item is a downstream dependent.
-- `"Cannot transition"` (or a specific error message) — the item itself could not be resolved for transition (e.g., it is already terminal or the role is incompatible with the trigger).
+**Applied-entry fields (`applied: true`):** in addition to `itemId`, `title`, `trigger`, and
+`statusLabel`, a successfully-applied entry now carries `previousRole`, `newRole`, `cascadeEvents`,
+and `unblockedItems` — the same cascade/unblock-detection fields `advance_item` returns for a single
+transition, since every item advances through the identical `AdvanceService` pipeline. `cascadeEvents`
+is empty when nothing cascaded from this item's completion. An item whose completion was already
+implied by an earlier cascade in this same batch (e.g. completing a child cascaded the root to
+`TERMINAL` before the root's own entry in `itemIds`/`rootId` was processed) is reported as already
+terminal rather than re-applied — it is not double-counted and produces no duplicate audit row.
 
-**`summary` fields:** `total` = completed + skipped + gateFailures. `completed` = items successfully transitioned. `skipped` = items skipped due to upstream gate/apply failures or items already terminal. `gateFailures` = items that failed gate checks (missing required notes); their downstream dependents are counted in `skipped`.
+**Rejected-entry fields (`applied: false`, non-gate rejection):** a rejection from claim ownership,
+dependency validation, the resource-lease gate, or the underlying `AdvanceService` apply step
+carries the SAME error shape `advance_item` uses — `skippedReason` set to the `advance_item` error
+code (e.g. `"not_claim_holder"`, `"rejected_by_policy"`, `"resource_unavailable"`), plus whichever of
+`errorKind`, `errorCode`, `retryAfterMs`, `contendedItemId`, `contendedResources`, and `blockers`
+apply to that failure — see [Error Envelope](#error-envelope) for the full field set. These
+non-gate rejections skip in-set dependents exactly like a gate failure does.
+
+**`skippedReason` values:** Items can be skipped for:
+- `"dependency gate failed"` — a blocker item in the same target set failed its gate check or failed to apply, and this item is a downstream dependent.
+- `"Cannot transition"` (or a specific error message) — a **resolution failure**: the item itself could not be resolved for transition (e.g., it is already terminal or the role is incompatible with the trigger). Unlike every other non-gate rejection, a resolution failure does NOT skip this item's in-set dependents.
+- An `advance_item` error code (see "Rejected-entry fields" above) — claim ownership, dependency, or resource-lease rejections; these DO skip in-set dependents.
+
+**`summary` fields:** `total` = completed + skipped + gateFailures. `completed` = items successfully transitioned. `skipped` = items skipped due to upstream gate/apply failures, non-gate rejections (ownership/dependency/lease), or items already terminal. `gateFailures` = items that failed the required-note gate; their downstream dependents are counted in `skipped`.
+
+**Audit attribution:** the top-level `actor` (see Key Parameters) is parsed once per call and
+threaded into every item's `AdvanceService.advance(...)` call, so each resulting role-transition
+audit row carries real actor attribution instead of a null actor. An actor that fails to parse
+fails the whole `complete_tree` call before any item is touched.
 
 ---
 
@@ -1976,13 +2020,19 @@ config bytes are parsed (`PerRootConfigService`, on every schema-resolving read)
   "fingerprint": "a94a8fe5cc...",
   "updatedAt": "2026-07-14T18:40:00Z",
   "warning": "Root item type is 'null', not 'project' — config pushed anyway (a naming convention, not an enforced constraint)",
-  "ignoredSections": ["actor_authentication"]
+  "ignoredSections": ["actor_authentication"],
+  "schemaWarnings": ["Schema 'feature-task' entry[2] (key='spec') has invalid role 'plan' (valid: queue, work, review); skipping"]
 }
 ```
 
 `warning` is only present when the root's `type` is not `"project"`. `ignoredSections` is only
 present (and non-empty) when the pushed document contains top-level keys outside the honored
-allowlist above — e.g. `actor_authentication`.
+allowlist above — e.g. `actor_authentication`. `schemaWarnings` is only present (and non-empty)
+when `YamlSchemaParser` emitted per-entry warnings while parsing the pushed document — e.g. a note
+schema entry with an invalid `role` value, which is skipped rather than rejecting the whole push.
+The push still succeeds and the document is still stored regardless of `schemaWarnings` — these are
+advisory, not validation failures (contrast with the `VALIDATION_ERROR` cases below, which reject
+the push outright).
 
 **Error cases.**
 

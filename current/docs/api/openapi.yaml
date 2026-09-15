@@ -833,6 +833,16 @@ components:
             by the per-root resolution layer (e.g. actor_authentication, which stays global-only).
             Honored keys: work_item_schemas, note_schemas, traits, project, note_limits,
             status_labels. Omitted entirely when empty.
+        schemaWarnings:
+          type: array
+          nullable: true
+          items:
+            type: string
+          description: >-
+            Present on PUT only, and only when YamlSchemaParser produced per-entry parse warnings
+            for the pushed document (e.g. a note schema entry with an invalid role value, which is
+            skipped rather than rejecting the whole push). The push still succeeds and the config
+            is still stored regardless of schemaWarnings. Omitted entirely when empty.
 
     PlanDocumentResponseDto:
       type: object
@@ -949,6 +959,12 @@ paths:
       summary: List work items
       operationId: listItems
       tags: [items]
+      description: >-
+        A token with scope.tags_include is additionally filtered to items carrying at least one
+        allowed tag (item-level exact match, no ancestor walk). A tag-scoped caller reads a bounded
+        1000-row candidate window before filtering, then paginates the filtered result — totalItems
+        reflects only the visible (post-filter) count. A tag scope matching nothing returns 200
+        with an empty page, never 403.
       parameters:
         - $ref: "#/components/parameters/page"
         - $ref: "#/components/parameters/pageSize"
@@ -1081,7 +1097,10 @@ paths:
         Scoped tokens return only the specific root items within scope (totalItems is the exact
         scoped root count). Unscoped/admin callers get standard page/pageSize pagination with
         totalItems from an exact COUNT query — no cap; page through all roots with repeated
-        requests.
+        requests. A scope.tags_include token is additionally filtered to items carrying at least
+        one allowed tag, applied in-memory over a bounded 1000-row candidate window (same caveat
+        as GET /items) — totalItems then reflects only the visible count. A tag scope matching
+        nothing returns 200 with an empty page, never 403.
       operationId: listRootItems
       tags: [items]
       parameters:
@@ -1145,6 +1164,12 @@ paths:
       summary: JSON Merge Patch update
       operationId: patchItem
       tags: [items]
+      description: >-
+        When the patch re-parents the item (parentId changed to a non-null value), the new parent
+        is scope-checked the same way POST /items checks a create-time parentId — 403
+        scope_forbidden if the new parent is outside the caller's scope (root_ids or tags_include).
+        An unknown new parent still returns 400 not_found first; scope is checked only after the
+        parent is confirmed to exist, so scope_forbidden never becomes an existence oracle.
       parameters:
         - $ref: "#/components/parameters/itemId"
         - name: If-Match
@@ -1191,6 +1216,16 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          description: >-
+            error="version_conflict" — a concurrent writer's update won the version race between
+            the If-Match check and this request's own write (optimistic-lock loss). Distinct from
+            412 etag_mismatch below, which is a stale-If-Match-at-read-time guard, not a
+            concurrent-write guard. Retry with a fresh If-Match ETag.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDto"
         "412":
           description: ETag mismatch
           content:
@@ -1351,6 +1386,10 @@ paths:
       summary: Ancestor chain (root to item)
       operationId: getItemBreadcrumbs
       tags: [items]
+      description: >-
+        A scope.tags_include token additionally drops any ancestor in the chain that fails the tag
+        allowlist (item-level exact match) — this can return a non-empty, non-403 list even when
+        one or more ancestors are hidden.
       parameters:
         - $ref: "#/components/parameters/itemId"
       responses:
@@ -1755,6 +1794,10 @@ paths:
       summary: Recent transitions across all items
       operationId: listTransitions
       tags: [transitions]
+      description: >-
+        Scope-filtered by ancestor chain for root_ids-scoped tokens. A scope.tags_include token is
+        additionally filtered to transitions on items carrying an allowed tag (item-level exact
+        match) — a tag scope matching nothing returns 200 with an empty page, never 403.
       parameters:
         - name: since
           in: query
@@ -1785,6 +1828,10 @@ paths:
       summary: FTS5 full-text search over item titles and summaries
       operationId: searchItems
       tags: [search]
+      description: >-
+        A scope.tags_include token has its hits filtered to items carrying an allowed tag
+        (item-level exact match, applied after the FTS5 query) — a tag scope matching nothing
+        returns 200 with an empty list, never 403.
       parameters:
         - name: q
           in: query
@@ -1825,6 +1872,10 @@ paths:
       summary: FTS5 full-text search over note bodies
       operationId: searchNotes
       tags: [search]
+      description: >-
+        A scope.tags_include token has its hits filtered to notes on items carrying an allowed tag
+        (item-level exact match, applied after the FTS5 query) — a tag scope matching nothing
+        returns 200 with an empty list, never 403.
       parameters:
         - name: q
           in: query
@@ -2375,6 +2426,11 @@ paths:
       description: |
         Real-time SSE stream. Auth runs in a pre-flight plugin phase (before the SSE handler
         commits the 200 response). Requires read or admin capability.
+
+        This route is exempted from the global auth plugin via publicPaths (matched against the
+        request path only, not the full URI, so ?token= and other query strings still match) and
+        honors API_AUTH_MODE=none + API_ALLOW_UNAUTHENTICATED=true (see api-rest.md §1) the same
+        way the bearer route does — no token required when both opt-in keys are set.
 
         Browser clients cannot use native EventSource because it does not support custom headers.
         Use a fetch-based SSE library (e.g. @microsoft/fetch-event-source) with
