@@ -6,6 +6,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
+import io.github.jpicklyk.mcptask.current.domain.repository.MAX_TRAVERSAL_DEPTH
 import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
@@ -288,11 +289,15 @@ class SQLiteNoteRepository(
                     when {
                         scope?.ancestorId != null -> {
                             // SINGULAR path — behavior-identical to original.
+                            // The `lvl` column bounds the recursive member so cyclic parent_id data
+                            // cannot spin the CTE forever. Search scope is bound-and-continue: notes
+                            // on items past the bound are dropped, the search itself still succeeds.
                             """
-                            WITH RECURSIVE subtree(id) AS (
-                                SELECT id FROM work_items WHERE id = ?
+                            WITH RECURSIVE subtree(id, lvl) AS (
+                                SELECT id, 1 FROM work_items WHERE id = ?
                                 UNION ALL
-                                SELECT wi.id FROM work_items wi JOIN subtree s ON wi.parent_id = s.id
+                                SELECT wi.id, s.lvl + 1 FROM work_items wi JOIN subtree s ON wi.parent_id = s.id
+                                WHERE s.lvl < $MAX_TRAVERSAL_DEPTH
                             )
                             """.trimIndent()
                         }
@@ -300,10 +305,11 @@ class SQLiteNoteRepository(
                             // PLURAL path — seed CTE with one ? per root.
                             val placeholders = scope.ancestorIds.joinToString(", ") { "?" }
                             """
-                            WITH RECURSIVE subtree(id) AS (
-                                SELECT id FROM work_items WHERE id IN ($placeholders)
+                            WITH RECURSIVE subtree(id, lvl) AS (
+                                SELECT id, 1 FROM work_items WHERE id IN ($placeholders)
                                 UNION ALL
-                                SELECT wi.id FROM work_items wi JOIN subtree s ON wi.parent_id = s.id
+                                SELECT wi.id, s.lvl + 1 FROM work_items wi JOIN subtree s ON wi.parent_id = s.id
+                                WHERE s.lvl < $MAX_TRAVERSAL_DEPTH
                             )
                             """.trimIndent()
                         }
@@ -314,8 +320,11 @@ class SQLiteNoteRepository(
                 val extraWhereParts = mutableListOf<String>()
                 if (scope?.itemId != null) extraWhereParts.add("n.work_item_id = ?")
                 when {
-                    scope?.ancestorId != null -> extraWhereParts.add("n.work_item_id IN subtree")
-                    scope?.ancestorIds != null && scope.ancestorIds.isNotEmpty() -> extraWhereParts.add("n.work_item_id IN subtree")
+                    scope?.ancestorId != null -> extraWhereParts.add("n.work_item_id IN (SELECT id FROM subtree)")
+                    scope?.ancestorIds != null && scope.ancestorIds.isNotEmpty() ->
+                        extraWhereParts.add(
+                            "n.work_item_id IN (SELECT id FROM subtree)"
+                        )
                     scope?.ancestorIds != null && scope.ancestorIds.isEmpty() -> extraWhereParts.add("1 = 0") // empty scope → no hits
                 }
                 // role filter on notes (not work_items.role — notes themselves have a role column)
