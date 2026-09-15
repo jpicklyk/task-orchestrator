@@ -562,22 +562,31 @@ fun Route.itemWriteRoutes(
                     if (newParentId == id) {
                         return errorCaptured(HttpStatusCode.BadRequest, "validation_error", "An item cannot be its own parent")
                     }
-                    // Walk the proposed parent's ancestor chain upward: if this item appears in
-                    // it, the proposed parent lives inside this item's own subtree. Bounded by the
-                    // parent's depth + 1 hops so an already-malformed chain cannot spin here either.
-                    var ancestorId: UUID? = parentData.parentId
-                    var hopsRemaining = parentData.depth + 1
-                    while (ancestorId != null && hopsRemaining > 0) {
-                        if (ancestorId == id) {
-                            return errorCaptured(
-                                HttpStatusCode.BadRequest,
-                                "validation_error",
-                                "Cannot re-parent an item under its own descendant",
-                            )
-                        }
-                        val ancestorResult = workItemRepo.getById(ancestorId)
-                        ancestorId = if (ancestorResult is Result.Success) ancestorResult.data.parentId else null
-                        hopsRemaining--
+                    // Walk the proposed parent's full ancestor chain: if this item appears in it,
+                    // the proposed parent lives inside this item's own subtree. Delegated to
+                    // findAncestorChains rather than a manual getById walk — it carries its own
+                    // visited set (so it is unbounded by, and unaffected by, this row's own
+                    // possibly-stale `depth` column) and is one batched query instead of N
+                    // sequential round-trips. On a lookup failure, fail CLOSED: a transient DB
+                    // error must not be treated as "not an ancestor" and let a cyclic re-parent
+                    // through into the depth cascade below, which cannot handle a cycle.
+                    val ancestorChainResult = workItemRepo.findAncestorChains(setOf(newParentId))
+                    if (ancestorChainResult is Result.Error) {
+                        writeLogger.warn(
+                            "PATCH /items/{} ancestor-chain lookup failed for proposed parent {}: {}",
+                            id,
+                            newParentId,
+                            ancestorChainResult.error.message,
+                        )
+                        return errorCaptured(HttpStatusCode.InternalServerError, "db_error", "Failed to update item")
+                    }
+                    val ancestorChain = (ancestorChainResult as Result.Success).data[newParentId] ?: emptyList()
+                    if (ancestorChain.any { it.id == id }) {
+                        return errorCaptured(
+                            HttpStatusCode.BadRequest,
+                            "validation_error",
+                            "Cannot re-parent an item under its own descendant",
+                        )
                     }
 
                     newDepth = parentData.depth + 1
