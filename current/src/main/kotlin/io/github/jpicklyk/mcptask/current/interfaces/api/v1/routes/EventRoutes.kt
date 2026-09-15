@@ -10,6 +10,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.LOCAL_UNAUTH_PR
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEvent
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventBus
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventType
+import io.github.jpicklyk.mcptask.current.infrastructure.config.EnvBoolean
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.call
 import io.ktor.server.application.createRouteScopedPlugin
@@ -228,7 +229,8 @@ private val sseInlineAuthPlugin =
 fun Route.eventRoutes(
     eventBus: ApiEventBus,
     tokenEntries: Map<HashBytes, BearerTokenStore.TokenEntry> = emptyMap(),
-    allowQueryToken: Boolean = System.getenv("API_ALLOW_QUERY_TOKEN_FOR_SSE")?.lowercase() == "true",
+    allowQueryToken: Boolean =
+        EnvBoolean.parse("API_ALLOW_QUERY_TOKEN_FOR_SSE", System.getenv("API_ALLOW_QUERY_TOKEN_FOR_SSE"), false),
     jwksVerifier: JwksApiVerifier? = null,
     authCheckIntervalSeconds: Int =
         System.getenv("API_SSE_AUTH_CHECK_INTERVAL_SECONDS")?.toIntOrNull() ?: 30,
