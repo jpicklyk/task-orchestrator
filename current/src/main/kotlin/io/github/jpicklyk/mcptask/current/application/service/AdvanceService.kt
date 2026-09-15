@@ -104,8 +104,10 @@ sealed class AdvanceFailure {
  * (first child starting auto-advancing a queued parent), and reopen cascades. The structured
  * form lets the tool and route layers build their own JSON/DTO shapes.
  *
- * @property gateBlocked true when a terminal cascade was suppressed because the parent had
- *   unfilled required notes; in that case [applied] is false and [gateMissingNotes] is populated.
+ * @property gateBlocked true when a cascade was suppressed because the parent had unfilled required
+ *   notes; in that case [applied] is false and [gateMissingNotes] is populated. Raised by TERMINAL
+ *   cascades (all required notes, all phases) and by START cascades (the parent's CURRENT-phase
+ *   required notes only). REOPEN cascades never raise it — see [AdvanceService] for why.
  * @property gateMissingNotes structured required notes missing on the parent (only when [gateBlocked]).
  * @property resourceBlocked true when a START cascade into [Role.WORK] was suppressed because the
  *   parent's EXCLUSIVE resource leases are held by another item; [applied] is false and
@@ -186,6 +188,15 @@ data class AdvanceResult(
  * 6. **Cascade detection** — terminal / start / reopen cascades, each applied in its OWN
  *    transaction boundary (the cascade applies are never wrapped in one outer transaction).
  * 7. **Unblock detection** — downstream items whose blocking deps are now satisfied.
+ *
+ * **Cascade note-gate asymmetry (start vs reopen).** TERMINAL and START cascades are gate-checked
+ * against the parent's own required notes — a parent is never pushed past a gate that a direct
+ * `complete`/`start` on it would have enforced; a blocked parent is reported as a suppressed
+ * cascade event (`applied = false`, `gateBlocked = true`, `gateMissingNotes`) while the child's own
+ * advance stands. REOPEN cascades deliberately do NOT gate: the direct `reopen` trigger is
+ * documented to bypass gate enforcement (its whole purpose is to return a TERMINAL item to QUEUE so
+ * its notes can be written), so gating a reopen *cascade* would contradict the trigger that caused
+ * it. See [applyCascadeEvents]'s `enforceNoteGate` parameter, which encodes exactly this split.
  *
  * Returns a structured [AdvanceResult] on success, or a structured [AdvanceFailure] on any
  * rejection. It produces NO JSON. The repository `update()` event-decorator mechanism (which emits
@@ -423,7 +434,13 @@ class AdvanceService(
             targetRole == Role.TERMINAL -> detectAndApplyTerminalCascades(appliedItem, trigger, cascadeEvents)
             targetRole == Role.WORK -> {
                 val startEvents = cascadeDetector.detectStartCascades(appliedItem, workItemRepository)
-                applyCascadeEvents(startEvents, "Auto-cascaded from child start", cascadeEvents, leaseGateActive)
+                applyCascadeEvents(
+                    startEvents,
+                    "Auto-cascaded from child start",
+                    cascadeEvents,
+                    leaseGateActive,
+                    enforceNoteGate = true
+                )
             }
         }
         if (trigger == "reopen" && targetRole == Role.QUEUE) {
@@ -780,14 +797,33 @@ class AdvanceService(
      * ever has `targetRole != WORK` — but it is kept in case a future cascade kind routed through
      * this method does exit WORK; releasing an item with no leases is always a safe no-op.
      *
+     * **Note gate — START cascades only (the start/reopen asymmetry).** When [enforceNoteGate] is
+     * true the parent's own CURRENT-phase required notes are checked with
+     * [GatePredicate.missingForStart] before the cascade is applied, mirroring the terminal path's
+     * [GatePredicate.missingForComplete] check in [detectAndApplyTerminalCascades]: a parent with
+     * unfilled required notes is SUPPRESSED with `applied = false`, `gateBlocked = true` and
+     * `gateMissingNotes` populated, while the child's own advance (already applied) stands.
+     * Only the START-cascade call site passes `true`; the REOPEN-cascade call site keeps the
+     * `false` default **deliberately**, because the direct `reopen` trigger is documented to bypass
+     * gate enforcement entirely (a TERMINAL item is reopened back to QUEUE precisely so its notes
+     * CAN be (re)written) — a reopen cascade that gated on the parent's notes would contradict the
+     * very trigger that produced it. Start cascades carry no such contract: they silently pushed a
+     * queued parent into WORK past its own gate, which is what this parameter fixes.
+     *
+     * The note gate runs BEFORE [acquireForCascadeIntoWork]; the ordering is load-bearing, so a
+     * gate-blocked parent never takes (and then abandons) an exclusive resource lease.
+     *
      * @param leaseGateActive false when either the caller passed `enforceResourceLeases = false` or
      *   the deployment kill switch is off; acquisition is skipped, releases still run.
+     * @param enforceNoteGate true only for START cascades (see above); reopen cascades keep the
+     *   `false` default and bypass the note gate by design.
      */
     private suspend fun applyCascadeEvents(
         events: List<CascadeEvent>,
         reason: String,
         out: MutableList<AdvanceCascadeEvent>,
-        leaseGateActive: Boolean
+        leaseGateActive: Boolean,
+        enforceNoteGate: Boolean = false
     ) {
         for (event in events) {
             val parentItem =
@@ -795,6 +831,42 @@ class AdvanceService(
                     is Result.Success -> parentResult.data
                     is Result.Error -> continue
                 }
+
+            // Note gate for a START cascade into work: the parent's CURRENT-phase required notes
+            // must be filled, exactly as a direct `start` on the parent would require. Runs BEFORE
+            // the resource gate so a gate-blocked parent never acquires a lease it cannot use.
+            if (enforceNoteGate && event.targetRole == Role.WORK) {
+                val parentSchema = schemaResolver(parentItem)
+                if (parentSchema != null) {
+                    val parentNotes =
+                        when (val nr = noteRepository.findByItemId(parentItem.id)) {
+                            is Result.Success -> nr.data
+                            is Result.Error -> emptyList()
+                        }
+                    val filledKeys = GatePredicate.filledNoteKeys(parentNotes)
+                    val missingEntries = GatePredicate.missingForStart(parentSchema, event.currentRole, filledKeys)
+                    if (missingEntries.isNotEmpty()) {
+                        logger.info(
+                            "Start cascade into work suppressed for item {}: unfilled required {} note(s) {}",
+                            parentItem.id,
+                            event.currentRole,
+                            missingEntries.map { it.key }
+                        )
+                        out.add(
+                            AdvanceCascadeEvent(
+                                itemId = event.itemId,
+                                title = parentItem.title,
+                                previousRole = event.currentRole,
+                                targetRole = event.targetRole,
+                                applied = false,
+                                gateBlocked = true,
+                                gateMissingNotes = missingEntries
+                            )
+                        )
+                        continue
+                    }
+                }
+            }
 
             // Resource gate for a cascade INTO work: suppress this cascade on contention.
             if (event.targetRole == Role.WORK && leaseGateActive) {
