@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.createApplicationPlugin
+import io.ktor.server.request.path
 import io.ktor.server.response.header
 import io.ktor.server.response.respond
 import io.ktor.util.AttributeKey
@@ -48,16 +49,18 @@ class ApiAuthPluginConfig {
     var clock: () -> java.time.Instant = { java.time.Instant.now() }
 
     /**
-     * Exact URI paths that bypass authentication entirely (e.g. `/api/v1/health`).
-     * Requests whose [io.ktor.server.request.ApplicationRequest.uri] matches one of these
-     * paths are passed through without credential validation.
+     * Exact request paths that bypass authentication entirely (e.g. `/api/v1/health`).
+     * Matched against [io.ktor.server.request.path] — the decoded path ONLY, with no query
+     * string — so a request like `/api/v1/events?token=x` still matches a `/api/v1/events`
+     * entry. (Matching against [io.ktor.server.request.ApplicationRequest.uri] would include
+     * the query string and never match an exempted path that carries query parameters.)
      */
     var publicPaths: Set<String> = setOf("/api/v1/health")
 
     /**
-     * URI path prefixes that bypass authentication entirely (e.g. `/.well-known/`).
-     * Requests whose URI starts with any of these prefixes are passed through without
-     * credential validation.
+     * Path prefixes that bypass authentication entirely (e.g. `/.well-known/`).
+     * Matched against [io.ktor.server.request.path] (no query string) — requests whose path
+     * starts with any of these prefixes are passed through without credential validation.
      */
     var publicPrefixes: Set<String> = setOf("/.well-known/")
 }
@@ -113,9 +116,12 @@ val ApiBearerAuth =
                 return@onCall
             }
 
-            // Skip authentication for public endpoints (health, well-known discovery, etc.)
-            val uri = call.request.local.uri
-            if (config.publicPaths.contains(uri) || config.publicPrefixes.any { uri.startsWith(it) }) {
+            // Skip authentication for public endpoints (health, well-known discovery, etc.).
+            // Matched on the decoded path ONLY (no query string) via call.request.path() --
+            // call.request.local.uri includes the query string, so an exact publicPaths entry
+            // like "/api/v1/events" would never match "/api/v1/events?token=x".
+            val path = call.request.path()
+            if (config.publicPaths.contains(path) || config.publicPrefixes.any { path.startsWith(it) }) {
                 return@onCall
             }
 

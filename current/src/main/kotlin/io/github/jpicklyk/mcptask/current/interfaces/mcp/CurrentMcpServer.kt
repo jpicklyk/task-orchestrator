@@ -488,11 +488,21 @@ internal fun Application.installRestApiRoutes(
                 // fixed). Null in bearer/disabled modes — the plugin never reads it there.
                 this.jwksVerifier = jwksVerifier
                 // ApiBearerAuth is an APPLICATION plugin — it intercepts every request, not just
-                // /api/v1. The MCP Streamable HTTP endpoint (/mcp) is a separate protocol with its
-                // own transport and must remain reachable WITHOUT a REST bearer token. Exempt it via
-                // the plugin's public-path bypass; otherwise enabling the REST API 401s /mcp and
-                // breaks MCP-over-HTTP clients (which send no REST token). See McpRestAuthBypassTest.
-                publicPaths = publicPaths + "/mcp"
+                // /api/v1, REGARDLESS of where install() is textually called (registering a route
+                // in a separate, sibling route("/api/v1") block does NOT scope it away — Ktor has
+                // no route-scoping for plugins installed via createApplicationPlugin; only
+                // createRouteScopedPlugin gets that). Two independent exemptions are needed via the
+                // plugin's public-path bypass:
+                // - /mcp: a separate protocol/transport that must remain reachable WITHOUT a REST
+                //   bearer token, or enabling the REST API 401s MCP-over-HTTP clients (which send no
+                //   REST token). See McpRestAuthBypassTest.
+                // - /api/v1/events: the SSE endpoint performs its own real authentication inline (see
+                //   sseInlineAuthPlugin in EventRoutes.kt, including the opt-in ?token= query-param
+                //   path and unauthenticated-mode handling) and must not be pre-empted by
+                //   ApiBearerAuth's header-only check. publicPaths matches on the request path with
+                //   NO query string (see AuthenticationPlugin.kt), so this exact entry also matches
+                //   "/api/v1/events?token=<...>".
+                publicPaths = publicPaths + "/mcp" + "/api/v1/events"
             }
             serviceRoutes(
                 repositoryProvider = effectiveProvider,
@@ -532,10 +542,15 @@ internal fun Application.installRestApiRoutes(
             // Operator resource-lease read + force-release — cross-project, server-wide (no rootId scope).
             resourceLeaseRoutes(effectiveProvider)
         }
-        // Phase 6: real-time SSE event stream — registered OUTSIDE the ApiBearerAuth block (as a
-        // sibling `route("/api/v1/events")`) so the ApiBearerAuth plugin does NOT intercept it. The
-        // SSE route does its own inline pre-flight auth, which additionally supports the opt-in
-        // `?token=` query-param path that ApiBearerAuth (header-only) would reject before our handler.
+        // Phase 6: real-time SSE event stream — registered in a separate, sibling
+        // `route("/api/v1")` block from the one above. NOTE: this sibling-route registration does
+        // NOT shield /api/v1/events from the ApiBearerAuth application plugin installed above --
+        // that plugin intercepts every request regardless of route nesting (see the publicPaths
+        // comment above). /api/v1/events is exempted via publicPaths instead, and the SSE route's
+        // own inline pre-flight auth (sseInlineAuthPlugin, a route-scoped plugin) then performs the
+        // real authentication, including the opt-in `?token=` query-param path that ApiBearerAuth
+        // (header-only) would otherwise reject before our handler, and the unauthenticated-mode
+        // bypass.
         if (eventBus != null) {
             route("/api/v1") {
                 eventRoutes(
@@ -544,6 +559,7 @@ internal fun Application.installRestApiRoutes(
                     allowQueryToken = allowQueryToken,
                     jwksVerifier = jwksVerifier,
                     authCheckIntervalSeconds = appConfig.apiSseAuthCheckIntervalSeconds,
+                    authConfig = apiConfig,
                 )
             }
         }
