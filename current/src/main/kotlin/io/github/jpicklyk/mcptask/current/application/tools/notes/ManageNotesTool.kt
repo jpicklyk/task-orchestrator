@@ -120,8 +120,8 @@ field naming the limit and actual size; `mode: reject` fails that note with `cod
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Client-generated UUID for idempotency (10 min cache, keyed by actor+requestId). " +
-                                        "Requires actor. Rejected with a validation error if present but not a valid UUID."
+                                    "Client-generated UUID for idempotency (10 min cache, keyed by actor+requestId); " +
+                                        "requires actor; malformed values rejected."
                                 )
                             )
                         }

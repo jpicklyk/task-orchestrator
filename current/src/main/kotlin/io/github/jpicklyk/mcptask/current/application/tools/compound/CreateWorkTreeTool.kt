@@ -184,8 +184,8 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Client-generated UUID for idempotency (10 min cache, keyed by actor+requestId). " +
-                                        "Requires actor. Rejected with a validation error if present but not a valid UUID."
+                                    "Client-generated UUID for idempotency (10 min cache, keyed by actor+requestId); " +
+                                        "requires actor; malformed values rejected."
                                 )
                             )
                         }

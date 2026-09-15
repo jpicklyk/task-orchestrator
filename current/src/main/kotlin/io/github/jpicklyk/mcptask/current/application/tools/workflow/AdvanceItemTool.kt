@@ -135,8 +135,7 @@ Call to move an item between phases once its work is done — never edit status 
                                 "description",
                                 JsonPrimitive(
                                     "Client-generated UUID for idempotency (10 min cache), keyed on the first " +
-                                        "transition's actor.id. Rejected with a validation error if present but not " +
-                                        "a valid UUID."
+                                        "transition's actor.id; malformed values rejected."
                                 )
                             )
                         }
