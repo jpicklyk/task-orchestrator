@@ -15,6 +15,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.UserTrigger
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
@@ -629,8 +630,23 @@ fun Route.itemWriteRoutes(
 
                 return when (val result = updateResult!!) {
                     is Result.Error -> {
-                        writeLogger.warn("PATCH /items/{} DB error: {}", id, result.error.message)
-                        errorCaptured(HttpStatusCode.InternalServerError, "db_error", "Failed to update item")
+                        // Optimistic-lock loss (WorkItemRepository.update's version-mismatch branch)
+                        // is a distinct, retryable condition from a genuine DB failure — and distinct
+                        // from an If-Match precondition failure (handled above as 412 before update()
+                        // is ever called: If-Match matched here, but another writer's update() won the
+                        // version race in between). Map it to 409 so REST clients can safely retry with
+                        // a fresh GET + If-Match, instead of treating it as an opaque server error.
+                        if (result.error is RepositoryError.ConflictError) {
+                            writeLogger.debug("PATCH /items/{} optimistic-lock conflict: {}", id, result.error.message)
+                            errorCaptured(
+                                HttpStatusCode.Conflict,
+                                "version_conflict",
+                                "Item was modified by another request; retry with a fresh If-Match ETag",
+                            )
+                        } else {
+                            writeLogger.warn("PATCH /items/{} DB error: {}", id, result.error.message)
+                            errorCaptured(HttpStatusCode.InternalServerError, "db_error", "Failed to update item")
+                        }
                     }
                     is Result.Success ->
                         CachedHttpResponse(
