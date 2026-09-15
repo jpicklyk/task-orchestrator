@@ -430,7 +430,7 @@ Call when closing out a finished hierarchy — one atomic call instead of per-it
                 advanceOne(item, trigger, actorClaim, verification, context, resultsList, terminalizedByCascade)
             ) {
                 ItemOutcome.COMPLETED -> completedCount++
-                ItemOutcome.GATE_FAILED -> {
+                ItemOutcome.GATE_FAILED, ItemOutcome.DEPENDENCY_FAILED -> {
                     gateFailureCount++
                     propagateSkip(itemId, adjacency, skippedSet)
                 }
@@ -457,7 +457,7 @@ Call when closing out a finished hierarchy — one atomic call instead of per-it
                     advanceOne(rootItem, trigger, actorClaim, verification, context, resultsList, terminalizedByCascade)
                 ) {
                     ItemOutcome.COMPLETED -> completedCount++
-                    ItemOutcome.GATE_FAILED -> gateFailureCount++
+                    ItemOutcome.GATE_FAILED, ItemOutcome.DEPENDENCY_FAILED -> gateFailureCount++
                     ItemOutcome.REJECTED, ItemOutcome.UNRESOLVABLE -> skippedCount++
                 }
             }
@@ -493,9 +493,18 @@ Call when closing out a finished hierarchy — one atomic call instead of per-it
         GATE_FAILED,
 
         /**
-         * Ownership, policy, dependency, resource-lease or persistence rejection. Counted in
-         * `skipped`, dependents skipped (the item did not actually reach terminal, so anything
-         * depending on it must not be completed either).
+         * The item's own dependency validation rejected it — typically a blocker OUTSIDE the target
+         * set that is still non-terminal. Reported with `error` + `blockers` (advance_item's shape),
+         * never as a skip: the item WAS attempted. Counted alongside [GATE_FAILED] in `gateFailures`
+         * so the `total = completed + skipped + gateFailures` identity holds without adding a
+         * summary key; dependents are skipped exactly as for a gate failure.
+         */
+        DEPENDENCY_FAILED,
+
+        /**
+         * Ownership, policy, resource-lease or persistence rejection. Counted in `skipped`,
+         * dependents skipped (the item did not actually reach terminal, so anything depending on it
+         * must not be completed either).
          */
         REJECTED,
 
@@ -570,6 +579,7 @@ Call when closing out a finished hierarchy — one atomic call instead of per-it
                 resultsList.add(buildFailureResult(item, outcome.failure))
                 when (outcome.failure) {
                     is AdvanceFailure.GateBlocked -> ItemOutcome.GATE_FAILED
+                    is AdvanceFailure.ValidationFailed -> ItemOutcome.DEPENDENCY_FAILED
                     is AdvanceFailure.ResolutionFailed -> ItemOutcome.UNRESOLVABLE
                     else -> ItemOutcome.REJECTED
                 }
@@ -647,8 +657,12 @@ Call when closing out a finished hierarchy — one atomic call instead of per-it
      *
      * - [AdvanceFailure.GateBlocked] keeps the historical `gateErrors` array of `"missing: <key>"`
      *   strings (and adds the structured `missingNotes` array `advance_item` emits).
-     * - Every other variant is reported as `skipped` + `skippedReason`, the shape this tool already
-     *   used for non-gate rejections, plus the structured `errorKind`/`errorCode` fields
+     * - [AdvanceFailure.ValidationFailed] is a rejection of the item ITSELF (a blocking dependency,
+     *   typically outside the target set, that is still non-terminal), so it mirrors `advance_item`
+     *   exactly: `error` + a `blockers` array, and NO `skipped`/`skippedReason` pair. Reporting it
+     *   as a skip would wrongly say the item was never attempted.
+     * - Every remaining variant is reported as `skipped` + `skippedReason`, the shape this tool
+     *   already used for non-gate rejections, plus the structured `errorKind`/`errorCode` fields
      *   `advance_item` emits so a caller can distinguish a claim-ownership rejection
      *   (`not_claim_holder`) from a transient resource contention (`resource_unavailable`) without
      *   parsing the message.
@@ -700,7 +714,11 @@ Call when closing out a finished hierarchy — one atomic call instead of per-it
                     )
                 }
                 is AdvanceFailure.ValidationFailed -> {
-                    putSkipped(failure.message)
+                    // NOT a skip: the item failed its OWN dependency validation, so it reports the
+                    // same `error` + `blockers` shape advance_item emits (AdvanceItemTool's
+                    // buildErrorResult) rather than a `skipped`/`skippedReason` pair. A skip means
+                    // "we never attempted this item"; here we did, and it was rejected.
+                    put("error", JsonPrimitive(failure.message))
                     if (failure.blockers.isNotEmpty()) {
                         put(
                             "blockers",
