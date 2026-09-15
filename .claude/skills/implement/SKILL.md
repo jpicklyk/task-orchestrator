@@ -163,22 +163,28 @@ fi
 All child-task agents will be dispatched into this **shared** worktree (Step 4). The feature branch is pushed and PR'd **once**, when the parent feature reaches terminal (Step 6).
 
 **Plan file as dispatch contract (3+ children).** For every Parallel-tier run, instantiate
-[`references/dispatch-contract-template.md`](references/dispatch-contract-template.md) into
-`plans/<slug>.md` before the first dispatch, fill every placeholder, and have every Step 4, 4b
-and 5 dispatch prompt reference it by path under the template's conflict rule instead of
-restating design or process details per prompt. **The template states the rules; this table only
-says what each slot is for** — do not paraphrase a slot's rule into a prompt.
+[`references/dispatch-contract-template.md`](references/dispatch-contract-template.md) into the
+wave's plan file before the first dispatch, fill every placeholder, and have every Step 3, 4, 4b
+and 5 dispatch prompt reference it under the template's conflict rule instead of restating design
+or process details per prompt. **The template states the rules; this table only says what each
+slot is for** — do not paraphrase a slot's rule into a prompt.
+
+**Write it to `<main-checkout>\plans\<slug>.md` and hand agents that absolute path**, recorded
+once in the contract's Header **Contract path** line. The `plans/` directory is gitignored, so it
+exists only in the main checkout and never in the feature worktree; a prompt that pins a worktree
+working directory and then names a relative `plans/<slug>.md` points at a path that is not there.
 
 | Slot | Why it exists |
 |---|---|
-| Header | One place agents read branch, worktree path, base SHA, PR boundary, scratchpad and the gradle lock helper, so no prompt repeats them. |
+| Header | One place agents read branch, worktree path, the contract's own absolute path, base SHA, PR boundary, scratchpad and the gradle lock helper, so no prompt repeats them. |
 | Conflict rule | Makes the plan file authoritative over prompt text, and names the per-item note that outranks the plan for its own dimension. |
 | Items | Freezes each item's scope anchor so an agent cannot re-litigate scope mid-wave. |
 | Planning seat return template | Fixes the fields each planning seat returns, so streams compose without re-reading every plan. |
 | Commit discipline | The shared index makes a bare commit unsafe: pathspec staging and commit, post-commit verification, and the recovery step (proposal `568e7f7e` / #301). |
-| Compile self-check | One pinned invocation through the lock helper, the foreign-file early exit, and the owned-file retry bound (proposal `b82537e4` / #302). |
-| File ownership | Each agent's entire writable scope, with cross-stream overlaps declared up front rather than discovered mid-wave. |
+| Compile self-check | One pinned invocation through the lock helper, how its exit code is read, the foreign-file early exit, the owned-file retry bound (proposal `b82537e4` / #302), and the single statement of who runs gradle in the wave. |
+| File ownership | Each agent's entire writable scope — including any declared edit to an existing test file — with cross-stream overlaps declared up front rather than discovered mid-wave. |
 | Test author protocol | The blindness, oracle and scope rules that keep test authorship independent of the implementation. |
+| Contract-change sweep | After a contract tightens, call sites and fixtures the changed item never names break; the sweep makes finding and construction-only-repairing them a step rather than a reminder (proposals `82034e9a`, `31a1abeb`). |
 | Docs | Routes doc edits to one serialized seat so parallel agents never write the same doc. |
 | Notes | Who fills which note key, and the maxLength each must respect. |
 | Review scoping | Reviews diff owned files, not SHA ranges; the commit map serves only the ownership check (#301). |
@@ -269,7 +275,10 @@ Inputs: the stream's `diagnosis`/`task-scope` note and the CURRENT codebase, not
 alone. Task: verify every claim in that note against source, citing `file:line` for each
 correction; write the note if materialization left it missing, or revise it if verification
 finds it wrong; fill and freeze `test-plan` per the seat-timing rule above; then return the
-structured template below instead of free-form prose.
+structured template below instead of free-form prose. Give the seat the contract by its absolute
+path (Step 2's Contract path line) — never a relative `plans/...`, which does not resolve from the
+worktree — so it reads the Items and Conflict rule slots it is about to extend; its return is what
+fills the File ownership and Planning seat return template slots for the rest of the wave.
 
 **Structured return (seven fields, each required — `none` is a valid value):**
 
@@ -312,10 +321,11 @@ Include both commands in every implementation-agent and review-agent prompt.
 - **Delegated tier** (agent owns gradle): the implementation agent runs the
   `ktlintCheck` → `ktlintFormat` → re-verify cycle itself before committing.
   Validated 2026-07-13 (PRs #213/#214/#215): zero orchestrator fix-up commits.
-- **Parallel tier** (orchestrator owns gradle): agents run `:current:ktlintFormat` only as
-  part of the single self-check pinned in the dispatch contract's **Compile self-check** slot;
-  the orchestrator additionally runs `ktlintFormat` before `ktlintCheck` after each commit
-  batch — historically 3-5 fix-up commits per multi-phase run when skipped.
+- **Parallel tier:** per-seat gradle ownership is stated once, in the dispatch contract's
+  **Compile self-check** slot ("Who runs gradle"); this bullet only adds the lint-cycle detail
+  that slot's table implies — agents get `:current:ktlintFormat` as part of their single pinned
+  self-check, and the orchestrator additionally runs `ktlintFormat` before `ktlintCheck` after
+  each commit batch (historically 3-5 fix-up commits per multi-phase run when skipped).
 
 **Capturing gradle's real exit code (use this pattern, not `2>&1 | tail -N`).**
 Piping gradle into `tail` discards gradle's exit code — `tail` always exits 0
@@ -395,7 +405,9 @@ Agent(
   prompt="""
   Working directory: <feature-worktree-path>
   Branch (already checked out): feat/<feature-slug>
-  Dispatch contract: plans/<slug>.md — read it first; it wins on conflict with this prompt.
+  Dispatch contract: <ABSOLUTE path from the contract's Header "Contract path" line, e.g.
+  D:\Projects\task-orchestrator\plans\<slug>.md> — read it first; it wins on conflict with
+  this prompt. It lives in the main checkout, not in the worktree above.
   Scope (modify ONLY these files): <explicit list> — the same list as your row in the
   contract's File ownership slot.
   Do NOT create or modify any file under src/test/** — test authoring is a separate,
@@ -606,8 +618,9 @@ This carve-out also modifies the build-verification rule below: a red author-aut
 report — do not dispatch a generic "fix agent" against it.
 
 **Test-author dispatch prompt:** point the agent at the **Test author protocol** slot of the
-wave's dispatch contract (`plans/<slug>.md`, instantiated from
-[`references/dispatch-contract-template.md`](references/dispatch-contract-template.md)) — it
+wave's dispatch contract, named by the absolute Contract path from its Header (Step 2) and
+instantiated from
+[`references/dispatch-contract-template.md`](references/dispatch-contract-template.md) — it
 states the declarations block, the `src/main` tool ban, the `keys=` filter, stop-and-ask, fixture
 invariants, surface labels, commit form and manifest fields in full; on a Delegated-tier run with
 no contract file, paste that slot into the prompt instead of paraphrasing it.
@@ -718,8 +731,12 @@ notes of whichever items carry a review phase (typically the parent feature's
 `review-checklist`, since `feature-task` children skip review by default).
 
 **If the implementation used the shared feature worktree** (Parallel tier), the
-review agent operates in that worktree, scoped to **just this child's commits**.
-The diff range is `<pre-sha>..<post-sha>` captured during dispatch (see Step 4).
+review agent operates in that worktree, scoped to **that child's owned files** — the diff of
+those paths from the wave's base SHA to current `HEAD`, per the contract's **Review scoping**
+slot. Not the `<pre-sha>..<post-sha>` range captured during dispatch: in a shared worktree that
+range interleaves other streams' commits and excludes any later fix-up, formatter or
+fixture-repair commit to the same files, so it both over- and under-reports. The pre/post map
+still serves the ownership two-range check (list item 6 below).
 
 **Review agent template (copy verbatim, fill placeholders):**
 
@@ -728,18 +745,25 @@ You are reviewing one child task within a shared feature worktree.
 
 - Feature worktree: <FEATURE_WORKTREE_PATH>
 - Feature branch: <FEATURE_BRANCH>
-- This child's commit range: <PRE_SHA>..<POST_SHA>
-- This child's changed files:
-  <OUTPUT OF git -C <FEATURE_WORKTREE_PATH> diff <PRE_SHA>..<POST_SHA> --name-only>
-- Other children may have committed before/after this one. Do NOT review their work
-  — your scope is the diff range above only.
+- Dispatch contract: <ABSOLUTE path from its Header "Contract path" line, e.g.
+  D:\Projects\task-orchestrator\plans\<slug>.md> — read it first; it wins on conflict
+  with this prompt. It lives in the main checkout, not in the worktree above.
+- This child's owned files (its row in the contract's File ownership slot):
+  <FILE LIST>
+- Your review scope is the diff of exactly those files:
+  git -C <FEATURE_WORKTREE_PATH> diff <BASE_SHA>..HEAD -- <FILE LIST>
+- Other children committed into this same branch, and later fix-up, formatter or
+  fixture-repair commits may touch these files. Review the owned-file diff above as it
+  stands now; do NOT review another child's files, and do NOT bound your review by a
+  commit range.
 
 Run ALL commands from within the feature worktree.
 Read ALL files from that directory. Do NOT read from the main working directory.
 
 Tests have already been verified green by the orchestrator after the most recent
-commit batch. Do NOT re-run gradle — focus on plan alignment, test quality, and
-simplification per the review-quality skill.
+commit batch. Run no gradle — the contract's Compile self-check slot states who runs
+it, and the Review scoping slot records the build state you rely on. Focus on plan
+alignment, test quality, and simplification per the review-quality skill.
 
 Report every finding at every severity — do not self-filter to a high-severity-only
 bar. Mark each finding blocking or observation and state your confidence; the
@@ -753,8 +777,15 @@ existing template — no worktree-specific scoping needed.
 The review agent:
 1. Reads the review-quality skill
 2. Uses `get_context(itemId=...)` to load the item's notes and review-phase requirements
-3. Reads the changed files (from the worktree path if isolated, or the working branch)
-4. Runs the test suite AND the linter (both commands from Step 4's "Verification commands") — from the worktree if isolated. A PR with failing lint will not merge.
+3. Reads the changed files — on Parallel tier, the owned-file diff above; on Direct/Delegated
+   tier, the working branch
+4. Runs gradle per the contract's "Who runs gradle" statement (Compile self-check slot): in a
+   Parallel wave the reviewer runs none, because the orchestrator already verified the wave and
+   recorded the build state in the Review scoping slot — for that tier this supersedes
+   `review-quality` Area 1's "run the test suite first", whose recorded numbers the reviewer
+   takes from that slot instead. On Direct/Delegated tier there is no
+   contract and no orchestrator-run wave verification, so the reviewer runs the test suite AND
+   the linter itself (Step 4's "Verification commands") — a PR with failing lint will not merge.
 5. Evaluates plan alignment, test quality, and simplification
 6. **On items carrying `needs-test-author`, additionally:**
    - **Two-range ownership check:** confirm the impl-range/author-range disjointness recorded
@@ -971,13 +1002,15 @@ When processing a Parallel-tier feature with multiple child tasks autonomously:
    (implementation or test-author), the orchestrator runs `:current:test` and
    `:current:ktlintCheck` from the feature worktree. Fix failures before advancing
    any child to review.
-5. **Step 5 — Review per child, scoped to that child's commit range, when the child has
+5. **Step 5 — Review per child, scoped to that child's owned files, when the child has
    a review phase.** `feature-task` children skip review by default (work→terminal
    directly) unless the `needs-task-review` trait is set, or `needs-test-author` is set
    (its `test-independence-audit` note adds a review phase). When a review phase applies,
-   the review agent reads from the shared worktree but scopes its diff to
-   `<pre-sha>..<post-sha>` for the child being reviewed, plus `<test-pre-sha>..<test-post-sha>`
-   when a test-author wave ran for that child.
+   the review agent reads from the shared worktree and diffs that child's owned files from the
+   wave's base SHA to `HEAD` (`git -C <feature-worktree> diff <base-sha>..HEAD -- <files>`),
+   per the contract's Review scoping slot — never a commit range, which in a shared worktree
+   picks up other streams and misses later fix-ups. The pre/post and test-pre/post SHAs feed the
+   ownership two-range check only.
 6. **Step 6 — One PR at parent finalization.** Children advance to terminal without
    pushing or PR'ing. Only when the parent feature itself reaches terminal does the
    orchestrator push `feat/<slug>` and open the single feature-level PR.

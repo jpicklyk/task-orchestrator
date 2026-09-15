@@ -35,10 +35,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `src/main`, requires an explicit `keys=` filter on every `query_notes` call, and directs the
   author to stop and ask rather than derive a missing declaration. (#310)
 - **New dispatch-contract reference template.** `.claude/skills/implement/references/dispatch-contract-template.md`
-  gives every Parallel-tier wave 11 fixed slots (header, conflict rule, items, planning-seat
-  return, commit discipline, compile self-check, file ownership, test-author protocol, docs,
-  notes, review scoping) to copy into the run's plan file, plus an "Adoption reach" subsection
-  mapping each prior proposal to the slot that now carries it.
+  gives every Parallel-tier wave 12 fixed slots (header, conflict rule, items, planning-seat
+  return, commit discipline, compile self-check, file ownership, test-author protocol,
+  contract-change sweep, docs, notes, review scoping) to copy into the run's plan file, plus an
+  "Adoption reach" subsection mapping each prior proposal to the slot that now carries it.
+- **Contract-tightening changes get a post-wave sweep step.** After a parameter becomes required,
+  a `validate()` invariant is added, or a new accessor lands on a strict-mocked interface, the
+  orchestrator greps every call site and fixture and repairs them by construction — never by
+  relaxing the contract — declaring each repair in the contract's commit map. (`82034e9a`,
+  `31a1abeb`)
 
 ### Fixed
 

@@ -247,6 +247,15 @@ unchanged. A disclosed breach costs a re-dispatch. An undisclosed one costs the 
 
 Where red is achievable before the fix exists, the test must actually observe it.
 
+**Which scenarios "red is achievable" covers is decided by the §2 surface labels, not here.** An
+`EXISTING-SURFACE` scenario can reach behavioural red by a plain revert. A `NEW-SURFACE` one
+cannot — reverting the fix removes the declaration the test binds to, so the run is compile-red,
+which proves only that the test references new code. For those, red-first means executing the
+plan's narrowest-revert recipe (keep the new type or parameter, revert its call sites) or, where
+the plan declared no revert can work, the substitute verification it named instead. Read §2's
+label definitions before deciding a scenario's red evidence; the shape actually obtained is a
+`test-manifest` field (§10).
+
 **Bug-fix regression tests**: write the test from the `diagnosis` note's reproduction steps and
 confirm it fails against the pre-fix code — actually run it red, don't assume the reproduction
 description implies a failing assertion. A regression test that was never seen red proves nothing
@@ -435,6 +444,22 @@ there is no second agent available to dispatch. Under this mode:
 - Red-first (§5) still applies in full for bug-fix reproductions.
 - `test-manifest` declares the single-actor mode explicitly (`actor: <id> (temporal-only,
   same agent as implementer)`) rather than presenting as if a second agent were involved.
+- **§4 in temporal-only mode.** §4 is written for a second agent, so state which parts survive
+  rather than leaving the section self-contradictory for a single actor:
+  - **Relaxed: §4.2's tool ban only.** One actor implements and then writes tests; it has already
+    read `src/main` and cannot un-read it. The ban is replaced by the red-first ORDERING of §5 —
+    the test is written from the frozen `test-plan` and observed red against pre-fix code BEFORE
+    the fix is written, which is the only separation available here. An "I avoided looking"
+    claim is not a substitute and must not be recorded as one.
+  - **Still in force: §4.1 and §4.3.** Oracles and declarations come from the frozen `test-plan`
+    and the planning-seat notes, not from the implementation just written; every `query_notes`
+    call still carries `keys=` restricted to the queue-phase keys. `implementation-notes` and
+    `session-tracking` stay out of the author pass even though the same actor wrote them.
+  - **Still in force: §4.4 and §4.6.** A declaration the frozen plan does not carry is still a
+    stop-and-ask (here: amend the plan explicitly, and say so), and any deviation is still
+    self-disclosed in the manifest.
+  This is what `independent-degraded` names: the oracle boundary held, the capability boundary
+  could not.
 - `test-independence-audit` records the verdict as `independent-degraded`, never `independent`.
   A temporal-only separation is real but weaker than two-agent separation — it defeats
   implementation-derived oracles (the oracle was frozen before code existed) but not

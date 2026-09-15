@@ -45,7 +45,9 @@ Agent(
   prompt="""
   Working directory: <FEATURE_WORKTREE>
   Branch (already checked out): <FEATURE_BRANCH>
-  Dispatch contract: plans/<slug>.md — read it first; it wins on conflict with this prompt.
+  Dispatch contract: <ABSOLUTE path from the contract's Header "Contract path" line, e.g.
+  D:\Projects\task-orchestrator\plans\<slug>.md> — read it first; it wins on conflict with
+  this prompt. It lives in the main checkout, not in the worktree above.
   Scope (modify ONLY these files): <explicit list>
 
   After making changes, commit exactly as the contract's "Commit discipline" slot states.
