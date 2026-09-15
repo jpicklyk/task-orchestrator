@@ -621,9 +621,13 @@ blocked on a contended lease, is still rejected the same way it would be under `
       "itemId": "uuid", "title": "Migrate staging", "applied": false, "skipped": true,
       "skippedReason": "resource_unavailable", "errorKind": "transient", "errorCode": "resource_unavailable",
       "retryAfterMs": 30000, "contendedResources": ["staging-db"]
+    },
+    {
+      "itemId": "uuid", "title": "Ship release notes", "applied": false,
+      "error": "Blocked by dependency", "blockers": [{ "itemId": "uuid", "title": "External signoff", "type": "blocks" }]
     }
   ],
-  "summary": { "total": 5, "completed": 1, "skipped": 3, "gateFailures": 1 }
+  "summary": { "total": 6, "completed": 1, "skipped": 3, "gateFailures": 2 }
 }
 ```
 
@@ -638,20 +642,30 @@ implied by an earlier cascade in this same batch (e.g. completing a child cascad
 `TERMINAL` before the root's own entry in `itemIds`/`rootId` was processed) is reported as already
 terminal rather than re-applied — it is not double-counted and produces no duplicate audit row.
 
-**Rejected-entry fields (`applied: false`, non-gate rejection):** a rejection from claim ownership,
-dependency validation, the resource-lease gate, or the underlying `AdvanceService` apply step
-carries the SAME error shape `advance_item` uses — `skippedReason` set to the `advance_item` error
-code (e.g. `"not_claim_holder"`, `"rejected_by_policy"`, `"resource_unavailable"`), plus whichever of
-`errorKind`, `errorCode`, `retryAfterMs`, `contendedItemId`, `contendedResources`, and `blockers`
+**Rejected-entry fields (`applied: false`, ownership/policy/lease rejection):** a rejection from
+claim ownership, the resource-lease gate, or the underlying `AdvanceService` apply step carries the
+SAME error shape `advance_item` uses — `skipped: true`, `skippedReason` set to the `advance_item`
+error code (e.g. `"not_claim_holder"`, `"rejected_by_policy"`, `"resource_unavailable"`), plus
+whichever of `errorKind`, `errorCode`, `retryAfterMs`, `contendedItemId`, and `contendedResources`
 apply to that failure — see [Error Envelope](#error-envelope) for the full field set. These
-non-gate rejections skip in-set dependents exactly like a gate failure does.
+rejections skip in-set dependents exactly like a gate failure does.
 
-**`skippedReason` values:** Items can be skipped for:
+**Dependency-validation-failure fields (`applied: false`, no `skipped` key):** an item rejected
+because a blocker outside the target set is still non-terminal (`AdvanceService`'s
+`ValidationFailed` outcome) reports `error` (a message string) and a `blockers` array — the same
+element shape `advance_item` uses for its `422 transition_blocked`/`details.blockers` — instead of
+`skipped`/`skippedReason`. It counts in `gateFailures`, not `skipped` (grouped with required-note
+gate failures so the two `summary` counters stay consistent — both represent "this item's own
+check failed", as opposed to `skipped`, which represents "an upstream failure in this batch reached
+this item"). Like a required-note gate failure, a dependency-validation failure skips its in-set
+dependents.
+
+**`skippedReason` values (entries that DO carry a `skipped` key):** Items can be skipped for:
 - `"dependency gate failed"` — a blocker item in the same target set failed its gate check or failed to apply, and this item is a downstream dependent.
 - `"Cannot transition"` (or a specific error message) — a **resolution failure**: the item itself could not be resolved for transition (e.g., it is already terminal or the role is incompatible with the trigger). Unlike every other non-gate rejection, a resolution failure does NOT skip this item's in-set dependents.
-- An `advance_item` error code (see "Rejected-entry fields" above) — claim ownership, dependency, or resource-lease rejections; these DO skip in-set dependents.
+- An `advance_item` error code (see "Rejected-entry fields" above) — claim ownership, policy, or resource-lease rejections; these DO skip in-set dependents.
 
-**`summary` fields:** `total` = completed + skipped + gateFailures. `completed` = items successfully transitioned. `skipped` = items skipped due to upstream gate/apply failures, non-gate rejections (ownership/dependency/lease), or items already terminal. `gateFailures` = items that failed the required-note gate; their downstream dependents are counted in `skipped`.
+**`summary` fields:** `total` = completed + skipped + gateFailures. `completed` = items successfully transitioned. `skipped` = items skipped due to upstream gate/apply failures, ownership/policy/lease rejections, or items already terminal. `gateFailures` = items that failed the required-note gate OR a dependency-validation check (a still-non-terminal blocker outside the target set); their downstream dependents are counted in `skipped`.
 
 **Audit attribution:** the top-level `actor` (see Key Parameters) is parsed once per call and
 threaded into every item's `AdvanceService.advance(...)` call, so each resulting role-transition

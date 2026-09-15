@@ -770,6 +770,13 @@ JSON Merge Patch update. Requires `WRITE_ITEMS`, `If-Match`, and `Content-Type: 
   checks a create-time `parentId` — an existence check alone is not authorization. A `parentId`
   patch to a non-existent parent still returns `400 not_found` first; scope is checked only after
   the parent is confirmed to exist, so it never becomes an existence oracle.
+- `400 validation_error` — re-parent would create a cycle: `parentId` equals the item's own id
+  (message: `"An item cannot be its own parent"`) or names one of the item's own descendants
+  (message: `"Cannot re-parent an item under its own descendant"`). Checked with an identity
+  comparison plus an upward walk of the proposed parent's ancestor chain, bounded by that parent's
+  `depth + 1` hops. **Ordering:** `404 not_found` (unknown parent) → `403 scope_forbidden` (parent
+  outside scope) → this `400 validation_error` (self/descendant cycle) — each check runs only after
+  the previous one passes, and nothing is written until all three clear.
 - `409 version_conflict` — a concurrent writer's update won the version race between the `If-Match`
   check and this request's own write. Distinct from `412 etag_mismatch` below: the ETag matched at
   read time, but the underlying row changed before this write committed. Retry with a fresh

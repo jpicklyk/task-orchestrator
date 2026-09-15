@@ -1170,6 +1170,14 @@ paths:
         scope_forbidden if the new parent is outside the caller's scope (root_ids or tags_include).
         An unknown new parent still returns 400 not_found first; scope is checked only after the
         parent is confirmed to exist, so scope_forbidden never becomes an existence oracle.
+
+        A re-parent that would create a cycle is rejected as 400 validation_error: parentId equal
+        to the item's own id ("An item cannot be its own parent") or naming one of the item's own
+        descendants ("Cannot re-parent an item under its own descendant"). Checked via an identity
+        comparison plus an upward walk of the proposed parent's ancestor chain, bounded by that
+        parent's depth + 1 hops. Ordering: 404 not_found (unknown parent) -> 403 scope_forbidden
+        (parent outside scope) -> this 400 validation_error (self/descendant cycle); nothing is
+        written until all three clear.
       parameters:
         - $ref: "#/components/parameters/itemId"
         - name: If-Match
