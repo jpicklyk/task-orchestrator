@@ -53,6 +53,12 @@ class CompleteTreeToolTest {
         coEvery { workItemRepo.inTransaction(any()) } coAnswers {
             firstArg<suspend () -> Unit>().invoke()
         }
+        // AdvanceService validates dependencies in both directions and inspects children for
+        // cascade detection on every transition; default the strict mocks to "no edges / no
+        // children" so pre-existing fixtures that never stubbed these calls keep their shape.
+        // Specific per-test stubs declared later override these defaults.
+        every { depRepo.findByToItemId(any()) } returns emptyList()
+        every { depRepo.findByFromItemId(any()) } returns emptyList()
 
         context = ToolExecutionContext(repoProvider)
     }
