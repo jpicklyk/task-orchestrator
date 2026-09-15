@@ -117,13 +117,21 @@ work_item_schemas:
         guidance: "Compare post-change sessions against the expected effect stated in the proposal note. Cite specific retrospective or session-tracking evidence — scoped to the target project for project-specific changes. Verdict: **effective** | **ineffective** | **inconclusive**. Ineffective outcomes are as valuable as effective ones; say what to try instead. For proposals delegated upstream, 'delegated upstream — tracked in <issue-url>' is a valid closing body."
 
   container:
-    lifecycle: manual
+    # permanent: a container is a filing cabinet, never a work item — cascades must not
+    # terminalize it over queued children, and it never auto-reopens (proposal 7b03dad6).
+    lifecycle: permanent
     notes:
       - key: container-summary
         role: queue
         required: false
         description: "Optional high-level description of what this container organizes."
         guidance: "Brief description of the container's purpose and scope. Not required — containers exist to group work items, not to carry implementation detail."
+
+  # The project anchor root (type "project") previously fell to `default`/auto and cascaded to
+  # terminal whenever every container under it was terminal (proposal 7b03dad6, 2026-09-15).
+  project:
+    lifecycle: permanent
+    notes: []
 
   default:
     lifecycle: auto
