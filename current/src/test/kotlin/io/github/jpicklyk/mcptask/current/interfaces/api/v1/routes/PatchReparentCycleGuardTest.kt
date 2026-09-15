@@ -501,12 +501,16 @@ class PatchReparentCycleGuardTest {
                     val root = makeRoot(repo, "Root S7")
                     makeChild(repo, root, "X S7")
                 }
-            // Unconditional errors: parentId:null must never even reach an ancestor lookup, since
-            // there is no proposed new parent to walk from (RFC 7396 s2 / O1 established semantics).
+            // Unconditional errors on the ancestor-lookup/cascade surfaces only: parentId:null must
+            // never even reach an ancestor lookup, since there is no proposed new parent to walk
+            // from (RFC 7396 s2 / O1 established semantics). getById is deliberately left
+            // un-stubbed (falls through to the real delegate) because the route's own existence
+            // check on the PATCH target (X itself) runs before the parentId:null branch and must
+            // succeed for this scenario to be observable at all - erroring it would 404 the
+            // request before the behavior under test ever runs.
             val scripted =
                 ScriptedWorkItemRepository(
                     repo.workItemRepository(),
-                    onGetById = { Result.Error(RepositoryError.DatabaseError("must not be reached")) },
                     onFindAncestorChains = { Result.Error(RepositoryError.DatabaseError("must not be reached")) },
                     onFindDescendants = { Result.Error(RepositoryError.DatabaseError("must not be reached")) },
                 )
