@@ -3,6 +3,8 @@ package io.github.jpicklyk.mcptask.current
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.SignalHandler
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.CurrentMcpServer
+import io.github.jpicklyk.mcptask.current.interfaces.mcp.Failed
+import io.github.jpicklyk.mcptask.current.interfaces.mcp.StartupFailedException
 import org.slf4j.LoggerFactory
 import java.util.Properties
 
@@ -37,7 +39,12 @@ fun main() {
 
         // Create and run the MCP server (blocks until server closes)
         val mcpServer = CurrentMcpServer(version, coordinator)
-        mcpServer.run()
+        val outcome = mcpServer.run()
+        if (outcome is Failed) {
+            // Don't use exitProcess(1) here either — throw and let the catch below rethrow, so the
+            // JVM's normal uncaught-exception exit (non-zero) applies without skipping shutdown hooks.
+            throw StartupFailedException(outcome)
+        }
 
         logger.info("Main function exiting normally")
     } catch (e: Exception) {

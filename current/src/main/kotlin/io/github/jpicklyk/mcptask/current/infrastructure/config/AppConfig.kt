@@ -61,12 +61,17 @@ data class AppConfig(
     val corsAllowedHeaders: List<String>,
     val corsExposeHeaders: List<String>,
     val corsMaxAgeSeconds: Long,
+    // ---- Readiness (ReadinessMarker / Docker HEALTHCHECK) ----
+    val readinessFile: String,
     // ---- Raw env resolver (for validated loaders that parse env themselves) ----
     val envResolver: (String) -> String?,
 ) {
     companion object {
         // Bearer token store default — mirrors CurrentMcpServer.resolveApiWiring.
         internal const val DEFAULT_API_TOKENS_PATH = "/run/secrets/api-tokens.yaml"
+
+        // Readiness marker default — mirrors the Dockerfile's READINESS_FILE default.
+        internal const val DEFAULT_READINESS_FILE = "/tmp/mcp-task-orchestrator.ready"
 
         // Default lists for CORS — mirror CorsConfig.configureCors.
         internal val DEFAULT_CORS_METHODS = listOf("GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS")
@@ -119,6 +124,8 @@ data class AppConfig(
                 corsAllowedHeaders = parseCsv(env("CORS_ALLOWED_HEADERS")) ?: DEFAULT_CORS_HEADERS,
                 corsExposeHeaders = parseCsv(env("CORS_EXPOSE_HEADERS")) ?: DEFAULT_CORS_EXPOSE_HEADERS,
                 corsMaxAgeSeconds = env("CORS_MAX_AGE_SECONDS")?.trim()?.toLongOrNull() ?: 3600L,
+                // Readiness marker — plain string, no boolean parsing involved.
+                readinessFile = env("READINESS_FILE") ?: DEFAULT_READINESS_FILE,
                 envResolver = env,
             )
 

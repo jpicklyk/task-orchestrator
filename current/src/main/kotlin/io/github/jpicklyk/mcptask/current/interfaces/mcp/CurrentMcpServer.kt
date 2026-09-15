@@ -24,6 +24,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlStatusLabelService
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
+import io.github.jpicklyk.mcptask.current.infrastructure.health.ReadinessMarker
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
@@ -71,6 +72,7 @@ import kotlinx.io.asSource
 import kotlinx.io.buffered
 import kotlinx.serialization.json.JsonObject
 import org.slf4j.LoggerFactory
+import java.nio.file.Paths
 
 /**
  * Current (v3) MCP Server implementation for the Task Orchestrator.
@@ -100,9 +102,13 @@ class CurrentMcpServer(
 
     /**
      * Configures and runs the MCP server.
-     * This method will block until the server is closed.
+     *
+     * Blocks until the server is closed, then returns [Started] — or returns [Failed] immediately
+     * (without ever serving) when database init, schema update, transport dispatch, or the
+     * readiness-marker write fails. Callers ([CurrentMain.main]) MUST inspect the result: a [Failed]
+     * outcome no longer just logs and returns like a success would — see [StartupOutcome].
      */
-    fun run() =
+    fun run(): StartupOutcome =
         runBlocking {
             logger.info("Initializing Current (v3) MCP server...")
 
@@ -110,11 +116,11 @@ class CurrentMcpServer(
             val dbPath = appConfig.databasePath
             if (!databaseManager.initialize(dbPath)) {
                 logger.error("Failed to initialize database at: $dbPath")
-                return@runBlocking
+                return@runBlocking Failed(Reason.DATABASE_INIT, "Failed to initialize database at: $dbPath")
             }
             if (!databaseManager.updateSchema()) {
                 logger.error("Failed to update database schema")
-                return@runBlocking
+                return@runBlocking Failed(Reason.SCHEMA_UPDATE, "Failed to update database schema")
             }
             logger.info("Database initialized at: $dbPath")
 
@@ -154,39 +160,54 @@ class CurrentMcpServer(
             mcpLoggingService.info("mcp-task-orchestrator.server", "Database initialized at: $dbPath")
             mcpLoggingService.info("mcp-task-orchestrator.server", "Server ready with $toolCount tools")
 
+            // Readiness marker: written only once the server is actually serving (inside the
+            // transport runners below, after the transport confirms it started), and cleared on
+            // every shutdown path. This is the Docker HEALTHCHECK's readiness signal — see
+            // ReadinessMarker's kdoc for why a marker file, not an HTTP probe.
+            val readinessMarker = ReadinessMarker(Paths.get(appConfig.readinessFile))
+
             // Transport dispatch
             val transportType = appConfig.mcpTransport
-            when (transportType) {
-                "stdio" -> {
-                    // stdio transport does NOT serve the REST/SSE API. When the API is enabled the
-                    // tool context still uses the decorated provider, so MCP-tool writes publish to
-                    // the bus — but with no SSE subscribers (no HTTP server), publish() is a cheap
-                    // no-op. Document the gap rather than expand scope to serve SSE over stdio.
-                    if (apiWiring.eventBus != null) {
-                        logger.info(
-                            "API config is enabled but MCP_TRANSPORT=stdio: the SSE endpoint is " +
-                                "only served under MCP_TRANSPORT=http. Event publishing is a no-op " +
-                                "(no subscribers) in stdio mode."
+            val outcome: StartupOutcome =
+                when (transportType) {
+                    "stdio" -> {
+                        // stdio transport does NOT serve the REST/SSE API. When the API is enabled the
+                        // tool context still uses the decorated provider, so MCP-tool writes publish to
+                        // the bus — but with no SSE subscribers (no HTTP server), publish() is a cheap
+                        // no-op. Document the gap rather than expand scope to serve SSE over stdio.
+                        if (apiWiring.eventBus != null) {
+                            logger.info(
+                                "API config is enabled but MCP_TRANSPORT=stdio: the SSE endpoint is " +
+                                    "only served under MCP_TRANSPORT=http. Event publishing is a no-op " +
+                                    "(no subscribers) in stdio mode."
+                            )
+                        }
+                        runStdioTransport(server, serverName, toolCount, readinessMarker)
+                    }
+                    "http" ->
+                        runHttpTransport(
+                            server,
+                            serverName,
+                            toolCount,
+                            apiWiring,
+                            noteSchemaService,
+                            statusLabelService,
+                            degradedModePolicy,
+                            idempotencyCache,
+                            composition.actorAuthEnabled,
+                            readinessMarker
+                        )
+                    else -> {
+                        logger.error("Unknown MCP_TRANSPORT: '$transportType'. Valid values: stdio, http")
+                        Failed(
+                            Reason.UNKNOWN_TRANSPORT,
+                            "Unknown MCP_TRANSPORT: '$transportType'. Valid values: stdio, http"
                         )
                     }
-                    runStdioTransport(server, serverName, toolCount)
                 }
-                "http" ->
-                    runHttpTransport(
-                        server,
-                        serverName,
-                        toolCount,
-                        apiWiring,
-                        noteSchemaService,
-                        statusLabelService,
-                        degradedModePolicy,
-                        idempotencyCache,
-                        composition.actorAuthEnabled
-                    )
-                else -> logger.error("Unknown MCP_TRANSPORT: '$transportType'. Valid values: stdio, http")
-            }
 
             logger.info("MCP server shut down")
+            outcome
         }
 
     /**
@@ -208,8 +229,9 @@ class CurrentMcpServer(
     private suspend fun runStdioTransport(
         server: Server,
         serverName: String,
-        toolCount: Int
-    ) {
+        toolCount: Int,
+        readinessMarker: ReadinessMarker
+    ): StartupOutcome {
         logger.info("Starting MCP server with stdio transport...")
 
         val transport =
@@ -229,11 +251,27 @@ class CurrentMcpServer(
 
         try {
             server.createSession(transport)
-            logger.info("Current (v3) MCP server running as '$serverName' v$version with $toolCount tools")
+        } catch (e: Exception) {
+            logger.error("Error in stdio server connection: ${e.message}", e)
+            return Started
+        }
+
+        try {
+            readinessMarker.markReady()
+        } catch (e: Exception) {
+            logger.error("Failed to write readiness marker at ${readinessMarker.path}: ${e.message}", e)
+            return Failed(Reason.READINESS_MARKER, "Failed to write readiness marker: ${e.message}")
+        }
+
+        logger.info("Current (v3) MCP server running as '$serverName' v$version with $toolCount tools")
+        try {
             done.join()
         } catch (e: Exception) {
             logger.error("Error in stdio server connection: ${e.message}", e)
+        } finally {
+            readinessMarker.clear()
         }
+        return Started
     }
 
     private suspend fun runHttpTransport(
@@ -246,7 +284,8 @@ class CurrentMcpServer(
         degradedModePolicy: DegradedModePolicy,
         idempotencyCache: IdempotencyCache,
         actorAuthEnabled: Boolean,
-    ) {
+        readinessMarker: ReadinessMarker,
+    ): StartupOutcome {
         val host = appConfig.mcpHttpHost
         val port = appConfig.mcpHttpPort
         logger.info("Starting MCP server with HTTP transport on $host:$port/mcp ...")
@@ -351,11 +390,27 @@ class CurrentMcpServer(
 
         try {
             ktorServer.start(wait = false)
-            logger.info("Current (v3) MCP server running as '$serverName' v$version via HTTP on $host:$port/mcp with $toolCount tools")
+        } catch (e: Exception) {
+            logger.error("Error in HTTP server: ${e.message}", e)
+            return Started
+        }
+
+        try {
+            readinessMarker.markReady()
+        } catch (e: Exception) {
+            logger.error("Failed to write readiness marker at ${readinessMarker.path}: ${e.message}", e)
+            return Failed(Reason.READINESS_MARKER, "Failed to write readiness marker: ${e.message}")
+        }
+
+        logger.info("Current (v3) MCP server running as '$serverName' v$version via HTTP on $host:$port/mcp with $toolCount tools")
+        try {
             done.join()
         } catch (e: Exception) {
             logger.error("Error in HTTP server: ${e.message}", e)
+        } finally {
+            readinessMarker.clear()
         }
+        return Started
     }
 
     /**
