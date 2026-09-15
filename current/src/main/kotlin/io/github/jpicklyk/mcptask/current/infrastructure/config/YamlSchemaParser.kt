@@ -7,7 +7,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.ResourceMode
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
-import org.slf4j.LoggerFactory
 
 /**
  * Parses a already-YAML-deserialized config root map (`work_item_schemas:` / `note_schemas:` /
@@ -26,8 +25,6 @@ import org.slf4j.LoggerFactory
  * parsed `Map<String, Any>` root, produce schemas/traits/warnings" step lives here.
  */
 internal object YamlSchemaParser {
-    private val logger = LoggerFactory.getLogger(YamlSchemaParser::class.java)
-
     private val VALID_SCHEMA_ROLES =
         mapOf(
             "queue" to Role.QUEUE,
@@ -514,11 +511,9 @@ internal object YamlSchemaParser {
 
         val parsedRole = VALID_SCHEMA_ROLES[roleRaw]
         if (parsedRole == null) {
-            logger.warn(
-                "Skipping schema entry '{}': invalid role '{}' (valid: {})",
-                key,
-                roleRaw,
-                VALID_SCHEMA_ROLES.keys
+            warnings.add(
+                "Schema '$schemaName' entry[$index] (key='$key') has invalid role '$roleRaw' " +
+                    "(valid: ${VALID_SCHEMA_ROLES.keys}); skipping"
             )
             return null
         }

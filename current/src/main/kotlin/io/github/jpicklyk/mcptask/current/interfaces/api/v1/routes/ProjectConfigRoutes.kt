@@ -58,7 +58,9 @@ private fun configEtag(fingerprint: String): String = "\"cfg-$fingerprint\""
  *   fingerprint-derived ETag (412 on mismatch, ignored when no row exists yet — a first push is a
  *   create). On success, top-level `configYaml` keys not honored by the per-root resolution layer
  *   (e.g. `actor_authentication`) are reported in an additive `ignoredSections` field, omitted when
- *   empty.
+ *   empty. Soft schema/trait parse warnings (e.g. an invalid note `role`, a note entry missing
+ *   `key`) do NOT fail the push — the config is still stored with a 200 — but are reported in an
+ *   additive `schemaWarnings` field, omitted when empty.
  * - `DELETE /roots/{rootId}/config` — remove the stored config row ([ApiCapability.WRITE_CONFIG] +
  *   scope); 404 when no row exists.
  *
@@ -190,6 +192,7 @@ fun Route.projectConfigRoutes(repositoryProvider: RepositoryProvider) {
                                 updatedAt = result.updatedAt.toString(),
                                 warning = result.warning,
                                 ignoredSections = result.ignoredSections.ifEmpty { null },
+                                schemaWarnings = result.schemaWarnings.ifEmpty { null },
                             ),
                         )
                     }
