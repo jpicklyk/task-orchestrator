@@ -1162,11 +1162,11 @@ Trait notes are merged into the resolved schema: `default_traits` from config ap
 - `PERMANENT` — item never auto-terminates; intended for persistent containers
 - `AUTO_REOPEN` — cascade fires as in AUTO, and parent is also reopened when a new child is added
 
-**Start cascade.** When a child item transitions to WORK, the parent is automatically advanced from QUEUE to WORK if it is still in QUEUE (same cascade logic applies up the ancestor chain). This appears in `cascadeEvents` in the response with `trigger="cascade"`.
+**Start cascade.** When a child item transitions to WORK, the parent is automatically advanced from QUEUE to WORK if it is still in QUEUE. This is immediate-parent-only — it does not chain further up the ancestor chain (a grandparent stays in QUEUE until the parent itself transitions to WORK through its own trigger or cascade). The cascade gates on the parent's own CURRENT-phase required notes: if the parent has a resolved schema and its required notes for its current phase are not all filled, the cascade is suppressed rather than applied — the `cascadeEvents` entry carries `applied: false`, `gateBlocked: true`, and `missingNotes` (the missing note keys), and the parent is left in QUEUE for the caller to fill notes and advance explicitly. A schema-free parent, or one with no missing required notes for its current phase, cascades exactly as before. This appears in `cascadeEvents` in the response with `trigger="cascade"`.
 
-**Terminal cascade.** When a child item reaches TERMINAL, the parent may also automatically advance if all its children are terminal.
+**Terminal cascade.** When a child item reaches TERMINAL, the parent may also automatically advance if all its children are terminal. Terminal cascades are gated the same way (`gateBlocked` / `missingNotes`), but against ALL required notes across all phases — the same check a direct `complete` on the parent would enforce.
 
-**Reopen cascade.** When a child item is reopened (TERMINAL → QUEUE) and its parent is TERMINAL, the parent is automatically reopened to WORK. This ensures the parent reflects that it has active children again.
+**Reopen cascade.** When a child item is reopened (TERMINAL → QUEUE) and its parent is TERMINAL, the parent is automatically reopened to WORK. This ensures the parent reflects that it has active children again. Reopen cascades never gate on notes — the direct `reopen` trigger itself bypasses gate enforcement (see the `reopen` row above), so gating its cascade would contradict that.
 
 All cascade types are recorded in `cascadeEvents`.
 

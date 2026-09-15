@@ -177,6 +177,13 @@ drift apart.
   a `tags_include` token also has its search hits filtered to items carrying an allowed tag
 - `GET /transitions` and `GET /items/{id}/breadcrumbs` — a `tags_include` token sees only rows for
   items it is allowed to see; `GET /items/{id}?include=children` is filtered the same way
+- `GET /items/{id}/dependencies` and `GET /items/{id}/backlinks` — the subject item's own scope
+  check is unchanged (`403 scope_forbidden` if the subject itself is out of scope); the
+  *counterparty* item on each edge/backlink is additionally checked against `root_ids` and
+  `tags_include`, and a row whose counterparty is out of scope is dropped from the response body
+  (`200 OK` with a filtered, possibly-empty collection — never `403` for the counterparty side)
+- `GET /api/v1/events` (SSE) — a `tags_include` token is enforced per-event, identically for the
+  live stream and Last-Event-ID replay (see §21)
 
 **A collection endpoint never turns a tag-scope mismatch into `403`.** Unlike the single-item case,
 a tag-scoped caller whose scope matches nothing on a collection response (`GET /items`,
@@ -267,6 +274,7 @@ All error responses use:
 | `unauthenticated` | 401 | No authenticated principal (missing/invalid token) |
 | `verification_failed` | 401 | JWKS verification failed under `reject` policy |
 | `insufficient_capability` | 403 | Caller's token lacks a capability required by the request itself (distinct from `scope_forbidden`'s root-scope check) — e.g. a non-ADMIN caller sets `overrideResourceLeases: true` on `POST /items/{id}/advance`, or calls `DELETE /api/v1/resources/leases/{key}` without `ADMIN` |
+| `insufficient_scope` | 403 | A generic `requireCapability` check failed for the plugin's configured capability, or (SSE-specific) a `GET /api/v1/events` connection carries a `tags_include` scope but the route has no `WorkItemRepository` wired to filter by it — fail-closed rather than serving an unfiltered stream (see §21) |
 | `transition_failed` | 422 | Role transition rejected (invalid trigger, gate failure, dependency blocker) |
 | `resource_unavailable` | 409 | Resource-lease gate contention on `POST /items/{id}/advance` into WORK — transient, retryable. Carries a `Retry-After` header and `details.contendedResources`/`details.retryAfterMs`. Never discloses the current holder. |
 | `db_error` | 500 | Database query failed |
@@ -773,10 +781,14 @@ JSON Merge Patch update. Requires `WRITE_ITEMS`, `If-Match`, and `Content-Type: 
 - `400 validation_error` — re-parent would create a cycle: `parentId` equals the item's own id
   (message: `"An item cannot be its own parent"`) or names one of the item's own descendants
   (message: `"Cannot re-parent an item under its own descendant"`). Checked with an identity
-  comparison plus an upward walk of the proposed parent's ancestor chain, bounded by that parent's
-  `depth + 1` hops. **Ordering:** `404 not_found` (unknown parent) → `403 scope_forbidden` (parent
-  outside scope) → this `400 validation_error` (self/descendant cycle) — each check runs only after
-  the previous one passes, and nothing is written until all three clear.
+  comparison plus a full walk of the proposed parent's real ancestor chain via a single batched
+  `findAncestorChains` lookup — not bounded by the parent row's denormalized `depth`, so a stale or
+  incorrect `depth` value can no longer let a cycle through. **Ordering:** `404 not_found` (unknown
+  parent) → `403 scope_forbidden` (parent outside scope) → this `400 validation_error`
+  (self/descendant cycle) — each check runs only after the previous one passes, and nothing is
+  written until all three clear.
+- `500 db_error` — the ancestor-chain lookup for the cycle check failed (repository error); the
+  patch fails closed with no write, rather than silently treating the failure as "no cycle found."
 - `409 version_conflict` — a concurrent writer's update won the version race between the `If-Match`
   check and this request's own write. Distinct from `412 etag_mismatch` below: the ETag matched at
   read time, but the underlying row changed before this write committed. Retry with a fresh
@@ -1431,13 +1443,30 @@ route-scoped by nesting alone, so `publicPaths` is the only lever that keeps the
    no token is required or checked
 4. If none of the above apply → `401`
 
+**Tag-scope guard:** Per-event `tags_include` filtering (below) needs the route's `WorkItemRepository`
+wiring to resolve an event's item tags. If a principal's `scope.tags_include` is non-empty but no
+repository is wired for the route, the pre-flight plugin rejects the connection with
+`403 insufficient_scope` rather than silently serving an unfiltered stream — a fail-closed
+connection-time check, distinct from the per-event filtering described below.
+
 **Browser SSE note:** The native browser `EventSource` API cannot set custom headers. Browsers must use a fetch-based SSE client (e.g., `@microsoft/fetch-event-source`) to provide the `Authorization: Bearer` header, or enable `API_ALLOW_QUERY_TOKEN_FOR_SSE=true` to use the query-parameter path.
 
 **Query parameters:**
 - `root` (repeatable) — filter to events for items in this root's subtree. Effective subscription = intersection of `?root=` values with `principal.scope.rootIds`.
 - `types` — comma-separated event type filter (e.g., `types=item.created,item.advanced`)
 
+`tags_include` is not a query parameter — it is enforced from the principal's own token scope, per event, as described next.
+
 **`Last-Event-ID` replay:** The bus maintains a ring buffer of recent events (size: `API_SSE_BUFFER_SIZE`, default 1000). On reconnect, events with `id > Last-Event-ID` are replayed before live streaming resumes. Ring-buffer entries carry `affectedRoots` metadata, so the replay path applies the **same root-intersection filter** as the live fan-out — a client reconnecting with `?root=<uuid>` receives only replayed events for roots within its subscription (and scope). Replay is consistent with the live stream.
+
+**Tag scope (`tags_include`) filtering:** Root scope is applied at the bus level (above); tag scope
+is enforced per-event on top of it, identically for the live stream and for `Last-Event-ID` replay,
+via the same `allowsItemTags` predicate the REST collection endpoints use (§3). A connection whose
+principal has no `tags_include` (or an event with no `itemId`, i.e. a bus-level event) is unaffected.
+Otherwise each event's `itemId` is resolved to its current tags and checked against the allowlist;
+the result is cached per connection for `item.*`/`scope.*` events (which also refresh the cache, so a
+mid-stream tag change on an item takes effect immediately) and reused for `note.*`/`dependency.*`
+events on the same item. See §25 for the `item.deleted` fail-closed gap this scheme has.
 
 **Event ID namespace:** The monotonic ID counter for `/api/v1/events` is **independent** from the `/mcp` SSE channel's `EventStore`. Do NOT reuse `Last-Event-ID` values across the two channels.
 
@@ -1524,6 +1553,15 @@ The `"<previousRole>"` sentinel in `blocked.resume` is a literal string — reso
 ## 25. Known Limitations
 
 **SSE dependency-event scoping depends on a warm ancestor cache.** Live root-filtering and `Last-Event-ID` replay are both correctly root-scoped — ring-buffer entries carry `affectedRoots` metadata and the replay path applies the same root-intersection filter as the live fan-out. One residual caveat remains for dependency events: `dependency.added` / `dependency.removed` resolve their affected roots from an in-memory ancestor cache populated by prior item create/update writes. On a cache miss (e.g., a dependency change with no preceding item write on that subtree during the connection's lifetime), the event falls back to an unscoped broadcast. This is a deliberate tradeoff; root-scoped subscribers that require exact dependency-event scoping should re-fetch state rather than relying solely on the event stream.
+
+**SSE tag-scope filtering has an `item.deleted` fail-closed gap.** Per-event `tags_include`
+filtering (§21) resolves an event's tags by looking up its `itemId` at delivery time. For
+`item.deleted`, the item is already gone by the time the event is filtered, so its tags cannot be
+resolved — the event is dropped for any tag-scoped connection rather than risk showing (or hiding)
+it incorrectly. This mirrors the existing cold-cache `dependency.*` caveat above in kind (both are
+event-timing tradeoffs in the SSE filter path) but not in direction: the dependency-event cache miss
+fails **open** (unscoped broadcast), while this fails **closed** (dropped) — a tag-scoped subscriber
+that needs to know about a deletion should re-fetch state rather than rely solely on the stream.
 
 **SSE honors bearer and unauthenticated modes; JWKS is untested on this route.** The pre-flight auth plugin for the SSE route resolves `Authorization: Bearer` (and, when enabled, `?token=`) the same way `ApiBearerAuth` does, and explicitly short-circuits for `API_AUTH_MODE=none` (§1/§21) exactly like the bearer route. JWKS-mode JWT authentication for SSE has not been separately verified — the pre-flight plugin's bearer-token path is what's exercised; treat JWKS+SSE as unconfirmed rather than assuming parity until it's tested.
 
