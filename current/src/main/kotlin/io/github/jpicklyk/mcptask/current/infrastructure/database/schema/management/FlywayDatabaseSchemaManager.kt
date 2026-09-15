@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management
 
+import io.github.jpicklyk.mcptask.current.infrastructure.config.EnvBoolean
 import org.flywaydb.core.Flyway
 import org.flywaydb.core.api.FlywayException
 import org.slf4j.LoggerFactory
@@ -11,11 +12,12 @@ import org.slf4j.LoggerFactory
  * @param jdbcUrl The JDBC URL for the database connection.
  * @param repair Whether to run Flyway repair instead of migrate. Sourced from the FLYWAY_REPAIR
  *   env var via [io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig]; defaults to
- *   reading the env directly so standalone construction keeps the prior behavior.
+ *   reading the env directly (via the shared [EnvBoolean] vocabulary) so standalone construction
+ *   keeps the prior behavior.
  */
 class FlywayDatabaseSchemaManager(
     private val jdbcUrl: String,
-    private val repair: Boolean = System.getenv("FLYWAY_REPAIR")?.toBoolean() ?: false
+    private val repair: Boolean = EnvBoolean.parse("FLYWAY_REPAIR", System.getenv("FLYWAY_REPAIR"), default = false)
 ) : DatabaseSchemaManager {
     private val logger = LoggerFactory.getLogger(FlywayDatabaseSchemaManager::class.java)
 

@@ -59,6 +59,7 @@ ENV USE_FLYWAY=true
 ENV AGENT_CONFIG_DIR=/project
 ENV MCP_HTTP_HOST=0.0.0.0
 ENV MCP_HTTP_PORT=3001
+ENV READINESS_FILE=/tmp/mcp-task-orchestrator.ready
 EXPOSE 3001
 
 # Switch to non-root user
@@ -66,6 +67,14 @@ USER appuser
 
 # Signal Docker to send SIGTERM for graceful shutdown
 STOPSIGNAL SIGTERM
+
+# Health check: the readiness marker at $READINESS_FILE is written only after the server has
+# actually started serving (stdio session created / HTTP listener started) and removed on every
+# shutdown path, so "file present" == "actually serving" for either transport. A marker file is
+# used instead of an HTTP probe because this runtime image has no curl/wget, and /api/v1/health
+# only exists under MCP_TRANSPORT=http with API_ENABLED=true (default transport is stdio).
+HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=3 \
+    CMD sh -c 'test -f "$READINESS_FILE"'
 
 # Run the MCP server
 # --enable-native-access=ALL-UNNAMED: Required for SQLite JDBC native library loading in Java 25+

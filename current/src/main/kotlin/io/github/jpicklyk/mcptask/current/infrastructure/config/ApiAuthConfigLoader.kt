@@ -76,14 +76,7 @@ class ApiAuthConfigLoader(
         // container (stdio, no API_* vars) booting cleanly — an enabled API hard-requires
         // API_AUTH_MODE and would otherwise crash a default deployment at startup. The API is an
         // opt-in layer the operator turns on with API_ENABLED=true + API_AUTH_MODE.
-        val raw = envResolver("API_ENABLED") ?: return false
-        return when (raw.lowercase().trim()) {
-            "true", "1", "yes" -> true
-            "false", "0", "no" -> false
-            else -> throw IllegalArgumentException(
-                "API_ENABLED has invalid value '$raw'. Expected: true or false.",
-            )
-        }
+        return EnvBoolean.require("API_ENABLED", envResolver("API_ENABLED"), default = false)
     }
 
     private fun resolveApiAllowUnauthenticated(): Boolean {
@@ -91,14 +84,7 @@ class ApiAuthConfigLoader(
         // independent keys must both be set to reach Unauthenticated: this key alone (with any
         // other API_AUTH_MODE) is a no-op, and API_AUTH_MODE=none alone (without this key) still
         // fails fast in resolveAuthMode below.
-        val raw = envResolver("API_ALLOW_UNAUTHENTICATED") ?: return false
-        return when (raw.lowercase().trim()) {
-            "true", "1", "yes" -> true
-            "false", "0", "no" -> false
-            else -> throw IllegalArgumentException(
-                "API_ALLOW_UNAUTHENTICATED has invalid value '$raw'. Expected: true or false.",
-            )
-        }
+        return EnvBoolean.require("API_ALLOW_UNAUTHENTICATED", envResolver("API_ALLOW_UNAUTHENTICATED"), default = false)
     }
 
     private fun resolveAuthMode(allowUnauthenticated: Boolean): String {

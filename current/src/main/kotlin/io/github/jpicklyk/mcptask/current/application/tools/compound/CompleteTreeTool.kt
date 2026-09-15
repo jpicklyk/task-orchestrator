@@ -1,10 +1,18 @@
 package io.github.jpicklyk.mcptask.current.application.tools.compound
 
-import io.github.jpicklyk.mcptask.current.application.service.RoleTransitionHandler
+import io.github.jpicklyk.mcptask.current.application.service.AdvanceCascadeEvent
+import io.github.jpicklyk.mcptask.current.application.service.AdvanceFailure
+import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
+import io.github.jpicklyk.mcptask.current.application.service.AdvanceResult
+import io.github.jpicklyk.mcptask.current.application.service.AdvanceService
 import io.github.jpicklyk.mcptask.current.application.tools.*
+import io.github.jpicklyk.mcptask.current.application.tools.workflow.NoteSchemaJsonHelpers
+import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
+import io.github.jpicklyk.mcptask.current.domain.model.ErrorKind
 import io.github.jpicklyk.mcptask.current.domain.model.Role
+import io.github.jpicklyk.mcptask.current.domain.model.ToolError
+import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
@@ -16,9 +24,20 @@ import java.util.UUID
  * Completes (or cancels) all descendants of a root item, or an explicit list of items,
  * in topological dependency order.
  *
+ * Each item is transitioned through the SAME
+ * [io.github.jpicklyk.mcptask.current.application.service.AdvanceService] pipeline that backs
+ * `advance_item` (ownership → resolve → dependency validation → note gate → resource-lease gate →
+ * apply → cascade → unblock). `complete_tree` owns only the tree-shaped concerns on top of it:
+ * target collection, the Kahn topological ordering, and skip propagation. Before this routing
+ * (bug 3e455253) the tool called [io.github.jpicklyk.mcptask.current.application.service.RoleTransitionHandler]
+ * directly and therefore silently bypassed claim ownership, dependency validation, cascade/unblock
+ * detection, actor attribution on audit rows, and per-root status labels.
+ *
  * Gate enforcement: if an item's tags match a note schema, all required notes must be
  * filled before the item can be completed. Gate failures propagate — dependents of a
- * gate-failed item within the target set are skipped.
+ * gate-failed item within the target set are skipped. An ownership, dependency, resource or
+ * apply rejection propagates the same way; only a resolution failure (the item simply cannot
+ * take this trigger from its current role) is recorded without skipping its dependents.
  *
  * Parameters:
  * - rootId (optional UUID): complete all descendants of this item
@@ -41,10 +60,14 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
 
 **Behavior:**
 - Items are processed in topological order (respecting dependency edges within the target set).
-- Gate check: if an item's tags match a note schema, all required notes must be filled before completing
-  (trigger "cancel" bypasses this). Gate failures cause downstream dependents (within the target set)
-  to be skipped.
-- Items already in TERMINAL role are recorded as skipped.
+- Each item runs the same pipeline as `advance_item` (ownership, dependency validation, note gate,
+  cascade/unblock detection, per-root status labels); `actor` is recorded
+  on every audit row.
+- Gate check: required notes must be filled before completing (trigger "cancel" bypasses the note
+  gate, not ownership). A gate, ownership (`errorCode` "not_claim_holder"), dependency or
+  resource failure is reported on that item and skips its in-set dependents.
+- Items already TERMINAL (including a parent terminalized by an earlier cascade in the same call)
+  are recorded as skipped and never gate-checked.
 - When rootId is used with includeRoot=true (the default), the root item is processed last, after all its descendants.
 
 Call when closing out a finished hierarchy — one atomic call instead of per-item advance sequences.
@@ -275,6 +298,21 @@ Call when closing out a finished hierarchy — one atomic call instead of per-it
         includeRoot: Boolean,
         context: ToolExecutionContext
     ): JsonElement {
+        // Step 0: Resolve the single top-level actor once for the whole tree. Every per-item
+        // advance below records THIS claim on its audit row — before bug 3e455253 was fixed the
+        // tool passed a null actorClaim to applyTransition, so complete_tree audit rows carried no
+        // attribution at all. An invalid actor object fails the whole call rather than silently
+        // degrading to an unattributed completion of the entire tree.
+        val actorResult = parseActorClaim(paramsObj["actor"] as? JsonObject, context)
+        val actorClaim: ActorClaim? =
+            when (actorResult) {
+                is ActorParseResult.Success -> actorResult.claim
+                is ActorParseResult.Absent -> null
+                is ActorParseResult.Invalid -> return errorResponse(actorResult.error)
+            }
+        val verification: VerificationResult? =
+            (actorResult as? ActorParseResult.Success)?.verification
+
         // Step 1: Collect target items (descendants only) and optionally the root item separately
         val (targetItems, rootItem) = collectTargetItemsWithRoot(paramsObj, context, includeRoot)
 
@@ -345,9 +383,14 @@ Call when closing out a finished hierarchy — one atomic call instead of per-it
         sortedOrder.addAll(remaining)
 
         // Step 4: Process items in topological order
-        val handler = RoleTransitionHandler()
         val resultsList = mutableListOf<JsonObject>()
         val skippedSet = mutableSetOf<UUID>()
+        // Ancestors terminalized by a cascade triggered EARLIER in this same call. The item
+        // snapshots were read up-front, so an intermediate node (or the root) whose children all
+        // completed here would otherwise be re-advanced from a stale non-terminal role, producing a
+        // duplicate audit row. Tracked instead of re-reading every item, since complete/cancel can
+        // only ever cascade ancestors to TERMINAL.
+        val terminalizedByCascade = mutableSetOf<UUID>()
         var completedCount = 0
         var skippedCount = 0
         var gateFailureCount = 0
@@ -375,135 +418,47 @@ Call when closing out a finished hierarchy — one atomic call instead of per-it
             // Items already in a terminal role are recorded as skipped and never gate-checked.
             // A terminal item is already done, so it must NOT gate-fail on unfilled notes and must
             // NOT propagate a skip to its dependents — a terminal dependency is satisfied.
-            if (item.role == Role.TERMINAL) {
+            if (item.role == Role.TERMINAL || itemId in terminalizedByCascade) {
                 skippedCount++
-                resultsList.add(
-                    buildJsonObject {
-                        put("itemId", JsonPrimitive(itemId.toString()))
-                        put("title", JsonPrimitive(item.title))
-                        put("applied", JsonPrimitive(false))
-                        put("skipped", JsonPrimitive(true))
-                        put("skippedReason", JsonPrimitive("already terminal"))
-                    }
-                )
+                resultsList.add(buildAlreadyTerminalResult(item))
                 continue
             }
 
-            // Gate check: required notes must be filled for "complete" trigger
-            val missingKeys = checkGate(item, trigger, context)
-            if (missingKeys.isNotEmpty()) {
-                gateFailureCount++
-                resultsList.add(
-                    buildJsonObject {
-                        put("itemId", JsonPrimitive(itemId.toString()))
-                        put("title", JsonPrimitive(item.title))
-                        put("applied", JsonPrimitive(false))
-                        put("gateErrors", JsonArray(missingKeys.map { JsonPrimitive("missing: $it") }))
-                    }
-                )
-                // Skip dependents
-                propagateSkip(itemId, adjacency, skippedSet)
-                continue
-            }
-
-            // Resolve transition
-            val hasReviewPhase = context.resolveHasReviewPhase(item)
-            val resolution = handler.resolveTransition(item, trigger, hasReviewPhase)
-            if (!resolution.success || resolution.targetRole == null) {
-                // Item may already be terminal or otherwise can't transition — skip silently
-                skippedCount++
-                resultsList.add(
-                    buildJsonObject {
-                        put("itemId", JsonPrimitive(itemId.toString()))
-                        put("title", JsonPrimitive(item.title))
-                        put("applied", JsonPrimitive(false))
-                        put("skipped", JsonPrimitive(true))
-                        put("skippedReason", JsonPrimitive(resolution.error ?: "Cannot transition"))
-                    }
-                )
-                continue
-            }
-
-            // Apply transition with config-driven status label
-            val configLabel = context.statusLabelService().resolveLabel(trigger)
-            val effectiveLabel = resolution.statusLabel ?: configLabel
-            val applyResult =
-                handler.applyTransition(
-                    item,
-                    resolution.targetRole,
-                    trigger,
-                    null,
-                    effectiveLabel,
-                    context.workItemRepository(),
-                    context.roleTransitionRepository()
-                )
-
-            if (!applyResult.success) {
-                skippedCount++
-                resultsList.add(
-                    buildJsonObject {
-                        put("itemId", JsonPrimitive(itemId.toString()))
-                        put("title", JsonPrimitive(item.title))
-                        put("applied", JsonPrimitive(false))
-                        put("skipped", JsonPrimitive(true))
-                        put("skippedReason", JsonPrimitive(applyResult.error ?: "Failed to apply transition"))
-                    }
-                )
-                // Propagate skip to dependents
-                propagateSkip(itemId, adjacency, skippedSet)
-                continue
-            }
-
-            releaseLeasesOnWorkExit(item, resolution.targetRole, context)
-
-            completedCount++
-            resultsList.add(
-                buildJsonObject {
-                    put("itemId", JsonPrimitive(itemId.toString()))
-                    put("title", JsonPrimitive(item.title))
-                    put("applied", JsonPrimitive(true))
-                    put("trigger", JsonPrimitive(trigger))
-                    applyResult.item?.statusLabel?.let { put("statusLabel", JsonPrimitive(it)) }
+            // Full advance pipeline (ownership → resolve → validate → gate → leases → apply →
+            // cascade → unblock), identical to advance_item.
+            when (
+                advanceOne(item, trigger, actorClaim, verification, context, resultsList, terminalizedByCascade)
+            ) {
+                ItemOutcome.COMPLETED -> completedCount++
+                ItemOutcome.GATE_FAILED, ItemOutcome.DEPENDENCY_FAILED -> {
+                    gateFailureCount++
+                    propagateSkip(itemId, adjacency, skippedSet)
                 }
-            )
+                ItemOutcome.REJECTED -> {
+                    skippedCount++
+                    propagateSkip(itemId, adjacency, skippedSet)
+                }
+                // The item simply cannot take this trigger from its current role (e.g. BLOCKED).
+                // Recorded, but its dependents are NOT skipped — preserving pre-existing behavior.
+                ItemOutcome.UNRESOLVABLE -> skippedCount++
+            }
         }
 
         // Step 5: Process root item last (after all descendants), if requested
         if (rootItem != null) {
-            if (rootItem.role == Role.TERMINAL) {
-                // Already terminal — record as skipped, never gate-check (mirrors the descendant path).
+            if (rootItem.role == Role.TERMINAL || rootItem.id in terminalizedByCascade) {
+                // Already terminal — record as skipped, never gate-check (mirrors the descendant
+                // path). `terminalizedByCascade` covers the common case where completing the last
+                // descendant above already cascaded this root to TERMINAL.
                 skippedCount++
-                resultsList.add(
-                    buildJsonObject {
-                        put("itemId", JsonPrimitive(rootItem.id.toString()))
-                        put("title", JsonPrimitive(rootItem.title))
-                        put("applied", JsonPrimitive(false))
-                        put("skipped", JsonPrimitive(true))
-                        put("skippedReason", JsonPrimitive("already terminal"))
-                    }
-                )
+                resultsList.add(buildAlreadyTerminalResult(rootItem))
             } else {
-                val missingKeys = checkGate(rootItem, trigger, context)
-                if (missingKeys.isNotEmpty()) {
-                    gateFailureCount++
-                    resultsList.add(
-                        buildJsonObject {
-                            put("itemId", JsonPrimitive(rootItem.id.toString()))
-                            put("title", JsonPrimitive(rootItem.title))
-                            put("applied", JsonPrimitive(false))
-                            put("gateErrors", JsonArray(missingKeys.map { JsonPrimitive("missing: $it") }))
-                        }
-                    )
-                } else {
-                    processItem(
-                        rootItem,
-                        trigger,
-                        handler,
-                        context,
-                        resultsList,
-                        onComplete = { completedCount++ },
-                        onSkip = { skippedCount++ }
-                    )
+                when (
+                    advanceOne(rootItem, trigger, actorClaim, verification, context, resultsList, terminalizedByCascade)
+                ) {
+                    ItemOutcome.COMPLETED -> completedCount++
+                    ItemOutcome.GATE_FAILED, ItemOutcome.DEPENDENCY_FAILED -> gateFailureCount++
+                    ItemOutcome.REJECTED, ItemOutcome.UNRESOLVABLE -> skippedCount++
                 }
             }
         }
@@ -527,123 +482,276 @@ Call when closing out a finished hierarchy — one atomic call instead of per-it
     }
 
     /**
-     * Apply a transition to a single item and record the result.
+     * How a single item's advance attempt ended. Drives both the summary counters and whether the
+     * item's in-set dependents are skipped.
      */
-    private suspend fun processItem(
+    private enum class ItemOutcome {
+        /** Transition applied and persisted. */
+        COMPLETED,
+
+        /** A required-note gate rejected it; counted in `gateFailures`, dependents skipped. */
+        GATE_FAILED,
+
+        /**
+         * The item's own dependency validation rejected it — typically a blocker OUTSIDE the target
+         * set that is still non-terminal. Reported with `error` + `blockers` (advance_item's shape),
+         * never as a skip: the item WAS attempted. Counted alongside [GATE_FAILED] in `gateFailures`
+         * so the `total = completed + skipped + gateFailures` identity holds without adding a
+         * summary key; dependents are skipped exactly as for a gate failure.
+         */
+        DEPENDENCY_FAILED,
+
+        /**
+         * Ownership, policy, resource-lease or persistence rejection. Counted in `skipped`,
+         * dependents skipped (the item did not actually reach terminal, so anything depending on it
+         * must not be completed either).
+         */
+        REJECTED,
+
+        /**
+         * The trigger cannot be resolved from the item's current role (e.g. a BLOCKED item under
+         * "complete"). Counted in `skipped`; dependents are NOT skipped, matching the behavior this
+         * tool has always had for the "Cannot transition" case.
+         */
+        UNRESOLVABLE
+    }
+
+    /**
+     * Runs one item through the shared [AdvanceService] pipeline and records the result.
+     *
+     * The service is constructed PER ITEM rather than once for the whole tree because
+     * [ToolExecutionContext.rootAwareStatusLabelService] must be bound to THIS item's `rootId` — a
+     * tree (or an explicit `itemIds` list) can span roots, each with its own per-root
+     * `status_labels` override. This mirrors `AdvanceItemTool.executeTransitions` exactly.
+     *
+     * `enforceOwnership = true` and `enforceResourceLeases = true` are the MCP-side constants: an
+     * operator who must bypass either uses the ADMIN-gated REST surface.
+     */
+    private suspend fun advanceOne(
         item: WorkItem,
         trigger: String,
-        handler: RoleTransitionHandler,
+        actorClaim: ActorClaim?,
+        verification: VerificationResult?,
         context: ToolExecutionContext,
         resultsList: MutableList<JsonObject>,
-        onComplete: () -> Unit,
-        onSkip: () -> Unit
-    ) {
-        val hasReviewPhase = context.resolveHasReviewPhase(item)
-        val resolution = handler.resolveTransition(item, trigger, hasReviewPhase)
-        if (!resolution.success || resolution.targetRole == null) {
-            onSkip()
-            resultsList.add(
-                buildJsonObject {
-                    put("itemId", JsonPrimitive(item.id.toString()))
-                    put("title", JsonPrimitive(item.title))
-                    put("applied", JsonPrimitive(false))
-                    put("skipped", JsonPrimitive(true))
-                    put("skippedReason", JsonPrimitive(resolution.error ?: "Cannot transition"))
-                }
-            )
-            return
-        }
-
-        val configLabel = context.statusLabelService().resolveLabel(trigger)
-        val effectiveLabel = resolution.statusLabel ?: configLabel
-        val applyResult =
-            handler.applyTransition(
-                item,
-                resolution.targetRole,
-                trigger,
-                null,
-                effectiveLabel,
-                context.workItemRepository(),
-                context.roleTransitionRepository()
+        terminalizedByCascade: MutableSet<UUID>
+    ): ItemOutcome {
+        val advanceService =
+            AdvanceService(
+                workItemRepository = context.workItemRepository(),
+                roleTransitionRepository = context.roleTransitionRepository(),
+                dependencyRepository = context.dependencyRepository(),
+                noteRepository = context.noteRepository(),
+                statusLabelService = context.rootAwareStatusLabelService(item.rootId, trigger),
+                schemaResolver = { context.resolveSchema(it) },
+                resourceLeaseRepository = context.repositoryProvider.resourceLeaseRepository(),
+                resourceRequirementsResolver = { context.resolveResourceRequirements(it) },
+                resourceRegistryResolver = { context.resolveResourceRegistry(it) },
+                resourceLeasesEnforced = AdvanceService.resourceLeasesEnforcedFromEnv()
             )
 
-        if (!applyResult.success) {
-            onSkip()
-            resultsList.add(
-                buildJsonObject {
-                    put("itemId", JsonPrimitive(item.id.toString()))
-                    put("title", JsonPrimitive(item.title))
-                    put("applied", JsonPrimitive(false))
-                    put("skipped", JsonPrimitive(true))
-                    put("skippedReason", JsonPrimitive(applyResult.error ?: "Failed to apply transition"))
-                }
+        val outcome =
+            advanceService.advance(
+                item = item,
+                trigger = trigger,
+                summary = null,
+                actorClaim = actorClaim,
+                verification = verification,
+                degradedModePolicy = context.degradedModePolicy,
+                enforceOwnership = true,
+                credentialRefs = emptyList(),
+                enforceResourceLeases = true
             )
-            return
-        }
 
-        releaseLeasesOnWorkExit(item, resolution.targetRole, context)
-
-        onComplete()
-        resultsList.add(
-            buildJsonObject {
-                put("itemId", JsonPrimitive(item.id.toString()))
-                put("title", JsonPrimitive(item.title))
-                put("applied", JsonPrimitive(true))
-                put("trigger", JsonPrimitive(trigger))
-                applyResult.item?.statusLabel?.let { put("statusLabel", JsonPrimitive(it)) }
+        return when (outcome) {
+            is AdvanceOutcome.Success -> {
+                val result = outcome.result
+                // Remember ancestors this advance already terminalized so a later item in the same
+                // call (typically the root, processed last) is reported as "already terminal"
+                // instead of being advanced again from its stale snapshot.
+                result.cascadeEvents
+                    .filter { it.applied && it.targetRole == Role.TERMINAL }
+                    .forEach { terminalizedByCascade.add(it.itemId) }
+                resultsList.add(buildAppliedResult(item, trigger, result))
+                ItemOutcome.COMPLETED
             }
-        )
+            is AdvanceOutcome.Failure -> {
+                resultsList.add(buildFailureResult(item, outcome.failure))
+                when (outcome.failure) {
+                    is AdvanceFailure.GateBlocked -> ItemOutcome.GATE_FAILED
+                    is AdvanceFailure.ValidationFailed -> ItemOutcome.DEPENDENCY_FAILED
+                    is AdvanceFailure.ResolutionFailed -> ItemOutcome.UNRESOLVABLE
+                    else -> ItemOutcome.REJECTED
+                }
+            }
+        }
     }
 
+    /** Result entry for an item that was already terminal before this call reached it. */
+    private fun buildAlreadyTerminalResult(item: WorkItem): JsonObject =
+        buildJsonObject {
+            put("itemId", JsonPrimitive(item.id.toString()))
+            put("title", JsonPrimitive(item.title))
+            put("applied", JsonPrimitive(false))
+            put("skipped", JsonPrimitive(true))
+            put("skippedReason", JsonPrimitive("already terminal"))
+        }
+
     /**
-     * Check gate requirements for an item. For the "complete" trigger, all required notes
-     * across all phases must be filled. Returns the list of missing note keys (empty = gate passed).
+     * Result entry for an applied transition. Keeps the pre-existing `applied`/`trigger`/
+     * `statusLabel` fields and adds the cascade and unblock reporting `advance_item` has always
+     * produced but `complete_tree` previously discarded (it never detected them at all).
      */
-    private suspend fun checkGate(
+    private fun buildAppliedResult(
         item: WorkItem,
         trigger: String,
-        context: ToolExecutionContext
-    ): List<String> {
-        if (trigger != "complete") return emptyList()
-        val resolvedSchema = context.resolveSchema(item) ?: return emptyList()
-        val allRequired = resolvedSchema.notes.filter { it.required }
-        if (allRequired.isEmpty()) return emptyList()
-
-        val notes =
-            when (val result = context.noteRepository().findByItemId(item.id)) {
-                is Result.Success -> result.data
-                is Result.Error -> emptyList()
+        result: AdvanceResult
+    ): JsonObject =
+        buildJsonObject {
+            put("itemId", JsonPrimitive(item.id.toString()))
+            put("title", JsonPrimitive(item.title))
+            put("applied", JsonPrimitive(true))
+            put("trigger", JsonPrimitive(trigger))
+            put("previousRole", JsonPrimitive(result.previousRole.toJsonString()))
+            put("newRole", JsonPrimitive(result.newRole.toJsonString()))
+            result.statusLabel?.let { put("statusLabel", JsonPrimitive(it)) }
+            if (result.cascadeEvents.isNotEmpty()) {
+                put("cascadeEvents", JsonArray(result.cascadeEvents.map { buildCascadeEventJson(it) }))
             }
-        val filledKeys = notes.filter { it.body.isNotBlank() }.map { it.key }.toSet()
-        return allRequired.filter { it.key !in filledKeys }.map { it.key }
-    }
+            if (result.unblockedItems.isNotEmpty()) {
+                put(
+                    "unblockedItems",
+                    JsonArray(
+                        result.unblockedItems.map { unblocked ->
+                            buildJsonObject {
+                                put("itemId", JsonPrimitive(unblocked.itemId.toString()))
+                                put("title", JsonPrimitive(unblocked.title))
+                            }
+                        }
+                    )
+                )
+            }
+        }
+
+    /** Mirrors the `cascadeEvents` element shape emitted by `advance_item`. */
+    private fun buildCascadeEventJson(event: AdvanceCascadeEvent): JsonObject =
+        buildJsonObject {
+            put("itemId", JsonPrimitive(event.itemId.toString()))
+            put("title", JsonPrimitive(event.title))
+            put("previousRole", JsonPrimitive(event.previousRole.toJsonString()))
+            put("targetRole", JsonPrimitive(event.targetRole.toJsonString()))
+            put("applied", JsonPrimitive(event.applied))
+            if (event.gateBlocked) {
+                put("gateBlocked", JsonPrimitive(true))
+                put("missingNotes", NoteSchemaJsonHelpers.buildMissingNotesArray(event.gateMissingNotes))
+            }
+            if (event.resourceBlocked) {
+                put("resourceBlocked", JsonPrimitive(true))
+                put("contendedResources", JsonArray(event.contendedResources.map { JsonPrimitive(it) }))
+            }
+            event.statusLabel?.let { put("statusLabel", JsonPrimitive(it)) }
+        }
 
     /**
-     * Releases [item]'s resource leases when a `complete_tree`-applied transition exits WORK.
+     * Maps a structured [AdvanceFailure] onto this tool's per-item result shape.
      *
-     * `complete_tree` applies transitions via [RoleTransitionHandler.applyTransition] directly,
-     * bypassing [io.github.jpicklyk.mcptask.current.application.service.AdvanceService]'s own
-     * WORK-exit release (`AdvanceService.releaseLeases`, step 5.5). Without this call, an item
-     * completed through `complete_tree` while holding leases would orphan them until their TTL
-     * expires. A release failure must NEVER fail the completion — the TTL is the backstop that
-     * frees the resource anyway, mirroring [AdvanceService]'s log-and-continue release policy.
+     * - [AdvanceFailure.GateBlocked] keeps the historical `gateErrors` array of `"missing: <key>"`
+     *   strings (and adds the structured `missingNotes` array `advance_item` emits).
+     * - [AdvanceFailure.ValidationFailed] is a rejection of the item ITSELF (a blocking dependency,
+     *   typically outside the target set, that is still non-terminal), so it mirrors `advance_item`
+     *   exactly: `error` + a `blockers` array, and NO `skipped`/`skippedReason` pair. Reporting it
+     *   as a skip would wrongly say the item was never attempted.
+     * - Every remaining variant is reported as `skipped` + `skippedReason`, the shape this tool
+     *   already used for non-gate rejections, plus the structured `errorKind`/`errorCode` fields
+     *   `advance_item` emits so a caller can distinguish a claim-ownership rejection
+     *   (`not_claim_holder`) from a transient resource contention (`resource_unavailable`) without
+     *   parsing the message.
      */
-    private suspend fun releaseLeasesOnWorkExit(
+    private fun buildFailureResult(
         item: WorkItem,
-        targetRole: Role,
-        context: ToolExecutionContext
-    ) {
-        if (item.role != Role.WORK || targetRole == Role.WORK) return
-        when (val release = context.repositoryProvider.resourceLeaseRepository().releaseAllForItem(item.id)) {
-            is LeaseReleaseResult.Success -> {}
-            is LeaseReleaseResult.DBError ->
-                logger.warn(
-                    "Failed to release resource leases for item {} on complete_tree work-exit: {}. " +
-                        "The completion is NOT failed; the lease TTL remains the backstop.",
-                    item.id,
-                    release.cause.message
-                )
+        failure: AdvanceFailure
+    ): JsonObject =
+        buildJsonObject {
+            put("itemId", JsonPrimitive(item.id.toString()))
+            put("title", JsonPrimitive(item.title))
+            put("applied", JsonPrimitive(false))
+            when (failure) {
+                is AdvanceFailure.GateBlocked -> {
+                    put(
+                        "gateErrors",
+                        JsonArray(failure.missingNotes.map { JsonPrimitive("missing: ${it.key}") })
+                    )
+                    put("error", JsonPrimitive(failure.message))
+                    put("missingNotes", NoteSchemaJsonHelpers.buildMissingNotesArray(failure.missingNotes))
+                    put("previousRole", JsonPrimitive(failure.previousRole.toJsonString()))
+                    put("targetRole", JsonPrimitive(failure.targetRole.toJsonString()))
+                }
+                is AdvanceFailure.OwnershipRejected -> {
+                    putSkipped(failure.message)
+                    putToolError(
+                        ToolError
+                            .permanent(code = "not_claim_holder", message = failure.message)
+                            .copy(contendedItemId = item.id)
+                    )
+                }
+                is AdvanceFailure.PolicyRejected -> {
+                    putSkipped(failure.reason)
+                    putToolError(ToolError.permanent(code = "rejected_by_policy", message = failure.reason))
+                }
+                is AdvanceFailure.ResourceLeaseUnavailable -> {
+                    putSkipped(failure.message)
+                    putToolError(
+                        ToolError(
+                            kind = ErrorKind.TRANSIENT,
+                            code = "resource_unavailable",
+                            message = failure.message,
+                            retryAfterMs = failure.retryAfterMs
+                        )
+                    )
+                    put(
+                        "contendedResources",
+                        JsonArray(failure.contendedResources.map { JsonPrimitive(it) })
+                    )
+                }
+                is AdvanceFailure.ValidationFailed -> {
+                    // NOT a skip: the item failed its OWN dependency validation, so it reports the
+                    // same `error` + `blockers` shape advance_item emits (AdvanceItemTool's
+                    // buildErrorResult) rather than a `skipped`/`skippedReason` pair. A skip means
+                    // "we never attempted this item"; here we did, and it was rejected.
+                    put("error", JsonPrimitive(failure.message))
+                    if (failure.blockers.isNotEmpty()) {
+                        put(
+                            "blockers",
+                            JsonArray(
+                                failure.blockers.map { blocker ->
+                                    buildJsonObject {
+                                        put("fromItemId", JsonPrimitive(blocker.fromItemId.toString()))
+                                        put("currentRole", JsonPrimitive(blocker.currentRole.toJsonString()))
+                                        put("requiredRole", JsonPrimitive(blocker.requiredRole))
+                                    }
+                                }
+                            )
+                        )
+                    }
+                }
+                is AdvanceFailure.ResolutionFailed -> putSkipped(failure.message)
+                is AdvanceFailure.ApplyFailed -> putSkipped(failure.message)
+            }
         }
+
+    /** The legacy non-gate rejection shape: `skipped` + `skippedReason`, plus a plain `error`. */
+    private fun JsonObjectBuilder.putSkipped(reason: String) {
+        put("skipped", JsonPrimitive(true))
+        put("skippedReason", JsonPrimitive(reason))
+        put("error", JsonPrimitive(reason))
+    }
+
+    /** The structured `errorKind`/`errorCode` fields `advance_item` emits for the same rejection. */
+    private fun JsonObjectBuilder.putToolError(toolError: ToolError) {
+        put("errorKind", JsonPrimitive(toolError.kind.toJsonString()))
+        put("errorCode", JsonPrimitive(toolError.code))
+        toolError.retryAfterMs?.let { put("retryAfterMs", JsonPrimitive(it)) }
+        toolError.contendedItemId?.let { put("contendedItemId", JsonPrimitive(it.toString())) }
     }
 
     override fun userSummary(

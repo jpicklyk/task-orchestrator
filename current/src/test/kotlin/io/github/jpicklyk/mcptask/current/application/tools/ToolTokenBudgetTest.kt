@@ -104,12 +104,12 @@ class ToolTokenBudgetTest {
             "get_context" to 2650, // was 1909; T2.3 added the `ancestorId` scope parameter
             "claim_item" to 2550, // was 2100; +when-to-call trigger sentence, measured 2181
             "manage_notes" to 2057,
-            "complete_tree" to 2100, // was 1760; +when-to-call trigger sentence, measured 1819
+            "complete_tree" to 2500, // was 2100; measured 2171 after the AdvanceService pipeline semantics (3e455253)
             "query_dependencies" to 1708,
             "advance_item" to 3150, // was 2650; +when-to-call trigger sentence, measured 2701
             "get_blocked_items" to 1250, // was 830; T2.3 added the `ancestorId` scope parameter
             "get_next_status" to 650, // was 470; +when-to-call trigger sentence, measured 559
-            "manage_project_config" to 3150, // measured 2698 after get `fingerprint` param + relation (fast-forward guard, t5)
+            "manage_project_config" to 3750, // was 3150; measured 3247 after `schemaWarnings` on push responses (40d755cc)
             "manage_plan_documents" to 2150, // measured 1834; new tool: stash/get/list per-root plan documents (dual REST+MCP ingestion)
         )
 
@@ -120,7 +120,7 @@ class ToolTokenBudgetTest {
      * tools (the CRUD/query surface) were deliberately left untouched — they trigger on obvious
      * need, and over-prompting tools that already trigger correctly causes overtriggering.
      */
-    private val totalCeiling = 47_300
+    private val totalCeiling = 48_300 // was 47_300; +400 complete_tree, +600 manage_project_config (lockstep)
 
     // explicitNulls = false mirrors the compact-wire-shape convention already used elsewhere
     // in this codebase (see EventRoutes.kt / ItemWriteRoutes.kt / NoteWriteRoutes.kt) — a

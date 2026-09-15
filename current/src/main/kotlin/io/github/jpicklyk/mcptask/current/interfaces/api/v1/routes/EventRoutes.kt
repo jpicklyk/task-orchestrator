@@ -1,10 +1,13 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
+import io.github.jpicklyk.mcptask.current.infrastructure.config.EnvBoolean
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipal
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.JwksApiVerifier
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.LOCAL_UNAUTH_PRINCIPAL
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEvent
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventBus
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventType
@@ -61,6 +64,14 @@ private class SseInlineAuthConfig {
      * and disabled modes.
      */
     var jwksVerifier: JwksApiVerifier? = null
+
+    /**
+     * The resolved REST auth mode. When [ApiAuthConfig.Unauthenticated] (opt-in:
+     * `API_AUTH_MODE=none` + `API_ALLOW_UNAUTHENTICATED=true`), every SSE connection is attached
+     * [LOCAL_UNAUTH_PRINCIPAL] with no token check at all -- mirrors [ApiBearerAuth]'s
+     * Unauthenticated branch so unauthenticated mode does not 401 every SSE connection.
+     */
+    var authConfig: ApiAuthConfig = ApiAuthConfig.Disabled
 }
 
 /**
@@ -83,8 +94,18 @@ private val sseInlineAuthPlugin =
         val tokenEntries = pluginConfig.tokenEntries
         val allowQueryToken = pluginConfig.allowQueryToken
         val jwksVerifier = pluginConfig.jwksVerifier
+        val authConfig = pluginConfig.authConfig
 
         onCall { call ->
+            // Opt-in unauthenticated mode (API_AUTH_MODE=none + API_ALLOW_UNAUTHENTICATED=true):
+            // attach the synthetic ADMIN/unrestricted principal and skip the token check entirely --
+            // mirrors ApiBearerAuth's Unauthenticated branch. Must run before the header/?token=
+            // resolution below, or a credential-less SSE connection is 401'd in this mode too.
+            if (authConfig is ApiAuthConfig.Unauthenticated) {
+                call.attributes.put(SsePrincipalKey, LOCAL_UNAUTH_PRINCIPAL)
+                return@onCall
+            }
+
             // Resolution order: Authorization header → (opt-in) ?token= query param → 401.
             val authHeader = call.request.headers["Authorization"]
             val rawToken: String? =
@@ -181,6 +202,8 @@ private val sseInlineAuthPlugin =
  * query-param path and a `read`/`admin` capability gate.
  *
  * ## Resolution order
+ * 0. If [authConfig] is [ApiAuthConfig.Unauthenticated] → every connection is attached the
+ *    synthetic ADMIN principal, no credential required (opt-in local dev/test mode).
  * 1. `Authorization: Bearer <token>` header (always allowed)
  * 2. Else if `API_ALLOW_QUERY_TOKEN_FOR_SSE=true` AND `?token=` present → query-token auth
  * 3. Else → 401
@@ -199,14 +222,19 @@ private val sseInlineAuthPlugin =
  * @param jwksVerifier REST JWT verifier for jwks mode; null in bearer/disabled modes. When set,
  *   a token not found among [tokenEntries] is validated as a JWT.
  * @param authCheckIntervalSeconds Interval between token-expiry checks.
+ * @param authConfig The resolved REST auth mode; only [ApiAuthConfig.Unauthenticated] changes
+ *   behavior here (bypasses the token check entirely). Defaults to [ApiAuthConfig.Disabled],
+ *   which falls through to the normal header/`?token=` resolution above.
  */
 fun Route.eventRoutes(
     eventBus: ApiEventBus,
     tokenEntries: Map<HashBytes, BearerTokenStore.TokenEntry> = emptyMap(),
-    allowQueryToken: Boolean = System.getenv("API_ALLOW_QUERY_TOKEN_FOR_SSE")?.lowercase() == "true",
+    allowQueryToken: Boolean =
+        EnvBoolean.parse("API_ALLOW_QUERY_TOKEN_FOR_SSE", System.getenv("API_ALLOW_QUERY_TOKEN_FOR_SSE"), false),
     jwksVerifier: JwksApiVerifier? = null,
     authCheckIntervalSeconds: Int =
         System.getenv("API_SSE_AUTH_CHECK_INTERVAL_SECONDS")?.toIntOrNull() ?: 30,
+    authConfig: ApiAuthConfig = ApiAuthConfig.Disabled,
 ) {
     // Wrap the SSE handler in a dedicated child route so the pre-flight auth plugin is scoped
     // ONLY to /events and does not affect sibling routes.
@@ -215,6 +243,7 @@ fun Route.eventRoutes(
             this.tokenEntries = tokenEntries
             this.allowQueryToken = allowQueryToken
             this.jwksVerifier = jwksVerifier
+            this.authConfig = authConfig
         }
 
         sse {

@@ -7,6 +7,7 @@ import io.github.jpicklyk.mcptask.current.domain.repository.SearchScope
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.allowedItemIdsForTagScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.enforceScopeForItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.requireCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
@@ -35,6 +36,9 @@ private val noteLogger = LoggerFactory.getLogger("NoteRoutes")
  *
  * All routes require [ApiCapability.READ]. Attribution redaction is applied via
  * [AttributionRedactor] (env-driven, defaults to redact).
+ *
+ * A principal with `tags_include` sees `/notes/search` hits only for items whose tags it is
+ * allowed to read; the per-item routes are already gated by [enforceScopeForItem].
  *
  * **FTS5 search caveat:** the `/notes/search` endpoint delegates to
  * [NoteRepository.ftsSearch] which returns empty results when running against H2
@@ -190,16 +194,23 @@ fun Route.noteRoutes(repositoryProvider: RepositoryProvider) {
                     offset = 0,
                 )
 
+            // tags_include has no FTS representation, so note hits are filtered by their OWNING
+            // item's tags after the fact — SearchHitDto carries only itemId.
+            val allowedItemIds =
+                allowedItemIdsForTagScope(principal, result.hits.map { it.itemId }.toSet(), workItemRepo)
+
             val hits =
-                result.hits.map { hit ->
-                    SearchHitDto(
-                        itemId = hit.itemId.toString(),
-                        noteKey = hit.noteKey,
-                        field = hit.field,
-                        snippet = hit.snippet,
-                        score = hit.score,
-                    )
-                }
+                result.hits
+                    .filter { it.itemId in allowedItemIds }
+                    .map { hit ->
+                        SearchHitDto(
+                            itemId = hit.itemId.toString(),
+                            noteKey = hit.noteKey,
+                            field = hit.field,
+                            snippet = hit.snippet,
+                            score = hit.score,
+                        )
+                    }
             call.respond(HttpStatusCode.OK, hits)
         }
     }

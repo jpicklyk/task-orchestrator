@@ -105,6 +105,89 @@ fun Route.requireCapability(
     return child
 }
 
+// Parses a WorkItem's comma-separated `tags` column into a trimmed, non-empty tag set.
+//
+// Null/blank input yields the empty set. Whitespace around each element is trimmed
+// (" alpha , beta " -> {"alpha", "beta"}) and empty elements are dropped, matching the
+// CSV convention used everywhere else in the item layer.
+private fun parseItemTagCsv(tags: String?): Set<String> =
+    tags
+        ?.split(",")
+        ?.map { it.trim() }
+        ?.filter { it.isNotEmpty() }
+        ?.toSet()
+        ?: emptySet()
+
+/**
+ * Single source of truth for the `tags_include` half of scope enforcement.
+ *
+ * Returns true when a principal with this scope is allowed to see an item whose `tags`
+ * column is [tags]. The rule mirrors [ApiScope]: `tagsInclude` applies to the item itself
+ * (it never walks the ancestor chain), membership is exact (no prefix/substring matching),
+ * and an EMPTY `tagsInclude` means "no tag constraint" -- so an unscoped or null principal
+ * always returns true.
+ *
+ * This is the predicate every read route must apply to items it did not already push through
+ * [enforceScopeForItem]: list rows, tree/children descendants, breadcrumb ancestors, search
+ * hits and transition subjects. Before it existed each route hand-rolled the same CSV split,
+ * and five of them simply forgot to -- letting a tag-scoped token read out-of-scope data.
+ */
+fun ApiPrincipal?.allowsItemTags(tags: String?): Boolean {
+    val tagsInclude = this?.scope?.tagsInclude ?: emptySet()
+    if (tagsInclude.isEmpty()) return true
+    return parseItemTagCsv(tags).any { it in tagsInclude }
+}
+
+/**
+ * True when this principal carries a non-empty `tags_include` allowlist.
+ *
+ * Routes use this as the branch guard so that non-tag-scoped callers take exactly the code
+ * path they took before tag filtering existed -- identical queries, identical totals.
+ */
+fun ApiPrincipal?.hasTagScope(): Boolean = !this?.scope?.tagsInclude.isNullOrEmpty()
+
+/**
+ * Drops every item the principal's `tags_include` allowlist excludes.
+ *
+ * A no-op (returns the receiver unchanged) when the principal has no tag scope.
+ */
+fun List<WorkItem>.filterByTagScope(principal: ApiPrincipal?): List<WorkItem> =
+    if (!principal.hasTagScope()) this else filter { principal.allowsItemTags(it.tags) }
+
+/**
+ * Resolves which of [itemIds] the principal's tag scope admits.
+ *
+ * For surfaces that carry only an item id and not its tags -- search hits (`SearchHitDto`
+ * exposes `itemId` alone) and transition rows -- so the tags have to be looked up before the
+ * rows can be filtered.
+ *
+ * Returns [itemIds] unchanged, with no DB round-trip, when the principal has no tag scope.
+ * Fails CLOSED on a lookup failure: an id whose tags could not be read is not returned, since
+ * the alternative is handing out rows nobody verified.
+ */
+suspend fun allowedItemIdsForTagScope(
+    principal: ApiPrincipal?,
+    itemIds: Set<UUID>,
+    repo: WorkItemRepository,
+): Set<UUID> {
+    if (!principal.hasTagScope() || itemIds.isEmpty()) return itemIds
+    return when (val result = repo.findByIds(itemIds)) {
+        is Result.Success ->
+            result.data
+                .filterByTagScope(principal)
+                .map { it.id }
+                .toSet()
+        is Result.Error -> {
+            authzLogger.warn(
+                "Tag scope filter: failed to load {} items for tag lookup: {}",
+                itemIds.size,
+                result.error.message,
+            )
+            emptySet()
+        }
+    }
+}
+
 // Scope-enforcement helper for individual item access.
 //
 // Checks whether itemId is accessible to the authenticated principal by walking its
@@ -162,7 +245,8 @@ suspend fun enforceScopeForItem(
         }
     }
 
-    // Tag scope check (item only -- no ancestor walk)
+    // Tag scope check (item only -- no ancestor walk); delegates to the shared predicate
+    // so single-item access and collection filtering can never drift apart.
     val tagsInclude = scope.tagsInclude
     if (tagsInclude.isNotEmpty()) {
         val itemResult = repo.getById(itemId)
@@ -175,19 +259,12 @@ suspend fun enforceScopeForItem(
             return false
         }
         val item: WorkItem = itemResult.getOrNull()!!
-        val itemTags =
-            item.tags
-                ?.split(",")
-                ?.map { it.trim() }
-                ?.filter { it.isNotEmpty() }
-                ?.toSet()
-                ?: emptySet()
 
-        if (itemTags.none { it in tagsInclude }) {
+        if (!principal.allowsItemTags(item.tags)) {
             authzLogger.debug(
-                "Tag scope denied: item {} has tags {} but principal requires one of {}",
+                "Tag scope denied: item {} has tags '{}' but principal requires one of {}",
                 itemId,
-                itemTags,
+                item.tags,
                 tagsInclude,
             )
             return false

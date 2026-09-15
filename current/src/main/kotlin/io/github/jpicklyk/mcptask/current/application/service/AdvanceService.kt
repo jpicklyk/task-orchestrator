@@ -257,15 +257,20 @@ class AdvanceService(
         const val LEASE_DB_ERROR_RETRY_AFTER_MS = 1000L
 
         /**
-         * Reads the [RESOURCE_LEASES_ENFORCED_ENV] kill switch. Enforcement is ON by default; only
-         * the literal string "false" (case-insensitive) disables it, matching the
-         * `API_WARN_ON_CLAIMED_ADVANCE` / `API_REDACT_*` convention in `AppConfig`.
+         * Reads the [RESOURCE_LEASES_ENFORCED_ENV] kill switch. Enforcement is ON by default;
+         * parsed via the shared [io.github.jpicklyk.mcptask.current.infrastructure.config.EnvBoolean]
+         * vocabulary (`true/1/yes` vs `false/0/no`, case-insensitive, trimmed) — "0" and "no" now
+         * disable it too, not only the literal "false".
          *
          * Call this at AdvanceService CONSTRUCTION sites and pass the result in — the pipeline
          * itself never touches the environment.
          */
         fun resourceLeasesEnforcedFromEnv(env: (String) -> String? = System::getenv): Boolean =
-            env(RESOURCE_LEASES_ENFORCED_ENV)?.lowercase() != "false"
+            io.github.jpicklyk.mcptask.current.infrastructure.config.EnvBoolean.parse(
+                RESOURCE_LEASES_ENFORCED_ENV,
+                env(RESOURCE_LEASES_ENFORCED_ENV),
+                default = true,
+            )
     }
 
     /**

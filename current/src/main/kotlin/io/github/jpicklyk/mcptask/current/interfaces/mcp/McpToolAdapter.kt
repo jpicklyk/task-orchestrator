@@ -10,6 +10,7 @@ import io.modelcontextprotocol.kotlin.sdk.types.LoggingLevel
 import io.modelcontextprotocol.kotlin.sdk.types.LoggingMessageNotification
 import io.modelcontextprotocol.kotlin.sdk.types.LoggingMessageNotificationParams
 import io.modelcontextprotocol.kotlin.sdk.types.TextContent
+import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -55,7 +56,11 @@ class McpToolAdapter {
             // sendLoggingMessage, and other server-to-client capabilities from SDK 0.9.0.
             val clientConnection = this@addTool
             try {
-                val preprocessedParams = preprocessParameters(request.arguments ?: JsonObject(emptyMap()))
+                val preprocessedParams =
+                    preprocessParameters(
+                        request.arguments ?: JsonObject(emptyMap()),
+                        toolDefinition.parameterSchema
+                    )
 
                 try {
                     toolDefinition.validateParams(preprocessedParams)
@@ -178,14 +183,24 @@ class McpToolAdapter {
      *
      * Some MCP clients send boolean parameters as strings ("true"/"false").
      * This preprocessing step converts them to proper JSON booleans so that
-     * tool validation and execution logic can rely on consistent types.
+     * tool validation and execution logic can rely on consistent types —
+     * but ONLY for parameters whose declared schema type is boolean. A
+     * string-typed (or untyped/unknown) parameter that happens to equal the
+     * literal "true"/"false" (e.g. a search query) must pass through
+     * unchanged; retyping it would break `requireString` validation for a
+     * perfectly legitimate string value. Only top-level parameters are
+     * considered — nested object/array values are left untouched.
      */
-    private fun preprocessParameters(params: JsonElement): JsonElement {
+    internal fun preprocessParameters(
+        params: JsonElement,
+        schema: ToolSchema?
+    ): JsonElement {
         val paramsObj = params as? JsonObject ?: return params
+        val properties = schema?.properties
         val processed = mutableMapOf<String, JsonElement>()
         paramsObj.forEach { (key, value) ->
             processed[key] =
-                if (value is JsonPrimitive && value.isString) {
+                if (value is JsonPrimitive && value.isString && isBooleanTypedParam(properties, key)) {
                     when (value.content.lowercase()) {
                         "true" -> JsonPrimitive(true)
                         "false" -> JsonPrimitive(false)
@@ -196,5 +211,20 @@ class McpToolAdapter {
                 }
         }
         return JsonObject(processed)
+    }
+
+    /**
+     * Returns true only when [key]'s entry in the tool's declared parameter
+     * schema exists and declares `"type": "boolean"`. Absent properties,
+     * properties without a "type" field, and non-boolean types all return
+     * false so string-to-boolean coercion is never applied to them.
+     */
+    private fun isBooleanTypedParam(
+        properties: JsonObject?,
+        key: String
+    ): Boolean {
+        val propertySchema = properties?.get(key) as? JsonObject ?: return false
+        val type = propertySchema["type"] as? JsonPrimitive ?: return false
+        return type.isString && type.content == "boolean"
     }
 }

@@ -7,6 +7,7 @@ import io.github.jpicklyk.mcptask.current.domain.repository.SearchScope
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.allowedItemIdsForTagScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.enforceScopeForItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.requireCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
@@ -36,6 +37,10 @@ import java.util.UUID
  * Scope filtering: when the principal has `root_ids`, results are filtered to descendants of
  * ALL roots (multi-root). An optional `?ancestorId=` further narrows to a single subtree;
  * if the requested ancestorId is outside the principal's scope, 403 is returned.
+ *
+ * When the principal has `tags_include`, hits are additionally filtered by the owning item's
+ * tags after the FTS query returns — the tag allowlist cannot be pushed into the FTS scope,
+ * and a hit carries only an item id, so the tags are looked up per result page.
  */
 fun Route.searchRoutes(repositoryProvider: RepositoryProvider) {
     val workItemRepo = repositoryProvider.workItemRepository()
@@ -107,15 +112,22 @@ fun Route.searchRoutes(repositoryProvider: RepositoryProvider) {
                     offset = 0,
                 )
 
+            // tags_include has no FTS representation, so hits are filtered after the fact.
+            // SearchHitDto carries only itemId, hence the id -> tags lookup.
+            val allowedItemIds =
+                allowedItemIdsForTagScope(principal, result.hits.map { it.itemId }.toSet(), workItemRepo)
+
             val hits =
-                result.hits.map { hit ->
-                    SearchHitDto(
-                        itemId = hit.itemId.toString(),
-                        field = hit.field,
-                        snippet = hit.snippet,
-                        score = hit.score,
-                    )
-                }
+                result.hits
+                    .filter { it.itemId in allowedItemIds }
+                    .map { hit ->
+                        SearchHitDto(
+                            itemId = hit.itemId.toString(),
+                            field = hit.field,
+                            snippet = hit.snippet,
+                            score = hit.score,
+                        )
+                    }
             call.respond(HttpStatusCode.OK, hits)
         }
     }

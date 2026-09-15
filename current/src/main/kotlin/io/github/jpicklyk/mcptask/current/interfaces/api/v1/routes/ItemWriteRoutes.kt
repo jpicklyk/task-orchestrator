@@ -15,6 +15,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.UserTrigger
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
@@ -543,7 +544,42 @@ fun Route.itemWriteRoutes(
                     if (parentResult is Result.Error) {
                         return errorCaptured(HttpStatusCode.BadRequest, "not_found", "Parent item $newParentId not found")
                     }
+                    // A re-parent target is the same authorization object as a create-time parent,
+                    // so it gets the same check the POST /items path applies — otherwise PATCH is a
+                    // way to move items under a parent the caller is not scoped to. Ordered after
+                    // the existence check so a bogus UUID still reports not_found, not 403.
+                    if (!enforceScopeForItem(call, newParentId, workItemRepo)) {
+                        return errorCaptured(HttpStatusCode.Forbidden, "scope_forbidden", "Access denied for parent $newParentId")
+                    }
                     val parentData = (parentResult as Result.Success).data
+
+                    // Cycle guard. Re-parenting an item onto itself, or onto one of its own
+                    // descendants, makes the hierarchy cyclic — and the descendant depth/rootId
+                    // cascade further down then walks that cycle forever, so the request hangs
+                    // instead of failing. Reject both as client errors BEFORE any write. Ordered
+                    // after the existence and scope checks so not_found / scope_forbidden
+                    // precedence is unchanged.
+                    if (newParentId == id) {
+                        return errorCaptured(HttpStatusCode.BadRequest, "validation_error", "An item cannot be its own parent")
+                    }
+                    // Walk the proposed parent's ancestor chain upward: if this item appears in
+                    // it, the proposed parent lives inside this item's own subtree. Bounded by the
+                    // parent's depth + 1 hops so an already-malformed chain cannot spin here either.
+                    var ancestorId: UUID? = parentData.parentId
+                    var hopsRemaining = parentData.depth + 1
+                    while (ancestorId != null && hopsRemaining > 0) {
+                        if (ancestorId == id) {
+                            return errorCaptured(
+                                HttpStatusCode.BadRequest,
+                                "validation_error",
+                                "Cannot re-parent an item under its own descendant",
+                            )
+                        }
+                        val ancestorResult = workItemRepo.getById(ancestorId)
+                        ancestorId = if (ancestorResult is Result.Success) ancestorResult.data.parentId else null
+                        hopsRemaining--
+                    }
+
                     newDepth = parentData.depth + 1
                     // Inherit the new parent's root (or the parent's own id, if the parent
                     // predates the root_id backfill and has no rootId yet).
@@ -622,8 +658,23 @@ fun Route.itemWriteRoutes(
 
                 return when (val result = updateResult!!) {
                     is Result.Error -> {
-                        writeLogger.warn("PATCH /items/{} DB error: {}", id, result.error.message)
-                        errorCaptured(HttpStatusCode.InternalServerError, "db_error", "Failed to update item")
+                        // Optimistic-lock loss (WorkItemRepository.update's version-mismatch branch)
+                        // is a distinct, retryable condition from a genuine DB failure — and distinct
+                        // from an If-Match precondition failure (handled above as 412 before update()
+                        // is ever called: If-Match matched here, but another writer's update() won the
+                        // version race in between). Map it to 409 so REST clients can safely retry with
+                        // a fresh GET + If-Match, instead of treating it as an opaque server error.
+                        if (result.error is RepositoryError.ConflictError) {
+                            writeLogger.debug("PATCH /items/{} optimistic-lock conflict: {}", id, result.error.message)
+                            errorCaptured(
+                                HttpStatusCode.Conflict,
+                                "version_conflict",
+                                "Item was modified by another request; retry with a fresh If-Match ETag",
+                            )
+                        } else {
+                            writeLogger.warn("PATCH /items/{} DB error: {}", id, result.error.message)
+                            errorCaptured(HttpStatusCode.InternalServerError, "db_error", "Failed to update item")
+                        }
                     }
                     is Result.Success ->
                         CachedHttpResponse(

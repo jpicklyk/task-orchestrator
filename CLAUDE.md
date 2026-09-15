@@ -192,6 +192,12 @@ Add to `gradle/libs.versions.toml` (`[versions]` + `[libraries]`), then referenc
 
 ## Database Management
 
+**Boolean env vars** are parsed by `EnvBoolean` (`infrastructure/config/EnvBoolean.kt`): `true`/`1`/`yes`
+and `false`/`0`/`no` (case-insensitive, trimmed) are all recognized; an unset var silently takes its
+default, and an unrecognized non-empty value either falls back to the default with a WARN log
+(`EnvBoolean.parse`, used by every var below except the two noted otherwise) or fails startup
+(`EnvBoolean.require`, used by `API_ENABLED`/`API_ALLOW_UNAUTHENTICATED`).
+
 **Key environment variables:**
 - `DATABASE_PATH` — SQLite file path (default: `data/current-tasks.db`)
 - `USE_FLYWAY` — enable Flyway migrations (default: `true` in Docker)
@@ -201,6 +207,10 @@ Add to `gradle/libs.versions.toml` (`[versions]` + `[libraries]`), then referenc
 - `LOG_LEVEL` — DEBUG / INFO / WARN / ERROR (default: `INFO`)
 - `FLYWAY_REPAIR` — run repair and exit (default: `false`)
 - `DEGRADED_MODE_POLICY` — overrides `actor_authentication.degraded_mode_policy` in config; values: `accept-cached` (default) | `accept-self-reported` | `reject`; invalid value = startup failure
+- `READINESS_FILE` — path to the readiness marker file the server touches once startup (DB init,
+  schema update, and transport bind) has fully succeeded; default `/tmp/mcp-task-orchestrator.ready`.
+  Backs the Docker image's `HEALTHCHECK` (see `current/docs/fleet-deployment.md`) and covers both
+  `stdio` and `http` transport — the marker is cleared on shutdown
 
 **REST API environment variables** (see also `current/docs/fleet-deployment.md`):
 - `API_ENABLED` — master API switch (default: `false`; set `true` to opt into the REST API, which then requires `API_AUTH_MODE`)
@@ -218,12 +228,12 @@ Add to `gradle/libs.versions.toml` (`[versions]` + `[libraries]`), then referenc
 - `CORS_EXPOSE_HEADERS` — default: `ETag,Last-Event-ID,Retry-After`
 - `CORS_MAX_AGE_SECONDS` — default: `3600`
 - `API_SSE_BUFFER_SIZE` — SSE ring-buffer size for Last-Event-ID replay (default: `1000`)
-- `API_ALLOW_QUERY_TOKEN_FOR_SSE` — allow `?token=` auth on SSE endpoint (default: `false`)
+- `API_ALLOW_QUERY_TOKEN_FOR_SSE` — allow `?token=` auth on SSE endpoint (default: `false`); `1`/`yes` also enable it, not only the literal `true` (see **Boolean env vars** above)
 - `API_SSE_AUTH_CHECK_INTERVAL_SECONDS` — token-expiry check interval on SSE connections (default: `30`)
-- `API_REDACT_NOTE_ATTRIBUTION` — default `true`; when `true` non-admin callers see no actor/verification on notes/transitions
-- `API_REDACT_ACTOR_PROOF` — default `true`; when `true` actor.proof redacted unless ADMIN + `?include=proof`
-- `API_WARN_ON_CLAIMED_ADVANCE` — default `true`; WARN when REST API caller advances a claimed item
-- `RESOURCE_LEASES_ENFORCED` — default `true`; only the literal `false` disables the resource-lease gate (acquisition only — releases always run). Read per `advance_item`/advance-route call (not once at startup), so a change takes effect on the next call, not after a restart
+- `API_REDACT_NOTE_ATTRIBUTION` — default `true`; when truthy, non-admin callers see no actor/verification on notes/transitions; `0`/`no` also disable it, not only the literal `false`
+- `API_REDACT_ACTOR_PROOF` — default `true`; when truthy, actor.proof redacted unless ADMIN + `?include=proof`; `0`/`no` also disable it, not only the literal `false`
+- `API_WARN_ON_CLAIMED_ADVANCE` — default `true`; WARN when REST API caller advances a claimed item; `0`/`no` also disable it, not only the literal `false`
+- `RESOURCE_LEASES_ENFORCED` — default `true`; `false`, `0`, or `no` disables the resource-lease gate (acquisition only — releases always run), not only the literal `false`. Read per `advance_item`/advance-route call (not once at startup), so a change takes effect on the next call, not after a restart
 
 **Migration files:** `current/src/main/resources/db/migration/`
 

@@ -196,7 +196,19 @@ async function main() {
     if (currentEtag) headers['If-Match'] = currentEtag;
     const res = await fetchWithTimeout(endpoint, { method: 'PUT', headers, body: bytes });
     if (res.status === 200) {
-      emit(`Task Orchestrator: synced project config to root ${rootId} — per-project schemas/traits are now live.`);
+      let schemaWarnings;
+      try {
+        const body = await res.json();
+        schemaWarnings = body?.schemaWarnings;
+      } catch {
+        schemaWarnings = undefined; // unparseable body — degrade like no warnings reported
+      }
+      const syncedLine = `Task Orchestrator: synced project config to root ${rootId} — per-project schemas/traits are now live.`;
+      if (Array.isArray(schemaWarnings) && schemaWarnings.length > 0) {
+        emit(`${syncedLine} WARNINGS: ${schemaWarnings.join(' | ')}`);
+      } else {
+        emit(syncedLine);
+      }
     } else if (res.status === 412) {
       emit(`Task Orchestrator: config sync deferred — root ${rootId} was updated concurrently (412); will retry next session.`);
     } else {

@@ -129,6 +129,11 @@ When both are set, every request — with or without an `Authorization` header �
 
 > **SECURITY — loopback only.** This mode has NO authentication whatsoever: anyone who can reach the port has full read/write/delete access to every item, note, and per-root config, identical to the existing `/mcp` exposure. Use it only on a server bound to `127.0.0.1` (or otherwise network-fenced) for a single-user local setup — e.g. the config-sync hook talking to a local HTTP-transport server. Never set both keys on a server reachable from an untrusted network. The server logs a loud `SECURITY:` warning at startup when this mode is active.
 
+Unauthenticated mode also covers `GET /api/v1/events` (SSE, §21) — the SSE route's dedicated
+pre-flight auth plugin short-circuits with the synthetic unauthenticated principal exactly like
+`ApiBearerAuth` does for every other route, so a caller does not need a bearer token to open an
+event stream when both opt-in keys are set.
+
 ---
 
 ## 2. Capabilities (Authorization)
@@ -153,12 +158,39 @@ Each token grants a set of additive capabilities:
 
 Tokens with `scope.root_ids` set can only access items within those root subtrees. Scope enforcement walks the item's full ancestor chain — an item is accessible if any ancestor (including itself) is in the scope set.
 
-- `GET /items` — scope applied at SQL level via `findInScope`
-- `GET /items/{id}` — `403 scope_forbidden` if item is outside scope
+Tokens with `scope.tags_include` set are additionally restricted to items carrying at least one of
+the listed tags. Unlike `root_ids`, tag scope applies **item-level only** — there is no ancestor
+walk; the item's own `tags` column is checked against the (CSV-trimmed) allowlist for exact
+membership. An empty `tags_include` means no tag constraint. Both scope halves are enforced by the
+same `allowsItemTags`/`enforceScopeForItem` predicates, so single-item and collection checks cannot
+drift apart.
+
+- `GET /items` — scope applied at SQL level via `findInScope` for `root_ids`; a `tags_include`
+  filter is then applied on top (see the pagination caveat below)
+- `GET /items/{id}` — `403 scope_forbidden` if item is outside scope (either `root_ids` or
+  `tags_include`)
 - Write endpoints — `403 scope_forbidden` if the target item is outside scope
-- `GET /items/{id}/breadcrumbs` — chain is truncated at the caller's scope root (ancestors above the scope root are hidden)
+- `GET /items/{id}/breadcrumbs` — chain is truncated at the caller's scope root (ancestors above the
+  scope root are hidden); ancestors that fail `tags_include` are dropped from the returned chain
 - `GET /items/{id}/tree` — paginated flat list; scope check applies on the root item only
-- `GET /notes/search` and `GET /search` — `?ancestorId` is validated against the principal's scope
+- `GET /notes/search` and `GET /search` — `?ancestorId` is validated against the principal's scope;
+  a `tags_include` token also has its search hits filtered to items carrying an allowed tag
+- `GET /transitions` and `GET /items/{id}/breadcrumbs` — a `tags_include` token sees only rows for
+  items it is allowed to see; `GET /items/{id}?include=children` is filtered the same way
+
+**A collection endpoint never turns a tag-scope mismatch into `403`.** Unlike the single-item case,
+a tag-scoped caller whose scope matches nothing on a collection response (`GET /items`,
+`GET /items/roots`, breadcrumb ancestors, search hits, `GET /transitions`, inline `children`) gets
+`200 OK` with an empty (or partially filtered) result — `403 scope_forbidden` is reserved for the
+single-item case where an out-of-scope item is named directly.
+
+**Pagination under `tags_include`.** The filter has no SQL form, so `GET /items` and
+`GET /items/roots` read a bounded candidate window (1000 rows, offset 0) for a tag-scoped caller,
+filter it by `tags_include`, and paginate the *filtered* result in memory. `totalItems` in that case
+counts only the visible (post-filter) items, not the raw candidate window — a tag-scoped caller with
+more than 1000 matching candidates will see a short/incomplete page. This mirrors the existing
+`GET /items/{id}/tree` shape and only applies to tag-scoped principals; unscoped and `root_ids`-only
+callers are unaffected.
 
 ---
 
@@ -231,6 +263,7 @@ All error responses use:
 | `cycle_detected` | 400 | Dependency would create a cycle |
 | `unsupported_media_type` | 415 | Wrong `Content-Type` for PATCH (see §23) |
 | `etag_mismatch` | 412 | `If-Match` header does not match current ETag |
+| `version_conflict` | 409 | `PATCH /items/{id}`: `If-Match` matched at read time, but a concurrent writer's update won the version race before this write committed — optimistic-lock loss, distinct from `etag_mismatch`. Retry with a fresh `If-Match` ETag. |
 | `unauthenticated` | 401 | No authenticated principal (missing/invalid token) |
 | `verification_failed` | 401 | JWKS verification failed under `reject` policy |
 | `insufficient_capability` | 403 | Caller's token lacks a capability required by the request itself (distinct from `scope_forbidden`'s root-scope check) — e.g. a non-ADMIN caller sets `overrideResourceLeases: true` on `POST /items/{id}/advance`, or calls `DELETE /api/v1/resources/leases/{key}` without `ADMIN` |
@@ -492,7 +525,8 @@ Note: `"<previousRole>"` is a literal sentinel string — dashboards must resolv
   "configYaml": "work_item_schemas:\n  ...",
   "warning": "string|null",
   "relation": "current|superseded|unknown|null",
-  "ignoredSections": ["actor_authentication"]
+  "ignoredSections": ["actor_authentication"],
+  "schemaWarnings": ["Schema 'feature-task' entry[2] (key='spec') has invalid role 'plan' (valid: queue, work, review); skipping"]
 }
 ```
 `configYaml` is populated on `GET` only (omitted on `PUT`). `warning` is populated only when the
@@ -500,7 +534,10 @@ root's `type` is not `"project"` (non-fatal — the push still succeeds). `relat
 `GET` only, and only when `?fingerprint=` was supplied — see §18. `ignoredSections` is populated on
 `PUT` only, and only when the pushed document contains top-level keys the per-root resolution layer
 does not honor (e.g. `actor_authentication`, which stays global-only) — omitted entirely when empty.
-See §18 for the full list of honored per-root keys.
+`schemaWarnings` is populated on `PUT` only, and only when `YamlSchemaParser` produced per-entry
+warnings while parsing the pushed document (e.g. an invalid note `role`) — omitted entirely when
+empty; the push still succeeds and the config is still stored regardless of `schemaWarnings`. See
+§18 for the full list of honored per-root keys.
 
 **PlanDocumentResponseDto** (see §19):
 ```json
@@ -728,6 +765,22 @@ JSON Merge Patch update. Requires `WRITE_ITEMS`, `If-Match`, and `Content-Type: 
 - `200 OK` → `ItemDto` + `ETag` header
 - `400 precondition_required` — `If-Match` missing
 - `400 field_not_patchable` — attempted to patch server-owned field
+- `403 scope_forbidden` — new parent outside scope. When the patch re-parents the item (`parentId`
+  changed to a non-null value), the target parent is scope-checked the same way `POST /items`
+  checks a create-time `parentId` — an existence check alone is not authorization. A `parentId`
+  patch to a non-existent parent still returns `400 not_found` first; scope is checked only after
+  the parent is confirmed to exist, so it never becomes an existence oracle.
+- `400 validation_error` — re-parent would create a cycle: `parentId` equals the item's own id
+  (message: `"An item cannot be its own parent"`) or names one of the item's own descendants
+  (message: `"Cannot re-parent an item under its own descendant"`). Checked with an identity
+  comparison plus an upward walk of the proposed parent's ancestor chain, bounded by that parent's
+  `depth + 1` hops. **Ordering:** `404 not_found` (unknown parent) → `403 scope_forbidden` (parent
+  outside scope) → this `400 validation_error` (self/descendant cycle) — each check runs only after
+  the previous one passes, and nothing is written until all three clear.
+- `409 version_conflict` — a concurrent writer's update won the version race between the `If-Match`
+  check and this request's own write. Distinct from `412 etag_mismatch` below: the ETag matched at
+  read time, but the underlying row changed before this write committed. Retry with a fresh
+  `If-Match` ETag.
 - `412 etag_mismatch` — `If-Match` does not match
 - `415 unsupported_media_type` — wrong Content-Type + `Accept-Patch: application/merge-patch+json, application/json` response header
 
@@ -1211,7 +1264,10 @@ registry key collision, not per-root — see "Per-root honorable settings" in `c
 
 **Responses:**
 - `200 OK` → `ProjectConfigResponseDto` (no `configYaml` field on this verb; `ignoredSections`
-  present only when non-empty); `ETag: "cfg-<fingerprint>"`
+  and `schemaWarnings` present only when non-empty). `schemaWarnings` carries per-entry parse
+  warnings from `YamlSchemaParser` (e.g. an invalid note `role` value) — the push still succeeds
+  and the config is still stored even when warnings are present; only a hard parse/shape failure
+  (guards 1-6 above) short-circuits the push. `ETag: "cfg-<fingerprint>"`
 - `404 not_found` — `{rootId}` does not resolve to an existing WorkItem
 - `422 validation_error` — `{rootId}` is not depth-0
 - `422 parse_error` — `configYaml` failed SafeConstructor parse-validation
@@ -1358,10 +1414,22 @@ Real-time event stream. Requires `READ` or `ADMIN` capability.
 
 Ktor's `sse {}` handler runs inside the response-body phase — after the HTTP 200 status is committed. Auth cannot be performed inside the handler itself. The SSE route uses a dedicated pre-flight plugin that checks authentication in the `Plugins` phase, before streaming begins. A failed auth check sends `401`/`403` before any SSE content is produced.
 
+This route is exempted from the global `AuthenticationPlugin` via `publicPaths`/`publicPrefixes`
+(matched against the request path only, not the full URI — so a `?token=` or any other query
+string on the exempted path still matches). `CurrentMcpServer.kt` registers both `/mcp` and
+`/api/v1/events` as public paths; a Ktor application plugin like `AuthenticationPlugin` is never
+route-scoped by nesting alone, so `publicPaths` is the only lever that keeps the global plugin from
+401'ing this route before the SSE pre-flight plugin gets a chance to run its own check.
+
 **Auth resolution order:**
 1. `Authorization: Bearer <token>` header — always accepted
-2. `?token=<plaintext>` query parameter — only accepted when `API_ALLOW_QUERY_TOKEN_FOR_SSE=true`
-3. If neither present → `401`
+2. `?token=<plaintext>` query parameter — only accepted when `API_ALLOW_QUERY_TOKEN_FOR_SSE=true`.
+   Because `publicPaths` matching is path-only (see above), this works correctly even though the
+   query string is present on the request.
+3. `API_AUTH_MODE=none` + `API_ALLOW_UNAUTHENTICATED=true` (§1) — the pre-flight plugin short-circuits
+   with the synthetic unauthenticated principal, mirroring `ApiBearerAuth`'s `Unauthenticated` branch;
+   no token is required or checked
+4. If none of the above apply → `401`
 
 **Browser SSE note:** The native browser `EventSource` API cannot set custom headers. Browsers must use a fetch-based SSE client (e.g., `@microsoft/fetch-event-source`) to provide the `Authorization: Bearer` header, or enable `API_ALLOW_QUERY_TOKEN_FOR_SSE=true` to use the query-parameter path.
 
@@ -1457,6 +1525,6 @@ The `"<previousRole>"` sentinel in `blocked.resume` is a literal string — reso
 
 **SSE dependency-event scoping depends on a warm ancestor cache.** Live root-filtering and `Last-Event-ID` replay are both correctly root-scoped — ring-buffer entries carry `affectedRoots` metadata and the replay path applies the same root-intersection filter as the live fan-out. One residual caveat remains for dependency events: `dependency.added` / `dependency.removed` resolve their affected roots from an in-memory ancestor cache populated by prior item create/update writes. On a cache miss (e.g., a dependency change with no preceding item write on that subtree during the connection's lifetime), the event falls back to an unscoped broadcast. This is a deliberate tradeoff; root-scoped subscribers that require exact dependency-event scoping should re-fetch state rather than relying solely on the event stream.
 
-**SSE is bearer-mode only.** The pre-flight auth plugin for the SSE route only supports bearer token authentication. JWKS JWT authentication for SSE is not implemented (the pre-flight plugin does not invoke the JWKS verifier).
+**SSE honors bearer and unauthenticated modes; JWKS is untested on this route.** The pre-flight auth plugin for the SSE route resolves `Authorization: Bearer` (and, when enabled, `?token=`) the same way `ApiBearerAuth` does, and explicitly short-circuits for `API_AUTH_MODE=none` (§1/§21) exactly like the bearer route. JWKS-mode JWT authentication for SSE has not been separately verified — the pre-flight plugin's bearer-token path is what's exercised; treat JWKS+SSE as unconfirmed rather than assuming parity until it's tested.
 
 **FTS5 requires SQLite.** Search endpoints (`GET /search`, `GET /notes/search`) return empty results when the repository is H2-backed (test/embedded environments). FTS5 is only available against the production SQLite database.

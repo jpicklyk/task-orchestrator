@@ -7,6 +7,8 @@ import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryPr
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.enforceScopeForItem
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.filterByTagScope
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.hasTagScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.requireCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.DependenciesDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
@@ -29,6 +31,17 @@ import java.util.UUID
 private val logger = LoggerFactory.getLogger("ItemRoutes")
 
 /**
+ * Candidate-row cap for the list endpoints that must post-filter by `tags_include`.
+ *
+ * `tags_include` has no SQL representation, so a tag-scoped list request fetches a wider
+ * candidate window, drops the out-of-scope rows in memory and paginates the survivors — the
+ * same shape `GET /items/{id}/tree` already uses. Paginating in SQL first would hand the
+ * caller short (or empty) pages whose `totalItems` counted rows they may not see. Only
+ * tag-scoped principals take this path; every other caller keeps SQL-level pagination.
+ */
+private const val TAG_SCOPE_SCAN_LIMIT = 1000
+
+/**
  * Registers item-read routes under the `/api/v1` route prefix.
  *
  * Endpoints:
@@ -39,8 +52,15 @@ private val logger = LoggerFactory.getLogger("ItemRoutes")
  * - `GET /items/{id}/breadcrumbs`   — ancestor chain root→item
  * - `GET /items/{id}/children`      — direct children only (paginated)
  *
- * All endpoints require [ApiCapability.READ]. Scope filtering is applied at the SQL level
- * via [findInScope] / [countInScope] when the principal has a non-null `rootIds` set.
+ * All endpoints require [ApiCapability.READ]. `root_ids` scope filtering is applied at the SQL
+ * level via `findInScope` / `countInScope` when the principal has a non-null `rootIds` set.
+ *
+ * `tags_include` scope has no SQL representation and is applied in memory by the shared
+ * [filterByTagScope] predicate to EVERY item a response carries — list rows, root rows,
+ * breadcrumb ancestors, tree descendants, direct children and `?include=children` inlines —
+ * not just the one item [enforceScopeForItem] authorizes at the entry point. Where the filter
+ * runs on a list, the list is filtered before it is paginated, so `totalItems` counts only
+ * items the caller may read (see [TAG_SCOPE_SCAN_LIMIT]).
  */
 fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
     val workItemRepo = repositoryProvider.workItemRepository()
@@ -94,6 +114,14 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
             // ItemFetchResult/skipped-row tracking, so scoped requests always report null.
             var skippedCount: Int? = null
 
+            // tags_include cannot be expressed in SQL, so a tag-scoped caller reads a wider
+            // candidate window and is paginated in memory after the filter (see
+            // TAG_SCOPE_SCAN_LIMIT). Callers without a tag scope keep SQL LIMIT/OFFSET exactly
+            // as before.
+            val tagScoped = principal.hasTagScope()
+            val fetchLimit = if (tagScoped) TAG_SCOPE_SCAN_LIMIT else pp.pageSize
+            val fetchOffset = if (tagScoped) 0 else pp.offset
+
             val items =
                 if (effectiveScopeRootIds != null) {
                     if (effectiveScopeRootIds.isEmpty()) {
@@ -113,8 +141,8 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
                         modifiedBefore = modifiedBefore,
                         sortBy = orderBy,
                         sortOrder = orderDir,
-                        limit = pp.pageSize,
-                        offset = pp.offset,
+                        limit = fetchLimit,
+                        offset = fetchOffset,
                         type = type,
                         claimStatus = claimStatus,
                     )
@@ -135,8 +163,8 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
                                 modifiedBefore = modifiedBefore,
                                 sortBy = orderBy,
                                 sortOrder = orderDir,
-                                limit = pp.pageSize,
-                                offset = pp.offset,
+                                limit = fetchLimit,
+                                offset = fetchOffset,
                                 type = type,
                                 claimStatus = claimStatus,
                             )
@@ -155,6 +183,18 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
                     call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Database query failed"))
                 }
                 is Result.Success -> {
+                    if (tagScoped) {
+                        // Filter first, paginate second: the surviving rows ARE the caller's
+                        // universe, so totalItems is their count — never a DB count that
+                        // includes items this token may not read.
+                        val filtered = items.data.filterByTagScope(principal)
+                        val page = filtered.drop(pp.offset).take(pp.pageSize)
+                        call.respond(
+                            HttpStatusCode.OK,
+                            buildPageDto(page.map { it.toDto() }, pp, filtered.size.toLong(), skippedCount),
+                        )
+                        return@get
+                    }
                     val total =
                         if (effectiveScopeRootIds != null) {
                             workItemRepo
@@ -208,10 +248,28 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
                         .mapNotNull { rid ->
                             val r = workItemRepo.getById(rid)
                             if (r is Result.Success && r.data.parentId == null) r.data else null
-                        }
+                        }.filterByTagScope(principal)
                 val page = roots.drop(pp.offset).take(pp.pageSize)
                 val dtos = page.map { it.toDto() }
                 call.respond(HttpStatusCode.OK, buildPageDto(dtos, pp, roots.size.toLong()))
+            } else if (principal.hasTagScope()) {
+                // Unrestricted rootIds but a tag allowlist: read a bounded candidate window,
+                // drop out-of-scope roots, then paginate the survivors (see TAG_SCOPE_SCAN_LIMIT).
+                val result = workItemRepo.findRootItems(limit = TAG_SCOPE_SCAN_LIMIT, offset = 0)
+                when (result) {
+                    is Result.Error -> {
+                        logger.warn("GET /items/roots DB error: {}", result.error.message)
+                        call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Database query failed"))
+                    }
+                    is Result.Success -> {
+                        val filtered = result.data.items.filterByTagScope(principal)
+                        val page = filtered.drop(pp.offset).take(pp.pageSize)
+                        call.respond(
+                            HttpStatusCode.OK,
+                            buildPageDto(page.map { it.toDto() }, pp, filtered.size.toLong(), result.data.skipped),
+                        )
+                    }
+                }
             } else {
                 // Unscoped/admin: true total from countRootItems() (unaffected by limit/offset or
                 // validation drops) and real limit/offset pagination — replaces the old silent
@@ -290,10 +348,13 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
                     null
                 }
 
+            // Inlined children get the same tag filter as GET /items/{id}/children — the
+            // entry-point check above only authorized the parent.
+            val principal = call.attributes.getOrNull(ApiPrincipalKey)
             val childrenDtos: List<ItemDto>? =
                 if ("children" in includes) {
                     workItemRepo.findChildren(id).let { r ->
-                        if (r is Result.Success) r.data.map { it.toDto() } else null
+                        if (r is Result.Success) r.data.filterByTagScope(principal).map { it.toDto() } else null
                     }
                 } else {
                     null
@@ -362,22 +423,7 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
             // the tag constraint. Descendants are NOT checked by enforceScopeForItem, so without
             // this filter a tag-scoped token would see ALL descendants regardless of tags.
             val principal = call.attributes.getOrNull(ApiPrincipalKey)
-            val tagsInclude = principal?.scope?.tagsInclude ?: emptySet()
-            val filtered =
-                if (tagsInclude.isNotEmpty()) {
-                    depthFiltered.filter { item ->
-                        val itemTags =
-                            item.tags
-                                ?.split(",")
-                                ?.map { it.trim() }
-                                ?.filter { it.isNotEmpty() }
-                                ?.toSet()
-                                ?: emptySet()
-                        itemTags.any { it in tagsInclude }
-                    }
-                } else {
-                    depthFiltered
-                }
+            val filtered = depthFiltered.filterByTagScope(principal)
 
             // Paginate the flat list
             val page = filtered.drop(pp.offset).take(pp.pageSize)
@@ -438,7 +484,12 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
                 } else {
                     chain
                 }
-            call.respond(HttpStatusCode.OK, visible.map { it.toDto() })
+
+            // Tag scope also applies to the ancestors: enforceScopeForItem only authorized the
+            // target item, so without this an out-of-scope ancestor's title/type/role would be
+            // handed to a tag-scoped caller. The target itself always survives — it passed the
+            // same predicate at the entry-point check above.
+            call.respond(HttpStatusCode.OK, visible.filterByTagScope(principal).map { it.toDto() })
         }
 
         // ─── GET /items/{id}/children ────────────────────────────────────────
@@ -469,7 +520,6 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
             // Fetch all children without pagination first when tag filtering is needed,
             // so that the page slice is taken from the already-filtered set.
             val principalForChildren = call.attributes.getOrNull(ApiPrincipalKey)
-            val tagsIncludeForChildren = principalForChildren?.scope?.tagsInclude ?: emptySet()
 
             val childrenResult =
                 workItemRepo.findByFilters(
@@ -487,21 +537,7 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
                     // The entry-point check (enforceScopeForItem above) verified the parent item matches
                     // the tag constraint. Children are not checked, so without this filter a tag-scoped
                     // token would see ALL children regardless of their tags.
-                    val children =
-                        if (tagsIncludeForChildren.isNotEmpty()) {
-                            childrenResult.data.items.filter { item ->
-                                val itemTags =
-                                    item.tags
-                                        ?.split(",")
-                                        ?.map { it.trim() }
-                                        ?.filter { it.isNotEmpty() }
-                                        ?.toSet()
-                                        ?: emptySet()
-                                itemTags.any { it in tagsIncludeForChildren }
-                            }
-                        } else {
-                            childrenResult.data.items
-                        }
+                    val children = childrenResult.data.items.filterByTagScope(principalForChildren)
 
                     val totalResult = workItemRepo.countByFilters(parentId = id)
                     val total = if (totalResult is Result.Success) totalResult.data.toLong() else null

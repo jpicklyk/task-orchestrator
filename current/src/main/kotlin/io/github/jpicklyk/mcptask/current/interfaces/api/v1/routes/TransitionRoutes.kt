@@ -5,7 +5,9 @@ import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.allowedItemIdsForTagScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.enforceScopeForItem
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.hasTagScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.requireCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.RoleTransitionDto
@@ -33,7 +35,8 @@ private val transitionLogger = LoggerFactory.getLogger("TransitionRoutes")
  * - `GET /transitions`            — recent transitions across items; `?since=ISO-8601` filter
  *
  * Both endpoints scope-filter: the global `/transitions` endpoint only returns transitions
- * for items the principal can access (based on `root_ids`).
+ * for items the principal can access — both the `root_ids` ancestor walk and the item-level
+ * `tags_include` allowlist.
  *
  * `actor` and `verification` on transitions use the same admin-only redaction as notes:
  * - Non-admin callers: `actor` is stripped to `null` and `verification` to `null`
@@ -133,6 +136,20 @@ fun Route.transitionRoutes(
                             }
                             transitions = transitions.filter { it.itemId in accessibleItemIds }
                         }
+                    }
+
+                    // tags_include is an item-level constraint independent of the root walk
+                    // above, and a RoleTransition carries only itemId — so the tags are looked
+                    // up and the rows filtered by the shared helper. No-op (and no query) for
+                    // principals without a tag scope.
+                    if (principal.hasTagScope()) {
+                        val allowedIds =
+                            allowedItemIdsForTagScope(
+                                principal,
+                                transitions.map { it.itemId }.toSet(),
+                                workItemRepo,
+                            )
+                        transitions = transitions.filter { it.itemId in allowedIds }
                     }
 
                     // Paginate

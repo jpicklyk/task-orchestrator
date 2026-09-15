@@ -78,10 +78,10 @@ class ProjectConfigPushService(
                 null
             }
 
-        val parsedRoot =
+        val (parsedRoot, schemaWarnings) =
             when (val outcome = parseAndValidateYaml(configYaml)) {
                 is YamlParseOutcome.Failure -> return ProjectConfigPushResult.ParseError(outcome.detail)
-                is YamlParseOutcome.Success -> outcome.root
+                is YamlParseOutcome.Success -> outcome.root to outcome.warnings
             }
 
         if (!force && parsedRoot != null) {
@@ -118,6 +118,7 @@ class ProjectConfigPushService(
                     updatedAt = result.data.updatedAt,
                     warning = typeWarning,
                     ignoredSections = computeIgnoredSections(parsedRoot),
+                    schemaWarnings = schemaWarnings,
                 )
             is Result.Error -> ProjectConfigPushResult.RepositoryError(result.error.message)
         }
@@ -179,18 +180,24 @@ class ProjectConfigPushService(
      * anything is instantiated, and that exception is caught below like any other parse failure.
      *
      * Soft validation warnings collected by [YamlSchemaParser.parseRoot] (e.g. a note entry
-     * missing `key`, an invalid `lifecycle` value) are NOT treated as rejection here — only a hard
-     * YAML syntax/shape failure (invalid syntax, or a non-map document) is. Those soft warnings
-     * mirror the global config loader's existing behavior: skip the offending entry, keep going.
+     * missing `key`, an invalid `lifecycle` value, an invalid `role` value) are NOT treated as
+     * rejection here — only a hard YAML syntax/shape failure (invalid syntax, or a non-map
+     * document) is. Those soft warnings mirror the global config loader's existing behavior: skip
+     * the offending entry, keep going — but unlike the global loader (which only logs them), they
+     * are carried back on [YamlParseOutcome.Success.warnings] so [push] can surface them to the
+     * caller via [ProjectConfigPushResult.Success.schemaWarnings] instead of silently dropping them.
      */
     private fun parseAndValidateYaml(configYaml: String): YamlParseOutcome =
         try {
             @Suppress("UNCHECKED_CAST")
             val root = Yaml(SafeConstructor(LoaderOptions())).load<Map<String, Any>>(configYaml)
-            if (root != null) {
-                YamlSchemaParser.parseRoot(root, warnOnMissingSchemas = false)
-            }
-            YamlParseOutcome.Success(root)
+            val warnings =
+                if (root != null) {
+                    YamlSchemaParser.parseRoot(root, warnOnMissingSchemas = false).warnings
+                } else {
+                    emptyList()
+                }
+            YamlParseOutcome.Success(root, warnings)
         } catch (
             @Suppress("TooGenericExceptionCaught") e: Exception
         ) {
@@ -211,9 +218,14 @@ class ProjectConfigPushService(
 
     /** Outcome of a single [Yaml.load] + [YamlSchemaParser.parseRoot] pass over `configYaml`. */
     private sealed class YamlParseOutcome {
-        /** [root] is the SafeConstructor-parsed document root, or null for an empty/blank document. */
+        /**
+         * [root] is the SafeConstructor-parsed document root, or null for an empty/blank document.
+         * [warnings] are the soft schema/trait parse warnings collected by
+         * [YamlSchemaParser.parseRoot] (empty for a blank document, since parseRoot never runs).
+         */
         data class Success(
-            val root: Map<String, Any>?
+            val root: Map<String, Any>?,
+            val warnings: List<String> = emptyList(),
         ) : YamlParseOutcome()
 
         /** [detail] is the parse failure message. */
@@ -253,7 +265,13 @@ sealed class ProjectConfigPushResult {
      * [warning] is non-null when the root's `type` is not `"project"` (non-fatal, push still
      * succeeds). [ignoredSections] lists top-level `configYaml` keys not honored by any per-root
      * resolution layer (see [ProjectConfigPushService.HONORED_TOP_LEVEL_SECTIONS]); empty when the
-     * document only used honored keys.
+     * document only used honored keys. [schemaWarnings] carries the soft schema/trait parse
+     * warnings collected by [io.github.jpicklyk.mcptask.current.infrastructure.config.YamlSchemaParser.parseRoot]
+     * (e.g. an invalid `role` value, a note entry missing `key`) — a push is never rejected for
+     * these (only a hard YAML parse failure rejects), but the caller must still be able to see
+     * that a gate the document intended to enforce silently failed to parse. Empty when the
+     * document had no such warnings; distinct from [warning], which is the unrelated
+     * non-`"project"`-type notice.
      */
     data class Success(
         val rootItemId: UUID,
@@ -261,6 +279,7 @@ sealed class ProjectConfigPushResult {
         val updatedAt: Instant,
         val warning: String? = null,
         val ignoredSections: List<String> = emptyList(),
+        val schemaWarnings: List<String> = emptyList(),
     ) : ProjectConfigPushResult()
 
     /** No WorkItem exists for [rootItemId]. */

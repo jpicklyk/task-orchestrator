@@ -32,6 +32,34 @@ This is **by design**: MCP-over-HTTP clients (Claude Code and other agents) conn
 
 ---
 
+## Startup, Readiness, and Health Checks
+
+Server startup returns a `StartupOutcome` (`Started` or `Failed(reason, detail)` with
+`reason` one of `DATABASE_INIT`, `SCHEMA_UPDATE`, `UNKNOWN_TRANSPORT`, `READINESS_MARKER`). A
+`Failed` outcome throws `StartupFailedException` from `main()`, so the JVM exits non-zero and
+container orchestrators (Docker, Kubernetes, systemd) see a real startup failure instead of a
+process that silently logged an error and kept running.
+
+**Readiness marker.** Once DB init and schema update have both succeeded and the configured
+transport has bound, the server writes a readiness marker file at `READINESS_FILE` (default
+`/tmp/mcp-task-orchestrator.ready`; see the CLAUDE.md env-var table). The marker is cleared on
+graceful shutdown. This is transport-agnostic — **both `stdio` and `http` transports write and
+clear the marker**, so a `stdio`-mode container is just as observable as an `http`-mode one, not
+only the HTTP case.
+
+**Docker `HEALTHCHECK`.** The image's `HEALTHCHECK` (`--interval=30s --timeout=3s
+--start-period=20s --retries=3`) simply checks `test -f "$READINESS_FILE"` — cheap, no HTTP call,
+no DB round-trip. Fleet operators running under an orchestrator that respects container health
+(Docker Swarm, Nomad, `docker run --restart` policies keyed on health, Kubernetes via an
+equivalent `exec` probe) get real crash/hang detection without wiring a separate probe. Check
+status with:
+
+```bash
+docker inspect --format '{{.State.Health.Status}}' <container>
+```
+
+---
+
 ## REST API Authentication
 
 The REST API layer (`API_ENABLED=true`) is a **separate authentication layer** from the MCP actor identity system. They are independent:

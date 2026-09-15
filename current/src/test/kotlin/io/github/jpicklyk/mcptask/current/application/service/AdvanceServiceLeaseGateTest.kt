@@ -486,7 +486,7 @@ class AdvanceServiceLeaseGateTest {
     fun `kill switch parses only the literal false as disabled`() {
         assertTrue(AdvanceService.resourceLeasesEnforcedFromEnv { null })
         assertTrue(AdvanceService.resourceLeasesEnforcedFromEnv { "true" })
-        assertTrue(AdvanceService.resourceLeasesEnforcedFromEnv { "0" })
+        assertTrue(!AdvanceService.resourceLeasesEnforcedFromEnv { "0" })
         assertTrue(!AdvanceService.resourceLeasesEnforcedFromEnv { "false" })
         assertTrue(!AdvanceService.resourceLeasesEnforcedFromEnv { "FALSE" })
     }
