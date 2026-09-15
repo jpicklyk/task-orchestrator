@@ -60,16 +60,14 @@ Complete or cancel all descendants of a root item (or an explicit list of items)
 
 **Behavior:**
 - Items are processed in topological order (respecting dependency edges within the target set).
-- Each item runs the same transition pipeline as `advance_item`: claim-ownership enforcement,
-  dependency validation, note gate, resource-lease gate, cascade and unblock detection, and
-  per-root status labels. Actor attribution from `actor` is recorded on every audit row.
-- Gate check: if an item's tags match a note schema, all required notes must be filled before completing
-  (trigger "cancel" bypasses this, but not the ownership check). Gate failures cause downstream
-  dependents (within the target set) to be skipped.
-- An ownership rejection (`errorCode` "not_claim_holder"), a blocking dependency outside the target
-  set, or a contended resource is reported on that item and also skips its in-set dependents.
-- Items already in TERMINAL role — including a parent terminalized by a cascade earlier in this same
-  call — are recorded as skipped and never gate-checked.
+- Each item runs the same pipeline as `advance_item` (ownership, dependency validation, note and
+  resource-lease gates, cascade/unblock detection, per-root status labels); `actor` is recorded
+  on every audit row.
+- Gate check: required notes must be filled before completing (trigger "cancel" bypasses the note
+  gate, not ownership). A gate, ownership (`errorCode` "not_claim_holder"), dependency or
+  resource failure is reported on that item and skips its in-set dependents.
+- Items already TERMINAL (including a parent terminalized by an earlier cascade in the same call)
+  are recorded as skipped and never gate-checked.
 - When rootId is used with includeRoot=true (the default), the root item is processed last, after all its descendants.
 
 Call when closing out a finished hierarchy — one atomic call instead of per-item advance sequences.

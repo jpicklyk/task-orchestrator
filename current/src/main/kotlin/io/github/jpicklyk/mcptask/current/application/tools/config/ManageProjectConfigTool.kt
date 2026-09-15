@@ -46,10 +46,9 @@ idempotent: the returned `fingerprint` is unchanged, so callers can `get` first 
 when fingerprints match. A pushed document may set `note_limits`/`status_labels` to override the
 global config for this root's items alongside `work_item_schemas`/`note_schemas`/`traits`/`project`;
 any other top-level key (e.g. `actor_authentication`, which stays global-only) is reported back in
-an additive `ignoredSections` array, present only when non-empty. Soft schema/trait parse problems
-(e.g. an invalid note `role`, a note entry missing `key`) do NOT fail the push — the config is still
-stored — but are reported in an additive `schemaWarnings` array, present only when non-empty; this is
-distinct from the unrelated non-"project"-type `warning` field above.
+an additive `ignoredSections` array, present only when non-empty. Soft schema parse problems (invalid
+note `role`, missing `key`) do not fail the push; they are returned in an additive `schemaWarnings`
+array, present only when non-empty (distinct from the `warning` field above).
 
 **get** — returns the stored `configYaml` + `fingerprint` + `updatedAt` for a root, or a
 not-found error when no config has been pushed for it. When `fingerprint` is supplied, the response
