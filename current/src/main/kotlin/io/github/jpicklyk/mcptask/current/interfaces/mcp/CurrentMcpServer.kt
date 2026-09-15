@@ -86,11 +86,15 @@ import java.nio.file.Paths
  * @param shutdownCoordinator Optional shutdown coordinator for graceful shutdown.
  * @param appConfig Typed environment snapshot, read ONCE at construction. Built before
  *   [databaseManager] so the DB layer reads its config from the same snapshot. Injectable for tests.
+ * @param onBeforeTransportStart Test seam invoked as the first statement inside the try block
+ *   wrapping the actual transport start (arg "stdio" or "http"), before the real start is
+ *   attempted. No-op by default; production behaviour is unchanged.
  */
 class CurrentMcpServer(
     private val version: String,
     private val shutdownCoordinator: ShutdownCoordinator? = null,
-    private val appConfig: AppConfig = AppConfig.fromEnv()
+    private val appConfig: AppConfig = AppConfig.fromEnv(),
+    internal val onBeforeTransportStart: (String) -> Unit = {}
 ) {
     private val logger = LoggerFactory.getLogger(CurrentMcpServer::class.java)
 
@@ -250,10 +254,12 @@ class CurrentMcpServer(
         }
 
         try {
+            onBeforeTransportStart("stdio")
             server.createSession(transport)
         } catch (e: Exception) {
             logger.error("Error in stdio server connection: ${e.message}", e)
-            return Started
+            runCatching { readinessMarker.clear() }
+            return Failed(Reason.TRANSPORT_START, "Failed to start stdio transport: ${e.message}")
         }
 
         try {
@@ -389,10 +395,12 @@ class CurrentMcpServer(
         }
 
         try {
+            onBeforeTransportStart("http")
             ktorServer.start(wait = false)
         } catch (e: Exception) {
             logger.error("Error in HTTP server: ${e.message}", e)
-            return Started
+            runCatching { readinessMarker.clear() }
+            return Failed(Reason.TRANSPORT_START, "Failed to start http transport: ${e.message}")
         }
 
         try {
@@ -615,6 +623,7 @@ internal fun Application.installRestApiRoutes(
                     jwksVerifier = jwksVerifier,
                     authCheckIntervalSeconds = appConfig.apiSseAuthCheckIntervalSeconds,
                     authConfig = apiConfig,
+                    workItemRepository = effectiveProvider.workItemRepository(),
                 )
             }
         }

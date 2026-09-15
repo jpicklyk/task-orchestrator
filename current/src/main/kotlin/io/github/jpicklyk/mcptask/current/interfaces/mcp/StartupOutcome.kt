@@ -26,6 +26,7 @@ enum class Reason {
     SCHEMA_UPDATE,
     UNKNOWN_TRANSPORT,
     READINESS_MARKER,
+    TRANSPORT_START,
 }
 
 /**
