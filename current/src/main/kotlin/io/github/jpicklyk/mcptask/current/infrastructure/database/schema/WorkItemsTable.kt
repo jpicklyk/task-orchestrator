@@ -1,7 +1,10 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.database.schema
 
 import org.jetbrains.exposed.v1.core.dao.id.java.UUIDTable
+import org.jetbrains.exposed.v1.core.inList
+import org.jetbrains.exposed.v1.core.isNull
 import org.jetbrains.exposed.v1.core.java.javaUUID
+import org.jetbrains.exposed.v1.core.or
 import org.jetbrains.exposed.v1.javatime.timestamp
 
 object WorkItemsTable : UUIDTable("work_items") {
@@ -39,5 +42,19 @@ object WorkItemsTable : UUIDTable("work_items") {
         index(isUnique = false, priority)
         index(isUnique = false, columns = arrayOf(role, roleChangedAt))
         index(isUnique = false, claimedBy)
+        index(isUnique = false, claimExpiresAt)
+
+        // V7__FTS5_And_Unbounded_Depth.sql:37-38 — role enum CHECK, mirrored verbatim
+        check("chk_work_items_role") {
+            role.inList(listOf("queue", "work", "review", "blocked", "terminal"))
+        }
+        // V7__FTS5_And_Unbounded_Depth.sql:40 — previous_role NULL-or-enum CHECK, mirrored verbatim
+        check("chk_work_items_previous_role") {
+            previousRole.isNull() or previousRole.inList(listOf("queue", "work", "review", "blocked", "terminal"))
+        }
+        // V7__FTS5_And_Unbounded_Depth.sql:41-42 — priority enum CHECK, mirrored verbatim
+        check("chk_work_items_priority") {
+            priority.inList(listOf("high", "medium", "low"))
+        }
     }
 }
