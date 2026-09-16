@@ -6,6 +6,8 @@ import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
+import io.github.jpicklyk.mcptask.current.domain.repository.FTS_CANDIDATE_ROWS
+import io.github.jpicklyk.mcptask.current.domain.repository.MAX_FTS_RESULTS
 import io.github.jpicklyk.mcptask.current.domain.repository.MAX_TRAVERSAL_DEPTH
 import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
@@ -253,12 +255,17 @@ class SQLiteNoteRepository(
      * **H2 (test environment):** FTS5 is SQLite-only. When the current dialect is H2,
      * this method returns an empty [SearchResult] immediately.
      *
+     * **Pagination:** see [SearchResult] for the contract. A fixed [FTS_CANDIDATE_ROWS] rows are
+     * fetched per FTS table regardless of [offset], fused into a total order (score descending,
+     * ties broken ascending by note id), capped at [MAX_FTS_RESULTS], and only then sliced by
+     * [offset]/[limit] — so every page is a slice of the same ordered list.
+     *
      * @param sanitizedFtsQuery FTS5 query string, already sanitized by the caller (T5 — QueryNotesTool).
      * @param matchMode Which FTS table(s) to query.
      * @param scope     Optional structural scope filters. [SearchScope.itemId] narrows to notes on
      *   that specific item; [SearchScope.ancestorId] narrows to notes whose item_id is in the subtree.
-     * @param limit     Maximum hits to return (enforced at 100; default 20).
-     * @param offset    Zero-based page offset.
+     * @param limit     Maximum hits to return (enforced at [MAX_FTS_RESULTS]; default 20).
+     * @param offset    Zero-based page offset, applied after fusion and capping.
      */
     override suspend fun ftsSearch(
         sanitizedFtsQuery: String,
@@ -267,7 +274,7 @@ class SQLiteNoteRepository(
         limit: Int,
         offset: Int,
     ): SearchResult {
-        val effectiveLimit = limit.coerceIn(1, 100)
+        val effectiveLimit = limit.coerceIn(1, MAX_FTS_RESULTS)
 
         return try {
             suspendTransaction(db = databaseManager.getDatabase()) {
@@ -327,8 +334,6 @@ class SQLiteNoteRepository(
                         )
                     scope?.ancestorIds != null && scope.ancestorIds.isEmpty() -> extraWhereParts.add("1 = 0") // empty scope → no hits
                 }
-                // role filter on notes (not work_items.role — notes themselves have a role column)
-                // scope.role maps to the note's role field.
                 val extraWhere = if (extraWhereParts.isEmpty()) "" else " AND " + extraWhereParts.joinToString(" AND ")
 
                 // Build positional args for one FTS query.
@@ -375,7 +380,7 @@ class SQLiteNoteRepository(
                         JOIN notes n ON n.rowid = ft.rowid
                         WHERE $ftsTable MATCH ?$extraWhere
                         ORDER BY ft.rank
-                        LIMIT ${effectiveLimit + offset + 1}
+                        LIMIT $FTS_CANDIDATE_ROWS
                         """.trimIndent()
 
                     // Use ExposedConnection.prepareStatement() + executeQuery() rather than
@@ -462,14 +467,27 @@ class SQLiteNoteRepository(
                     .sortedBy { it.value.rank }
                     .forEachIndexed { idx, (rowid, _) -> docs[rowid]?.textRowNum = idx + 1 }
 
-                val ranked =
+                // Impose a TOTAL order: score descending, then ascending note id. Score alone is a
+                // partial order — RRF ties are common, and a stable sort would fall back to map
+                // insertion order, i.e. the unspecified order SQLite returned equally-ranked FTS
+                // rows in. A page boundary inside such a tie group duplicates one hit and skips
+                // another.
+                val fused =
                     docs.values
                         .map { doc ->
                             val score =
                                 (if (doc.trigramRowNum < Int.MAX_VALUE) RrfFusion.score(doc.trigramRowNum) else 0.0) +
                                     (if (doc.textRowNum < Int.MAX_VALUE) RrfFusion.score(doc.textRowNum) else 0.0)
                             doc to score
-                        }.sortedByDescending { it.second }
+                        }.sortedWith(
+                            compareByDescending<Pair<FusedDoc, Double>> { it.second }
+                                .thenBy { it.first.noteId },
+                        )
+
+                // Cap BEFORE slicing so totalHits (and the nextOffset derived from it) describe the
+                // whole query, not the requested page — identical at every offset.
+                val capExceeded = fused.size > MAX_FTS_RESULTS
+                val ranked = if (capExceeded) fused.take(MAX_FTS_RESULTS) else fused
 
                 val totalHits = ranked.size
                 val pageSlice = ranked.drop(offset).take(effectiveLimit)
@@ -510,7 +528,7 @@ class SQLiteNoteRepository(
                     hits = hits,
                     totalHits = totalHits,
                     nextOffset = nextOffset,
-                    truncated = totalHits > 100,
+                    truncated = capExceeded,
                 )
             }
         } catch (e: Exception) {

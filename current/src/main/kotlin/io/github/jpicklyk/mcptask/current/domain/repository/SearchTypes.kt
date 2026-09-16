@@ -12,6 +12,30 @@ import java.util.UUID
 // keep the domain boundary clean.
 // ---------------------------------------------------------------------------
 
+/**
+ * Number of candidate rows fetched from EACH FTS5 virtual table before RRF fusion.
+ *
+ * Deliberately FIXED and independent of the requested page. A window sized from
+ * `limit + offset` would make every page fuse over a different candidate set, so a
+ * document could change its fused score (and therefore its absolute position) purely
+ * because a later page was requested — the cause of the duplicate/skip behaviour this
+ * constant replaces.
+ *
+ * 200 is at least twice [MAX_FTS_RESULTS], so the whole documented paging range
+ * (`offset + limit <= 100`) is served from one window and no in-range result is lost.
+ */
+const val FTS_CANDIDATE_ROWS: Int = 200
+
+/**
+ * Hard cap on the fused result list, applied BEFORE the page slice is taken.
+ *
+ * Because the cap precedes the slice, [SearchResult.totalHits] is the same on every page
+ * of a query and offsets at or beyond this value return an empty page.
+ * [SearchResult.truncated] is the "refine the query" signal that more matches existed.
+ * Also the upper bound applied to the `limit` parameter of a search call.
+ */
+const val MAX_FTS_RESULTS: Int = 100
+
 /** Controls which FTS5 virtual table(s) are queried during a search call. */
 enum class SearchMatchMode {
     /** Query both trigram and text tables; fuse via RRF (k=60). Default. */
@@ -72,14 +96,26 @@ data class SearchHit(
 /**
  * Paginated result container returned by search calls.
  *
+ * **Pagination contract.** Every page of a query is a slice of ONE ordered list. The
+ * repository fetches a fixed [FTS_CANDIDATE_ROWS] rows per FTS table (independent of the
+ * requested offset), fuses them with RRF into a TOTAL order — fused score descending,
+ * ties broken ascending by a stable domain id (work-item id for item hits, note id for
+ * note hits) — caps that list at [MAX_FTS_RESULTS], and only then applies offset and
+ * limit. Successive pages therefore partition the result list with no duplicates and no
+ * skips for a given database state.
+ *
+ * This is a deterministic total order, not a snapshot: a write between two page calls can
+ * still change which rows match. Stability across a paging session is not guaranteed.
+ *
  * @property hits       Ranked list of matching hits.
- * @property totalHits  Total hits in the in-memory RRF-fused list for this call.
- *   The repository fetches up to `effectiveLimit + offset + 1` rows per FTS table,
- *   so for large result sets the true database total may exceed [totalHits]. This is
- *   the page-bounded count, not the global match count. When [truncated] is true,
- *   refine the query or use scope filters to narrow results.
- * @property nextOffset Offset to pass for the next page, or null when exhausted.
- * @property truncated  True when totalHits exceeds the hard cap of 100.
+ * @property totalHits  Size of the capped fused list for this query: at most
+ *   [MAX_FTS_RESULTS] and identical on every page of the same query, offset included.
+ *   It is NOT the global database match count — when [truncated] is true, more matches
+ *   existed than the cap, so refine the query or use scope filters to narrow results.
+ * @property nextOffset Offset to pass for the next page, or null when exhausted. Derived
+ *   from the page-invariant [totalHits], so it no longer varies with the offset that
+ *   produced this page. An offset at or beyond [totalHits] yields an empty page and null.
+ * @property truncated  True when more than [MAX_FTS_RESULTS] fused matches existed.
  */
 data class SearchResult(
     val hits: List<SearchHit>,
