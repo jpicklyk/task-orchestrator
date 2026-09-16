@@ -1145,6 +1145,14 @@ Recent transitions across all items. Default window: last 24 hours.
 
 Scope-filtered: scoped tokens only see transitions for items within their scope (ancestor-chain check).
 
+**Scan cap:** the underlying fetch is bounded at 1000 rows (`minOf(offset + pageSize + 1, 1000)`)
+regardless of how many transitions actually occurred since `since`. If more than 1000 transitions
+match the window, pages beyond that cap come back truncated — `hasMore` reads `false` once the scan
+limit is hit even though older matching transitions exist beyond it. This is not reflected in
+`totalItems`/`hasMore` as a distinct signal, so a caller paging deep into a busy window can silently
+stop short of the true history. **Narrow `since` rather than paging deeper** — a tighter time window
+keeps the match count under the cap instead of walking a truncated scan.
+
 **Response:** `200 OK` → `PageDto<RoleTransitionDto>`
 
 ---

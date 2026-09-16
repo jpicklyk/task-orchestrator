@@ -1820,6 +1820,11 @@ paths:
         Scope-filtered by ancestor chain for root_ids-scoped tokens. A scope.tags_include token is
         additionally filtered to transitions on items carrying an allowed tag (item-level exact
         match) — a tag scope matching nothing returns 200 with an empty page, never 403.
+
+        Scan cap: the underlying fetch is bounded at 1000 rows regardless of how many transitions
+        match `since`. Beyond that cap, pages come back truncated (hasMore reads false even though
+        older matching transitions exist past the scan limit). Narrow `since` rather than paging
+        deeper to stay under the cap.
       parameters:
         - name: since
           in: query
