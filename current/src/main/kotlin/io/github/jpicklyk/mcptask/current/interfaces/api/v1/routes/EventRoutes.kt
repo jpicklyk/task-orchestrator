@@ -249,9 +249,8 @@ private val sseInlineAuthPlugin =
 
             // Resolve the principal. Bearer mode: SHA-256 lookup against pre-loaded token entries
             // (carries an explicit expiry → drives the periodic expiry watchdog). JWKS mode:
-            // tokenEntries is empty, so the lookup misses and we fall through to the JWT verifier.
-            // The verifier enforces `exp` at verify time, so no separate expiry watchdog is needed
-            // (expiry stays null and the periodic check is skipped).
+            // tokenEntries is empty, so the lookup misses and we fall through to the JWT verifier,
+            // which also yields an expiry (`exp` is mandatory there) → same watchdog.
             val digest = sha256Bytes(rawToken)
             val entry = tokenEntries[HashBytes(digest)]
 
@@ -269,10 +268,13 @@ private val sseInlineAuthPlugin =
                     return@onCall
                 }
             } else if (jwksVerifier != null) {
-                // JWKS mode — validate the token as a JWT. verify() enforces exp/nbf/iss/aud and
-                // returns null on any failure. Expiry is enforced inside verify(), so no watchdog.
-                principal = jwksVerifier.verify(rawToken)
-                expiry = null
+                // JWKS mode — validate the token as a JWT. verifyWithExpiry() enforces
+                // exp/nbf/iss/aud and returns null on any failure. That check happens ONCE, at
+                // connect; an SSE stream outlives it, so carry the token's `exp` through to the
+                // periodic watchdog below rather than dropping it.
+                val verified = jwksVerifier.verifyWithExpiry(rawToken)
+                principal = verified?.principal
+                expiry = verified?.expiresAt
             } else {
                 principal = null
                 expiry = null
