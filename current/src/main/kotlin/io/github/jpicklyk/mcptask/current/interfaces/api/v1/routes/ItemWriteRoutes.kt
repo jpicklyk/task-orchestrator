@@ -77,6 +77,12 @@ private val REJECTED_PATCH_FIELDS =
 
 private val MERGE_PATCH_CONTENT_TYPES = setOf("application/merge-patch+json", "application/json")
 
+// Accepted Content-Types for the JSON write bodies (POST /items). `*/*` is what
+// `call.request.contentType()` reports when the header is ABSENT, which ContentNegotiation's
+// wildcard match also accepted — so an absent header stays accepted and only a genuinely non-JSON
+// Content-Type is rejected. Merge-patch is deliberately absent: only PATCH accepts it.
+private val JSON_WRITE_CONTENT_TYPES = setOf("application/json", "*/*")
+
 // Default source for itemWriteRoutes(warnOnClaimedAdvance=...) — reads API_WARN_ON_CLAIMED_ADVANCE
 // via the typed AppConfig snapshot. The composition root passes an explicit value from its
 // single startup snapshot; this default keeps direct (test) callers on the prior env behavior.
@@ -276,6 +282,23 @@ fun Route.itemWriteRoutes(
                     )
                     return@post
                 }
+
+            // Content-Type gate — explicit because the body is no longer read through
+            // `receive<ItemCreateDto>()`, which let ContentNegotiation reject a non-JSON body with
+            // 415. Same shape as the PATCH gate below, minus merge-patch. It runs before the body
+            // read, so 415 still precedes anything that depends on the body.
+            val createContentType =
+                call.request
+                    .contentType()
+                    .withoutParameters()
+                    .toString()
+            if (createContentType !in JSON_WRITE_CONTENT_TYPES) {
+                call.respond(
+                    HttpStatusCode.UnsupportedMediaType,
+                    ErrorDto("unsupported_media_type", "Use Content-Type: application/json"),
+                )
+                return@post
+            }
 
             val idempotencyKeyResult = call.parseIdempotencyKey()
             if (idempotencyKeyResult is IdempotencyKeyResult.Invalid) return@post

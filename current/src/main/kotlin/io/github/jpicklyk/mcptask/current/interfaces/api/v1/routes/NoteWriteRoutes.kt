@@ -19,6 +19,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.redaction.Attributio
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.call
+import io.ktor.server.request.contentType
 import io.ktor.server.request.receiveText
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
@@ -33,6 +34,12 @@ import java.util.UUID
 private val noteWriteLogger = LoggerFactory.getLogger("NoteWriteRoutes")
 
 private val VALID_NOTE_ROLES = setOf("queue", "work", "review")
+
+// Accepted Content-Types for the JSON note body (PUT /items/{id}/notes/{key}). `*/*` is what
+// `call.request.contentType()` reports when the header is ABSENT, which ContentNegotiation's
+// wildcard match also accepted — so an absent header stays accepted and only a genuinely non-JSON
+// Content-Type is rejected.
+private val JSON_WRITE_CONTENT_TYPES = setOf("application/json", "*/*")
 
 // JSON encoder for capturing serialized note responses (matches the server's explicitNulls=false).
 private val noteWriteJson =
@@ -88,6 +95,22 @@ fun Route.noteWriteRoutes(
                     )
                     return@put
                 }
+
+            // Content-Type gate — explicit because the body is no longer read through
+            // `receive<NoteWriteDto>()`, which let ContentNegotiation reject a non-JSON body with
+            // 415. It runs before the body read, so 415 still precedes anything body-dependent.
+            val upsertContentType =
+                call.request
+                    .contentType()
+                    .withoutParameters()
+                    .toString()
+            if (upsertContentType !in JSON_WRITE_CONTENT_TYPES) {
+                call.respond(
+                    HttpStatusCode.UnsupportedMediaType,
+                    ErrorDto("unsupported_media_type", "Use Content-Type: application/json"),
+                )
+                return@put
+            }
 
             val rawId =
                 call.parameters["id"] ?: run {
