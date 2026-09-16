@@ -1,7 +1,10 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.database.schema
 
+import org.jetbrains.exposed.v1.core.Column
 import org.jetbrains.exposed.v1.core.ReferenceOption
-import org.jetbrains.exposed.v1.core.dao.id.java.UUIDTable
+import org.jetbrains.exposed.v1.core.dao.id.EntityID
+import org.jetbrains.exposed.v1.core.dao.id.IdTable
+import java.util.UUID
 
 /**
  * Per-root store of agent-authored planning documents, stashed ahead of adoption into a real
@@ -16,7 +19,10 @@ import org.jetbrains.exposed.v1.core.dao.id.java.UUIDTable
  * `V12__Plan_Documents.sql` for the full rationale: [rootItemId] cascades (the document belongs to
  * its root), [adoptedByItemId] sets null (deleting the adopting item only unlinks the adoption).
  */
-object PlanDocumentsTable : UUIDTable("plan_documents") {
+object PlanDocumentsTable : IdTable<UUID>("plan_documents") {
+    override val id: Column<EntityID<UUID>> = javaUuidSqlite("id").entityId()
+    override val primaryKey = PrimaryKey(id)
+
     val rootItemId = javaUuidSqlite("root_item_id")
     val slug = text("slug")
     val body = text("body")

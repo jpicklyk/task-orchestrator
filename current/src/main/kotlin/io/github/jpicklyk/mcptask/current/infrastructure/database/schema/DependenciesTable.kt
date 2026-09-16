@@ -1,9 +1,15 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.database.schema
 
+import org.jetbrains.exposed.v1.core.Column
 import org.jetbrains.exposed.v1.core.ReferenceOption
-import org.jetbrains.exposed.v1.core.dao.id.java.UUIDTable
+import org.jetbrains.exposed.v1.core.dao.id.EntityID
+import org.jetbrains.exposed.v1.core.dao.id.IdTable
+import java.util.UUID
 
-object DependenciesTable : UUIDTable("dependencies") {
+object DependenciesTable : IdTable<UUID>("dependencies") {
+    override val id: Column<EntityID<UUID>> = javaUuidSqlite("id").entityId()
+    override val primaryKey = PrimaryKey(id)
+
     val fromItemId = javaUuidSqlite("from_item_id")
     val toItemId = javaUuidSqlite("to_item_id")
     val type = varchar("type", 20).default("BLOCKS")

@@ -1,7 +1,10 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.database.schema
 
-import org.jetbrains.exposed.v1.core.dao.id.java.UUIDTable
+import org.jetbrains.exposed.v1.core.Column
+import org.jetbrains.exposed.v1.core.dao.id.EntityID
+import org.jetbrains.exposed.v1.core.dao.id.IdTable
 import org.jetbrains.exposed.v1.javatime.timestamp
+import java.util.UUID
 
 /**
  * Append-only audit history of resource-lease hold intervals — answers "who held resource R at
@@ -20,7 +23,10 @@ import org.jetbrains.exposed.v1.javatime.timestamp
  * (`released_at` = its own prior `expires_at`, `release_reason` = "expired") before a new interval
  * opens for the new holder — see `SQLiteResourceLeaseRepository.acquireAll`.
  */
-object ResourceLeaseHistoryTable : UUIDTable("resource_lease_history") {
+object ResourceLeaseHistoryTable : IdTable<UUID>("resource_lease_history") {
+    override val id: Column<EntityID<UUID>> = javaUuidSqlite("id").entityId()
+    override val primaryKey = PrimaryKey(id)
+
     val resourceKey = text("resource_key")
     val holderItemId = javaUuidSqlite("holder_item_id")
     val acquiredByActorId = text("acquired_by_actor_id").nullable()
