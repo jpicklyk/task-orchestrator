@@ -249,6 +249,7 @@ Idempotency-Key: <UUID>
   `advance_item` — see `api-reference.md`) as well as these REST routes — the blast radius of the
   cache is cross-surface, though a collision needs a matching `(actor-id, key)` pair on both sides.
 - `POST /items` and `PUT /items/{id}/notes/{key}` additionally require `Content-Type: application/json` (an absent header is treated as `*/*` and accepted); any other value → `415 unsupported_media_type` before the idempotency key or body is read.
+- Every write route now bounds its body read to a fixed byte limit BEFORE buffering it: a `Content-Length` over the limit is rejected with `413 payload_too_large` before any bytes are touched, and a chunked/understated-`Content-Length` body is caught by a channel read capped at `limit + 1` bytes, so an oversized body is never buffered in full either way. `POST /items`, `PATCH /items/{id}`, `POST /items/{id}/advance`, `PUT /items/{id}/notes/{key}`, and `POST /dependencies` share a 1 MiB limit (previously unbounded); `PUT /roots/{rootId}/config` (128 KiB) and `PUT /roots/{rootId}/plans/{slug}` (64 KiB) keep their existing numeric limits, now enforced at the same pre-buffer point instead of after a full read. See §6 for the `payload_too_large` error shape.
 
 ---
 
@@ -273,8 +274,9 @@ All error responses use:
 | `scope_forbidden` | 403 | Item exists but is outside the caller's scope |
 | `field_not_patchable` | 400 | PATCH attempted on a server-owned field |
 | `cycle_detected` | 400 | Dependency would create a cycle |
-| `unsupported_media_type` | 415 | Wrong `Content-Type` for PATCH (see §23), or a non-JSON `Content-Type` on `POST /items` / `PUT /items/{id}/notes/{key}` (see §5) |
+| `unsupported_media_type` | 415 | Wrong `Content-Type` for PATCH (see §23), or a non-JSON `Content-Type` on `POST /items`, `PUT /items/{id}/notes/{key}`, `POST /items/{id}/advance`, or `POST /dependencies` (see §5) |
 | `etag_mismatch` | 412 | `If-Match` header does not match current ETag |
+| `payload_too_large` | 413 | Request body exceeds its route's byte limit — the `Content-Length` header alone if it declares a size over the limit (body untouched), otherwise the actual bytes read, capped at `limit + 1` so an oversized body is never buffered in full. `POST /items`, `PATCH /items/{id}`, `POST /items/{id}/advance`, `PUT /items/{id}/notes/{key}`, and `POST /dependencies` share a 1 MiB limit; `PUT /roots/{rootId}/config` is 128 KiB; `PUT /roots/{rootId}/plans/{slug}` is 64 KiB (see §18, §19). |
 | `version_conflict` | 409 | `PATCH /items/{id}`: `If-Match` matched at read time, but a concurrent writer's update won the version race before this write committed — optimistic-lock loss, distinct from `etag_mismatch`. Retry with a fresh `If-Match` ETag. |
 | `unauthenticated` | 401 | No authenticated principal (missing/invalid token) |
 | `verification_failed` | 401 | JWKS verification failed under `reject` policy |
@@ -758,6 +760,7 @@ Create a work item. Requires `WRITE_ITEMS`.
 - `400 validation_error` — invalid field values
 - `400 not_found` — parentId not found
 - `403 scope_forbidden` — parent outside scope
+- `413 payload_too_large` — body exceeds the shared 1 MiB write-body limit (see §5, §6)
 - `415 unsupported_media_type` — `Content-Type` is present and is not `application/json` (an absent header is accepted as `*/*`); checked before the `Idempotency-Key` header or body is read
 
 Supports `Idempotency-Key` header.
@@ -800,6 +803,7 @@ JSON Merge Patch update. Requires `WRITE_ITEMS`, `If-Match`, and `Content-Type: 
   read time, but the underlying row changed before this write committed. Retry with a fresh
   `If-Match` ETag.
 - `412 etag_mismatch` — `If-Match` does not match
+- `413 payload_too_large` — body exceeds the shared 1 MiB write-body limit (see §5, §6)
 - `415 unsupported_media_type` — wrong Content-Type + `Accept-Patch: application/merge-patch+json, application/json` response header
 
 Supports `Idempotency-Key` header.
@@ -932,6 +936,8 @@ The `cascadeEvents`, `unblockedItems`, and `expectedNotes` fields are **additive
 - `200 OK` → `AdvanceResponseDto`
 - `400 validation_error` — invalid trigger string, or a `credentialRefs` entry fails format/closed-set validation
 - `403 insufficient_capability` — `overrideResourceLeases: true` sent by a non-ADMIN caller
+- `413 payload_too_large` — body exceeds the shared 1 MiB write-body limit (see §5, §6)
+- `415 unsupported_media_type` — `Content-Type` is present and is not `application/json` (an absent header is accepted as `*/*`); checked before the body is read
 - `409 resource_unavailable` — resource-lease gate contention; `Retry-After` header + `details.contendedResources`/`details.retryAfterMs` (see above)
 - `409 not_claim_holder` — pre-existing, defensive-only on this route (REST bypasses claim ownership by default — see "Claimed-item behavior" above); not expected to occur in normal REST usage
 - `422 gate_blocked` — a required-note gate failed; `details.missingNotes` lists the unfilled required notes
@@ -1005,6 +1011,7 @@ Upsert (create or replace) a note. `role` and `body` are always replaced on upda
 - `201 Created` → `NoteDto` + `ETag` header (note was new)
 - `200 OK` → `NoteDto` + `ETag` header (note was updated)
 - `412 etag_mismatch`
+- `413 payload_too_large` — body exceeds the shared 1 MiB write-body limit (see §5, §6)
 - `415 unsupported_media_type` — `Content-Type` is present and is not `application/json` (an absent header is accepted as `*/*`); checked before the `Idempotency-Key` header or body is read
 
 Supports `Idempotency-Key` header.
@@ -1054,7 +1061,10 @@ Validation:
 - Both items must be in scope — `403 scope_forbidden`
 - Cycle detection — `400 cycle_detected`
 
-**Response:** `201 Created` → `DependencyEdgeDto`
+**Responses:**
+- `201 Created` → `DependencyEdgeDto`
+- `413 payload_too_large` — body exceeds the shared 1 MiB write-body limit (see §5, §6)
+- `415 unsupported_media_type` — `Content-Type` is present and is not `application/json` (an absent header is accepted as `*/*`); checked before the body is read
 
 ### DELETE /dependencies/{id}
 
@@ -1305,7 +1315,7 @@ registry key collision, not per-root — see "Per-root honorable settings" in `c
   `412 etag_mismatch` below — this is a known-old-**content** guard, not a concurrent-write guard.
 - `412 etag_mismatch` — `If-Match` supplied and mismatched against an EXISTING row's ETag (a
   first push to a root with no prior row ignores `If-Match` — there is nothing to match yet)
-- `413 payload_too_large` — body exceeds 128 KiB
+- `413 payload_too_large` — body exceeds 128 KiB; enforced before the body is fully buffered (see §5)
 - `403 scope_forbidden` — capability present but `{rootId}` outside token scope
 
 ### GET /roots/{rootId}/config
@@ -1366,7 +1376,7 @@ Requires `WRITE_CONFIG`.
 - `404 not_found` — `{rootId}` does not resolve to an existing WorkItem
 - `422 validation_error` — `{rootId}` is not depth-0
 - `409 adopted_conflict` — the slug is already `adopted` (message names the adopting item when known)
-- `413 payload_too_large` — body exceeds 64 KiB
+- `413 payload_too_large` — body exceeds 64 KiB; enforced before the body is fully buffered (see §5)
 - `403 scope_forbidden` — capability present but `{rootId}` outside token scope
 
 ### GET /roots/{rootId}/plans/{slug}

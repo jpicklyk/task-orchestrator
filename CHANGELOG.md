@@ -140,6 +140,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Flyway migration (V7) defines**, so a Direct-mode database created today could accept an invalid
   role/priority value the Flyway-migrated schema would reject. `WorkItemsTable` now declares the
   same three CHECK constraints and index; no migration file changed. (`97f8632f`)
+- **Every REST write route buffered the entire request body into heap before any size check
+  ran.** `POST /items`, `PATCH /items/{id}`, `POST /items/{id}/advance`, `PUT
+  /items/{id}/notes/{key}`, and `POST /dependencies` had no size limit at all; `PUT
+  /roots/{rootId}/config` and `PUT /roots/{rootId}/plans/{slug}` checked their existing limits only
+  after the full body had already been read. A shared `receiveBounded()` helper now rejects an
+  over-limit `Content-Length` before touching the body, and caps the actual channel read at
+  `limit + 1` bytes to catch a chunked or understated `Content-Length` — no oversized body is ever
+  buffered in full. All seven routes now share one `413 payload_too_large` shape; the two
+  pre-existing numeric limits (128 KiB, 64 KiB) are unchanged, and the five previously-uncapped
+  routes share a new 1 MiB limit. (`e941c2c7`)
 
 ## [3.13.1] - 2026-08-04
 
