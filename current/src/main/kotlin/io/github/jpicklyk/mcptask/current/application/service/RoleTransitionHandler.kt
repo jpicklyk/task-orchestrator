@@ -7,6 +7,7 @@ import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
+import org.slf4j.LoggerFactory
 import java.time.Instant
 import java.util.UUID
 
@@ -108,6 +109,8 @@ class RoleTransitionHandler {
     companion object {
         /** Triggers accepted from external callers. "cascade" is system-internal. */
         val USER_TRIGGERS = setOf("start", "complete", "block", "hold", "resume", "cancel", "reopen")
+
+        private val logger = LoggerFactory.getLogger(RoleTransitionHandler::class.java)
     }
 
     // -----------------------------------------------------------------------
@@ -703,6 +706,22 @@ class RoleTransitionHandler {
     ): TransitionApplyResult {
         val previousRole = item.role
 
+        // A transition that enters TERMINAL, or that leaves an item which was ALREADY
+        // terminal-with-a-claim (pre-fix rows; heals them on the next transition with no
+        // migration needed), must release any claim — a terminal item can never be claimed
+        // (see WorkItem.validate()'s all-or-nothing claim invariant and the ClaimResult.TerminalItem
+        // guard). This is the single site every advance_item / complete_tree / REST advance /
+        // cascade path funnels through.
+        val releasingClaim = (targetRole == Role.TERMINAL || previousRole == Role.TERMINAL) && item.claimedBy != null
+        if (releasingClaim) {
+            logger.info(
+                "Releasing claim on transition to terminal state: itemId={}, trigger={}, previousHolder={}",
+                item.id,
+                trigger,
+                item.claimedBy
+            )
+        }
+
         // Build the updated item via the update builder
         val updatedItem =
             item.update { current ->
@@ -726,7 +745,18 @@ class RoleTransitionHandler {
                             // Normal forward progression clears statusLabel
                             else -> null
                         },
-                    roleChangedAt = roleChangedAt
+                    roleChangedAt = roleChangedAt,
+                    claimedBy = if (targetRole == Role.TERMINAL || previousRole == Role.TERMINAL) null else current.claimedBy,
+                    claimedAt = if (targetRole == Role.TERMINAL || previousRole == Role.TERMINAL) null else current.claimedAt,
+                    claimExpiresAt = if (targetRole == Role.TERMINAL || previousRole == Role.TERMINAL) null else current.claimExpiresAt,
+                    originalClaimedAt =
+                        if (targetRole == Role.TERMINAL ||
+                            previousRole == Role.TERMINAL
+                        ) {
+                            null
+                        } else {
+                            current.originalClaimedAt
+                        }
                 )
             }
 
