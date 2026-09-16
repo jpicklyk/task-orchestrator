@@ -7,7 +7,7 @@ import org.jetbrains.exposed.v1.core.dao.id.IdTable
 import java.util.UUID
 
 object NotesTable : IdTable<UUID>("notes") {
-    override val id: Column<EntityID<UUID>> = javaUuidSqlite("id").entityId()
+    override val id: Column<EntityID<UUID>> = javaUuidSqlite("id").autoGenerate().entityId()
     override val primaryKey = PrimaryKey(id)
 
     val itemId = javaUuidSqlite("work_item_id")

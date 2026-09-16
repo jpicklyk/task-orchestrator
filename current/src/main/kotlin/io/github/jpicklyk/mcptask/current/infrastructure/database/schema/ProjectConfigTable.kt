@@ -15,7 +15,7 @@ import java.util.UUID
  * so deleting a root item automatically removes its config row.
  */
 object ProjectConfigTable : IdTable<UUID>("project_config") {
-    override val id: Column<EntityID<UUID>> = javaUuidSqlite("id").entityId()
+    override val id: Column<EntityID<UUID>> = javaUuidSqlite("id").autoGenerate().entityId()
     override val primaryKey = PrimaryKey(id)
 
     val rootItemId = javaUuidSqlite("root_item_id")

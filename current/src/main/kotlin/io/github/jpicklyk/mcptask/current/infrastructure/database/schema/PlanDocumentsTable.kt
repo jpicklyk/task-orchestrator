@@ -20,7 +20,7 @@ import java.util.UUID
  * its root), [adoptedByItemId] sets null (deleting the adopting item only unlinks the adoption).
  */
 object PlanDocumentsTable : IdTable<UUID>("plan_documents") {
-    override val id: Column<EntityID<UUID>> = javaUuidSqlite("id").entityId()
+    override val id: Column<EntityID<UUID>> = javaUuidSqlite("id").autoGenerate().entityId()
     override val primaryKey = PrimaryKey(id)
 
     val rootItemId = javaUuidSqlite("root_item_id")

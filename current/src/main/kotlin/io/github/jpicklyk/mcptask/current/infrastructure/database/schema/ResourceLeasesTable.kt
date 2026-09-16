@@ -29,7 +29,7 @@ import java.util.UUID
  * enforcement mode — unused by the current repository surface, always null for now.
  */
 object ResourceLeasesTable : IdTable<UUID>("resource_leases") {
-    override val id: Column<EntityID<UUID>> = javaUuidSqlite("id").entityId()
+    override val id: Column<EntityID<UUID>> = javaUuidSqlite("id").autoGenerate().entityId()
     override val primaryKey = PrimaryKey(id)
 
     val resourceKey = text("resource_key")

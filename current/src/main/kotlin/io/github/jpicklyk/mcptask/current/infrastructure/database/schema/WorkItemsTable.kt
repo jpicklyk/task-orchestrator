@@ -13,7 +13,7 @@ object WorkItemsTable : IdTable<UUID>("work_items") {
     // id's declared SQL type is aligned to Flyway's BLOB the same way as every other UUID
     // column; only its NOT NULL / randomblob(16) DB-side default stay an accepted exception —
     // Exposed's identity column has no DSL surface for a nullable-at-insert PK with a DB default.
-    override val id: Column<EntityID<UUID>> = javaUuidSqlite("id").entityId()
+    override val id: Column<EntityID<UUID>> = javaUuidSqlite("id").autoGenerate().entityId()
     override val primaryKey = PrimaryKey(id)
 
     val parentId = javaUuidSqlite("parent_id").nullable()

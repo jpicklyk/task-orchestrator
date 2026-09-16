@@ -24,7 +24,7 @@ import java.util.UUID
  * opens for the new holder — see `SQLiteResourceLeaseRepository.acquireAll`.
  */
 object ResourceLeaseHistoryTable : IdTable<UUID>("resource_lease_history") {
-    override val id: Column<EntityID<UUID>> = javaUuidSqlite("id").entityId()
+    override val id: Column<EntityID<UUID>> = javaUuidSqlite("id").autoGenerate().entityId()
     override val primaryKey = PrimaryKey(id)
 
     val resourceKey = text("resource_key")
