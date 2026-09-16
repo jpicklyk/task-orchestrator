@@ -201,7 +201,7 @@ git checkout -b release/vX.Y.Z
 
 ## Step 8 — Apply Changes
 
-### 8a. Update `version.properties`
+### 8a. Update `version.properties` and `server.json`
 
 **Plugin-only release:** Skip this step — the server version stays unchanged.
 
@@ -214,6 +214,24 @@ VERSION_MAJOR=2
 VERSION_MINOR=1
 VERSION_PATCH=0
 ```
+
+Then edit `server.json` (the MCP Registry record) in the project root — **two fields**:
+
+- Set the top-level `version` to the new version (`X.Y.Z`, no `v` prefix).
+- Update the OCI `identifier` in `packages[]` to the **immutable** release image tag:
+  `ghcr.io/jpicklyk/task-orchestrator:X.Y.Z` (no `v` prefix — this is the Docker tag, not the git
+  tag). Never leave it on `:latest`; the MCP Registry record for a version is immutable, so a mutable
+  tag makes that record drift to whatever image later owns `latest` (#297). `docker-publish.yml`
+  fails the release if either field disagrees with `version.properties`, and then publishes the
+  record to the registry via `mcp-publisher`.
+
+**Do not skip the `server.json` edit.** It is the one file in this step that no build reads, so a
+missed bump is invisible until the registry publish fails (or, before the guard existed, silently
+published a stale record — v3.3.0 through v3.13.1 shipped with `server.json` still at 3.2.0).
+
+> History: this paragraph was first added by #298 to a flat `.claude/skills/prepare-release.md`
+> that duplicated this file, and was lost when #321 deleted the duplicate. The skill lives only at
+> `.claude/skills/prepare-release/SKILL.md` — never recreate the flat file.
 
 ### 8b. Update plugin version files (if plugin content changed)
 
@@ -239,8 +257,20 @@ git add claude-plugins/task-orchestrator/.claude-plugin/plugin.json \
 
 ### 8c. Insert new section into `CHANGELOG.md`
 
-Read `CHANGELOG.md`. Find the first `## [` versioned entry (after the header). Insert the
-new section **immediately above** it, with a trailing `---` separator and a blank line:
+Read `CHANGELOG.md`. Feature PRs accumulate entries under a `## [Unreleased]` section at the top
+of the file; check whether one exists before writing anything.
+
+**If `## [Unreleased]` exists:** rename that header in place to `## [X.Y.Z] - YYYY-MM-DD` and fold
+your synthesized bullets from Step 4 into its existing `### Added` / `### Changed` / `### Fixed`
+subsections (create a subsection only if it is missing). Keep every existing bullet — they are
+the per-PR record — and add only what Step 4 found missing. Do not leave an empty `[Unreleased]`
+section behind; the next feature PR recreates it. Compare the PR numbers cited in the section
+against `git log <LAST_TAG>..HEAD` — merged PRs with no bullet are the gaps to fill (the
+September 2026 release prep found three bug-wave PRs entirely absent).
+
+**If no `## [Unreleased]` section exists:** find the first `## [` versioned entry (after the
+header). Insert the new section **immediately above** it, with a trailing `---` separator and a
+blank line:
 
 ```markdown
 ## [X.Y.Z] - YYYY-MM-DD
@@ -254,7 +284,7 @@ new section **immediately above** it, with a trailing `---` separator and a blan
 ## [previous version] ...
 ```
 
-Do not modify any existing entries.
+Do not modify any existing entries below the new section.
 
 If plugin content changed (Step 4d), add under the appropriate section:
 - Bumped plugin version to X.Y.Z (<reason>)
@@ -271,7 +301,7 @@ git push origin release/vX.Y.Z
 
 **Server-only release:**
 ```bash
-git add version.properties CHANGELOG.md
+git add version.properties server.json CHANGELOG.md
 git status   # confirm only expected files are staged
 git commit -m "release: bump to vX.Y.Z"
 git push origin release/vX.Y.Z
@@ -279,7 +309,7 @@ git push origin release/vX.Y.Z
 
 **Both release** (plugin files already staged from 8b):
 ```bash
-git add version.properties CHANGELOG.md
+git add version.properties server.json CHANGELOG.md
 git status   # confirm expected files are staged
 git commit -m "release: bump to vX.Y.Z"
 git push origin release/vX.Y.Z
@@ -549,7 +579,8 @@ pushes (`v*`), not manual dispatch.
 - Do not tag before CI is green on main — tagging a broken commit ships a broken Docker image
 - Do not include raw commit hashes or internal file paths in the changelog
 - Do not bump version without confirmation from the user
-- Do not stage files other than `version.properties`, `CHANGELOG.md`, plugin version files (if changed), and `README.md` (if fixes were needed)
+- Do not stage files other than `version.properties`, `server.json`, `CHANGELOG.md`, plugin version files (if changed), and `README.md` (if fixes were needed)
+- Do not forget `server.json` — the registry publish step fails when it lags `version.properties`
 - Do not create the PR if there are no commits ahead of the last tag
 - Do not bump plugin versions outside of the release workflow
 - Do not leave GitHub's auto-generated PR-title list as the final release notes — overwrite the GitHub Release body with the curated `CHANGELOG.md` section (Step 11g)
