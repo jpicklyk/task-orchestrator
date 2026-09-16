@@ -62,12 +62,12 @@ work_item_schemas:
         description: "Reproduction, root cause, and fix approach."
         skill: "spec-quality"
         maxLength: 6000
-        guidance: "This note must cover: reproduction steps (exact inputs and expected vs actual output), root cause (specific file, function, and condition), fix approach with alternatives considered (min 2 options + 'do nothing'), blast radius of the fix, and test strategy (regression test for the bug, edge cases around the fix). Read references/project-concerns.md for codebase-specific constraints."
+        guidance: "This note must cover: reproduction steps (exact inputs and expected vs actual output), root cause (specific file, function, and condition), fix approach with alternatives considered (min 2 options + 'do nothing'), blast radius of the fix, and test strategy (regression test for the bug, edge cases around the fix). Read references/project-concerns.md for codebase-specific constraints. Target ~2500-3500 characters; the 6000 maxLength is a backstop, not a goal - a shorter note that cites file:line and states the decision is better than a longer one that restates context."
       - key: implementation-notes
         role: work
         required: true
         description: "Context handoff for downstream agents — what changed, deviations from the diagnosis, and patterns to apply elsewhere."
-        guidance: "Document what was changed and why. Focus on what downstream agents need to know: deviations from the planned fix, whether the root cause was different than diagnosed, patterns that should be applied elsewhere (e.g., same bug exists in similar code paths), and any assumptions that turned out wrong. Cover the substance — do not pad with boilerplate, restated spec content, or redundant summaries."
+        guidance: "Document what was changed and why. Focus on what downstream agents need to know: deviations from the planned fix, whether the root cause was different than diagnosed, patterns that should be applied elsewhere (e.g., same bug exists in similar code paths), and any assumptions that turned out wrong. Cover the substance — do not pad with boilerplate, restated spec content, or redundant summaries. Target ~1500-2200 characters; the 3000 maxLength is a backstop, not a goal."
         maxLength: 3000
       - key: review-checklist
         role: review
@@ -75,7 +75,7 @@ work_item_schemas:
         description: "Quality gate — fix alignment, test quality, and simplification review."
         skill: "review-quality"
         maxLength: 4000
-        guidance: "Verify: (1) the fix addresses the diagnosed root cause and doesn't just mask symptoms, (2) a regression test exists that would have caught the original bug, (3) tests cover edge cases from the diagnosis test strategy, (4) if /simplify was run and made changes, verify those changes have test coverage — the reviewer does not run simplify or make fixes, only reports gaps."
+        guidance: "Verify: (1) the fix addresses the diagnosed root cause and doesn't just mask symptoms, (2) a regression test exists that would have caught the original bug, (3) tests cover edge cases from the diagnosis test strategy, (4) if /simplify was run and made changes, verify those changes have test coverage — the reviewer does not run simplify or make fixes, only reports gaps. Target ~2000-3000 characters; the 4000 maxLength is a backstop, not a goal."
 
   plugin-change:
     lifecycle: auto
@@ -212,21 +212,21 @@ traits:
         description: "Numbered test scenarios with frozen oracles, derived from acceptance criteria before implementation begins."
         skill: "test-author"
         maxLength: 3500
-        guidance: "Write numbered scenarios (S1, S2, ...) derived from the acceptance criteria, partitioned into happy path / failure / edge cases. For each scenario give: input, expected result, and **oracle source** — the spec clause, stated algorithm, or external reference the expected result comes from. Never derive an oracle from 'what the code returns' or from the ticket's worked example alone. Also include: an adversarial probe list (boundary/bypass inputs worth testing), the public signature the tests will compile against, and a separation declaration confirming this note is filled before implementation work begins. Queue placement is the structural lever — the oracle is frozen by this gate before any implementation exists, defeating implementation-derived oracles by ordering."
+        guidance: "Write numbered scenarios (S1, S2, ...) derived from the acceptance criteria, partitioned into happy path / failure / edge cases. For each scenario give: input, expected result, and **oracle source** — the spec clause, stated algorithm, or external reference the expected result comes from. Never derive an oracle from 'what the code returns' or from the ticket's worked example alone. Also include: an adversarial probe list (boundary/bypass inputs worth testing), the public signature the tests will compile against, and a separation declaration confirming this note is filled before implementation work begins. Queue placement is the structural lever — the oracle is frozen by this gate before any implementation exists, defeating implementation-derived oracles by ordering. Target ~2000-2800 characters; the 3500 maxLength is a backstop, not a goal."
       - key: test-manifest
         role: work
         required: true
         description: "Test-author record — files, commit SHA range, scenario coverage mapping, and forbidden-pattern declaration."
         skill: "test-author"
         maxLength: 3000
-        guidance: "Filled by the test author after writing the tests: actor id, test file paths, and commit SHA range; an S-id -> test mapping (covered, or not-covered:reason for each scenario); the adversarial probes actually executed and their results; a forbidden-pattern declaration listing every assumeTrue/@Disabled/escape used, each with justification; an arbitration record for any red-test disputes; and any implementer modification to test files with rationale. This is the audit trail review checks against the test-plan."
+        guidance: "Filled by the test author after writing the tests: actor id, test file paths, and commit SHA range; an S-id -> test mapping (covered, or not-covered:reason for each scenario); the adversarial probes actually executed and their results; a forbidden-pattern declaration listing every assumeTrue/@Disabled/escape used, each with justification; an arbitration record for any red-test disputes; and any implementer modification to test files with rationale. This is the audit trail review checks against the test-plan. Target ~1500-2200 characters; the 3000 maxLength is a backstop, not a goal."
       - key: test-independence-audit
         role: review
         required: true
         description: "Reviewer attestation that test authorship was independent of implementation."
         skill: "review-quality"
         maxLength: 2000
-        guidance: "Attest to: separation held (test files first appear in the author's commit SHA range; actor id differs from the implementer's, or a temporal-only separation is explicitly declared), the coverage mapping spot-checked by opening at least two mapped tests and reading their bodies rather than trusting the manifest alone, at least one oracle traced back to its cited source, and the declared probes actually run. Verdict — one of: **independent** | **independent-degraded** (temporal-only separation) | **not-independent** (blocking, regardless of suite pass/fail)."
+        guidance: "Attest to: separation held (test files first appear in the author's commit SHA range; actor id differs from the implementer's, or a temporal-only separation is explicitly declared), the coverage mapping spot-checked by opening at least two mapped tests and reading their bodies rather than trusting the manifest alone, at least one oracle traced back to its cited source, and the declared probes actually run. Verdict — one of: **independent** | **independent-degraded** (temporal-only separation) | **not-independent** (blocking, regardless of suite pass/fail). Target ~900-1400 characters; the 2000 maxLength is a backstop, not a goal."
 
   session-tracked:
     notes:
@@ -234,7 +234,7 @@ traits:
         role: work
         required: true
         description: "Session context — what was done, how it went, and anything the retrospective should know."
-        guidance: "Record what happened during implementation. Structure: - **Outcome**: success | partial | failure - **Files changed**: list with brief rationale - **Deviations**: anything that differed from the specification or plan - **Friction**: tool errors, roundtrips, workarounds, API confusion (type + description) - **Gate interactions**: note fill attempts, gate failures encountered - **Observations**: anything worth tracking for process improvement - **Test results**: pass/fail counts, new tests added. Keep it factual and concise — this feeds the session retrospective. Cover the substance — do not pad with boilerplate, restated spec content, or redundant summaries."
+        guidance: "Record what happened during implementation. Structure: - **Outcome**: success | partial | failure - **Files changed**: list with brief rationale - **Deviations**: anything that differed from the specification or plan - **Friction**: tool errors, roundtrips, workarounds, API confusion (type + description) - **Gate interactions**: note fill attempts, gate failures encountered - **Observations**: anything worth tracking for process improvement - **Test results**: pass/fail counts, new tests added. Keep it factual and concise — this feeds the session retrospective. Cover the substance — do not pad with boilerplate, restated spec content, or redundant summaries. Target ~600-1200 characters; the 2000 maxLength is a backstop, not a goal."
         maxLength: 2000
 
 # Resource leasing — reference example only, NOT activated on this project's items.
