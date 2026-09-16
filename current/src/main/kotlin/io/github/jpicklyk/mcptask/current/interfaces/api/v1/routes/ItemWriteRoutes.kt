@@ -46,6 +46,7 @@ import io.ktor.server.routing.Route
 import io.ktor.server.routing.delete
 import io.ktor.server.routing.patch
 import io.ktor.server.routing.post
+import io.modelcontextprotocol.kotlin.sdk.types.McpJson
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -279,12 +280,19 @@ fun Route.itemWriteRoutes(
             val idempotencyKeyResult = call.parseIdempotencyKey()
             if (idempotencyKeyResult is IdempotencyKeyResult.Invalid) return@post
 
+            // Read the raw body BEFORE runWithIdempotency: reading it inside would hold this key's
+            // idempotency in-flight entry across client-paced network I/O (see runWithIdempotency).
+            // Bytes only — deserialization stays inside the captured block so status precedence is
+            // unchanged. Decoded with McpJson, the same instance ContentNegotiation is installed
+            // with, so `receiveText` + decode behaves exactly as `receive<ItemCreateDto>()` did.
+            val bodyText = call.receiveText()
+
             // Produce a CachedHttpResponse so the body is serialized once and replayed verbatim on
             // an Idempotency-Key hit (the DB write runs at most once — see runWithIdempotency).
             suspend fun executeCreate(): CachedHttpResponse {
                 val dto =
                     try {
-                        call.receive<ItemCreateDto>()
+                        McpJson.decodeFromString(ItemCreateDto.serializer(), bodyText)
                     } catch (e: SerializationException) {
                         return errorCaptured(HttpStatusCode.BadRequest, "validation_error", e.message ?: "Invalid request body")
                     }
@@ -416,6 +424,12 @@ fun Route.itemWriteRoutes(
             val idempotencyKeyResult = call.parseIdempotencyKey()
             if (idempotencyKeyResult is IdempotencyKeyResult.Invalid) return@patch
 
+            // Raw bytes only, read BEFORE runWithIdempotency so client-paced network I/O does not
+            // happen while this key's idempotency in-flight entry is held. The JSON PARSE stays
+            // below, after the If-Match checks, so `precondition_required` / `etag_mismatch` still
+            // precede `validation_error` for a malformed body.
+            val bodyText = call.receiveText()
+
             // The state-dependent pre-conditions (existence, scope, If-Match ETag) AND the write run
             // INSIDE the captured block, so an Idempotency-Key replay returns the cached response
             // verbatim WITHOUT re-evaluating the ETag against the now-mutated item (which would
@@ -458,7 +472,6 @@ fun Route.itemWriteRoutes(
                     )
                 }
 
-                val bodyText = call.receiveText()
                 val patchObject =
                     try {
                         Json.parseToJsonElement(bodyText) as? JsonObject

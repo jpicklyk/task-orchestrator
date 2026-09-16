@@ -19,11 +19,12 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.redaction.Attributio
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.call
-import io.ktor.server.request.receive
+import io.ktor.server.request.receiveText
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.delete
 import io.ktor.server.routing.put
+import io.modelcontextprotocol.kotlin.sdk.types.McpJson
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
@@ -107,6 +108,13 @@ fun Route.noteWriteRoutes(
             val idempotencyKeyResult = call.parseIdempotencyKey()
             if (idempotencyKeyResult is IdempotencyKeyResult.Invalid) return@put
 
+            // Raw bytes only, read BEFORE runWithIdempotency so client-paced network I/O does not
+            // happen while this key's idempotency in-flight entry is held. Deserialization stays
+            // below, after the If-Match check, so `etag_mismatch` still precedes
+            // `validation_error`. Decoded with McpJson, the same instance ContentNegotiation is
+            // installed with, so this behaves exactly as `receive<NoteWriteDto>()` did.
+            val bodyText = call.receiveText()
+
             // The state-dependent pre-conditions (item existence, scope, note-existence, If-Match
             // ETag) AND the upsert run INSIDE the captured block, so an Idempotency-Key replay
             // returns the cached response verbatim without re-evaluating the now-mutated note's ETag.
@@ -146,7 +154,7 @@ fun Route.noteWriteRoutes(
 
                 val dto =
                     try {
-                        call.receive<NoteWriteDto>()
+                        McpJson.decodeFromString(NoteWriteDto.serializer(), bodyText)
                     } catch (e: SerializationException) {
                         return noteErrorCaptured(HttpStatusCode.BadRequest, "validation_error", e.message ?: "Invalid request body")
                     }
