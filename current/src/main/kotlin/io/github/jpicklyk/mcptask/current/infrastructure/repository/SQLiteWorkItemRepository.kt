@@ -8,7 +8,9 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.ClaimResult
 import io.github.jpicklyk.mcptask.current.domain.repository.ClaimStatusCounts
+import io.github.jpicklyk.mcptask.current.domain.repository.FTS_CANDIDATE_ROWS
 import io.github.jpicklyk.mcptask.current.domain.repository.ItemFetchResult
+import io.github.jpicklyk.mcptask.current.domain.repository.MAX_FTS_RESULTS
 import io.github.jpicklyk.mcptask.current.domain.repository.MAX_TRAVERSAL_DEPTH
 import io.github.jpicklyk.mcptask.current.domain.repository.ReleaseResult
 import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
@@ -651,13 +653,18 @@ class SQLiteWorkItemRepository(
      * this method returns an empty [SearchResult] immediately — unit tests that exercise
      * the search path must use a real SQLite DB (see `Fts5MigrationTest`).
      *
+     * **Pagination:** see [SearchResult] for the contract. A fixed [FTS_CANDIDATE_ROWS] rows are
+     * fetched per FTS table regardless of [offset], fused into a total order (score descending,
+     * ties broken ascending by work-item id), capped at [MAX_FTS_RESULTS], and only then sliced
+     * by [offset]/[limit] — so every page is a slice of the same ordered list.
+     *
      * @param sanitizedFtsQuery FTS5 query string. Callers (T4 — QueryItemsTool / FtsQuerySanitizer)
      *   are responsible for sanitizing user input before calling this method. Passing raw user input
      *   may cause FTS5 syntax errors.
      * @param matchMode Which FTS table(s) to query.
      * @param scope     Optional structural scope filters (subtree, tags, role).
-     * @param limit     Maximum hits to return (enforced at 100; default 20).
-     * @param offset    Zero-based page offset.
+     * @param limit     Maximum hits to return (enforced at [MAX_FTS_RESULTS]; default 20).
+     * @param offset    Zero-based page offset, applied after fusion and capping.
      */
     override suspend fun ftsSearch(
         sanitizedFtsQuery: String,
@@ -666,7 +673,7 @@ class SQLiteWorkItemRepository(
         limit: Int,
         offset: Int,
     ): SearchResult {
-        val effectiveLimit = limit.coerceIn(1, 100)
+        val effectiveLimit = limit.coerceIn(1, MAX_FTS_RESULTS)
 
         return try {
             suspendTransaction(db = databaseManager.getDatabase()) {
@@ -793,7 +800,7 @@ class SQLiteWorkItemRepository(
                         JOIN work_items wi ON wi.rowid = ft.rowid
                         WHERE $ftsTable MATCH ?$extraWhere
                         ORDER BY ft.rank
-                        LIMIT ${effectiveLimit + offset + 1}
+                        LIMIT $FTS_CANDIDATE_ROWS
                         """.trimIndent()
 
                     // Use ExposedConnection.prepareStatement() + executeQuery() rather than
@@ -892,15 +899,28 @@ class SQLiteWorkItemRepository(
                     .sortedBy { it.value.rank }
                     .forEachIndexed { idx, (rowid, _) -> docs[rowid]?.textRowNum = idx + 1 }
 
-                // Compute fused RRF score and sort descending.
-                val ranked =
+                // Compute the fused RRF score and impose a TOTAL order: score descending, then
+                // ascending work-item id. Score alone is a partial order — RRF ties are common
+                // (two docs matched by one table at the same row number score identically), and a
+                // stable sort would fall back to map insertion order, which is the unspecified
+                // order SQLite returned equally-ranked FTS rows in. A page boundary landing inside
+                // such a tie group then duplicates one hit and skips another.
+                val fused =
                     docs.values
                         .map { doc ->
                             val score =
                                 (if (doc.trigramRowNum < Int.MAX_VALUE) RrfFusion.score(doc.trigramRowNum) else 0.0) +
                                     (if (doc.textRowNum < Int.MAX_VALUE) RrfFusion.score(doc.textRowNum) else 0.0)
                             doc to score
-                        }.sortedByDescending { it.second }
+                        }.sortedWith(
+                            compareByDescending<Pair<FusedDoc, Double>> { it.second }
+                                .thenBy { it.first.itemId },
+                        )
+
+                // Cap BEFORE slicing so totalHits (and the nextOffset derived from it) describe the
+                // whole query, not the requested page — identical at every offset.
+                val capExceeded = fused.size > MAX_FTS_RESULTS
+                val ranked = if (capExceeded) fused.take(MAX_FTS_RESULTS) else fused
 
                 val totalHits = ranked.size
                 val pageSlice = ranked.drop(offset).take(effectiveLimit)
@@ -950,7 +970,7 @@ class SQLiteWorkItemRepository(
                     hits = hits,
                     totalHits = totalHits,
                     nextOffset = nextOffset,
-                    truncated = totalHits > 100,
+                    truncated = capExceeded,
                 )
             }
         } catch (e: Exception) {

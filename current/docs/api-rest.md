@@ -103,7 +103,7 @@ printf '%s' "$TOKEN" | openssl dgst -sha256 | awk '{print $NF}'
 
 ### JWKS Mode (`API_AUTH_MODE=jwks`)
 
-Present a JWT in the `Authorization: Bearer` header. The server validates the JWT against the JWKS endpoint configured by `API_JWKS_URL`. Claims extracted: `iss`, `aud`, `sub`, `exp`, `nbf`.
+Present a JWT in the `Authorization: Bearer` header. The server validates the JWT against the JWKS endpoint configured by `API_JWKS_URL`. Claims extracted: `iss`, `aud`, `sub`, `exp`, `nbf`. `exp` is **required** — a JWT with no `exp` claim is rejected with `401 invalid_token`; there is no max-lifetime knob to accept exp-less tokens instead.
 
 Capabilities and scope are derived from the JWT's `sub` claim (mapped to a principal) or from the token store if applicable — the exact mapping is deployment-specific; consult your JWKS issuer configuration.
 
@@ -262,7 +262,7 @@ All error responses use:
 | `error` value | Typical HTTP status | Description |
 |--------------|---------------------|-------------|
 | `bad_request` | 400 | Missing or malformed path/query parameter |
-| `validation_error` | 400 | Invalid field value or deserialization failure |
+| `validation_error` | 400 | Invalid field value or deserialization failure; or (SSE-specific) `GET /api/v1/events` was called with a `?root=` query parameter that yields no valid UUID (see §21) |
 | `precondition_required` | 400 | `PATCH` missing required `If-Match` header |
 | `not_found` | 404 | Item, note, or dependency not found |
 | `scope_forbidden` | 403 | Item exists but is outside the caller's scope |
@@ -274,7 +274,7 @@ All error responses use:
 | `unauthenticated` | 401 | No authenticated principal (missing/invalid token) |
 | `verification_failed` | 401 | JWKS verification failed under `reject` policy |
 | `insufficient_capability` | 403 | Caller's token lacks a capability required by the request itself (distinct from `scope_forbidden`'s root-scope check) — e.g. a non-ADMIN caller sets `overrideResourceLeases: true` on `POST /items/{id}/advance`, or calls `DELETE /api/v1/resources/leases/{key}` without `ADMIN` |
-| `insufficient_scope` | 403 | A generic `requireCapability` check failed for the plugin's configured capability, or (SSE-specific) a `GET /api/v1/events` connection carries a `tags_include` scope but the route has no `WorkItemRepository` wired to filter by it — fail-closed rather than serving an unfiltered stream (see §21) |
+| `insufficient_scope` | 403 | A generic `requireCapability` check failed for the plugin's configured capability; (SSE-specific) a `GET /api/v1/events` connection carries a `tags_include` scope but the route has no `WorkItemRepository` wired to filter by it — fail-closed rather than serving an unfiltered stream; or (SSE-specific) a root-scoped principal's `?root=` values do not intersect its token's `scope.rootIds` — the requested roots are entirely outside scope (see §21) |
 | `transition_failed` | 422 | Role transition rejected (invalid trigger, gate failure, dependency blocker) |
 | `resource_unavailable` | 409 | Resource-lease gate contention on `POST /items/{id}/advance` into WORK — transient, retryable. Carries a `Retry-After` header and `details.contendedResources`/`details.retryAfterMs`. Never discloses the current holder. |
 | `db_error` | 500 | Database query failed |
@@ -289,14 +289,14 @@ List endpoints return a `PageDto<T>`:
 {
   "items": [...],
   "page": 1,
-  "pageSize": 20,
+  "pageSize": 50,
   "totalItems": 42,   // may be null when count is expensive
   "hasMore": true,
   "skipped": 1         // omitted when 0/null — see below
 }
 ```
 
-Query parameters: `?page=<int>` (default 1) and `?pageSize=<int>` (default 20, max typically 100).
+Query parameters: `?page=<int>` (default 1, must be an integer in `1..100000`) and `?pageSize=<int>` (default 50, must be a positive integer; values above 200 are silently capped at 200). A missing or blank `page`/`pageSize` falls back to its default; a non-integer, `page < 1`, or `page > 100000` value returns `400 validation_error` (`{"error":"validation_error","message":"page must be an integer between 1 and 100000"}` or the equivalent `pageSize must be a positive integer` message) instead of being silently clamped.
 
 `totalItems` may be `null` for endpoints where computing an exact count is expensive; use `hasMore` for continuation.
 
@@ -655,8 +655,8 @@ Paginated list of work items with optional filters.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `page` | int | Page number (default 1) |
-| `pageSize` | int | Items per page (default 20) |
+| `page` | int | Page number (default 1, `1..100000`) |
+| `pageSize` | int | Items per page (default 50, max 200) |
 | `role` | string | Filter by role: `queue`, `work`, `review`, `terminal`, `blocked` |
 | `priority` | string | Filter by priority: `HIGH`, `MEDIUM`, `LOW`, `CRITICAL`, `BACKLOG` |
 | `tag` | string | Comma-separated tags; all listed tags must be present (AND match) |
@@ -842,7 +842,7 @@ loaded — the flag is never silently ignored. A successful override is WARN-log
 id, item id, trigger) and the persisted transition's `summary` is stamped `"(resource leases
 overridden)"`. Omitted, `null`, or `false` are indistinguishable — the gate stays enforced.
 
-**Claimed-item behavior:** The REST API bypasses MCP claim ownership — a claimed item advances successfully even if a different MCP agent holds the claim. A WARN is emitted to the server log (`API_WARN_ON_CLAIMED_ADVANCE=false` to suppress). The response does NOT disclose `claimedBy` (tiered-disclosure principle).
+**Claimed-item behavior:** The REST API bypasses MCP claim ownership — a claimed item advances successfully even if a different MCP agent holds the claim. A WARN is emitted to the server log (`API_WARN_ON_CLAIMED_ADVANCE=false` to suppress). The response does NOT disclose `claimedBy` (tiered-disclosure principle). If this (or any) transition lands the item in TERMINAL, its claim fields (`claimedBy`/`claimedAt`/`claimExpiresAt`/`originalClaimedAt`) are cleared as part of the same transition — a subsequent `reopen` always starts the item unclaimed.
 
 **Note-gate enforcement:** When the item's schema declares required notes, the gate is enforced exactly as in MCP — a `start` requires the current phase's required notes; a `complete` requires all required notes across every phase. An advance that leaves a required note unfilled is **rejected with `422 gate_blocked`** (it no longer silently advances). The missing notes are returned in `details.missingNotes`.
 
@@ -1145,6 +1145,14 @@ Recent transitions across all items. Default window: last 24 hours.
 
 Scope-filtered: scoped tokens only see transitions for items within their scope (ancestor-chain check).
 
+**Scan cap:** the underlying fetch is bounded at 1000 rows (`minOf(offset + pageSize + 1, 1000)`)
+regardless of how many transitions actually occurred since `since`. If more than 1000 transitions
+match the window, pages beyond that cap come back truncated — `hasMore` reads `false` once the scan
+limit is hit even though older matching transitions exist beyond it. This is not reflected in
+`totalItems`/`hasMore` as a distinct signal, so a caller paging deep into a busy window can silently
+stop short of the true history. **Narrow `since` rather than paging deeper** — a tighter time window
+keeps the match count under the cap instead of walking a truncated scan.
+
 **Response:** `200 OK` → `PageDto<RoleTransitionDto>`
 
 ---
@@ -1422,6 +1430,8 @@ Requires `READ`. Returns server metadata and the caller's resolved capabilities.
 
 Real-time event stream. Requires `READ` or `ADMIN` capability.
 
+**Delivery guarantee:** every domain event (`item.*`, `note.*`, `dependency.*`, `scope.*`) is published after the write's database transaction commits, and is dropped (never published) if that transaction rolls back. Ordering on the success path is unchanged — an event still reaches subscribers in commit order, and a caller observing a `200`/`201` response is guaranteed the corresponding event was (or imminently will be) published.
+
 **Authentication — pre-flight plugin (important):**
 
 Ktor's `sse {}` handler runs inside the response-body phase — after the HTTP 200 status is committed. Auth cannot be performed inside the handler itself. The SSE route uses a dedicated pre-flight plugin that checks authentication in the `Plugins` phase, before streaming begins. A failed auth check sends `401`/`403` before any SSE content is produced.
@@ -1452,7 +1462,9 @@ connection-time check, distinct from the per-event filtering described below.
 **Browser SSE note:** The native browser `EventSource` API cannot set custom headers. Browsers must use a fetch-based SSE client (e.g., `@microsoft/fetch-event-source`) to provide the `Authorization: Bearer` header, or enable `API_ALLOW_QUERY_TOKEN_FOR_SSE=true` to use the query-parameter path.
 
 **Query parameters:**
-- `root` (repeatable) — filter to events for items in this root's subtree. Effective subscription = intersection of `?root=` values with `principal.scope.rootIds`.
+- `root` (repeatable) — filter to events for items in this root's subtree. Effective subscription = intersection of `?root=` values with `principal.scope.rootIds`. Both rejections below are enforced by the pre-flight plugin — a normal HTTP status + JSON body, not an SSE stream:
+  - `403 insufficient_scope` (`{"error":"insufficient_scope","error_description":"Requested roots are outside this token's scope"}`) — the principal is root-scoped (`scope.rootIds` non-null) and its `?root=` values do not intersect that scope at all.
+  - `400 validation_error` (`{"error":"validation_error","error_description":"root query parameter must be a valid UUID"}`) — `?root=` is present but yields zero valid UUIDs (e.g. `?root=` with no value, or `?root=garbage`). A mix of valid and invalid values is accepted and simply narrows to the valid ones — dropping invalid entries can only narrow the subscription, never widen it. This check also fires under `API_AUTH_MODE=none`.
 - `types` — comma-separated event type filter (e.g., `types=item.created,item.advanced`). Exempt from this filter: `sync.lost` and `auth.expired` (the control events, see Event Types below) are always delivered regardless of `types` — they report the state of the stream itself, and a filtered-out client would otherwise keep operating on incomplete state (or an expired credential) with no signal.
 
 `tags_include` is not a query parameter — it is enforced from the principal's own token scope, per event, as described next.
@@ -1474,7 +1486,7 @@ events on the same item. See §25 for the `item.deleted` fail-closed gap this sc
 
 **Event ID namespace:** The monotonic ID counter for `/api/v1/events` is **independent** from the `/mcp` SSE channel's `EventStore`. Do NOT reuse `Last-Event-ID` values across the two channels.
 
-**Token expiry:** The SSE handler periodically checks token expiry (interval: `API_SSE_AUTH_CHECK_INTERVAL_SECONDS`, default 30s). When a token expires, an `auth.expired` event is sent and the stream closes. The client must reconnect with a fresh token.
+**Token expiry:** The SSE handler periodically checks token expiry (interval: `API_SSE_AUTH_CHECK_INTERVAL_SECONDS`, default 30s). When a token expires, an `auth.expired` event is sent and the stream closes. The client must reconnect with a fresh token. This watchdog runs for **every** authenticated JWKS SSE session — JWKS tokens are required to carry `exp` (see §1), so every JWKS session has a real expiry to watch. It does not run, and no `auth.expired` event is ever sent, for the two cases with no expiry to watch: `API_AUTH_MODE=none` unauthenticated sessions, and bearer-token sessions whose token entry has no `expires_at`.
 
 ### Event Types
 
@@ -1558,16 +1570,16 @@ The `"<previousRole>"` sentinel in `blocked.resume` is a literal string — reso
 
 ## 25. Known Limitations
 
-**SSE dependency-event scoping depends on a warm ancestor cache.** Live root-filtering and `Last-Event-ID` replay are both correctly root-scoped — ring-buffer entries carry `affectedRoots` metadata and the replay path applies the same root-intersection filter as the live fan-out. One residual caveat remains for dependency events: `dependency.added` / `dependency.removed` resolve their affected roots from an in-memory ancestor cache populated by prior item create/update writes. On a cache miss (e.g., a dependency change with no preceding item write on that subtree during the connection's lifetime), the event falls back to an unscoped broadcast. This is a deliberate tradeoff; root-scoped subscribers that require exact dependency-event scoping should re-fetch state rather than relying solely on the event stream.
+**SSE dependency-event scoping depends on a warm ancestor cache.** Live root-filtering and `Last-Event-ID` replay are both correctly root-scoped — ring-buffer entries carry `affectedRoots` metadata and the replay path applies the same root-intersection filter as the live fan-out. One residual caveat remains for dependency events: `dependency.added` / `dependency.removed` resolve their affected roots from an in-memory ancestor cache populated by prior item create/update writes. On a cache miss (e.g., a dependency change with no preceding item write on that subtree during the connection's lifetime), root resolution is marked unresolved and the event **fails closed**: it reaches only subscribers with an unrestricted subscription (no `?root=` filter and no `scope.rootIds` restriction), never a root-scoped one, on both the live path and `Last-Event-ID` replay (an unresolved entry cannot leak to a root-scoped client later, either). Bus-level control events (`sync.lost`, `auth.expired`) are the one deliberate exception to this rule — they always broadcast to every subscriber, root-scoped included, because they report the state of the stream itself. Root-scoped subscribers that require exact dependency-event scoping should still re-fetch state rather than relying solely on the event stream, since a resolvable-but-missed event remains possible.
 
 **SSE tag-scope filtering has an `item.deleted` fail-closed gap.** Per-event `tags_include`
 filtering (§21) resolves an event's tags by looking up its `itemId` at delivery time. For
 `item.deleted`, the item is already gone by the time the event is filtered, so its tags cannot be
 resolved — the event is dropped for any tag-scoped connection rather than risk showing (or hiding)
-it incorrectly. This mirrors the existing cold-cache `dependency.*` caveat above in kind (both are
-event-timing tradeoffs in the SSE filter path) but not in direction: the dependency-event cache miss
-fails **open** (unscoped broadcast), while this fails **closed** (dropped) — a tag-scoped subscriber
-that needs to know about a deletion should re-fetch state rather than rely solely on the stream.
+it incorrectly. This mirrors the cold-cache `dependency.*` caveat above in kind (both are
+event-timing tradeoffs in the SSE filter path) and now also in direction: both fail **closed** —
+the dependency-event cache miss withholds the event from root-scoped subscribers, and this drops it
+for tag-scoped subscribers — rather than risk showing (or hiding) it incorrectly.
 
 **SSE honors bearer and unauthenticated modes; JWKS is untested on this route.** The pre-flight auth plugin for the SSE route resolves `Authorization: Bearer` (and, when enabled, `?token=`) the same way `ApiBearerAuth` does, and explicitly short-circuits for `API_AUTH_MODE=none` (§1/§21) exactly like the bearer route. JWKS-mode JWT authentication for SSE has not been separately verified — the pre-flight plugin's bearer-token path is what's exercised; treat JWKS+SSE as unconfirmed rather than assuming parity until it's tested.
 

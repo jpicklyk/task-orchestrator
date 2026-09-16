@@ -47,6 +47,12 @@ class EventPublishingRepositoryProvider(
 ) : RepositoryProvider {
     private val logger = LoggerFactory.getLogger(EventPublishingRepositoryProvider::class.java)
 
+    /**
+     * Routes every publish in this decorator so that events raised inside an open transaction are
+     * held until it commits, and discarded if it rolls back. See [DeferredEventPublisher].
+     */
+    private val deferredPublisher = DeferredEventPublisher(eventBus)
+
     // -------------------------------------------------------------------------
     // Root-ancestor cache
     // -------------------------------------------------------------------------
@@ -59,14 +65,16 @@ class EventPublishingRepositoryProvider(
      * For root items (depth=0) this is {itemId} itself.
      *
      * Uses the cache; falls back to a live [WorkItemRepository.findAncestorChains] query.
-     * On query failure, returns an empty set (event is broadcast to all subscribers as a fallback).
+     * On query failure, returns an empty set — which [publishScoped] marks UNRESOLVED, so the
+     * event reaches only unrestricted subscribers rather than being broadcast to every one.
      */
     private suspend fun resolveRoots(itemId: UUID): Set<UUID> {
         // Performance guard: when no SSE clients are connected, skip the ancestor-chain DB query.
-        // Returning emptySet() means "broadcast" in ApiEventBus.publish — but with zero subscribers
-        // there is nothing to fan out to, and the event is still added to the ring buffer for a
-        // future client's Last-Event-ID replay. This keeps MCP-tool writes cheap when the API is
-        // enabled but no dashboard is watching (e.g. stdio mode, or http with no live connections).
+        // Returning emptySet() marks the event UNRESOLVED in publishScoped — with zero subscribers
+        // there is nothing to fan out to anyway, and the event is still added to the ring buffer
+        // for a future client's Last-Event-ID replay, where the unresolved flag keeps it out of a
+        // root-scoped resume. This keeps MCP-tool writes cheap when the API is enabled but no
+        // dashboard is watching (e.g. stdio mode, or http with no live connections).
         if (eventBus.subscriberCount() == 0) return emptySet()
 
         rootCache[itemId]?.let { return it }
@@ -96,16 +104,62 @@ class EventPublishingRepositoryProvider(
      * Used by non-suspend paths (e.g., [DependencyRepository.create] and [DependencyRepository.delete])
      * that cannot call suspend functions. For items whose ancestor chain has already been cached
      * (e.g., after a prior create or update), this returns the correct root set and allows
-     * dependency events to be root-scoped. For uncached items, it returns [emptySet] which causes
-     * [ApiEventBus.publish] to broadcast to all subscribers — the same behavior as before this fix.
+     * dependency events to be root-scoped. For uncached items, it returns [emptySet], which
+     * [publishScoped] marks UNRESOLVED.
      *
-     * **Tradeoff:** A cold-start dependency event (item never fetched or written since server start)
-     * still broadcasts. This is acceptable because: (a) it only affects the rare case where no
-     * prior write has occurred for the item in this server session, and (b) the broadcast is
-     * metadata-only (itemId, no body). The correct fix for perfect scoping is to use
-     * [createSuspend] instead of [create] at all call sites, but that is a broader refactor.
+     * **Tradeoff:** A cold-start dependency event (item never fetched or written since server
+     * start) does not reach root-scoped subscribers at all — it is withheld rather than broadcast,
+     * since the bus cannot tell whether the subscriber is entitled to it. Unrestricted subscribers
+     * still receive it. This only affects the rare case where no prior write has occurred for the
+     * item in this server session; the correct fix for perfect scoping is to use [createSuspend]
+     * instead of [create] at all call sites, but that is a broader refactor.
      */
     private fun resolveRootsCached(itemId: UUID): Set<UUID> = rootCache[itemId] ?: emptySet()
+
+    /**
+     * Enqueue an event of [eventType] with [roots] as its affected-root set, marking it UNRESOLVED
+     * when [roots] is empty.
+     *
+     * Every publish site in this decorator goes through here. No site in this class ever intends a
+     * bus-level broadcast — an empty [roots] here always means "we could not work out which roots
+     * this event belongs to", which is precisely the case [ApiEventBus.publish]'s `rootsResolved`
+     * flag exists to distinguish. Three producers of an empty set feed this:
+     *
+     * 1. [resolveRoots]'s no-subscriber performance guard (the high-volume one: every write made
+     *    while nobody is connected is buffered for a future `Last-Event-ID` replay),
+     * 2. [resolveRoots]'s ancestor-chain query failure, and
+     * 3. [resolveRootsCached]'s cold-cache miss on the two non-suspend dependency paths.
+     *
+     * Marking these unresolved keeps them out of root-scoped subscribers' streams and replays.
+     * Unrestricted subscribers still receive them.
+     *
+     * ## Why a descriptor rather than a built event
+     *
+     * Delivery is routed through [DeferredEventPublisher]: with no transaction open the event is
+     * built and published synchronously here (unchanged behaviour for every standalone write),
+     * and inside an open transaction it is held until that transaction COMMITS — so a rolled-back
+     * `inTransaction` block publishes nothing. Root resolution stays here, at enqueue time, while
+     * the pre-update ancestor chain is still visible; only the build and the publish move. The id
+     * is therefore stamped at flush time, in commit order, which is what keeps the `Last-Event-ID`
+     * replay contract intact. See [PendingApiEvent].
+     */
+    private fun publishScoped(
+        eventType: String,
+        itemId: UUID,
+        modifiedAt: Instant?,
+        roots: Set<UUID>,
+        newRole: String? = null,
+    ) {
+        deferredPublisher.publishOnCommit(
+            PendingApiEvent(
+                eventType = eventType,
+                itemId = itemId,
+                modifiedAt = modifiedAt,
+                newRole = newRole,
+                affectedRoots = roots,
+            ),
+        )
+    }
 
     /** Invalidate the cache for [itemId] and all its known descendants (on delete or reparent). */
     private fun invalidateCache(itemId: UUID) {
@@ -132,13 +186,11 @@ class EventPublishingRepositoryProvider(
             val result = inner.create(item)
             if (result is Result.Success) {
                 val roots = resolveRoots(result.data.id)
-                eventBus.publish(
-                    eventBus.buildEvent(
-                        ApiEventType.ITEM_CREATED,
-                        itemId = result.data.id,
-                        modifiedAt = result.data.createdAt,
-                    ),
-                    affectedRoots = roots,
+                publishScoped(
+                    ApiEventType.ITEM_CREATED,
+                    itemId = result.data.id,
+                    modifiedAt = result.data.createdAt,
+                    roots = roots,
                 )
             }
             return result
@@ -173,38 +225,32 @@ class EventPublishingRepositoryProvider(
                 } else if (hasSubscribers && oldItem != null && oldParentId != newParentId) {
                     // Reparent — emit scope.left for the OLD roots (pre-update snapshot), rebuild, then enter.
                     for (oldRoot in oldRoots) {
-                        eventBus.publish(
-                            eventBus.buildEvent(
-                                ApiEventType.SCOPE_LEFT,
-                                itemId = updated.id,
-                                modifiedAt = updated.modifiedAt,
-                            ),
-                            affectedRoots = setOf(oldRoot),
+                        publishScoped(
+                            ApiEventType.SCOPE_LEFT,
+                            itemId = updated.id,
+                            modifiedAt = updated.modifiedAt,
+                            roots = setOf(oldRoot),
                         )
                     }
                     // Invalidate and recompute — reparent changes the whole subtree ancestry
                     clearCache()
                     val newRoots = resolveRoots(updated.id)
                     for (newRoot in newRoots) {
-                        eventBus.publish(
-                            eventBus.buildEvent(
-                                ApiEventType.SCOPE_ENTERED,
-                                itemId = updated.id,
-                                modifiedAt = updated.modifiedAt,
-                            ),
-                            affectedRoots = setOf(newRoot),
+                        publishScoped(
+                            ApiEventType.SCOPE_ENTERED,
+                            itemId = updated.id,
+                            modifiedAt = updated.modifiedAt,
+                            roots = setOf(newRoot),
                         )
                     }
                 } else {
                     // Normal update — roots unchanged. Resolve from current state so the buffered
                     // item.updated event is correctly scoped even when no subscriber is connected.
-                    eventBus.publish(
-                        eventBus.buildEvent(
-                            ApiEventType.ITEM_UPDATED,
-                            itemId = updated.id,
-                            modifiedAt = updated.modifiedAt,
-                        ),
-                        affectedRoots = resolveRoots(updated.id),
+                    publishScoped(
+                        ApiEventType.ITEM_UPDATED,
+                        itemId = updated.id,
+                        modifiedAt = updated.modifiedAt,
+                        roots = resolveRoots(updated.id),
                     )
                 }
             }
@@ -216,13 +262,11 @@ class EventPublishingRepositoryProvider(
             val result = inner.delete(id)
             if (result is Result.Success && result.data) {
                 invalidateCache(id)
-                eventBus.publish(
-                    eventBus.buildEvent(
-                        ApiEventType.ITEM_DELETED,
-                        itemId = id,
-                        modifiedAt = Instant.now(),
-                    ),
-                    affectedRoots = roots,
+                publishScoped(
+                    ApiEventType.ITEM_DELETED,
+                    itemId = id,
+                    modifiedAt = Instant.now(),
+                    roots = roots,
                 )
             }
             return result
@@ -240,13 +284,11 @@ class EventPublishingRepositoryProvider(
             val result = inner.upsert(note)
             if (result is Result.Success) {
                 val roots = resolveRoots(note.itemId)
-                eventBus.publish(
-                    eventBus.buildEvent(
-                        ApiEventType.NOTE_UPSERTED,
-                        itemId = note.itemId,
-                        modifiedAt = result.data.modifiedAt,
-                    ),
-                    affectedRoots = roots,
+                publishScoped(
+                    ApiEventType.NOTE_UPSERTED,
+                    itemId = note.itemId,
+                    modifiedAt = result.data.modifiedAt,
+                    roots = roots,
                 )
             }
             return result
@@ -259,13 +301,11 @@ class EventPublishingRepositoryProvider(
             val result = inner.delete(id)
             if (result is Result.Success && result.data && note != null) {
                 val roots = resolveRoots(note.itemId)
-                eventBus.publish(
-                    eventBus.buildEvent(
-                        ApiEventType.NOTE_DELETED,
-                        itemId = note.itemId,
-                        modifiedAt = Instant.now(),
-                    ),
-                    affectedRoots = roots,
+                publishScoped(
+                    ApiEventType.NOTE_DELETED,
+                    itemId = note.itemId,
+                    modifiedAt = Instant.now(),
+                    roots = roots,
                 )
             }
             return result
@@ -282,16 +322,15 @@ class EventPublishingRepositoryProvider(
         override fun create(dependency: Dependency): Dependency {
             val result = inner.create(dependency)
             // Non-suspend path: use the cached root set for the from-item (populated by prior
-            // create/update writes). Falls back to emptySet (broadcast) for items not yet cached.
-            // See resolveRootsCached() for the tradeoff rationale.
+            // create/update writes). Falls back to emptySet for items not yet cached, which
+            // publishScoped marks UNRESOLVED (withheld from root-scoped subscribers, not
+            // broadcast to them). See resolveRootsCached() for the tradeoff rationale.
             val roots = resolveRootsCached(dependency.fromItemId)
-            eventBus.publish(
-                eventBus.buildEvent(
-                    ApiEventType.DEPENDENCY_ADDED,
-                    itemId = dependency.fromItemId,
-                    modifiedAt = dependency.createdAt,
-                ),
-                affectedRoots = roots,
+            publishScoped(
+                ApiEventType.DEPENDENCY_ADDED,
+                itemId = dependency.fromItemId,
+                modifiedAt = dependency.createdAt,
+                roots = roots,
             )
             return result
         }
@@ -299,13 +338,11 @@ class EventPublishingRepositoryProvider(
         override suspend fun createSuspend(dependency: Dependency): Dependency {
             val result = inner.createSuspend(dependency)
             val roots = resolveRoots(dependency.fromItemId)
-            eventBus.publish(
-                eventBus.buildEvent(
-                    ApiEventType.DEPENDENCY_ADDED,
-                    itemId = dependency.fromItemId,
-                    modifiedAt = dependency.createdAt,
-                ),
-                affectedRoots = roots,
+            publishScoped(
+                ApiEventType.DEPENDENCY_ADDED,
+                itemId = dependency.fromItemId,
+                modifiedAt = dependency.createdAt,
+                roots = roots,
             )
             return result
         }
@@ -316,17 +353,16 @@ class EventPublishingRepositoryProvider(
             val dep = if (eventBus.subscriberCount() > 0) inner.findById(id) else null
             val result = inner.delete(id)
             if (result && dep != null) {
-                // Non-suspend path: use the cached root set for the from-item.
-                // Falls back to emptySet (broadcast) for uncached items.
+                // Non-suspend path: use the cached root set for the from-item. Falls back to
+                // emptySet for uncached items, which publishScoped marks UNRESOLVED (withheld
+                // from root-scoped subscribers, not broadcast to them).
                 // See resolveRootsCached() for the tradeoff rationale.
                 val roots = resolveRootsCached(dep.fromItemId)
-                eventBus.publish(
-                    eventBus.buildEvent(
-                        ApiEventType.DEPENDENCY_REMOVED,
-                        itemId = dep.fromItemId,
-                        modifiedAt = Instant.now(),
-                    ),
-                    affectedRoots = roots,
+                publishScoped(
+                    ApiEventType.DEPENDENCY_REMOVED,
+                    itemId = dep.fromItemId,
+                    modifiedAt = Instant.now(),
+                    roots = roots,
                 )
             }
             return result
@@ -387,14 +423,12 @@ class EventPublishingRepositoryProvider(
         modifiedAt: Instant = Instant.now(),
     ) {
         val roots = resolveRoots(itemId)
-        eventBus.publish(
-            eventBus.buildEvent(
-                ApiEventType.ITEM_ADVANCED,
-                itemId = itemId,
-                modifiedAt = modifiedAt,
-                newRole = newRole.name.lowercase(),
-            ),
-            affectedRoots = roots,
+        publishScoped(
+            ApiEventType.ITEM_ADVANCED,
+            itemId = itemId,
+            modifiedAt = modifiedAt,
+            roots = roots,
+            newRole = newRole.name.lowercase(),
         )
     }
 }

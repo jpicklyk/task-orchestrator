@@ -17,7 +17,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.etag.respondWithEtag
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.buildDependenciesDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.toDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.pagination.buildPageDto
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.pagination.pageParams
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.pagination.pageParamsOrRespond
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.redaction.AttributionRedactor
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.call
@@ -72,7 +72,7 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
         // ─── GET /items ─────────────────────────────────────────────────────
         get("/items") {
             val principal = call.attributes.getOrNull(ApiPrincipalKey)
-            val pp = call.pageParams()
+            val pp = call.pageParamsOrRespond() ?: return@get
             val params = call.request.queryParameters
 
             val role =
@@ -235,7 +235,7 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
         // ─── GET /items/roots ────────────────────────────────────────────────
         get("/items/roots") {
             val principal = call.attributes.getOrNull(ApiPrincipalKey)
-            val pp = call.pageParams()
+            val pp = call.pageParamsOrRespond() ?: return@get
             val scopeRootIds = principal?.scope?.rootIds
 
             if (scopeRootIds != null) {
@@ -395,7 +395,7 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
                 return@get
             }
 
-            val pp = call.pageParams()
+            val pp = call.pageParamsOrRespond() ?: return@get
             val maxDepth = call.request.queryParameters["depth"]?.toIntOrNull()
 
             val descendantsResult = workItemRepo.findDescendants(id)
@@ -516,7 +516,7 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
                 return@get
             }
 
-            val pp = call.pageParams()
+            val pp = call.pageParamsOrRespond() ?: return@get
             // Fetch all children without pagination first when tag filtering is needed,
             // so that the page slice is taken from the already-filtered set.
             val principalForChildren = call.attributes.getOrNull(ApiPrincipalKey)

@@ -338,7 +338,14 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
                         "limit",
                         buildJsonObject {
                             put("type", JsonPrimitive("integer"))
-                            put("description", JsonPrimitive("Max results (default: 50)"))
+                            put(
+                                "description",
+                                JsonPrimitive(
+                                    "Max results. Default 20 in FTS search (`query` set); 50 in list mode and in " +
+                                        "global/anchored overview. Search modes cap at 100; overview does not cap. " +
+                                        "Scoped overview (`itemId`) ignores it."
+                                )
+                            )
                         }
                     )
                     put(
@@ -722,13 +729,6 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
      *
      * Each hit includes `kind`, `itemId`, `field`, `snippet`, `score`, `matchedIn`, and
      * optionally `explain` (raw FTS5 ranks, only when `explain=true`).
-     *
-     * `totalHits` is based on the in-memory RRF-fused list (all rows matched and fetched,
-     * then paginated). The repo fetches `effectiveLimit + offset + 1` rows per FTS table,
-     * so for very large result sets the true DB total may exceed `totalHits`. This trade-off
-     * is documented here and acceptable for the 25k-token response cap: the hard cap at 100
-     * rows (repo-level) means `totalHits` is always ≤ the actual match count but never
-     * exceeds the 100 hard cap. When `truncated=true`, the caller should refine the query.
      *
      * @param rawQuery The user-supplied (unsanitized) search string from the `query` param.
      */

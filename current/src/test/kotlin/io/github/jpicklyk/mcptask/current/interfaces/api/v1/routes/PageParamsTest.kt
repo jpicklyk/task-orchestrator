@@ -4,7 +4,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.pagination.DEFAULT_P
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.pagination.DEFAULT_PAGE_SIZE
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.pagination.MAX_PAGE_SIZE
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.pagination.buildPageDto
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.pagination.pageParams
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.pagination.pageParamsOrRespond
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.http.HttpStatusCode
@@ -24,7 +24,6 @@ import kotlin.test.assertTrue
  * Test coverage:
  * - Default page and pageSize applied when params absent
  * - pageSize capped at MAX_PAGE_SIZE
- * - page clamped to minimum 1
  * - hasMore=true when more items exist
  * - hasMore=false when on last page
  * - hasMore computed from totalItems when provided
@@ -39,7 +38,7 @@ class PageParamsTest {
             application {
                 configureTestApp {
                     get("/test-pagination") {
-                        val pp = call.pageParams()
+                        val pp = call.pageParamsOrRespond()!!
                         capturedPage = pp.page
                         capturedSize = pp.pageSize
                         call.respond(HttpStatusCode.OK, "{}")
@@ -60,7 +59,7 @@ class PageParamsTest {
             application {
                 configureTestApp {
                     get("/test-pagination") {
-                        capturedSize = call.pageParams().pageSize
+                        capturedSize = call.pageParamsOrRespond()!!.pageSize
                         call.respond(HttpStatusCode.OK, "{}")
                     }
                 }
@@ -69,24 +68,6 @@ class PageParamsTest {
                 header("Authorization", "Bearer $TEST_TOKEN")
             }
             assertEquals(MAX_PAGE_SIZE, capturedSize)
-        }
-
-    @Test
-    fun `pageParams clamps page to minimum 1`() =
-        testApplication {
-            var capturedPage = -1
-            application {
-                configureTestApp {
-                    get("/test-pagination") {
-                        capturedPage = call.pageParams().page
-                        call.respond(HttpStatusCode.OK, "{}")
-                    }
-                }
-            }
-            client.get("/api/v1/test-pagination?page=-5") {
-                header("Authorization", "Bearer $TEST_TOKEN")
-            }
-            assertEquals(1, capturedPage)
         }
 
     @Test

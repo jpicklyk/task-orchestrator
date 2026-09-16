@@ -17,6 +17,21 @@ import java.util.Date
 import java.util.UUID
 
 /**
+ * A successfully verified API JWT: the resolved [ApiPrincipal] plus the token's own expiry.
+ *
+ * [expiresAt] is non-null by construction — [JwksApiVerifier.verifyWithExpiry] rejects a JWT
+ * without an `exp` claim before this is built — so callers holding a long-lived connection
+ * (the SSE endpoint) always have an instant to schedule an expiry check against.
+ *
+ * @param principal The principal resolved from the JWT's `sub` / `to_scope` / `to_capabilities`.
+ * @param expiresAt The JWT's `exp` claim, as a whole-second [Instant].
+ */
+data class VerifiedApiToken(
+    val principal: ApiPrincipal,
+    val expiresAt: Instant,
+)
+
+/**
  * Verifies `Authorization: Bearer <jwt>` tokens for the REST API layer.
  *
  * Accepts a [JwksKeySetProvider] for key caching and fetching — the interface makes this
@@ -29,7 +44,10 @@ import java.util.UUID
  * 2. Check that the signing algorithm is in the configured [ApiAuthConfig.Jwks.algorithms] allowlist.
  * 3. Fetch public keys from [keyProvider] matching the JWT's `kid` header.
  * 4. Verify the signature.
- * 5. Validate `exp` / `nbf` with 60-second clock skew.
+ * 5. Validate `exp` / `nbf` with 60-second clock skew. `exp` is REQUIRED: a JWT without an
+ *    expiration claim is rejected. RFC 7519 §4.1.4 makes `exp` optional, but an API credential
+ *    that never expires cannot be revoked short of key rotation, and a non-null expiry is what
+ *    lets long-lived connections (SSE) run an expiry watchdog for the life of the stream.
  * 6. Validate `iss` against [ApiAuthConfig.Jwks.issuer].
  * 7. Validate `aud` against [ApiAuthConfig.Jwks.audience].
  * 8. Extract [ApiPrincipal] from custom claims (`to_scope.root_ids`, `to_scope.tags_include`,
@@ -48,11 +66,24 @@ class JwksApiVerifier(
 
     /**
      * Verifies [jwtString] and returns the resolved [ApiPrincipal] on success, or
-     * null on any failure (invalid signature, expired, wrong iss/aud, etc.).
+     * null on any failure (invalid signature, missing/past `exp`, wrong iss/aud, etc.).
+     *
+     * Delegates to [verifyWithExpiry] and discards the expiry — use that overload directly when
+     * the caller needs to watch the credential for the life of a long-running connection.
      *
      * Failures are logged at DEBUG to avoid leaking detail in production logs.
      */
-    suspend fun verify(jwtString: String): ApiPrincipal? =
+    suspend fun verify(jwtString: String): ApiPrincipal? = verifyWithExpiry(jwtString)?.principal
+
+    /**
+     * Verifies [jwtString] and returns the resolved principal together with the token's `exp`,
+     * or null on any failure (invalid signature, missing/past `exp`, wrong iss/aud, etc.).
+     *
+     * A JWT with no `exp` claim is a failure: see the class KDoc, step 5.
+     *
+     * Failures are logged at DEBUG to avoid leaking detail in production logs.
+     */
+    suspend fun verifyWithExpiry(jwtString: String): VerifiedApiToken? =
         try {
             verifyInternal(jwtString)
         } catch (e: Exception) {
@@ -60,7 +91,7 @@ class JwksApiVerifier(
             null
         }
 
-    private suspend fun verifyInternal(jwtString: String): ApiPrincipal? {
+    private suspend fun verifyInternal(jwtString: String): VerifiedApiToken? {
         // Step 1 — parse JWT
         val signedJWT =
             try {
@@ -124,13 +155,19 @@ class JwksApiVerifier(
         val claims = signedJWT.jwtClaimsSet
         val now: Instant = clock.instant()
 
-        val expiry = claims.expirationTime
-        if (expiry != null) {
-            val skewAdjustedNow = Date.from(now.minusSeconds(CLOCK_SKEW_SECONDS))
-            if (expiry.before(skewAdjustedNow)) {
-                logger.debug("JWT expired at {}", expiry)
-                return null
-            }
+        // `exp` is REQUIRED — an API credential with no expiry cannot be revoked short of key
+        // rotation, and a null expiry silently disables the SSE expiry watchdog for the session.
+        val expiry =
+            claims.expirationTime
+                ?: run {
+                    logger.debug("JWT rejected: missing required 'exp' claim")
+                    return null
+                }
+
+        val expirySkewCutoff = Date.from(now.minusSeconds(CLOCK_SKEW_SECONDS))
+        if (expiry.before(expirySkewCutoff)) {
+            logger.debug("JWT expired at {}", expiry)
+            return null
         }
 
         val notBefore = claims.notBeforeTime
@@ -166,11 +203,15 @@ class JwksApiVerifier(
         val scope = extractScope(claims)
         val capabilities = extractCapabilities(claims)
 
-        return ApiPrincipal(
-            tokenId = sub,
-            scope = scope,
-            capabilities = capabilities,
-            authMode = ApiAuthMode.JWKS,
+        return VerifiedApiToken(
+            principal =
+                ApiPrincipal(
+                    tokenId = sub,
+                    scope = scope,
+                    capabilities = capabilities,
+                    authMode = ApiAuthMode.JWKS,
+                ),
+            expiresAt = expiry.toInstant(),
         )
     }
 

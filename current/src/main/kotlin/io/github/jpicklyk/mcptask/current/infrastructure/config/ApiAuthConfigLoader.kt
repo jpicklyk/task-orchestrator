@@ -6,6 +6,9 @@ import org.slf4j.LoggerFactory
 import java.net.MalformedURLException
 import java.net.URL
 
+/** Confirm flag permitting plaintext http for [ApiAuthConfigLoader]'s `API_JWKS_URL`, restricted to a loopback host. */
+private const val ALLOW_INSECURE_JWKS_URL_ENV = "API_JWKS_ALLOW_INSECURE_URL"
+
 /**
  * Environment-variable-driven loader for [ApiAuthConfig].
  *
@@ -17,7 +20,8 @@ import java.net.URL
  * | `API_AUTH_MODE` | `API_ENABLED=true` | — | `bearer` or `jwks`. Also accepts `none` when `API_ALLOW_UNAUTHENTICATED=true` (see below) → [ApiAuthConfig.Unauthenticated]. Unset / invalid / `none` without the confirm flag → startup failure. |
  * | `API_ALLOW_UNAUTHENTICATED` | optional | `false` | Confirm flag required alongside `API_AUTH_MODE=none` to opt into [ApiAuthConfig.Unauthenticated]. Parsed like `API_ENABLED`. Ignored when `API_AUTH_MODE` is not `none`. |
  * | `API_TOKENS_PATH` | bearer mode | `/run/secrets/api-tokens.yaml` | Path to the bearer token secret file. |
- * | `API_JWKS_URL` | jwks mode | — | JWKS endpoint URL. Required; startup fails if absent. |
+ * | `API_JWKS_URL` | jwks mode | — | JWKS endpoint URL. Required; startup fails if absent. Must be `https` — plaintext `http` is rejected unless [ALLOW_INSECURE_JWKS_URL_ENV] parses true (via [EnvBoolean.require]) AND the host is a literal loopback address (`localhost`, `127.x.x.x`, `::1`). |
+ * | `API_JWKS_ALLOW_INSECURE_URL` | optional | `false` | Confirm flag permitting plaintext `http` for `API_JWKS_URL`, restricted to a loopback host (see above). Parsed like `API_ENABLED`. |
  * | `API_JWKS_ISSUER` | jwks mode | — | Expected `iss` claim. Required. |
  * | `API_JWKS_AUDIENCE` | jwks mode | — | Expected `aud` claim. Required. |
  * | `API_JWKS_ALGORITHMS` | jwks mode | — | Comma-separated algorithm allowlist (e.g. `RS256,EdDSA`). Required. |
@@ -135,14 +139,16 @@ class ApiAuthConfigLoader(
                 )
 
         // Fail-fast URL validation — reject malformed URLs at startup rather than at first JWKS fetch
-        try {
-            URL(url)
-        } catch (e: MalformedURLException) {
-            throw IllegalArgumentException(
-                "API_JWKS_URL '$url' is not a valid URL: ${e.message}. " +
-                    "Provide a fully-qualified URL, e.g. 'https://auth.example.com/.well-known/jwks.json'.",
-            )
-        }
+        val parsedUrl =
+            try {
+                URL(url)
+            } catch (e: MalformedURLException) {
+                throw IllegalArgumentException(
+                    "API_JWKS_URL '$url' is not a valid URL: ${e.message}. " +
+                        "Provide a fully-qualified URL, e.g. 'https://auth.example.com/.well-known/jwks.json'.",
+                )
+            }
+        validateJwksUrlScheme(parsedUrl, url)
 
         val issuer =
             envResolver("API_JWKS_ISSUER")?.trim()?.takeIf { it.isNotBlank() }
@@ -203,5 +209,72 @@ class ApiAuthConfigLoader(
             algorithms = algorithms,
             cacheTtlSeconds = cacheTtlSeconds,
         )
+    }
+
+    /**
+     * Enforces the `API_JWKS_URL` scheme contract: `https` is always accepted; plaintext `http`
+     * is accepted only when [ALLOW_INSECURE_JWKS_URL_ENV] parses true AND [url]'s host is a
+     * literal loopback address. Any other scheme (`file`, `ftp`, `jar`, ...) is always rejected.
+     *
+     * The insecure-opt-in flag is resolved unconditionally (even for an `https` URL) so that a
+     * malformed flag value fails startup fast rather than being silently ignored because it
+     * happened not to be needed.
+     */
+    private fun validateJwksUrlScheme(
+        url: URL,
+        raw: String,
+    ) {
+        val allowInsecure =
+            EnvBoolean.require(
+                ALLOW_INSECURE_JWKS_URL_ENV,
+                envResolver(ALLOW_INSECURE_JWKS_URL_ENV),
+                default = false,
+            )
+
+        val scheme = url.protocol?.lowercase()
+        if (scheme == "https") {
+            return
+        }
+
+        if (scheme == "http" && allowInsecure) {
+            if (isLoopbackHost(url.host)) {
+                logger.warn(
+                    "API_JWKS_URL '{}' uses plaintext http, permitted because {}=true and host '{}' is a " +
+                        "loopback address. This must only be used for local development.",
+                    raw,
+                    ALLOW_INSECURE_JWKS_URL_ENV,
+                    url.host,
+                )
+                return
+            }
+            throw IllegalArgumentException(
+                "API_JWKS_URL '$raw' uses scheme 'http' with $ALLOW_INSECURE_JWKS_URL_ENV=true, but host " +
+                    "'${url.host}' is not a loopback address. Plaintext http is permitted only for a loopback " +
+                    "host (localhost, 127.x.x.x, ::1).",
+            )
+        }
+
+        throw IllegalArgumentException(
+            "API_JWKS_URL '$raw' uses scheme '$scheme'. JWKS key material must be fetched over https; " +
+                "plaintext http is permitted only for a loopback host with $ALLOW_INSECURE_JWKS_URL_ENV=true.",
+        )
+    }
+
+    /**
+     * True when [host] is a literal loopback address: `localhost` (case-insensitive), an IPv4
+     * literal beginning `127.` with four valid octets, or `::1` (with or without the `[...]`
+     * literal-IPv6 brackets [URL.getHost] may retain). No DNS resolution is performed — a host
+     * that merely resolves to loopback (or is crafted to look like one, e.g.
+     * `127.0.0.1.evil.com` or `localhost.evil.com`) is rejected.
+     */
+    private fun isLoopbackHost(host: String?): Boolean {
+        if (host.isNullOrBlank()) return false
+        val normalized = host.trim().lowercase().removeSurrounding("[", "]")
+        if (normalized == "localhost" || normalized == "::1") return true
+        if (normalized.startsWith("127.")) {
+            val octets = normalized.split(".")
+            return octets.size == 4 && octets.all { octet -> octet.toIntOrNull()?.let { it in 0..255 } == true }
+        }
+        return false
     }
 }

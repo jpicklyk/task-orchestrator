@@ -13,7 +13,6 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
-import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.util.UUID
 import kotlin.time.Duration.Companion.seconds
@@ -162,11 +161,15 @@ class EventPublishingRepositoryProviderTest {
 
     /**
      * When the root cache is empty (cold start, item never written through the decorated provider
-     * in this session), the non-suspend path falls back to broadcast (emptySet affectedRoots).
-     * This test pins the documented broadcast-fallback behavior.
+     * in this session), the non-suspend path cannot resolve the roots of the event it publishes.
+     * Since ffce70f6 such an event FAILS CLOSED (`rootsResolved = false`): it reaches only
+     * unrestricted subscribers and never a root-scoped one. The pre-fix "broadcast fallback" this
+     * test used to pin handed root-scoped subscribers metadata about roots outside their scope.
+     *
+     * Orchestrator sweep repair for the ffce70f6 contract change (bug wave 4).
      */
     @Test
-    fun `non-suspend dependency create broadcasts when root is not cached (cold path)`(): Unit =
+    fun `non-suspend dependency create on a cold root cache fails closed - unrestricted subscriber only`(): Unit =
         runBlocking {
             // Use an undecorated delegate to pre-create the items (bypasses cache population)
             val delegate = buildH2RepositoryProvider()
@@ -183,16 +186,22 @@ class EventPublishingRepositoryProviderTest {
             val provider = EventPublishingRepositoryProvider(delegate, bus)
 
             val rootX = UUID.randomUUID()
-            // Subscriber scoped to an unrelated root — with cold cache, event WILL be broadcast
+            // Root-scoped subscriber on an unrelated root: must NOT see an unresolved event.
             val flowX = bus.subscribe("sub-rootX-cold", setOf(rootX), lastEventId = null)
-            val received =
+            // Unrestricted subscriber: entitled to everything, so it still receives it.
+            val flowAll = bus.subscribe("sub-all-cold", emptySet(), lastEventId = null)
+            val receivedX =
                 async {
-                    withTimeout(3.seconds) { flowX.take(1).toList() }
+                    withTimeoutOrNull(1.seconds) { flowX.take(1).toList() }
+                }
+            val receivedAll =
+                async {
+                    withTimeout(3.seconds) { flowAll.take(1).toList() }
                 }
 
             delay(30)
 
-            // Create dependency via the non-suspend path on an uncached item — broadcasts
+            // Create dependency via the non-suspend path on an uncached item — roots unresolved
             provider.dependencyRepository().create(
                 Dependency(
                     fromItemId = uncachedItemId,
@@ -201,13 +210,14 @@ class EventPublishingRepositoryProviderTest {
                 )
             )
 
-            // The cold-cache fallback broadcasts: the rootX subscriber WILL receive it
-            val events = received.await()
-            assertTrue(
-                events.isNotEmpty(),
-                "Cold-cache fallback must broadcast dependency.added to all subscribers (expected rootX sub to receive it)",
+            val all = receivedAll.await()
+            assertEquals(1, all.size, "unrestricted subscriber must receive the unresolved-root event")
+            assertEquals(ApiEventType.DEPENDENCY_ADDED, all[0].event)
+            assertNull(
+                receivedX.await(),
+                "an unresolved-root event must fail closed: the rootX-scoped subscriber must receive nothing",
             )
-            assertEquals(ApiEventType.DEPENDENCY_ADDED, events[0].event)
             bus.unsubscribe("sub-rootX-cold")
+            bus.unsubscribe("sub-all-cold")
         }
 }

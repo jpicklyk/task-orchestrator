@@ -13,7 +13,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.RoleTransitionDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.toDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.pagination.buildPageDto
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.pagination.pageParams
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.pagination.pageParamsOrRespond
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.redaction.redactActorProofIfNeeded
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.redaction.redactVerification
 import io.ktor.http.HttpStatusCode
@@ -26,6 +26,14 @@ import java.time.Instant
 import java.util.UUID
 
 private val transitionLogger = LoggerFactory.getLogger("TransitionRoutes")
+
+/**
+ * Candidate-row cap for `GET /transitions`'s in-memory scope filtering and pagination. The
+ * unfiltered fetch from `RoleTransitionRepository.findSince` must stay bounded independent of
+ * how large `page` is — mirrors `TAG_SCOPE_SCAN_LIMIT` in `ItemRoutes.kt` (same shape, declared
+ * separately since the two route files share no base).
+ */
+private const val TRANSITION_SCAN_LIMIT = 1000
 
 /**
  * Registers role-transition audit-read routes under the `/api/v1` route prefix.
@@ -75,7 +83,7 @@ fun Route.transitionRoutes(
                 return@get
             }
 
-            val pp = call.pageParams()
+            val pp = call.pageParamsOrRespond() ?: return@get
             val result = transitionRepo.findByItemId(id, limit = pp.pageSize + 1)
             when (result) {
                 is Result.Error -> {
@@ -104,8 +112,10 @@ fun Route.transitionRoutes(
                 sinceRaw?.let { runCatching { Instant.parse(it) }.getOrNull() }
                     ?: Instant.now().minusSeconds(86400) // default: last 24 hours
 
-            val pp = call.pageParams()
-            val result = transitionRepo.findSince(since, limit = pp.pageSize * pp.page + 1)
+            val pp = call.pageParamsOrRespond() ?: return@get
+            val fetchLimit =
+                minOf(pp.offset.toLong() + pp.pageSize.toLong() + 1L, TRANSITION_SCAN_LIMIT.toLong()).toInt()
+            val result = transitionRepo.findSince(since, limit = fetchLimit)
 
             when (result) {
                 is Result.Error -> {
@@ -153,9 +163,8 @@ fun Route.transitionRoutes(
                     }
 
                     // Paginate
-                    val offset = (pp.page - 1) * pp.pageSize
-                    val page = transitions.drop(offset).take(pp.pageSize)
-                    val hasMore = (offset + page.size) < transitions.size
+                    val page = transitions.drop(pp.offset).take(pp.pageSize)
+                    val hasMore = (pp.offset.toLong() + page.size.toLong()) < transitions.size.toLong()
 
                     val dtos =
                         page.map { t ->

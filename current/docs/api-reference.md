@@ -303,13 +303,23 @@ This is the **only** place that returns full note text (`description`, `guidance
 }
 ```
 
-`snippet` is included by default; `explain` appears only when `explain=true` (default false). `score` is the descending RRF fused value (higher = more relevant). `nextOffset` is `null` when the
-last page is reached. `truncated` is `true` when the result was capped at the 100-row hard limit —
-refine the query or use `scope` filters to narrow results.
+`snippet` is included by default; `explain` appears only when `explain=true` (default false). `score` is the descending RRF fused value (higher = more relevant).
 
-**Note on `totalHits`:** This is the page-bounded count from the in-memory RRF fusion list, not the
-true database total. For large corpora, the actual match count may exceed `totalHits`. Use
-`truncated=true` as the signal to refine.
+**Pagination contract.** Every page is a slice of one deterministic, totally ordered list: a fixed
+200-row candidate window is fetched from each FTS5 table regardless of `offset`, fused by RRF into a
+single order (score descending, ties broken ascending by the underlying item/note id), then capped
+at 100 entries before the `offset`/`limit` slice is taken. Consequently:
+- `totalHits` is the size of that capped, fused list — it is identical on every page of the same
+  query (it is **not** the raw database match count), and is **at most 100**.
+- Pages never overlap or skip entries for a stable DB state: paging with `offset`/`limit` walks the
+  same ordered list every time, unlike the previous offset-dependent window.
+- An `offset` at or beyond `totalHits` returns an empty `hits` array with `nextOffset: null`.
+- `truncated` is `true` when more than 100 matches existed before the cap was applied — this can now
+  be `true` on page 1. Treat it as the signal to refine the query or add `scope` filters, not as a
+  property of any individual page.
+- Because the list is deterministic but not a snapshot, a write between two page fetches can still
+  shift which rows are included — the ordering guarantee is per-query-execution, not transactional
+  across requests.
 
 **Response (search — list mode, when `query` is absent).**
 
@@ -1725,6 +1735,7 @@ The selector filter shape is identical to the `get_next_item` filter parameters 
 - **One claim per agent.** Claiming item B auto-releases the agent's existing claim on item A (if any). No extra parameter needed.
 - **Re-claim as TTL extension.** Calling `claim_item` again on an already-held item refreshes `claimExpiresAt` but preserves `originalClaimedAt`. Use this for heartbeats on long-running work (recommended cadence: TTL/2 = 450s for the default 900s TTL).
 - **Terminal items cannot be claimed.** QUEUE, WORK, REVIEW, and BLOCKED items are all claimable.
+- **Claims are cleared on reaching terminal.** Any transition that lands an item in TERMINAL — via `advance_item`, `complete_tree`, a REST `advance` call, or a cascade — clears `claimedBy`/`claimedAt`/`claimExpiresAt`/`originalClaimedAt` on that item, regardless of which trigger or path reached TERMINAL. Consequently `reopen` always starts the item unclaimed; a stale pre-terminal claim never resurfaces.
 - **Identity resolution.** `actor.id` is used as the claim identity, subject to `degradedModePolicy`. If JWKS verification succeeds, the verified `actor.id` (from the JWT `sub` claim) is used; otherwise the self-reported `actor.id` is used (unless `degradedModePolicy=reject`, in which case the claim fails with `rejected_by_policy`).
 - **Passive expiry.** There is no background reaper. Expired claims are filtered at read time. Crash recovery happens automatically via TTL.
 - **DB-side time.** All timestamps (`claimedAt`, `claimExpiresAt`) are set via SQLite `datetime('now', ...)` — they are UTC. Operators inspecting raw rows must not assume host-local time.

@@ -18,7 +18,9 @@ import java.util.concurrent.atomic.AtomicLong
  *   endpoint's `EventStore`. Clients MUST NOT mix `Last-Event-ID` values across `/mcp` and
  *   `/api/v1/events`.
  * - **Per-root topic registry:** Subscribers attach to a set of root UUIDs. On publish, the bus
- *   fans out to every subscriber whose root set intersects the event's affected-root set.
+ *   fans out to every subscriber whose root set intersects the event's affected-root set. An
+ *   event whose roots could NOT be resolved (`rootsResolved = false`) fails closed and reaches
+ *   only subscribers with no root filter — see [publish].
  * - **Root-ancestor cache:** The bus maintains a lazy `itemId → Set<UUID>` map of root ancestors.
  *   The decorator that calls [publish] supplies the pre-computed root set (resolved from the
  *   repository provider at decorator construction time). The cache is invalidated on reparent.
@@ -54,6 +56,13 @@ class ApiEventBus(
         val event: ApiEvent,
         /** Root UUIDs affected by this event; empty = bus-level broadcast (sync.lost, auth.expired). */
         val affectedRoots: Set<UUID>,
+        /**
+         * Whether [affectedRoots] is an ANSWER rather than a gap. `false` means the producer could
+         * not determine the roots (cache miss, ancestor-chain query failure, or the no-subscriber
+         * perf guard) — the entry is then replayable only to unrestricted subscribers. See
+         * [publish]'s `rootsResolved` parameter.
+         */
+        val rootsResolved: Boolean,
     )
 
     /**
@@ -88,14 +97,39 @@ class ApiEventBus(
      * This method is non-suspend and safe to call from the repository decorator (which runs
      * inside coroutine context but needs fire-and-forget delivery to subscribers).
      *
+     * ## Empty [affectedRoots] means two different things
+     *
+     * [rootsResolved] is what tells them apart, and it must be supplied by the producer — an empty
+     * set alone cannot:
+     *
+     * - `rootsResolved = true` (the default) with an empty [affectedRoots] is a **bus-level
+     *   broadcast**: the event genuinely concerns every root ([ApiEventType.SYNC_LOST],
+     *   [ApiEventType.AUTH_EXPIRED]). It reaches every subscriber, root-scoped ones included.
+     * - `rootsResolved = false` is an **unresolved** event: the producer could not determine which
+     *   roots it affects (root-cache miss, ancestor-chain query failure, or the decorator's
+     *   no-subscriber performance guard). Delivering it as a broadcast would hand a root-scoped
+     *   subscriber metadata about roots outside its scope, so it fails CLOSED: it reaches only
+     *   subscribers with no root filter (`rootIds` empty), which are entitled to everything
+     *   anyway. The same rule applies on the `Last-Event-ID` replay path in [subscribe], so an
+     *   unresolved entry sitting in the ring buffer cannot leak later either.
+     *
+     * A root-scoped client can therefore miss an unresolved event entirely. That is the deliberate
+     * trade: fewer events, never events it is not entitled to. Clients recover by re-fetching
+     * through the read API.
+     *
      * @param event The event to publish (must already have a valid [ApiEvent.id]).
      * @param affectedRoots The root UUIDs affected by this event (item's ancestor chain root set).
      *   Pass [emptySet] only for bus-level events ([ApiEventType.SYNC_LOST], [ApiEventType.AUTH_EXPIRED])
-     *   that should not be filtered by root.
+     *   that should not be filtered by root — or, together with `rootsResolved = false`, when the
+     *   roots could not be resolved at all.
+     * @param rootsResolved Whether [affectedRoots] is an answer rather than a gap. Defaults to
+     *   `true` (source-compatible with callers that predate this parameter). Callers passing
+     *   `false` MUST pass an empty [affectedRoots]; the value is ignored in that case.
      */
     fun publish(
         event: ApiEvent,
         affectedRoots: Set<UUID> = emptySet(),
+        rootsResolved: Boolean = true,
     ) {
         // Add to ring buffer — store alongside affectedRoots so replay can apply scope filtering
         synchronized(ringBuffer) {
@@ -105,18 +139,24 @@ class ApiEventBus(
                 while (ringBuffer.isNotEmpty() && ringBuffer.size >= retainedBufferSize) {
                     ringBuffer.removeFirst()
                 }
-                ringBuffer.addLast(RingBufferEntry(event, affectedRoots))
+                ringBuffer.addLast(RingBufferEntry(event, affectedRoots, rootsResolved))
             }
         }
 
         // Fan out to subscribers
         for (sub in subscribers.values) {
             val interested =
-                sub.rootIds.isEmpty() ||
-                    // no filter → all events
-                    affectedRoots.isEmpty() ||
-                    // bus-level event → all subscribers
-                    sub.rootIds.intersect(affectedRoots).isNotEmpty()
+                if (!rootsResolved) {
+                    // Roots unknown → only subscribers entitled to everything. Kept textually
+                    // parallel with the replay predicate in subscribe(); change both together.
+                    sub.rootIds.isEmpty()
+                } else {
+                    sub.rootIds.isEmpty() ||
+                        // no filter → all events
+                        affectedRoots.isEmpty() ||
+                        // bus-level event → all subscribers
+                        sub.rootIds.intersect(affectedRoots).isNotEmpty()
+                }
 
             if (!interested) continue
 
@@ -172,7 +212,10 @@ class ApiEventBus(
      * [replayGapSentinel].
      *
      * @param subscriberId Stable identifier for this connection (used for cleanup).
-     * @param rootIds Root UUIDs to subscribe to. Empty = subscribe to all events.
+     * @param rootIds Root UUIDs to subscribe to. Empty = subscribe to all events, i.e. an
+     *   UNRESTRICTED subscription — callers must never pass an empty set for a root-scoped
+     *   principal whose effective root set came out empty (that is a denial, not a wildcard);
+     *   `GET /api/v1/events` rejects that case with 403 before it ever reaches here.
      * @param lastEventId If non-null, replay all buffered events with id > [lastEventId] before
      *   streaming live events.
      * @param resumeRequested Whether the client actually asked to resume. Defaults to
@@ -214,13 +257,19 @@ class ApiEventBus(
                                 // buffered events for roots outside its scope.
                                 ringBuffer.filter { entry ->
                                     entry.event.id > replayFrom &&
-                                        (
+                                        if (!entry.rootsResolved) {
+                                            // Roots were never resolved for this entry → replay it
+                                            // only to subscribers entitled to everything. Kept
+                                            // textually parallel with the publish() fan-out
+                                            // predicate; change both together.
+                                            sub.rootIds.isEmpty()
+                                        } else {
                                             sub.rootIds.isEmpty() ||
                                                 // subscriber has no root filter
                                                 entry.affectedRoots.isEmpty() ||
                                                 // bus-level event (sync.lost, auth.expired)
                                                 sub.rootIds.intersect(entry.affectedRoots).isNotEmpty()
-                                        )
+                                        }
                                 }
                             }
                         gap to entries
