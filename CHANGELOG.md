@@ -5,10 +5,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.14.0] - 2026-09-16
+
+### Highlights
+
+- Added paging (`limit`/`offset`) to `query_dependencies` edge listings and a 1000-node cap on
+  graph traversal — large dependency graphs no longer blow past response limits
+- Added `schemaWarnings` to `manage_project_config` and `PUT /roots/{rootId}/config` responses —
+  invalid note roles and other parse problems surface instead of being dropped
+- Added a Docker `HEALTHCHECK` backed by a readiness marker (`READINESS_FILE`) — startup failures
+  now exit non-zero and orchestrators can detect a half-started server
+- Added an SSE `sync.lost` control event on unreplayable `Last-Event-ID` — reconnecting clients
+  know when a full resync is required
+- Changed every boolean env var to one parser (`true`/`1`/`yes`, `false`/`0`/`no`) —
+  `USE_FLYWAY=1` now selects Flyway; `API_ENABLED`/`API_ALLOW_UNAUTHENTICATED` fail startup on a
+  bad value
+- Changed `API_JWKS_URL` to require `https` (loopback `http` only with
+  `API_JWKS_ALLOW_INSECURE_URL=true`) and JWKS-mode tokens to require `exp`
+- Changed start cascades to respect the parent's queue-note gate, reported via
+  `gateBlocked`/`missingNotes`
+- Fixed root- and tag-scoped REST reads, SSE fan-out, dependency and backlink listings that leaked
+  out-of-scope items — fail-closed everywhere now
+- Fixed `complete_tree` bypassing the advance pipeline (claims, dependency validation, audit rows,
+  cascades)
+- Fixed FTS pagination returning overlapping pages, unbounded REST request bodies (now `413`), and
+  `500`-on-conflict for `PATCH /items/{id}` (now `409`)
+- Fixed recursive traversals hanging on cyclic rows, and shutdown cleanup racing registrations
+- Bumped plugin version to 3.6.1 (hook and skill text fixes; `config-sync` prints schema warnings)
+
+Full per-item detail follows.
 
 ### Changed
 
+- **Bumped plugin version to 3.6.1.** The session-start hook and `quick-start` skill drop the
+  stale depth-3 claim, `config-sync` prints `schemaWarnings` returned by the config push, and the
+  `workflow-orchestrator` output style gains the dispatch-contract paragraph for Parallel-tier
+  waves. No new skill, hook, or contract change.
 - **`/implement`'s shared-worktree commit and review guidance now mandates path-scoped commits.**
   `git commit --only -- <owned paths>` plus a `git show --stat HEAD` verification replaces a bare
   `git commit`, and reviews scope by owned-file diff instead of SHA range. (#301)
@@ -229,6 +261,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   buffered in full. All seven routes now share one `413 payload_too_large` shape; the two
   pre-existing numeric limits (128 KiB, 64 KiB) are unchanged, and the five previously-uncapped
   routes share a new 1 MiB limit. (`e941c2c7`)
+
+### Documentation
+
+- **Rewrote the README for first-time readers.** Leads with what the server does and the shortest
+  path to a working setup, drops volatile tool counts in favor of the API reference, and removes
+  the broken `workspaceFolder` mount examples. (#315)
 
 ## [3.13.1] - 2026-08-04
 
