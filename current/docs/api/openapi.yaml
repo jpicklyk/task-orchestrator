@@ -1091,6 +1091,15 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "415":
+          description: >-
+            Unsupported media type — Content-Type is present and is not application/json (an
+            absent header is accepted as */*); checked before the Idempotency-Key header or body
+            is read.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDto"
         "500":
           $ref: "#/components/responses/InternalServerError"
 
@@ -1563,6 +1572,15 @@ paths:
           $ref: "#/components/responses/NotFound"
         "412":
           description: ETag mismatch on update
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDto"
+        "415":
+          description: >-
+            Unsupported media type — Content-Type is present and is not application/json (an
+            absent header is accepted as */*); checked before the Idempotency-Key header or body
+            is read.
           content:
             application/json:
               schema:

@@ -244,6 +244,11 @@ Idempotency-Key: <UUID>
 - On retry with the same key: the cached response (status + body) is returned verbatim without re-executing the operation
 - Cache is keyed by `(actor-id, idempotency-key)`; TTL is ~10 minutes
 - ETag pre-conditions are evaluated and stored as part of the cached response — a replay does NOT re-evaluate the ETag against the now-mutated resource
+- **Replay contract is pinned to the key alone — there is no body hash.** A retry with the *same* key returns the first request's captured response verbatim even if the retry's body differs; only the `(actor-id, idempotency-key)` pair distinguishes requests. Concurrent requests carrying the same key coalesce onto one in-flight computation — the first caller executes it, later callers block on and receive the same result, and different keys never serialize against each other. If the computation throws, nothing is cached and the next request with that key computes again.
+- This cache instance is shared with the idempotent MCP tools (keyed by `requestId`, e.g.
+  `advance_item` — see `api-reference.md`) as well as these REST routes — the blast radius of the
+  cache is cross-surface, though a collision needs a matching `(actor-id, key)` pair on both sides.
+- `POST /items` and `PUT /items/{id}/notes/{key}` additionally require `Content-Type: application/json` (an absent header is treated as `*/*` and accepted); any other value → `415 unsupported_media_type` before the idempotency key or body is read.
 
 ---
 
@@ -268,7 +273,7 @@ All error responses use:
 | `scope_forbidden` | 403 | Item exists but is outside the caller's scope |
 | `field_not_patchable` | 400 | PATCH attempted on a server-owned field |
 | `cycle_detected` | 400 | Dependency would create a cycle |
-| `unsupported_media_type` | 415 | Wrong `Content-Type` for PATCH (see §23) |
+| `unsupported_media_type` | 415 | Wrong `Content-Type` for PATCH (see §23), or a non-JSON `Content-Type` on `POST /items` / `PUT /items/{id}/notes/{key}` (see §5) |
 | `etag_mismatch` | 412 | `If-Match` header does not match current ETag |
 | `version_conflict` | 409 | `PATCH /items/{id}`: `If-Match` matched at read time, but a concurrent writer's update won the version race before this write committed — optimistic-lock loss, distinct from `etag_mismatch`. Retry with a fresh `If-Match` ETag. |
 | `unauthenticated` | 401 | No authenticated principal (missing/invalid token) |
@@ -753,6 +758,7 @@ Create a work item. Requires `WRITE_ITEMS`.
 - `400 validation_error` — invalid field values
 - `400 not_found` — parentId not found
 - `403 scope_forbidden` — parent outside scope
+- `415 unsupported_media_type` — `Content-Type` is present and is not `application/json` (an absent header is accepted as `*/*`); checked before the `Idempotency-Key` header or body is read
 
 Supports `Idempotency-Key` header.
 
@@ -999,6 +1005,7 @@ Upsert (create or replace) a note. `role` and `body` are always replaced on upda
 - `201 Created` → `NoteDto` + `ETag` header (note was new)
 - `200 OK` → `NoteDto` + `ETag` header (note was updated)
 - `412 etag_mismatch`
+- `415 unsupported_media_type` — `Content-Type` is present and is not `application/json` (an absent header is accepted as `*/*`); checked before the `Idempotency-Key` header or body is read
 
 Supports `Idempotency-Key` header.
 
@@ -1570,16 +1577,26 @@ The `"<previousRole>"` sentinel in `blocked.resume` is a literal string — reso
 
 ## 25. Known Limitations
 
-**SSE dependency-event scoping depends on a warm ancestor cache.** Live root-filtering and `Last-Event-ID` replay are both correctly root-scoped — ring-buffer entries carry `affectedRoots` metadata and the replay path applies the same root-intersection filter as the live fan-out. One residual caveat remains for dependency events: `dependency.added` / `dependency.removed` resolve their affected roots from an in-memory ancestor cache populated by prior item create/update writes. On a cache miss (e.g., a dependency change with no preceding item write on that subtree during the connection's lifetime), root resolution is marked unresolved and the event **fails closed**: it reaches only subscribers with an unrestricted subscription (no `?root=` filter and no `scope.rootIds` restriction), never a root-scoped one, on both the live path and `Last-Event-ID` replay (an unresolved entry cannot leak to a root-scoped client later, either). Bus-level control events (`sync.lost`, `auth.expired`) are the one deliberate exception to this rule — they always broadcast to every subscriber, root-scoped included, because they report the state of the stream itself. Root-scoped subscribers that require exact dependency-event scoping should still re-fetch state rather than relying solely on the event stream, since a resolvable-but-missed event remains possible.
+**SSE dependency-event root resolution falls back to the database on a cold cache.** Live
+root-filtering and `Last-Event-ID` replay are both correctly root-scoped — ring-buffer entries
+carry `affectedRoots` metadata and the replay path applies the same root-intersection filter as the
+live fan-out. `dependency.added` / `dependency.removed` resolve their affected roots from an
+in-memory ancestor-root cache populated by prior item create/update writes; on a cache miss (e.g.,
+a dependency change with no preceding item write on that subtree during the connection's lifetime)
+root resolution now queries `findAncestorChains` directly instead of failing closed, so root-scoped
+subscribers correctly receive the event as long as at least one subscriber is connected at the
+moment of the dependency write (with zero subscribers connected, resolution is skipped entirely as
+a performance guard — moot, since there is no one to receive it). Bus-level control events
+(`sync.lost`, `auth.expired`) always broadcast to every subscriber, root-scoped included, because
+they report the state of the stream itself.
 
 **SSE tag-scope filtering has an `item.deleted` fail-closed gap.** Per-event `tags_include`
 filtering (§21) resolves an event's tags by looking up its `itemId` at delivery time. For
 `item.deleted`, the item is already gone by the time the event is filtered, so its tags cannot be
 resolved — the event is dropped for any tag-scoped connection rather than risk showing (or hiding)
-it incorrectly. This mirrors the cold-cache `dependency.*` caveat above in kind (both are
-event-timing tradeoffs in the SSE filter path) and now also in direction: both fail **closed** —
-the dependency-event cache miss withholds the event from root-scoped subscribers, and this drops it
-for tag-scoped subscribers — rather than risk showing (or hiding) it incorrectly.
+it incorrectly. Unlike the dependency-event root resolution above, which now falls back to a live
+DB query on a cache miss, there is no live row left to query here for `item.deleted` — the
+fail-closed drop for tag-scoped subscribers is unconditional.
 
 **SSE honors bearer and unauthenticated modes; JWKS is untested on this route.** The pre-flight auth plugin for the SSE route resolves `Authorization: Bearer` (and, when enabled, `?token=`) the same way `ApiBearerAuth` does, and explicitly short-circuits for `API_AUTH_MODE=none` (§1/§21) exactly like the bearer route. JWKS-mode JWT authentication for SSE has not been separately verified — the pre-flight plugin's bearer-token path is what's exercised; treat JWKS+SSE as unconfirmed rather than assuming parity until it's tested.
 

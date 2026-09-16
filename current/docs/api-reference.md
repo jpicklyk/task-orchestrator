@@ -238,6 +238,10 @@ snippets, filtered list search, or hierarchical overview.
 | `offset` | integer | No | Skip N root items for pagination (default: 0; global and anchored modes only — scoped overview always returns all direct children, unpaginated) |
 | `excludeTerminal` | boolean | No | Default false. Global mode: drop terminal-role roots from `items` at the SQL level before their children/counts are even fetched, and `total`/`truncated` reflect the filtered set. Anchored and scoped modes: drop terminal-role items from the `items`/`children` array, **except** a terminal-role item that still has non-terminal descendants, which is retained (it represents active work parked under a done container). The scoped parent is always returned regardless of its own role, and `childCounts` stays unfiltered. |
 
+Global and anchored overview reject `limit < 1` with the same validation error as `search`'s
+limit floor (`"limit must be at least 1"`). Scoped overview (`itemId` set) ignores `limit`
+entirely, unchanged.
+
 #### Key Parameters — schema
 
 | Parameter | Type | Required | Description |
@@ -1030,6 +1034,8 @@ detail enrichment, BFS graph traversal, and reverse-edge backlink lookup.
 | `type` | string | No | Filter: `BLOCKS`, `IS_BLOCKED_BY`, `RELATES_TO` |
 | `includeItemInfo` | boolean | No | Include title, role, priority for related items (default: false) |
 | `neighborsOnly` | boolean | No | When false, perform BFS graph traversal returning a topologically-ordered chain and max depth (default: true) |
+| `limit` | integer | No | Max dependency edges to return, applied after type filtering (default: unbounded — all matching edges returned). Must be >= 1. |
+| `offset` | integer | No | Number of matching edges to skip before applying `limit` (default: 0). Must be >= 0. |
 
 #### Key Parameters — backlinks
 
@@ -1072,11 +1078,20 @@ detail enrichment, BFS graph traversal, and reverse-edge backlink lookup.
     }
   ],
   "counts": { "incoming": 1, "outgoing": 0, "relatesTo": 0 },
-  "graph": { "chain": ["uuid-a", "uuid-b"], "depth": 1 }
+  "total": 5,
+  "limit": 1,
+  "offset": 0,
+  "graph": { "chain": ["uuid-a", "uuid-b"], "depth": 1, "truncated": false }
 }
 ```
 
-`graph` is only included when `neighborsOnly=false`. `fromItem` and `toItem` are included only when `includeItemInfo=true`, and each is present only if the referenced item still exists.
+`graph` is only included when `neighborsOnly=false`; its BFS traversal stops after visiting
+`MAX_DEPENDENCY_GRAPH_NODES` (1000) nodes, at which point `truncated` is `true` and `chain`/`depth`
+describe only the visited portion. `fromItem` and `toItem` are included only when
+`includeItemInfo=true`, and each is present only if the referenced item still exists. `total`
+(post type-filter, pre-page edge count) and `limit`/`offset` are included only when `limit` or
+`offset` was supplied on the request — omitting both keeps the response byte-identical to the
+unbounded, pre-paging form; `limit` is `null` when only `offset` was given.
 
 **Response (backlinks).**
 
