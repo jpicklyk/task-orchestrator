@@ -251,7 +251,7 @@ advance_item(transitions=[{itemId: "<uuid>", trigger: "complete"}])
 get_context()
 ```
 
-See [api-reference.md](api-reference.md) for full parameter documentation on all 14 tools.
+See [api-reference.md](api-reference.md) for full parameter documentation on every tool.
 
 ---
 
@@ -365,7 +365,7 @@ After adding or editing this file, reconnect the MCP server:
 >       "args": [
 >         "run", "--rm", "-i",
 >         "-v", "mcp-task-data:/app/data",
->         "-v", "${workspaceFolder}/.taskorchestrator:/project/.taskorchestrator:ro",
+>         "-v", "/absolute/path/to/your/project/.taskorchestrator:/project/.taskorchestrator:ro",
 >         "-e", "AGENT_CONFIG_DIR=/project",
 >         "ghcr.io/jpicklyk/task-orchestrator:latest"
 >       ]
@@ -373,11 +373,11 @@ After adding or editing this file, reconnect the MCP server:
 >   }
 > }
 > ```
-> Only the `.taskorchestrator/` folder is exposed — the server has no access to the rest of your project.
+> Use an absolute host path. Claude Code's `.mcp.json` expands only environment variables (`${VAR}` and `${VAR:-default}`), so editor-style placeholders such as `${workspaceFolder}` are not substituted. Only the `.taskorchestrator/` folder is exposed — the server has no access to the rest of your project.
 >
 > **Using JWKS path verification?** Also mount `.agentlair/` so the container can read your local JWKS file:
 > ```json
-> "-v", "${workspaceFolder}/.agentlair:/project/.agentlair:ro",
+> "-v", "/absolute/path/to/your/project/.agentlair:/project/.agentlair:ro",
 > ```
 > Add this line alongside the `.taskorchestrator` mount. The `.agentlair/` mount is only needed when `verifier.jwks_path` is configured. See [Actor Authentication & Verification](./api-reference.md#actor-authentication--verification) in the API reference for details including Docker network access options.
 
@@ -446,7 +446,7 @@ Or add it to a project `.mcp.json`:
 }
 ```
 
-Restart Claude Code and run `/mcp` to confirm the connection and all 14 tools. Other MCP clients should target the same `http://localhost:3001/mcp` URL using the Streamable HTTP transport.
+Restart Claude Code and run `/mcp` to confirm the connection and that the tools are listed. Other MCP clients should target the same `http://localhost:3001/mcp` URL using the Streamable HTTP transport.
 
 **HTTP transport environment variables:**
 
@@ -627,6 +627,6 @@ See [api-rest.md](api-rest.md) for full endpoint documentation, capabilities and
 ## What's next
 
 - Run `/task-orchestrator:quick-start` for an interactive hands-on tutorial
-- [api-reference.md](api-reference.md) — full reference for all 14 MCP tools, parameters, and response shapes
+- [api-reference.md](api-reference.md) — full reference for every MCP tool, parameters, and response shapes
 - [workflow-guide.md](workflow-guide.md) — note schemas, phase gates, dependency patterns, and lifecycle examples
 - [api-rest.md](api-rest.md) — REST API reference: endpoints, DTOs, SSE, auth

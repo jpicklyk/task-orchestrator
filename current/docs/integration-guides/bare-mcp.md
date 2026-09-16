@@ -2,7 +2,7 @@
 
 ## What You Get
 
-- 14 MCP tools for hierarchical work item management
+- MCP tools for hierarchical work item management
 - Persistent SQLite database across sessions (Docker volume)
 - Role-based workflow: queue → work → review → terminal
 - Dependency tracking with blocking, cascade, and unblock detection
