@@ -15,6 +15,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEvent
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventBus
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventType
 import io.ktor.http.HttpStatusCode
+import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.call
 import io.ktor.server.application.createRouteScopedPlugin
 import io.ktor.server.application.install
@@ -53,6 +54,109 @@ private val SsePrincipalKey: AttributeKey<ApiPrincipal> = AttributeKey("SseResol
 
 /** The connection's token expiry (nullable), stashed by the pre-flight auth plugin. */
 private val SseTokenExpiryKey: AttributeKey<Instant> = AttributeKey("SseTokenExpiry")
+
+/**
+ * The parsed `?root=` query values of a `GET /api/v1/events` request.
+ *
+ * Three states must stay distinguishable, because they lead to three different outcomes and the
+ * `Set<UUID>` alone collapses two of them:
+ *
+ * - **absent** — no narrowing requested; the principal's own scope applies. ([roots] empty,
+ *   [malformed] false.)
+ * - **malformed** ([malformed] true) — the parameter was supplied but yielded no usable UUID at
+ *   all (`?root=`, `?root=garbage`). Rejected with 400 rather than silently treated as absent:
+ *   dropping every value WIDENS the subscription to the principal's full scope, which is the
+ *   opposite of what the caller asked for.
+ * - **narrowing** ([roots] non-empty) — intersected with the principal's scope.
+ *
+ * A request mixing valid and invalid values (`?root=<uuid>&root=garbage`) is NOT malformed: the
+ * valid values still narrow, so the drop cannot widen anything.
+ */
+private class RootQueryParams(
+    /** The values that parsed as UUIDs; empty when the parameter was absent or [malformed]. */
+    val roots: Set<UUID>,
+    /** True when the parameter was present but not one value parsed as a UUID. */
+    val malformed: Boolean,
+)
+
+/**
+ * Parses the repeated `root` query parameter into a [RootQueryParams].
+ *
+ * Shared by the pre-flight [sseInlineAuthPlugin] (which turns malformed/out-of-scope requests into
+ * 400/403 before the SSE response is committed) and the `sse { }` body (which computes the
+ * effective subscription). Both MUST see the same parse, or the pre-flight check would validate
+ * something other than what is subscribed to.
+ *
+ * @param raw The result of `queryParameters.getAll("root")` — null when the parameter is absent.
+ */
+private fun parseRootQueryParams(raw: List<String>?): RootQueryParams {
+    if (raw == null) return RootQueryParams(roots = emptySet(), malformed = false)
+    val parsed =
+        raw
+            .mapNotNull {
+                try {
+                    UUID.fromString(it.trim())
+                } catch (_: IllegalArgumentException) {
+                    null
+                }
+            }.toSet()
+    return RootQueryParams(roots = parsed, malformed = parsed.isEmpty())
+}
+
+/**
+ * Root-scope pre-flight for `GET /api/v1/events`. Responds and returns `true` when the request
+ * must be rejected; returns `false` (having responded to nothing) when it may proceed.
+ *
+ * Two rejections, both fail-closed:
+ * - **400 `validation_error`** — `?root=` present but no value parsed as a UUID. Accepting it
+ *   would drop every value and WIDEN the subscription to [principal]'s whole scope.
+ * - **403 `insufficient_scope`** — [principal] is root-scoped and its scope does not intersect
+ *   the requested roots. [ApiEventBus.subscribe] treats an empty root set as "all roots", so an
+ *   empty intersection must never reach it: a token scoped to one root would otherwise obtain the
+ *   full cross-root stream by asking for a root it cannot see. 403 rather than 404 mirrors
+ *   `enforceScopeForItem`, which deliberately does not make scope a fuzzing oracle for holders of
+ *   valid tokens.
+ *
+ * This MUST run in the pre-flight `onCall` handler rather than inside `sse { }`: the SSE handler
+ * executes in the response-body phase, after the 200 status is committed, where neither status
+ * can still be sent.
+ */
+private suspend fun respondIfRootQueryRejected(
+    call: ApplicationCall,
+    principal: ApiPrincipal,
+): Boolean {
+    val rootQuery = parseRootQueryParams(call.request.queryParameters.getAll("root"))
+    if (rootQuery.malformed) {
+        call.respond(
+            HttpStatusCode.BadRequest,
+            mapOf(
+                "error" to "validation_error",
+                "error_description" to "root query parameter must be a valid UUID",
+            ),
+        )
+        return true
+    }
+    val principalRoots = principal.scope.rootIds
+    if (principalRoots != null &&
+        rootQuery.roots.isNotEmpty() &&
+        principalRoots.intersect(rootQuery.roots).isEmpty()
+    ) {
+        sseLogger.debug(
+            "SSE connection rejected for principal {}: requested roots {} outside scope",
+            principal.tokenId,
+            rootQuery.roots,
+        )
+        call.respond(
+            HttpStatusCode.Forbidden,
+            mapOf(
+                "error" to "insufficient_scope",
+                "error_description" to "Requested roots are outside this token's scope",
+            ),
+        )
+        return true
+    }
+    return false
+}
 
 /**
  * Configuration for [sseInlineAuthPlugin].
@@ -114,6 +218,7 @@ private val sseInlineAuthPlugin =
             // mirrors ApiBearerAuth's Unauthenticated branch. Must run before the header/?token=
             // resolution below, or a credential-less SSE connection is 401'd in this mode too.
             if (authConfig is ApiAuthConfig.Unauthenticated) {
+                if (respondIfRootQueryRejected(call, LOCAL_UNAUTH_PRINCIPAL)) return@onCall
                 call.attributes.put(SsePrincipalKey, LOCAL_UNAUTH_PRINCIPAL)
                 return@onCall
             }
@@ -209,6 +314,8 @@ private val sseInlineAuthPlugin =
                 return@onCall
             }
 
+            if (respondIfRootQueryRejected(call, principal)) return@onCall
+
             // Auth OK — stash for the SSE handler.
             call.attributes.put(SsePrincipalKey, principal)
             if (expiry != null) call.attributes.put(SseTokenExpiryKey, expiry)
@@ -237,6 +344,22 @@ private val sseInlineAuthPlugin =
  * ## Scope filtering
  * `?root=<uuid>[&root=<uuid>...]` restricts events to those root subtrees.
  * Effective subscription = intersection(`?root=`, `principal.scope.rootIds`).
+ *
+ * That intersection is enforced FAIL-CLOSED, in the pre-flight plugin (see the note above on why
+ * a rejection cannot come from inside `sse { }`):
+ * - A root-scoped principal (`scope.rootIds` non-null) whose `?root=` values do not intersect its
+ *   scope gets **403 `insufficient_scope`** — an empty intersection is an empty subscription, not
+ *   a universal one. [ApiEventBus.subscribe] reads an empty root set as "all roots", so admitting
+ *   this request would hand a token scoped to one root the entire cross-root stream.
+ * - A `?root=` parameter that yields no valid UUID at all (`?root=`, `?root=garbage`) gets
+ *   **400 `validation_error`**, because dropping every value would widen the subscription to the
+ *   principal's full scope instead of narrowing it. Mixed valid/invalid values still narrow and
+ *   are accepted.
+ *
+ * Unresolved-root events (the publisher could not determine an event's roots) are withheld from
+ * root-scoped subscriptions by the bus itself, live and on replay — see [ApiEventBus.publish]'s
+ * `rootsResolved` flag. A root-scoped client can therefore see FEWER events than an unrestricted
+ * one, never events outside its scope; it re-fetches through the read API to reconverge.
  *
  * The `tags_include` half of scope is NOT applied at the bus-subscription level ([ApiEventBus]
  * has no tag dimension) -- it is enforced per event, in the `sse { }` collect body below, using
@@ -309,17 +432,7 @@ fun Route.eventRoutes(
             // -----------------------------------------------------------------
             // Scope resolution: intersection(?root=, principal.scope.rootIds)
             // -----------------------------------------------------------------
-            val queriedRoots: Set<UUID> =
-                call.request.queryParameters
-                    .getAll("root")
-                    ?.mapNotNull {
-                        try {
-                            UUID.fromString(it)
-                        } catch (_: IllegalArgumentException) {
-                            null
-                        }
-                    }?.toSet()
-                    ?: emptySet()
+            val queriedRoots: Set<UUID> = parseRootQueryParams(call.request.queryParameters.getAll("root")).roots
 
             val principalRoots = principal.scope.rootIds
             val effectiveRoots: Set<UUID> =
@@ -329,6 +442,22 @@ fun Route.eventRoutes(
                     queriedRoots.isEmpty() -> principalRoots
                     else -> principalRoots.intersect(queriedRoots)
                 }
+
+            // Defensive belt for the pre-flight check above. An empty effectiveRoots for a
+            // root-SCOPED principal is a denial, but ApiEventBus.subscribe reads an empty set as
+            // "all roots" — so subscribing here would hand out the full cross-root stream. The
+            // pre-flight plugin already rejected the reachable path with 403; if anything else
+            // ever produces this state (e.g. a principal carrying a non-null but empty rootIds),
+            // close the connection rather than open an unrestricted one.
+            if (principalRoots != null && effectiveRoots.isEmpty()) {
+                sseLogger.warn(
+                    "SSE connection refused for principal {}: empty effective root scope (principalRoots={}, queriedRoots={})",
+                    principal.tokenId,
+                    principalRoots,
+                    queriedRoots,
+                )
+                return@sse
+            }
 
             // -----------------------------------------------------------------
             // Optional event-type filter
