@@ -15,11 +15,12 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.toDto
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.call
-import io.ktor.server.request.receive
+import io.ktor.server.request.contentType
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.delete
 import io.ktor.server.routing.post
+import io.modelcontextprotocol.kotlin.sdk.types.McpJson
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerializationException
@@ -28,6 +29,13 @@ import org.slf4j.LoggerFactory
 import java.util.UUID
 
 private val depWriteLogger = LoggerFactory.getLogger("DependencyWriteRoutes")
+
+// Accepted Content-Types for the JSON dependency-create body (POST /dependencies). `*/*` is what
+// `call.request.contentType()` reports when the header is ABSENT, which ContentNegotiation's
+// wildcard match also accepted — so an absent header stays accepted and only a genuinely
+// non-JSON Content-Type is rejected. Mirrors ItemWriteRoutes.JSON_WRITE_CONTENT_TYPES /
+// NoteWriteRoutes.JSON_WRITE_CONTENT_TYPES (each file keeps its own copy, same convention).
+private val JSON_WRITE_CONTENT_TYPES = setOf("application/json", "*/*")
 
 /**
  * Registers dependency-write routes under the `/api/v1` route prefix.
@@ -69,9 +77,32 @@ fun Route.dependencyWriteRoutes(
                 return@post
             }
 
+            // Content-Type gate — explicit because the body is no longer read through
+            // `receive<DependencyCreateDto>()`, which let ContentNegotiation reject a non-JSON
+            // body with 415. It runs before the bounded body read, so 415 still precedes
+            // anything that depends on the body. Mirrors ItemWriteRoutes/NoteWriteRoutes.
+            val depContentType =
+                call.request
+                    .contentType()
+                    .withoutParameters()
+                    .toString()
+            if (depContentType !in JSON_WRITE_CONTENT_TYPES) {
+                call.respond(
+                    HttpStatusCode.UnsupportedMediaType,
+                    ErrorDto("unsupported_media_type", "Use Content-Type: application/json"),
+                )
+                return@post
+            }
+
+            // Bounded (bug e941c2c7 — this route had no size limit at all before this fix; see
+            // receiveBounded's KDoc). Decoded with McpJson, the same instance ContentNegotiation
+            // is installed with, so this behaves exactly as `receive<DependencyCreateDto>()` did,
+            // minus the unbounded buffering.
+            val bodyText = call.receiveBounded(MAX_JSON_WRITE_BODY_BYTES) ?: return@post
+
             val dto =
                 try {
-                    call.receive<DependencyCreateDto>()
+                    McpJson.decodeFromString(DependencyCreateDto.serializer(), bodyText)
                 } catch (e: SerializationException) {
                     call.respond(HttpStatusCode.BadRequest, ErrorDto("validation_error", e.message ?: "Invalid request body"))
                     return@post

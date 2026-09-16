@@ -16,7 +16,6 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.PlanDocumentSumm
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.call
-import io.ktor.server.request.receiveText
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
@@ -149,18 +148,12 @@ fun Route.planDocumentRoutes(repositoryProvider: RepositoryProvider) {
                         return@put
                     }
 
-                    val body = call.receiveText()
-                    val sizeBytes = body.toByteArray(Charsets.UTF_8).size
-                    if (sizeBytes > PlanDocumentService.MAX_BODY_BYTES) {
-                        call.respond(
-                            HttpStatusCode.PayloadTooLarge,
-                            ErrorDto(
-                                "payload_too_large",
-                                "body is $sizeBytes bytes, exceeds the ${PlanDocumentService.MAX_BODY_BYTES} byte limit",
-                            ),
-                        )
-                        return@put
-                    }
+                    // Bounded (bug e941c2c7): the cap was previously enforced only AFTER the full
+                    // body had already been buffered by receiveText(). receiveBounded enforces
+                    // the SAME numeric limit (PlanDocumentService.MAX_BODY_BYTES, unchanged) but
+                    // before buffering — see its KDoc for the two-stage Content-Length /
+                    // bounded-channel-read mechanism.
+                    val body = call.receiveBounded(PlanDocumentService.MAX_BODY_BYTES) ?: return@put
 
                     when (val result = service.stash(rootId, slug, body)) {
                         is PlanDocumentStashResult.Success ->

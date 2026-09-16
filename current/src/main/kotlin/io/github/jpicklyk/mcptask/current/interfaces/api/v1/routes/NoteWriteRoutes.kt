@@ -20,7 +20,6 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.call
 import io.ktor.server.request.contentType
-import io.ktor.server.request.receiveText
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.delete
@@ -132,11 +131,13 @@ fun Route.noteWriteRoutes(
             if (idempotencyKeyResult is IdempotencyKeyResult.Invalid) return@put
 
             // Raw bytes only, read BEFORE runWithIdempotency so client-paced network I/O does not
-            // happen while this key's idempotency in-flight entry is held. Deserialization stays
-            // below, after the If-Match check, so `etag_mismatch` still precedes
-            // `validation_error`. Decoded with McpJson, the same instance ContentNegotiation is
-            // installed with, so this behaves exactly as `receive<NoteWriteDto>()` did.
-            val bodyText = call.receiveText()
+            // happen while this key's idempotency in-flight entry is held. Bounded (bug e941c2c7
+            // — this route had no size limit at all before this fix; see receiveBounded's KDoc).
+            // Deserialization stays below, after the If-Match check, so `etag_mismatch` still
+            // precedes `validation_error`. Decoded with McpJson, the same instance
+            // ContentNegotiation is installed with, so this behaves exactly as
+            // `receive<NoteWriteDto>()` did, minus the unbounded buffering.
+            val bodyText = call.receiveBounded(MAX_JSON_WRITE_BODY_BYTES) ?: return@put
 
             // The state-dependent pre-conditions (item existence, scope, note-existence, If-Match
             // ETag) AND the upsert run INSIDE the captured block, so an Idempotency-Key replay

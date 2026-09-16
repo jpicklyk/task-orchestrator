@@ -13,7 +13,6 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.call
-import io.ktor.server.request.receiveText
 import io.ktor.server.response.header
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
@@ -143,19 +142,13 @@ fun Route.projectConfigRoutes(repositoryProvider: RepositoryProvider) {
                 }
 
                 val force = call.request.queryParameters["force"]?.toBooleanStrictOrNull() ?: false
-                val configYaml = call.receiveText()
-                val sizeBytes = configYaml.toByteArray(Charsets.UTF_8).size
-                if (sizeBytes > ProjectConfigPushService.MAX_CONFIG_YAML_BYTES) {
-                    call.respond(
-                        HttpStatusCode.PayloadTooLarge,
-                        ErrorDto(
-                            "payload_too_large",
-                            "configYaml is $sizeBytes bytes, exceeds the " +
-                                "${ProjectConfigPushService.MAX_CONFIG_YAML_BYTES} byte limit",
-                        ),
-                    )
-                    return@put
-                }
+                // Bounded (bug e941c2c7): the cap was previously enforced only AFTER the full
+                // body had already been buffered by receiveText(). receiveBounded enforces the
+                // SAME numeric limit (ProjectConfigPushService.MAX_CONFIG_YAML_BYTES, unchanged)
+                // but before buffering — see its KDoc for the two-stage Content-Length /
+                // bounded-channel-read mechanism.
+                val configYaml =
+                    call.receiveBounded(ProjectConfigPushService.MAX_CONFIG_YAML_BYTES) ?: return@put
 
                 // If-Match is only enforced against an EXISTING row — mirrors NoteWriteRoutes' PUT
                 // upsert semantics: a first push is a create with no prior ETag to match, so a
