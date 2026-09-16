@@ -24,15 +24,14 @@ import java.util.UUID
 
 /**
  * SQLite implementation of DependencyRepository.
- * Uses non-suspend functions with synchronous transactions (needed for cascade detection).
+ *
+ * All methods except [findByFromItemId] and [findByToItemId] are `suspend` and run in a
+ * [suspendTransaction], which joins an enclosing suspend transaction when one is open.
  */
 class SQLiteDependencyRepository(
     private val databaseManager: DatabaseManager
 ) : DependencyRepository {
-    override fun create(dependency: Dependency): Dependency =
-        transaction(databaseManager.getDatabase()) { insertDependencyInTransaction(dependency) }
-
-    override suspend fun createSuspend(dependency: Dependency): Dependency =
+    override suspend fun create(dependency: Dependency): Dependency =
         suspendTransaction(db = databaseManager.getDatabase()) {
             insertDependencyInTransaction(dependency)
         }
@@ -70,8 +69,8 @@ class SQLiteDependencyRepository(
         return dependency
     }
 
-    override fun findById(id: UUID): Dependency? =
-        transaction(databaseManager.getDatabase()) {
+    override suspend fun findById(id: UUID): Dependency? =
+        suspendTransaction(db = databaseManager.getDatabase()) {
             DependenciesTable
                 .selectAll()
                 .where { DependenciesTable.id eq id }
@@ -79,8 +78,8 @@ class SQLiteDependencyRepository(
                 .singleOrNull()
         }
 
-    override fun findByItemId(itemId: UUID): List<Dependency> =
-        transaction(databaseManager.getDatabase()) {
+    override suspend fun findByItemId(itemId: UUID): List<Dependency> =
+        suspendTransaction(db = databaseManager.getDatabase()) {
             DependenciesTable
                 .selectAll()
                 .where { (DependenciesTable.fromItemId eq itemId) or (DependenciesTable.toItemId eq itemId) }
@@ -103,22 +102,22 @@ class SQLiteDependencyRepository(
                 .map { mapRowToDependency(it) }
         }
 
-    override fun delete(id: UUID): Boolean =
-        transaction(databaseManager.getDatabase()) {
+    override suspend fun delete(id: UUID): Boolean =
+        suspendTransaction(db = databaseManager.getDatabase()) {
             DependenciesTable.deleteWhere { DependenciesTable.id eq id } > 0
         }
 
-    override fun deleteByItemId(itemId: UUID): Int =
-        transaction(databaseManager.getDatabase()) {
+    override suspend fun deleteByItemId(itemId: UUID): Int =
+        suspendTransaction(db = databaseManager.getDatabase()) {
             DependenciesTable.deleteWhere {
                 (DependenciesTable.fromItemId eq itemId) or (DependenciesTable.toItemId eq itemId)
             }
         }
 
-    override fun createBatch(dependencies: List<Dependency>): List<Dependency> =
-        transaction(databaseManager.getDatabase()) {
+    override suspend fun createBatch(dependencies: List<Dependency>): List<Dependency> =
+        suspendTransaction(db = databaseManager.getDatabase()) {
             if (dependencies.isEmpty()) {
-                return@transaction emptyList()
+                return@suspendTransaction emptyList()
             }
 
             // Phase 1: Check for duplicates within the batch itself
@@ -176,11 +175,11 @@ class SQLiteDependencyRepository(
             dependencies
         }
 
-    override fun hasCyclicDependency(
+    override suspend fun hasCyclicDependency(
         fromItemId: UUID,
         toItemId: UUID
     ): Boolean =
-        transaction(databaseManager.getDatabase()) {
+        suspendTransaction(db = databaseManager.getDatabase()) {
             checkCyclicDependencyInternal(fromItemId, toItemId)
         }
 
@@ -240,9 +239,9 @@ class SQLiteDependencyRepository(
         return hasCycle(toItemId)
     }
 
-    override fun findByItemIds(itemIds: Set<UUID>): Map<UUID, List<Dependency>> {
+    override suspend fun findByItemIds(itemIds: Set<UUID>): Map<UUID, List<Dependency>> {
         if (itemIds.isEmpty()) return emptyMap()
-        return transaction(databaseManager.getDatabase()) {
+        return suspendTransaction(db = databaseManager.getDatabase()) {
             val deps =
                 DependenciesTable
                     .selectAll()

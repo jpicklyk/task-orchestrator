@@ -7,29 +7,35 @@ import java.util.UUID
 
 /**
  * Repository for managing WorkItem dependencies.
- * Uses non-suspend functions following the v2 pattern (needed for synchronous cascade detection).
+ *
+ * Methods are `suspend` so their implementations can open a `suspendTransaction` that JOINS an
+ * enclosing one (Exposed's `TransactionContextElement` carries the outer transaction across
+ * suspension points), and — just as importantly — so decorators can call suspend collaborators.
+ * The event-publishing decorator needs that: a non-suspend `create`/`delete` cannot resolve an
+ * item's root ancestry from the database, only from an in-memory cache, and a cold-cache miss
+ * withholds `dependency.added` / `dependency.removed` from every root-scoped SSE subscriber.
+ *
+ * [findByFromItemId] and [findByToItemId] are deliberately still non-suspend; migrating them is
+ * tracked as a follow-up.
  */
 interface DependencyRepository {
-    fun create(dependency: Dependency): Dependency
+    suspend fun create(dependency: Dependency): Dependency
 
-    /** Suspend variant for use within a [suspendTransaction] context — joins the outer transaction. */
-    suspend fun createSuspend(dependency: Dependency): Dependency
+    suspend fun findById(id: UUID): Dependency?
 
-    fun findById(id: UUID): Dependency?
-
-    fun findByItemId(itemId: UUID): List<Dependency>
+    suspend fun findByItemId(itemId: UUID): List<Dependency>
 
     fun findByFromItemId(fromItemId: UUID): List<Dependency>
 
     fun findByToItemId(toItemId: UUID): List<Dependency>
 
-    fun delete(id: UUID): Boolean
+    suspend fun delete(id: UUID): Boolean
 
-    fun deleteByItemId(itemId: UUID): Int
+    suspend fun deleteByItemId(itemId: UUID): Int
 
-    fun createBatch(dependencies: List<Dependency>): List<Dependency>
+    suspend fun createBatch(dependencies: List<Dependency>): List<Dependency>
 
-    fun hasCyclicDependency(
+    suspend fun hasCyclicDependency(
         fromItemId: UUID,
         toItemId: UUID
     ): Boolean
@@ -40,7 +46,7 @@ interface DependencyRepository {
      * the list of dependencies that reference that item (as either fromItemId or toItemId).
      * A dependency shared between two queried items appears in both entries.
      */
-    fun findByItemIds(itemIds: Set<UUID>): Map<UUID, List<Dependency>>
+    suspend fun findByItemIds(itemIds: Set<UUID>): Map<UUID, List<Dependency>>
 
     /**
      * Returns reverse-direction dependency edges pointing *at* [itemId].

@@ -99,36 +99,20 @@ class EventPublishingRepositoryProvider(
     }
 
     /**
-     * Non-suspend variant of [resolveRoots] that reads from the cache only — no DB fallback.
-     *
-     * Used by non-suspend paths (e.g., [DependencyRepository.create] and [DependencyRepository.delete])
-     * that cannot call suspend functions. For items whose ancestor chain has already been cached
-     * (e.g., after a prior create or update), this returns the correct root set and allows
-     * dependency events to be root-scoped. For uncached items, it returns [emptySet], which
-     * [publishScoped] marks UNRESOLVED.
-     *
-     * **Tradeoff:** A cold-start dependency event (item never fetched or written since server
-     * start) does not reach root-scoped subscribers at all — it is withheld rather than broadcast,
-     * since the bus cannot tell whether the subscriber is entitled to it. Unrestricted subscribers
-     * still receive it. This only affects the rare case where no prior write has occurred for the
-     * item in this server session; the correct fix for perfect scoping is to use [createSuspend]
-     * instead of [create] at all call sites, but that is a broader refactor.
-     */
-    private fun resolveRootsCached(itemId: UUID): Set<UUID> = rootCache[itemId] ?: emptySet()
-
-    /**
      * Enqueue an event of [eventType] with [roots] as its affected-root set, marking it UNRESOLVED
      * when [roots] is empty.
      *
      * Every publish site in this decorator goes through here. No site in this class ever intends a
      * bus-level broadcast — an empty [roots] here always means "we could not work out which roots
      * this event belongs to", which is precisely the case [ApiEventBus.publish]'s `rootsResolved`
-     * flag exists to distinguish. Three producers of an empty set feed this:
+     * flag exists to distinguish. Two producers of an empty set feed this:
      *
      * 1. [resolveRoots]'s no-subscriber performance guard (the high-volume one: every write made
-     *    while nobody is connected is buffered for a future `Last-Event-ID` replay),
-     * 2. [resolveRoots]'s ancestor-chain query failure, and
-     * 3. [resolveRootsCached]'s cold-cache miss on the two non-suspend dependency paths.
+     *    while nobody is connected is buffered for a future `Last-Event-ID` replay), and
+     * 2. [resolveRoots]'s ancestor-chain query failure.
+     *
+     * A cold root cache is no longer among them: every publish site here resolves roots through
+     * the suspend [resolveRoots], which falls back to an ancestor-chain query on a cache miss.
      *
      * Marking these unresolved keeps them out of root-scoped subscribers' streams and replays.
      * Unrestricted subscribers still receive them.
@@ -319,24 +303,12 @@ class EventPublishingRepositoryProvider(
     private inner class EventPublishingDependencyRepository(
         private val inner: DependencyRepository,
     ) : DependencyRepository by inner {
-        override fun create(dependency: Dependency): Dependency {
+        override suspend fun create(dependency: Dependency): Dependency {
             val result = inner.create(dependency)
-            // Non-suspend path: use the cached root set for the from-item (populated by prior
-            // create/update writes). Falls back to emptySet for items not yet cached, which
-            // publishScoped marks UNRESOLVED (withheld from root-scoped subscribers, not
-            // broadcast to them). See resolveRootsCached() for the tradeoff rationale.
-            val roots = resolveRootsCached(dependency.fromItemId)
-            publishScoped(
-                ApiEventType.DEPENDENCY_ADDED,
-                itemId = dependency.fromItemId,
-                modifiedAt = dependency.createdAt,
-                roots = roots,
-            )
-            return result
-        }
-
-        override suspend fun createSuspend(dependency: Dependency): Dependency {
-            val result = inner.createSuspend(dependency)
+            // Resolve the from-item's roots through the suspend resolver, which falls back to an
+            // ancestor-chain query when the cache misses. A dependency written against an item
+            // this server session has never otherwise touched therefore still reaches its
+            // root-scoped subscribers, instead of being withheld as UNRESOLVED.
             val roots = resolveRoots(dependency.fromItemId)
             publishScoped(
                 ApiEventType.DEPENDENCY_ADDED,
@@ -347,17 +319,15 @@ class EventPublishingRepositoryProvider(
             return result
         }
 
-        override fun delete(id: UUID): Boolean {
+        override suspend fun delete(id: UUID): Boolean {
             // Performance guard: only pre-read the dependency (for the event payload) when an SSE
             // client is connected. With no subscribers, skip the extra findById.
             val dep = if (eventBus.subscriberCount() > 0) inner.findById(id) else null
             val result = inner.delete(id)
             if (result && dep != null) {
-                // Non-suspend path: use the cached root set for the from-item. Falls back to
-                // emptySet for uncached items, which publishScoped marks UNRESOLVED (withheld
-                // from root-scoped subscribers, not broadcast to them).
-                // See resolveRootsCached() for the tradeoff rationale.
-                val roots = resolveRootsCached(dep.fromItemId)
+                // Same resolution as create(): DB-backed, so a cold cache no longer withholds
+                // dependency.removed from root-scoped subscribers.
+                val roots = resolveRoots(dep.fromItemId)
                 publishScoped(
                     ApiEventType.DEPENDENCY_REMOVED,
                     itemId = dep.fromItemId,

@@ -23,7 +23,7 @@ import io.ktor.server.routing.post
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerializationException
-import org.jetbrains.exposed.v1.jdbc.transactions.transaction
+import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
 import org.slf4j.LoggerFactory
 import java.util.UUID
 
@@ -42,8 +42,8 @@ private val depWriteLogger = LoggerFactory.getLogger("DependencyWriteRoutes")
  * - `unblockAt` absent or null for RELATES_TO
  * - Cycle detection via [DependencyRepository.hasCyclicDependency] → 400 `cycle_detected`
  *
- * Note: [DependencyRepository] is NON-suspend; all calls are wrapped in [withContext(IO)]
- * to avoid blocking the Ktor event loop.
+ * Note: [DependencyRepository]'s read/write methods are suspend but still JDBC-blocking under
+ * the hood; all calls are wrapped in [withContext(IO)] to keep the Ktor event loop free.
  */
 fun Route.dependencyWriteRoutes(
     repositoryProvider: RepositoryProvider,
@@ -135,7 +135,7 @@ fun Route.dependencyWriteRoutes(
                 return@post
             }
 
-            // Cycle detection and create (non-suspend: wrap in withContext(IO) + transaction)
+            // Cycle detection and create (JDBC-blocking: wrap in withContext(IO) + suspendTransaction)
             val dep =
                 try {
                     Dependency(
@@ -151,7 +151,12 @@ fun Route.dependencyWriteRoutes(
 
             val created: Dependency? =
                 withContext(Dispatchers.IO) {
-                    transaction {
+                    // suspendTransaction, not transaction: the repo methods below are suspend and
+                    // cannot be called from Exposed's non-suspend transaction lambda. The outer
+                    // transaction is still ONE transaction — each repo method opens its own
+                    // suspendTransaction, which JOINS this one — so the cycle check and the
+                    // insert stay atomic against a concurrent writer, as before.
+                    suspendTransaction(db = repositoryProvider.database()) {
                         val hasCycle = depRepo.hasCyclicDependency(fromId, toId)
                         if (hasCycle) null else depRepo.create(dep)
                     }
