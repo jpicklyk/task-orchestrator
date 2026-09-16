@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
+import kotlinx.coroutines.runBlocking
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.BeforeEach
 import java.util.UUID
@@ -71,6 +72,7 @@ abstract class BaseRepositoryTest {
         unblockAt: String? = null
     ): Dependency {
         val dep = Dependency(fromItemId = fromItemId, toItemId = toItemId, type = type, unblockAt = unblockAt)
-        return repositoryProvider.dependencyRepository().create(dep)
+        // Orchestrator sweep repair [33e96efd]: create() is now suspend; helper stays non-suspend.
+        return runBlocking { repositoryProvider.dependencyRepository().create(dep) }
     }
 }
