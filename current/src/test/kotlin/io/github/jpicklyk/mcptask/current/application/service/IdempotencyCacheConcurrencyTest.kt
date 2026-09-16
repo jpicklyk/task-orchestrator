@@ -194,8 +194,14 @@ class IdempotencyCacheConcurrencyTest {
 
             assertTrue(computeStarted.await(10, TimeUnit.SECONDS), "owner compute never started")
 
+            val latecomerThreadRef =
+                java.util.concurrent.atomic
+                    .AtomicReference<Thread>()
+            val latecomerRunning = CountDownLatch(1)
             val latecomerFuture =
                 executor.submit<Throwable?> {
+                    latecomerThreadRef.set(Thread.currentThread())
+                    latecomerRunning.countDown()
                     try {
                         cache.getOrCompute(actorId, requestId) { "should-not-run" }
                         null
@@ -203,6 +209,34 @@ class IdempotencyCacheConcurrencyTest {
                         e
                     }
                 }
+
+            assertTrue(latecomerRunning.await(10, TimeUnit.SECONDS), "latecomer thread never started running")
+            val latecomerThread = latecomerThreadRef.get()
+
+            // Prove the latecomer has actually PARKED inside getOrCompute (joined the owner's
+            // in-flight FutureTask.get()) before releasing the owner. Without this proof, a fast
+            // owner can remove its in-flight entry in `finally` before the latecomer arrives, in
+            // which case the latecomer is a legitimately fresh caller (not a joiner) and computing
+            // its own body is the correct, non-buggy outcome — not something this test may assert
+            // against. Bounded spin on the latecomer's actual thread state; the deadline is the
+            // failure detector, never the pass condition — no sleep-until-green.
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+            var parked = false
+            while (System.nanoTime() < deadline) {
+                when (latecomerThread.state) {
+                    Thread.State.WAITING, Thread.State.TIMED_WAITING, Thread.State.BLOCKED -> {
+                        parked = true
+                    }
+                    else -> {}
+                }
+                if (parked) break
+                Thread.onSpinWait()
+            }
+            assertTrue(
+                parked,
+                "latecomer never reached a parked/blocked state before the owner was released — " +
+                    "cannot prove it joined the in-flight computation rather than racing past it",
+            )
 
             releaseCompute.countDown()
 
