@@ -47,6 +47,12 @@ class EventPublishingRepositoryProvider(
 ) : RepositoryProvider {
     private val logger = LoggerFactory.getLogger(EventPublishingRepositoryProvider::class.java)
 
+    /**
+     * Routes every publish in this decorator so that events raised inside an open transaction are
+     * held until it commits, and discarded if it rolls back. See [DeferredEventPublisher].
+     */
+    private val deferredPublisher = DeferredEventPublisher(eventBus)
+
     // -------------------------------------------------------------------------
     // Root-ancestor cache
     // -------------------------------------------------------------------------
@@ -111,8 +117,8 @@ class EventPublishingRepositoryProvider(
     private fun resolveRootsCached(itemId: UUID): Set<UUID> = rootCache[itemId] ?: emptySet()
 
     /**
-     * Publish [event] with [roots] as its affected-root set, marking it UNRESOLVED when [roots] is
-     * empty.
+     * Enqueue an event of [eventType] with [roots] as its affected-root set, marking it UNRESOLVED
+     * when [roots] is empty.
      *
      * Every publish site in this decorator goes through here. No site in this class ever intends a
      * bus-level broadcast — an empty [roots] here always means "we could not work out which roots
@@ -126,12 +132,33 @@ class EventPublishingRepositoryProvider(
      *
      * Marking these unresolved keeps them out of root-scoped subscribers' streams and replays.
      * Unrestricted subscribers still receive them.
+     *
+     * ## Why a descriptor rather than a built event
+     *
+     * Delivery is routed through [DeferredEventPublisher]: with no transaction open the event is
+     * built and published synchronously here (unchanged behaviour for every standalone write),
+     * and inside an open transaction it is held until that transaction COMMITS — so a rolled-back
+     * `inTransaction` block publishes nothing. Root resolution stays here, at enqueue time, while
+     * the pre-update ancestor chain is still visible; only the build and the publish move. The id
+     * is therefore stamped at flush time, in commit order, which is what keeps the `Last-Event-ID`
+     * replay contract intact. See [PendingApiEvent].
      */
     private fun publishScoped(
-        event: ApiEvent,
+        eventType: String,
+        itemId: UUID,
+        modifiedAt: Instant?,
         roots: Set<UUID>,
+        newRole: String? = null,
     ) {
-        eventBus.publish(event, affectedRoots = roots, rootsResolved = roots.isNotEmpty())
+        deferredPublisher.publishOnCommit(
+            PendingApiEvent(
+                eventType = eventType,
+                itemId = itemId,
+                modifiedAt = modifiedAt,
+                newRole = newRole,
+                affectedRoots = roots,
+            ),
+        )
     }
 
     /** Invalidate the cache for [itemId] and all its known descendants (on delete or reparent). */
@@ -160,12 +187,10 @@ class EventPublishingRepositoryProvider(
             if (result is Result.Success) {
                 val roots = resolveRoots(result.data.id)
                 publishScoped(
-                    eventBus.buildEvent(
-                        ApiEventType.ITEM_CREATED,
-                        itemId = result.data.id,
-                        modifiedAt = result.data.createdAt,
-                    ),
-                    roots,
+                    ApiEventType.ITEM_CREATED,
+                    itemId = result.data.id,
+                    modifiedAt = result.data.createdAt,
+                    roots = roots,
                 )
             }
             return result
@@ -201,12 +226,10 @@ class EventPublishingRepositoryProvider(
                     // Reparent — emit scope.left for the OLD roots (pre-update snapshot), rebuild, then enter.
                     for (oldRoot in oldRoots) {
                         publishScoped(
-                            eventBus.buildEvent(
-                                ApiEventType.SCOPE_LEFT,
-                                itemId = updated.id,
-                                modifiedAt = updated.modifiedAt,
-                            ),
-                            setOf(oldRoot),
+                            ApiEventType.SCOPE_LEFT,
+                            itemId = updated.id,
+                            modifiedAt = updated.modifiedAt,
+                            roots = setOf(oldRoot),
                         )
                     }
                     // Invalidate and recompute — reparent changes the whole subtree ancestry
@@ -214,24 +237,20 @@ class EventPublishingRepositoryProvider(
                     val newRoots = resolveRoots(updated.id)
                     for (newRoot in newRoots) {
                         publishScoped(
-                            eventBus.buildEvent(
-                                ApiEventType.SCOPE_ENTERED,
-                                itemId = updated.id,
-                                modifiedAt = updated.modifiedAt,
-                            ),
-                            setOf(newRoot),
+                            ApiEventType.SCOPE_ENTERED,
+                            itemId = updated.id,
+                            modifiedAt = updated.modifiedAt,
+                            roots = setOf(newRoot),
                         )
                     }
                 } else {
                     // Normal update — roots unchanged. Resolve from current state so the buffered
                     // item.updated event is correctly scoped even when no subscriber is connected.
                     publishScoped(
-                        eventBus.buildEvent(
-                            ApiEventType.ITEM_UPDATED,
-                            itemId = updated.id,
-                            modifiedAt = updated.modifiedAt,
-                        ),
-                        resolveRoots(updated.id),
+                        ApiEventType.ITEM_UPDATED,
+                        itemId = updated.id,
+                        modifiedAt = updated.modifiedAt,
+                        roots = resolveRoots(updated.id),
                     )
                 }
             }
@@ -244,12 +263,10 @@ class EventPublishingRepositoryProvider(
             if (result is Result.Success && result.data) {
                 invalidateCache(id)
                 publishScoped(
-                    eventBus.buildEvent(
-                        ApiEventType.ITEM_DELETED,
-                        itemId = id,
-                        modifiedAt = Instant.now(),
-                    ),
-                    roots,
+                    ApiEventType.ITEM_DELETED,
+                    itemId = id,
+                    modifiedAt = Instant.now(),
+                    roots = roots,
                 )
             }
             return result
@@ -268,12 +285,10 @@ class EventPublishingRepositoryProvider(
             if (result is Result.Success) {
                 val roots = resolveRoots(note.itemId)
                 publishScoped(
-                    eventBus.buildEvent(
-                        ApiEventType.NOTE_UPSERTED,
-                        itemId = note.itemId,
-                        modifiedAt = result.data.modifiedAt,
-                    ),
-                    roots,
+                    ApiEventType.NOTE_UPSERTED,
+                    itemId = note.itemId,
+                    modifiedAt = result.data.modifiedAt,
+                    roots = roots,
                 )
             }
             return result
@@ -287,12 +302,10 @@ class EventPublishingRepositoryProvider(
             if (result is Result.Success && result.data && note != null) {
                 val roots = resolveRoots(note.itemId)
                 publishScoped(
-                    eventBus.buildEvent(
-                        ApiEventType.NOTE_DELETED,
-                        itemId = note.itemId,
-                        modifiedAt = Instant.now(),
-                    ),
-                    roots,
+                    ApiEventType.NOTE_DELETED,
+                    itemId = note.itemId,
+                    modifiedAt = Instant.now(),
+                    roots = roots,
                 )
             }
             return result
@@ -314,12 +327,10 @@ class EventPublishingRepositoryProvider(
             // broadcast to them). See resolveRootsCached() for the tradeoff rationale.
             val roots = resolveRootsCached(dependency.fromItemId)
             publishScoped(
-                eventBus.buildEvent(
-                    ApiEventType.DEPENDENCY_ADDED,
-                    itemId = dependency.fromItemId,
-                    modifiedAt = dependency.createdAt,
-                ),
-                roots,
+                ApiEventType.DEPENDENCY_ADDED,
+                itemId = dependency.fromItemId,
+                modifiedAt = dependency.createdAt,
+                roots = roots,
             )
             return result
         }
@@ -328,12 +339,10 @@ class EventPublishingRepositoryProvider(
             val result = inner.createSuspend(dependency)
             val roots = resolveRoots(dependency.fromItemId)
             publishScoped(
-                eventBus.buildEvent(
-                    ApiEventType.DEPENDENCY_ADDED,
-                    itemId = dependency.fromItemId,
-                    modifiedAt = dependency.createdAt,
-                ),
-                roots,
+                ApiEventType.DEPENDENCY_ADDED,
+                itemId = dependency.fromItemId,
+                modifiedAt = dependency.createdAt,
+                roots = roots,
             )
             return result
         }
@@ -350,12 +359,10 @@ class EventPublishingRepositoryProvider(
                 // See resolveRootsCached() for the tradeoff rationale.
                 val roots = resolveRootsCached(dep.fromItemId)
                 publishScoped(
-                    eventBus.buildEvent(
-                        ApiEventType.DEPENDENCY_REMOVED,
-                        itemId = dep.fromItemId,
-                        modifiedAt = Instant.now(),
-                    ),
-                    roots,
+                    ApiEventType.DEPENDENCY_REMOVED,
+                    itemId = dep.fromItemId,
+                    modifiedAt = Instant.now(),
+                    roots = roots,
                 )
             }
             return result
@@ -417,13 +424,11 @@ class EventPublishingRepositoryProvider(
     ) {
         val roots = resolveRoots(itemId)
         publishScoped(
-            eventBus.buildEvent(
-                ApiEventType.ITEM_ADVANCED,
-                itemId = itemId,
-                modifiedAt = modifiedAt,
-                newRole = newRole.name.lowercase(),
-            ),
-            roots,
+            ApiEventType.ITEM_ADVANCED,
+            itemId = itemId,
+            modifiedAt = modifiedAt,
+            roots = roots,
+            newRole = newRole.name.lowercase(),
         )
     }
 }
