@@ -59,7 +59,7 @@ function parseProjectBlock(configContent) {
 const BASE_GUIDANCE = `## Task Orchestrator — Session Context
 
 - Use \`advance_item\` for role transitions — not raw status edits.
-- Hierarchy: items have parentId and depth (max 3).
+- Hierarchy: items have parentId and depth; trees nest to any depth.
 - To resume: call \`get_context()\` with no args to see active and stalled items.`;
 
 function buildContext() {

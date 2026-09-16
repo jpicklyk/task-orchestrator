@@ -286,7 +286,7 @@ For each section of the dashboard, add a brief annotation:
 - **Active items** are in `work` or `review` role — these are things being worked on right now
 - **Blocked items** have unsatisfied dependencies (another item must complete first) or are missing required notes that gate advancement
 - **Stalled items** have required notes that haven't been filled — use `get_context(itemId=...)` to see which notes are missing, then `manage_notes(upsert)` to fill them
-- **Containers at depth 0** organize your work hierarchically — items can nest up to depth 3
+- **Containers at depth 0** organize your work hierarchically — items can nest to any depth
 
 If blocked items exist, explain: *"Run `/status-progression` on a blocked item to see exactly what's needed to unblock it."*
 
