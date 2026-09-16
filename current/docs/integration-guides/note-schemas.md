@@ -59,7 +59,7 @@ For a project-level `.mcp.json` (shareable with teammates):
       "args": [
         "run", "--rm", "-i",
         "-v", "mcp-task-data:/app/data",
-        "-v", "${workspaceFolder}/.taskorchestrator:/project/.taskorchestrator:ro",
+        "-v", "/absolute/path/to/your/project/.taskorchestrator:/project/.taskorchestrator:ro",
         "-e", "AGENT_CONFIG_DIR=/project",
         "ghcr.io/jpicklyk/task-orchestrator:latest"
       ]
@@ -67,6 +67,8 @@ For a project-level `.mcp.json` (shareable with teammates):
   }
 }
 ```
+
+Use an absolute host path. Claude Code's `.mcp.json` expands only environment variables (`${VAR}` and `${VAR:-default}`), so editor-style placeholders such as `${workspaceFolder}` are not substituted.
 
 For a global CLI registration (user-level, not per-project):
 
