@@ -1158,16 +1158,14 @@ class RoleTransitionHandlerTest {
                 assertEquals("cascade", auditEntry.trigger)
                 assertNull(auditEntry.actorClaim, "cascade audit entry must not carry a user actor claim")
 
-                // Assert: claim fields on the parent are NOT part of the response guard — the
-                // cascade path does not inspect or strip claim fields, so the persisted item
-                // retains whatever claim was set before the transition (ownership is irrelevant
-                // to cascade). This verifies no accidental coupling between claim ownership
-                // and the cascade emission path.
-                assertEquals(
-                    "agent-alpha",
-                    persisted.claimedBy,
-                    "cascade must not strip the parent's existing claim holder"
-                )
+                // Assert: ownership is irrelevant to whether the cascade succeeds (asserted above),
+                // but a transition that reaches TERMINAL releases the claim (3785f37a) — the
+                // cascade path goes through the same applyTransition copy block, so the
+                // persisted parent must no longer carry any claim field.
+                assertNull(persisted.claimedBy, "cascade to TERMINAL must release the parent's claim holder")
+                assertNull(persisted.claimedAt, "cascade to TERMINAL must clear claimedAt")
+                assertNull(persisted.claimExpiresAt, "cascade to TERMINAL must clear claimExpiresAt")
+                assertNull(persisted.originalClaimedAt, "cascade to TERMINAL must clear originalClaimedAt")
             }
     }
 }
