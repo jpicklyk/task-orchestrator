@@ -44,8 +44,87 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   orchestrator greps every call site and fixture and repairs them by construction — never by
   relaxing the contract — declaring each repair in the contract's commit map. (`82034e9a`,
   `31a1abeb`)
+- **`container` and the new `project` type carry a `permanent` lifecycle in this repo's dogfood
+  config.** A container is a filing cabinet, not a work item, so cascades can no longer terminalize
+  the Bugs container or the project anchor root over dozens of queued children (both had sat in
+  terminal at the start of the September bug wave). Adopts proposal `7b03dad6`. (#300)
+- **Plugin session-start hook and `quick-start` skill no longer claim a maximum tree depth of 3.**
+  Hierarchy depth has been unbounded since the V7 cycle-guard migration; both surfaces now say
+  trees nest to any depth. Because the plugin cache is version-keyed, the corrected hook text
+  reaches sessions only after this release's plugin version bump. (#317)
+- **`/prepare-release` regained its `server.json` step and learned to fold `[Unreleased]`.** The
+  "bump `server.json` version + immutable OCI identifier" paragraph from #298 had been added to a
+  flat duplicate of the skill file that #321 later deleted, leaving the surviving skill unable to
+  satisfy the release workflow's own `server.json` guard. Step 8a now carries the paragraph, the
+  staging lists include `server.json`, and Step 8c folds an existing `## [Unreleased]` section into
+  the new version header instead of inserting a second section above it.
+- **Bumped `sqlite-jdbc` from 3.53.2.0 to 3.53.4.0** (bundles SQLite 3.53.4). Routine patch
+  refresh ahead of the release; no advisory is open against either version.
 
 ### Fixed
+
+- **REST tag-scope enforcement had gaps across read routes, and a re-parent could create a cycle.**
+  A shared tag-scope predicate now guards every read surface a `tags_include`-scoped principal can
+  reach — items, roots, breadcrumbs, search, notes/search, transitions, and `?include=children` —
+  and `PATCH /items/{id}` re-parent enforces scope on the new parent while rejecting self or
+  descendant re-parents with `400` instead of entering an infinite cascade loop. (`ffa12a2f`,
+  `544ae4b9`)
+- **`complete_tree` bypassed the advance pipeline.** Every transition it performs now runs through
+  the same path as `advance_item` — claim ownership, dependency validation, cascade and unblock
+  reporting, actor-attributed audit rows, and per-root status labels — instead of calling the
+  transition handler directly. (`3e455253`)
+- **Startup failures exited `0` and Docker had no health check.** Startup now reports a
+  `StartupOutcome` and exits non-zero on any failure (including a transport-start exception on
+  either the stdio or http branch, which previously still reported `Started`); a readiness marker
+  file (`READINESS_FILE`) is touched only after DB init, schema update, and transport bind all
+  succeed, cleared on shutdown, and backs a new Docker `HEALTHCHECK`. (`56ac1690`, `56593660`)
+- **Four incompatible env-var boolean parsers.** One `EnvBoolean` parser now handles every boolean
+  environment variable: `true`/`1`/`yes` and `false`/`0`/`no` (case-insensitive) are all recognized
+  — `USE_FLYWAY=1` now selects Flyway — and an unrecognized value either falls back to the default
+  with a warning or, for `API_ENABLED`/`API_ALLOW_UNAUTHENTICATED`, fails startup. (`64f7b265`)
+- **Per-root config push silently dropped schema parse warnings.** Parse warnings (including an
+  invalid note `role`) now surface as `schemaWarnings` on both the `manage_project_config` and
+  `PUT /roots/{rootId}/config` responses, and the `config-sync` hook prints them. (`40d755cc`)
+- **SSE `?token=` auth was unreachable, and unauthenticated mode returned `401` for every SSE
+  subscription.** Both paths now behave as documented. (`3a6c0e5a`)
+- **An optimistic-lock conflict on `PATCH /items/{id}` surfaced as `500`.** It now maps to
+  `409 version_conflict`. (`20ccc9fb`)
+- **The MCP adapter coerced the strings `"true"`/`"false"` to booleans for every parameter.**
+  Coercion now applies only to boolean-typed parameters, so a string-typed field keeps its literal
+  value. (`462931bb`)
+- **Recursive item delete was not atomic.** A cascade delete now runs in one transaction per root
+  id, so a mid-cascade failure leaves no half-deleted subtree. (`c75085d3`)
+- **A child `start` cascaded a queued parent into WORK past its unfilled required queue notes.**
+  Start cascades now respect the parent's note gate: the cascade is suppressed and reported with
+  `gateBlocked` / `missingNotes`, exactly like terminal cascades, before any resource lease is
+  acquired. Reopen cascades keep their documented bypass. (`473e4f49`)
+- **Dependency and backlink reads leaked out-of-scope items.** `GET /items/{id}/backlinks`
+  disclosed the `fromTitle` of items outside the caller's scope, and the same leak existed under
+  root scope and on `GET /items/{id}/dependencies`; both are now filtered fail-closed for `rootIds`
+  and `tags_include` principals alike. (`72911c9f`)
+- **`GET /api/v1/events` ignored `tags_include`.** SSE events are now filtered per event, fail-closed,
+  for tag-scoped principals on both the live stream and `Last-Event-ID` replay; a tag-scoped
+  subscription the server cannot evaluate is refused with `403 insufficient_scope`. (`ad2c23ea`)
+- **The re-parent cycle guard was depth-bounded and failed open.** It now tests full ancestor-chain
+  membership, and a lookup error returns `500 db_error` before any write instead of allowing the
+  re-parent. (`1a5ccf06`)
+- **Recursive traversals could hang on cyclic rows.** Descendant and ancestor traversals are now
+  cycle-guarded and bounded at depth 1000 on both SQLite (recursive CTE) and H2 (BFS with a visited
+  set): cascade deletes and re-parent depth recomputes fail loud at the boundary, search-scope
+  traversals bound-and-continue, and a new detailed ancestor-chain result reports whether a chain
+  was truncated by a cycle or a missing ancestor. (`71bc3d09`)
+- **A malformed `requestId` silently disabled idempotency.** `manage_items`, `manage_notes`,
+  `manage_dependencies`, `advance_item`, `complete_tree`, and `create_work_tree` now reject a
+  non-canonical `requestId` (blank, number, null, object, array, or non-36-char form) with a
+  validation error naming the field, matching what `claim_item` already did. (`71dea46e`)
+- **A shutdown-cleanup registration racing the drain threw `ConcurrentModificationException`**,
+  skipping every remaining cleanup while shutdown still reported clean. Registration is now
+  thread-safe, late registrations run immediately, and forward order is preserved. (`eeba1b12`)
+- **SSE reconnects with an unreplayable `Last-Event-ID` got no signal.** A `sync.lost` control
+  event now leads the stream with `reason` = `buffer_evicted` or `unknown_event_id` (alongside the
+  existing `queue_overflow`), carrying id `oldestRetained - 1` so reconnecting at the sentinel
+  yields a full replay; control events bypass the `types=` filter, and `API_SSE_BUFFER_SIZE=0` now
+  means retain nothing instead of crashing. (`a3ebd108`)
 
 - **MCP Registry record followed the mutable `:latest` image tag.** `server.json` pinned
   `ghcr.io/jpicklyk/task-orchestrator:latest` under an immutable registry version, so the published
