@@ -486,6 +486,15 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
                             "mutually exclusive overview modes (scoped vs. anchored)"
                     )
                 }
+                // Scoped overview (itemId set) ignores `limit` entirely, so it is exempt from
+                // this floor check. Global and anchored overview both page via `limit`, so they
+                // must reject the same way the search arm does (see :470-473).
+                if (itemIdStr == null) {
+                    val limitVal = optionalInt(params, "limit")
+                    if (limitVal != null && limitVal < 1) {
+                        throw ToolValidationException("limit must be at least 1")
+                    }
+                }
             }
             "schema" -> {
                 val type = optionalString(params, "type")
