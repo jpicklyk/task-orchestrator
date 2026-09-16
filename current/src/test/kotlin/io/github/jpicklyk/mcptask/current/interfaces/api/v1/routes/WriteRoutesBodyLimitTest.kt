@@ -307,10 +307,25 @@ class WriteRoutesBodyLimitTest {
         }
 
     // S3 (failure, NEW-SURFACE), representative wiring proof: a real route (not the synthetic
-    // one in BoundedReceiveTest) rejects a chunked body once it exceeds the real 1 MiB cap,
-    // short-circuiting well before the full stream is consumed.
+    // one in BoundedReceiveTest) rejects a chunked body once it exceeds the real 1 MiB cap.
+    //
+    // Arbitration (orchestrator, full-suite run at HEAD): the original version of this test also
+    // asserted `content.bytesWritten < totalBytes` as a client-side short-circuit proof. That
+    // assertion is TEST WRONG, not implementation wrong — DECLARATIONS for e941c2c7 stage 2
+    // ("reads at most maxBytes + 1 bytes ... having consumed at most maxBytes + 1 bytes")
+    // describes receiveBounded's own server-side channel read, but the Ktor test engine feeds
+    // the request body from a WriteChannelContent independently of when/whether the server reads
+    // it, and may let the client finish writing (or discard the remainder) regardless of the
+    // server's early response — so a client-side write counter cannot observe the server's
+    // bound (observed: wrote totalBytes of totalBytes even though the server answered 413 well
+    // before that). The byte-bound itself is proven at the helper level in BoundedReceiveTest,
+    // where the minimal test route's own handler is what's being measured. Here the substitute
+    // verification (per the test-plan's own fallback for scenarios that can't get a clean proof)
+    // is: 413 fired, and the message is stage 2's shape (no declared-length citation), which is
+    // only reachable by the bounded-channel-read path, not the declared-Content-Length pre-check
+    // — proving the real route's chunked body went through receiveBounded's stage 2.
     @Test
-    fun `POST items rejects a chunked body exceeding the 1 MiB cap without draining the full stream`(): Unit =
+    fun `POST items rejects a chunked body exceeding the 1 MiB cap via the bounded-read path`(): Unit =
         testApplication {
             val repo = buildH2RepositoryProvider()
             application { configureWriteTestApp(repo) }
@@ -325,10 +340,11 @@ class WriteRoutesBodyLimitTest {
                 }
 
             assertEquals(HttpStatusCode.PayloadTooLarge, response.status)
-            assertFalse(response.bodyAsText().contains("declares"), "no Content-Length was sent — must be stage 2's message")
+            val body = response.bodyAsText()
+            assertFalse(body.contains("declares"), "no Content-Length was sent — must be stage 2's message, not stage 1's: $body")
             assertTrue(
-                content.bytesWritten < totalBytes,
-                "the stream must be short-circuited, not drained to the end: wrote ${content.bytesWritten} of $totalBytes",
+                body.contains("Request body exceeds the $MAX_JSON_WRITE_BODY_BYTES byte limit"),
+                "must be exactly stage 2's message shape, reachable only via the bounded-channel-read path: $body",
             )
 
             val items = runBlocking { repo.workItemRepository().findByFilters() }

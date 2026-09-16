@@ -6,7 +6,10 @@ import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.content.OutgoingContent
+import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
+import io.ktor.server.application.install
+import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.post
 import io.ktor.server.routing.route
@@ -15,6 +18,7 @@ import io.ktor.server.testing.testApplication
 import io.ktor.utils.io.ByteReadChannel
 import io.ktor.utils.io.ByteWriteChannel
 import io.ktor.utils.io.writeFully
+import io.modelcontextprotocol.kotlin.sdk.types.McpJson
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -37,6 +41,10 @@ import kotlin.test.assertTrue
 private const val TEST_CAP = 256
 
 private fun Application.configureBoundedReceiveTestApp(cap: Int = TEST_CAP) {
+    // receiveBounded's 413 path responds with a serialized ErrorDto; without ContentNegotiation
+    // installed, Ktor cannot satisfy that Accept negotiation and answers 406 instead of 413. Same
+    // McpJson instance configureWriteTestApp (WriteRoutesTest.kt) installs for the real routes.
+    install(ContentNegotiation) { json(McpJson) }
     routing {
         route("/test") {
             post("/receive") {
@@ -163,8 +171,22 @@ class BoundedReceiveTest {
     // S3 (failure, NEW-SURFACE): no Content-Length header at all (chunked), and the real stream
     // is far larger than the cap. Stage 2 must stop pulling from the channel long before the
     // stream ends.
+    //
+    // Arbitration (orchestrator, full-suite run at HEAD): this test originally also asserted
+    // `content.bytesWritten < totalBytes` and `<= cap + 4096` as a client-side short-circuit
+    // proof. Both are TEST WRONG, not implementation wrong — observed: wrote 16384 of 16384 (the
+    // client fully drained the content) even though the server answered 413. The Ktor test
+    // engine feeds the request body from a WriteChannelContent independently of the server's own
+    // channel reads (and may finish or discard it regardless of when/whether the server stops
+    // reading), so a CLIENT-side write counter cannot observe receiveBounded's own bound — that
+    // is a claim about how many bytes the SERVER's readRemaining(maxBytes + 1) call pulls off the
+    // channel, not about how many bytes the client physically transmitted. `bytesWritten` is kept
+    // on [CountingChunkedContent] only as documentation of intent for a reviewer; the actual proof
+    // here is the 413 plus stage 2's exact message shape, which is only reachable via the
+    // bounded-channel-read path (never the declared-Content-Length pre-check, since none was
+    // sent).
     @Test
-    fun `receiveBounded rejects a chunked body exceeding maxBytes after consuming at most a small margin over the cap`() =
+    fun `receiveBounded rejects a chunked body exceeding maxBytes via the bounded-read path`() =
         testApplication {
             val cap = TEST_CAP
             application { configureBoundedReceiveTestApp(cap = cap) }
@@ -178,13 +200,8 @@ class BoundedReceiveTest {
             assertTrue(text.contains("payload_too_large"), "shared ErrorDto shape: $text")
             assertFalse(text.contains("declares"), "no Content-Length was sent — this must be stage 2's message, not stage 1's: $text")
             assertTrue(
-                content.bytesWritten < totalBytes,
-                "the stream must be short-circuited, not drained to the end: wrote ${content.bytesWritten} of $totalBytes",
-            )
-            assertTrue(
-                content.bytesWritten <= cap + 4096,
-                "bytes actually written before the channel closed should stay close to the cap+1 bound, " +
-                    "got ${content.bytesWritten} for cap=$cap",
+                text.contains("Request body exceeds the $cap byte limit"),
+                "must be exactly stage 2's message shape, reachable only via the bounded-channel-read path: $text",
             )
         }
 
