@@ -2,23 +2,9 @@
 
 A Kotlin-based MCP server providing hierarchical work item management with dependency tracking, note schemas, and role-based workflow automation.
 
-**Key Technologies:**
-- Kotlin 2.3.21 with Coroutines
-- Exposed ORM 1.2.0 for SQLite
-- MCP SDK 0.12.0 (with Ktor Streamable HTTP transport)
-- Flyway for database migrations
-- Gradle with Kotlin DSL / Docker
-
 ## Build Commands
 
 ```bash
-./gradlew build                        # fat JAR → current/build/libs/
-./gradlew clean build
-./gradlew test
-./gradlew test --tests "*ToolTest"
-
-java -jar current/build/libs/mcp-task-orchestrator-*.jar
-
 # Docker (most common)
 docker build -t task-orchestrator:dev .
 docker run --rm -i \
@@ -34,51 +20,6 @@ Source lives under `current/`.
 
 **Package root:** `io.github.jpicklyk.mcptask.current`
 **Source root:** `current/src/main/kotlin/io/github/jpicklyk/mcptask/current/`
-
-```
-domain/
-  model/       — WorkItem, Note, Dependency, Role, Priority, RoleTransition, LifecycleMode, WorkItemSchema
-  repository/  — WorkItemRepository, NoteRepository, DependencyRepository, RoleTransitionRepository
-
-application/
-  tools/items/      — ManageItemsTool, QueryItemsTool (FTS5 search + list-filter)
-  tools/notes/      — ManageNotesTool, QueryNotesTool (FTS5 search + get/list)
-  tools/dependency/ — ManageDependenciesTool, QueryDependenciesTool (backlinks + get)
-  tools/workflow/   — AdvanceItemTool, ClaimItemTool, GetNextStatusTool, GetNextItemTool, GetBlockedItemsTool, GetContextTool
-  tools/compound/   — CreateWorkTreeTool, CompleteTreeTool
-  service/          — RoleTransitionHandler, NoteSchemaService, CascadeDetector, WorkTreeExecutor
-  service/search/   — FtsQuerySanitizer, RrfFusion
-
-infrastructure/
-  database/schema/      — WorkItemsTable, NotesTable, DependenciesTable, RoleTransitionsTable
-  database/schema/management/ — DirectDatabaseSchemaManager, FlywayDatabaseSchemaManager, SchemaManagerFactory
-  repository/           — SQLite implementations, RepositoryProvider
-  config/               — YamlWorkItemSchemaService (typealias YamlNoteSchemaService), ApiAuthConfigLoader
-
-interfaces/mcp/
-  CurrentMcpServer.kt, McpToolAdapter.kt
-
-interfaces/api/v1/
-  auth/     — ApiAuthConfig, ApiPrincipal, ApiScope, ApiCapability, AuthenticationPlugin, AuthorizationPlugin, BearerTokenStore, JwksApiVerifier
-  cors/     — CorsConfig (env-driven CORS from CORS_ALLOWED_ORIGINS etc.)
-  dto/      — Dtos.kt (ItemDto, NoteDto, ActorClaimDto, VerificationDto, RoleTransitionDto, DependenciesDto, DependencyEdgeDto, BacklinkDto, PageDto, ErrorDto, SearchHitDto, config DTOs, request DTOs, AdvanceResponseDto)
-  etag/     — etagFor() — "v1-<modifiedAtMillis>" for items/notes
-  events/   — ApiEvent, ApiEventType constants, ApiEventBus (ring-buffer pub/sub with per-root filtering)
-  mapping/  — Domain → DTO mappers (.toDto() extensions)
-  pagination/ — pageParams(), buildPageDto()
-  redaction/  — AttributionRedactor (API_REDACT_NOTE_ATTRIBUTION, API_REDACT_ACTOR_PROOF)
-  audit/    — ApiAuditBridge (server-synthesized actor "api:<tokenId>", kind external)
-  routes/   — ItemRoutes, ItemWriteRoutes, NoteRoutes, NoteWriteRoutes, DependencyRoutes, DependencyWriteRoutes, TransitionRoutes, SearchRoutes, ConfigRoutes, ServiceRoutes, EventRoutes, WellKnownRoutes, WriteIdempotency
-
-application/service/rest/
-  MergePatchApplier — RFC 7396 JSON Merge Patch
-  StatusGraphBuilder — status-transition graph builder for ConfigRoutes
-  WorkItemPatchProjection — projects existing item fields into a JsonObject base for merge-patch
-
-infrastructure/security/
-  ConstantTimeCompare — timing-safe byte comparison (used by BearerTokenStore for SHA-256 digests)
-  JwksKeyCache — JWKS key material cache for JWKS auth mode
-```
 
 **Entry point:** `current/src/main/kotlin/io/github/jpicklyk/mcptask/current/CurrentMain.kt`
 
@@ -144,51 +85,7 @@ private fun getConfigPath(): Path {
 
 ## Adding New Components
 
-### New MCP Tool
-1. Extend `BaseToolDefinition` in `current/src/main/kotlin/.../application/tools/`
-2. Register in `CurrentMcpServer.kt`
-3. Update all three documentation surfaces (see below)
-4. Add to `ToolDocumentationConsistencyTest` tool list
-5. Add tests in `current/src/test/kotlin/application/tools/`
-
-### Tool Documentation Surfaces — Single-Source Policy (post token-efficiency program)
-
-Every tool has three documentation surfaces:
-
-| Surface | Location | Audience |
-|---------|----------|----------|
-| `description` string | In the tool source file | LLMs — seen via `tools/list` |
-| `parameterSchema` | In the tool source file | MCP clients — drives validation |
-| API reference | `current/docs/api-reference.md` | Humans |
-
-**Single source of truth per parameter:** each parameter is documented ONCE, in its own
-`parameterSchema` field `description` — not duplicated in the tool's prose `description` string.
-The prose `description` is reserved for what a flat JSON Schema cannot express: operation/mode
-enum selection, mode-selection rules, trigger effects (e.g. the trigger table in `advance_item`),
-gate semantics, and mutual-exclusion/XOR constraints across fields. This keeps the `tools/list`
-payload lean (the MCP Token-Efficiency Program brought the 14-tool payload from 56,984 chars to
-under 30,000 by removing exactly this kind of prose/schema duplication).
-
-**CI guard:** `ToolDocumentationConsistencyTest` asserts (1) every `parameterSchema` property has
-a non-blank field-level `description`, and (2) every `operation`/`mode` enum value is still named
-in the prose `description` (so callers can discover available operations without reading the full
-schema). It no longer requires every param name to appear in the prose description — that older
-policy is what produced the bloat this program removed.
-The `api-reference.md` surface is not machine-checked — update it manually alongside code changes.
-
-**When changing a tool's parameters:**
-- Add/rename a param → update its `parameterSchema` field description and `api-reference.md`;
-  touch the prose `description` only if the change affects mode-selection/trigger/gate semantics
-- Remove a param → same, plus remove any prose mention if one existed
-- Change required/optional status → update the field's own schema description and `api-reference.md`
-- Do NOT reintroduce per-field prose in `description` that merely restates what's already in
-  `parameterSchema` — that's the duplication this program removed
-
-### New Database Migration
-Create `current/src/main/resources/db/migration/V{N}__{Description}.sql`. SQLite has no `ALTER COLUMN` — schema changes require table recreation. New tables in `DirectDatabaseSchemaManager` must be inserted in foreign-key order.
-
-### New Gradle Dependency
-Add to `gradle/libs.versions.toml` (`[versions]` + `[libraries]`), then reference as `libs.{name}` in `build.gradle.kts`. Check Maven Central for the latest version.
+Step-by-step checklists for a new MCP tool, a new Flyway migration, and a new Gradle dependency live in the `add-component` skill (`.claude/skills/add-component/SKILL.md`) — load it before doing any of those. The non-negotiable rule from it, kept here because it applies whenever a tool's parameters change: **each parameter is documented ONCE, in its own `parameterSchema` field `description`**; the tool's prose `description` string is reserved for operation/mode enum selection, trigger and gate semantics, and cross-field XOR constraints — never per-field restatement. `ToolDocumentationConsistencyTest` guards this in CI; `current/docs/api-reference.md` is not machine-checked and must be updated by hand alongside code changes.
 
 ## Database Management
 
@@ -212,29 +109,7 @@ default, and an unrecognized non-empty value either falls back to the default wi
   Backs the Docker image's `HEALTHCHECK` (see `current/docs/fleet-deployment.md`) and covers both
   `stdio` and `http` transport — the marker is cleared on shutdown
 
-**REST API environment variables** (see also `current/docs/fleet-deployment.md`):
-- `API_ENABLED` — master API switch (default: `false`; set `true` to opt into the REST API, which then requires `API_AUTH_MODE`)
-- `API_AUTH_MODE` — `bearer` or `jwks`; required when API enabled. Also accepts `none` when `API_ALLOW_UNAUTHENTICATED=true` (opt-in unauthenticated mode, loopback-only — see `current/docs/api-rest.md` §1)
-- `API_ALLOW_UNAUTHENTICATED` — confirm flag required alongside `API_AUTH_MODE=none` (default: `false`); ignored with `bearer`/`jwks`
-- `API_TOKENS_PATH` — bearer token YAML file path (default: `/run/secrets/api-tokens.yaml`)
-- `API_JWKS_URL` — JWKS endpoint URL (jwks mode, required); must be `https` — `http` is rejected unless the host is loopback (`localhost`, `127.x.x.x`, `::1`) AND `API_JWKS_ALLOW_INSECURE_URL=true`; any other scheme or an invalid `API_JWKS_ALLOW_INSECURE_URL` value fails startup
-- `API_JWKS_ALLOW_INSECURE_URL` — opt-in to plaintext `http` for `API_JWKS_URL`, loopback hosts only (default: `false`)
-- `API_JWKS_ISSUER` — expected JWT `iss` claim (jwks mode, required)
-- `API_JWKS_AUDIENCE` — expected JWT `aud` claim (jwks mode, required)
-- `API_JWKS_ALGORITHMS` — comma-separated algorithm allowlist e.g. `RS256,EdDSA` (jwks mode, required)
-- `API_JWKS_CACHE_TTL_SECONDS` — JWKS key cache TTL (default: `300`)
-- `CORS_ALLOWED_ORIGINS` — comma-separated origins; empty = no CORS
-- `CORS_ALLOWED_METHODS` — default: `GET,POST,PATCH,PUT,DELETE,OPTIONS`
-- `CORS_ALLOWED_HEADERS` — default: `Authorization,Content-Type,If-Match`
-- `CORS_EXPOSE_HEADERS` — default: `ETag,Last-Event-ID,Retry-After`
-- `CORS_MAX_AGE_SECONDS` — default: `3600`
-- `API_SSE_BUFFER_SIZE` — SSE ring-buffer size for Last-Event-ID replay (default: `1000`)
-- `API_ALLOW_QUERY_TOKEN_FOR_SSE` — allow `?token=` auth on SSE endpoint (default: `false`); `1`/`yes` also enable it, not only the literal `true` (see **Boolean env vars** above)
-- `API_SSE_AUTH_CHECK_INTERVAL_SECONDS` — token-expiry check interval on SSE connections (default: `30`)
-- `API_REDACT_NOTE_ATTRIBUTION` — default `true`; when truthy, non-admin callers see no actor/verification on notes/transitions; `0`/`no` also disable it, not only the literal `false`
-- `API_REDACT_ACTOR_PROOF` — default `true`; when truthy, actor.proof redacted unless ADMIN + `?include=proof`; `0`/`no` also disable it, not only the literal `false`
-- `API_WARN_ON_CLAIMED_ADVANCE` — default `true`; WARN when REST API caller advances a claimed item; `0`/`no` also disable it, not only the literal `false`
-- `RESOURCE_LEASES_ENFORCED` — default `true`; `false`, `0`, or `no` disables the resource-lease gate (acquisition only — releases always run), not only the literal `false`. Read per `advance_item`/advance-route call (not once at startup), so a change takes effect on the next call, not after a restart
+**REST API environment variables** (`API_*`, `CORS_*`, `RESOURCE_LEASES_ENFORCED`) are documented with defaults in `current/docs/fleet-deployment.md` and `current/docs/api-rest.md`. Gotchas: `API_ENABLED`/`API_ALLOW_UNAUTHENTICATED` use `EnvBoolean.require` (a bad value fails startup) while the other booleans fall back with a WARN; `RESOURCE_LEASES_ENFORCED` is read per `advance_item`/advance-route call, not at startup, so a change applies on the next call without a restart.
 
 **Migration files:** `current/src/main/resources/db/migration/`
 
@@ -244,62 +119,9 @@ default, and an unrecognized non-empty value either falls back to the default wi
 - JUnit 5 + MockK; H2 in-memory database for repository tests
 - **Never pipe `./gradlew` output to `tail`** — run directly and read full output
 
-## Common File Locations
-
-| What | Path |
-|------|------|
-| Entry point | `current/src/main/kotlin/.../current/CurrentMain.kt` |
-| MCP Server | `current/.../interfaces/mcp/CurrentMcpServer.kt` |
-| Tool definitions | `current/.../application/tools/` |
-| Domain models | `current/.../domain/model/` |
-| Repositories | `current/.../infrastructure/repository/` |
-| Migrations | `current/src/main/resources/db/migration/` |
-| Workflow config | `.taskorchestrator/config.yaml` |
-| Note schema service | `current/.../infrastructure/config/YamlWorkItemSchemaService.kt` (backward-compat typealias `YamlNoteSchemaService`) |
-| FTS5 search utilities | `current/.../application/service/search/` (FtsQuerySanitizer, RrfFusion) |
-| Search types (SearchResult, SearchHit, SearchScope, SearchMatchMode) | `current/.../domain/repository/SearchTypes.kt` |
-| BacklinkRow (domain model) | `current/.../domain/model/BacklinkRow.kt` |
-| Plugin | `claude-plugins/task-orchestrator/` |
-| Tests | `current/src/test/kotlin/` |
-| REST API routes | `current/.../interfaces/api/v1/routes/` |
-| REST API DTOs | `current/.../interfaces/api/v1/dto/Dtos.kt` |
-| REST API auth config | `current/.../interfaces/api/v1/auth/` |
-| REST API audit bridge | `current/.../interfaces/api/v1/audit/ApiAuditBridge.kt` |
-| REST API event bus | `current/.../interfaces/api/v1/events/ApiEventBus.kt` |
-| REST API auth loader | `current/.../infrastructure/config/ApiAuthConfigLoader.kt` |
-| Security utilities | `current/.../infrastructure/security/` (ConstantTimeCompare, JwksKeyCache) |
-| Merge patch + status graph | `current/.../application/service/rest/` |
-| REST API doc | `current/docs/api-rest.md` |
-| OpenAPI spec | `current/docs/api/openapi.yaml` |
-
 ## Claude Code Plugin Discovery
 
-Two skill systems — do not confuse them:
-
-**Project-level skills** (`.claude/skills/`) — auto-discovered, no config needed:
-- `/prepare-release` — version bump, changelog, release PR
-- `/feature-implementation` — guided feature lifecycle
-
-**Plugin skills** (`claude-plugins/task-orchestrator/skills/`) — require activation via `.claude/settings.json`:
-```json
-{ "enabledPlugins": { "task-orchestrator@task-orchestrator-marketplace": true } }
-```
-- Marketplace name: `task-orchestrator-marketplace` (from `.claude-plugin/marketplace.json` → `name`)
-- If plugin stops loading: `/plugin marketplace add .claude-plugin` then `/plugin enable task-orchestrator@task-orchestrator-marketplace`
-- After editing plugin files: the plugin cache is **version-keyed** — while the plugin version is
-  unchanged, `claude plugin marketplace update` AND full remove/re-add both silently reuse the stale
-  cached copy at `~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/`. Force a refresh:
-  `rm -rf ~/.claude/plugins/cache/task-orchestrator-marketplace`, then
-  `claude plugin marketplace update task-orchestrator-marketplace`. Re-extraction is **lazy** (next
-  session start) — an empty cache dir right after the update is normal, not broken. Verify after the
-  next session starts by grepping the cached files for your change. A session that amends plugin
-  content must treat same-session invocations of those skills/hooks as stale (diff loaded content
-  against disk before following it). The marketplace serves the working **tree** — confirm the
-  checkout is on the branch you intend to install before refreshing.
-
-## Documentation
-
-- `current/docs/` — quick-start, api-reference, workflow-guide, fleet-deployment
+Two skill systems — do not confuse them: **project-level skills** in `.claude/skills/` (auto-discovered) and **plugin skills** in `claude-plugins/task-orchestrator/skills/` (activated via `enabledPlugins` in `.claude/settings.json`). The plugin cache is version-keyed and re-extracts lazily, so edits to plugin files are NOT picked up by a plain marketplace update — the refresh procedure and its gotchas are in `claude-plugins/CLAUDE.md`.
 
 ## Git Workflow
 
