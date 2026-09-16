@@ -3,13 +3,12 @@ package io.github.jpicklyk.mcptask.current.infrastructure.database.schema
 import org.jetbrains.exposed.v1.core.dao.id.java.UUIDTable
 import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.isNull
-import org.jetbrains.exposed.v1.core.java.javaUUID
 import org.jetbrains.exposed.v1.core.or
 import org.jetbrains.exposed.v1.javatime.timestamp
 
 object WorkItemsTable : UUIDTable("work_items") {
-    val parentId = javaUUID("parent_id").nullable()
-    val rootId = javaUUID("root_id").nullable()
+    val parentId = javaUuidSqlite("parent_id").nullable()
+    val rootId = javaUuidSqlite("root_id").nullable()
     val title = text("title")
     val description = text("description").nullable()
     val summary = text("summary").default("")
@@ -18,15 +17,15 @@ object WorkItemsTable : UUIDTable("work_items") {
     val previousRole = varchar("previous_role", 20).nullable()
     val priority = varchar("priority", 20).default("medium")
     val complexity = integer("complexity").nullable()
-    val requiresVerification = bool("requires_verification").default(false)
+    val requiresVerification = boolSqlite("requires_verification").default(false)
     val depth = integer("depth").default(0)
     val metadata = text("metadata").nullable()
     val tags = text("tags").nullable()
     val type = text("type").nullable()
     val properties = text("properties").nullable()
-    val createdAt = timestamp("created_at")
-    val modifiedAt = timestamp("modified_at")
-    val roleChangedAt = timestamp("role_changed_at")
+    val createdAt = timestampSqlite("created_at")
+    val modifiedAt = timestampSqlite("modified_at")
+    val roleChangedAt = timestampSqlite("role_changed_at")
     val version = long("version").default(1)
     val claimedBy = text("claimed_by").nullable()
     val claimedAt = timestamp("claimed_at").nullable()

@@ -2,8 +2,6 @@ package io.github.jpicklyk.mcptask.current.infrastructure.database.schema
 
 import org.jetbrains.exposed.v1.core.ReferenceOption
 import org.jetbrains.exposed.v1.core.dao.id.java.UUIDTable
-import org.jetbrains.exposed.v1.core.java.javaUUID
-import org.jetbrains.exposed.v1.javatime.timestamp
 
 /**
  * One row per project root (a depth-0 WorkItem): a raw YAML config document scoped to that root,
@@ -14,10 +12,10 @@ import org.jetbrains.exposed.v1.javatime.timestamp
  * so deleting a root item automatically removes its config row.
  */
 object ProjectConfigTable : UUIDTable("project_config") {
-    val rootItemId = javaUUID("root_item_id")
+    val rootItemId = javaUuidSqlite("root_item_id")
     val configYaml = text("config_yaml")
     val fingerprint = text("fingerprint")
-    val updatedAt = timestamp("updated_at")
+    val updatedAt = timestampSqlite("updated_at")
 
     /**
      * JSON array of prior fingerprints for this root (newest first, pruned to 20 by

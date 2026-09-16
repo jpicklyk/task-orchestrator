@@ -1,7 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.database.schema
 
 import org.jetbrains.exposed.v1.core.dao.id.java.UUIDTable
-import org.jetbrains.exposed.v1.core.java.javaUUID
 import org.jetbrains.exposed.v1.javatime.timestamp
 
 /**
@@ -23,7 +22,7 @@ import org.jetbrains.exposed.v1.javatime.timestamp
  */
 object ResourceLeaseHistoryTable : UUIDTable("resource_lease_history") {
     val resourceKey = text("resource_key")
-    val holderItemId = javaUUID("holder_item_id")
+    val holderItemId = javaUuidSqlite("holder_item_id")
     val acquiredByActorId = text("acquired_by_actor_id").nullable()
     val acquiredAt = timestamp("acquired_at")
     val expiresAt = timestamp("expires_at")
