@@ -55,6 +55,10 @@ abstract class SQLiteRepositoryTestBase {
 
         // Create schema on this specific database instance so the tables exist before any test.
         transaction(db = database) {
+            // 97f8632f: enable FK enforcement — this custom-Database path bypasses
+            // DatabaseManager.setupConnection (the production initialize() path), which is the
+            // only other place PRAGMA foreign_keys=ON is issued.
+            exec("PRAGMA foreign_keys=ON")
             SchemaUtils.create(
                 WorkItemsTable,
                 NotesTable,
