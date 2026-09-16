@@ -1,7 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.tools.notes
 
-import io.github.jpicklyk.mcptask.current.application.tools.ErrorCodes
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.SearchResult
@@ -29,7 +29,7 @@ import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.Test
 import java.util.UUID
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -296,20 +296,22 @@ class QueryNotesScopeRoleContractTest {
 
             // An invalid TOP-LEVEL role must still be rejected — this is the declared `list`
             // `role` filter, an entirely separate parameter from the removed `scope.role`.
-            val invalid =
-                queryTool.execute(
-                    params(
-                        "operation" to JsonPrimitive("list"),
-                        "itemId" to JsonPrimitive(itemId),
-                        "role" to JsonPrimitive("bogus")
-                    ),
-                    context
-                ) as JsonObject
-
-            assertFalse(invalid["success"]!!.jsonPrimitive.boolean)
+            // validateParams() throws directly (the MCP adapter calls it before execute(); the
+            // tool's own execute() does not re-validate) — asserted the same way the existing
+            // `QueryNotesToolTest.list with invalid role throws` case does.
+            val ex =
+                assertFailsWith<ToolValidationException> {
+                    queryTool.validateParams(
+                        params(
+                            "operation" to JsonPrimitive("list"),
+                            "itemId" to JsonPrimitive(itemId),
+                            "role" to JsonPrimitive("bogus")
+                        )
+                    )
+                }
             assertEquals(
-                ErrorCodes.VALIDATION_ERROR,
-                invalid["error"]!!.jsonObject["code"]!!.jsonPrimitive.content
+                "Invalid role: 'bogus'. Must be one of: queue, work, review",
+                ex.message
             )
         }
 
