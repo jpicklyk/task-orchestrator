@@ -1,6 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.tools.items
 
-import io.github.jpicklyk.mcptask.current.application.tools.ErrorCodes
+import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.ClaimStatusCounts
 import io.github.jpicklyk.mcptask.current.domain.repository.ItemFetchResult
@@ -21,7 +21,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Test
 import java.util.UUID
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 /**
@@ -115,38 +115,29 @@ class QueryItemsLimitContractTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `S3 FTS search limit=0 is rejected as VALIDATION_ERROR`() =
-        runBlocking {
-            val mocks = MockRepositoryProvider()
-            val tool = QueryItemsTool()
+    fun `S3 FTS search limit=0 is rejected by validateParams`() {
+        // The MCP adapter calls validateParams() before execute(); calling execute() directly with
+        // an invalid limit never reaches this check (execute() alone reports INTERNAL_ERROR, not
+        // VALIDATION_ERROR). Exercise the actual contract surface directly, as the existing
+        // QueryItemsToolTest validation cases do (e.g. `validateParams rejects invalid matchMode`).
+        val tool = QueryItemsTool()
 
-            val result =
-                tool.execute(
+        val exception =
+            assertFailsWith<ToolValidationException> {
+                tool.validateParams(
                     params(
                         "operation" to JsonPrimitive("search"),
                         "query" to JsonPrimitive("needle"),
                         "limit" to JsonPrimitive(0),
                     ),
-                    mocks.context(),
-                ) as JsonObject
-
-            assertFalse(result["success"]!!.jsonPrimitive.boolean)
-            val error = result["error"]!!.jsonObject
-            assertEquals(ErrorCodes.VALIDATION_ERROR, error["code"]!!.jsonPrimitive.content)
-            assertTrue(
-                "limit must be at least 1" in error["message"]!!.jsonPrimitive.content,
-                "expected the validateParams message, got: ${error["message"]}",
-            )
-            coVerify(exactly = 0) {
-                mocks.workItemRepo.ftsSearch(
-                    sanitizedFtsQuery = any(),
-                    matchMode = any(),
-                    scope = any(),
-                    limit = any(),
-                    offset = any(),
                 )
             }
-        }
+
+        assertTrue(
+            "limit must be at least 1" in exception.message.orEmpty(),
+            "expected the validateParams message, got: ${exception.message}",
+        )
+    }
 
     // ──────────────────────────────────────────────
     // S4 / S5 — search, list mode (no `query`): default 50, cap 100
