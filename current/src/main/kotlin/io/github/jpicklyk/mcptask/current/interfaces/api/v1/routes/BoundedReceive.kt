@@ -41,9 +41,13 @@ const val MAX_JSON_WRITE_BODY_BYTES: Int = 1 * 1024 * 1024
  *  2. **Bounded channel read.** Reads at most `maxBytes + 1` bytes from
  *     [ApplicationCall.receiveChannel] regardless of what Content-Length declared — this is what
  *     catches a chunked-encoded, absent-, or understated-Content-Length body whose real size
- *     exceeds the cap. When the number of bytes actually read is `> maxBytes`, responds 413
- *     having consumed at most `maxBytes + 1` bytes — NEVER the full stream, however large it
- *     actually is.
+ *     exceeds the cap. When the number of bytes actually read is `> maxBytes`, responds 413.
+ *     This function itself never BUFFERS more than `maxBytes + 1` bytes into memory — that is
+ *     the bound this fix exists to guarantee. It does not itself discard, cancel, or otherwise
+ *     act on any remaining unread bytes of the request body after the 413 is sent; what becomes
+ *     of them (dropped when the connection is closed, or — on some test engines — silently
+ *     drained from the client side) is up to the underlying engine/connection handling, outside
+ *     this function's control.
  *
  * A body whose size is exactly [maxBytes] is accepted (the cap is inclusive).
  *
