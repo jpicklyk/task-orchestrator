@@ -38,14 +38,13 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.call
 import io.ktor.server.request.contentType
-import io.ktor.server.request.receive
-import io.ktor.server.request.receiveText
 import io.ktor.server.response.header
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.delete
 import io.ktor.server.routing.patch
 import io.ktor.server.routing.post
+import io.modelcontextprotocol.kotlin.sdk.types.McpJson
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -75,6 +74,12 @@ private val REJECTED_PATCH_FIELDS =
     )
 
 private val MERGE_PATCH_CONTENT_TYPES = setOf("application/merge-patch+json", "application/json")
+
+// Accepted Content-Types for the JSON write bodies (POST /items). `*/*` is what
+// `call.request.contentType()` reports when the header is ABSENT, which ContentNegotiation's
+// wildcard match also accepted — so an absent header stays accepted and only a genuinely non-JSON
+// Content-Type is rejected. Merge-patch is deliberately absent: only PATCH accepts it.
+private val JSON_WRITE_CONTENT_TYPES = setOf("application/json", "*/*")
 
 // Default source for itemWriteRoutes(warnOnClaimedAdvance=...) — reads API_WARN_ON_CLAIMED_ADVANCE
 // via the typed AppConfig snapshot. The composition root passes an explicit value from its
@@ -276,15 +281,41 @@ fun Route.itemWriteRoutes(
                     return@post
                 }
 
+            // Content-Type gate — explicit because the body is no longer read through
+            // `receive<ItemCreateDto>()`, which let ContentNegotiation reject a non-JSON body with
+            // 415. Same shape as the PATCH gate below, minus merge-patch. It runs before the body
+            // read, so 415 still precedes anything that depends on the body.
+            val createContentType =
+                call.request
+                    .contentType()
+                    .withoutParameters()
+                    .toString()
+            if (createContentType !in JSON_WRITE_CONTENT_TYPES) {
+                call.respond(
+                    HttpStatusCode.UnsupportedMediaType,
+                    ErrorDto("unsupported_media_type", "Use Content-Type: application/json"),
+                )
+                return@post
+            }
+
             val idempotencyKeyResult = call.parseIdempotencyKey()
             if (idempotencyKeyResult is IdempotencyKeyResult.Invalid) return@post
+
+            // Read the raw body BEFORE runWithIdempotency: reading it inside would hold this key's
+            // idempotency in-flight entry across client-paced network I/O (see runWithIdempotency).
+            // Bounded (bug e941c2c7 — this route had no size limit at all before this fix; see
+            // receiveBounded's KDoc) and read as bytes only — deserialization stays inside the
+            // captured block so status precedence is unchanged. Decoded with McpJson, the same
+            // instance ContentNegotiation is installed with, so this behaves exactly as
+            // `receive<ItemCreateDto>()` did, minus the unbounded buffering.
+            val bodyText = call.receiveBounded(MAX_JSON_WRITE_BODY_BYTES) ?: return@post
 
             // Produce a CachedHttpResponse so the body is serialized once and replayed verbatim on
             // an Idempotency-Key hit (the DB write runs at most once — see runWithIdempotency).
             suspend fun executeCreate(): CachedHttpResponse {
                 val dto =
                     try {
-                        call.receive<ItemCreateDto>()
+                        McpJson.decodeFromString(ItemCreateDto.serializer(), bodyText)
                     } catch (e: SerializationException) {
                         return errorCaptured(HttpStatusCode.BadRequest, "validation_error", e.message ?: "Invalid request body")
                     }
@@ -416,6 +447,13 @@ fun Route.itemWriteRoutes(
             val idempotencyKeyResult = call.parseIdempotencyKey()
             if (idempotencyKeyResult is IdempotencyKeyResult.Invalid) return@patch
 
+            // Raw bytes only, read BEFORE runWithIdempotency so client-paced network I/O does not
+            // happen while this key's idempotency in-flight entry is held. Bounded (bug e941c2c7
+            // — see receiveBounded's KDoc). The JSON PARSE stays below, after the If-Match checks,
+            // so `precondition_required` / `etag_mismatch` still precede `validation_error` for a
+            // malformed body.
+            val bodyText = call.receiveBounded(MAX_JSON_WRITE_BODY_BYTES) ?: return@patch
+
             // The state-dependent pre-conditions (existence, scope, If-Match ETag) AND the write run
             // INSIDE the captured block, so an Idempotency-Key replay returns the cached response
             // verbatim WITHOUT re-evaluating the ETag against the now-mutated item (which would
@@ -458,7 +496,6 @@ fun Route.itemWriteRoutes(
                     )
                 }
 
-                val bodyText = call.receiveText()
                 val patchObject =
                     try {
                         Json.parseToJsonElement(bodyText) as? JsonObject
@@ -791,9 +828,32 @@ fun Route.itemWriteRoutes(
                     return@post
                 }
 
+            // Content-Type gate — explicit because the body is no longer read through
+            // `receive<AdvanceRequestDto>()`, which let ContentNegotiation reject a non-JSON body
+            // with 415. Same shape as the POST /items gate above. Runs before the bounded body
+            // read, so 415 still precedes anything that depends on the body.
+            val advanceContentType =
+                call.request
+                    .contentType()
+                    .withoutParameters()
+                    .toString()
+            if (advanceContentType !in JSON_WRITE_CONTENT_TYPES) {
+                call.respond(
+                    HttpStatusCode.UnsupportedMediaType,
+                    ErrorDto("unsupported_media_type", "Use Content-Type: application/json"),
+                )
+                return@post
+            }
+
+            // Bounded (bug e941c2c7 — this route had no size limit at all before this fix; see
+            // receiveBounded's KDoc). Decoded with McpJson, the same instance ContentNegotiation
+            // is installed with, so this behaves exactly as `receive<AdvanceRequestDto>()` did,
+            // minus the unbounded buffering.
+            val advanceBodyText = call.receiveBounded(MAX_JSON_WRITE_BODY_BYTES) ?: return@post
+
             val advanceDto =
                 try {
-                    call.receive<AdvanceRequestDto>()
+                    McpJson.decodeFromString(AdvanceRequestDto.serializer(), advanceBodyText)
                 } catch (e: SerializationException) {
                     call.respond(HttpStatusCode.BadRequest, ErrorDto("validation_error", e.message ?: "Invalid request body"))
                     return@post

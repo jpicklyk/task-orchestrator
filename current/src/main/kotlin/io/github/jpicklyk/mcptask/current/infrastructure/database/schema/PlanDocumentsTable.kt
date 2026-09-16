@@ -1,9 +1,10 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.database.schema
 
+import org.jetbrains.exposed.v1.core.Column
 import org.jetbrains.exposed.v1.core.ReferenceOption
-import org.jetbrains.exposed.v1.core.dao.id.java.UUIDTable
-import org.jetbrains.exposed.v1.core.java.javaUUID
-import org.jetbrains.exposed.v1.javatime.timestamp
+import org.jetbrains.exposed.v1.core.dao.id.EntityID
+import org.jetbrains.exposed.v1.core.dao.id.IdTable
+import java.util.UUID
 
 /**
  * Per-root store of agent-authored planning documents, stashed ahead of adoption into a real
@@ -18,17 +19,20 @@ import org.jetbrains.exposed.v1.javatime.timestamp
  * `V12__Plan_Documents.sql` for the full rationale: [rootItemId] cascades (the document belongs to
  * its root), [adoptedByItemId] sets null (deleting the adopting item only unlinks the adoption).
  */
-object PlanDocumentsTable : UUIDTable("plan_documents") {
-    val rootItemId = javaUUID("root_item_id")
+object PlanDocumentsTable : IdTable<UUID>("plan_documents") {
+    override val id: Column<EntityID<UUID>> = javaUuidSqlite("id").autoGenerate().entityId()
+    override val primaryKey = PrimaryKey(id)
+
+    val rootItemId = javaUuidSqlite("root_item_id")
     val slug = text("slug")
     val body = text("body")
     val contentHash = text("content_hash")
 
     /** Raw string value of [io.github.jpicklyk.mcptask.current.domain.model.PlanDocumentStatus] — "pending" or "adopted". */
     val status = text("status")
-    val adoptedByItemId = javaUUID("adopted_by_item_id").nullable()
-    val createdAt = timestamp("created_at")
-    val modifiedAt = timestamp("modified_at")
+    val adoptedByItemId = javaUuidSqlite("adopted_by_item_id").nullable()
+    val createdAt = timestampSqlite("created_at")
+    val modifiedAt = timestampSqlite("modified_at")
 
     init {
         foreignKey(rootItemId to WorkItemsTable.id, onDelete = ReferenceOption.CASCADE)

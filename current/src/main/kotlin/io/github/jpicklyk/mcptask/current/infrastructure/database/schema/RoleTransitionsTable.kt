@@ -1,19 +1,23 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.database.schema
 
+import org.jetbrains.exposed.v1.core.Column
 import org.jetbrains.exposed.v1.core.ReferenceOption
-import org.jetbrains.exposed.v1.core.dao.id.java.UUIDTable
-import org.jetbrains.exposed.v1.core.java.javaUUID
-import org.jetbrains.exposed.v1.javatime.timestamp
+import org.jetbrains.exposed.v1.core.dao.id.EntityID
+import org.jetbrains.exposed.v1.core.dao.id.IdTable
+import java.util.UUID
 
-object RoleTransitionsTable : UUIDTable("role_transitions") {
-    val itemId = javaUUID("item_id")
+object RoleTransitionsTable : IdTable<UUID>("role_transitions") {
+    override val id: Column<EntityID<UUID>> = javaUuidSqlite("id").autoGenerate().entityId()
+    override val primaryKey = PrimaryKey(id)
+
+    val itemId = javaUuidSqlite("item_id")
     val fromRole = varchar("from_role", 20)
     val toRole = varchar("to_role", 20)
     val fromStatusLabel = text("from_status_label").nullable()
     val toStatusLabel = text("to_status_label").nullable()
     val trigger = varchar("trigger", 50)
     val summary = text("summary").nullable()
-    val transitionedAt = timestamp("transitioned_at")
+    val transitionedAt = timestampSqlite("transitioned_at")
     val actorId = text("actor_id").nullable()
     val actorKind = text("actor_kind").nullable()
     val actorParent = text("actor_parent").nullable()

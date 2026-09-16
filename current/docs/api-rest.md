@@ -244,6 +244,12 @@ Idempotency-Key: <UUID>
 - On retry with the same key: the cached response (status + body) is returned verbatim without re-executing the operation
 - Cache is keyed by `(actor-id, idempotency-key)`; TTL is ~10 minutes
 - ETag pre-conditions are evaluated and stored as part of the cached response — a replay does NOT re-evaluate the ETag against the now-mutated resource
+- **Replay contract is pinned to the key alone — there is no body hash.** A retry with the *same* key returns the first request's captured response verbatim even if the retry's body differs; only the `(actor-id, idempotency-key)` pair distinguishes requests. Concurrent requests carrying the same key coalesce onto one in-flight computation — the first caller executes it, later callers block on and receive the same result, and different keys never serialize against each other. If the computation throws, nothing is cached and the next request with that key computes again.
+- This cache instance is shared with the idempotent MCP tools (keyed by `requestId`, e.g.
+  `advance_item` — see `api-reference.md`) as well as these REST routes — the blast radius of the
+  cache is cross-surface, though a collision needs a matching `(actor-id, key)` pair on both sides.
+- `POST /items` and `PUT /items/{id}/notes/{key}` additionally require `Content-Type: application/json` (an absent header is treated as `*/*` and accepted); any other value → `415 unsupported_media_type` before the idempotency key or body is read.
+- Every write route now bounds its body read to a fixed byte limit BEFORE buffering it: a `Content-Length` over the limit is rejected with `413 payload_too_large` before any bytes are touched, and a chunked/understated-`Content-Length` body is caught by a channel read capped at `limit + 1` bytes, so an oversized body is never buffered in full either way. `POST /items`, `PATCH /items/{id}`, `POST /items/{id}/advance`, `PUT /items/{id}/notes/{key}`, and `POST /dependencies` share a 1 MiB limit (previously unbounded); `PUT /roots/{rootId}/config` (128 KiB) and `PUT /roots/{rootId}/plans/{slug}` (64 KiB) keep their existing numeric limits, now enforced at the same pre-buffer point instead of after a full read. See §6 for the `payload_too_large` error shape.
 
 ---
 
@@ -268,8 +274,9 @@ All error responses use:
 | `scope_forbidden` | 403 | Item exists but is outside the caller's scope |
 | `field_not_patchable` | 400 | PATCH attempted on a server-owned field |
 | `cycle_detected` | 400 | Dependency would create a cycle |
-| `unsupported_media_type` | 415 | Wrong `Content-Type` for PATCH (see §23) |
+| `unsupported_media_type` | 415 | Wrong `Content-Type` for PATCH (see §23), or a non-JSON `Content-Type` on `POST /items`, `PUT /items/{id}/notes/{key}`, `POST /items/{id}/advance`, or `POST /dependencies` (see §5) |
 | `etag_mismatch` | 412 | `If-Match` header does not match current ETag |
+| `payload_too_large` | 413 | Request body exceeds its route's byte limit — the `Content-Length` header alone if it declares a size over the limit (body untouched), otherwise the actual bytes read, capped at `limit + 1` so an oversized body is never buffered in full. `POST /items`, `PATCH /items/{id}`, `POST /items/{id}/advance`, `PUT /items/{id}/notes/{key}`, and `POST /dependencies` share a 1 MiB limit; `PUT /roots/{rootId}/config` is 128 KiB; `PUT /roots/{rootId}/plans/{slug}` is 64 KiB (see §18, §19). |
 | `version_conflict` | 409 | `PATCH /items/{id}`: `If-Match` matched at read time, but a concurrent writer's update won the version race before this write committed — optimistic-lock loss, distinct from `etag_mismatch`. Retry with a fresh `If-Match` ETag. |
 | `unauthenticated` | 401 | No authenticated principal (missing/invalid token) |
 | `verification_failed` | 401 | JWKS verification failed under `reject` policy |
@@ -753,6 +760,8 @@ Create a work item. Requires `WRITE_ITEMS`.
 - `400 validation_error` — invalid field values
 - `400 not_found` — parentId not found
 - `403 scope_forbidden` — parent outside scope
+- `413 payload_too_large` — body exceeds the shared 1 MiB write-body limit (see §5, §6)
+- `415 unsupported_media_type` — `Content-Type` is present and is not `application/json` (an absent header is accepted as `*/*`); checked before the `Idempotency-Key` header or body is read
 
 Supports `Idempotency-Key` header.
 
@@ -794,6 +803,7 @@ JSON Merge Patch update. Requires `WRITE_ITEMS`, `If-Match`, and `Content-Type: 
   read time, but the underlying row changed before this write committed. Retry with a fresh
   `If-Match` ETag.
 - `412 etag_mismatch` — `If-Match` does not match
+- `413 payload_too_large` — body exceeds the shared 1 MiB write-body limit (see §5, §6)
 - `415 unsupported_media_type` — wrong Content-Type + `Accept-Patch: application/merge-patch+json, application/json` response header
 
 Supports `Idempotency-Key` header.
@@ -926,6 +936,8 @@ The `cascadeEvents`, `unblockedItems`, and `expectedNotes` fields are **additive
 - `200 OK` → `AdvanceResponseDto`
 - `400 validation_error` — invalid trigger string, or a `credentialRefs` entry fails format/closed-set validation
 - `403 insufficient_capability` — `overrideResourceLeases: true` sent by a non-ADMIN caller
+- `413 payload_too_large` — body exceeds the shared 1 MiB write-body limit (see §5, §6)
+- `415 unsupported_media_type` — `Content-Type` is present and is not `application/json` (an absent header is accepted as `*/*`); checked before the body is read
 - `409 resource_unavailable` — resource-lease gate contention; `Retry-After` header + `details.contendedResources`/`details.retryAfterMs` (see above)
 - `409 not_claim_holder` — pre-existing, defensive-only on this route (REST bypasses claim ownership by default — see "Claimed-item behavior" above); not expected to occur in normal REST usage
 - `422 gate_blocked` — a required-note gate failed; `details.missingNotes` lists the unfilled required notes
@@ -999,6 +1011,8 @@ Upsert (create or replace) a note. `role` and `body` are always replaced on upda
 - `201 Created` → `NoteDto` + `ETag` header (note was new)
 - `200 OK` → `NoteDto` + `ETag` header (note was updated)
 - `412 etag_mismatch`
+- `413 payload_too_large` — body exceeds the shared 1 MiB write-body limit (see §5, §6)
+- `415 unsupported_media_type` — `Content-Type` is present and is not `application/json` (an absent header is accepted as `*/*`); checked before the `Idempotency-Key` header or body is read
 
 Supports `Idempotency-Key` header.
 
@@ -1047,7 +1061,10 @@ Validation:
 - Both items must be in scope — `403 scope_forbidden`
 - Cycle detection — `400 cycle_detected`
 
-**Response:** `201 Created` → `DependencyEdgeDto`
+**Responses:**
+- `201 Created` → `DependencyEdgeDto`
+- `413 payload_too_large` — body exceeds the shared 1 MiB write-body limit (see §5, §6)
+- `415 unsupported_media_type` — `Content-Type` is present and is not `application/json` (an absent header is accepted as `*/*`); checked before the body is read
 
 ### DELETE /dependencies/{id}
 
@@ -1298,7 +1315,7 @@ registry key collision, not per-root — see "Per-root honorable settings" in `c
   `412 etag_mismatch` below — this is a known-old-**content** guard, not a concurrent-write guard.
 - `412 etag_mismatch` — `If-Match` supplied and mismatched against an EXISTING row's ETag (a
   first push to a root with no prior row ignores `If-Match` — there is nothing to match yet)
-- `413 payload_too_large` — body exceeds 128 KiB
+- `413 payload_too_large` — body exceeds 128 KiB; enforced before the body is fully buffered (see §5)
 - `403 scope_forbidden` — capability present but `{rootId}` outside token scope
 
 ### GET /roots/{rootId}/config
@@ -1359,7 +1376,7 @@ Requires `WRITE_CONFIG`.
 - `404 not_found` — `{rootId}` does not resolve to an existing WorkItem
 - `422 validation_error` — `{rootId}` is not depth-0
 - `409 adopted_conflict` — the slug is already `adopted` (message names the adopting item when known)
-- `413 payload_too_large` — body exceeds 64 KiB
+- `413 payload_too_large` — body exceeds 64 KiB; enforced before the body is fully buffered (see §5)
 - `403 scope_forbidden` — capability present but `{rootId}` outside token scope
 
 ### GET /roots/{rootId}/plans/{slug}
@@ -1570,16 +1587,26 @@ The `"<previousRole>"` sentinel in `blocked.resume` is a literal string — reso
 
 ## 25. Known Limitations
 
-**SSE dependency-event scoping depends on a warm ancestor cache.** Live root-filtering and `Last-Event-ID` replay are both correctly root-scoped — ring-buffer entries carry `affectedRoots` metadata and the replay path applies the same root-intersection filter as the live fan-out. One residual caveat remains for dependency events: `dependency.added` / `dependency.removed` resolve their affected roots from an in-memory ancestor cache populated by prior item create/update writes. On a cache miss (e.g., a dependency change with no preceding item write on that subtree during the connection's lifetime), root resolution is marked unresolved and the event **fails closed**: it reaches only subscribers with an unrestricted subscription (no `?root=` filter and no `scope.rootIds` restriction), never a root-scoped one, on both the live path and `Last-Event-ID` replay (an unresolved entry cannot leak to a root-scoped client later, either). Bus-level control events (`sync.lost`, `auth.expired`) are the one deliberate exception to this rule — they always broadcast to every subscriber, root-scoped included, because they report the state of the stream itself. Root-scoped subscribers that require exact dependency-event scoping should still re-fetch state rather than relying solely on the event stream, since a resolvable-but-missed event remains possible.
+**SSE dependency-event root resolution falls back to the database on a cold cache.** Live
+root-filtering and `Last-Event-ID` replay are both correctly root-scoped — ring-buffer entries
+carry `affectedRoots` metadata and the replay path applies the same root-intersection filter as the
+live fan-out. `dependency.added` / `dependency.removed` resolve their affected roots from an
+in-memory ancestor-root cache populated by prior item create/update writes; on a cache miss (e.g.,
+a dependency change with no preceding item write on that subtree during the connection's lifetime)
+root resolution now queries `findAncestorChains` directly instead of failing closed, so root-scoped
+subscribers correctly receive the event as long as at least one subscriber is connected at the
+moment of the dependency write (with zero subscribers connected, resolution is skipped entirely as
+a performance guard — moot, since there is no one to receive it). Bus-level control events
+(`sync.lost`, `auth.expired`) always broadcast to every subscriber, root-scoped included, because
+they report the state of the stream itself.
 
 **SSE tag-scope filtering has an `item.deleted` fail-closed gap.** Per-event `tags_include`
 filtering (§21) resolves an event's tags by looking up its `itemId` at delivery time. For
 `item.deleted`, the item is already gone by the time the event is filtered, so its tags cannot be
 resolved — the event is dropped for any tag-scoped connection rather than risk showing (or hiding)
-it incorrectly. This mirrors the cold-cache `dependency.*` caveat above in kind (both are
-event-timing tradeoffs in the SSE filter path) and now also in direction: both fail **closed** —
-the dependency-event cache miss withholds the event from root-scoped subscribers, and this drops it
-for tag-scoped subscribers — rather than risk showing (or hiding) it incorrectly.
+it incorrectly. Unlike the dependency-event root resolution above, which now falls back to a live
+DB query on a cache miss, there is no live row left to query here for `item.deleted` — the
+fail-closed drop for tag-scoped subscribers is unconditional.
 
 **SSE honors bearer and unauthenticated modes; JWKS is untested on this route.** The pre-flight auth plugin for the SSE route resolves `Authorization: Bearer` (and, when enabled, `?token=`) the same way `ApiBearerAuth` does, and explicitly short-circuits for `API_AUTH_MODE=none` (§1/§21) exactly like the bearer route. JWKS-mode JWT authentication for SSE has not been separately verified — the pre-flight plugin's bearer-token path is what's exercised; treat JWKS+SSE as unconfirmed rather than assuming parity until it's tested.
 

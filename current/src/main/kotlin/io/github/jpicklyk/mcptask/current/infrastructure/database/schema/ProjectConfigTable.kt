@@ -1,9 +1,10 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.database.schema
 
+import org.jetbrains.exposed.v1.core.Column
 import org.jetbrains.exposed.v1.core.ReferenceOption
-import org.jetbrains.exposed.v1.core.dao.id.java.UUIDTable
-import org.jetbrains.exposed.v1.core.java.javaUUID
-import org.jetbrains.exposed.v1.javatime.timestamp
+import org.jetbrains.exposed.v1.core.dao.id.EntityID
+import org.jetbrains.exposed.v1.core.dao.id.IdTable
+import java.util.UUID
 
 /**
  * One row per project root (a depth-0 WorkItem): a raw YAML config document scoped to that root,
@@ -13,11 +14,14 @@ import org.jetbrains.exposed.v1.javatime.timestamp
  * Mirrors [RoleTransitionsTable]'s style: a single FK to [WorkItemsTable] with `ON DELETE CASCADE`
  * so deleting a root item automatically removes its config row.
  */
-object ProjectConfigTable : UUIDTable("project_config") {
-    val rootItemId = javaUUID("root_item_id")
+object ProjectConfigTable : IdTable<UUID>("project_config") {
+    override val id: Column<EntityID<UUID>> = javaUuidSqlite("id").autoGenerate().entityId()
+    override val primaryKey = PrimaryKey(id)
+
+    val rootItemId = javaUuidSqlite("root_item_id")
     val configYaml = text("config_yaml")
     val fingerprint = text("fingerprint")
-    val updatedAt = timestamp("updated_at")
+    val updatedAt = timestampSqlite("updated_at")
 
     /**
      * JSON array of prior fingerprints for this root (newest first, pruned to 20 by

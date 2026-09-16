@@ -19,11 +19,12 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.redaction.Attributio
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.call
-import io.ktor.server.request.receive
+import io.ktor.server.request.contentType
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.delete
 import io.ktor.server.routing.put
+import io.modelcontextprotocol.kotlin.sdk.types.McpJson
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
@@ -32,6 +33,12 @@ import java.util.UUID
 private val noteWriteLogger = LoggerFactory.getLogger("NoteWriteRoutes")
 
 private val VALID_NOTE_ROLES = setOf("queue", "work", "review")
+
+// Accepted Content-Types for the JSON note body (PUT /items/{id}/notes/{key}). `*/*` is what
+// `call.request.contentType()` reports when the header is ABSENT, which ContentNegotiation's
+// wildcard match also accepted — so an absent header stays accepted and only a genuinely non-JSON
+// Content-Type is rejected.
+private val JSON_WRITE_CONTENT_TYPES = setOf("application/json", "*/*")
 
 // JSON encoder for capturing serialized note responses (matches the server's explicitNulls=false).
 private val noteWriteJson =
@@ -88,6 +95,22 @@ fun Route.noteWriteRoutes(
                     return@put
                 }
 
+            // Content-Type gate — explicit because the body is no longer read through
+            // `receive<NoteWriteDto>()`, which let ContentNegotiation reject a non-JSON body with
+            // 415. It runs before the body read, so 415 still precedes anything body-dependent.
+            val upsertContentType =
+                call.request
+                    .contentType()
+                    .withoutParameters()
+                    .toString()
+            if (upsertContentType !in JSON_WRITE_CONTENT_TYPES) {
+                call.respond(
+                    HttpStatusCode.UnsupportedMediaType,
+                    ErrorDto("unsupported_media_type", "Use Content-Type: application/json"),
+                )
+                return@put
+            }
+
             val rawId =
                 call.parameters["id"] ?: run {
                     call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing item id"))
@@ -106,6 +129,15 @@ fun Route.noteWriteRoutes(
 
             val idempotencyKeyResult = call.parseIdempotencyKey()
             if (idempotencyKeyResult is IdempotencyKeyResult.Invalid) return@put
+
+            // Raw bytes only, read BEFORE runWithIdempotency so client-paced network I/O does not
+            // happen while this key's idempotency in-flight entry is held. Bounded (bug e941c2c7
+            // — this route had no size limit at all before this fix; see receiveBounded's KDoc).
+            // Deserialization stays below, after the If-Match check, so `etag_mismatch` still
+            // precedes `validation_error`. Decoded with McpJson, the same instance
+            // ContentNegotiation is installed with, so this behaves exactly as
+            // `receive<NoteWriteDto>()` did, minus the unbounded buffering.
+            val bodyText = call.receiveBounded(MAX_JSON_WRITE_BODY_BYTES) ?: return@put
 
             // The state-dependent pre-conditions (item existence, scope, note-existence, If-Match
             // ETag) AND the upsert run INSIDE the captured block, so an Idempotency-Key replay
@@ -146,7 +178,7 @@ fun Route.noteWriteRoutes(
 
                 val dto =
                     try {
-                        call.receive<NoteWriteDto>()
+                        McpJson.decodeFromString(NoteWriteDto.serializer(), bodyText)
                     } catch (e: SerializationException) {
                         return noteErrorCaptured(HttpStatusCode.BadRequest, "validation_error", e.message ?: "Invalid request body")
                     }

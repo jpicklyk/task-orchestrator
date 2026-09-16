@@ -266,9 +266,9 @@ class SQLiteWorkItemRepository(
             conditions.add(WorkItemsTable.role eq role.name.lowercase())
 
             if (rootIds != null) {
-                val scopeIds = resolveScopeIds(rootIds)
-                if (scopeIds.isEmpty()) return@suspendedTransaction Result.Success(emptyList())
-                conditions.add(WorkItemsTable.id inList scopeIds.map { EntityID(it, WorkItemsTable) })
+                val scope = resolveScope(rootIds)
+                if (scope == ResolvedScope.Empty) return@suspendedTransaction Result.Success(emptyList())
+                conditions.add(scope.toCondition())
             }
 
             val items =
@@ -1222,9 +1222,9 @@ class SQLiteWorkItemRepository(
 
             // Optional subtree scope — expand rootIds to the full descendant set (roots included).
             if (rootIds != null) {
-                val scopeIds = resolveScopeIds(rootIds)
-                if (scopeIds.isEmpty()) return@suspendedTransaction Result.Success(emptyList())
-                conditions.add(WorkItemsTable.id inList scopeIds.map { EntityID(it, WorkItemsTable) })
+                val scope = resolveScope(rootIds)
+                if (scope == ResolvedScope.Empty) return@suspendedTransaction Result.Success(emptyList())
+                conditions.add(scope.toCondition())
             }
 
             // Claim filter: exclude items with an active (non-expired) claim.
@@ -1284,9 +1284,9 @@ class SQLiteWorkItemRepository(
 
             // Optional subtree scope — expand rootIds to the full descendant set (roots included).
             if (rootIds != null) {
-                val scopeIds = resolveScopeIds(rootIds)
-                if (scopeIds.isEmpty()) return@suspendedTransaction Result.Success(emptyList())
-                conditions.add(WorkItemsTable.id inList scopeIds.map { EntityID(it, WorkItemsTable) })
+                val scope = resolveScope(rootIds)
+                if (scope == ResolvedScope.Empty) return@suspendedTransaction Result.Success(emptyList())
+                conditions.add(scope.toCondition())
             }
 
             // Tag any-match — reuse buildTagFilter (OR logic within list)
@@ -1440,17 +1440,17 @@ class SQLiteWorkItemRepository(
         return databaseManager.suspendedTransaction("Failed to count WorkItems by claim status") {
             // Optional subtree scope — expand rootIds to the full descendant set (roots included).
             // Resolved once and reused across all three claim-status conditions below.
-            val scopeIds = rootIds?.let { resolveScopeIds(it) }
-            if (scopeIds != null && scopeIds.isEmpty()) {
+            val scope = rootIds?.let { resolveScope(it) }
+            if (scope == ResolvedScope.Empty) {
                 return@suspendedTransaction Result.Success(ClaimStatusCounts(active = 0, expired = 0, unclaimed = 0))
             }
-            val scopeEntityIds = scopeIds?.map { EntityID(it, WorkItemsTable) }
+            val scopeCondition = scope?.toCondition()
 
             // Helper to build a base condition list optionally scoped to a parent and/or subtree
             fun baseConditions(): MutableList<Op<Boolean>> {
                 val conds = mutableListOf<Op<Boolean>>()
                 parentId?.let { conds.add(WorkItemsTable.parentId eq it) }
-                scopeEntityIds?.let { conds.add(WorkItemsTable.id inList it) }
+                scopeCondition?.let { conds.add(it) }
                 return conds
             }
 
@@ -1525,12 +1525,12 @@ class SQLiteWorkItemRepository(
 
         return try {
             suspendTransaction(db = databaseManager.getDatabase()) {
-                val scopeIds = resolveScopeIds(rootIds)
-                if (scopeIds.isEmpty()) return@suspendTransaction Result.Success(emptyList())
+                val scope = resolveScope(rootIds)
+                if (scope == ResolvedScope.Empty) return@suspendTransaction Result.Success(emptyList())
 
                 val base =
                     buildScopedQuery(
-                        scopeIds,
+                        scope,
                         parentId,
                         depth,
                         role,
@@ -1601,12 +1601,12 @@ class SQLiteWorkItemRepository(
 
         return try {
             suspendTransaction(db = databaseManager.getDatabase()) {
-                val scopeIds = resolveScopeIds(rootIds)
-                if (scopeIds.isEmpty()) return@suspendTransaction Result.Success(0)
+                val scope = resolveScope(rootIds)
+                if (scope == ResolvedScope.Empty) return@suspendTransaction Result.Success(0)
 
                 val count =
                     buildScopedQuery(
-                        scopeIds,
+                        scope,
                         parentId,
                         depth,
                         role,
@@ -1636,14 +1636,14 @@ class SQLiteWorkItemRepository(
 
         return try {
             suspendTransaction(db = databaseManager.getDatabase()) {
-                val scopeIds = resolveScopeIds(rootIds)
-                if (scopeIds.isEmpty()) return@suspendTransaction Result.Success(emptyMap())
+                val scope = resolveScope(rootIds)
+                if (scope == ResolvedScope.Empty) return@suspendTransaction Result.Success(emptyMap())
 
-                val scopeEntityIds = scopeIds.map { EntityID(it, WorkItemsTable) }
+                val scopeCondition = scope.toCondition()
                 val counts =
                     WorkItemsTable
                         .selectAll()
-                        .where { WorkItemsTable.id inList scopeEntityIds }
+                        .where { scopeCondition }
                         .mapNotNull { toWorkItemOrNull(it) }
                         .groupBy { it.role }
                         .mapValues { (_, items) -> items.size }
@@ -1653,6 +1653,89 @@ class SQLiteWorkItemRepository(
             logger.error("Failed to countInScopeByRole for roots ${rootIds.size}: ${e.message}", e)
             Result.Error(RepositoryError.DatabaseError("Failed to countInScopeByRole: ${e.message}", e))
         }
+    }
+
+    /**
+     * The resolved WHERE-clause form of a caller-supplied root set (see [resolveScope]).
+     *
+     * [ByRoot] is the fast path: it binds ONE parameter per requested root and lets SQLite use
+     * `idx_work_items_root_id`. [ByIds] is the historical path: the recursive CTE (or the H2 BFS)
+     * expands the scope to every descendant id and binds them all, which is O(subtree) bound
+     * variables and fails outright above SQLite's SQLITE_MAX_VARIABLE_NUMBER (~32,766).
+     */
+    private sealed interface ResolvedScope {
+        /** The condition this scope contributes to a WHERE clause. */
+        fun toCondition(): Op<Boolean>
+
+        /** Nothing is in scope. Callers short-circuit to an empty result rather than query. */
+        data object Empty : ResolvedScope {
+            override fun toCondition(): Op<Boolean> = Op.FALSE
+        }
+
+        /** Every requested id is a stamped depth-0 root: `root_id IN (rootIds)` is the whole scope. */
+        data class ByRoot(
+            val rootIds: Set<UUID>
+        ) : ResolvedScope {
+            override fun toCondition(): Op<Boolean> = WorkItemsTable.rootId inList rootIds
+        }
+
+        /** Fallback: the fully expanded id set (roots + all descendants). */
+        data class ByIds(
+            val ids: Set<UUID>
+        ) : ResolvedScope {
+            override fun toCondition(): Op<Boolean> = WorkItemsTable.id inList ids.map { EntityID(it, WorkItemsTable) }
+        }
+    }
+
+    /**
+     * Resolve a caller-supplied root set into a scope filter, preferring the flat `root_id`
+     * predicate over the recursive expansion whenever it is provably equivalent.
+     *
+     * Fast path (ALL-OR-NOTHING): taken only when EVERY id in [rootIds] resolves to a row that is
+     * a stamped depth-0 root — `parent_id IS NULL AND root_id = id`. V9 stamps every item with its
+     * depth-0 ancestor's id and a depth-0 item with its own id, so for such a root R the set
+     * `{x : x.root_id = R}` is exactly `subtree(R)`, R included. The scope then costs |rootIds|
+     * bound variables instead of one per subtree row.
+     *
+     * The all-or-nothing guard is the entire safety mechanism: accepting a set containing a
+     * below-root id would silently widen that id's scope to its whole containing tree. One
+     * non-root, unstamped, inconsistently stamped or missing id and the whole call falls back to
+     * [resolveScopeIds]. Rows left NULL by V9 (unreachable from any depth-0 root) are equally
+     * unreachable from the CTE, so both paths agree on them.
+     *
+     * Declared behaviour delta: the fast path does not traverse, so a cyclic `parent_id` edge
+     * beneath a stamped root returns rows here where the CTE path raises MAX_TRAVERSAL_DEPTH.
+     *
+     * Must be called from within an active Exposed transaction.
+     */
+    private fun resolveScope(rootIds: Set<UUID>): ResolvedScope {
+        if (rootIds.isEmpty()) return ResolvedScope.Empty
+        if (allAreStampedRoots(rootIds)) return ResolvedScope.ByRoot(rootIds)
+
+        val scopeIds = resolveScopeIds(rootIds)
+        return if (scopeIds.isEmpty()) ResolvedScope.Empty else ResolvedScope.ByIds(scopeIds)
+    }
+
+    /**
+     * True when every id in [rootIds] exists AND is a stamped depth-0 root
+     * (`parent_id IS NULL AND root_id = id`). Binds |rootIds| parameters — callers pass the roots
+     * they were handed, never an expanded subtree. A missing id fails the count check, so a
+     * scope naming a non-existent root falls back to the CTE and keeps its existing behaviour.
+     *
+     * Exposed DSL (not raw SQL) so H2 and SQLite take the same branch.
+     */
+    private fun allAreStampedRoots(rootIds: Set<UUID>): Boolean {
+        val entityIds = rootIds.map { EntityID(it, WorkItemsTable) }
+        var matched = 0
+        WorkItemsTable
+            .selectAll()
+            .where { WorkItemsTable.id inList entityIds }
+            .forEach { row ->
+                val id = row[WorkItemsTable.id].value
+                if (row[WorkItemsTable.parentId] != null || row[WorkItemsTable.rootId] != id) return false
+                matched++
+            }
+        return matched == rootIds.size
     }
 
     /**
@@ -1830,14 +1913,14 @@ class SQLiteWorkItemRepository(
     }
 
     /**
-     * Builds a filtered SELECT query scoped to [scopeIds] (pre-resolved set of all IDs in the
-     * subtrees rooted at the caller-supplied roots).
+     * Builds a filtered SELECT query scoped to [scope] — the resolved WHERE-clause form of the
+     * caller-supplied roots (see [resolveScope]).
      *
-     * Delegates to [buildFilteredQuery] after prepending the scope-ID `inList` condition.
-     * The scope filter is the first condition so SQLite can push it through the PK index early.
+     * The scope filter is the first condition so SQLite can push it through an index early:
+     * `idx_work_items_root_id` on the fast path, the primary key on the expanded-id path.
      */
     private fun buildScopedQuery(
-        scopeIds: Set<UUID>,
+        scope: ResolvedScope,
         parentId: UUID?,
         depth: Int?,
         role: Role?,
@@ -1853,11 +1936,10 @@ class SQLiteWorkItemRepository(
         claimStatus: String?,
         now: Instant,
     ): Query {
-        val entityIds = scopeIds.map { EntityID(it, WorkItemsTable) }
         val conditions = mutableListOf<Op<Boolean>>()
 
-        // Scope constraint: id must be in the pre-resolved set
-        conditions.add(WorkItemsTable.id inList entityIds)
+        // Scope constraint: root_id IN (roots) on the fast path, id IN (resolved set) otherwise
+        conditions.add(scope.toCondition())
 
         // Additional filter conditions (same logic as buildFilteredQuery)
         parentId?.let { conditions.add(WorkItemsTable.parentId eq it) }

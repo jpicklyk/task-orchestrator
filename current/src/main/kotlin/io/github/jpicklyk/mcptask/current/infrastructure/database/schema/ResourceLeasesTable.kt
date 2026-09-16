@@ -1,9 +1,11 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.database.schema
 
+import org.jetbrains.exposed.v1.core.Column
 import org.jetbrains.exposed.v1.core.ReferenceOption
-import org.jetbrains.exposed.v1.core.dao.id.java.UUIDTable
-import org.jetbrains.exposed.v1.core.java.javaUUID
+import org.jetbrains.exposed.v1.core.dao.id.EntityID
+import org.jetbrains.exposed.v1.core.dao.id.IdTable
 import org.jetbrains.exposed.v1.javatime.timestamp
+import java.util.UUID
 
 /**
  * Server-enforced TTL lease store for shared external resources (see
@@ -26,9 +28,12 @@ import org.jetbrains.exposed.v1.javatime.timestamp
  * [budgetLimit] / [budgetUsed] / [budgetWindowSeconds] are reserved for a future rate-budget
  * enforcement mode — unused by the current repository surface, always null for now.
  */
-object ResourceLeasesTable : UUIDTable("resource_leases") {
+object ResourceLeasesTable : IdTable<UUID>("resource_leases") {
+    override val id: Column<EntityID<UUID>> = javaUuidSqlite("id").autoGenerate().entityId()
+    override val primaryKey = PrimaryKey(id)
+
     val resourceKey = text("resource_key")
-    val holderItemId = javaUUID("holder_item_id")
+    val holderItemId = javaUuidSqlite("holder_item_id")
     val acquiredByActorId = text("acquired_by_actor_id").nullable()
     val acquiredAt = timestamp("acquired_at")
     val expiresAt = timestamp("expires_at")

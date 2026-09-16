@@ -62,7 +62,8 @@ class QueryDependenciesToolBacklinksTest {
         type: DependencyType = DependencyType.BLOCKS,
     ): Dependency {
         val dep = Dependency(fromItemId = fromItemId, toItemId = toItemId, type = type)
-        return context.dependencyRepository().create(dep)
+        // Orchestrator sweep repair [33e96efd]: create() is now suspend; helper stays non-suspend.
+        return runBlocking { context.dependencyRepository().create(dep) }
     }
 
     // ────────────────────────────────────────────────────────────────────────

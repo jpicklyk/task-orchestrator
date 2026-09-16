@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.model.BacklinkRow
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
+import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
@@ -19,6 +20,19 @@ import java.util.UUID
  * optional WorkItem detail inclusion, and BFS graph traversal.
  */
 class QueryDependenciesTool : BaseToolDefinition() {
+    companion object {
+        /**
+         * Hard cap on distinct nodes visited during BFS graph traversal ([buildGraphJson]).
+         * Public with the same visibility convention as
+         * [io.github.jpicklyk.mcptask.current.domain.repository.MAX_TRAVERSAL_DEPTH] so a
+         * boundary test can import it. On hit, traversal stops early and the response sets
+         * `graph.truncated = true` instead of failing — this is a read-only query tool, not a
+         * cascade/subtree-mutation path, so a soft truncation signal is used instead of the
+         * hard `Result.Error` that `findDescendants` returns.
+         */
+        const val MAX_DEPENDENCY_GRAPH_NODES: Int = 1000
+    }
+
     override val name = "query_dependencies"
 
     override val description =
@@ -117,6 +131,31 @@ a backlink row means another item has an edge with toItemId = your itemId. E.g. 
                             )
                         }
                     )
+                    put(
+                        "limit",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("integer"))
+                            put(
+                                "description",
+                                JsonPrimitive(
+                                    "(get only) Maximum number of dependency edges to return, applied after type filtering " +
+                                        "(default: unbounded — all matching edges returned). Must be >= 1."
+                                )
+                            )
+                        }
+                    )
+                    put(
+                        "offset",
+                        buildJsonObject {
+                            put("type", JsonPrimitive("integer"))
+                            put(
+                                "description",
+                                JsonPrimitive(
+                                    "(get only) Number of matching edges to skip before applying limit (default: 0). Must be >= 0."
+                                )
+                            )
+                        }
+                    )
                 },
             required = listOf("operation", "itemId")
         )
@@ -139,6 +178,15 @@ a backlink row means another item has an edge with toItemId = your itemId. E.g. 
             val direction = optionalString(params, "direction")
             if (direction != null && direction !in listOf("incoming", "outgoing", "all")) {
                 throw ToolValidationException("Invalid direction: $direction. Must be one of: incoming, outgoing, all")
+            }
+
+            val limitVal = optionalInt(params, "limit")
+            if (limitVal != null && limitVal < 1) {
+                throw ToolValidationException("limit must be at least 1")
+            }
+            val offsetVal = optionalInt(params, "offset")
+            if (offsetVal != null && offsetVal < 0) {
+                throw ToolValidationException("offset must be non-negative")
             }
         }
     }
@@ -199,6 +247,9 @@ a backlink row means another item has an edge with toItemId = your itemId. E.g. 
         val typeFilter = optionalString(params, "type")?.let { DependencyType.fromString(it) }
         val includeItemInfo = optionalBoolean(params, "includeItemInfo", defaultValue = false)
         val neighborsOnly = optionalBoolean(params, "neighborsOnly", defaultValue = true)
+        val limitParam = optionalInt(params, "limit")
+        val offsetParam = optionalInt(params, "offset")
+        val effectiveOffset = offsetParam ?: 0
 
         // Fetch dependencies by direction (non-suspend calls)
         val depRepo = context.dependencyRepository()
@@ -218,11 +269,36 @@ a backlink row means another item has an edge with toItemId = your itemId. E.g. 
                 allDeps
             }
 
+        // Apply limit/offset paging. Opt-in: when neither param is supplied, `pagedDeps` is
+        // exactly `filteredDeps` and the response omits the paging block entirely, keeping the
+        // pre-fix (unbounded) response byte-identical for callers that never asked to page.
+        val pagedDeps =
+            filteredDeps
+                .drop(effectiveOffset)
+                .let { if (limitParam != null) it.take(limitParam) else it }
+
+        // Batch-fetch related WorkItem info in a single findByIds call, eliminating the prior
+        // 2-getById-per-edge N+1 pattern. Fetched only for the page actually returned.
+        val itemInfoMap: Map<UUID, WorkItem> =
+            if (includeItemInfo && pagedDeps.isNotEmpty()) {
+                val relatedIds = mutableSetOf<UUID>()
+                pagedDeps.forEach {
+                    relatedIds.add(it.fromItemId)
+                    relatedIds.add(it.toItemId)
+                }
+                when (val result = context.workItemRepository().findByIds(relatedIds)) {
+                    is Result.Success -> result.data.associateBy { it.id }
+                    is Result.Error -> emptyMap()
+                }
+            } else {
+                emptyMap()
+            }
+
         // Build dependency JSON array, optionally including item info
         val depJsonArray =
             JsonArray(
-                filteredDeps.map { dep ->
-                    buildDependencyJson(dep, includeItemInfo, context)
+                pagedDeps.map { dep ->
+                    buildDependencyJson(dep, includeItemInfo, itemInfoMap)
                 }
             )
 
@@ -244,6 +320,14 @@ a backlink row means another item has an edge with toItemId = your itemId. E.g. 
             buildJsonObject {
                 put("dependencies", depJsonArray)
                 put("counts", countsJson)
+
+                // Paging metadata only appears when the caller opted into limit/offset — keeps
+                // the default (unpaged) response byte-identical to the pre-fix shape.
+                if (limitParam != null || offsetParam != null) {
+                    put("total", JsonPrimitive(filteredDeps.size))
+                    put("limit", limitParam?.let { JsonPrimitive(it) } ?: JsonNull)
+                    put("offset", JsonPrimitive(effectiveOffset))
+                }
 
                 // Graph traversal if requested
                 if (!neighborsOnly) {
@@ -278,10 +362,10 @@ a backlink row means another item has an edge with toItemId = your itemId. E.g. 
     // Helper methods
     // ──────────────────────────────────────────────
 
-    private suspend fun buildDependencyJson(
+    private fun buildDependencyJson(
         dep: Dependency,
         includeItemInfo: Boolean,
-        context: ToolExecutionContext
+        itemInfoMap: Map<UUID, WorkItem>
     ): JsonObject =
         buildJsonObject {
             put("id", JsonPrimitive(dep.id.toString()))
@@ -295,36 +379,30 @@ a backlink row means another item has an edge with toItemId = your itemId. E.g. 
             }
 
             if (includeItemInfo) {
-                // Fetch "from" item details
-                when (val fromResult = context.workItemRepository().getById(dep.fromItemId)) {
-                    is Result.Success -> {
-                        val item = fromResult.data
-                        put(
-                            "fromItem",
-                            buildJsonObject {
-                                put("title", JsonPrimitive(item.title))
-                                put("role", JsonPrimitive(item.role.toJsonString()))
-                                put("priority", JsonPrimitive(item.priority.toJsonString()))
-                            }
-                        )
-                    }
-                    is Result.Error -> { /* item may have been deleted; skip */ }
+                // "from"/"to" item details, looked up from the batch findByIds() map built once
+                // per executeGet() call. An item that has been deleted since the dependency was
+                // created is simply absent from the map (findByIds omits missing ids per its
+                // KDoc) — the field is skipped, matching the prior getById-per-edge behavior.
+                itemInfoMap[dep.fromItemId]?.let { item ->
+                    put(
+                        "fromItem",
+                        buildJsonObject {
+                            put("title", JsonPrimitive(item.title))
+                            put("role", JsonPrimitive(item.role.toJsonString()))
+                            put("priority", JsonPrimitive(item.priority.toJsonString()))
+                        }
+                    )
                 }
 
-                // Fetch "to" item details
-                when (val toResult = context.workItemRepository().getById(dep.toItemId)) {
-                    is Result.Success -> {
-                        val item = toResult.data
-                        put(
-                            "toItem",
-                            buildJsonObject {
-                                put("title", JsonPrimitive(item.title))
-                                put("role", JsonPrimitive(item.role.toJsonString()))
-                                put("priority", JsonPrimitive(item.priority.toJsonString()))
-                            }
-                        )
-                    }
-                    is Result.Error -> { /* item may have been deleted; skip */ }
+                itemInfoMap[dep.toItemId]?.let { item ->
+                    put(
+                        "toItem",
+                        buildJsonObject {
+                            put("title", JsonPrimitive(item.title))
+                            put("role", JsonPrimitive(item.role.toJsonString()))
+                            put("priority", JsonPrimitive(item.priority.toJsonString()))
+                        }
+                    )
                 }
             }
         }
@@ -333,13 +411,21 @@ a backlink row means another item has an edge with toItemId = your itemId. E.g. 
      * Performs frontier-based BFS traversal from the given item following BLOCKS edges in both directions.
      * Uses batch queries (findByItemIds) to eliminate N+1 query overhead.
      * Returns a topologically-ordered chain of item IDs and the maximum depth.
+     *
+     * Visited-node count is capped at [MAX_DEPENDENCY_GRAPH_NODES]. On hit, traversal stops
+     * expanding further and `truncated` is set true in the returned JSON — a soft signal (like
+     * `AncestorChain.truncated`), not a thrown error, since this is a read-only query tool.
+     *
+     * `suspend` because [DependencyRepository.findByItemIds] becomes suspend under 33e96efd
+     * (this stream only marks the caller; the callee's own suspend modifier is that stream's edit).
      */
-    private fun buildGraphJson(
+    private suspend fun buildGraphJson(
         startItemId: UUID,
         depRepo: DependencyRepository
     ): JsonObject {
         val visited = mutableSetOf<UUID>()
         val edges = mutableListOf<Pair<UUID, UUID>>()
+        var truncated = false
 
         visited.add(startItemId)
         var frontier = setOf(startItemId)
@@ -361,11 +447,16 @@ a backlink row means another item has an edge with toItemId = your itemId. E.g. 
                     edges.add(from to to)
                     val neighbor = if (current == dep.fromItemId) dep.toItemId else dep.fromItemId
                     if (neighbor !in visited) {
-                        visited.add(neighbor)
-                        nextFrontier.add(neighbor)
+                        if (visited.size >= MAX_DEPENDENCY_GRAPH_NODES) {
+                            truncated = true
+                        } else {
+                            visited.add(neighbor)
+                            nextFrontier.add(neighbor)
+                        }
                     }
                 }
             }
+            if (truncated) break
             frontier = nextFrontier
         }
 
@@ -374,6 +465,7 @@ a backlink row means another item has an edge with toItemId = your itemId. E.g. 
         return buildJsonObject {
             put("chain", JsonArray(chain.map { JsonPrimitive(it.toString()) }))
             put("depth", JsonPrimitive(depth))
+            put("truncated", JsonPrimitive(truncated))
         }
     }
 

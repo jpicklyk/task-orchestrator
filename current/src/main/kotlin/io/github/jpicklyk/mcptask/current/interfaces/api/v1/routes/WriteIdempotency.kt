@@ -51,6 +51,13 @@ suspend fun ApplicationCall.sendCaptured(captured: CachedHttpResponse) {
  * a cache miss. The non-suspend cache lambda bridges to the suspend [compute] via [runBlocking],
  * matching the pattern used by the MCP tools.
  *
+ * **[compute] must not read the request body.** [runBlocking] parks the calling Ktor worker
+ * thread for the whole of [compute], and [IdempotencyCache.getOrCompute] holds this key's
+ * in-flight entry for the same span. A body read inside [compute] would therefore stretch both
+ * across client-paced network I/O. Every caller reads the raw body (`call.receiveText()`) BEFORE
+ * this function and passes the text into its captured block; parsing and all state-dependent
+ * checks stay inside, so status precedence is unaffected.
+ *
  * @param idempotencyKeyResult result of parsing the `Idempotency-Key` header (Absent/Present/Invalid).
  *   When [IdempotencyKeyResult.Invalid] the caller must have already responded 400 and must NOT call
  *   this function.

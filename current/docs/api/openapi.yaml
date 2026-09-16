@@ -1091,6 +1091,23 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "413":
+          description: >-
+            Payload too large — body exceeds the shared 1 MiB write-body limit, enforced before
+            the body is buffered (Content-Length pre-check, then a capped channel read).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDto"
+        "415":
+          description: >-
+            Unsupported media type — Content-Type is present and is not application/json (an
+            absent header is accepted as */*); checked before the Idempotency-Key header or body
+            is read.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDto"
         "500":
           $ref: "#/components/responses/InternalServerError"
 
@@ -1246,6 +1263,14 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorDto"
+        "413":
+          description: >-
+            Payload too large — body exceeds the shared 1 MiB write-body limit, enforced before
+            the body is buffered (Content-Length pre-check, then a capped channel read).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDto"
         "415":
           description: Unsupported media type
           headers:
@@ -1358,6 +1383,22 @@ paths:
             Transition rejected. error="gate_blocked" with details.missingNotes when a required-note
             gate fails; error="transition_blocked" with details.blockers when a dependency blocks the
             transition; error="transition_failed" for invalid-state resolution/apply failures.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDto"
+        "413":
+          description: >-
+            Payload too large — body exceeds the shared 1 MiB write-body limit, enforced before
+            the body is buffered (Content-Length pre-check, then a capped channel read).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDto"
+        "415":
+          description: >-
+            Unsupported media type — Content-Type is present and is not application/json (an
+            absent header is accepted as */*); checked before the body is read.
           content:
             application/json:
               schema:
@@ -1567,6 +1608,23 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorDto"
+        "413":
+          description: >-
+            Payload too large — body exceeds the shared 1 MiB write-body limit, enforced before
+            the body is buffered (Content-Length pre-check, then a capped channel read).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDto"
+        "415":
+          description: >-
+            Unsupported media type — Content-Type is present and is not application/json (an
+            absent header is accepted as */*); checked before the Idempotency-Key header or body
+            is read.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDto"
 
     delete:
       summary: Delete a note
@@ -1688,6 +1746,22 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "413":
+          description: >-
+            Payload too large — body exceeds the shared 1 MiB write-body limit, enforced before
+            the body is buffered (Content-Length pre-check, then a capped channel read).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDto"
+        "415":
+          description: >-
+            Unsupported media type — Content-Type is present and is not application/json (an
+            absent header is accepted as */*); checked before the body is read.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDto"
         "500":
           $ref: "#/components/responses/InternalServerError"
 
@@ -2245,7 +2319,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorDto"
         "413":
-          description: configYaml exceeds the 128 KiB cap
+          description: >-
+            configYaml exceeds the 128 KiB cap (unchanged); now enforced before the body is fully
+            buffered.
           content:
             application/json:
               schema:
@@ -2398,7 +2474,9 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorDto"
         "413":
-          description: body exceeds the 64 KiB cap
+          description: >-
+            body exceeds the 64 KiB cap (unchanged); now enforced before the body is fully
+            buffered.
           content:
             application/json:
               schema:

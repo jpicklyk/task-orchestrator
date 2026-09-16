@@ -45,11 +45,19 @@ abstract class SQLiteRepositoryTestBase {
         // Keep a connection open so the in-memory DB is not destroyed between transactions.
         keepAliveConnection = DriverManager.getConnection(jdbcUrl)
 
-        // Connect Exposed to the same in-memory DB.
+        // Connect Exposed to the same in-memory DB. setupConnection runs on EVERY physical
+        // connection Exposed opens (one per transaction here) — PRAGMA foreign_keys is a
+        // per-connection setting, so a one-off statement inside a single transaction would only
+        // affect that transaction's connection. 97f8632f: this custom-Database path bypasses
+        // DatabaseManager.setupConnection (the production initialize() path, the only other
+        // place PRAGMA foreign_keys=ON is issued) — mirror it here via the same hook.
         database =
             Database.connect(
                 url = jdbcUrl,
                 driver = "org.sqlite.JDBC",
+                setupConnection = { conn ->
+                    conn.createStatement().use { it.execute("PRAGMA foreign_keys=ON") }
+                },
             )
         TransactionManager.manager.defaultIsolationLevel = Connection.TRANSACTION_SERIALIZABLE
 

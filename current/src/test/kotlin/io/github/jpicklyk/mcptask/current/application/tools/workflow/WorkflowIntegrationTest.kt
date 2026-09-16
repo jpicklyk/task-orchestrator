@@ -93,7 +93,8 @@ class WorkflowIntegrationTest {
                 type = type,
                 unblockAt = unblockAt
             )
-        return context.dependencyRepository().create(dep)
+        // Orchestrator sweep repair [33e96efd]: create() is now suspend; helper stays non-suspend.
+        return runBlocking { context.dependencyRepository().create(dep) }
     }
 
     private fun buildTransitionParams(vararg transitions: JsonObject): JsonObject =

@@ -1,16 +1,20 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.database.schema
 
+import org.jetbrains.exposed.v1.core.Column
 import org.jetbrains.exposed.v1.core.ReferenceOption
-import org.jetbrains.exposed.v1.core.dao.id.java.UUIDTable
-import org.jetbrains.exposed.v1.core.java.javaUUID
-import org.jetbrains.exposed.v1.javatime.timestamp
+import org.jetbrains.exposed.v1.core.dao.id.EntityID
+import org.jetbrains.exposed.v1.core.dao.id.IdTable
+import java.util.UUID
 
-object DependenciesTable : UUIDTable("dependencies") {
-    val fromItemId = javaUUID("from_item_id")
-    val toItemId = javaUUID("to_item_id")
+object DependenciesTable : IdTable<UUID>("dependencies") {
+    override val id: Column<EntityID<UUID>> = javaUuidSqlite("id").autoGenerate().entityId()
+    override val primaryKey = PrimaryKey(id)
+
+    val fromItemId = javaUuidSqlite("from_item_id")
+    val toItemId = javaUuidSqlite("to_item_id")
     val type = varchar("type", 20).default("BLOCKS")
     val unblockAt = varchar("unblock_at", 20).nullable()
-    val createdAt = timestamp("created_at")
+    val createdAt = timestampSqlite("created_at")
 
     init {
         foreignKey(fromItemId to WorkItemsTable.id, onDelete = ReferenceOption.CASCADE)

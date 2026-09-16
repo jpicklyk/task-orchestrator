@@ -102,6 +102,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   observe an event for a change that later rolled back.** Events now publish after the enclosing
   transaction commits, and are dropped entirely if it rolls back instead; ordering on the success
   path (including `Last-Event-ID` replay) is unchanged. (`0e9d5675`)
+- **`query_items`'s global and anchored overview modes accepted `limit < 1`.** A `limit` of `0`
+  silently returned an empty page, and a negative `limit` crashed with an uncaught
+  `IllegalArgumentException` on the anchored path. Both arms now reject `limit < 1` with the same
+  validation error as the `search` arm; scoped overview (`itemId` set) is unaffected and still
+  ignores `limit`. (`1a04106a`)
+- **Root-scoped WorkItem queries ignored the `root_id` column and expanded every subtree id into a
+  bound-variable list**, hitting SQLite's ~32,766-parameter ceiling on large subtrees.
+  `findByRole`/`findForNextItem`/`findClaimable`/`countByClaimStatus`/`findInScope`/`countInScope`/`countInScopeByRole`
+  now filter `root_id = ?` directly when every requested scope id is a stamped depth-0 root
+  (binding `O(|rootIds|)` params instead of one per row); below-root or unstamped scopes still take
+  the original recursive-CTE path. No public signature or migration change. (`09205394`)
+- **`dependency.added`/`dependency.removed` SSE events were withheld from root-scoped subscribers
+  whenever the ancestor-root cache was cold.** Eight of `DependencyRepository`'s ten methods are
+  now `suspend` (joining the caller's coroutine transaction), and the event decorator resolves
+  roots via a live database lookup instead of the cache-only path, so a cold-cache dependency write
+  now correctly reaches root-scoped subscribers as long as one is connected at write time.
+  `createSuspend` is removed (collapsed into `create`); `findByFromItemId`/`findByToItemId` remain
+  non-suspend. (`33e96efd`)
+- **`query_dependencies`'s `get` edge listing had no paging, issued two `getById` calls per edge for
+  item-info enrichment, and its BFS graph traversal was unbounded.** `get` now accepts optional
+  `limit`/`offset` on the edge listing (rejecting `limit < 1` / `offset < 0`), enrichment is fetched
+  in one batched lookup instead of per-edge calls, and BFS traversal caps at
+  `MAX_DEPENDENCY_GRAPH_NODES` (1000) nodes, setting `graph.truncated` when the cap is hit.
+  Responses that omit both `limit` and `offset` are byte-identical to before. (`6e2d8fc2`)
+- **The REST idempotency cache held one process-wide write lock across the entire
+  compute-and-store operation, serializing unrelated requests, and read the request body inside
+  that lock.** `IdempotencyCache` now locks only the store read-check-write and per-key in-flight
+  computations — concurrent same-key callers coalesce onto one execution and different keys never
+  block each other — and `POST /items`, `PATCH /items/{id}`, and `PUT /items/{id}/notes/{key}` read
+  the body before entering the idempotency path. `POST /items` and `PUT .../notes/{key}` also now
+  explicitly reject a non-JSON `Content-Type` with `415 unsupported_media_type` (an absent header
+  is still accepted). Replay semantics are unchanged: same key + different body still replays the
+  first response verbatim. (`c7751104`)
+- **The Exposed-generated `work_items` table (used by Direct-mode/dev databases) was missing the
+  `role`/`previous_role`/`priority` `CHECK` constraints and the `claim_expires_at` index that the
+  Flyway migration (V7) defines**, so a Direct-mode database created today could accept an invalid
+  role/priority value the Flyway-migrated schema would reject. `WorkItemsTable` now declares the
+  same three CHECK constraints and index; no migration file changed. (`97f8632f`)
+- **Every REST write route buffered the entire request body into heap before any size check
+  ran.** `POST /items`, `PATCH /items/{id}`, `POST /items/{id}/advance`, `PUT
+  /items/{id}/notes/{key}`, and `POST /dependencies` had no size limit at all; `PUT
+  /roots/{rootId}/config` and `PUT /roots/{rootId}/plans/{slug}` checked their existing limits only
+  after the full body had already been read. A shared `receiveBounded()` helper now rejects an
+  over-limit `Content-Length` before touching the body, and caps the actual channel read at
+  `limit + 1` bytes to catch a chunked or understated `Content-Length` — no oversized body is ever
+  buffered in full. All seven routes now share one `413 payload_too_large` shape; the two
+  pre-existing numeric limits (128 KiB, 64 KiB) are unchanged, and the five previously-uncapped
+  routes share a new 1 MiB limit. (`e941c2c7`)
 
 ## [3.13.1] - 2026-08-04
 
