@@ -93,6 +93,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   live fan-out and `Last-Event-ID` replay. `GET /api/v1/events` also now rejects `?root=` values
   entirely outside a root-scoped token's `scope.rootIds` with `403 insufficient_scope`, and a
   `?root=` yielding no valid UUID with `400 validation_error`. (`ffce70f6`)
+- **JWTs with no `exp` claim were accepted indefinitely, and the SSE expiry watchdog silently
+  skipped sessions without one.** JWKS-mode tokens now require `exp`; a token with no `exp` is
+  rejected with `401 invalid_token` (no max-lifetime opt-in). The `auth.expired` SSE watchdog now
+  runs for every JWKS-authenticated session as a direct consequence — only unauthenticated sessions
+  and bearer tokens with no `expires_at` remain watchdog-free. (`708063fa`)
+- **Domain events were published inside the same DB transaction as the write, so a subscriber could
+  observe an event for a change that later rolled back.** Events now publish after the enclosing
+  transaction commits, and are dropped entirely if it rolls back instead; ordering on the success
+  path (including `Last-Event-ID` replay) is unchanged. (`0e9d5675`)
 
 ## [3.13.1] - 2026-08-04
 

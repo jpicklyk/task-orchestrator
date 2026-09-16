@@ -2530,6 +2530,12 @@ paths:
                   (resumed Last-Event-ID older than the retained ring buffer), or
                   unknown_event_id (resumed Last-Event-ID above the high-water mark or
                   unparsable); null/absent on every other event type.
+
+                  auth.expired: sent and the stream closed when the connection's token expires
+                  (checked every API_SSE_AUTH_CHECK_INTERVAL_SECONDS). Fires for every JWKS session
+                  (exp is a required claim in jwks mode — a token with no exp is rejected at auth
+                  time, 401 invalid_token). Does not fire for API_AUTH_MODE=none unauthenticated
+                  sessions or for a bearer token with no expires_at — neither has an expiry to watch.
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":

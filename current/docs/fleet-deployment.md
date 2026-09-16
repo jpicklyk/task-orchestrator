@@ -95,6 +95,8 @@ API_JWKS_ALGORITHMS=RS256,EdDSA
 API_JWKS_CACHE_TTL_SECONDS=300   # optional, default 300
 ```
 
+JWTs presented in this mode must carry an `exp` claim — a token with no `exp` is rejected (`401 invalid_token`, no max-lifetime opt-in) — and the SSE `auth.expired` watchdog (`API_SSE_AUTH_CHECK_INTERVAL_SECONDS`) runs for every JWKS-authenticated SSE session as a result.
+
 ```bash
 # Unauthenticated mode — opt-in, loopback-only (see "Unauthenticated mode" below)
 API_ENABLED=true
