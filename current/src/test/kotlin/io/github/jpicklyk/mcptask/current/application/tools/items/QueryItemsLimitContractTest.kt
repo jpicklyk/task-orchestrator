@@ -7,7 +7,6 @@ import io.github.jpicklyk.mcptask.current.domain.repository.ItemFetchResult
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.SearchResult
 import io.github.jpicklyk.mcptask.current.test.MockRepositoryProvider
-import io.mockk.capture
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.slot
@@ -161,46 +160,44 @@ class QueryItemsLimitContractTest {
 
             coEvery {
                 mocks.workItemRepo.findByFilters(
-                    parentId = any(nullable = true),
-                    depth = any(nullable = true),
-                    role = any(nullable = true),
-                    priority = any(nullable = true),
-                    tags = any(nullable = true),
-                    query = any(nullable = true),
-                    createdAfter = any(nullable = true),
-                    createdBefore = any(nullable = true),
-                    modifiedAfter = any(nullable = true),
-                    modifiedBefore = any(nullable = true),
-                    roleChangedAfter = any(nullable = true),
-                    roleChangedBefore = any(nullable = true),
-                    sortBy = any(nullable = true),
-                    sortOrder = any(nullable = true),
+                    parentId = any(),
+                    depth = any(),
+                    role = any(),
+                    priority = any(),
+                    tags = any(),
+                    query = any(),
+                    createdAfter = any(),
+                    createdBefore = any(),
+                    modifiedAfter = any(),
+                    modifiedBefore = any(),
+                    roleChangedAfter = any(),
+                    roleChangedBefore = any(),
+                    sortBy = any(),
+                    sortOrder = any(),
                     limit = capture(limitSlot),
                     offset = any(),
-                    type = any(nullable = true),
-                    claimStatus = any(nullable = true),
+                    type = any(),
+                    claimStatus = any(),
                 )
             } returns Result.Success(ItemFetchResult(items = emptyList(), skipped = 0))
             coEvery {
                 mocks.workItemRepo.countByFilters(
-                    parentId = any(nullable = true),
-                    depth = any(nullable = true),
-                    role = any(nullable = true),
-                    priority = any(nullable = true),
-                    tags = any(nullable = true),
-                    query = any(nullable = true),
-                    createdAfter = any(nullable = true),
-                    createdBefore = any(nullable = true),
-                    modifiedAfter = any(nullable = true),
-                    modifiedBefore = any(nullable = true),
-                    roleChangedAfter = any(nullable = true),
-                    roleChangedBefore = any(nullable = true),
-                    sortBy = any(nullable = true),
-                    sortOrder = any(nullable = true),
-                    type = any(nullable = true),
-                    claimStatus = any(nullable = true),
+                    parentId = any(),
+                    depth = any(),
+                    role = any(),
+                    priority = any(),
+                    tags = any(),
+                    query = any(),
+                    createdAfter = any(),
+                    createdBefore = any(),
+                    modifiedAfter = any(),
+                    modifiedBefore = any(),
+                    roleChangedAfter = any(),
+                    roleChangedBefore = any(),
+                    type = any(),
+                    claimStatus = any(),
                 )
-            } returns Result.Success(0L)
+            } returns Result.Success(0)
 
             val tool = QueryItemsTool()
             val result =
@@ -221,46 +218,44 @@ class QueryItemsLimitContractTest {
 
             coEvery {
                 mocks.workItemRepo.findByFilters(
-                    parentId = any(nullable = true),
-                    depth = any(nullable = true),
-                    role = any(nullable = true),
-                    priority = any(nullable = true),
-                    tags = any(nullable = true),
-                    query = any(nullable = true),
-                    createdAfter = any(nullable = true),
-                    createdBefore = any(nullable = true),
-                    modifiedAfter = any(nullable = true),
-                    modifiedBefore = any(nullable = true),
-                    roleChangedAfter = any(nullable = true),
-                    roleChangedBefore = any(nullable = true),
-                    sortBy = any(nullable = true),
-                    sortOrder = any(nullable = true),
+                    parentId = any(),
+                    depth = any(),
+                    role = any(),
+                    priority = any(),
+                    tags = any(),
+                    query = any(),
+                    createdAfter = any(),
+                    createdBefore = any(),
+                    modifiedAfter = any(),
+                    modifiedBefore = any(),
+                    roleChangedAfter = any(),
+                    roleChangedBefore = any(),
+                    sortBy = any(),
+                    sortOrder = any(),
                     limit = capture(limitSlot),
                     offset = any(),
-                    type = any(nullable = true),
-                    claimStatus = any(nullable = true),
+                    type = any(),
+                    claimStatus = any(),
                 )
             } returns Result.Success(ItemFetchResult(items = emptyList(), skipped = 0))
             coEvery {
                 mocks.workItemRepo.countByFilters(
-                    parentId = any(nullable = true),
-                    depth = any(nullable = true),
-                    role = any(nullable = true),
-                    priority = any(nullable = true),
-                    tags = any(nullable = true),
-                    query = any(nullable = true),
-                    createdAfter = any(nullable = true),
-                    createdBefore = any(nullable = true),
-                    modifiedAfter = any(nullable = true),
-                    modifiedBefore = any(nullable = true),
-                    roleChangedAfter = any(nullable = true),
-                    roleChangedBefore = any(nullable = true),
-                    sortBy = any(nullable = true),
-                    sortOrder = any(nullable = true),
-                    type = any(nullable = true),
-                    claimStatus = any(nullable = true),
+                    parentId = any(),
+                    depth = any(),
+                    role = any(),
+                    priority = any(),
+                    tags = any(),
+                    query = any(),
+                    createdAfter = any(),
+                    createdBefore = any(),
+                    modifiedAfter = any(),
+                    modifiedBefore = any(),
+                    roleChangedAfter = any(),
+                    roleChangedBefore = any(),
+                    type = any(),
+                    claimStatus = any(),
                 )
-            } returns Result.Success(0L)
+            } returns Result.Success(0)
 
             val tool = QueryItemsTool()
             val result =
@@ -293,7 +288,7 @@ class QueryItemsLimitContractTest {
             coEvery { mocks.workItemRepo.countChildrenByRole(any()) } returns Result.Success(emptyMap())
             coEvery { mocks.workItemRepo.countInScopeByRole(any()) } returns Result.Success(emptyMap())
             coEvery {
-                mocks.workItemRepo.countByClaimStatus(parentId = any(nullable = true), rootIds = any(nullable = true))
+                mocks.workItemRepo.countByClaimStatus(parentId = any(), rootIds = any())
             } returns Result.Success(ClaimStatusCounts(active = 0, expired = 0, unclaimed = 0))
 
             val tool = QueryItemsTool()
@@ -333,7 +328,7 @@ class QueryItemsLimitContractTest {
             coEvery { mocks.workItemRepo.countChildrenByRole(any()) } returns Result.Success(emptyMap())
             coEvery { mocks.workItemRepo.countInScopeByRole(any()) } returns Result.Success(emptyMap())
             coEvery {
-                mocks.workItemRepo.countByClaimStatus(parentId = any(nullable = true), rootIds = any(nullable = true))
+                mocks.workItemRepo.countByClaimStatus(parentId = any(), rootIds = any())
             } returns Result.Success(ClaimStatusCounts(active = 0, expired = 0, unclaimed = 0))
 
             val tool = QueryItemsTool()
