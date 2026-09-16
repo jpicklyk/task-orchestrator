@@ -470,8 +470,10 @@ class QueryDependenciesToolBoundsTest {
 
             assertTrue(result["success"]!!.jsonPrimitive.boolean)
             val data = result["data"] as JsonObject
-            assertNull(data["total"], "backlinks never gained the get-only paging fields")
-            assertNull(data["limit"])
-            assertNull(data["offset"])
+            // `total` on backlinks is pre-existing EXISTING-SURFACE (executeBacklinks puts
+            // rows.size unconditionally; unrelated to the new get-only paging fields below).
+            assertEquals(1, data["total"]!!.jsonPrimitive.int, "backlinks' own total is the backlink row count")
+            assertNull(data["limit"], "backlinks never gained the get-only limit field")
+            assertNull(data["offset"], "backlinks never gained the get-only offset field")
         }
 }
