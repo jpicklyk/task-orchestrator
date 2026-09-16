@@ -391,11 +391,6 @@ by note role (queue/work/review), use `list` instead — `search`'s `scope` has 
      * Each hit includes `kind="note"`, `itemId`, `noteKey`, `field="body"`, `snippet`, `score`,
      * `matchedIn`, and optionally `explain` (raw FTS5 ranks, only when `explain=true`).
      *
-     * `totalHits` is based on the in-memory RRF-fused list (all rows matched and fetched,
-     * then paginated). The hard cap at 100 rows (repo-level) means `totalHits` is always ≤ the
-     * actual match count but never exceeds the 100 hard cap. When `truncated=true`, the caller
-     * should refine the query or use scope filters.
-     *
      * @param rawQuery The user-supplied (unsanitized) search string from the `query` param.
      */
     private suspend fun executeFtsSearch(
@@ -415,7 +410,6 @@ by note role (queue/work/review), use `list` instead — `search`'s `scope` has 
             if (scopeJson != null) {
                 val ancestorIdStr = scopeJson["ancestorId"]?.jsonPrimitive?.contentOrNull
                 val itemIdStr = scopeJson["itemId"]?.jsonPrimitive?.contentOrNull
-                val scopeRoleStr = scopeJson["role"]?.jsonPrimitive?.contentOrNull
 
                 val ancestorId: UUID? =
                     if (ancestorIdStr != null) {
@@ -439,22 +433,6 @@ by note role (queue/work/review), use `list` instead — `search`'s `scope` has 
                     } else {
                         null
                     }
-                // scope.role for notes filters on the note's own role column (queue/work/review).
-                // Notes do not use the Role enum from work items, so we validate as a string.
-                val validNoteRoles = setOf("queue", "work", "review")
-                if (scopeRoleStr != null && scopeRoleStr !in validNoteRoles) {
-                    return errorResponse(
-                        "Invalid scope.role: $scopeRoleStr. Valid note roles: queue, work, review",
-                        ErrorCodes.VALIDATION_ERROR,
-                    )
-                }
-                // SearchScope.role is a Role enum used for work-item role filtering.
-                // For note search, we encode note-role filtering via the note repo's scope.itemId/ancestorId;
-                // role scoping on notes themselves is handled separately — pass null for the Role enum field
-                // and instead let the repo handle the note-role column via the SearchScope.role field which
-                // is currently scoped to work-item roles only. Since T2's SearchScope only has a Role enum
-                // for work-item roles, and notes use string roles, we skip role scope filtering here.
-                // Callers wanting role-scoped note search should use list (which supports role filtering).
                 SearchScope(itemId = scopeItemId, ancestorId = ancestorId, tags = null, role = null)
             } else {
                 null
