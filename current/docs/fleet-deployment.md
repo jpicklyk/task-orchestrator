@@ -110,7 +110,8 @@ API_ALLOW_UNAUTHENTICATED=true
 | `API_AUTH_MODE` | API enabled | — | `bearer` or `jwks`. Also accepts `none` when `API_ALLOW_UNAUTHENTICATED=true` (see below). Required. |
 | `API_ALLOW_UNAUTHENTICATED` | opting into `none` | `false` | Confirm flag required alongside `API_AUTH_MODE=none`. Ignored with `bearer`/`jwks`. |
 | `API_TOKENS_PATH` | bearer mode | `/run/secrets/api-tokens.yaml` | Path to bearer token YAML secret file. |
-| `API_JWKS_URL` | jwks mode | — | JWKS endpoint URL (fully-qualified HTTP/HTTPS). |
+| `API_JWKS_URL` | jwks mode | — | JWKS endpoint URL. Must be `https`; plaintext `http` is rejected at startup unless the URL's host is loopback (`localhost`, `127.x.x.x`, `::1`) and `API_JWKS_ALLOW_INSECURE_URL=true`. Any other scheme (e.g. `file`, `ftp`), an `http` URL on a non-loopback host, or an unparseable `API_JWKS_ALLOW_INSECURE_URL` value fails startup with `IllegalArgumentException`. |
+| `API_JWKS_ALLOW_INSECURE_URL` | opting into plaintext JWKS | `false` | Loopback-only opt-in to fetch `API_JWKS_URL` over plaintext `http`. Evaluated even when `API_JWKS_URL` is `https` (an invalid value still fails startup). |
 | `API_JWKS_ISSUER` | jwks mode | — | Expected `iss` claim value in JWTs. |
 | `API_JWKS_AUDIENCE` | jwks mode | — | Expected `aud` claim value in JWTs. |
 | `API_JWKS_ALGORITHMS` | jwks mode | — | Comma-separated algorithm allowlist (e.g., `RS256,EdDSA`). |

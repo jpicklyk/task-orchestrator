@@ -61,6 +61,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   an empty file without complaint, the curated notes were replaced with nothing. Now matches the
   header literally via `index($0, hdr) == 1` and fails loudly on an empty extraction instead of
   publishing it. Observed live during the v3.13.1 release.
+- **`API_JWKS_URL` accepted plaintext `http`, exposing JWKS key material to network interception.**
+  The loader now requires `https`; plaintext `http` is accepted only for a loopback host
+  (`localhost`, `127.x.x.x`, `::1`) with the new opt-in `API_JWKS_ALLOW_INSECURE_URL=true`. Any
+  other scheme, an `http` URL on a non-loopback host, or an unparseable
+  `API_JWKS_ALLOW_INSECURE_URL` value fails startup. (`231dd7f3`)
+- **`page`/`pageSize` query parameters on REST list endpoints could overflow the internal `Int`
+  offset.** `page`/`pageSize` are now validated and rejected with `400 validation_error` when
+  non-integer, `page < 1`, `page > 100000`, or `pageSize < 1` — previously out-of-range values were
+  silently clamped. `GET /transitions`'s underlying scan is now bounded at 1000 rows regardless of
+  the requested page. (`c471607b`)
+- **A claim survived an item reaching TERMINAL, so `reopen` could resurrect a stale claim.**
+  `claimedBy`/`claimedAt`/`claimExpiresAt`/`originalClaimedAt` are now cleared whenever a transition
+  reaches (or leaves) TERMINAL, across `advance_item`, `complete_tree`, the REST advance route, and
+  cascades — a reopened item always starts unclaimed. (`3785f37a`)
+- **`query_items`/`query_notes` full-text search pagination could return overlapping or duplicate
+  results across pages.** The FTS candidate window is now fixed-size and offset-independent, ties
+  are broken deterministically by id, and the fused result list is capped before the page slice is
+  taken — `totalHits` is now identical on every page of the same query and `truncated` can fire on
+  page 1. (`0ba7c92d`)
+- **`query_items`'s `limit` parameter description was wrong for FTS search and scoped-overview
+  modes.** The `parameterSchema` description now states the correct per-mode defaults and caps
+  (20/FTS, 50/list and global-or-anchored overview, no cap on overview, ignored on scoped overview).
+  (`97aa5855`)
+- **`query_notes` validated a `scope.role` value that was never used to filter results.** The dead
+  validation (and its undeclared schema field) has been removed — note search has always been
+  role-less by role, and now the code and docs agree. (`9ad250e3`)
+- **SSE events with an unresolved root set were broadcast to every subscriber, including root-scoped
+  ones.** `ApiEventBus.publish` now carries a `rootsResolved` flag; an unresolved result (ancestor
+  cache miss, resolution failure) fails closed, reaching only unrestricted subscribers, on both the
+  live fan-out and `Last-Event-ID` replay. `GET /api/v1/events` also now rejects `?root=` values
+  entirely outside a root-scoped token's `scope.rootIds` with `403 insufficient_scope`, and a
+  `?root=` yielding no valid UUID with `400 validation_error`. (`ffce70f6`)
 
 ## [3.13.1] - 2026-08-04
 

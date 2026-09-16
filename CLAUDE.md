@@ -217,7 +217,8 @@ default, and an unrecognized non-empty value either falls back to the default wi
 - `API_AUTH_MODE` — `bearer` or `jwks`; required when API enabled. Also accepts `none` when `API_ALLOW_UNAUTHENTICATED=true` (opt-in unauthenticated mode, loopback-only — see `current/docs/api-rest.md` §1)
 - `API_ALLOW_UNAUTHENTICATED` — confirm flag required alongside `API_AUTH_MODE=none` (default: `false`); ignored with `bearer`/`jwks`
 - `API_TOKENS_PATH` — bearer token YAML file path (default: `/run/secrets/api-tokens.yaml`)
-- `API_JWKS_URL` — JWKS endpoint URL (jwks mode, required)
+- `API_JWKS_URL` — JWKS endpoint URL (jwks mode, required); must be `https` — `http` is rejected unless the host is loopback (`localhost`, `127.x.x.x`, `::1`) AND `API_JWKS_ALLOW_INSECURE_URL=true`; any other scheme or an invalid `API_JWKS_ALLOW_INSECURE_URL` value fails startup
+- `API_JWKS_ALLOW_INSECURE_URL` — opt-in to plaintext `http` for `API_JWKS_URL`, loopback hosts only (default: `false`)
 - `API_JWKS_ISSUER` — expected JWT `iss` claim (jwks mode, required)
 - `API_JWKS_AUDIENCE` — expected JWT `aud` claim (jwks mode, required)
 - `API_JWKS_ALGORITHMS` — comma-separated algorithm allowlist e.g. `RS256,EdDSA` (jwks mode, required)

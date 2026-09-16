@@ -998,9 +998,9 @@ Operators can inspect `originalClaimedAt` via `get_context(itemId)` to distingui
 
 ### Effect of `complete` and `cancel` on the Claim
 
-`advance_item(trigger="complete" | "cancel")` transitions the role but does **not** clear the claim record. `claimedBy`, `claimedAt`, `claimExpiresAt`, and `originalClaimedAt` remain on the item until either the TTL elapses or `claim_item(releases=[...])` is called.
+`advance_item(trigger="complete" | "cancel")` — and any other transition, path, or cascade that lands the item in TERMINAL — clears the claim record as part of that same transition: `claimedBy`, `claimedAt`, `claimExpiresAt`, and `originalClaimedAt` are all reset to `null`. This applies uniformly across `advance_item`, `complete_tree`, the REST `POST /items/{id}/advance` route, and system cascades.
 
-This is harmless: terminal items reject new claims with the `terminal_item` outcome, so a residual claim on a completed item has no functional effect. `reopen` continues to enforce ownership against the original claim if the TTL has not elapsed. Well-behaved agents call `claim_item(releases=[...])` after finishing work to make the audit trail explicit; it is not required for correctness.
+Consequently `reopen` always starts the item **unclaimed** — there is no residual claim to enforce ownership against, and a subsequent claimant does not need to match the item's prior holder. Calling `claim_item(releases=[...])` before completing work is no longer necessary for claim hygiene (the terminal transition already clears it), though it remains useful for making an early release explicit in the audit trail.
 
 ### Crash Recovery via Passive Expiry
 

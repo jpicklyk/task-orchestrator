@@ -160,14 +160,19 @@ distribution of ranks across both tables.
 
 ### totalHits
 
-`totalHits` is the size of the in-memory RRF-fused list for the current call, not the true database
-total. The repository fetches up to `limit + offset + 1` rows per FTS table, so for large result
-sets the true match count may exceed `totalHits`. When `truncated=true`, refine the query or add
-scope filters.
+Every page is a slice of one deterministic, totally ordered list: a fixed-size candidate window is
+fetched from each FTS5 table regardless of `offset`, fused by RRF into a single order (score
+descending, ties broken by id), then capped at 100 entries before the `offset`/`limit` slice is
+taken. `totalHits` is the size of that capped, fused list — it is identical on every page of the
+same query (it is **not** the raw database match count) and is at most 100. When `truncated=true`,
+more than 100 matches existed before the cap; refine the query or add scope filters. `truncated` can
+now be `true` on page 1 — it is a property of the query, not of any individual page.
 
 ### nextOffset
 
-`null` when there are no more results. Pass this value as `offset` in the next call to paginate.
+`null` when the requested `offset` is at or beyond `totalHits` (no more results). Pass the returned
+value as `offset` in the next call to paginate; because pagination is offset-independent, pages
+never overlap or skip entries for a stable DB state.
 
 ---
 
