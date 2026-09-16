@@ -108,6 +108,12 @@ class SchemaParityTest {
      * Reads `PRAGMA table_info(tableName)`, normalizing the SQL type keyword's case (SQLite
      * type names/keywords are case-insensitive) so cross-schema comparisons aren't tripped up
      * by incidental casing differences between hand-written SQL and Exposed-generated DDL.
+     *
+     * Also normalizes the default value: SQLite reports an explicit `DEFAULT NULL` as the
+     * literal string "NULL" in `dflt_value`, indistinguishable in effect from having no default
+     * at all (absent, reported as JDBC null) — both mean the column defaults to NULL when
+     * omitted. Structural equivalence is the oracle here, not the `dflt_value` spelling, so both
+     * forms collapse to `null`.
      */
     private fun readColumns(
         connection: Connection,
@@ -117,12 +123,13 @@ class SchemaParityTest {
         connection.createStatement().use { statement ->
             statement.executeQuery("PRAGMA table_info($tableName)").use { rs ->
                 while (rs.next()) {
+                    val rawDefault = rs.getString("dflt_value")?.trim()
                     out +=
                         ColumnInfo(
                             name = rs.getString("name"),
                             type = rs.getString("type").trim().uppercase(),
                             notNull = rs.getInt("notnull") != 0,
-                            default = rs.getString("dflt_value")?.trim(),
+                            default = if (rawDefault == null || rawDefault.equals("NULL", ignoreCase = true)) null else rawDefault,
                         )
                 }
             }
@@ -177,14 +184,28 @@ class SchemaParityTest {
     }
 
     /**
-     * Extracts every top-level `CHECK(...)` clause body, tolerating exactly one level of nested
-     * parens (the `IN (...)` lists this schema's CHECKs use).
+     * Extracts every `CHECK(...)` clause body via a balanced-paren scan (not a fixed-depth
+     * regex): `previous_role`'s clause combines `IS NULL` and an `IN (...)` list with `OR`,
+     * which Exposed parenthesizes per side, nesting TWO levels deep — one level more than a
+     * single-level-tolerant regex can follow — so depth must be tracked, not assumed.
      */
-    private fun extractCheckClauses(createTableSql: String): List<String> =
-        Regex("""CHECK\s*\(((?:[^()]|\([^()]*\))*)\)""", RegexOption.IGNORE_CASE)
-            .findAll(createTableSql)
-            .map { it.groupValues[1] }
-            .toList()
+    private fun extractCheckClauses(createTableSql: String): List<String> {
+        val clauses = mutableListOf<String>()
+        for (match in Regex("CHECK\\s*\\(", RegexOption.IGNORE_CASE).findAll(createTableSql)) {
+            val openIndex = match.range.last
+            var depth = 1
+            var i = openIndex + 1
+            while (i < createTableSql.length && depth > 0) {
+                when (createTableSql[i]) {
+                    '(' -> depth++
+                    ')' -> depth--
+                }
+                i++
+            }
+            if (depth == 0) clauses += createTableSql.substring(openIndex + 1, i - 1)
+        }
+        return clauses
+    }
 
     /**
      * Finds the CHECK clause referencing [columnName] as a whole identifier — a word-boundary
@@ -196,6 +217,23 @@ class SchemaParityTest {
     ): String? {
         val boundary = Regex("\\b${Regex.escape(columnName)}\\b")
         return extractCheckClauses(createTableSql).firstOrNull { boundary.containsMatchIn(it) }
+    }
+
+    /**
+     * SQLite's own documented column-type-AFFINITY algorithm (sqlite.org/datatype3.html §3.1) —
+     * comparing affinity rather than exact spelling avoids false-failing on textually different
+     * but semantically identical declarations (Exposed's `integer()` emits SQLite type "INT";
+     * Flyway's hand-written SQL uses "INTEGER" — both resolve to INTEGER affinity).
+     */
+    private fun sqliteTypeAffinity(declaredType: String): String {
+        val t = declaredType.uppercase()
+        return when {
+            t.contains("INT") -> "INTEGER"
+            t.contains("CHAR") || t.contains("CLOB") || t.contains("TEXT") -> "TEXT"
+            t.isBlank() || t.contains("BLOB") -> "BLOB"
+            t.contains("REAL") || t.contains("FLOA") || t.contains("DOUB") -> "REAL"
+            else -> "NUMERIC"
+        }
     }
 
     private fun assertCheckEnumerates(
@@ -230,26 +268,30 @@ class SchemaParityTest {
         )
 
         val exposedByName = exposedColumns.associateBy { it.name }
+        // Every dimension is checked for every column and ALL mismatches are reported together
+        // (rather than failing fast on the first) so a single run gives the complete picture.
+        val mismatches = mutableListOf<String>()
         for (flywayColumn in flywayColumns) {
             val exposedColumn = exposedByName.getValue(flywayColumn.name)
-            assertEquals(
-                flywayColumn.notNull,
-                exposedColumn.notNull,
-                "NOT NULL mismatch on column '${flywayColumn.name}': " +
-                    "flyway=${flywayColumn.notNull} exposed=${exposedColumn.notNull}",
-            )
-            assertEquals(
-                flywayColumn.type,
-                exposedColumn.type,
-                "type mismatch on column '${flywayColumn.name}': flyway=${flywayColumn.type} exposed=${exposedColumn.type}",
-            )
-            assertEquals(
-                flywayColumn.default,
-                exposedColumn.default,
-                "default mismatch on column '${flywayColumn.name}': " +
-                    "flyway=${flywayColumn.default} exposed=${exposedColumn.default}",
-            )
+            if (flywayColumn.notNull != exposedColumn.notNull) {
+                mismatches +=
+                    "NOT NULL mismatch on '${flywayColumn.name}': " +
+                    "flyway=${flywayColumn.notNull} exposed=${exposedColumn.notNull}"
+            }
+            val flywayAffinity = sqliteTypeAffinity(flywayColumn.type)
+            val exposedAffinity = sqliteTypeAffinity(exposedColumn.type)
+            if (flywayAffinity != exposedAffinity) {
+                mismatches +=
+                    "type-affinity mismatch on '${flywayColumn.name}': flyway=${flywayColumn.type} " +
+                    "($flywayAffinity) exposed=${exposedColumn.type} ($exposedAffinity)"
+            }
+            if (flywayColumn.default != exposedColumn.default) {
+                mismatches +=
+                    "default mismatch on '${flywayColumn.name}': " +
+                    "flyway=${flywayColumn.default} exposed=${exposedColumn.default}"
+            }
         }
+        assertTrue(mismatches.isEmpty(), "work_items column parity failures:\n" + mismatches.joinToString("\n"))
     }
 
     // ────────────────────────────────────────────────────────────────────────
