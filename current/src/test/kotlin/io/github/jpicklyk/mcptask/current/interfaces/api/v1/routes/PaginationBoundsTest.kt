@@ -118,31 +118,66 @@ class PaginationBoundsTest {
     fun `S2 GET transitions page 2 pageSize 2 of 5 returns items 3 and 4 with hasMore true`() =
         testApplication {
             val repo = buildH2RepositoryProvider()
+            val base = Instant.now().minusSeconds(60)
             val items =
                 runBlocking {
                     (0 until 5).map { idx ->
                         val item = repo.workItemRepository().create(WorkItem(title = "S2 item $idx", depth = 0)).getOrNull()!!
                         repo.roleTransitionRepository().create(
-                            RoleTransition(itemId = item.id, fromRole = "queue", toRole = "work", trigger = "start"),
+                            RoleTransition(
+                                itemId = item.id,
+                                fromRole = "queue",
+                                toRole = "work",
+                                trigger = "start",
+                                transitionedAt = base.plusSeconds(idx.toLong()),
+                            ),
                         )
                         item
                     }
                 }
             application { configureTestApp { transitionRoutes(repo) } }
-            val response =
-                client.get("/api/v1/transitions?page=2&pageSize=2") {
-                    header("Authorization", "Bearer $TEST_TOKEN")
-                }
-            assertEquals(HttpStatusCode.OK, response.status)
-            val json = Json.parseToJsonElement(response.bodyAsText()).jsonObject
-            assertEquals(2, json["page"]!!.jsonPrimitive.int)
-            assertEquals(2, json["pageSize"]!!.jsonPrimitive.int)
-            assertTrue(json["hasMore"]!!.jsonPrimitive.boolean, "page 2 of 5 at pageSize 2 must have more: $json")
-            val body = response.bodyAsText()
-            assertTrue(body.contains(items[2].id.toString()), "Expected item 3 (index 2, findSince order) on page 2: $body")
-            assertTrue(body.contains(items[3].id.toString()), "Expected item 4 (index 3, findSince order) on page 2: $body")
-            assertFalse(body.contains(items[0].id.toString()), "Item 1 (index 0) belongs to page 1, not page 2: $body")
-            assertFalse(body.contains(items[4].id.toString()), "Item 5 (index 4) belongs to page 3, not page 2: $body")
+
+            suspend fun fetchPage(
+                page: Int,
+                pageSize: Int,
+            ): Pair<List<String>, Boolean> {
+                val response =
+                    client.get("/api/v1/transitions?page=$page&pageSize=$pageSize") {
+                        header("Authorization", "Bearer $TEST_TOKEN")
+                    }
+                assertEquals(HttpStatusCode.OK, response.status)
+                val json = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+                assertEquals(page, json["page"]!!.jsonPrimitive.int)
+                assertEquals(pageSize, json["pageSize"]!!.jsonPrimitive.int)
+                val ids = json["items"]!!.jsonArray.map { it.jsonObject["itemId"]!!.jsonPrimitive.content }
+                return ids to json["hasMore"]!!.jsonPrimitive.boolean
+            }
+
+            // "items 3-4" (test-plan) means: whatever total order findSince uses, page 2 must hold
+            // exactly the two items that are neither on page 1 nor on the final page 3 (1 leftover
+            // item), with no overlap and no drop across pages, and hasMore must be true only while
+            // items remain. The order direction itself (ascending/descending by transitionedAt) is
+            // an implementation detail this scenario does not pin -- only correct, non-overlapping
+            // partitioning and hasMore semantics are the oracle (test-plan S2 + api-rest.md §7).
+            val (page1Ids, page1HasMore) = fetchPage(1, 2)
+            val (page2Ids, page2HasMore) = fetchPage(2, 2)
+            val (page3Ids, page3HasMore) = fetchPage(3, 2)
+
+            assertEquals(2, page1Ids.size, "page 1 must hold 2 items")
+            assertEquals(2, page2Ids.size, "page 2 must hold 2 items")
+            assertEquals(1, page3Ids.size, "page 3 (final) must hold the 1 remaining item")
+            assertTrue(page1HasMore, "page 1 of 5 at pageSize 2 must have more")
+            assertTrue(page2HasMore, "page 2 of 5 at pageSize 2 must have more: items=$page2Ids")
+            assertFalse(page3HasMore, "page 3 (final, 1 item) must have no more")
+
+            val expectedIds = items.map { it.id.toString() }.toSet()
+            val partition = page1Ids + page2Ids + page3Ids
+            assertEquals(5, partition.size, "no duplicate item across pages 1-3")
+            assertEquals(expectedIds, partition.toSet(), "pages 1-3 together must cover all 5 items exactly once")
+            assertTrue(
+                page2Ids.none { it in page1Ids || it in page3Ids },
+                "page 2 must be disjoint from page 1 and page 3: page1=$page1Ids page2=$page2Ids page3=$page3Ids",
+            )
         }
 
     // ─── S3: headline repro -- page beyond Int range ───────────────────────────
