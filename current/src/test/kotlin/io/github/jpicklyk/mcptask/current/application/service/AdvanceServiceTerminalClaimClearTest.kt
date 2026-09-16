@@ -144,8 +144,15 @@ class AdvanceServiceTerminalClaimClearTest {
             // Sanity: the fixture really is claimed before the transition.
             assertNotNull(item.claimedBy)
 
+            // The ownership pre-check (enforceOwnership = true, the MCP setting) runs BEFORE the
+            // transition — an actorClaim matching claimedBy is required or a live claim is
+            // rejected before the clear under test ever executes. Ownership success is a
+            // precondition here, not what this scenario is proving.
+            val actor = ActorClaim(id = "agent-live", kind = ActorKind.SUBAGENT)
+            val verification = VerificationResult(status = VerificationStatus.UNCHECKED, verifier = "noop")
+
             val outcome =
-                serviceWith().advance(item, "complete", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+                serviceWith().advance(item, "complete", null, actor, verification, DegradedModePolicy.ACCEPT_CACHED, true)
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             assertEquals(Role.TERMINAL, success.result.newRole)
             assertAllClaimFieldsNull(success.result.appliedItem)
@@ -164,10 +171,12 @@ class AdvanceServiceTerminalClaimClearTest {
                     claimedBy = "agent-live",
                     claimExpiresAt = Instant.now().plusSeconds(600),
                 )
+            val actor = ActorClaim(id = "agent-live", kind = ActorKind.SUBAGENT)
+            val verification = VerificationResult(status = VerificationStatus.UNCHECKED, verifier = "noop")
             val service = serviceWith()
             val completed =
                 assertIs<AdvanceOutcome.Success>(
-                    service.advance(item, "complete", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true),
+                    service.advance(item, "complete", null, actor, verification, DegradedModePolicy.ACCEPT_CACHED, true),
                 )
             assertAllClaimFieldsNull(completed.result.appliedItem)
 
@@ -203,8 +212,12 @@ class AdvanceServiceTerminalClaimClearTest {
                 )
             assertNotNull(item.claimedBy, "fixture must model a pre-fix row: terminal but still claimed")
 
+            // enforceOwnership = false here: reopening a legacy stale-claimed row is an
+            // orchestrator/system reconciliation action, not the original claim holder acting —
+            // ownership enforcement is orthogonal to the previousRole == TERMINAL clearing clause
+            // under test (mirrors the REST route's enforceOwnership = false).
             val outcome =
-                serviceWith().advance(item, "reopen", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+                serviceWith().advance(item, "reopen", null, null, null, DegradedModePolicy.ACCEPT_CACHED, false)
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             assertEquals(Role.QUEUE, success.result.newRole)
             assertAllClaimFieldsNull(success.result.appliedItem)
@@ -250,9 +263,11 @@ class AdvanceServiceTerminalClaimClearTest {
                     claimedBy = "agent-cancel",
                     claimExpiresAt = Instant.now().plusSeconds(600),
                 )
+            val actor = ActorClaim(id = "agent-cancel", kind = ActorKind.SUBAGENT)
+            val verification = VerificationResult(status = VerificationStatus.UNCHECKED, verifier = "noop")
 
             val outcome =
-                serviceWith().advance(item, "cancel", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+                serviceWith().advance(item, "cancel", null, actor, verification, DegradedModePolicy.ACCEPT_CACHED, true)
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             assertEquals(Role.TERMINAL, success.result.newRole)
             assertEquals("cancelled", success.result.statusLabel)
@@ -312,9 +327,11 @@ class AdvanceServiceTerminalClaimClearTest {
                     claimedBy = "agent-start",
                     claimExpiresAt = Instant.now().plusSeconds(600),
                 )
+            val actor = ActorClaim(id = "agent-start", kind = ActorKind.SUBAGENT)
+            val verification = VerificationResult(status = VerificationStatus.UNCHECKED, verifier = "noop")
 
             val outcome =
-                serviceWith().advance(item, "start", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+                serviceWith().advance(item, "start", null, actor, verification, DegradedModePolicy.ACCEPT_CACHED, true)
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             assertEquals(Role.WORK, success.result.newRole)
             val applied = success.result.appliedItem
@@ -337,11 +354,13 @@ class AdvanceServiceTerminalClaimClearTest {
                     claimedBy = "agent-block",
                     claimExpiresAt = Instant.now().plusSeconds(600),
                 )
+            val actor = ActorClaim(id = "agent-block", kind = ActorKind.SUBAGENT)
+            val verification = VerificationResult(status = VerificationStatus.UNCHECKED, verifier = "noop")
             val service = serviceWith()
 
             val blocked =
                 assertIs<AdvanceOutcome.Success>(
-                    service.advance(item, "block", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true),
+                    service.advance(item, "block", null, actor, verification, DegradedModePolicy.ACCEPT_CACHED, true),
                 )
             assertEquals(Role.BLOCKED, blocked.result.newRole)
             assertEquals(item.claimedBy, blocked.result.appliedItem.claimedBy)
@@ -353,8 +372,8 @@ class AdvanceServiceTerminalClaimClearTest {
                         blocked.result.appliedItem,
                         "resume",
                         null,
-                        null,
-                        null,
+                        actor,
+                        verification,
                         DegradedModePolicy.ACCEPT_CACHED,
                         true,
                     ),
@@ -438,9 +457,11 @@ class AdvanceServiceTerminalClaimClearTest {
                     claimExpiresAt = now,
                     originalClaimedAt = now,
                 )
+            val actor = ActorClaim(id = "agent-zero-window", kind = ActorKind.SUBAGENT)
+            val verification = VerificationResult(status = VerificationStatus.UNCHECKED, verifier = "noop")
 
             val outcome =
-                serviceWith().advance(item, "complete", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+                serviceWith().advance(item, "complete", null, actor, verification, DegradedModePolicy.ACCEPT_CACHED, true)
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             assertAllClaimFieldsNull(success.result.appliedItem)
         }

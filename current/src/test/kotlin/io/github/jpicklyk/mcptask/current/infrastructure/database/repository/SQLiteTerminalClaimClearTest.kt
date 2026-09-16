@@ -3,8 +3,12 @@ package io.github.jpicklyk.mcptask.current.infrastructure.database.repository
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceService
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
+import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
+import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Role
+import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
+import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.test.BaseRepositoryTest
@@ -68,9 +72,14 @@ class SQLiteTerminalClaimClearTest : BaseRepositoryTest() {
     fun `S12 re-reading after a terminal advance shows all four claim columns null`(): Unit =
         runBlocking {
             val item = createClaimedItem(claimedBy = "agent-persisted")
+            // enforceOwnership = true's ownership pre-check requires an actorClaim matching
+            // claimedBy for a live claim — ownership success is a precondition here, not what
+            // this scenario is proving (see AdvanceServiceTest's claimed-item ownership cases).
+            val actor = ActorClaim(id = "agent-persisted", kind = ActorKind.SUBAGENT)
+            val verification = VerificationResult(status = VerificationStatus.UNCHECKED, verifier = "noop")
 
             val outcome =
-                advanceService().advance(item, "complete", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+                advanceService().advance(item, "complete", null, actor, verification, DegradedModePolicy.ACCEPT_CACHED, true)
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             assertEquals(Role.TERMINAL, success.result.newRole)
 
@@ -97,8 +106,11 @@ class SQLiteTerminalClaimClearTest : BaseRepositoryTest() {
             val item = createClaimedItem(claimedBy = "agent-legacy", role = Role.TERMINAL)
             assertNotNull(item.claimedBy, "fixture must model a pre-fix terminal-and-claimed row")
 
+            // enforceOwnership = false: reopening a legacy stale-claimed row is a system
+            // reconciliation action, not the original holder acting — mirrors the REST route's
+            // setting and keeps ownership orthogonal to the previousRole == TERMINAL clause here.
             val outcome =
-                advanceService().advance(item, "reopen", null, null, null, DegradedModePolicy.ACCEPT_CACHED, true)
+                advanceService().advance(item, "reopen", null, null, null, DegradedModePolicy.ACCEPT_CACHED, false)
             val success = assertIs<AdvanceOutcome.Success>(outcome)
             assertEquals(Role.QUEUE, success.result.newRole)
 
