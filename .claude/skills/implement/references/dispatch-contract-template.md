@@ -114,12 +114,13 @@ that shared index, so a bare `git commit` commits whatever any other agent has s
 Run ONCE, via the lock helper, before committing:
 
 ```
-powershell -File "<scratchpad>\gradle-locked.ps1" -Worktree "<feature worktree>" -Tasks ":current:ktlintFormat",":current:compileKotlin",":current:compileTestKotlin"
+& "<scratchpad>\gradle-locked.ps1" -Worktree "<feature worktree>" -Tasks ":current:ktlintFormat",":current:compileKotlin",":current:compileTestKotlin"
 ```
 
-- Pass `-Tasks` as a comma-separated ARRAY LITERAL of quoted strings, exactly as written above.
-  A nested `powershell -File ... -Tasks a,b,c` flattens the `[string[]]` parameter into a single
-  string and the run is lost.
+- Run it from the PowerShell tool with the call operator (`&`) exactly as written above — one
+  process, `-Tasks` as a comma-separated ARRAY LITERAL of quoted strings. Do NOT wrap it in a
+  nested `powershell -File ...`: the child process flattens the `[string[]]` parameter into one
+  string (gradle reports `project 'ktlintFormat,' not found`) and the run is lost.
 - **Where `EXIT` comes from:** the lock helper prints `EXIT=<n>` as its final line and exits with
   that same code, so the value is read off the helper's own output — nothing else to capture.
   Never pipe the helper (or any gradle invocation) through `tail`/`head`: the pipeline reports the
