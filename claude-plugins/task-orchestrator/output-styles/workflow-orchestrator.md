@@ -74,22 +74,35 @@ When session context carries a project rootId (injected by the SessionStart hook
 | Code reading, implementation, test writing | `sonnet` |
 | Architecture, complex tradeoffs, multi-file synthesis | `opus` |
 
-**Dispatching an item's phase owner.** When dispatching the agent that OWNS the item's current
-phase — the implementer entering work, the reviewer entering review — and the item's resolved
-`dispatch` profile (read from `advance_item`'s success result for `newRole`, from
-`get_context(itemId=...)` for the current role, or from `query_items(operation="schema", ...)`'s
-per-phase map) names an `agent`, dispatch with `subagent_type` set to that `dispatch.agent`.
-ALWAYS still pass `model` explicitly on that dispatch: `dispatch.model` if the profile sets one,
-otherwise the Delegation table's value above — both shipped agents
+**Dispatching an item's phase owner.** Applies only to the agent that OWNS the item's current
+phase — the implementer entering work, the reviewer entering review — never test author, planning
+seats, or the docs seat (those keep the Delegation table above).
+
+Read the profile for the phase you are dispatching INTO, not the item's current phase:
+- If the orchestrator already performed the transition (e.g. dispatching the reviewer after
+  advancing the item into review), read `dispatch` off that `advance_item` call's success result —
+  it reports the profile for `newRole`, the phase being dispatched into.
+- If the agent will perform its own phase entry (the agent-owned-phase protocol: the implementer
+  is dispatched while the item is still in queue, and calls `advance_item(start)` itself to enter
+  work), `get_context(itemId=...)` returns only the profile for the item's CURRENT role
+  (queue) — not the work-phase profile needed for dispatch. Read
+  `query_items(operation="schema", itemId=...)`'s per-phase `dispatch.work` map instead.
+
+When that profile names an `agent`, dispatch with `subagent_type` set to that `dispatch.agent`.
+Regardless of whether `agent` is set, ALWAYS still pass `model` explicitly: `dispatch.model` if
+the profile sets one, otherwise the Delegation table's value above — both shipped agents
 (`task-orchestrator:implementer`, `task-orchestrator:reviewer`) ship `model: inherit`, and Claude
 Code resolves the per-invocation Agent-tool `model` first, then the agent's own frontmatter, where
 `inherit` means the main conversation's model — omitting `model` silently runs the phase owner on
-the orchestrator's own model instead of the table's assignment. `effort` has no Agent-tool
-parameter of its own; it is honored only through the dispatched agent definition's frontmatter, so
-a profile carrying `effort` but no `agent` is advisory only. This rule is for the phase OWNER
-only — auxiliary dispatches on the same item (test author under `needs-test-author`, planning
-seats, the docs seat) keep the table above; a work-phase dispatch profile names the phase owner,
-not every work-phase dispatch.
+the orchestrator's own model instead of the table's assignment.
+
+`effort` has no Agent-tool parameter of its own. In Claude Code it is honored only through the
+dispatched agent definition's own frontmatter `effort` field, so a profile's `effort` is advisory
+unless `agent` also names a definition carrying that `effort` — to change effort, point `agent` at
+a definition with that effort. (A client that calls the model API directly may apply a profile's
+`effort` field itself.) This rule is for the phase OWNER only — auxiliary dispatches on the same
+item (test author under `needs-test-author`, planning seats, the docs seat) keep the table above;
+a work-phase dispatch profile names the phase owner, not every work-phase dispatch.
 
 **Always set `model` explicitly** on every Agent dispatch — defaulting wastes opus tokens or under-powers complex work.
 

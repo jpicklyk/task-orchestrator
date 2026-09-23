@@ -420,8 +420,8 @@ Agent(
   Do NOT run :current:test or :current:ktlintCheck — the orchestrator owns full build
   verification.
   """,
-  model="sonnet",
-  subagent_type="general-purpose"
+  model="sonnet",  // or dispatch.model when the item's resolved profile sets one — see "Model selection" above
+  subagent_type="<dispatch.agent when the item's resolved profile names one, else general-purpose>"
   // NOTE: no isolation parameter — agents share the feature worktree
 )
 ```
@@ -495,7 +495,17 @@ fixture surface.
 Omitting `model` causes the agent to inherit the orchestrator's model (typically
 opus), wasting tokens on sonnet-eligible implementation work.
 
-When dispatching an item's phase owner (implementer on work, reviewer on review) and the item's resolved `dispatch` profile names an `agent`, dispatch with `subagent_type = dispatch.agent` and still pass `model` explicitly — `dispatch.model` if set, else the table above — since `effort` applies only through the agent's own frontmatter, never as an Agent-tool parameter.
+When dispatching an item's phase owner (implementer on work, reviewer on review), read the profile
+for the phase being dispatched INTO: if the orchestrator already called `advance_item`, its
+`dispatch` field already reports the profile for `newRole`; if the agent will enter its own phase
+(agent-owned-phase protocol — dispatched while the item is still in queue), `get_context` returns
+the queue profile, not work's, so read `query_items(operation="schema", itemId=...)`'s per-phase
+`dispatch.work` map instead. When that profile names an `agent`, dispatch with
+`subagent_type = dispatch.agent`. Regardless of whether `agent` is set, still pass `model`
+explicitly — `dispatch.model` if set, else the table above. `effort` has no Agent-tool parameter;
+in Claude Code it applies only through the dispatched agent's own frontmatter, so a profile's
+`effort` is advisory unless `agent` names a definition carrying that `effort` — to change effort,
+point `agent` at a definition with that effort.
 
 **After implementation agents return:**
 

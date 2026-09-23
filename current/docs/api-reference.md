@@ -274,7 +274,7 @@ entirely, unchanged.
 
 This is the **only** place that returns full note text (`description`, `guidance`, `skill`, `maxLength`) in one shot for an entire schema. Use it to resolve the keys-only `expectedNotes` and the reference-only `guidanceKey`/`skillPointer` fields returned elsewhere. `guidance`, `skill`, and `maxLength` are omitted per-entry when unset. `configFingerprint` reports the fingerprint of whichever config layer actually supplied the schema (per-root or global) and is `null` when unavailable; cache schema responses per fingerprint to avoid re-fetching unchanged config. `configSource` is `"per-root"` when a per-root pushed config supplied the schema (via `rootId` on the `type` path, or the item's own `rootId` on the `itemId` path) and `"global"` otherwise. Errors with `RESOURCE_NOT_FOUND` when no schema matches the given `type` or the item is schema-free.
 
-`dispatch` (object, optional) is `{"queue"|"work"|"review": {agent?, model?, effort?}}` — one entry per phase with a resolved profile, from the `dispatch` trait dimension (see `config-format.md` link above). Omitted entirely (never `{}`) when no resolved trait declares a profile for any phase. The `itemId` path resolves each phase from the item's per-item `traits` first, then its type's `default_traits` (the reverse of the note-merge order); the `type` path has no item, so it resolves from `default_traits` only. `resources` (array, optional) is `[{key, mode, ttlSeconds?}]`, the trait-declared shared-resource requirements — omitted entirely (never `[]`) when none resolve.
+`dispatch` (object, optional) is `{"queue"|"work"|"review": {agent?, model?, effort?}}` — one entry per phase with a resolved profile, from the `dispatch` trait dimension (see [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#dispatch-trait-dimension) → "Dispatch (Trait Dimension)"). Omitted entirely (never `{}`) when no resolved trait declares a profile for any phase. The `itemId` path resolves each phase from the item's per-item `traits` first, then its type's `default_traits` (the reverse of the note-merge order); the `type` path has no item, so it resolves from `default_traits` only. `resources` (array, optional) is `[{key, mode, ttlSeconds?}]`, the trait-declared shared-resource requirements — omitted entirely (never `[]`) when none resolve.
 
 **Examples.**
 
@@ -1462,12 +1462,12 @@ When `mode` is omitted, the mode is inferred from which parameters are present (
 ```json
 {
   "mode": "item",
-  "item": { "id": "uuid", "title": "JWT Handler", "role": "queue", "tags": "task-implementation", "depth": 1 },
+  "item": { "id": "uuid", "title": "JWT Handler", "role": "work", "tags": "task-implementation", "depth": 1 },
   "schema": [
     { "key": "task-scope", "role": "queue", "required": true, "exists": true, "filled": true },
-    { "key": "done-criteria", "role": "work", "required": true, "exists": false, "filled": false }
+    { "key": "done-criteria", "role": "work", "required": false, "exists": false, "filled": false }
   ],
-  "gateStatus": { "canAdvance": true, "phase": "queue", "missing": [] },
+  "gateStatus": { "canAdvance": true, "phase": "work", "missing": [] },
   "dispatch": { "agent": "task-orchestrator:implementer", "effort": "medium" },
   "claimDetail": {
     "claimedBy": "agent-worker-42",
@@ -1479,7 +1479,7 @@ When `mode` is omitted, the mode is inferred from which parameters are present (
 }
 ```
 
-(`guidanceKey` and `skillPointer` are omitted here because the current phase, `queue`, has no missing required notes.)
+(`guidanceKey` and `skillPointer` are omitted here because the current phase, `work`, has no missing required notes — `done-criteria` is optional and still unfilled, but only required notes drive `guidanceKey`/`skillPointer`. `dispatch` here is the **work**-phase profile, matching `role: "work"` — an implementer profile, since `get_context` only ever reports the item's current-role profile.)
 
 `guidanceKey` (string, optional) names the first unfilled required note with guidance for the **current** role. Omitted when no schema matches, no required notes exist, or all are filled. Resolve the full guidance text via `query_items(operation="schema", itemId=...)`.
 

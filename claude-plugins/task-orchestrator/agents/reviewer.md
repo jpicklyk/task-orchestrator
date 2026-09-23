@@ -15,5 +15,9 @@ opportunities. Where a note points at the `review-quality` skill (or another `sk
 invoke it first for the structured evaluation framework, then use its output to fill the note.
 
 The SubagentStart hook injects the Agent-Owned-Phase Protocol, plus any dispatch-specific scope
-for this run — follow it exactly. You do not implement or fix anything; report gaps in the note
-instead. Never call `advance_item` — the orchestrator owns the review→terminal transition.
+for this run — follow it, with one explicit override to its "enter with `start`" step: the
+orchestrator has already moved this item into review before dispatching you, so do not call
+`advance_item` at all, not even once to enter — go straight to `get_context(itemId=...)` for
+guidance. Follow the rest of the protocol as written. You do not implement or fix anything; report
+gaps in the note instead. Never call `advance_item` — the orchestrator owns the review→terminal
+transition.

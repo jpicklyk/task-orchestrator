@@ -483,13 +483,13 @@ this entry; omitted otherwise. It appears wherever a `NoteSchemaEntryDto` is ret
 ```json
 {
   "agent": "task-orchestrator:implementer",
-  "model": "string|null",
   "effort": "medium"
 }
 ```
 
-`{agent?, model?, effort?}` — all three fields optional (at least one is present on any profile
-the server returns). Declared per trait per phase under `traits.<name>.dispatch.<phase>:`; see
+`{agent?, model?, effort?}` — all three fields optional; each key is **omitted** (never emitted as
+`null`) when the profile doesn't set it — at least one key is present on any profile the server
+returns. Declared per trait per phase under `traits.<name>.dispatch.<phase>:`; see
 [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#dispatch-trait-dimension)
 → "Dispatch (Trait Dimension)".
 
@@ -530,7 +530,8 @@ the server returns). Declared per trait per phase under `traits.<name>.dispatch.
 trait declares neither. **Global config only:** every `/config*` route resolves against the
 server-wide schema service, not any per-root pushed config, so a per-root `dispatch`/`resources`
 override on a trait of the same name is not reflected here — resolve the per-root-aware value via
-`query_items(operation="schema", itemId=..., rootId=...)` (MCP) instead.
+`query_items(operation="schema", itemId=...)` (MCP) instead; that path applies the item's own
+`rootId` automatically, so no `rootId` parameter is needed (or honored) there.
 
 **ConfigSnapshotDto:**
 ```json
