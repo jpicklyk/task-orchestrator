@@ -1,8 +1,10 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.config
 
+import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
+import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
@@ -77,7 +79,8 @@ class PerRootConfigService(
         val statusLabels: Map<String, String?>?,
         val fingerprint: String,
         val traitResources: Map<String, List<ResourceRequirement>> = emptyMap(),
-        val resourceRegistry: Map<String, ResourceDefinition> = emptyMap()
+        val resourceRegistry: Map<String, ResourceDefinition> = emptyMap(),
+        val traitDispatch: Map<String, Map<Role, DispatchProfile>> = emptyMap()
     )
 
     /**
@@ -96,7 +99,8 @@ class PerRootConfigService(
             statusLabels = parsed.statusLabels,
             fingerprint = fingerprint,
             traitResources = parsed.traitResources,
-            resourceRegistry = parsed.resourceRegistry
+            resourceRegistry = parsed.resourceRegistry,
+            traitDispatch = parsed.traitDispatch
         )
     }
 

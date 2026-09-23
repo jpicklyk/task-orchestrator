@@ -12,10 +12,12 @@ import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeExecutor
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
+import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceMode
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
+import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
@@ -200,11 +202,49 @@ class ToolExecutionContext(
         val defaultTraits = baseSchema?.defaultTraits ?: emptyList()
         val itemTraits = PropertiesHelper.extractTraits(item.properties)
         val allTraits = (defaultTraits + itemTraits).distinct()
+        return mergeResourceRequirements(allTraits, snapshot, service)
+    }
 
-        if (allTraits.isEmpty()) return emptyList()
+    /**
+     * Type-only counterpart to [resolveResourceRequirements] for callers that have a resolved
+     * type schema's `defaultTraits` but no [WorkItem] (e.g. `query_items(operation="schema",
+     * type=...)`'s type path) — there is no item to contribute `properties`-carried traits, so
+     * [defaultTraits] is the complete trait set. Layering (per-root snapshot for [rootId] wins per
+     * trait) and the cross-trait merge (union of keys, EXCLUSIVE wins on a duplicate key,
+     * first-seen wins for `ttlSeconds`) are identical to [resolveResourceRequirements] — both
+     * funnel through [mergeResourceRequirements].
+     */
+    suspend fun resolveResourceRequirementsForType(
+        defaultTraits: List<String>,
+        rootId: UUID?
+    ): List<ResourceRequirement> {
+        val service = noteSchemaService()
+        val snapshot = snapshotFor(rootId)
+        return mergeResourceRequirements(defaultTraits.distinct(), snapshot, service)
+    }
+
+    /**
+     * Shared cross-trait resource-requirement merge, extracted from [resolveResourceRequirements]
+     * so [resolveResourceRequirementsForType] (no [WorkItem] in hand) can reuse the exact same
+     * layering and merge semantics against an already-computed trait list — behavior-preserving
+     * for the item path, which passes the identical `(defaultTraits + itemTraits).distinct()` list
+     * it always has.
+     *
+     * Per trait, the ALREADY-fetched [snapshot]'s `traitResources[name]` wins over the global
+     * [NoteSchemaService.getTraitResources]. Merge across traits is a UNION of keys: on a
+     * duplicate key, [ResourceMode.EXCLUSIVE] wins over [ResourceMode.ADVISORY] regardless of
+     * which trait declared which mode, and `ttlSeconds` keeps the FIRST-seen (in [traits]
+     * iteration order) non-null value.
+     */
+    private fun mergeResourceRequirements(
+        traits: List<String>,
+        snapshot: PerRootConfigService.Snapshot?,
+        service: NoteSchemaService
+    ): List<ResourceRequirement> {
+        if (traits.isEmpty()) return emptyList()
 
         val merged = LinkedHashMap<String, ResourceRequirement>()
-        for (traitName in allTraits) {
+        for (traitName in traits) {
             val perRootRequirements = snapshot?.traitResources?.get(traitName)
             val requirements = perRootRequirements ?: service.getTraitResources(traitName)
             for (requirement in requirements) {
@@ -219,6 +259,127 @@ class ToolExecutionContext(
             }
         }
         return merged.values.toList()
+    }
+
+    /**
+     * Resolves the dispatch routing profile for [item] at [role] — who/what should pick up that
+     * phase, per the `dispatch` trait dimension (`traits.<name>.dispatch.<phase>:`). Convenience
+     * overload for callers with no already-resolved schema in hand: resolves it internally via
+     * [resolveSchema], then delegates to the 3-arg overload below.
+     *
+     * Callers that already have a resolved [WorkItemSchema] for [item] — [resolveSchema]'s own
+     * result, or [AdvanceOutcome][io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome.Success.resolvedSchema]
+     * on an advance — MUST use the 3-arg overload instead: this one costs a second, redundant
+     * schema resolution (and its own per-root snapshot fetch) on top of whatever the caller already
+     * did.
+     */
+    suspend fun resolveDispatchProfile(
+        item: WorkItem,
+        role: Role
+    ): DispatchProfile? {
+        val resolvedSchema = resolveSchema(item)
+        return resolveDispatchProfile(item, role, resolvedSchema)
+    }
+
+    /**
+     * Resolves the dispatch routing profile for [item] at [role], using [resolvedSchema] (already
+     * resolved via [resolveSchema]/[resolveSchemaWithSource], or carried on an advance outcome) for
+     * its `defaultTraits` instead of re-resolving the schema. This is the overload
+     * [io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool],
+     * [io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool] and
+     * `QueryItemsTool`'s `itemId` path use, since all three already have a resolved schema in hand
+     * — reusing it here means a trait-less item costs zero EXTRA per-root snapshot fetches beyond
+     * whatever schema resolution already made (`AdvanceItemToolTest.kt:2119` pins the snapshot-fetch
+     * count for a rooted, trait-less advance at exactly 3; a 4th fetch from this method would break
+     * it — see the empty-trait-list early return below).
+     *
+     * ## Trait order is the REVERSE of [mergeTraits]
+     *
+     * Trait order here is per-item traits ([PropertiesHelper.extractTraits]) FIRST, then
+     * [resolvedSchema]'s `defaultTraits` — the mirror image of [mergeTraits]'s note-merging order
+     * (defaultTraits first, base schema keys win). An item-level trait is treated as an explicit,
+     * one-off escalation that should win dispatch ROUTING (who picks this item up), whereas note
+     * MERGING wants the type's own base notes to take precedence over trait-contributed ones on a
+     * key collision — the two dimensions optimize for different things, so they intentionally
+     * disagree on order.
+     *
+     * ## Resolution
+     *
+     * Per trait (in the order above), the ALREADY-fetched per-root [snapshotFor] snapshot's
+     * `traitDispatch[name]` wins over the global [NoteSchemaService.getTraitDispatch] — layered
+     * exactly like [resolveResourceRequirements]. A per-root trait entry with no profile for
+     * [role] does NOT fall through to the global entry for that role: a per-root map is treated as
+     * that trait's complete dispatch definition for the root, not a patch. The FIRST trait (in
+     * order) with a profile for [role] wins OUTRIGHT — the whole [DispatchProfile], never merged
+     * field-by-field across traits.
+     */
+    suspend fun resolveDispatchProfile(
+        item: WorkItem,
+        role: Role,
+        resolvedSchema: WorkItemSchema?
+    ): DispatchProfile? = resolveDispatchProfilesForTraits(dispatchTraitsFor(item, resolvedSchema), item.rootId)[role]
+
+    /**
+     * Per-phase counterpart to the 3-arg [resolveDispatchProfile]: resolves a profile for EVERY
+     * phase (QUEUE/WORK/REVIEW) that [item]'s traits declare, instead of a single [role]. Used by
+     * `QueryItemsTool`'s `itemId` path for the `schema` operation, which reports the full per-phase
+     * dispatch map (not just the item's current-role profile) — same trait order, same layering,
+     * same first-trait-wins-per-role semantics as the 3-arg overload; see its KDoc.
+     */
+    suspend fun resolveDispatchProfiles(
+        item: WorkItem,
+        resolvedSchema: WorkItemSchema?
+    ): Map<Role, DispatchProfile> = resolveDispatchProfilesForTraits(dispatchTraitsFor(item, resolvedSchema), item.rootId)
+
+    /**
+     * Type-only counterpart to [resolveDispatchProfiles] for callers that have a resolved type
+     * schema's `defaultTraits` but no [WorkItem] (e.g. `query_items(operation="schema", type=...)`'s
+     * type path) — there is no item to contribute `properties`-carried traits, so [defaultTraits]
+     * is the complete trait set, order unchanged. Layering and first-trait-wins-per-role semantics
+     * are identical to [resolveDispatchProfiles].
+     */
+    suspend fun resolveDispatchProfilesForType(
+        defaultTraits: List<String>,
+        rootId: UUID?
+    ): Map<Role, DispatchProfile> = resolveDispatchProfilesForTraits(defaultTraits.distinct(), rootId)
+
+    /** Trait list for dispatch resolution: item traits first, then [resolvedSchema]'s defaultTraits — see [resolveDispatchProfile]'s KDoc for why this order is reversed from [mergeTraits]. */
+    private fun dispatchTraitsFor(
+        item: WorkItem,
+        resolvedSchema: WorkItemSchema?
+    ): List<String> {
+        val itemTraits = PropertiesHelper.extractTraits(item.properties)
+        val defaultTraits = resolvedSchema?.defaultTraits ?: emptyList()
+        return (itemTraits + defaultTraits).distinct()
+    }
+
+    /**
+     * Shared per-trait dispatch resolution: for each trait in [traits] (in order), the
+     * ALREADY-fetched per-root snapshot for [rootId] wins over the global
+     * [NoteSchemaService.getTraitDispatch]; the first trait to define a profile for a given [Role]
+     * claims that role in the result, later traits cannot override it. Returns null BEFORE
+     * fetching a per-root snapshot when [traits] is empty — the common case (an item/type with no
+     * dispatch-bearing trait) costs zero extra snapshot fetches.
+     */
+    private suspend fun resolveDispatchProfilesForTraits(
+        traits: List<String>,
+        rootId: UUID?
+    ): Map<Role, DispatchProfile> {
+        if (traits.isEmpty()) return emptyMap()
+
+        val service = noteSchemaService()
+        val snapshot = snapshotFor(rootId)
+        val result = LinkedHashMap<Role, DispatchProfile>()
+        for (traitName in traits) {
+            val perRootDispatch = snapshot?.traitDispatch?.get(traitName)
+            val dispatch = perRootDispatch ?: service.getTraitDispatch(traitName)
+            for ((role, profile) in dispatch) {
+                if (role !in result) {
+                    result[role] = profile
+                }
+            }
+        }
+        return result
     }
 
     /**

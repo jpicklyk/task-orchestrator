@@ -1,13 +1,17 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
+import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
+import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.requireCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ConfigSnapshotDto
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.DispatchProfileDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.NoteSchemaEntryDto
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ResourceRequirementDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.SchemaDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.TraitDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.StatusGraphBuilder
@@ -59,7 +63,7 @@ fun Route.configRoutes(schemaService: WorkItemSchemaService) {
                     HttpStatusCode.OK,
                     ConfigSnapshotDto(
                         schemas = allSchemas.values.map { it.toDto() },
-                        traits = allTraits.entries.map { (name, entries) -> TraitDto(name, entries.map { it.toDto() }) },
+                        traits = allTraits.entries.map { (name, entries) -> buildTraitDto(name, entries, schemaService) },
                         types = allSchemas.keys.toList().sorted(),
                         statusGraph = graph,
                         defaultSchema = allSchemas["default"]?.toDto(),
@@ -115,7 +119,7 @@ fun Route.configRoutes(schemaService: WorkItemSchemaService) {
                 call.response.header(HttpHeaders.ETag, etag)
                 val traits =
                     schemaService.getAllTraits().entries.map { (name, entries) ->
-                        TraitDto(name, entries.map { it.toDto() })
+                        buildTraitDto(name, entries, schemaService)
                     }
                 call.respond(HttpStatusCode.OK, traits)
             }
@@ -176,6 +180,7 @@ private fun NoteSchemaEntry.toDto(): NoteSchemaEntryDto =
         description = description,
         guidance = guidance,
         skill = skill,
+        maxLength = maxLength,
     )
 
 private fun WorkItemSchema.toDto(): SchemaDto =
@@ -186,3 +191,43 @@ private fun WorkItemSchema.toDto(): SchemaDto =
         notes = notes.map { it.toDto() },
         defaultTraits = defaultTraits,
     )
+
+private fun DispatchProfile.toDto(): DispatchProfileDto =
+    DispatchProfileDto(
+        agent = agent,
+        model = model,
+        effort = effort,
+    )
+
+private fun ResourceRequirement.toDto(): ResourceRequirementDto =
+    ResourceRequirementDto(
+        key = key,
+        mode = mode.name.lowercase(),
+        ttlSeconds = ttlSeconds,
+    )
+
+/**
+ * Builds a [TraitDto] for trait [name], including its `dispatch`/`resources` dimensions read from
+ * [schemaService] — these are config-service-global concerns (`configRoutes` is GLOBAL-only, see
+ * this file's KDoc), not carried on [entries] itself. `dispatch`/`resources` are omitted (null)
+ * rather than empty when the trait declares neither.
+ */
+private fun buildTraitDto(
+    name: String,
+    entries: List<NoteSchemaEntry>,
+    schemaService: WorkItemSchemaService
+): TraitDto {
+    val dispatch = schemaService.getTraitDispatch(name)
+    val resources = schemaService.getTraitResources(name)
+    return TraitDto(
+        name = name,
+        notes = entries.map { it.toDto() },
+        dispatch =
+            if (dispatch.isEmpty()) {
+                null
+            } else {
+                dispatch.entries.associate { (role, profile) -> role.name.lowercase() to profile.toDto() }
+            },
+        resources = if (resources.isEmpty()) null else resources.map { it.toDto() },
+    )
+}
