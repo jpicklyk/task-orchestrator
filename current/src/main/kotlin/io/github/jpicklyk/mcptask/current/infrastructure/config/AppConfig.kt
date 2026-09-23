@@ -31,6 +31,10 @@ data class AppConfig(
     val mcpTransport: String,
     val mcpHttpHost: String,
     val mcpHttpPort: Int,
+    /** `MCP_ALLOWED_HOSTS` — raw, unvalidated CSV of extra hosts for the Host-header allowlist;
+     *  default empty (loopback-only). Validation and matching semantics live in
+     *  `installHostAllowlist` (interfaces.mcp). */
+    val mcpAllowedHosts: List<String>,
     // ---- Database (DatabaseConfig / DatabaseManager) ----
     val databasePath: String,
     val useFlyway: Boolean,
@@ -91,6 +95,7 @@ data class AppConfig(
                 mcpTransport = env("MCP_TRANSPORT")?.lowercase() ?: "stdio",
                 mcpHttpHost = env("MCP_HTTP_HOST") ?: "0.0.0.0",
                 mcpHttpPort = env("MCP_HTTP_PORT")?.toIntOrNull() ?: 3001,
+                mcpAllowedHosts = parseCsv(env("MCP_ALLOWED_HOSTS")) ?: emptyList(),
                 // Database — preserves DatabaseConfig defaults exactly.
                 databasePath = env("DATABASE_PATH") ?: "data/current-tasks.db",
                 useFlyway = EnvBoolean.parse("USE_FLYWAY", env("USE_FLYWAY"), true),

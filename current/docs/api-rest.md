@@ -53,6 +53,8 @@ for missing notes, and fails open the same way when `TASK_ORCHESTRATOR_API_URL` 
 
 ## 1. Authentication
 
+> **A `Host` header allowlist runs before any of this.** Every HTTP request — `/mcp` and every `/api/v1` route alike — is checked against a `Host` allowlist (DNS-rebinding protection) before authentication is even evaluated. A request with a disallowed `Host` gets `403 host_not_allowed` on `/api/v1` routes (`/mcp` returns a JSON-RPC error instead) regardless of `Authorization` or auth mode. A request with no `Host` header at all is allowed, since browsers always send one. The always-allowed defaults are `localhost`/`127.0.0.1`/`[::1]` (any port); `MCP_ALLOWED_HOSTS` extends that set. See [fleet-deployment.md](fleet-deployment.md) and §6.
+
 All `/api/v1/*` endpoints require authentication by default. The API supports three modes, selected by `API_AUTH_MODE`:
 
 ### Bearer Mode (`API_AUTH_MODE=bearer`)
@@ -279,6 +281,7 @@ All error responses use:
 
 | `error` value | Typical HTTP status | Description |
 |--------------|---------------------|-------------|
+| `host_not_allowed` | 403 | The request's `Host` header isn't `localhost`/`127.0.0.1`/`[::1]` (any port) or listed in `MCP_ALLOWED_HOSTS` — DNS-rebinding protection, checked ahead of authentication on every route. Never discloses the rejected `Host` value; see §1. |
 | `bad_request` | 400 | Missing or malformed path/query parameter |
 | `validation_error` | 400 | Invalid field value or deserialization failure; or (SSE-specific) `GET /api/v1/events` was called with a `?root=` query parameter that yields no valid UUID (see §21) |
 | `precondition_required` | 400 | `PATCH` missing required `If-Match` header |
