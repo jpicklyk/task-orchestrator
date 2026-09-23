@@ -25,8 +25,12 @@ import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
+import io.ktor.server.application.install
+import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.testing.testApplication
+import io.modelcontextprotocol.kotlin.sdk.types.McpJson
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -35,6 +39,7 @@ import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import org.junit.jupiter.api.Assertions.assertAll
 import org.junit.jupiter.api.Test
 import java.util.UUID
 import kotlin.test.assertEquals
@@ -74,19 +79,24 @@ class ItemGateRouteTest {
             assertEquals(HttpStatusCode.OK, response.status)
             val json = parseGate(response.bodyAsText())
 
-            assertEquals(item.id.toString(), json["itemId"]!!.jsonPrimitive.content)
-            assertEquals("Gate S1", json["title"]!!.jsonPrimitive.content)
-            assertEquals("work", json["role"]!!.jsonPrimitive.content)
-
             val gateStatus = json["gateStatus"]!!.jsonObject
-            assertFalse(gateStatus["canAdvance"]!!.jsonPrimitive.boolean)
-            assertEquals("work", gateStatus["phase"]!!.jsonPrimitive.content)
-            assertEquals(listOf("w1"), gateStatus["missing"]!!.jsonArray.map { it.jsonPrimitive.content })
+            // assertAll: the S3 parity check (second executable) must run and report independently
+            // of the scenario assertions (first executable) — neither may mask the other.
+            assertAll(
+                {
+                    assertEquals(item.id.toString(), json["itemId"]!!.jsonPrimitive.content)
+                    assertEquals("Gate S1", json["title"]!!.jsonPrimitive.content)
+                    assertEquals("work", json["role"]!!.jsonPrimitive.content)
 
-            assertEquals("w1", json["guidanceKey"]!!.jsonPrimitive.content)
-            assertEquals("s1", json["skillPointer"]!!.jsonPrimitive.content)
+                    assertFalse(gateStatus["canAdvance"]!!.jsonPrimitive.boolean)
+                    assertEquals("work", gateStatus["phase"]!!.jsonPrimitive.content)
+                    assertEquals(listOf("w1"), gateStatus["missing"]!!.jsonArray.map { it.jsonPrimitive.content })
 
-            assertParityWithGetContext(repo, svc, item.id, json) // S3
+                    assertEquals("w1", json["guidanceKey"]!!.jsonPrimitive.content)
+                    assertEquals("s1", json["skillPointer"]!!.jsonPrimitive.content)
+                },
+                { assertParityWithGetContext(repo, svc, item.id, json) }, // S3
+            )
         }
 
     @Test
@@ -114,14 +124,17 @@ class ItemGateRouteTest {
             val json = parseGate(response.bodyAsText())
 
             val gateStatus = json["gateStatus"]!!.jsonObject
-            assertTrue(gateStatus["canAdvance"]!!.jsonPrimitive.boolean)
-            assertEquals(0, gateStatus["missing"]!!.jsonArray.size)
+            assertAll(
+                {
+                    assertTrue(gateStatus["canAdvance"]!!.jsonPrimitive.boolean)
+                    assertEquals(0, gateStatus["missing"]!!.jsonArray.size)
 
-            // P7: omitted fields must be ABSENT keys, not JSON null.
-            assertFalse(json.containsKey("guidanceKey"), "guidanceKey must be omitted, not present-as-null: $json")
-            assertFalse(json.containsKey("skillPointer"), "skillPointer must be omitted, not present-as-null: $json")
-
-            assertParityWithGetContext(repo, svc, item.id, json) // S3
+                    // P7: omitted fields must be ABSENT keys, not JSON null.
+                    assertFalse(json.containsKey("guidanceKey"), "guidanceKey must be omitted, not present-as-null: $json")
+                    assertFalse(json.containsKey("skillPointer"), "skillPointer must be omitted, not present-as-null: $json")
+                },
+                { assertParityWithGetContext(repo, svc, item.id, json) }, // S3
+            )
         }
 
     // ─── S4 — terminal ───────────────────────────────────────────────────────
@@ -147,13 +160,16 @@ class ItemGateRouteTest {
             assertEquals(HttpStatusCode.OK, response.status)
             val json = parseGate(response.bodyAsText())
 
-            assertEquals("terminal", json["role"]!!.jsonPrimitive.content)
             val gateStatus = json["gateStatus"]!!.jsonObject
-            assertEquals("terminal", gateStatus["phase"]!!.jsonPrimitive.content)
-            assertFalse(gateStatus["canAdvance"]!!.jsonPrimitive.boolean)
-            assertEquals(0, gateStatus["missing"]!!.jsonArray.size)
-
-            assertParityWithGetContext(repo, svc, item.id, json) // S3
+            assertAll(
+                {
+                    assertEquals("terminal", json["role"]!!.jsonPrimitive.content)
+                    assertEquals("terminal", gateStatus["phase"]!!.jsonPrimitive.content)
+                    assertFalse(gateStatus["canAdvance"]!!.jsonPrimitive.boolean)
+                    assertEquals(0, gateStatus["missing"]!!.jsonArray.size)
+                },
+                { assertParityWithGetContext(repo, svc, item.id, json) }, // S3
+            )
         }
 
     // ─── S5 — schema-free ──────────────────────────────────────────────────
@@ -180,12 +196,15 @@ class ItemGateRouteTest {
             val json = parseGate(response.bodyAsText())
 
             val gateStatus = json["gateStatus"]!!.jsonObject
-            assertTrue(gateStatus["canAdvance"]!!.jsonPrimitive.boolean)
-            assertEquals(0, gateStatus["missing"]!!.jsonArray.size)
-            assertFalse(json.containsKey("guidanceKey"))
-            assertFalse(json.containsKey("skillPointer"))
-
-            assertParityWithGetContext(repo, svc, item.id, json) // S3
+            assertAll(
+                {
+                    assertTrue(gateStatus["canAdvance"]!!.jsonPrimitive.boolean)
+                    assertEquals(0, gateStatus["missing"]!!.jsonArray.size)
+                    assertFalse(json.containsKey("guidanceKey"))
+                    assertFalse(json.containsKey("skillPointer"))
+                },
+                { assertParityWithGetContext(repo, svc, item.id, json) }, // S3
+            )
         }
 
     // ─── S6 — blank body counts as missing ────────────────────────────────────
@@ -215,10 +234,13 @@ class ItemGateRouteTest {
             val json = parseGate(response.bodyAsText())
 
             val gateStatus = json["gateStatus"]!!.jsonObject
-            assertFalse(gateStatus["canAdvance"]!!.jsonPrimitive.boolean)
-            assertEquals(listOf("w1"), gateStatus["missing"]!!.jsonArray.map { it.jsonPrimitive.content })
-
-            assertParityWithGetContext(repo, svc, item.id, json) // S3
+            assertAll(
+                {
+                    assertFalse(gateStatus["canAdvance"]!!.jsonPrimitive.boolean)
+                    assertEquals(listOf("w1"), gateStatus["missing"]!!.jsonArray.map { it.jsonPrimitive.content })
+                },
+                { assertParityWithGetContext(repo, svc, item.id, json) }, // S3
+            )
         }
 
     // ─── S7 — other-phase / optional notes do not affect WORK missing ────────
@@ -288,10 +310,13 @@ class ItemGateRouteTest {
             val json = parseGate(response.bodyAsText())
 
             val gateStatus = json["gateStatus"]!!.jsonObject
-            assertFalse(gateStatus["canAdvance"]!!.jsonPrimitive.boolean)
-            assertEquals(listOf("t1"), gateStatus["missing"]!!.jsonArray.map { it.jsonPrimitive.content })
-
-            assertParityWithGetContext(repo, svc, item.id, json) // S3
+            assertAll(
+                {
+                    assertFalse(gateStatus["canAdvance"]!!.jsonPrimitive.boolean)
+                    assertEquals(listOf("t1"), gateStatus["missing"]!!.jsonArray.map { it.jsonPrimitive.content })
+                },
+                { assertParityWithGetContext(repo, svc, item.id, json) }, // S3
+            )
         }
 
     // ─── S9 — per-root pushed schema replaces the global schema for the type ──
@@ -342,15 +367,18 @@ class ItemGateRouteTest {
             val json = parseGate(response.bodyAsText())
 
             val gateStatus = json["gateStatus"]!!.jsonObject
-            assertFalse(gateStatus["canAdvance"]!!.jsonPrimitive.boolean)
-            assertEquals(
-                listOf("pr1"),
-                gateStatus["missing"]!!.jsonArray.map { it.jsonPrimitive.content },
-                "per-root schema for type 'gt' must replace the global 'gt' schema (w1 must not appear)",
+            assertAll(
+                {
+                    assertFalse(gateStatus["canAdvance"]!!.jsonPrimitive.boolean)
+                    assertEquals(
+                        listOf("pr1"),
+                        gateStatus["missing"]!!.jsonArray.map { it.jsonPrimitive.content },
+                        "per-root schema for type 'gt' must replace the global 'gt' schema (w1 must not appear)",
+                    )
+                    assertTrue(root.id == item.rootId, "sanity: fixture item must carry the root's id as rootId")
+                },
+                { assertParityWithGetContext(repo, svc, item.id, json) }, // S3
             )
-
-            assertParityWithGetContext(repo, svc, item.id, json) // S3
-            assertTrue(root.id == item.rootId, "sanity: fixture item must carry the root's id as rootId")
         }
 
     // ─── S10/S11 — id-handling failures (mirrors sibling GET /items/{id}) ────
@@ -485,6 +513,13 @@ class ItemGateRouteTest {
             val authConfig = makeTestAuthConfig()
             val tokenEntries = authConfig.tokens.mapValues { (_, p) -> BearerTokenStore.TokenEntry(p, expiresAt = null) }
             application {
+                // Production topology mirrors McpRestAuthBypassTest.kt:49-101 (installMcpStreamableHttp
+                // THEN installRestApiRoutes). installMcpStreamableHttp is what installs ContentNegotiation
+                // in production; without it, a matched route with no negotiated format serializer replies
+                // 406, not 404 — installRestApiRoutes alone does NOT install it. Building a full MCP Server
+                // here is unnecessary: this is the exact ContentNegotiation wiring installMcpStreamableHttp
+                // performs, installed directly.
+                install(ContentNegotiation) { json(McpJson) }
                 installRestApiRoutes(
                     apiConfig = authConfig,
                     eventBus = null,
@@ -615,16 +650,19 @@ class ItemGateRouteTest {
             assertEquals(HttpStatusCode.OK, response.status)
             val json = parseGate(response.bodyAsText())
 
-            // P3: schema order preserved (p-first before p-second).
-            assertEquals(
-                listOf("p-first", "p-second"),
-                json["gateStatus"]!!.jsonObject["missing"]!!.jsonArray.map { it.jsonPrimitive.content },
+            assertAll(
+                // P3: schema order preserved (p-first before p-second).
+                {
+                    assertEquals(
+                        listOf("p-first", "p-second"),
+                        json["gateStatus"]!!.jsonObject["missing"]!!.jsonArray.map { it.jsonPrimitive.content },
+                    )
+                },
+                // P2: guidanceKey/skillPointer behavior is parity-only (AR:1471 ambiguous which of the
+                // two missing entries "counts" when only the second has guidance) — assert against
+                // get_context's own answer for the same fixture rather than a hardcoded value.
+                { assertParityWithGetContext(repo, svc, item.id, json) },
             )
-
-            // P2: guidanceKey/skillPointer behavior is parity-only (AR:1471 ambiguous which of the
-            // two missing entries "counts" when only the second has guidance) — assert against
-            // get_context's own answer for the same fixture rather than a hardcoded value.
-            assertParityWithGetContext(repo, svc, item.id, json)
         }
 
     // ─── P4 — uppercase UUID accepted ─────────────────────────────────────────
@@ -796,5 +834,5 @@ private class GateFixtureSchemaService : WorkItemSchemaService {
             else -> null
         }
 
-    override fun getTraitNotes(trait: String): List<NoteSchemaEntry>? = if (trait == "tr") listOf(t1) else null
+    override fun getTraitNotes(traitName: String): List<NoteSchemaEntry>? = if (traitName == "tr") listOf(t1) else null
 }
