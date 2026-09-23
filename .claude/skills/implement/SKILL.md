@@ -495,6 +495,8 @@ fixture surface.
 Omitting `model` causes the agent to inherit the orchestrator's model (typically
 opus), wasting tokens on sonnet-eligible implementation work.
 
+When dispatching an item's phase owner (implementer on work, reviewer on review) and the item's resolved `dispatch` profile names an `agent`, dispatch with `subagent_type = dispatch.agent` and still pass `model` explicitly — `dispatch.model` if set, else the table above — since `effort` applies only through the agent's own frontmatter, never as an Agent-tool parameter.
+
 **After implementation agents return:**
 
 For Parallel-tier features, agents return having committed to `feat/<feature-slug>`

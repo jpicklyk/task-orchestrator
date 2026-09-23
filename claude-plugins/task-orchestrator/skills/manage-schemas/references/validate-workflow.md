@@ -48,8 +48,15 @@ Parse the file. If YAML is invalid, report the parse error with line number (if 
 
 **For `traits` entries:**
 - Trait key should be kebab-case (warn if not)
-- Value must be a mapping containing a `notes` list
+- Value must be a mapping. `notes` (list), `resources` (list), and `dispatch` (map) are each
+  optional — a trait may declare any combination of the three, including `dispatch` and/or
+  `resources` with no `notes` key at all (a dispatch-only or resources-only trait is valid, not an
+  error). Warn (not error) if a trait declares none of the three — an empty, no-op trait.
 - Each note follows the same field rules as schema notes
+- `dispatch` (if present), see `references/config-format.md` → "Dispatch (Trait Dimension)" for the
+  full field reference: phase keys are `queue`/`work`/`review` only (case-sensitive); each phase
+  profile needs at least one of `agent`/`model`/`effort`; `effort` (if set) must be one of `low`,
+  `medium`, `high`, `xhigh`, `max` (case-sensitive)
 
 ### 4. Note Definition Fields
 For each note in each schema (and trait):

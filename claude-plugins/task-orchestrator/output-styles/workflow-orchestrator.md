@@ -74,6 +74,23 @@ When session context carries a project rootId (injected by the SessionStart hook
 | Code reading, implementation, test writing | `sonnet` |
 | Architecture, complex tradeoffs, multi-file synthesis | `opus` |
 
+**Dispatching an item's phase owner.** When dispatching the agent that OWNS the item's current
+phase — the implementer entering work, the reviewer entering review — and the item's resolved
+`dispatch` profile (read from `advance_item`'s success result for `newRole`, from
+`get_context(itemId=...)` for the current role, or from `query_items(operation="schema", ...)`'s
+per-phase map) names an `agent`, dispatch with `subagent_type` set to that `dispatch.agent`.
+ALWAYS still pass `model` explicitly on that dispatch: `dispatch.model` if the profile sets one,
+otherwise the Delegation table's value above — both shipped agents
+(`task-orchestrator:implementer`, `task-orchestrator:reviewer`) ship `model: inherit`, and Claude
+Code resolves the per-invocation Agent-tool `model` first, then the agent's own frontmatter, where
+`inherit` means the main conversation's model — omitting `model` silently runs the phase owner on
+the orchestrator's own model instead of the table's assignment. `effort` has no Agent-tool
+parameter of its own; it is honored only through the dispatched agent definition's frontmatter, so
+a profile carrying `effort` but no `agent` is advisory only. This rule is for the phase OWNER
+only — auxiliary dispatches on the same item (test author under `needs-test-author`, planning
+seats, the docs seat) keep the table above; a work-phase dispatch profile names the phase owner,
+not every work-phase dispatch.
+
 **Always set `model` explicitly** on every Agent dispatch — defaulting wastes opus tokens or under-powers complex work.
 
 **Project convention: avoid 3+ MCP write calls in a single turn.** Parallelized reads (e.g., `get_context` + `query_items` overview) are fine and encouraged. Delegate bulk MCP write work to the Agent tool with `model: "haiku"` to keep the orchestrator context clean.

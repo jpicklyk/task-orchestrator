@@ -314,6 +314,107 @@ for the contention/retry model and the full guarantees-vs-non-guarantees stateme
 
 ---
 
+## Dispatch (Trait Dimension)
+
+A trait can declare `dispatch:` — a map of workflow phase → **dispatch profile**, read by an
+orchestrator (this plugin's shipped output styles and the `/implement` skill) to decide which
+agent type, model, and thinking effort to dispatch for the phase owner. Like `resources:`, this is
+independent of the note-requirement dimension — a trait can carry `notes`, `resources`, `dispatch`,
+any combination, or none.
+
+### Declaration form
+
+```yaml
+traits:
+  delegated:
+    dispatch:
+      work:   { agent: task-orchestrator:implementer }
+      review: { agent: task-orchestrator:reviewer, effort: high }
+```
+
+| Field | Required | Notes |
+|-------|----------|-------|
+| Phase key | — | One of `queue`, `work`, `review` only — exact lowercase match. Any other key (`terminal`, `blocked`, `Work`, an unrecognized string) is a load warning and that phase entry is skipped; the trait's other phases still parse. |
+| `agent` | no* | Opaque string passed as `subagent_type` — never validated against any registry. |
+| `model` | no* | Opaque string passed as the Agent tool's `model` parameter. |
+| `effort` | no* | One of `low`, `medium`, `high`, `xhigh`, `max`, matched **case-sensitively** (`High` is invalid). Has no Agent-tool parameter of its own — see "The Claude Code note" below. |
+
+\* At least one of `agent` / `model` / `effort` must be present, or the profile is empty and
+dropped with a load warning. An unknown profile field is ignored with a warning; a non-string or
+blank field value is dropped with a warning (the rest of the profile, if any field still survives,
+still parses).
+
+Invalid entries never fail the config load — they degrade to a load warning and the entry (field,
+phase, or the trait's whole `dispatch` map) is skipped at its own granularity, and the load still
+succeeds. A `manage_project_config` push carrying invalid `dispatch` entries still succeeds too;
+the warnings surface in the push response's existing `schemaWarnings` array alongside any other
+config warnings.
+
+### Precedence — the reverse of note merging, read this before combining traits
+
+Resolving an item's dispatch profile for a phase walks trait names in this order: **per-item
+`traits` first, then the schema's `default_traits`**, both deduplicated. This is the **opposite**
+of how trait *notes* merge ("Trait Merge Semantics" above: `default_traits` first, then per-item
+`traits`) — a note requirement escalates outward from the base schema, but a dispatch profile is a
+per-item override: when an item's own `traits` parameter names a trait explicitly, that is the
+explicit escalation, and it should win over whatever the item's type declares by default.
+
+The **first trait in that order that has a profile for the requested phase wins outright — the
+whole profile, never merged field-by-field across traits.** If a per-item trait A declares
+`work: {agent: X}` and a `default_traits` trait B declares `work: {agent: Y, effort: high}`, the
+resolved profile is exactly `{agent: X}` — B's `effort: high` is never folded in. Per-trait lookup
+also honors the usual per-root-before-global order (see "Per-root layering" below), applied to
+whichever trait wins the phase.
+
+### Per-root layering — no per-role fall-through within a trait
+
+Same as `resources:` trait declarations (not the `resources:` *registry*, which layers the other
+direction — see above): a per-root trait definition's `dispatch:` map **replaces** the global
+trait's `dispatch:` map wholesale, for that trait name. There is **no per-role fall-through within
+a single trait** — if a per-root trait's `dispatch:` map declares `work:` but omits `review:`, and
+the global trait of the same name declares both, the resolved `review` profile for that trait is
+**absent** for items in that root, not inherited from the global trait's `review` entry. To keep a
+role's profile from the global trait while overriding another role, the per-root trait must restate
+every role it wants to keep.
+
+### Caveat — a dispatch-only per-root trait shadows the global trait's notes
+
+A per-root trait entry that declares **only** `dispatch:` (no `notes:` key at all) parses to an
+**empty note list** for that trait, in that root — and per-root trait definitions replace the
+global trait wholesale, per trait name ("Trait Merge Semantics" rule 5 above covers the same
+wholesale-replacement behavior for notes). So a per-root override written purely to add or change a
+dispatch profile will silently **drop every note** the global trait declared under that name, for
+items in that root. To layer a dispatch override on top of a global trait's existing notes, restate
+the `notes:` list in the per-root entry too — there is no partial-dimension merge (notes vs.
+dispatch vs. resources) within a single trait, only whole-trait per-root-wins.
+
+### Where the profile surfaces
+
+| Surface | Shape |
+|---------|-------|
+| `advance_item` success result | `dispatch: {agent?, model?, effort?}` for the item's **new** role (`newRole`); the key is omitted entirely (never `null`/`{}`) when nothing resolves |
+| `get_context(itemId=...)` (item mode) | `dispatch: {agent?, model?, effort?}` for the item's **current** role |
+| `query_items(operation="schema", ...)` | `dispatch: {"queue"\|"work"\|"review": {agent?, model?, effort?}}` — one entry per resolved phase |
+| REST `GET /api/v1/config/traits` | `TraitDto.dispatch: {<phase>: {agent?, model?, effort?}}` — **global config only**. This route resolves against the server-wide schema service, not any per-root snapshot, so a per-root `dispatch` override is not visible here even for a rooted item; read `query_items(operation="schema", itemId=..., rootId=...)` instead when the per-root-resolved profile is needed. |
+
+### The Claude Code note — effort only via agent frontmatter
+
+`effort` has no parameter on the Agent tool itself — Claude Code applies effort only through the
+dispatched agent definition's own frontmatter (`effort: low|medium|high|xhigh|max`). A dispatch
+profile that sets `effort` but no `agent` is therefore advisory only: there is nothing to attach
+the effort value to besides the agent definition being dispatched, and if no `agent` is named, no
+agent frontmatter is in play. The plugin ships two agent definitions that declare `effort` this
+way — `task-orchestrator:implementer` (`effort: medium`) and `task-orchestrator:reviewer`
+(`effort: high`) — both using `model: inherit` in their own frontmatter, which is exactly why a
+dispatch profile (or, absent one, the dispatching caller) must still pass `model` explicitly on
+every dispatch of the phase owner. See
+[`output-styles/workflow-orchestrator.md`](../../../output-styles/workflow-orchestrator.md) →
+Delegation and
+[`.claude/skills/implement/SKILL.md`](../../../../../.claude/skills/implement/SKILL.md) → Model
+selection for the consumer-side rule.
+
+---
+
 ## Phase Flow
 
 ```
