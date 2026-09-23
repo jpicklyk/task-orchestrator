@@ -22,14 +22,31 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * Unit tests for [ToolExecutionContext.resolveDispatchProfile] / [ToolExecutionContext.resolveDispatchProfiles]
- * — the dispatch-trait resolution layer (B1, dispatch trait dimension). Mirrors the fixture and
- * mocking conventions of [ToolExecutionContextResourceMergeTest], the resources-dimension sibling,
- * and of [ToolExecutionContextResolveSchemaTest] for the P8 no-cross-call regression tests.
+ * Unit tests for [ToolExecutionContext.resolveDispatchProfile] (resolved-schema overload) /
+ * [ToolExecutionContext.resolveDispatchProfiles] — the dispatch-trait resolution layer (B1,
+ * dispatch trait dimension). Uses the 3-arg `resolveDispatchProfile(item, role, resolvedSchema)`
+ * overload throughout: it is the overload the tools (AdvanceItemTool, GetContextTool,
+ * QueryItemsTool) actually use (per the pinned contract, P7), and it isolates the dispatch
+ * RESOLUTION algorithm under test here from the separate schema LOOKUP algorithm already covered
+ * by [ToolExecutionContextResolveSchemaTest]. Mirrors the fixture and mocking conventions of
+ * [ToolExecutionContextResourceMergeTest], the resources-dimension sibling, and of
+ * [ToolExecutionContextResolveSchemaTest] for the P8 no-cross-call regression tests.
  *
  * Independent test authorship per the `needs-test-author` trait: oracles come from the pinned
  * contract and P4/P5/P7/P8 in the item's `task-scope` note — never from reading
  * ToolExecutionContext's source.
+ *
+ * Arbitration (case 2, orchestrator arbitration on commit f3fec87): the original version of this
+ * file exercised the 2-arg convenience overload `resolveDispatchProfile(item, role)` throughout.
+ * That overload internally resolves the schema first (via `resolveSchema`, which calls
+ * `getSchemaForType` / `getSchemaForTags` / `getTraitNotes`, and — when `item.rootId` is set and a
+ * `PerRootConfigService` is wired — `PerRootConfigService.getSnapshot`), so it reached calls the
+ * strict `noteSchemaService` mock here didn't stub, producing `MockKException` in 11 of 12 tests.
+ * The 12th (S10 "no traits") failed the same way for a distinct reason: P7's "empty trait list ->
+ * null without fetching a per-root snapshot" guarantee belongs to the 3-arg overload, not the 2-arg
+ * one, which fetches a snapshot via `resolveSchema` regardless. Construction fix: switch every test
+ * to the 3-arg overload with a directly-constructed `WorkItemSchema` (or `null` for schema-free
+ * scenarios) — no assertion or oracle changed.
  */
 class ToolExecutionContextDispatchTest {
     private lateinit var noteSchemaService: NoteSchemaService
@@ -38,8 +55,6 @@ class ToolExecutionContextDispatchTest {
     @BeforeEach
     fun setUp() {
         noteSchemaService = mockk()
-        every { noteSchemaService.getSchemaForType(any()) } returns null
-        every { noteSchemaService.getSchemaForTags(any()) } returns null
         every { noteSchemaService.getTraitDispatch(any()) } returns emptyMap()
 
         val repoProvider = mockk<RepositoryProvider>(relaxed = true)
@@ -47,20 +62,21 @@ class ToolExecutionContextDispatchTest {
     }
 
     private fun makeItem(
-        type: String? = null,
-        tags: String? = null,
         properties: String? = null,
         rootId: UUID? = null
     ): WorkItem =
         WorkItem(
             id = UUID.randomUUID(),
             title = "Test Item",
-            type = type,
-            tags = tags,
+            type = "feature-task",
             properties = properties,
             rootId = rootId,
             depth = 0
         )
+
+    /** A resolved-schema fixture for the 3-arg overload — resolveSchema/getSchemaFor* are never called. */
+    private fun schema(defaultTraits: List<String> = emptyList()): WorkItemSchema =
+        WorkItemSchema(type = "feature-task", notes = emptyList(), defaultTraits = defaultTraits)
 
     // ──────────────────────────────────────────────
     // S5 — defaultTraits resolve dispatch; a schema-free item still honors its properties traits
@@ -70,14 +86,11 @@ class ToolExecutionContextDispatchTest {
     @Test
     fun `S5 resolveDispatchProfile resolves a WORK profile from a type's defaultTraits`() =
         runBlocking {
-            val baseSchema =
-                WorkItemSchema(type = "feature-task", notes = emptyList(), defaultTraits = listOf("delegated"))
-            every { noteSchemaService.getSchemaForType("feature-task") } returns baseSchema
             every { noteSchemaService.getTraitDispatch("delegated") } returns
                 mapOf(Role.WORK to DispatchProfile(agent = "task-orchestrator:implementer"))
 
-            val item = makeItem(type = "feature-task")
-            val profile = context.resolveDispatchProfile(item, Role.WORK)
+            val item = makeItem()
+            val profile = context.resolveDispatchProfile(item, Role.WORK, schema(listOf("delegated")))
 
             assertEquals(DispatchProfile(agent = "task-orchestrator:implementer"), profile)
         }
@@ -88,8 +101,8 @@ class ToolExecutionContextDispatchTest {
             every { noteSchemaService.getTraitDispatch("delegated") } returns
                 mapOf(Role.WORK to DispatchProfile(agent = "task-orchestrator:implementer"))
 
-            val item = makeItem(type = null, tags = null, properties = """{"traits": ["delegated"]}""")
-            val profile = context.resolveDispatchProfile(item, Role.WORK)
+            val item = makeItem(properties = """{"traits": ["delegated"]}""")
+            val profile = context.resolveDispatchProfile(item, Role.WORK, resolvedSchema = null)
 
             assertEquals(DispatchProfile(agent = "task-orchestrator:implementer"), profile)
         }
@@ -102,16 +115,13 @@ class ToolExecutionContextDispatchTest {
     @Test
     fun `S6 an item-level trait's profile wins over a defaultTraits trait's profile for the same role`() =
         runBlocking {
-            val baseSchema =
-                WorkItemSchema(type = "feature-task", notes = emptyList(), defaultTraits = listOf("delegated"))
-            every { noteSchemaService.getSchemaForType("feature-task") } returns baseSchema
             every { noteSchemaService.getTraitDispatch("delegated") } returns
                 mapOf(Role.WORK to DispatchProfile(agent = "team-default"))
             every { noteSchemaService.getTraitDispatch("x") } returns
                 mapOf(Role.WORK to DispatchProfile(agent = "a"))
 
-            val item = makeItem(type = "feature-task", properties = """{"traits": ["x"]}""")
-            val profile = context.resolveDispatchProfile(item, Role.WORK)
+            val item = makeItem(properties = """{"traits": ["x"]}""")
+            val profile = context.resolveDispatchProfile(item, Role.WORK, schema(listOf("delegated")))
 
             assertEquals("a", profile?.agent)
         }
@@ -124,16 +134,13 @@ class ToolExecutionContextDispatchTest {
     @Test
     fun `S7 the first defaultTraits trait with a WORK profile wins over a later one`() =
         runBlocking {
-            val baseSchema =
-                WorkItemSchema(type = "feature-task", notes = emptyList(), defaultTraits = listOf("trait-a", "trait-b"))
-            every { noteSchemaService.getSchemaForType("feature-task") } returns baseSchema
             every { noteSchemaService.getTraitDispatch("trait-a") } returns
                 mapOf(Role.WORK to DispatchProfile(agent = "a"))
             every { noteSchemaService.getTraitDispatch("trait-b") } returns
                 mapOf(Role.WORK to DispatchProfile(agent = "b"))
 
-            val item = makeItem(type = "feature-task")
-            val profile = context.resolveDispatchProfile(item, Role.WORK)
+            val item = makeItem()
+            val profile = context.resolveDispatchProfile(item, Role.WORK, schema(listOf("trait-a", "trait-b")))
 
             assertEquals("a", profile?.agent)
         }
@@ -141,17 +148,14 @@ class ToolExecutionContextDispatchTest {
     @Test
     fun `S7 a trait with no entry for the requested role is skipped, falling through to the next trait`() =
         runBlocking {
-            val baseSchema =
-                WorkItemSchema(type = "feature-task", notes = emptyList(), defaultTraits = listOf("trait-a", "trait-b"))
-            every { noteSchemaService.getSchemaForType("feature-task") } returns baseSchema
             // trait-a declares only REVIEW -- no WORK entry at all.
             every { noteSchemaService.getTraitDispatch("trait-a") } returns
                 mapOf(Role.REVIEW to DispatchProfile(agent = "a-reviewer"))
             every { noteSchemaService.getTraitDispatch("trait-b") } returns
                 mapOf(Role.WORK to DispatchProfile(agent = "b"))
 
-            val item = makeItem(type = "feature-task")
-            val profile = context.resolveDispatchProfile(item, Role.WORK)
+            val item = makeItem()
+            val profile = context.resolveDispatchProfile(item, Role.WORK, schema(listOf("trait-a", "trait-b")))
 
             assertEquals("b", profile?.agent)
         }
@@ -163,16 +167,13 @@ class ToolExecutionContextDispatchTest {
     @Test
     fun `S8 the winning trait's whole profile is used, never merged field-by-field with a later trait`() =
         runBlocking {
-            val baseSchema =
-                WorkItemSchema(type = "feature-task", notes = emptyList(), defaultTraits = listOf("t1", "t2"))
-            every { noteSchemaService.getSchemaForType("feature-task") } returns baseSchema
             every { noteSchemaService.getTraitDispatch("t1") } returns
                 mapOf(Role.WORK to DispatchProfile(agent = "a"))
             every { noteSchemaService.getTraitDispatch("t2") } returns
                 mapOf(Role.WORK to DispatchProfile(effort = "high"))
 
-            val item = makeItem(type = "feature-task")
-            val profile = context.resolveDispatchProfile(item, Role.WORK)
+            val item = makeItem()
+            val profile = context.resolveDispatchProfile(item, Role.WORK, schema(listOf("t1", "t2")))
 
             assertEquals(DispatchProfile(agent = "a"), profile)
             assertNull(profile?.effort, "t2's effort must not merge into t1's winning profile")
@@ -189,9 +190,6 @@ class ToolExecutionContextDispatchTest {
             val rootId = UUID.randomUUID()
             val perRoot = mockk<PerRootConfigService>()
 
-            val baseSchema =
-                WorkItemSchema(type = "feature-task", notes = emptyList(), defaultTraits = listOf("delegated"))
-            every { noteSchemaService.getSchemaForType("feature-task") } returns baseSchema
             every { noteSchemaService.getTraitDispatch("delegated") } returns
                 mapOf(Role.WORK to DispatchProfile(agent = "task-orchestrator:implementer"))
 
@@ -209,8 +207,8 @@ class ToolExecutionContextDispatchTest {
             val repoProvider = mockk<RepositoryProvider>(relaxed = true)
             val ctx = ToolExecutionContext(repoProvider, noteSchemaService, perRootConfigService = perRoot)
 
-            val item = makeItem(type = "feature-task", rootId = rootId)
-            val profile = ctx.resolveDispatchProfile(item, Role.WORK)
+            val item = makeItem(rootId = rootId)
+            val profile = ctx.resolveDispatchProfile(item, Role.WORK, schema(listOf("delegated")))
 
             assertEquals(perRootProfile, profile)
             verify(exactly = 0) { noteSchemaService.getTraitDispatch("delegated") }
@@ -222,9 +220,6 @@ class ToolExecutionContextDispatchTest {
             val rootId = UUID.randomUUID()
             val perRoot = mockk<PerRootConfigService>()
 
-            val baseSchema =
-                WorkItemSchema(type = "feature-task", notes = emptyList(), defaultTraits = listOf("delegated"))
-            every { noteSchemaService.getSchemaForType("feature-task") } returns baseSchema
             every { noteSchemaService.getTraitDispatch("delegated") } returns
                 mapOf(Role.WORK to DispatchProfile(agent = "task-orchestrator:implementer"))
 
@@ -241,8 +236,8 @@ class ToolExecutionContextDispatchTest {
             val repoProvider = mockk<RepositoryProvider>(relaxed = true)
             val ctx = ToolExecutionContext(repoProvider, noteSchemaService, perRootConfigService = perRoot)
 
-            val item = makeItem(type = "feature-task", rootId = rootId)
-            val profile = ctx.resolveDispatchProfile(item, Role.WORK)
+            val item = makeItem(rootId = rootId)
+            val profile = ctx.resolveDispatchProfile(item, Role.WORK, schema(listOf("delegated")))
 
             assertEquals("task-orchestrator:implementer", profile?.agent)
         }
@@ -253,9 +248,6 @@ class ToolExecutionContextDispatchTest {
             val rootId = UUID.randomUUID()
             val perRoot = mockk<PerRootConfigService>()
 
-            val baseSchema =
-                WorkItemSchema(type = "feature-task", notes = emptyList(), defaultTraits = listOf("delegated"))
-            every { noteSchemaService.getSchemaForType("feature-task") } returns baseSchema
             // Global defines WORK -- must NOT be used once the per-root layer supplies this trait.
             every { noteSchemaService.getTraitDispatch("delegated") } returns
                 mapOf(Role.WORK to DispatchProfile(agent = "task-orchestrator:implementer"))
@@ -273,8 +265,8 @@ class ToolExecutionContextDispatchTest {
             val repoProvider = mockk<RepositoryProvider>(relaxed = true)
             val ctx = ToolExecutionContext(repoProvider, noteSchemaService, perRootConfigService = perRoot)
 
-            val item = makeItem(type = "feature-task", rootId = rootId)
-            val profile = ctx.resolveDispatchProfile(item, Role.WORK)
+            val item = makeItem(rootId = rootId)
+            val profile = ctx.resolveDispatchProfile(item, Role.WORK, schema(listOf("delegated")))
 
             assertNull(profile, "a per-root REVIEW-only map must not fall through to the global WORK entry")
         }
@@ -290,14 +282,13 @@ class ToolExecutionContextDispatchTest {
         runBlocking {
             val rootId = UUID.randomUUID()
             val perRoot = mockk<PerRootConfigService>()
-            val baseSchema = WorkItemSchema(type = "feature-task", notes = emptyList(), defaultTraits = emptyList())
-            every { noteSchemaService.getSchemaForType("feature-task") } returns baseSchema
 
             val repoProvider = mockk<RepositoryProvider>(relaxed = true)
             val ctx = ToolExecutionContext(repoProvider, noteSchemaService, perRootConfigService = perRoot)
 
-            val item = makeItem(type = "feature-task", rootId = rootId)
-            val profile = ctx.resolveDispatchProfile(item, Role.WORK)
+            // Empty on both sides: no item-level traits (no properties) and no defaultTraits.
+            val item = makeItem(rootId = rootId)
+            val profile = ctx.resolveDispatchProfile(item, Role.WORK, schema(emptyList()))
 
             assertNull(profile)
             coVerify(exactly = 0) { perRoot.getSnapshot(any()) }
@@ -306,17 +297,14 @@ class ToolExecutionContextDispatchTest {
     @Test
     fun `S10 a trait with a dispatch entry resolves null for a role it does not declare (QUEUE)`() =
         runBlocking {
-            val baseSchema =
-                WorkItemSchema(type = "feature-task", notes = emptyList(), defaultTraits = listOf("delegated"))
-            every { noteSchemaService.getSchemaForType("feature-task") } returns baseSchema
             every { noteSchemaService.getTraitDispatch("delegated") } returns
                 mapOf(
                     Role.WORK to DispatchProfile(agent = "task-orchestrator:implementer"),
                     Role.REVIEW to DispatchProfile(agent = "task-orchestrator:reviewer", effort = "high")
                 )
 
-            val item = makeItem(type = "feature-task")
-            val profile = context.resolveDispatchProfile(item, Role.QUEUE)
+            val item = makeItem()
+            val profile = context.resolveDispatchProfile(item, Role.QUEUE, schema(listOf("delegated")))
 
             assertNull(profile, "the pinned contract declares queue/work/review only -- no QUEUE entry ever resolves")
         }
@@ -324,19 +312,12 @@ class ToolExecutionContextDispatchTest {
     @Test
     fun `S10 an unknown trait name is skipped silently, resolution continues to the next trait`() =
         runBlocking {
-            val baseSchema =
-                WorkItemSchema(
-                    type = "feature-task",
-                    notes = emptyList(),
-                    defaultTraits = listOf("no-such-trait", "delegated")
-                )
-            every { noteSchemaService.getSchemaForType("feature-task") } returns baseSchema
             every { noteSchemaService.getTraitDispatch("no-such-trait") } returns emptyMap()
             every { noteSchemaService.getTraitDispatch("delegated") } returns
                 mapOf(Role.WORK to DispatchProfile(agent = "task-orchestrator:implementer"))
 
-            val item = makeItem(type = "feature-task")
-            val profile = context.resolveDispatchProfile(item, Role.WORK)
+            val item = makeItem()
+            val profile = context.resolveDispatchProfile(item, Role.WORK, schema(listOf("no-such-trait", "delegated")))
 
             assertEquals("task-orchestrator:implementer", profile?.agent)
         }
@@ -349,25 +330,24 @@ class ToolExecutionContextDispatchTest {
     @Test
     fun `probe -- a trait present both as an item trait and in defaultTraits resolves at its item-trait position`() =
         runBlocking {
-            val baseSchema =
-                WorkItemSchema(type = "feature-task", notes = emptyList(), defaultTraits = listOf("d", "t"))
-            every { noteSchemaService.getSchemaForType("feature-task") } returns baseSchema
             every { noteSchemaService.getTraitDispatch("d") } returns
                 mapOf(Role.WORK to DispatchProfile(agent = "d-agent"))
             every { noteSchemaService.getTraitDispatch("t") } returns
                 mapOf(Role.WORK to DispatchProfile(agent = "t-agent"))
 
-            val item = makeItem(type = "feature-task", properties = """{"traits": ["t"]}""")
-            val profile = context.resolveDispatchProfile(item, Role.WORK)
+            val item = makeItem(properties = """{"traits": ["t"]}""")
+            val profile = context.resolveDispatchProfile(item, Role.WORK, schema(listOf("d", "t")))
 
             assertEquals("t-agent", profile?.agent, "order = [t, d, t].distinct() = [t, d] -- t wins")
         }
 
     // ──────────────────────────────────────────────
-    // P8 — resolveSchema / resolveResourceRequirements must never touch getTraitDispatch. Mirrors
-    // the exact fixtures of ToolExecutionContextResolveSchemaTest's "merges trait notes after base
-    // schema notes" test and ToolExecutionContextResourceMergeTest's "no traits at all" test, each
-    // already run against a strict mockk() that doesn't stub getTraitDispatch.
+    // P8 — resolveSchema / resolveResourceRequirements must never touch getTraitDispatch. Unaffected
+    // by the arbitration fix above: these call resolveSchema/resolveResourceRequirements directly,
+    // never resolveDispatchProfile. Mirrors the exact fixtures of ToolExecutionContextResolveSchemaTest's
+    // "merges trait notes after base schema notes" test and ToolExecutionContextResourceMergeTest's
+    // "no traits at all" test, each already run against a strict mockk() that doesn't stub
+    // getTraitDispatch.
     // ──────────────────────────────────────────────
 
     @Test
@@ -391,7 +371,7 @@ class ToolExecutionContextDispatchTest {
 
             val repoProvider = mockk<RepositoryProvider>(relaxed = true)
             val ctx = ToolExecutionContext(repoProvider, strictService)
-            val item = makeItem(type = "feature-task")
+            val item = makeItem()
 
             val result = ctx.resolveSchema(item)
 
@@ -412,7 +392,7 @@ class ToolExecutionContextDispatchTest {
 
             val repoProvider = mockk<RepositoryProvider>(relaxed = true)
             val ctx = ToolExecutionContext(repoProvider, strictService)
-            val item = makeItem(type = "feature-task")
+            val item = makeItem()
 
             val result = ctx.resolveResourceRequirements(item)
 
