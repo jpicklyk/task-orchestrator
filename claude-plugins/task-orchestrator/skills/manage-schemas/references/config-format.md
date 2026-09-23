@@ -176,9 +176,10 @@ How trait notes merge into an item's resolved schema (`ToolExecutionContext.reso
    key, the earlier one keeps its note — the later duplicate is dropped, same as rule 1.
 4. **Trait notes append after base notes.** The final note list order is: base schema notes, then
    surviving trait notes in application order.
-5. **Per-root trait definitions replace the global trait wholesale, per trait name.** There is no
+5. **Per-root trait notes replace the global trait's notes wholesale, per trait name.** There is no
    note-level merge between a per-root and a global trait sharing a name — resolution picks
-   `perRoot ?: global` for the *entire* trait definition (all its notes), not a union of the two.
+   `perRoot ?: global` for the trait's *entire note list*, not a union of the two. (`dispatch` and
+   `resources` layer per dimension — see "Dispatch (Trait Dimension)" below.)
 6. **Traits can only add note keys — never override or relax a base-schema gate.** A trait cannot
    turn a base-schema `required: true` note optional, and it cannot change a base note's role; the
    only way a trait can affect an existing base key is to be silently ignored (rule 1).
@@ -403,12 +404,13 @@ for that dimension:
   name, for items in that root. To layer a dispatch override on top of a global trait's existing
   notes, restate the `notes:` list in the per-root entry too.
 - **`dispatch` replaces the global trait's `dispatch:` map only when the per-root trait entry
-  itself declares a `dispatch:` key.** If it doesn't, `Snapshot.traitDispatch` has no entry for that
+  itself declares a non-empty, valid `dispatch:` map.** If it doesn't (or the map is empty or every
+  phase entry is invalid), `Snapshot.traitDispatch` has no entry for that
   trait name at all (absent, not an empty map), and resolution falls through to the global trait's
   `dispatch:` map unchanged — a per-root trait entry with only `notes:` does NOT blank the global
   dispatch profile.
 - **`resources` works the same way as `dispatch`.** A per-root trait entry replaces the global
-  trait's `resources:` list only when it declares a `resources:` key itself; otherwise the global
+  trait's `resources:` list only when it declares a non-empty, valid `resources:` list itself; otherwise the global
   trait's resource requirements still apply.
 
 In short: write only the dimension(s) you mean to override in a per-root trait entry — `dispatch`

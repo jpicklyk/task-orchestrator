@@ -74,8 +74,8 @@ When session context carries a project rootId (injected by the SessionStart hook
 | Code reading, implementation, test writing | `sonnet` |
 | Architecture, complex tradeoffs, multi-file synthesis | `opus` |
 
-**Dispatching an item's phase owner.** Applies only to the agent that OWNS the item's current
-phase — the implementer entering work, the reviewer entering review — never test author, planning
+**Dispatching an item's phase owner.** Applies only to the agent that OWNS the phase being
+entered — the implementer entering work, the reviewer entering review — never test author, planning
 seats, or the docs seat (those keep the Delegation table above).
 
 Read the profile for the phase you are dispatching INTO, not the item's current phase:

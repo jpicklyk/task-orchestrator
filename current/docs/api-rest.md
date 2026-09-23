@@ -526,8 +526,8 @@ returns. Declared per trait per phase under `traits.<name>.dispatch.<phase>:`; s
 ```
 
 `dispatch` (map of phase name to `DispatchProfileDto`, optional) and `resources` (array of
-`ResourceRequirementDto`, optional) are omitted (`null`) rather than an empty map/array when the
-trait declares neither. **Global config only:** every `/config*` route resolves against the
+`ResourceRequirementDto`, optional) are omitted from the JSON (never `null`) rather than an empty map/array when
+the trait declares neither. **Global config only:** every `/config*` route resolves against the
 server-wide schema service, not any per-root pushed config, so a per-root `dispatch`/`resources`
 override on a trait of the same name is not reflected here — resolve the per-root-aware value via
 `query_items(operation="schema", itemId=...)` (MCP) instead; that path applies the item's own
