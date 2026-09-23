@@ -2,7 +2,7 @@
 
 ## What You Get
 
-- 4 automatic hooks that fire on session start, plan mode entry, plan approval, and subagent launch
+- Automatic hooks that fire on session start, plan mode entry, plan approval, subagent launch, and (when the REST API is configured) subagent phase-gate enforcement
 - 7 user-invocable skills as `/task-orchestrator:*` slash commands
 - 3 internal skills that power the plan-mode pipeline
 - The Agent-Owned-Phase Protocol injected into every subagent automatically
@@ -66,6 +66,24 @@ Hooks fire automatically — no invocation needed after installation.
 **What it injects:** The full Agent-Owned-Phase Protocol (see below).
 
 **Effect:** Every subagent knows to call `advance_item(trigger="start")` to enter its phase, fill notes using the `guidanceKey` loop, commit changes, and return without calling `complete`. The orchestrator handles terminal transitions.
+
+### Phase-Guard Record
+
+**Event:** `PostToolUse` on `advance_item` — fires after every `advance_item` call, in the main session and inside subagents.
+
+**What it does:** Acts only when the hook input carries `agent_id` (i.e. it fired inside a subagent call) and only when `TASK_ORCHESTRATOR_API_URL` is set. Parses the `advance_item` response and records the itemIds the subagent just entered its own phase for (results with no `errorCode` and a full UUID) into a per-(session, agent) state file under `os.tmpdir()/task-orchestrator/phase-guard-<key>.json`.
+
+**Effect:** Feeds the SubagentStop guard below the list of items to re-check when this subagent tries to stop. Fail-open: no `agent_id`, no REST API configured, or any read/parse error → silent `{}` on stdout, exit 0 — this hook never blocks `advance_item` itself.
+
+### Phase Guard (SubagentStop)
+
+**Event:** `SubagentStop` — every subagent stop, including Claude Code's own internal agents (prompt suggestions, etc.), which also fire this event.
+
+**What it does:** For every item the Phase-Guard Record hook recorded for this subagent, calls `GET /items/{id}/gate` (see [api-rest.md](../api-rest.md) §9) and checks `gateStatus`. If a `work`- or `review`-phase item still has required notes missing (`gateStatus.missing` non-empty), the hook blocks the stop with a reason naming the item, the missing note keys, and — when present — the first missing note's `guidanceKey` or `skillPointer`.
+
+**Effect:** Sends the subagent back to fill required notes instead of letting it end its turn with an incomplete phase. Capped at **2 blocks per subagent** (`agent_id`) — beyond the cap the guard steps aside even with notes still missing, so a stuck subagent is never looped forever. Requires `TASK_ORCHESTRATOR_API_URL` and, in bearer mode, a `TASK_ORCHESTRATOR_API_TOKEN` with `read` capability (same REST dependency as `config-sync.mjs`, see [fleet-deployment.md](../fleet-deployment.md)); fails open — no block, silent `{}`, exit 0 — on a missing API URL, a missing/unreadable state file, a non-2xx or errored gate fetch for an item, or any other error.
+
+**Known limitation:** The guard only engages for subagents that enter their phase with `advance_item(trigger="start")` — the Agent-Owned-Phase Protocol below. A subagent dispatched under an orchestrator-owns-transitions dispatch contract, which never calls `advance_item` itself, has nothing recorded by the Phase-Guard Record hook, so the guard stays inert for it.
 
 ---
 
@@ -185,6 +203,7 @@ Commit all changes with a descriptive message. Report: (1) files changed with li
 - Each agent owns exactly one phase — do not advance beyond it
 - Do NOT call `advance_item(trigger="complete")` — the orchestrator handles terminal transitions
 - Commit before returning — the orchestrator needs committed changes to push and create a PR
+- When the REST API is configured, the SubagentStop phase guard (see Hooks above) is a backstop for this protocol: stopping with required notes still missing on a `work`/`review` item can send you back (up to twice) with the missing keys named, instead of letting an incomplete phase through silently
 
 ---
 

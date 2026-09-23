@@ -165,6 +165,17 @@ The hook is **fail-open and opt-in** — it no-ops silently (exit 0) unless `TAS
 
 Set these per-workspace (e.g. in `.claude/settings.json`'s `env` block, or the shell environment). Against a bearer/jwks server the token needs only `write-config` for its own root — not `admin`. Against an unauthenticated server, no token is needed at all. Either way the server must have `API_ENABLED=true`. If the API is unreachable or returns an error, the hook logs a one-line note and continues; it never blocks session start.
 
+### SubagentStop phase guard
+
+The plugin's SubagentStop phase guard (`hooks/phase-guard.mjs` + `hooks/phase-guard-record.mjs`) has
+the same REST dependency as `config-sync.mjs` above: it needs `TASK_ORCHESTRATOR_API_URL` set, and,
+against a bearer/jwks server, a `TASK_ORCHESTRATOR_API_TOKEN` scoped with the `read` capability (no
+token needed against an unauthenticated server). Without a reachable API URL it fails open — no
+subagent is ever blocked. See
+[integration-guides/plugin-skills-hooks.md](integration-guides/plugin-skills-hooks.md) for full
+hook behavior and [api-rest.md §9](api-rest.md#9-endpoints--items-read) for the `GET
+/items/{id}/gate` route it polls.
+
 **HTTP-first policy.** New plugin-side infrastructure features — `config-sync.mjs`, SSE event
 streaming, and the `plan-capture.mjs` hook (which stashes an approved plan as a `plan_document` via
 `PUT /roots/{rootId}/plans/{slug}`) — are built HTTP-only, each fail-opening to a silent no-op when
