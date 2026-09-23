@@ -607,23 +607,42 @@ class ItemGateRouteTest {
                 }
             application { configureGateApp(repo, svc, includeItemRoute = true) }
 
+            // Read the REAL ETag from the sibling route's response HEADER (not the JSON body — a
+            // body field, if any, is a separate value and must not be used as a stand-in). The
+            // If-None-Match value sent below must equal this byte-for-byte, or the probe cannot
+            // prove anything: a route that DID honor If-None-Match would still return 200 for a
+            // non-matching value, which is indistinguishable from correctly ignoring the header.
             val itemResponse =
                 client.get("/api/v1/items/${item.id}") {
                     header("Authorization", "Bearer $TEST_TOKEN")
                 }
-            val etag =
-                bodyField(itemResponse.bodyAsText(), "etag")
-                    ?: error("fixture: sibling GET /items/{id} must include an etag field")
+            val etag = itemResponse.headers[HttpHeaders.ETag]
+            assertTrue(!etag.isNullOrBlank(), "sibling GET /items/{id} must return a non-blank ETag header")
+            assertTrue(etag!!.startsWith("\"") && etag.endsWith("\""), "ETag header must be quoted: $etag")
 
             val response =
                 client.get("/api/v1/items/${item.id}/gate") {
                     header("Authorization", "Bearer $TEST_TOKEN")
-                    header(HttpHeaders.IfNoneMatch, "\"$etag\"")
+                    header(HttpHeaders.IfNoneMatch, etag)
                 }
-            assertEquals(
-                HttpStatusCode.OK,
-                response.status,
-                "gate route must never honor If-None-Match (AC7: no ETag handling)",
+            // bodyAsText() is suspend — read it in the coroutine body, not inside an assertAll
+            // executable (a plain, non-suspend functional interface).
+            val json = parseGate(response.bodyAsText())
+            assertAll(
+                {
+                    assertEquals(
+                        HttpStatusCode.OK,
+                        response.status,
+                        "gate route must never honor If-None-Match (AC7: no ETag handling)",
+                    )
+                },
+                {
+                    // Fresh gate content (not a cached/304 stand-in): w1 was filled, so canAdvance
+                    // must be true and missing empty — proving the response is a real computed body.
+                    val gateStatus = json["gateStatus"]!!.jsonObject
+                    assertTrue(gateStatus["canAdvance"]!!.jsonPrimitive.boolean, "expected fresh gate content: canAdvance true")
+                    assertEquals(0, gateStatus["missing"]!!.jsonArray.size, "expected fresh gate content: missing empty")
+                },
             )
         }
 
@@ -732,11 +751,6 @@ class ItemGateRouteTest {
     // ─── Shared helpers ────────────────────────────────────────────────────────
 
     private fun parseGate(body: String): JsonObject = Json.parseToJsonElement(body).jsonObject
-
-    private fun bodyField(
-        body: String,
-        field: String,
-    ): String? = Regex(""""$field"\s*:\s*"([^"]*)"""").find(body)?.groupValues?.get(1)
 
     /** get_context item-mode data for the SAME repo/schema/item, for S3 parity assertions. */
     private fun getContextGateData(
