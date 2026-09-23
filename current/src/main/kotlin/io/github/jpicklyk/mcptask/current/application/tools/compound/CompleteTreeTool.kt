@@ -336,7 +336,7 @@ Call when closing out a finished hierarchy — one atomic call instead of per-it
 
         // in-degree: count of dependencies from other target items blocking this item
         val inDegree = mutableMapOf<UUID, Int>()
-        // adjacency: fromId -> list of toIds that are blocked by fromId (within target set)
+        // adjacency: blockerId -> list of blockedIds it blocks (within target set)
         val adjacency = mutableMapOf<UUID, MutableList<UUID>>()
 
         for (item in targetItems) {
