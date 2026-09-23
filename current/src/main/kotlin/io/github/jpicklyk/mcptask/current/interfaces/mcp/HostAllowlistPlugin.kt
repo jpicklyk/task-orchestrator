@@ -6,8 +6,8 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationCall
-import io.ktor.server.application.createApplicationPlugin
-import io.ktor.server.application.install
+import io.ktor.server.application.ApplicationCallPipeline
+import io.ktor.server.application.call
 import io.ktor.server.request.path
 import io.ktor.server.response.respond
 import kotlinx.serialization.Serializable
@@ -107,16 +107,13 @@ private fun matches(
     entries: List<AllowedEntry>,
 ): Boolean = entries.any { entry -> entry.host == host.host && (entry.port == null || entry.port == host.port) }
 
-/** Configuration holder for [HostAllowlistPlugin]. */
-internal class HostAllowlistPluginConfig {
-    /** The typed environment snapshot to read `mcpAllowedHosts` from. Must be set before install. */
-    var appConfig: AppConfig = AppConfig.fromEnv()
-}
-
 /**
- * The Host-allowlist Ktor application plugin: DNS-rebinding protection for the HTTP transport.
- * Install via [installHostAllowlist] rather than directly — that function is the documented,
- * tested entry point.
+ * Installs DNS-rebinding protection for the HTTP transport on this [Application] by intercepting
+ * every call at [ApplicationCallPipeline.ApplicationPhase.Setup] — the pipeline's first phase —
+ * rather than via [io.ktor.server.application.createApplicationPlugin]'s `onCall`, which does NOT
+ * reliably short-circuit later plugins (see the implementation comment below). Still called FIRST
+ * inside [installMcpStreamableHttp] for readability, but the guarantee no longer depends on that
+ * ordering.
  *
  * A same-origin check (Origin vs. Host) alone doesn't close the DNS-rebinding gap, because the
  * attacker's page controls both headers once its hostname resolves to a loopback address — the
@@ -145,39 +142,47 @@ internal class HostAllowlistPluginConfig {
  *   (`{"jsonrpc":"2.0","error":{"code":-32000,"message":...}}`, no `id`) — the shape the MCP
  *   Streamable HTTP spec's Security Warning #1 expects for an invalid Origin/Host. Every other
  *   path gets [ErrorDto] with `error = "host_not_allowed"`. Neither response echoes the
- *   rejected `Host` value.
+ *   rejected `Host` value. A rejected call is [io.ktor.util.pipeline.PipelineContext.finish]ed
+ *   immediately after responding, so no later phase — and therefore no later plugin's `onCall`
+ *   (`ContentNegotiation`, `CORS`, `ApiBearerAuth`, ...) or route handler — ever runs for it.
  */
-internal val HostAllowlistPlugin =
-    createApplicationPlugin(
-        name = "HostAllowlist",
-        createConfiguration = ::HostAllowlistPluginConfig,
-    ) {
-        val appConfig = pluginConfig.appConfig
+internal fun Application.installHostAllowlist(appConfig: AppConfig) {
+    if (appConfig.mcpAllowedHosts.any { it == DISABLE_TOKEN }) {
+        hostAllowlistLogger.warn(
+            "MCP_ALLOWED_HOSTS contains '*' — Host header validation (DNS-rebinding protection) is " +
+                "DISABLED for the HTTP transport. Every /mcp and /api/v1 request is accepted " +
+                "regardless of its Host header. Set an explicit allowlist instead unless this is intentional.",
+        )
+        return
+    }
 
-        if (appConfig.mcpAllowedHosts.any { it == DISABLE_TOKEN }) {
-            hostAllowlistLogger.warn(
-                "MCP_ALLOWED_HOSTS contains '*' — Host header validation (DNS-rebinding protection) is " +
-                    "DISABLED for the HTTP transport. Every /mcp and /api/v1 request is accepted " +
-                    "regardless of its Host header. Set an explicit allowlist instead unless this is intentional.",
-            )
-            return@createApplicationPlugin
+    val allowlist = resolveAllowlist(appConfig)
+
+    // Setup is the FIRST phase of ApplicationCallPipeline (Setup -> Monitoring -> Plugins -> Call
+    // -> Fallback), and phase order is fixed regardless of install order -- unlike
+    // createApplicationPlugin's onCall, which registers its interceptor in the Plugins phase and
+    // therefore only ever ran before/after other plugins' onCall by INSTALL ORDER, not by any
+    // real short-circuiting. Worse, onCall's call.respond() does not stop the pipeline on its
+    // own: Ktor still runs every later Plugins-phase interceptor for the same call (this is what
+    // let a Host-rejected request fall through to ApiBearerAuth's onCall and get overwritten with
+    // 401). Calling finish() here, at Setup, terminates pipeline execution outright -- no later
+    // phase runs at all -- making this genuinely the first, SDK-independent choke point ahead of
+    // CORS and ApiBearerAuth, not merely the first plugin installed.
+    intercept(ApplicationCallPipeline.Setup) {
+        val hostHeaders = call.request.headers.getAll(HttpHeaders.Host)
+        if (hostHeaders.isNullOrEmpty()) return@intercept // absent Host — allowed, see KDoc above
+        if (hostHeaders.size > 1) {
+            rejectHost(call)
+            finish()
+            return@intercept
         }
-
-        val allowlist = resolveAllowlist(appConfig)
-
-        onCall { call ->
-            val hostHeaders = call.request.headers.getAll(HttpHeaders.Host)
-            if (hostHeaders.isNullOrEmpty()) return@onCall // absent Host — allowed, see KDoc above
-            if (hostHeaders.size > 1) {
-                rejectHost(call)
-                return@onCall
-            }
-            val parsed = parseHostHeader(hostHeaders[0])
-            if (parsed == null || !matches(parsed, allowlist)) {
-                rejectHost(call)
-            }
+        val parsed = parseHostHeader(hostHeaders[0])
+        if (parsed == null || !matches(parsed, allowlist)) {
+            rejectHost(call)
+            finish()
         }
     }
+}
 
 private suspend fun rejectHost(call: ApplicationCall) {
     val path = call.request.path()
@@ -199,14 +204,3 @@ private data class JsonRpcErrorDetail(
     val code: Int = -32000,
     val message: String = HOST_REJECTED_MESSAGE,
 )
-
-/**
- * Installs the [HostAllowlistPlugin] on this [Application]. Called FIRST inside
- * [installMcpStreamableHttp] — ahead of `ContentNegotiation`, `CORS`, and (later)
- * `ApiBearerAuth` — so a DNS-rebound request is rejected before any of them run.
- */
-internal fun Application.installHostAllowlist(appConfig: AppConfig) {
-    install(HostAllowlistPlugin) {
-        this.appConfig = appConfig
-    }
-}
