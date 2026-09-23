@@ -588,3 +588,37 @@ data class ResourceLeaseIntervalDto(
 data class ResourceLeaseHistoryResponseDto(
     val intervals: List<ResourceLeaseIntervalDto>,
 )
+
+// ─── Gate status DTOs ────────────────────────────────────────────────────────
+
+/**
+ * Gate-status sub-object for `GET /api/v1/items/{id}/gate`.
+ *
+ * Field-for-field identical to `get_context` item mode's `gateStatus`: `phase` is the item's
+ * CURRENT role, lowercased; `missing` is the required-note KEY strings (schema order) for that
+ * phase — never `{key, description, ...}` objects.
+ */
+@Serializable
+data class GateStatusDto(
+    val canAdvance: Boolean,
+    val phase: String,
+    val missing: List<String>,
+)
+
+/**
+ * Response DTO for `GET /api/v1/items/{id}/gate`.
+ *
+ * Mirrors `get_context` item mode's gate fields for a single item. `guidanceKey` / `skillPointer`
+ * are the FIRST missing required note's guidance key / skill pointer for the current phase —
+ * omitted (not JSON `null`) when there is none, matching McpJson's `explicitNulls=false`. No
+ * dependency/blocker info and no dispatch field.
+ */
+@Serializable
+data class ItemGateDto(
+    val itemId: String,
+    val title: String,
+    val role: String,
+    val gateStatus: GateStatusDto,
+    val guidanceKey: String? = null,
+    val skillPointer: String? = null,
+)

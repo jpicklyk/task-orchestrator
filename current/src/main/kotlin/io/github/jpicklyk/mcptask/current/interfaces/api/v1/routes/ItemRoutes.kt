@@ -1,8 +1,13 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
+import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
+import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
+import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.application.tools.toJsonString
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
+import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
@@ -12,7 +17,9 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.hasTagScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.requireCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.DependenciesDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.GateStatusDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ItemDto
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ItemGateDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.etag.respondWithEtagCheck
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.buildDependenciesDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.toDto
@@ -545,6 +552,94 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
                     call.respond(HttpStatusCode.OK, buildPageDto(dtos, pp, total))
                 }
             }
+        }
+    }
+}
+
+/**
+ * Registers the read-only gate-status sub-resource for a single item, under `/api/v1`.
+ *
+ * - `GET /items/{id}/gate` — the item's title, current role, and canonical gate status for that
+ *   role: field-for-field identical to `get_context` item mode's `gateStatus` /
+ *   `guidanceKey` / `skillPointer`, computed via the SAME [ToolExecutionContext.resolveSchema] +
+ *   [computePhaseNoteContext] path get_context uses — no gate logic is reimplemented here.
+ *
+ * Id handling mirrors `GET /items/{id}`: full UUID only (a hex prefix is rejected), malformed →
+ * 400 `bad_request`, unknown → 404 `not_found`, out-of-scope → 403 `scope_forbidden`, checked in
+ * that order. No dependency/blocker info and no dispatch field (out of scope for this route — see
+ * task-scope). No ETag / `If-None-Match` handling: the gate depends on notes and config, neither
+ * of which `item.modifiedAt` versions, so a `respondWithEtagCheck` here could serve a stale 304
+ * after a note fill.
+ */
+fun Route.itemGateRoutes(
+    repositoryProvider: RepositoryProvider,
+    schemaService: NoteSchemaService,
+) {
+    val workItemRepo = repositoryProvider.workItemRepository()
+    val noteRepo = repositoryProvider.noteRepository()
+
+    // Same construction ItemWriteRoutes.kt's schemaResolutionContext uses: honors per-root config
+    // layering via PerRootConfigService, so trait merging and per-root schema overrides behave
+    // identically to the MCP get_context tool for the same item.
+    val context =
+        ToolExecutionContext(
+            repositoryProvider,
+            schemaService,
+            perRootConfigService = PerRootConfigService(repositoryProvider.projectConfigRepository()),
+        )
+
+    requireCapability(ApiCapability.READ) {
+        // ─── GET /items/{id}/gate ──────────────────────────────────────────────
+        get("/items/{id}/gate") {
+            val rawId =
+                call.parameters["id"] ?: run {
+                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing item id"))
+                    return@get
+                }
+            val id =
+                runCatching { UUID.fromString(rawId) }.getOrNull() ?: run {
+                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
+                    return@get
+                }
+
+            val itemResult = workItemRepo.getById(id)
+            if (itemResult is Result.Error) {
+                call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Item $id not found"))
+                return@get
+            }
+            val item = (itemResult as Result.Success).data
+
+            if (!enforceScopeForItem(call, id, workItemRepo)) {
+                call.respond(HttpStatusCode.Forbidden, ErrorDto("scope_forbidden", "Access denied for item $id"))
+                return@get
+            }
+
+            val resolvedSchema = context.resolveSchema(item)
+
+            val notesResult = noteRepo.findByItemId(item.id)
+            val notes = if (notesResult is Result.Success) notesResult.data else emptyList()
+            val notesByKey = notes.associateBy { it.key }
+
+            val phaseContext = computePhaseNoteContext(item.role, resolvedSchema?.notes, notesByKey)
+            val missing = phaseContext?.missingKeys ?: emptyList()
+            val isTerminal = item.role == Role.TERMINAL
+
+            call.respond(
+                HttpStatusCode.OK,
+                ItemGateDto(
+                    itemId = item.id.toString(),
+                    title = item.title,
+                    role = item.role.toJsonString(),
+                    gateStatus =
+                        GateStatusDto(
+                            canAdvance = !isTerminal && missing.isEmpty(),
+                            phase = item.role.toJsonString(),
+                            missing = missing,
+                        ),
+                    guidanceKey = phaseContext?.guidanceKey,
+                    skillPointer = phaseContext?.skillPointer,
+                ),
+            )
         }
     }
 }

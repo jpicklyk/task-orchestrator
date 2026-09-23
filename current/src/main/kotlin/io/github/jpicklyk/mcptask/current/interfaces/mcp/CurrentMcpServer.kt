@@ -38,6 +38,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.configRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.dependencyRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.dependencyWriteRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.eventRoutes
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.itemGateRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.itemRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.itemWriteRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.noteRoutes
@@ -575,6 +576,7 @@ internal fun Application.installRestApiRoutes(
             )
             // Phase 3: read API — items, notes, dependencies, transitions, search
             itemRoutes(effectiveProvider)
+            itemGateRoutes(effectiveProvider, noteSchemaService)
             noteRoutes(effectiveProvider)
             dependencyRoutes(effectiveProvider)
             transitionRoutes(
