@@ -108,12 +108,9 @@ private fun matches(
 ): Boolean = entries.any { entry -> entry.host == host.host && (entry.port == null || entry.port == host.port) }
 
 /**
- * Installs DNS-rebinding protection for the HTTP transport on this [Application] by intercepting
- * every call at [ApplicationCallPipeline.ApplicationPhase.Setup] — the pipeline's first phase —
- * rather than via [io.ktor.server.application.createApplicationPlugin]'s `onCall`, which does NOT
- * reliably short-circuit later plugins (see the implementation comment below). Still called FIRST
- * inside [installMcpStreamableHttp] for readability, but the guarantee no longer depends on that
- * ordering.
+ * Installs DNS-rebinding protection for the HTTP transport on this [Application]: a Setup-phase
+ * interceptor that runs before every plugin and route, independent of install order (see the
+ * comment at the `intercept` call for why it is not a `createApplicationPlugin`/`onCall` hook).
  *
  * A same-origin check (Origin vs. Host) alone doesn't close the DNS-rebinding gap, because the
  * attacker's page controls both headers once its hostname resolves to a loopback address — the
@@ -142,9 +139,8 @@ private fun matches(
  *   (`{"jsonrpc":"2.0","error":{"code":-32000,"message":...}}`, no `id`) — the shape the MCP
  *   Streamable HTTP spec's Security Warning #1 expects for an invalid Origin/Host. Every other
  *   path gets [ErrorDto] with `error = "host_not_allowed"`. Neither response echoes the
- *   rejected `Host` value. A rejected call is [io.ktor.util.pipeline.PipelineContext.finish]ed
- *   immediately after responding, so no later phase — and therefore no later plugin's `onCall`
- *   (`ContentNegotiation`, `CORS`, `ApiBearerAuth`, ...) or route handler — ever runs for it.
+ *   rejected `Host` value. A rejected call is finished immediately, so no later plugin or route
+ *   handler runs for it.
  */
 internal fun Application.installHostAllowlist(appConfig: AppConfig) {
     if (appConfig.mcpAllowedHosts.any { it == DISABLE_TOKEN }) {
@@ -171,12 +167,8 @@ internal fun Application.installHostAllowlist(appConfig: AppConfig) {
     intercept(ApplicationCallPipeline.Setup) {
         val hostHeaders = call.request.headers.getAll(HttpHeaders.Host)
         if (hostHeaders.isNullOrEmpty()) return@intercept // absent Host — allowed, see KDoc above
-        if (hostHeaders.size > 1) {
-            rejectHost(call)
-            finish()
-            return@intercept
-        }
-        val parsed = parseHostHeader(hostHeaders[0])
+        // A repeated Host header (singleOrNull() == null) is rejected like a malformed one.
+        val parsed = hostHeaders.singleOrNull()?.let(::parseHostHeader)
         if (parsed == null || !matches(parsed, allowlist)) {
             rejectHost(call)
             finish()

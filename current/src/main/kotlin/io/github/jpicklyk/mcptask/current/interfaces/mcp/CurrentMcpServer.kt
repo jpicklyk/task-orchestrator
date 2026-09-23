@@ -489,17 +489,10 @@ internal fun buildMcpTools(): List<ToolDefinition> =
  * the REST API.
  *
  * **Plugin-ordering contract (do not reorder):**
- * 0. [installHostAllowlist] — the Host-header allowlist guard (DNS-rebinding protection) — is
- *    installed FIRST, ahead of everything below, for readability. The actual guarantee that a
- *    rebound request (an attacker-controlled `Host`) is rejected before `ContentNegotiation`,
- *    `CORS`, `mcpStreamableHttp`, or (in [installRestApiRoutes]) `ApiBearerAuth` ever see it does
- *    NOT depend on this install order: [installHostAllowlist] intercepts at
- *    `ApplicationCallPipeline`'s `Setup` phase — the pipeline's first phase, fixed regardless of
- *    install order — and calls `finish()` on rejection, which terminates the pipeline outright so
- *    no later phase (where the plugins below register their interceptors) runs at all. It is one
- *    SDK-independent choke point covering `/mcp`, every `/api/v1` route, and `/.well-known` — see
- *    its KDoc ([installHostAllowlist]) and MCP item `abf48945-d4e5-4e34-a78f-ebdfa6f5793c` for the
- *    full rationale.
+ * 0. [installHostAllowlist] — the Host-header allowlist guard (DNS-rebinding protection). Listed
+ *    first for readability; it intercepts at the `Setup` phase and finishes rejected calls, so it
+ *    precedes everything below and (in [installRestApiRoutes]) `ApiBearerAuth` regardless of
+ *    install order, covering `/mcp`, every `/api/v1` route, and `/.well-known`.
  * 1. [ContentNegotiation] with `McpJson` is installed first so both `/mcp` and the `/api/v1` routes
  *    use the same JSON config (`explicitNulls=false`, `encodeDefaults=true`). `mcpStreamableHttp` detects CN
  *    is already installed and skips its own (logging a benign "already installed" warning).

@@ -31,14 +31,9 @@ data class AppConfig(
     val mcpTransport: String,
     val mcpHttpHost: String,
     val mcpHttpPort: Int,
-    /** `MCP_ALLOWED_HOSTS` — CSV of hosts EXTENDING the always-on loopback defaults
-     *  (`localhost`, `127.0.0.1`, `[::1]`, any port) enforced by the Host-header allowlist
-     *  guard (DNS-rebinding protection; see [io.github.jpicklyk.mcptask.current.interfaces.mcp]
-     *  `installHostAllowlist`). `host` matches any port, `host:port` matches that port only,
-     *  IPv6 entries are bracketed. Default: empty (loopback-only). Raw and unvalidated here —
-     *  entries with a scheme, path, `@`, or non-digit port are dropped (with a startup WARN) by
-     *  the guard itself, not here, since that WARN needs a logger this pure data holder doesn't
-     *  have. An entry of exactly `*` disables the check. */
+    /** `MCP_ALLOWED_HOSTS` — raw, unvalidated CSV of extra hosts for the Host-header allowlist;
+     *  default empty (loopback-only). Validation and matching semantics live in
+     *  `installHostAllowlist` (interfaces.mcp). */
     val mcpAllowedHosts: List<String>,
     // ---- Database (DatabaseConfig / DatabaseManager) ----
     val databasePath: String,
