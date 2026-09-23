@@ -261,11 +261,20 @@ entirely, unchanged.
   "notes": [
     { "key": "feature-summary", "role": "queue", "required": true, "description": "...", "guidance": "...", "skill": "spec-quality", "maxLength": 4000 },
     { "key": "implementation-notes", "role": "work", "required": true, "description": "..." }
+  ],
+  "dispatch": {
+    "work": { "agent": "task-orchestrator:implementer", "effort": "medium" },
+    "review": { "agent": "task-orchestrator:reviewer", "effort": "high" }
+  },
+  "resources": [
+    { "key": "staging-db", "mode": "exclusive", "ttlSeconds": 1800 }
   ]
 }
 ```
 
 This is the **only** place that returns full note text (`description`, `guidance`, `skill`, `maxLength`) in one shot for an entire schema. Use it to resolve the keys-only `expectedNotes` and the reference-only `guidanceKey`/`skillPointer` fields returned elsewhere. `guidance`, `skill`, and `maxLength` are omitted per-entry when unset. `configFingerprint` reports the fingerprint of whichever config layer actually supplied the schema (per-root or global) and is `null` when unavailable; cache schema responses per fingerprint to avoid re-fetching unchanged config. `configSource` is `"per-root"` when a per-root pushed config supplied the schema (via `rootId` on the `type` path, or the item's own `rootId` on the `itemId` path) and `"global"` otherwise. Errors with `RESOURCE_NOT_FOUND` when no schema matches the given `type` or the item is schema-free.
+
+`dispatch` (object, optional) is `{"queue"|"work"|"review": {agent?, model?, effort?}}` — one entry per phase with a resolved profile, from the `dispatch` trait dimension (see `config-format.md` link above). Omitted entirely (never `{}`) when no resolved trait declares a profile for any phase. The `itemId` path resolves each phase from the item's per-item `traits` first, then its type's `default_traits` (the reverse of the note-merge order); the `type` path has no item, so it resolves from `default_traits` only. `resources` (array, optional) is `[{key, mode, ttlSeconds?}]`, the trait-declared shared-resource requirements — omitted entirely (never `[]`) when none resolve.
 
 **Examples.**
 
@@ -1179,7 +1188,7 @@ When a schema is resolved:
 - `start`: required notes for the current phase must exist and be filled.
 - `complete`: all required notes across all phases must be filled.
 
-Trait notes are merged into the resolved schema: `default_traits` from config apply globally, and per-item traits (stored in `properties` JSON) add their note requirements on top.
+Trait notes are merged into the resolved schema: `default_traits` from config apply globally, and per-item traits (stored in `properties` JSON) add their note requirements on top. The `dispatch` trait dimension (below) resolves in the **reverse** order — per-item `traits` first, then `default_traits` — and a per-root trait's `dispatch` map replaces the global trait's map wholesale (no per-role fall-through within a trait); see [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#dispatch-trait-dimension) → "Dispatch (Trait Dimension)" for the full precedence and layering rules.
 
 **Lifecycle modes** (set on the schema via `work_item_schemas`):
 - `AUTO` (default) — terminal cascade fires automatically when all children reach terminal
@@ -1231,6 +1240,7 @@ All cascade types are recorded in `cascadeEvents`.
         { "key": "done-criteria", "role": "work", "required": true, "exists": false }
       ],
       "guidanceKey": "done-criteria",
+      "dispatch": { "agent": "task-orchestrator:implementer", "effort": "medium" },
       "noteProgress": { "filled": 0, "remaining": 1, "total": 1 }
     }
   ],
@@ -1245,6 +1255,8 @@ All cascade types are recorded in `cascadeEvents`.
 `skillPointer` (string, optional): Skill name to invoke for the first unfilled required note. Omitted when no skill is configured or all required notes are filled.
 
 `noteProgress` provides counts of required notes for the new role: `filled` (notes that exist with non-blank body), `remaining` (missing or blank), and `total` (filled + remaining). Omitted from the response when no schema matches the item's tags, or when the new role is terminal (e.g. after `complete`/`cancel`).
+
+`dispatch` (object, optional): `{agent?, model?, effort?}` routing profile for the **new** role (`newRole`), resolved from the `dispatch` trait dimension — see [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#dispatch-trait-dimension) → "Dispatch (Trait Dimension)". Omitted entirely (never `null`/`{}`) when no resolved trait declares a profile for the new role.
 
 **Response (failed transition).** When `applied: false`, the result shape differs from the success shape:
 
@@ -1456,6 +1468,7 @@ When `mode` is omitted, the mode is inferred from which parameters are present (
     { "key": "done-criteria", "role": "work", "required": true, "exists": false, "filled": false }
   ],
   "gateStatus": { "canAdvance": true, "phase": "queue", "missing": [] },
+  "dispatch": { "agent": "task-orchestrator:implementer", "effort": "medium" },
   "claimDetail": {
     "claimedBy": "agent-worker-42",
     "claimedAt": "2026-01-01T12:00:00Z",
@@ -1471,6 +1484,8 @@ When `mode` is omitted, the mode is inferred from which parameters are present (
 `guidanceKey` (string, optional) names the first unfilled required note with guidance for the **current** role. Omitted when no schema matches, no required notes exist, or all are filled. Resolve the full guidance text via `query_items(operation="schema", itemId=...)`.
 
 `skillPointer` (string, optional): Skill name to invoke for the first unfilled required note. Omitted when no skill is configured or all required notes are filled. Derived from the `skill` field on the first unfilled required note in the schema.
+
+`dispatch` (object, optional): `{agent?, model?, effort?}` routing profile for the item's **current** role, resolved from the `dispatch` trait dimension — same resolution as `advance_item`'s `dispatch` field (per-item `traits` first, then `default_traits`; see [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#dispatch-trait-dimension) → "Dispatch (Trait Dimension)"). Omitted entirely (never `null`/`{}`) when no resolved trait declares a profile for the current role.
 
 `get_context` does not return `noteProgress` — `gateStatus` (`canAdvance`, `phase`, `missing[]`) is the canonical gate signal for the current phase. Required/remaining/total counts are still available via `advance_item` responses and `manage_notes(upsert)`'s `itemContext`.
 

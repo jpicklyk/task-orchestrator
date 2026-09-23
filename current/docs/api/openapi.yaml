@@ -680,6 +680,41 @@ components:
         skill:
           type: string
           nullable: true
+        maxLength:
+          type: integer
+          description: Maximum note-body length configured for this entry. Present only when configured.
+
+    DispatchProfileDto:
+      type: object
+      description: >-
+        Dispatch routing profile for a phase — who/what should pick up the work. Declared per
+        trait per phase under traits.<name>.dispatch.<phase> in .taskorchestrator/config.yaml.
+        All fields are optional; at least one is present on any profile the server returns.
+      properties:
+        agent:
+          type: string
+          description: Opaque agent identifier (e.g. "task-orchestrator:implementer"), never validated against any registry.
+        model:
+          type: string
+          description: Opaque model identifier/alias.
+        effort:
+          type: string
+          enum: [low, medium, high, xhigh, max]
+          description: Matched case-sensitively at config-parse time.
+
+    ResourceRequirementDto:
+      type: object
+      required: [key, mode]
+      description: A trait's declared shared-resource requirement.
+      properties:
+        key:
+          type: string
+        mode:
+          type: string
+          enum: [exclusive, advisory]
+        ttlSeconds:
+          type: integer
+          description: Present only when configured.
 
     SchemaDto:
       type: object
@@ -703,6 +738,10 @@ components:
     TraitDto:
       type: object
       required: [name, notes]
+      description: >-
+        dispatch and resources are omitted (not present) when the trait declares neither —
+        never an empty map/array. Reflects GLOBAL config only; a per-root override of the
+        same trait's dispatch/resources is not visible here.
       properties:
         name:
           type: string
@@ -710,6 +749,16 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/NoteSchemaEntryDto"
+        dispatch:
+          type: object
+          description: Map of lowercase phase name ("queue"|"work"|"review") to DispatchProfileDto. Omitted when the trait declares no dispatch profiles.
+          additionalProperties:
+            $ref: "#/components/schemas/DispatchProfileDto"
+        resources:
+          type: array
+          description: Declared shared-resource requirements. Omitted when the trait declares none.
+          items:
+            $ref: "#/components/schemas/ResourceRequirementDto"
 
     ConfigSnapshotDto:
       type: object

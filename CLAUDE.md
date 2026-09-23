@@ -32,18 +32,19 @@ The optional `actor_authentication` config block adds JWKS-based identity verifi
 
 ## Trait System (Orchestration Signals)
 
-Traits are **composable orchestration signals** declared in `.taskorchestrator/config.yaml` under the `traits:` key. They are NOT merely note requirements. Each trait carries four dimensions:
+Traits are **composable orchestration signals** declared in `.taskorchestrator/config.yaml` under the `traits:` key. They are NOT merely note requirements. Each trait carries five dimensions:
 
 1. **Note requirements** -- notes with `key`, `role`, `required` that merge into an item's resolved schema and enforce gates
 2. **Guidance** -- `guidance` text on each note telling agents HOW to fill it (context, constraints, structure)
 3. **Skill routing** -- optional `skill` pointer (e.g., `skill: "migration-review"`) that routes evaluation to a specialized skill
 4. **Resources** -- optional `resources:` list declaring shared-resource requirements (`exclusive` or `advisory` mode) enforced as a lease gate at WORK entry, independent of the note-requirement dimension. See `claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md` -> "Resources (Trait Dimension)" for declaration syntax, merge semantics, and the leaf-task-types-only rule.
+5. **Dispatch** -- optional `dispatch.<queue|work|review>: {agent?, model?, effort?}` declaring which agent/model/effort should pick up a phase, surfaced on `advance_item`/`get_context`/`query_items`. See `claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md` -> "Dispatch (Trait Dimension)" for declaration syntax and precedence.
 
 **Resolution flow:** `ToolExecutionContext.resolveSchema(item)` merges trait notes from two sources:
 - `defaultTraits` on the schema type definition (always applied to items of that type)
 - Per-item `traits` from the item's `properties` JSON bag (applied via `PropertiesHelper.extractTraits()`)
 
-Base schema note keys win on duplicates; first-trait-in-order wins for duplicate trait keys.
+Base schema note keys win on duplicates; first-trait-in-order wins for duplicate trait keys. Dispatch resolution (`resolveDispatchProfile()`) walks per-item traits FIRST, then `defaultTraits` -- the reverse of note merging -- and a per-root trait's `dispatch` map replaces the global trait's map wholesale, per trait (no per-role fall-through).
 
 **Example:** An item typed `feature-task` with trait `needs-migration-review` gets the base `feature-task` notes PLUS the `migration-assessment` note (queue phase, required, with `migration-review` skill pointer and guidance about SQLite table recreation patterns). The orchestrator sees this merged schema via `get_context(itemId=...)` and routes accordingly -- dispatching a migration-specialized agent or invoking the migration-review skill.
 
@@ -55,6 +56,7 @@ Base schema note keys win on duplicates; first-trait-in-order wins for duplicate
 | Schema resolution + trait merging | `current/.../application/tools/ToolExecutionContext.kt` -> `resolveSchema()`, `mergeTraits()` |
 | Properties helper | `current/.../application/tools/PropertiesHelper.kt` -> `extractTraits()`, `mergeTraits()` |
 | Domain models | `WorkItemSchema.kt` (`defaultTraits`), `NoteSchemaEntry.kt` (`skill`, `guidance`) |
+| Dispatch resolution | `current/.../domain/model/DispatchProfile.kt` (domain model); `current/.../application/tools/ToolExecutionContext.kt` -> `resolveDispatchProfile()` |
 
 ## Tight Coupling Areas
 
