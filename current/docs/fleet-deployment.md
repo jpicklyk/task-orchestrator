@@ -21,6 +21,7 @@ This is **by design**: MCP-over-HTTP clients (Claude Code and other agents) conn
 
 **Critical consequences for fleet operators:**
 
+- **A `Host` header allowlist guards against DNS rebinding, but it is not authentication.** Every HTTP request — `/mcp`, every `/api/v1` route, and `/.well-known` — is rejected with `403` unless its `Host` header is `localhost`/`127.0.0.1`/`[::1]` (any port, the always-on default) or listed in `MCP_ALLOWED_HOSTS`. This stops a browser page from reaching the server via DNS rebinding; it does nothing to stop a caller that already has network access and sends a permitted `Host`. If you reach the server through a Docker Compose service name, `host.docker.internal`, a LAN hostname, or a reverse proxy that forwards the original `Host`, add it to `MCP_ALLOWED_HOSTS` or every request 403s. See the env var table below.
 - **Enabling the REST API does NOT protect `/mcp`.** `API_ENABLED=true` + `API_AUTH_MODE=bearer|jwks` authenticates only the `/api/v1/*` routes. `/mcp` stays wide open regardless of REST auth mode. An operator who locks down the REST API can be lulled into thinking the whole HTTP surface is protected — it is not.
 - **The server logs a loud `SECURITY:` WARN at startup** whenever `MCP_TRANSPORT=http`, repeating this and noting the bind address. Check `docker logs` after first boot.
 - **You MUST fence `/mcp` at the network layer.** Choose one:
@@ -106,8 +107,11 @@ API_ALLOW_UNAUTHENTICATED=true
 
 ### REST API env vars
 
+`MCP_ALLOWED_HOSTS` is listed here alongside the REST API vars for convenience, but it is transport-level — it guards `/mcp` too, not just `/api/v1/*`.
+
 | Variable | Required when | Default | Description |
 |----------|--------------|---------|-------------|
+| `MCP_ALLOWED_HOSTS` | reached via a non-loopback `Host` | *(empty)* | Comma-separated `Host` header allowlist (DNS-rebinding protection — see the read-first callout above), **extending** the always-allowed loopback defaults (`localhost`, `127.0.0.1`, `[::1]`, any port). `host` matches any port; `host:port` matches that port only; bracket IPv6 entries (`[::1]:3001`). Hostname matching is case-insensitive with one trailing dot ignored, but otherwise exact — no subdomains, no `127.0.0.0/8` range, no unbracketed or non-canonical IPv6. An entry with a scheme, path, `@`, or non-digit port is dropped with a startup WARN (it never widens the allowlist). `*` disables the guard entirely (WARN logged; not recommended). Applies to the HTTP transport only — `stdio` never calls the guard. |
 | `API_ENABLED` | optional | `false` | Master API switch. Unset or `false` skips all `/api/v1/*` route registration; set `true` to opt in. |
 | `API_AUTH_MODE` | API enabled | — | `bearer` or `jwks`. Also accepts `none` when `API_ALLOW_UNAUTHENTICATED=true` (see below). Required. |
 | `API_ALLOW_UNAUTHENTICATED` | opting into `none` | `false` | Confirm flag required alongside `API_AUTH_MODE=none`. Ignored with `bearer`/`jwks`. |
@@ -144,7 +148,7 @@ See [api-rest.md §1](api-rest.md#1-authentication) for the full YAML format. Ke
 
 `API_AUTH_MODE=none` + `API_ALLOW_UNAUTHENTICATED=true` (both required — see the env var table above) disables authentication on `/api/v1/*` entirely: every request, with or without an `Authorization` header, is attached a synthetic `ADMIN`/unrestricted-scope principal. This exists for a **single-user, loopback-bound local server** — e.g. so the `config-sync.mjs` hook (below) can push per-project config without minting a bearer token, the same friction-free posture the `/mcp` endpoint already has.
 
-**This mode carries the same fence requirement as `/mcp`:** bind the HTTP transport to `127.0.0.1` (`MCP_HTTP_HOST=127.0.0.1`), or otherwise ensure the port is unreachable from any untrusted network, before setting both keys. Do not combine this mode with a `0.0.0.0` bind or a port published outside a trusted host. The server logs a `SECURITY:` WARN at startup whenever this mode is active, mirroring the existing `/mcp`-is-unauthenticated warning.
+**This mode carries the same fence requirement as `/mcp`:** ensure the port is unreachable from any untrusted network before setting both keys — for Docker, publish only to loopback (`-p 127.0.0.1:3001:3001`; leave `MCP_HTTP_HOST=0.0.0.0`, see the bind-default rationale above and [SECURITY.md](../../SECURITY.md)), or for a direct non-Docker JAR run, set `MCP_HTTP_HOST=127.0.0.1`. Do not combine this mode with a `0.0.0.0` publish or a port published outside a trusted host, and do not set `MCP_HTTP_HOST=127.0.0.1` inside a Docker container to "harden" it — that binds loopback *inside* the container's own network namespace and breaks host→container reachability instead of restricting it. The server logs a `SECURITY:` WARN at startup whenever this mode is active, mirroring the existing `/mcp`-is-unauthenticated warning.
 
 ### `degradedModePolicy` and the REST API
 

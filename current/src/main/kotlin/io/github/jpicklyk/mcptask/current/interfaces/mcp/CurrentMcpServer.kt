@@ -489,10 +489,19 @@ internal fun buildMcpTools(): List<ToolDefinition> =
  * the REST API.
  *
  * **Plugin-ordering contract (do not reorder):**
+ * 0. [installHostAllowlist] — the Host-header allowlist guard (DNS-rebinding protection) — is
+ *    installed FIRST, ahead of everything below, so a rebound request (an attacker-controlled
+ *    `Host`) is rejected before `ContentNegotiation`, `CORS`, `mcpStreamableHttp`, or (in
+ *    [installRestApiRoutes]) `ApiBearerAuth` ever see it. It is one SDK-independent choke point
+ *    covering `/mcp`, every `/api/v1` route, and `/.well-known` — see its KDoc
+ *    ([io.github.jpicklyk.mcptask.current.interfaces.mcp.HostAllowlistPlugin]) and MCP item
+ *    `abf48945-d4e5-4e34-a78f-ebdfa6f5793c` for the full rationale.
  * 1. [ContentNegotiation] with `McpJson` is installed first so both `/mcp` and the `/api/v1` routes
  *    use the same JSON config (`explicitNulls=false`, `encodeDefaults=true`). `mcpStreamableHttp` detects CN
  *    is already installed and skips its own (logging a benign "already installed" warning).
- * 2. [CORS] — env-driven allowlist, locked-down default (empty = no cross-origin).
+ * 2. [CORS] — env-driven allowlist, locked-down default (empty = no cross-origin). With Host
+ *    already pinned to the allowlist by step 0, a same-origin request here implies an allowlisted
+ *    host too.
  * 3. [mcpStreamableHttp] mounts `/mcp` and **installs the Ktor `SSE` plugin itself** (SDK 0.12.0).
  *    Therefore callers MUST NOT `install(SSE)` separately: a second install throws
  *    `DuplicatePluginException` at startup and the HTTP server never comes up. The SSE plugin
@@ -504,6 +513,7 @@ internal fun Application.installMcpStreamableHttp(
     server: Server,
     appConfig: AppConfig = AppConfig.fromEnv(),
 ) {
+    installHostAllowlist(appConfig)
     install(ContentNegotiation) {
         json(McpJson)
     }
