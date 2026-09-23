@@ -147,6 +147,15 @@ rather than assuming specific keys exist.
 **Orchestrator** (this skill's primary user):
 - Fills queue-phase notes (requirements, design) during planning
 - Dispatches implementation agents with the item UUID
+- When dispatching the phase owner (implementer on work, reviewer on review), reads the profile
+  for the phase being dispatched INTO — `advance_item`'s `dispatch` for `newRole` once the
+  transition is already made, or `query_items(operation="schema", itemId=...)` → `dispatch.<phase>`
+  when the agent will enter the phase itself (agent-owned-phase protocol, item still in queue at
+  dispatch; `get_context` only returns the CURRENT role's profile, the wrong one in that case) —
+  and honors it: `subagent_type = dispatch.agent` when set, and ALWAYS still passes `model`
+  explicitly (`dispatch.model` if set, else its own model policy) regardless of whether `agent` is
+  set, since `effort` has no Agent-tool parameter and is advisory unless `agent` names a definition
+  carrying that `effort`
 - After implementation agents return, advances the item via `advance_item(start)` and inspects `newRole`:
   - If `review`: dispatches review agents or performs inline review
   - If `terminal`: item completed through a lightweight lifecycle (no review-phase notes in schema)

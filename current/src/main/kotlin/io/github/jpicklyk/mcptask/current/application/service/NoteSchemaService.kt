@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
+import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
@@ -137,6 +138,17 @@ interface WorkItemSchemaService {
      * Default implementation returns an empty map (schema-free / unconfigured mode).
      */
     fun getResourceRegistry(): Map<String, ResourceDefinition> = emptyMap()
+
+    /**
+     * Returns the per-phase dispatch routing profiles declared for trait [traitName] (its
+     * `dispatch:` map under `traits.<traitName>.dispatch:`), keyed by [Role] (only `QUEUE`,
+     * `WORK`, `REVIEW` ever appear — see [io.github.jpicklyk.mcptask.current.infrastructure.config.YamlSchemaParser]),
+     * or an empty map when the trait declares no `dispatch:` key, none of its phase entries parsed
+     * to a valid profile, or the trait itself is undefined.
+     *
+     * Default implementation returns an empty map (schema-free / unconfigured mode).
+     */
+    fun getTraitDispatch(traitName: String): Map<Role, DispatchProfile> = emptyMap()
 }
 
 /**

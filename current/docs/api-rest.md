@@ -514,9 +514,39 @@ See §6.
   "required": true,
   "description": "string",
   "guidance": "string|null",
-  "skill": "string|null"
+  "skill": "string|null",
+  "maxLength": 3000
 }
 ```
+
+`maxLength` (integer, optional) is present only when a maximum note-body length is configured for
+this entry; omitted otherwise. It appears wherever a `NoteSchemaEntryDto` is returned — `GET
+/config`, `/config/schemas`, `/config/schemas/{type}`, and `/config/traits`.
+
+**DispatchProfileDto:**
+```json
+{
+  "agent": "task-orchestrator:implementer",
+  "effort": "medium"
+}
+```
+
+`{agent?, model?, effort?}` — all three fields optional; each key is **omitted** (never emitted as
+`null`) when the profile doesn't set it — at least one key is present on any profile the server
+returns. Declared per trait per phase under `traits.<name>.dispatch.<phase>:`; see
+[`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#dispatch-trait-dimension)
+→ "Dispatch (Trait Dimension)".
+
+**ResourceRequirementDto:**
+```json
+{
+  "key": "staging-db",
+  "mode": "exclusive",
+  "ttlSeconds": 1800
+}
+```
+
+`mode` is `"exclusive"` or `"advisory"`; `ttlSeconds` is present only when configured.
 
 **SchemaDto:**
 ```json
@@ -533,9 +563,19 @@ See §6.
 ```json
 {
   "name": "needs-security-review",
-  "notes": [<NoteSchemaEntryDto>]
+  "notes": [<NoteSchemaEntryDto>],
+  "dispatch": { "work": <DispatchProfileDto> },
+  "resources": [<ResourceRequirementDto>]
 }
 ```
+
+`dispatch` (map of phase name to `DispatchProfileDto`, optional) and `resources` (array of
+`ResourceRequirementDto`, optional) are omitted from the JSON (never `null`) rather than an empty map/array when
+the trait declares neither. **Global config only:** every `/config*` route resolves against the
+server-wide schema service, not any per-root pushed config, so a per-root `dispatch`/`resources`
+override on a trait of the same name is not reflected here — resolve the per-root-aware value via
+`query_items(operation="schema", itemId=...)` (MCP) instead; that path applies the item's own
+`rootId` automatically, so no `rootId` parameter is needed (or honored) there.
 
 **ConfigSnapshotDto:**
 ```json

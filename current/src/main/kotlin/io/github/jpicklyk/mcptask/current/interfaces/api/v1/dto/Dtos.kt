@@ -168,6 +168,7 @@ data class ErrorDto(
  *
  * `role` is the lowercase phase name ("queue", "work", "review").
  * `skill` is present only when a skill-routing pointer is configured for this entry.
+ * `maxLength` is present only when a maximum note-body length is configured for this entry.
  */
 @Serializable
 data class NoteSchemaEntryDto(
@@ -177,6 +178,31 @@ data class NoteSchemaEntryDto(
     val description: String,
     val guidance: String? = null,
     val skill: String? = null,
+    val maxLength: Int? = null,
+)
+
+/**
+ * DTO for a dispatch routing profile — who/what should pick up a phase: `{agent?, model?,
+ * effort?}`. Declared per trait per phase under `traits.<name>.dispatch.<phase>:` in
+ * `.taskorchestrator/config.yaml`. See
+ * [io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile].
+ */
+@Serializable
+data class DispatchProfileDto(
+    val agent: String? = null,
+    val model: String? = null,
+    val effort: String? = null,
+)
+
+/**
+ * DTO for a trait's declared shared-resource requirement: `{key, mode, ttlSeconds?}`. See
+ * [io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement].
+ */
+@Serializable
+data class ResourceRequirementDto(
+    val key: String,
+    val mode: String,
+    val ttlSeconds: Int? = null,
 )
 
 /**
@@ -198,11 +224,17 @@ data class SchemaDto(
 /**
  * DTO for a trait definition — a named set of note schema entries that can be
  * composed onto any work-item schema.
+ *
+ * `dispatch` (per-phase routing profiles, keyed by lowercase phase name) and `resources`
+ * (declared shared-resource requirements) are omitted (null) when the trait declares neither —
+ * never present as an empty map/list.
  */
 @Serializable
 data class TraitDto(
     val name: String,
     val notes: List<NoteSchemaEntryDto>,
+    val dispatch: Map<String, DispatchProfileDto>? = null,
+    val resources: List<ResourceRequirementDto>? = null,
 )
 
 /**

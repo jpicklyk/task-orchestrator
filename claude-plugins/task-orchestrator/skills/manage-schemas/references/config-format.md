@@ -176,9 +176,10 @@ How trait notes merge into an item's resolved schema (`ToolExecutionContext.reso
    key, the earlier one keeps its note — the later duplicate is dropped, same as rule 1.
 4. **Trait notes append after base notes.** The final note list order is: base schema notes, then
    surviving trait notes in application order.
-5. **Per-root trait definitions replace the global trait wholesale, per trait name.** There is no
+5. **Per-root trait notes replace the global trait's notes wholesale, per trait name.** There is no
    note-level merge between a per-root and a global trait sharing a name — resolution picks
-   `perRoot ?: global` for the *entire* trait definition (all its notes), not a union of the two.
+   `perRoot ?: global` for the trait's *entire note list*, not a union of the two. (`dispatch` and
+   `resources` layer per dimension — see "Dispatch (Trait Dimension)" below.)
 6. **Traits can only add note keys — never override or relax a base-schema gate.** A trait cannot
    turn a base-schema `required: true` note optional, and it cannot change a base note's role; the
    only way a trait can affect an existing base key is to be silently ignored (rule 1).
@@ -311,6 +312,142 @@ there stays an open, format-only-validated field (rung-1 behavior, unchanged). S
 [`api-reference.md`](../../../../../current/docs/api-reference.md) for the full `credentialRefs`
 validation contract and [`workflow-guide.md`](../../../../../current/docs/workflow-guide.md#11-resource-leasing)
 for the contention/retry model and the full guarantees-vs-non-guarantees statement.
+
+---
+
+## Dispatch (Trait Dimension)
+
+A trait can declare `dispatch:` — a map of workflow phase → **dispatch profile**, read by an
+orchestrator (this plugin's shipped output styles, and orchestrator workflows such as a project's
+implementation skill) to decide which agent type, model, and thinking effort to dispatch for the
+phase owner. Like `resources:`, this is
+independent of the note-requirement dimension — a trait can carry `notes`, `resources`, `dispatch`,
+any combination, or none.
+
+### Declaration form
+
+```yaml
+traits:
+  delegated:
+    dispatch:
+      work:   { agent: task-orchestrator:implementer }
+      review: { agent: task-orchestrator:reviewer, effort: high }
+```
+
+| Field | Required | Notes |
+|-------|----------|-------|
+| Phase key | — | One of `queue`, `work`, `review` only — exact lowercase match. Any other key (`terminal`, `blocked`, `Work`, an unrecognized string) is a load warning and that phase entry is skipped; the trait's other phases still parse. |
+| `agent` | no* | Opaque string passed as `subagent_type` — never validated against any registry. |
+| `model` | no* | Opaque string passed as the Agent tool's `model` parameter. |
+| `effort` | no* | One of `low`, `medium`, `high`, `xhigh`, `max`, matched **case-sensitively** (`High` is invalid). Has no Agent-tool parameter of its own — see "The Claude Code note" below. |
+
+\* At least one of `agent` / `model` / `effort` must be present, or the profile is empty and
+dropped with a load warning. An unknown profile field is ignored with a warning; a non-string or
+blank field value is dropped with a warning (the rest of the profile, if any field still survives,
+still parses).
+
+Malformed entries warn-and-skip rather than failing the config load — an invalid field, phase, or
+the trait's whole `dispatch` map is skipped at its own granularity, and the load still succeeds. A
+`manage_project_config` push carrying invalid `dispatch` entries still succeeds too; the warnings
+surface in the push response's existing `schemaWarnings` array alongside any other config
+warnings. **Known limitation:** a non-string YAML key under `dispatch:` (e.g. a bare `true`/`1`
+used as a phase key) is not fully covered by this warn-and-skip path yet — tracked separately.
+
+### Precedence — the reverse of note merging, read this before combining traits
+
+Resolving an item's dispatch profile for a phase walks trait names in this order: **per-item
+`traits` first, then the schema's `default_traits`**, both deduplicated. This is the **opposite**
+of how trait *notes* merge ("Trait Merge Semantics" above: `default_traits` first, then per-item
+`traits`) — a note requirement escalates outward from the base schema, but a dispatch profile is a
+per-item override: when an item's own `traits` parameter names a trait explicitly, that is the
+explicit escalation, and it should win over whatever the item's type declares by default.
+
+The **first trait in that order that has a profile for the requested phase wins outright — the
+whole profile, never merged field-by-field across traits.** If a per-item trait A declares
+`work: {agent: X}` and a `default_traits` trait B declares `work: {agent: Y, effort: high}`, the
+resolved profile is exactly `{agent: X}` — B's `effort: high` is never folded in. Per-trait lookup
+also honors the usual per-root-before-global order (see "Per-root layering" below) — **resolved
+per trait as the traits are walked in order**, not only for whichever trait ends up winning the
+phase.
+
+### Per-root layering — no per-role fall-through within a trait
+
+Same as `resources:` trait declarations (not the `resources:` *registry*, which layers the other
+direction — see above): a per-root trait definition's `dispatch:` map **replaces** the global
+trait's `dispatch:` map wholesale, for that trait name. There is **no per-role fall-through within
+a single trait** — if a per-root trait's `dispatch:` map declares `work:` but omits `review:`, and
+the global trait of the same name declares both, the resolved `review` profile for that trait is
+**absent** for items in that root, not inherited from the global trait's `review` entry. To keep a
+role's profile from the global trait while overriding another role, the per-root trait must restate
+every role it wants to keep.
+
+### Per-root layering is PER DIMENSION, not whole-trait
+
+Read this before writing a per-root trait entry that touches only one of `notes:` / `dispatch:` /
+`resources:`. The three dimensions resolve from three **separate** per-root maps
+(`Snapshot.traits`, `Snapshot.traitDispatch`, `Snapshot.traitResources`), each falling back to its
+own global counterpart independently, per trait name (`snapshot.traits[name] ?: global`,
+`snapshot.traitDispatch[name] ?: global`, `snapshot.traitResources[name] ?: global` —
+`ToolExecutionContext.mergeTraits()` / `resolveDispatchProfilesForTraits()` /
+`resolveResourceRequirements()`). A per-root trait entry does **not** replace the global trait's
+notes, dispatch, and resources together as one unit — only the dimensions that entry actually
+declares are replaced; a dimension the entry omits still falls through to the global trait's value
+for that dimension:
+
+- **`notes` — shadows the global trait's notes even when the per-root `notes:` list is empty.**
+  Unlike `dispatch`/`resources` below, the notes parser always populates `Snapshot.traits[name]`
+  for any trait key present in a root's pushed `traits:` section, defaulting to `[]` when `notes:`
+  is omitted. So a per-root trait entry that declares only `dispatch:` (no `notes:` key at all)
+  still parses to an **empty note list** for that trait in that root, and that empty list wins over
+  the global trait's notes ("Trait Merge Semantics" rule 5 above) — **keep this caveat**: a
+  dispatch-only per-root override silently drops every note the global trait declared under that
+  name, for items in that root. To layer a dispatch override on top of a global trait's existing
+  notes, restate the `notes:` list in the per-root entry too.
+- **`dispatch` replaces the global trait's `dispatch:` map only when the per-root trait entry
+  itself declares a non-empty, valid `dispatch:` map.** If it doesn't (or the map is empty or every
+  phase entry is invalid), `Snapshot.traitDispatch` has no entry for that
+  trait name at all (absent, not an empty map), and resolution falls through to the global trait's
+  `dispatch:` map unchanged — a per-root trait entry with only `notes:` does NOT blank the global
+  dispatch profile.
+- **`resources` works the same way as `dispatch`.** A per-root trait entry replaces the global
+  trait's `resources:` list only when it declares a non-empty, valid `resources:` list itself; otherwise the global
+  trait's resource requirements still apply.
+
+In short: write only the dimension(s) you mean to override in a per-root trait entry — `dispatch`
+and `resources` fall through cleanly to the global trait when omitted, but `notes` does not (the
+caveat above), so a dispatch- or resources-only override must restate `notes:` explicitly if it
+needs to keep the global trait's notes.
+
+### Where the profile surfaces
+
+| Surface | Shape |
+|---------|-------|
+| `advance_item` success result | `dispatch: {agent?, model?, effort?}` for the item's **new** role (`newRole`); the key is omitted entirely (never `null`/`{}`) when nothing resolves |
+| `get_context(itemId=...)` (item mode) | `dispatch: {agent?, model?, effort?}` for the item's **current** role |
+| `query_items(operation="schema", ...)` | `dispatch: {"queue"\|"work"\|"review": {agent?, model?, effort?}}` — one entry per resolved phase |
+| REST `GET /api/v1/config/traits` | `TraitDto.dispatch: {<phase>: {agent?, model?, effort?}}` — **global config only**. This route resolves against the server-wide schema service, not any per-root snapshot, so a per-root `dispatch` override is not visible here even for a rooted item; read `query_items(operation="schema", itemId=...)` instead when the per-root-resolved profile is needed — that path always applies the item's own `rootId` automatically, no `rootId` parameter needed. |
+| REST `GET /api/v1/config` | Same `TraitDto.dispatch` shape, embedded per trait in `ConfigSnapshotDto.traits` — **global config only**, same caveat as `/config/traits` above. |
+
+### The Claude Code note — effort only via agent frontmatter
+
+`effort` has no parameter on the Agent tool itself — Claude Code applies effort only through the
+dispatched agent definition's own frontmatter (`effort: low|medium|high|xhigh|max`). This holds
+**even when `agent` is also set**: Claude Code never forwards a profile's `effort` value to the
+dispatch call, so the effort that actually applies is whatever the named agent definition's own
+frontmatter declares, not necessarily the value the profile states. A profile's `effort` is
+therefore always advisory in Claude Code; to make a particular effort actually apply, point
+`agent` at a definition whose own frontmatter carries that `effort` — a profile naming neither
+`agent` nor a matching definition has nothing to attach its `effort` to at all. Clients that call
+the model API directly, rather than dispatching through Claude Code's Agent tool, may apply a
+profile's `effort` field themselves. The plugin ships two agent definitions that declare `effort` this
+way — `task-orchestrator:implementer` (`effort: medium`) and `task-orchestrator:reviewer`
+(`effort: high`) — both using `model: inherit` in their own frontmatter, which is exactly why the
+caller must still pass `model` explicitly on every dispatch of the phase owner — `dispatch.model`
+when the profile sets one, otherwise its own model choice. See
+[`output-styles/workflow-orchestrator.md`](../../../output-styles/workflow-orchestrator.md) →
+Delegation for the consumer-side rule, followed identically by `schema-orchestrator.md`,
+`schema-workflow`, and orchestrator workflows such as a project's implementation skill outside
+this plugin.
 
 ---
 

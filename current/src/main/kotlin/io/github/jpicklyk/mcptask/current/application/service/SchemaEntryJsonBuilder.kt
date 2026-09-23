@@ -1,7 +1,9 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.tools.toJsonString
+import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
+import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import kotlinx.serialization.json.*
@@ -119,3 +121,51 @@ fun buildExpectedNotesJson(
  * @param schema The [WorkItemSchema] to serialize, or null for schema-free mode
  */
 fun buildSchemaResponseFields(schema: WorkItemSchema?): SchemaResponseFields = buildSchemaResponseFields(schema?.notes)
+
+/**
+ * Builds the `dispatch` JSON object for a single resolved [DispatchProfile]: `{agent?, model?,
+ * effort?}`, each field present only when non-null. Used by `advance_item`'s per-transition
+ * result and `get_context`'s item mode, both of which resolve a single profile for one role via
+ * [io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext.resolveDispatchProfile].
+ */
+fun buildDispatchProfileJson(profile: DispatchProfile): JsonObject =
+    buildJsonObject {
+        profile.agent?.let { put("agent", JsonPrimitive(it)) }
+        profile.model?.let { put("model", JsonPrimitive(it)) }
+        profile.effort?.let { put("effort", JsonPrimitive(it)) }
+    }
+
+/**
+ * Builds the per-phase `dispatch` JSON object for `query_items`'s `schema` operation:
+ * `{"queue"|"work"|"review": {agent?, model?, effort?}}`, one entry per role present in
+ * [dispatchByRole] (lowercase role name keys, via [Role.toJsonString]). Returns null — never an
+ * empty object — when [dispatchByRole] is empty; callers omit the `dispatch` key entirely in that
+ * case (P9: absent, never null/empty, when there is nothing to report).
+ */
+fun buildDispatchByRoleJson(dispatchByRole: Map<Role, DispatchProfile>): JsonObject? {
+    if (dispatchByRole.isEmpty()) return null
+    return buildJsonObject {
+        dispatchByRole.forEach { (role, profile) ->
+            put(role.toJsonString(), buildDispatchProfileJson(profile))
+        }
+    }
+}
+
+/**
+ * Builds the `resources` JSON array for `query_items`'s `schema` operation:
+ * `[{key, mode, ttlSeconds?}]`. Returns null — never an empty array — when [resources] is empty;
+ * callers omit the `resources` key entirely in that case, same omit-when-empty contract as
+ * [buildDispatchByRoleJson].
+ */
+fun buildResourcesJson(resources: List<ResourceRequirement>): JsonArray? {
+    if (resources.isEmpty()) return null
+    return JsonArray(
+        resources.map { requirement ->
+            buildJsonObject {
+                put("key", JsonPrimitive(requirement.key))
+                put("mode", JsonPrimitive(requirement.mode.name.lowercase()))
+                requirement.ttlSeconds?.let { put("ttlSeconds", JsonPrimitive(it)) }
+            }
+        }
+    )
+}

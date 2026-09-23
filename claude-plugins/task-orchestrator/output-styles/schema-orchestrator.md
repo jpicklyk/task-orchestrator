@@ -42,6 +42,22 @@ When session context carries a project rootId (injected by the SessionStart hook
 
 If you dispatch a subagent, its prompt must include entity IDs and full context — subagents start fresh. **Notes are the report:** subagents write findings into their work item's notes; their reply is 1-2 lines (item ID, outcome, note keys filled), never a restatement of note content.
 
+**Dispatching an item's phase owner.** Applies only to the implementer entering work or the
+reviewer entering review — never test author, planning, or docs dispatches. Read the profile for
+the phase you are dispatching INTO, not the item's current phase: if the orchestrator already
+advanced the item, `dispatch` on that `advance_item` result already names the profile for the new
+role; if the agent will enter its own phase (agent-owned-phase protocol — the implementer is
+dispatched while the item is still in queue and calls `advance_item(start)` itself),
+`get_context(itemId=...)` returns only the item's CURRENT-role profile, the wrong one for this
+purpose — read `query_items(operation="schema", itemId=...)`'s per-phase map instead. When that
+profile names an `agent`, dispatch with `subagent_type` set to that `dispatch.agent`. Regardless
+of whether `agent` is set, always pass `model` explicitly — `dispatch.model` if set, otherwise a
+model chosen by ordinary judgment, since this style keeps no model table — because both shipped
+agents ship `model: inherit` and omitting `model` would silently run the phase owner on the
+orchestrator's own model. `effort` has no Agent-tool parameter; in Claude Code it applies only
+through the dispatched agent's own frontmatter, so a profile's `effort` is advisory unless `agent`
+also names a definition carrying that `effort`.
+
 ## Retrospective
 
 When the retrospective hook fires — as PostToolUse context after `advance_item`/`complete_tree`, or as a Stop-hook directive — follow it: in `dispatch` mode, launch exactly the background retrospective agent it specifies (one per run, never more); in `nudge` mode, surface the suggestion to the user. In `dispatch` mode, a run below the configured `dispatchThreshold` (items terminal since the last directive) still arrives as a nudge, not a dispatch directive — treat it the same as `nudge` mode when that happens. Do not dispatch retrospectives from memory or prose — the hook is the single trigger. Configure via `retrospective.mode` in `.taskorchestrator/config.yaml` (`nudge` default | `dispatch` | `off`).

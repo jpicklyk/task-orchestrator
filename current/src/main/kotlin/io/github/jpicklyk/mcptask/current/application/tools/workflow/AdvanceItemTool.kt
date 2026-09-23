@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.application.service.AdvanceFailure
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceService
 import io.github.jpicklyk.mcptask.current.application.service.CredentialRefValidation
+import io.github.jpicklyk.mcptask.current.application.service.buildDispatchProfileJson
 import io.github.jpicklyk.mcptask.current.application.service.buildExpectedNotesJson
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
 import io.github.jpicklyk.mcptask.current.application.tools.*
@@ -543,6 +544,13 @@ Call to move an item between phases once its work is done — never edit status 
             val skillPointer: String?
             val noteProgress: JsonObject?
 
+            // Dispatch routing profile for the phase just entered — resolved via the
+            // already-resolved `resolvedSchema` overload (never re-resolves the schema; see
+            // ToolExecutionContext.resolveDispatchProfile's KDoc for why AdvanceItemToolTest.kt:2119
+            // needs this). Independent of the expectedNotes/gate machinery below, so it's computed
+            // whether resolvedSchema is null or not — a trait-less item simply resolves to null.
+            val dispatchProfile = context.resolveDispatchProfile(item, targetRole, resolvedSchema)
+
             if (resolvedSchema == null) {
                 expectedNotesJson = JsonArray(emptyList())
                 guidanceKey = null
@@ -595,6 +603,7 @@ Call to move an item between phases once its work is done — never edit status 
                     put("expectedNotes", expectedNotesJson)
                     guidanceKey?.let { put("guidanceKey", JsonPrimitive(it)) }
                     skillPointer?.let { put("skillPointer", JsonPrimitive(it)) }
+                    dispatchProfile?.let { put("dispatch", buildDispatchProfileJson(it)) }
                     noteProgress?.let { put("noteProgress", it) }
                 }
             )

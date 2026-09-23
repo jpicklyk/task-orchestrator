@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.tools.workflow
 
+import io.github.jpicklyk.mcptask.current.application.service.buildDispatchProfileJson
 import io.github.jpicklyk.mcptask.current.application.service.buildExpectedNotesJson
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
 import io.github.jpicklyk.mcptask.current.application.tools.*
@@ -206,6 +207,10 @@ Call with no arguments to resume a session; call with `itemId` before any advanc
 
         val resolvedSchema = context.resolveSchema(item)
 
+        // Dispatch routing profile for the item's CURRENT role, using the already-resolved schema
+        // above (never re-resolves it) — see ToolExecutionContext.resolveDispatchProfile's KDoc.
+        val dispatchProfile = context.resolveDispatchProfile(item, item.role, resolvedSchema)
+
         val notesResult = context.noteRepository().findByItemId(item.id)
         val notes =
             when (notesResult) {
@@ -294,6 +299,7 @@ Call with no arguments to resume a session; call with `itemId` before any advanc
                 )
                 guidanceKey?.let { put("guidanceKey", JsonPrimitive(it)) }
                 skillPointer?.let { put("skillPointer", JsonPrimitive(it)) }
+                dispatchProfile?.let { put("dispatch", buildDispatchProfileJson(it)) }
                 // Full claim detail — diagnostic tool, single-item, operators need identity to debug stalled work.
                 // claimedBy is intentionally included here; it must NOT appear in query_items results.
                 if (item.claimedBy != null) {

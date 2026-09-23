@@ -78,11 +78,18 @@ If the config has a `traits:` section, show a separate traits summary table:
 ```
 ◆ Traits
 
-| Trait | Notes | Skills |
-|---|---|---|
-| needs-security-review | security-assessment (review, req) | security-review |
-| needs-migration-review | migration-assessment (queue, req) | migration-review |
+| Trait | Notes | Skills | Dispatch |
+|---|---|---|---|
+| needs-security-review | security-assessment (review, req) | security-review | — |
+| needs-migration-review | migration-assessment (queue, req) | migration-review | — |
+| delegated | delegation-metadata (work, opt) | — | work: implementer, review: reviewer (effort high) |
 ```
+
+The `Dispatch` column summarizes the trait's `dispatch:` map (if any) as `phase: agent` pairs,
+each with `(effort <level>)` appended when that phase's profile sets one (e.g. `review: reviewer
+(effort high)`); a `model`-only or `effort`-only phase profile (no `agent`) shows as
+`phase: (model <name>)` / `phase: (effort <level>)`; `—` when the trait declares no `dispatch:`.
+See `references/config-format.md` → "Dispatch (Trait Dimension)".
 
 If the config has an `actor_authentication:` section, display the actor authentication status including verifier type when present:
 

@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.config
 
+import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
 import io.github.jpicklyk.mcptask.current.domain.model.LifecycleMode
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition
@@ -62,6 +63,16 @@ internal object YamlSchemaParser {
         )
 
     /**
+     * Recognized `traits.<name>.dispatch.<phase>.effort` values, matched case-SENSITIVELY —
+     * unlike [VALID_RESOURCE_MODES], `"HIGH"` is invalid (dropped with a warning), only exact
+     * lowercase matches.
+     */
+    private val VALID_DISPATCH_EFFORTS = setOf("low", "medium", "high", "xhigh", "max")
+
+    /** Recognized fields on a `traits.<name>.dispatch.<phase>:` profile map. */
+    private val VALID_DISPATCH_FIELDS = setOf("agent", "model", "effort")
+
+    /**
      * Budget-related keys reserved for future use. If present on a `resources:` entry (registry or
      * per-trait), they are parsed-and-warned but never stored — see [warnReservedBudgetKeys].
      */
@@ -92,6 +103,12 @@ internal object YamlSchemaParser {
      *   entirely (not mapped to an empty list).
      * @property resourceRegistry the top-level `resources:` registry, keyed by resource key. Empty
      *   when the document has no top-level `resources:` section.
+     * @property traitDispatch per-trait, per-phase dispatch routing profiles, parsed from
+     *   `traits.<name>.dispatch.<phase>:` (phase one of `queue`/`work`/`review`, matched via
+     *   [VALID_SCHEMA_ROLES]). A trait with no `dispatch:` key, or none of whose phase entries
+     *   parsed to a non-empty [DispatchProfile], is absent from this map entirely (not mapped to an
+     *   empty map) — parity with [traitResources]. Appended LAST with a default so this field is
+     *   additive to every existing [ParsedConfig] construction site.
      */
     data class ParsedConfig(
         val workItemSchemas: Map<String, WorkItemSchema>,
@@ -101,7 +118,8 @@ internal object YamlSchemaParser {
         val noteLimitsModeExplicit: String? = null,
         val statusLabels: Map<String, String?>? = null,
         val traitResources: Map<String, List<ResourceRequirement>> = emptyMap(),
-        val resourceRegistry: Map<String, ResourceDefinition> = emptyMap()
+        val resourceRegistry: Map<String, ResourceDefinition> = emptyMap(),
+        val traitDispatch: Map<String, Map<Role, DispatchProfile>> = emptyMap()
     )
 
     /**
@@ -127,6 +145,7 @@ internal object YamlSchemaParser {
         val parsedStatusLabels = parseStatusLabels(root, warnings)
         val resourceRegistry = parseResourceRegistry(root, warnings)
         val traitResources = parseTraitResources(root, resourceRegistry, warnings)
+        val traitDispatch = parseTraitDispatch(root, warnings)
 
         val base =
             when {
@@ -147,7 +166,8 @@ internal object YamlSchemaParser {
             noteLimitsModeExplicit = noteLimitsModeExplicit,
             statusLabels = parsedStatusLabels,
             traitResources = traitResources,
-            resourceRegistry = resourceRegistry
+            resourceRegistry = resourceRegistry,
+            traitDispatch = traitDispatch
         )
     }
 
@@ -473,6 +493,127 @@ internal object YamlSchemaParser {
     }
 
     private fun isValidResourceKey(key: String): Boolean = key.length in 1..RESOURCE_KEY_MAX_LENGTH && RESOURCE_KEY_REGEX.matches(key)
+
+    /**
+     * Parses per-trait `dispatch:` maps into a trait-name→(phase→[DispatchProfile]) map. A trait
+     * with no `dispatch:` key is absent from the result entirely (not mapped to an empty map),
+     * mirroring [parseTraitResources]. Malformed shapes warn-and-skip at their own granularity
+     * rather than failing the whole trait or document:
+     *  - `dispatch:` present but not a map -> the trait's dispatch is entirely absent (warned).
+     *  - a phase key not in [VALID_SCHEMA_ROLES] (case-sensitive; `"Work"`/`"terminal"`/`"blocked"`
+     *    all invalid) -> that phase entry is skipped (warned), other phases still parsed.
+     *  - a phase value that isn't a map -> that phase entry is skipped (warned).
+     *  - a trait whose `dispatch:` parses to no valid phase entries at all is absent from the
+     *    result (not mapped to an empty map).
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun parseTraitDispatch(
+        root: Map<String, Any>,
+        warnings: MutableList<String>
+    ): Map<String, Map<Role, DispatchProfile>> {
+        val traitsRaw = root["traits"] as? Map<String, Any> ?: return emptyMap()
+
+        val result = mutableMapOf<String, Map<Role, DispatchProfile>>()
+        for ((traitName, rawValue) in traitsRaw) {
+            val rawMap = rawValue as? Map<String, Any> ?: continue
+            val dispatchRaw = rawMap["dispatch"] ?: continue
+
+            val dispatchMap =
+                dispatchRaw as? Map<String, Any> ?: run {
+                    warnings.add("Trait '$traitName' has a malformed 'dispatch' section (expected a map); skipping")
+                    continue
+                }
+
+            val phases = mutableMapOf<Role, DispatchProfile>()
+            for ((phaseKey, phaseRaw) in dispatchMap) {
+                val role = VALID_SCHEMA_ROLES[phaseKey]
+                if (role == null) {
+                    warnings.add(
+                        "Trait '$traitName' dispatch has invalid phase '$phaseKey' " +
+                            "(valid: ${VALID_SCHEMA_ROLES.keys}); skipping"
+                    )
+                    continue
+                }
+
+                val phaseMap =
+                    phaseRaw as? Map<String, Any> ?: run {
+                        warnings.add("Trait '$traitName' dispatch.$phaseKey is not a map; skipping")
+                        continue
+                    }
+
+                val profile = parseDispatchProfile(phaseMap, traitName, phaseKey, warnings)
+                if (profile != null) {
+                    phases[role] = profile
+                }
+            }
+
+            if (phases.isNotEmpty()) {
+                result[traitName] = phases
+            }
+        }
+        return result
+    }
+
+    /**
+     * Parses a single `traits.<name>.dispatch.<phase>:` map into a [DispatchProfile]. Returns null
+     * (caller skips the phase, with a warning already recorded) when no field survives parsing —
+     * an empty profile is never stored, matching a `resources:` entry with no valid fields.
+     */
+    private fun parseDispatchProfile(
+        phaseMap: Map<String, Any>,
+        traitName: String,
+        phaseKey: String,
+        warnings: MutableList<String>
+    ): DispatchProfile? {
+        val agent = parseDispatchField(phaseMap, "agent", traitName, phaseKey, warnings)
+        val model = parseDispatchField(phaseMap, "model", traitName, phaseKey, warnings)
+        var effort = parseDispatchField(phaseMap, "effort", traitName, phaseKey, warnings)
+        if (effort != null && effort !in VALID_DISPATCH_EFFORTS) {
+            warnings.add(
+                "Trait '$traitName' dispatch.$phaseKey.effort has invalid value '$effort' " +
+                    "(valid: $VALID_DISPATCH_EFFORTS); dropping"
+            )
+            effort = null
+        }
+
+        for (key in phaseMap.keys) {
+            if (key !in VALID_DISPATCH_FIELDS) {
+                warnings.add("Trait '$traitName' dispatch.$phaseKey has unknown field '$key'; ignoring")
+            }
+        }
+
+        if (agent == null && model == null && effort == null) {
+            warnings.add("Trait '$traitName' dispatch.$phaseKey has no valid fields; skipping")
+            return null
+        }
+        return DispatchProfile(agent = agent, model = model, effort = effort)
+    }
+
+    /**
+     * Reads a single string field off a `dispatch.<phase>:` profile map, warning-and-dropping
+     * (returning null) when the field is present but non-string or blank. An absent field is
+     * silently null (not a warning) — the field is simply unset for this profile.
+     */
+    private fun parseDispatchField(
+        phaseMap: Map<String, Any>,
+        field: String,
+        traitName: String,
+        phaseKey: String,
+        warnings: MutableList<String>
+    ): String? {
+        if (!phaseMap.containsKey(field)) return null
+        val raw = phaseMap[field]
+        val value = raw as? String
+        if (value == null) {
+            warnings.add("Trait '$traitName' dispatch.$phaseKey.$field has non-string value '$raw'; dropping")
+            return null
+        }
+        if (value.isBlank()) {
+            warnings.add("Trait '$traitName' dispatch.$phaseKey.$field is blank; dropping")
+            return null
+        }
+        return value
+    }
 
     /**
      * Warns (without storing) when [entryMap] contains any of [RESERVED_BUDGET_KEYS] — these fields
