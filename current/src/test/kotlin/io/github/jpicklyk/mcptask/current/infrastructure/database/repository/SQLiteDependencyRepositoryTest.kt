@@ -346,12 +346,12 @@ class SQLiteDependencyRepositoryTest {
     @Test
     fun `mixed BLOCKS and IS_BLOCKED_BY cycle detection still works after fix`() =
         runBlocking {
-            // A BLOCKS B — real blocking relationship
-            depRepository.create(Dependency(fromItemId = itemA, toItemId = itemB, type = DependencyType.BLOCKS))
+            // A IS_BLOCKED_BY B — a real blocking relationship: B blocks A (blockerId=B, blockedId=A)
+            depRepository.create(Dependency(fromItemId = itemA, toItemId = itemB, type = DependencyType.IS_BLOCKED_BY))
 
-            // "Would adding B BLOCKS A create a cycle?" — Yes, this is a real blocking cycle
-            val isCyclic = depRepository.hasCyclicDependency(itemB, itemA)
-            assertTrue(isCyclic, "Real BLOCKS cycle should still be detected")
+            // A new blocking edge with blocker=A, blocked=B would close the cycle (A->B->A)
+            val isCyclic = depRepository.hasCyclicDependency(itemA, itemB)
+            assertTrue(isCyclic, "Real IS_BLOCKED_BY-based cycle should still be detected")
         }
 
     @Test
