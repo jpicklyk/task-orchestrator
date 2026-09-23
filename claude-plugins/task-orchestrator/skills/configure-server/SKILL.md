@@ -168,9 +168,9 @@ No REST, no port, no config-sync — say so.
    TASK_ORCHESTRATOR_API_URL=http://localhost:3001
    ```
 
-   Add `TASK_ORCHESTRATOR_API_TOKEN=<token>` only for bearer mode. **Omitting this env var is the
-   single most common way config-sync silently no-ops** (verified `api-client.mjs`'s `apiBaseUrl()`
-   guard — the check moved out of `config-sync.mjs:129-130` during the api-client extraction) —
+   Add `TASK_ORCHESTRATOR_API_TOKEN=<token>` only when the REST API requires authentication (bearer or jwks mode). **Omitting this env var is the
+   single most common way config-sync silently no-ops** (`config-sync.mjs` returns early when `apiBaseUrl()` in
+   `hooks/api-client.mjs` finds no URL) —
    always render it, never treat it as optional polish.
 
 If REST mode is **unauthenticated**, always print the SECURITY caveat (verbatim from

@@ -456,7 +456,7 @@ the field's purpose is external verifiability, so it is deliberately not redacte
 
 ```json
 {
-  "canAdvance": true,
+  "canAdvance": false,
   "phase": "work",
   "missing": ["implementation-notes"]
 }

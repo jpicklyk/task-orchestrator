@@ -163,7 +163,15 @@ The hook is **fail-open and opt-in** — it no-ops silently (exit 0) unless `TAS
 | `TASK_ORCHESTRATOR_API_URL` | yes | Base URL of the REST API, e.g. `http://orchestrator.internal:3001` (the hook appends `/api/v1/roots/{rootId}/config`). |
 | `TASK_ORCHESTRATOR_API_TOKEN` | no | Bearer token with the `write-config` capability, scoped (`scope.root_ids`) to this workspace's project root. **Optional** — omit it entirely when the server runs in [unauthenticated mode](#unauthenticated-mode); the hook then sends the request with no `Authorization` header at all. |
 
-Set these per-workspace (e.g. in `.claude/settings.json`'s `env` block, or the shell environment). Against a bearer/jwks server the token needs only `write-config` for its own root — not `admin`. Against an unauthenticated server, no token is needed at all. Either way the server must have `API_ENABLED=true`. If the API is unreachable or returns an error, the hook logs a one-line note and continues; it never blocks session start.
+Set these per-workspace (e.g. in `.claude/settings.json`'s `env` block, or the shell environment). Against a bearer/jwks server the token needs only `write-config` for its own root — not `admin` (add `read` if the same token also serves the SubagentStop phase guard below). Against an unauthenticated server, no token is needed at all. Either way the server must have `API_ENABLED=true`. If the API is unreachable or returns an error, the hook logs a one-line note and continues; it never blocks session start.
+
+**HTTP-first policy.** New plugin-side infrastructure features — `config-sync.mjs`, SSE event
+streaming, the `plan-capture.mjs` hook (which stashes an approved plan as a `plan_document` via
+`PUT /roots/{rootId}/plans/{slug}`), and the SubagentStop phase guard below — are built HTTP-only, each fail-opening to a silent no-op when
+its REST env var (`TASK_ORCHESTRATOR_API_URL`, etc.) is absent. STDIO deployments keep full MCP tool
+functionality but do not gain these convenience features; STDIO is positioned as the local/evaluation
+transport, while a persistent HTTP daemon with the REST API enabled is the recommended path for
+ongoing fleet or multi-project work.
 
 ### SubagentStop phase guard
 
@@ -174,15 +182,7 @@ token needed against an unauthenticated server). Without a reachable API URL it 
 subagent is ever blocked. See
 [integration-guides/plugin-skills-hooks.md](integration-guides/plugin-skills-hooks.md) for full
 hook behavior and [api-rest.md §9](api-rest.md#9-endpoints--items-read) for the `GET
-/items/{id}/gate` route it polls.
-
-**HTTP-first policy.** New plugin-side infrastructure features — `config-sync.mjs`, SSE event
-streaming, and the `plan-capture.mjs` hook (which stashes an approved plan as a `plan_document` via
-`PUT /roots/{rootId}/plans/{slug}`) — are built HTTP-only, each fail-opening to a silent no-op when
-its REST env var (`TASK_ORCHESTRATOR_API_URL`, etc.) is absent. STDIO deployments keep full MCP tool
-functionality but do not gain these convenience features; STDIO is positioned as the local/evaluation
-transport, while a persistent HTTP daemon with the REST API enabled is the recommended path for
-ongoing fleet or multi-project work.
+/items/{id}/gate` route it calls once per subagent stop.
 
 ---
 
