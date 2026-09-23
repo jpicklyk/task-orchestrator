@@ -62,6 +62,7 @@ Set sensible loop bounds. Show defaults and let the user adjust.
   Claim TTL per iteration:  1800s (30 min)
   Model:                    sonnet
   Cleanup on terminal:      smart (remove if no commits/changes; preserve otherwise)
+  Resume continuations:     2 per iteration (0 disables)
 
   Adjust any?  Reply "ok" to use defaults.
 ```
@@ -71,6 +72,8 @@ If the user adjusts, capture the overrides. Common patterns:
 - Low-confidence run: `--gate-budget 1 --error-budget 1`
 - Architecture-heavy items: `--model opus --budget 15`
 - Preserve every worktree (debugging-heavy session): `--no-cleanup`
+- Disable resume-on-marker-less-exit (treat every marker-less clean exit as an immediate error, the old behavior): `--max-continuations 0`
+- Give a flaky agent more room to find its footing: `--max-continuations 4`
 
 ---
 
@@ -118,6 +121,10 @@ Print the exact command to run. The user copies and pastes it.
   → Spawns one `claude -p --worktree=ralph-...` per iteration
   → Each iteration is fresh context, isolated worktree
   → Logs print live as iterations run
+  → An iteration that exits cleanly with no RALPH_OUTCOME marker is resumed
+    in place (`claude -p --resume`, same worktree) up to `--max-continuations`
+    times (default 2) before it's counted as an error — add
+    `--max-continuations <n>` to adjust, or `--max-continuations 0` to disable
   → Final summary lists outcomes and preserved worktrees
 
   For autonomous cadence (re-run every 30 min until empty):
@@ -172,7 +179,7 @@ The iteration agent emits `RALPH_OUTCOME: {...}` as its final message. The loop 
 |---|---|
 | `terminal` | Counter ✓; resets gate-failure and error counters; loop continues |
 | `gate-blocked` | Counter ⊘; increments consecutive gate-failure counter; loop continues unless budget hit |
-| `error` | Counter ✗; increments consecutive error counter; loop continues unless budget hit |
+| `error` | Counter ✗; increments consecutive error counter; loop continues unless budget hit. A marker-less clean exit is resumed first (`claude -p --resume`, same worktree) — it only lands here once `--max-continuations` resumes are exhausted or the remaining per-iteration budget drops below $0.25, and the reason names how many continuations ran |
 | `skip` | Counter —; no counter changes; loop continues |
 | `no-item` | Loop exits cleanly (queue empty) |
 
@@ -280,11 +287,11 @@ Solution: Verify both files exist in the plugin layout: `claude-plugins/task-orc
 
 ---
 
-**Problem: every iteration ends with `error: iteration agent exited cleanly without RALPH_OUTCOME marker`**
+**Problem: every iteration ends with `error: iteration agent exited cleanly without RALPH_OUTCOME marker (after N continuation(s))`**
 
-Cause: The iteration agent isn't following the prompt — it's exiting without emitting the outcome marker. Likely the agent ran out of budget, hit a tool restriction, or ignored the prompt's exit instructions.
+Cause: The iteration agent isn't following the prompt — it keeps ending its turn without emitting the outcome marker, even after the loop driver resumed it in place (`claude -p --resume <session_id>`, same worktree) via `--max-continuations`. The `(after N continuation(s))` suffix tells you how many resumes were tried before giving up; without the suffix, no continuation was attempted at all (immediate marker-less exit, or `--max-continuations 0`). Likely the agent ran out of budget, hit a tool restriction, or ignored the prompt's exit instructions even when explicitly told to continue.
 
-Solution: Run with `--dry-run` and inspect the prompt that would be sent. If the prompt looks correct, raise `--budget` (some iterations need more headroom). If it persists, run one iteration manually with `claude -p --worktree=test-1 "$(cat skills/ralph/iteration-prompt.md)"` to debug interactively.
+Solution: Run with `--dry-run` and inspect the prompt that would be sent. If the prompt looks correct, raise `--budget` (some iterations need more headroom) or raise `--max-continuations` to give the agent more resume attempts. If it persists across continuations, run one iteration manually with `claude -p --worktree=test-1 "$(cat skills/ralph/iteration-prompt.md)"` to debug interactively.
 
 ---
 
@@ -327,5 +334,7 @@ Solution: Subagent dispatch within an iteration is allowed and sometimes useful 
 **Why no PR creation in the script.** The end state of an iteration is determined by the item's schema, not by Ralph. A `bug-fix` schema's review or terminal phase might prescribe pushing and opening a PR; an `agent-observation` schema's "done" might be just filling a single note. The script doesn't assume a code-change workflow — it just runs iterations and captures outcomes. Workflow logic lives in the schema, where users can configure it per their project.
 
 **Why the `RALPH_OUTCOME:` marker instead of exit codes.** An agent inside `claude -p` doesn't directly control the parent process's exit code (that's Claude Code's harness). Structured stdout output is the cleanest channel — the script regex-matches the marker, parses the JSON, and decides loop control. This also makes outcomes inspectable in iteration logs after the fact.
+
+**Why a marker-less clean exit gets resumed instead of immediately counted as an error.** Anthropic's own guidance for unattended runs warns that a model left without a human in the loop can end its turn early — trailing off into a status report instead of continuing the work or emitting a terminating signal. Under `claude -p` that stray turn exits the process outright: no marker means the driver used to have no better option than to call it `error`, which burns an error-budget slot and leaves the claimed item's TTL to run out before anyone picks it back up, even though the agent may have been seconds from finishing. The loop driver now treats "clean exit, no marker" as recoverable: it resumes the same session (`claude -p --resume <session_id>`, same worktree — never `--worktree`, which would spin up a new one) and asks it to either finish the work or emit the marker itself, up to `--max-continuations` times (default 2) and only while the iteration's remaining `--budget` stays at or above $0.25. The decision keys on marker *absence*, never on the outcome's `status` — an agent that deliberately emits `RALPH_OUTCOME {"status":"error"}` has already told the driver what happened and is never resumed. Spend across resumes is tracked from each envelope's `total_cost_usd`, which reports the resumed conversation's running total rather than just the new turn's cost, so the driver takes the latest reading rather than summing across resumes. Exhausting the continuations (or the budget floor) without ever seeing a marker still ends in the same `error` outcome as before, with the reason naming how many continuations were tried.
 
 **Why TTL=1800 default (not the documented 900).** Default TTL is 15 minutes. A non-trivial iteration (read context, fill notes, do code work, run tests, commit, advance) can exceed that. 1800s gives 30-minute headroom without requiring a heartbeat. For longer iterations, raise `--ttl` further; the cap is 86400 (24 hours).
