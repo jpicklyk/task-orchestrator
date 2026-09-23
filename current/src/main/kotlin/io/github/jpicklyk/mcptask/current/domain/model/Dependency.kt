@@ -44,4 +44,32 @@ data class Dependency(
         if (type == DependencyType.RELATES_TO) return null
         return unblockAt ?: "terminal"
     }
+
+    /**
+     * Returns the UUID of the item that BLOCKS the other side of this dependency, or null for
+     * RELATES_TO (no blocking semantics).
+     *
+     * - BLOCKS: `fromItemId` blocks `toItemId` -> blocker is [fromItemId].
+     * - IS_BLOCKED_BY: `fromItemId` is blocked by `toItemId` -> blocker is [toItemId].
+     */
+    fun blockerId(): UUID? =
+        when (type) {
+            DependencyType.BLOCKS -> fromItemId
+            DependencyType.IS_BLOCKED_BY -> toItemId
+            DependencyType.RELATES_TO -> null
+        }
+
+    /**
+     * Returns the UUID of the item that is BLOCKED by the other side of this dependency, or null
+     * for RELATES_TO (no blocking semantics).
+     *
+     * - BLOCKS: `fromItemId` blocks `toItemId` -> blocked is [toItemId].
+     * - IS_BLOCKED_BY: `fromItemId` is blocked by `toItemId` -> blocked is [fromItemId].
+     */
+    fun blockedId(): UUID? =
+        when (type) {
+            DependencyType.BLOCKS -> toItemId
+            DependencyType.IS_BLOCKED_BY -> fromItemId
+            DependencyType.RELATES_TO -> null
+        }
 }

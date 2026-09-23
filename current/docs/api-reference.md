@@ -598,6 +598,15 @@ on the way out.) If required notes are missing
 (and the trigger doesn't bypass the gate — see below), that item fails and its downstream
 dependents within the set are skipped.
 
+**Ordering is blocker-first, direction-aware.** For an in-set `BLOCKS` edge (`A BLOCKS B`), `A` is
+ordered before `B`. For an in-set `IS_BLOCKED_BY` edge (`A IS_BLOCKED_BY B`), `B` is the blocker, so
+`B` is ordered before `A` — the same blocker-first rule, not a raw `fromItemId`-before-`toItemId`
+sort. `RELATES_TO` edges carry no blocking semantics: they impose no ordering constraint and never
+cause a dependent to be skipped. A blocker item **outside** the target set is not part of this
+in-set graph at all — it produces no ordering here; the in-set item that depends on it instead fails
+`AdvanceService`'s dependency-validation check (see "Dependency-validation-failure fields" below),
+and that failure skips its own in-set dependents same as a gate failure would.
+
 **When to call.** Call when closing out a finished hierarchy — one atomic call instead of per-item advance sequences.
 
 **Operations.** Single operation (no `operation` parameter).
@@ -1000,6 +1009,8 @@ spans the entire batch).
 Note: atomicity is preserved — either all dependencies are created or none. On any validation failure, `created` is always 0 and `failed` **always equals `failures.length`**. Every element of the `dependencies` array is validated independently, so `failures` reports **one entry per invalid element**, each carrying that element's 0-based `index` — a batch with three specs where the first and third are malformed returns two failures at indices 0 and 2 (the valid middle element is still not created). A batch-level rejection that is a property of the whole batch rather than one element — a cycle formed across multiple specs, or a duplicate of an existing dependency — is reported as a single failure entry.
 
 **Constraint: `RELATES_TO` and `unblockAt`.** Specifying `unblockAt` on a `RELATES_TO` dependency is a validation error. `RELATES_TO` dependencies have no blocking semantics and do not support an unblock threshold; providing one will return a validation failure response.
+
+**Cycle detection is direction-aware.** Cycle checking walks the blocker→blocked graph, not raw `fromItemId`→`toItemId`: for `BLOCKS`, `fromItemId` is the blocker; for `IS_BLOCKED_BY`, `toItemId` is the blocker (the relationship is stated in reverse). A batch that would close a cycle in that blocker→blocked graph — whether every edge in it is `BLOCKS`, every edge is `IS_BLOCKED_BY`, or the batch mixes both types — is rejected. Restating an existing edge with the other type (e.g. `B BLOCKS A` already exists, then `A IS_BLOCKED_BY B` is added) is **not** a cycle — it describes the same blocking relationship from the other item's perspective — and is accepted as a second row; an exact `(fromItemId, toItemId, type)` duplicate is still rejected, but as a duplicate, not a cycle. `RELATES_TO` edges are never part of cycle detection.
 
 **Response (delete by relationship).**
 

@@ -35,6 +35,17 @@ interface DependencyRepository {
 
     suspend fun createBatch(dependencies: List<Dependency>): List<Dependency>
 
+    /**
+     * Checks whether adding a proposed BLOCKS-style edge from [fromItemId] to [toItemId] would
+     * create a cycle in the blocker->blocked dependency graph.
+     *
+     * Despite the parameter names (kept for source/binary compatibility), this call means
+     * (blocker, blocked) of the proposed blocking edge — i.e. [fromItemId] is the item that would
+     * block [toItemId]. For a `Dependency`, pass its [Dependency.blockerId] and
+     * [Dependency.blockedId] rather than its raw `fromItemId`/`toItemId`: those only coincide for
+     * type BLOCKS and are swapped for IS_BLOCKED_BY. Not meaningful for RELATES_TO (no blocking
+     * semantics) — callers should skip the check when either accessor returns null.
+     */
     suspend fun hasCyclicDependency(
         fromItemId: UUID,
         toItemId: UUID

@@ -129,11 +129,18 @@ class SQLiteWorkTreeService(
      * RELATES_TO edges are excluded from cycle detection (they are bidirectional by nature).
      */
     private fun detectInMemoryCycle(deps: List<TreeDepSpec>): String? {
-        // Build adjacency map from fromRef -> list of toRefs (for BLOCKS and IS_BLOCKED_BY only)
+        // Build adjacency map oriented blocker -> blocked (for BLOCKS and IS_BLOCKED_BY only).
+        // BLOCKS: fromRef blocks toRef. IS_BLOCKED_BY: fromRef is blocked BY toRef, so toRef is
+        // the blocker — the edge must be added toRef -> fromRef, not fromRef -> toRef.
         val adj = mutableMapOf<String, MutableList<String>>()
         for (dep in deps) {
-            if (dep.type == DependencyType.RELATES_TO) continue
-            adj.getOrPut(dep.fromRef) { mutableListOf() }.add(dep.toRef)
+            val (blockerRef, blockedRef) =
+                when (dep.type) {
+                    DependencyType.BLOCKS -> dep.fromRef to dep.toRef
+                    DependencyType.IS_BLOCKED_BY -> dep.toRef to dep.fromRef
+                    DependencyType.RELATES_TO -> continue
+                }
+            adj.getOrPut(blockerRef) { mutableListOf() }.add(blockedRef)
         }
 
         val visited = mutableSetOf<String>()

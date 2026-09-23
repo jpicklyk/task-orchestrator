@@ -345,13 +345,19 @@ Call when closing out a finished hierarchy — one atomic call instead of per-it
         }
 
         for (item in targetItems) {
+            // findByToItemId(item.id) also picks up IS_BLOCKED_BY rows where item.id is actually
+            // the BLOCKER (toItemId holds the blocker for that type) — orient every edge via the
+            // blocker/blocked accessors rather than assuming fromItemId is always the blocker.
+            // Each intra-set edge is still seen exactly once, from whichever target item's query
+            // matches its stored toItemId. RELATES_TO has no blocker/blocked and is skipped.
             val incomingDeps = context.dependencyRepository().findByToItemId(item.id)
             for (dep in incomingDeps) {
-                val fromId = dep.fromItemId
-                if (fromId in targetIds) {
-                    // fromId blocks item.id within the target set
-                    inDegree[item.id] = (inDegree[item.id] ?: 0) + 1
-                    adjacency.getOrPut(fromId) { mutableListOf() }.add(item.id)
+                val blockerId = dep.blockerId() ?: continue
+                val blockedId = dep.blockedId() ?: continue
+                if (blockerId in targetIds && blockedId in targetIds) {
+                    // blockerId blocks blockedId within the target set
+                    inDegree[blockedId] = (inDegree[blockedId] ?: 0) + 1
+                    adjacency.getOrPut(blockerId) { mutableListOf() }.add(blockedId)
                 }
             }
         }
