@@ -18,8 +18,8 @@ import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { readSection, scalar } from './yaml-lite.mjs';
+import { apiBaseUrl, authHeader as buildAuthHeader, fetchWithTimeout } from './api-client.mjs';
 
-const REQUEST_TIMEOUT_MS = 2000;
 const MAX_SLUG_LENGTH = 64;
 
 /** Locate .taskorchestrator/config.yaml (AGENT_CONFIG_DIR, then walk up from cwd) and return its text. */
@@ -78,12 +78,6 @@ function emit(line) {
   );
 }
 
-function fetchWithTimeout(url, opts) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-  return fetch(url, { ...opts, signal: controller.signal }).finally(() => clearTimeout(timer));
-}
-
 async function main() {
   if (typeof fetch !== 'function') return; // node < 18 — no global fetch; nothing we can do, stay silent
 
@@ -110,21 +104,20 @@ async function main() {
   const rootId = parseRootId(configText);
   if (!rootId) return; // not project-scoped → no root to stash under
 
-  const apiUrl = process.env.TASK_ORCHESTRATOR_API_URL;
-  if (!apiUrl) return; // stdio/local setups: no REST API to stash to — silent no-op
+  const base = apiBaseUrl();
+  if (!base) return; // stdio/local setups: no REST API to stash to — silent no-op
 
   // Token is optional — an unauthenticated server (API_AUTH_MODE=none +
   // API_ALLOW_UNAUTHENTICATED=true) needs no Authorization header at all.
-  const token = process.env.TASK_ORCHESTRATOR_API_TOKEN;
-  const authHeader = token ? { Authorization: `Bearer ${token}` } : {};
+  const auth = buildAuthHeader();
 
   const slug = deriveSlug(planText);
-  const endpoint = `${apiUrl.replace(/\/+$/, '')}/api/v1/roots/${rootId}/plans/${slug}`;
+  const endpoint = `${base}/api/v1/roots/${rootId}/plans/${slug}`;
 
   try {
     const res = await fetchWithTimeout(endpoint, {
       method: 'PUT',
-      headers: { ...authHeader, 'Content-Type': 'text/plain' },
+      headers: { ...auth, 'Content-Type': 'text/plain' },
       body: planText,
     });
     if (res.status >= 200 && res.status < 300) {

@@ -1,0 +1,136 @@
+#!/usr/bin/env node
+// SubagentStop — re-checks the phase gate for every item this subagent recorded via
+// phase-guard-record.mjs (PostToolUse:advance_item) and, when required notes are still missing
+// for a work/review-phase item, blocks the subagent's stop so it gets sent back with the missing
+// keys named. This implements a harness-level backstop for a subagent that ends its turn with a
+// progress report instead of finished work: treat the early stop as a report, check the external
+// checklist (the item's gate status), and send a capped continuation naming what's still open.
+//
+// Known limitation (non-goal, not addressed here): the guard only engages for subagents that
+// enter their phase with `advance_item(start)` — the plugin's agent-owned-phase protocol. A
+// subagent dispatched under an orchestrator-owns-transitions contract (never calling
+// advance_item itself) has nothing recorded by phase-guard-record.mjs, so the guard stays inert
+// for it.
+//
+// Fail-open everywhere: no REST API configured, no state file for this agent (also covers
+// Claude Code's own internal agents — prompt suggestions, etc. — which fire SubagentStop too),
+// the block cap already reached, any parse/fetch/timeout error, or a per-item non-2xx response
+// (403 — token without READ, 404) all result in that item never blocking. A silent `{}` on
+// stdout and exit 0 is always the floor.
+
+import { readFileSync, unlinkSync } from 'fs';
+import { resolve } from 'path';
+import { fileURLToPath } from 'url';
+import { apiBaseUrl, authHeader, fetchWithTimeout } from './api-client.mjs';
+import { phaseGuardMarkerPath, readPhaseGuardMarker, writePhaseGuardMarker } from './phase-guard-record.mjs';
+
+const MAX_BLOCKS_PER_AGENT = 2;
+const GATE_TIMEOUT_MS = 2000;
+const BLOCKING_ROLES = new Set(['work', 'review']);
+
+function emitEmpty() {
+  process.stdout.write('{}');
+  process.exit(0);
+}
+
+function emitBlock(reason) {
+  process.stdout.write(JSON.stringify({ decision: 'block', reason }));
+  process.exit(0);
+}
+
+function deleteMarker(path) {
+  try {
+    unlinkSync(path);
+  } catch {
+    // swallow — a missing/unremovable marker is not fatal, it just lingers until overwritten
+  }
+}
+
+/** A1's GateStatusDto.missing is a list of key strings, but tolerate an object shape (`{key}`)
+ * defensively in case a future server version normalizes differently. */
+function missingKey(entry) {
+  return typeof entry === 'string' ? entry : entry?.key;
+}
+
+async function fetchGate(base, itemId) {
+  try {
+    const res = await fetchWithTimeout(`${base}/api/v1/items/${itemId}/gate`, { headers: authHeader() }, GATE_TIMEOUT_MS);
+    if (res.status !== 200) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+function buildReason(blockers) {
+  const parts = blockers.map(({ gate, missing }) => {
+    const uuid8 = gate.itemId.slice(0, 8);
+    const hint = gate.skillPointer
+      ? ` Invoke the ${gate.skillPointer} skill for guidance.`
+      : gate.guidanceKey
+        ? ` See guidance: ${gate.guidanceKey}.`
+        : '';
+    return `Item ${uuid8} "${gate.title}" is in ${gate.role} with required notes still missing: ${missing.join(', ')}.${hint}`;
+  });
+  return (
+    `${parts.join(' ')} Fill them via manage_notes(upsert) before returning. ` +
+    `If something blocks you, say what blocks you and stop.`
+  );
+}
+
+async function main() {
+  try {
+    let raw = '';
+    try {
+      raw = readFileSync(0, 'utf-8');
+    } catch {
+      emitEmpty();
+    }
+
+    let hookInput;
+    try {
+      hookInput = JSON.parse(raw);
+    } catch {
+      emitEmpty();
+    }
+
+    const base = apiBaseUrl();
+    if (!base) emitEmpty();
+
+    const path = phaseGuardMarkerPath(hookInput.session_id, hookInput.agent_id);
+    const marker = readPhaseGuardMarker(path);
+    if (!marker.items || marker.items.length === 0) emitEmpty();
+
+    if (marker.blocks >= MAX_BLOCKS_PER_AGENT) {
+      deleteMarker(path);
+      emitEmpty();
+    }
+
+    const gates = await Promise.all(marker.items.map((itemId) => fetchGate(base, itemId)));
+
+    const blockers = [];
+    for (const gate of gates) {
+      if (!gate) continue; // non-2xx / fetch error / timeout for this item — does not block
+      if (!BLOCKING_ROLES.has(gate.role)) continue; // queue/blocked/terminal — never blocks
+      const rawMissing = Array.isArray(gate.gateStatus?.missing) ? gate.gateStatus.missing : [];
+      const missing = rawMissing.map(missingKey).filter(Boolean);
+      if (missing.length === 0) continue;
+      blockers.push({ gate, missing });
+    }
+
+    if (blockers.length === 0) {
+      deleteMarker(path);
+      emitEmpty();
+    }
+
+    writePhaseGuardMarker(path, { items: marker.items, blocks: marker.blocks + 1 });
+    emitBlock(buildReason(blockers));
+  } catch {
+    emitEmpty();
+  }
+}
+
+// Only auto-run when invoked directly as a hook (`node phase-guard.mjs`), not when imported.
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main();
+}

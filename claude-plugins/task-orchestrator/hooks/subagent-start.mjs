@@ -42,6 +42,8 @@ const output = {
 
 **Never call \`advance_item\` again after entering your phase, and never use \`trigger: "complete"\`** — the orchestrator owns all subsequent transitions.
 
+If you stop with your phase's required notes still unfilled, you will be sent back (up to twice) with the missing keys named — fill them, or state plainly what blocks you.
+
 ## Subagent Discipline
 
 1. **Commit before returning.** Stage and commit all file changes with a descriptive message — the orchestrator squash-merges your branch.

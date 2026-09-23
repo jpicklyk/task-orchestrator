@@ -607,6 +607,49 @@ components:
         exists:
           type: boolean
 
+    GateStatusDto:
+      type: object
+      required: [canAdvance, phase, missing]
+      properties:
+        canAdvance:
+          type: boolean
+        phase:
+          type: string
+          enum: [queue, work, review, terminal, blocked]
+          description: The item's CURRENT role, lowercased.
+        missing:
+          type: array
+          items:
+            type: string
+          description: Required-note KEY strings (schema order) still unfilled for phase.
+
+    ItemGateDto:
+      type: object
+      required: [itemId, title, role, gateStatus]
+      properties:
+        itemId:
+          type: string
+          format: uuid
+        title:
+          type: string
+        role:
+          type: string
+          enum: [queue, work, review, terminal, blocked]
+        gateStatus:
+          $ref: "#/components/schemas/GateStatusDto"
+        guidanceKey:
+          type: string
+          nullable: true
+          description: >-
+            First missing required note's key with guidance text. Omitted from JSON (not
+            serialized as null) when there is none.
+        skillPointer:
+          type: string
+          nullable: true
+          description: >-
+            First missing required note's skill pointer. Omitted from JSON (not serialized as
+            null) when there is none.
+
     AdvanceResponseDto:
       type: object
       required: [itemId, previousRole, newRole, trigger]
@@ -1487,6 +1530,36 @@ paths:
                         type: array
                         items:
                           $ref: "#/components/schemas/ItemDto"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /items/{id}/gate:
+    get:
+      summary: Gate status for a single item (get_context item-mode parity)
+      operationId: getItemGate
+      tags: [items]
+      description: >-
+        Field-for-field identical to the MCP get_context tool's item-mode gateStatus /
+        guidanceKey / skillPointer, computed via the same resolveSchema + computePhaseNoteContext
+        path. No dependency/blocker info and no dispatch field. Carries no ETag and ignores
+        If-None-Match — unlike GET /items/{id}, gate status depends on notes and config, neither
+        of which item.modifiedAt versions. If the notes read fails, every required note for the
+        current phase is reported missing, the same as get_context.
+      parameters:
+        - $ref: "#/components/parameters/itemId"
+      responses:
+        "200":
+          description: Gate status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ItemGateDto"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":

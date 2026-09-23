@@ -14,11 +14,27 @@ import { spawn, exec } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import {
+    parseClaudeJson,
+    parseOutcome,
+    updateSpend,
+    decideContinuation,
+    buildResumeArgs,
+} from "./ralph-lib.mjs";
 
 const execAsync = promisify(exec);
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PROMPT_PATH = path.resolve(HERE, "../skills/ralph/iteration-prompt.md");
+
+// Sent to a resumed iteration (`claude -p --resume <session_id>`) when the prior
+// run exited cleanly without a RALPH_OUTCOME marker. Keep in sync with the
+// "How your turn ends" operating principle in output-styles/ralph-iteration.md.
+const RESUME_MESSAGE =
+    "You ended your turn without a RALPH_OUTCOME marker, which ends this iteration. " +
+    "Continue any outstanding work on the claimed item now. If something blocks you, emit " +
+    "RALPH_OUTCOME with status gate-blocked and the reason. If the item already reached " +
+    "terminal, emit RALPH_OUTCOME terminal.";
 
 const DEFAULTS = {
     max: 10,
@@ -27,6 +43,7 @@ const DEFAULTS = {
     budget: 5, // USD per iteration
     ttl: 1800, // seconds (30 min)
     model: "sonnet",
+    maxContinuations: 2, // resume attempts for a marker-less clean exit; 0 disables
 };
 
 // ── CLI parsing ────────────────────────────────────────────────────────────
@@ -43,6 +60,7 @@ const { values } = parseArgs({
         "base-ref": { type: "string", default: "origin/main" },
         "cleanup-on-terminal": { type: "boolean", default: true },
         "no-cleanup": { type: "boolean", default: false },
+        "max-continuations": { type: "string", default: String(DEFAULTS.maxContinuations) },
         "dry-run": { type: "boolean", default: false },
         help: { type: "boolean", default: false, short: "h" },
     },
@@ -65,6 +83,7 @@ const cfg = {
     baseRef: values["base-ref"],
     // --no-cleanup overrides --cleanup-on-terminal (compatibility with both forms)
     cleanupOnTerminal: values["no-cleanup"] ? false : values["cleanup-on-terminal"],
+    maxContinuations: parseIntStrict(values["max-continuations"], "max-continuations"),
     dryRun: values["dry-run"],
 };
 
@@ -124,6 +143,7 @@ const stats = {
     errored: 0,
     skipped: 0,
     noItem: 0,
+    continued: 0, // iterations that needed >=1 resume continuation before their final outcome
     consecutiveGateFailures: 0,
     consecutiveErrors: 0,
     exitReason: null,
@@ -182,8 +202,61 @@ while (stats.iterations < cfg.max) {
 
     console.log(formatIterStart(iterIndex, cfg.max, tempWorktreeName));
 
-    const { exitCode, outcome, error } = await runIteration(args);
-    stats.outcomes.push({ iter: iterIndex, exitCode, outcome, error });
+    // Run the iteration, then — while it exited cleanly with no RALPH_OUTCOME
+    // marker — resume it in place with `claude -p --resume <session_id>` rather
+    // than treating a stray progress-report turn as a failed iteration. This
+    // must happen BEFORE the worktree rename below: `git worktree move`
+    // relocates the directory a resumed session's tools would run inside.
+    let currentArgs = args;
+    let currentCwd; // undefined for the initial spawn (--worktree=... creates it)
+    let continuationsUsed = 0;
+    let spentUsd = 0;
+    let exitCode, envelope, error, parsed;
+
+    for (;;) {
+        ({ exitCode, envelope, error } = await runIteration(currentArgs, { cwd: currentCwd }));
+        spentUsd = updateSpend(spentUsd, envelope);
+        parsed = error
+            ? { outcome: { status: "error", reason: `spawn error: ${error}` }, markerFound: false }
+            : parseOutcome(envelope, exitCode);
+
+        const decision = decideContinuation({
+            exitCode,
+            markerFound: parsed.markerFound,
+            sessionId: envelope?.session_id,
+            continuationsUsed,
+            maxContinuations: cfg.maxContinuations,
+            budget: cfg.budget,
+            spentUsd,
+        });
+
+        if (!decision.continue) {
+            if (!parsed.markerFound && exitCode === 0 && continuationsUsed > 0) {
+                parsed.outcome = {
+                    ...parsed.outcome,
+                    reason: `${parsed.outcome.reason} (after ${continuationsUsed} continuation(s))`,
+                };
+            }
+            break;
+        }
+
+        continuationsUsed++;
+        console.log(
+            `  ↳ no RALPH_OUTCOME marker; resuming session ${envelope.session_id} ` +
+                `(continuation ${continuationsUsed}/${cfg.maxContinuations}, $${decision.remainingUsd.toFixed(2)} remaining)`
+        );
+        currentCwd = path.resolve(".claude", "worktrees", tempWorktreeName);
+        currentArgs = buildResumeArgs({
+            sessionId: envelope.session_id,
+            cfg,
+            remainingBudget: decision.remainingUsd,
+            message: RESUME_MESSAGE,
+        });
+    }
+
+    const outcome = parsed.outcome;
+    if (continuationsUsed > 0) stats.continued++;
+    stats.outcomes.push({ iter: iterIndex, exitCode, outcome, error, continuations: continuationsUsed });
 
     // Post-iteration: if the iteration claimed an item, rename the worktree to
     // `ralph-<short-uuid>-<iter>` so preserved worktrees are traceable to the
@@ -302,7 +375,7 @@ function quoteArg(arg) {
     return `"${arg.replace(/"/g, '\\"')}"`;
 }
 
-function runIteration(args) {
+function runIteration(args, { cwd } = {}) {
     return new Promise((resolve) => {
         const stdoutChunks = [];
         const stderrChunks = [];
@@ -310,6 +383,7 @@ function runIteration(args) {
         const child = spawn("claude", args, {
             stdio: ["ignore", "pipe", "pipe"],
             shell: false,
+            ...(cwd ? { cwd } : {}),
         });
         // Expose for SIGINT/SIGTERM forwarding from the loop driver.
         currentChild = child;
@@ -326,159 +400,16 @@ function runIteration(args) {
 
         child.on("error", (err) => {
             currentChild = null;
-            resolve({
-                exitCode: -1,
-                outcome: { status: "error", reason: `spawn error: ${err.message}` },
-                error: err.message,
-            });
+            resolve({ exitCode: -1, envelope: {}, error: err.message });
         });
 
         child.on("close", (code) => {
             currentChild = null;
             const stdout = Buffer.concat(stdoutChunks).toString("utf8");
-            const outcome = parseOutcome(stdout, code);
-            resolve({ exitCode: code, outcome, error: null });
+            const envelope = parseClaudeJson(stdout);
+            resolve({ exitCode: code, envelope, error: null });
         });
     });
-}
-
-/**
- * Parse the iteration agent's outcome from claude's JSON output.
- * Expected: a `RALPH_OUTCOME: {...}` marker in the agent's final message.
- * Falls back to inferring outcome from claude's exit code / stop_reason.
- */
-function parseOutcome(stdout, exitCode) {
-    const claudeResult = parseClaudeJson(stdout);
-
-    const finalText = claudeResult.result || "";
-    const markerJson = extractOutcomeMarker(finalText);
-    if (markerJson) {
-        try {
-            return JSON.parse(markerJson);
-        } catch {
-            // fall through to inference
-        }
-    }
-
-    // Inference fallback — claude exit code or stop_reason gives us a hint.
-    if (exitCode === 0) {
-        // No marker but successful run — assume terminal, but flag it.
-        return {
-            status: "error",
-            reason: "iteration agent exited cleanly without RALPH_OUTCOME marker",
-        };
-    }
-    if (claudeResult.stop_reason === "max_budget") {
-        return { status: "error", reason: "iteration hit --max-budget-usd cap" };
-    }
-    return {
-        status: "error",
-        reason: `iteration failed (exit ${exitCode}, stop_reason: ${claudeResult.stop_reason || "unknown"})`,
-    };
-}
-
-/**
- * Parse claude's stdout (--output-format json) into the result envelope.
- * Tries a direct parse first (handles both compact and pretty-printed JSON),
- * then falls back to extracting the last balanced top-level object — which
- * tolerates streamed log lines preceding the JSON envelope.
- */
-function parseClaudeJson(stdout) {
-    const trimmed = stdout.trim();
-    if (!trimmed) return {};
-    try {
-        return JSON.parse(trimmed);
-    } catch {
-        // fall through
-    }
-    const lastObj = extractLastBalancedJson(trimmed);
-    if (lastObj) {
-        try {
-            return JSON.parse(lastObj);
-        } catch {
-            // fall through
-        }
-    }
-    return {};
-}
-
-/**
- * Find the last top-level balanced JSON object in `text`.
- * Walks forward from each `{`, tracking depth + string state, and returns the
- * substring of the latest fully-closed object. Returns null if none.
- */
-function extractLastBalancedJson(text) {
-    let lastStart = -1;
-    let lastEnd = -1;
-    let i = 0;
-    while (i < text.length) {
-        if (text[i] !== "{") {
-            i++;
-            continue;
-        }
-        const closeIdx = scanBalancedObject(text, i);
-        if (closeIdx >= 0) {
-            lastStart = i;
-            lastEnd = closeIdx;
-            i = closeIdx + 1;
-        } else {
-            i++;
-        }
-    }
-    return lastStart >= 0 ? text.slice(lastStart, lastEnd + 1) : null;
-}
-
-/**
- * Locate the `RALPH_OUTCOME:` marker in `text` and return the JSON substring
- * that follows. Uses balanced-brace scanning so the JSON body may contain
- * newlines, nested objects, or escaped quotes — all of which broke the
- * original single-line regex. Returns null if no valid marker is found.
- *
- * Uses lastIndexOf so a stray "RALPH_OUTCOME:" appearing earlier in the
- * agent's reasoning text doesn't shadow the real final-message marker.
- */
-function extractOutcomeMarker(text) {
-    const markerIdx = text.lastIndexOf("RALPH_OUTCOME:");
-    if (markerIdx === -1) return null;
-    const startBrace = text.indexOf("{", markerIdx);
-    if (startBrace === -1) return null;
-    const closeIdx = scanBalancedObject(text, startBrace);
-    if (closeIdx < 0) return null;
-    return text.slice(startBrace, closeIdx + 1);
-}
-
-/**
- * Scan forward from `start` (must point at `{`), tracking string state and
- * brace depth, and return the index of the matching closing `}` — or -1 if
- * the object isn't balanced before end-of-string.
- */
-function scanBalancedObject(text, start) {
-    if (text[start] !== "{") return -1;
-    let depth = 0;
-    let inString = false;
-    let escape = false;
-    for (let j = start; j < text.length; j++) {
-        const c = text[j];
-        if (escape) {
-            escape = false;
-            continue;
-        }
-        if (c === "\\") {
-            escape = true;
-            continue;
-        }
-        if (c === '"') {
-            inString = !inString;
-            continue;
-        }
-        if (inString) continue;
-        if (c === "{") depth++;
-        else if (c === "}") {
-            depth--;
-            if (depth === 0) return j;
-        }
-    }
-    return -1;
 }
 
 // ── Output formatting ──────────────────────────────────────────────────────
@@ -494,6 +425,7 @@ function formatPreflight(cfg) {
   Max iter:      ${cfg.max}
   Budgets:       ${cfg.gateBudget} consecutive gate failures | ${cfg.errorBudget} consecutive errors
   Per iter:      $${cfg.budget} USD cap | ${cfg.ttl}s claim TTL
+  Continuations: ${cfg.maxContinuations} per iteration (0 disables; resumes a clean exit with no RALPH_OUTCOME marker)
   Base ref:      ${cfg.baseRef}
   Cleanup:       ${cleanupDesc}
 `;
@@ -626,6 +558,7 @@ function formatSummary(stats) {
         `  Started:       ${stats.startedAt.toISOString()}`,
         `  Duration:      ${minutes}m ${seconds}s`,
         `  Iterations:    ${stats.iterations}`,
+        `  Continued:     ${stats.continued} iteration(s) resumed at least once`,
         `  Exit reason:   ${stats.exitReason}`,
         "",
         "  Outcomes:",
@@ -685,6 +618,13 @@ Options:
   --no-cleanup               Disable smart cleanup; preserve all worktrees
                              regardless of state. Equivalent to passing
                              --cleanup-on-terminal=false.
+  --max-continuations <n>    Resume attempts for an iteration that exits
+                             cleanly without a RALPH_OUTCOME marker, via
+                             'claude -p --resume <session_id>' in the same
+                             worktree (no --worktree on a resume). Stops
+                             resuming once the cap is hit or remaining
+                             per-iteration budget drops below $0.25.
+                             (default: ${DEFAULTS.maxContinuations}; 0 disables)
   --dry-run                  Print iteration command and exit
   -h, --help                 Show this message
 
@@ -701,7 +641,10 @@ MCP ACL, the --max-budget-usd cap, and the schema-scoped iteration prompt.
 Outcomes (signaled by RALPH_OUTCOME marker in iteration agent stdout):
   terminal       Item reached terminal role per its schema
   gate-blocked   Required notes couldn't be filled autonomously
-  error          Tool error, build failure, budget cap hit
+  error          Tool error, build failure, budget cap hit, or a marker-less
+                 clean exit whose resume continuations (see
+                 --max-continuations) were exhausted without ever producing
+                 a RALPH_OUTCOME marker
   skip           Already-terminal, claim contention, resource-lease contention
                  (advance_item errorCode=resource_unavailable -- claim released,
                  iteration moves to a different item), or filter mismatch

@@ -14,6 +14,11 @@ functionality but do not gain these convenience features; STDIO is positioned as
 transport, while a persistent HTTP daemon with the REST API enabled is the recommended path for
 ongoing fleet or multi-project work.
 
+The plugin's SubagentStop phase guard (`phase-guard.mjs` / `phase-guard-record.mjs`) is another such
+consumer: it polls `GET /items/{id}/gate` (§9) to decide whether to send a returning subagent back
+for missing notes, and fails open the same way when `TASK_ORCHESTRATOR_API_URL` is unset — see
+[integration-guides/plugin-skills-hooks.md](integration-guides/plugin-skills-hooks.md).
+
 ---
 
 ## Table of Contents
@@ -169,6 +174,8 @@ drift apart.
   filter is then applied on top (see the pagination caveat below)
 - `GET /items/{id}` — `403 scope_forbidden` if item is outside scope (either `root_ids` or
   `tags_include`)
+- `GET /items/{id}/gate` — same `enforceScopeForItem` check as `GET /items/{id}`: `403
+  scope_forbidden` if the item is outside scope (either `root_ids` or `tags_include`)
 - Write endpoints — `403 scope_forbidden` if the target item is outside scope
 - `GET /items/{id}/breadcrumbs` — chain is truncated at the caller's scope root (ancestors above the
   scope root are hidden); ancestors that fail `tags_include` are dropped from the returned chain
@@ -216,6 +223,11 @@ callers are unaffected.
 - `PATCH /items/{id}` — **requires** `If-Match` header. Missing header → `400 precondition_required`. Mismatch → `412` with error `etag_mismatch`.
 - `DELETE /items/{id}` — **optional** `If-Match`. When supplied and mismatched → `412 etag_mismatch`.
 - `PUT /items/{id}/notes/{key}` — `If-Match` accepted on the update path (when the note already exists). Missing on update is allowed; mismatch → `412 etag_mismatch`. On create (note does not exist), `If-Match` is ignored.
+
+**`GET /items/{id}/gate` carries no `ETag` and ignores `If-None-Match`.** This is deliberate, not an
+omission: gate status depends on the item's notes and its resolved schema/config, and neither is
+versioned by `item.modifiedAt` — an `ETag` derived from the item alone would go stale the moment a
+note is upserted or the config changes, without the item itself being touched.
 
 ### Config ETags
 
@@ -439,6 +451,38 @@ the field's purpose is external verifiability, so it is deliberately not redacte
   "type": "blocks|relates_to"
 }
 ```
+
+### GateStatusDto
+
+```json
+{
+  "canAdvance": false,
+  "phase": "work",
+  "missing": ["implementation-notes"]
+}
+```
+
+`phase` is the item's CURRENT role, lowercased. `missing` is the required-note KEY strings (schema
+order) still unfilled for `phase` — plain strings, never `{key, description, ...}` objects.
+
+### ItemGateDto
+
+```json
+{
+  "itemId": "<uuid>",
+  "title": "string",
+  "role": "work",
+  "gateStatus": <GateStatusDto>,
+  "guidanceKey": "implementation-notes",
+  "skillPointer": "migration-review"
+}
+```
+
+Response DTO for `GET /items/{id}/gate` (§9) — field-for-field identical to `get_context` item
+mode's `gateStatus`/`guidanceKey`/`skillPointer` (see `api-reference.md:1458-1475`). `guidanceKey`
+and `skillPointer` are the FIRST missing required note's guidance key / skill pointer for the
+current phase — omitted from JSON (not `null`) when there is none, same `explicitNulls=false` rule
+as every other DTO in this document.
 
 ### PageDto\<T\>
 
@@ -727,6 +771,25 @@ Ancestor chain from root to the target item (inclusive). Chain is truncated at t
 Direct children of an item, paginated.
 
 **Response:** `200 OK` → `PageDto<ItemDto>`
+
+### GET /items/{id}/gate
+
+Gate status for the item's current phase — field-for-field identical to the MCP `get_context`
+item mode's `gateStatus`/`guidanceKey`/`skillPointer` (see
+[api-reference.md](api-reference.md):1458-1475), computed via the same `resolveSchema` +
+`computePhaseNoteContext` path. No dependency/blocker info and no dispatch field. Consumed by the
+plugin's SubagentStop phase guard (see
+[integration-guides/plugin-skills-hooks.md](integration-guides/plugin-skills-hooks.md)).
+
+If the notes read itself fails (repository error), every required note for the current phase is
+reported missing — the same fail-safe `computePhaseNoteContext` gives `get_context` when notes
+cannot be loaded.
+
+**Responses:**
+- `200 OK` → `ItemGateDto` (§8) — no `ETag` header (§4)
+- `400 bad_request` — invalid UUID
+- `403 scope_forbidden`
+- `404 not_found`
 
 ---
 

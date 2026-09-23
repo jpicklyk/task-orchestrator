@@ -168,9 +168,10 @@ No REST, no port, no config-sync — say so.
    TASK_ORCHESTRATOR_API_URL=http://localhost:3001
    ```
 
-   Add `TASK_ORCHESTRATOR_API_TOKEN=<token>` only for bearer mode. **Omitting this env var is the
-   single most common way config-sync silently no-ops** (verified `config-sync.mjs:84-92`) — always
-   render it, never treat it as optional polish.
+   Add `TASK_ORCHESTRATOR_API_TOKEN=<token>` only when the REST API requires authentication (bearer or jwks mode). **Omitting this env var is the
+   single most common way config-sync silently no-ops** (`config-sync.mjs` returns early when `apiBaseUrl()` in
+   `hooks/api-client.mjs` finds no URL) —
+   always render it, never treat it as optional polish.
 
 If REST mode is **unauthenticated**, always print the SECURITY caveat (verbatim from
 `references/runtime-config.md` → "Loopback footgun") immediately before or after the docker run block.
@@ -195,13 +196,21 @@ For any HTTP render, walk through:
 
 ## HTTP-first policy for new infrastructure features
 
-New infrastructure features — `config-sync`, SSE events, the `plan-capture` hook — are **HTTP-only**,
-with a graceful no-op on STDIO. Each checks for its own REST env var (`TASK_ORCHESTRATOR_API_URL`,
-etc.) and silently skips when absent, rather than failing. STDIO remains fully supported for MCP
-tool calls themselves — it is positioned as the **local/evaluation mode**: no persistent daemon, no
-REST surface, and consequently none of these convenience features. When recommending a setup for
-ongoing project work (not a one-off trial), prefer the HTTP render in Step 5 for this reason, in
-addition to config-sync's per-project hot-reload benefit already covered in Step 1.
+New infrastructure features — `config-sync`, SSE events, the `plan-capture` hook, the SubagentStop
+completion guard (`phase-guard.mjs` + `phase-guard-record.mjs`) — are **HTTP-only**, with a graceful
+no-op on STDIO. Each checks for its own REST env var (`TASK_ORCHESTRATOR_API_URL`, etc.) and silently
+skips when absent, rather than failing. STDIO remains fully supported for MCP tool calls themselves —
+it is positioned as the **local/evaluation mode**: no persistent daemon, no REST surface, and
+consequently none of these convenience features. When recommending a setup for ongoing project work
+(not a one-off trial), prefer the HTTP render in Step 5 for this reason, in addition to config-sync's
+per-project hot-reload benefit already covered in Step 1.
+
+The completion guard reads `GET /api/v1/items/{id}/gate`, a READ-capability endpoint — under bearer
+auth, the token rendered for `TASK_ORCHESTRATOR_API_TOKEN` needs `read` in addition to whatever
+capability its other consumers need (config-sync's documented token is `write-config` only, which
+does not imply `read`). A token scoped to `write-config` alone leaves the guard silently inert (every
+gate GET returns 403, which the guard treats as fail-open, not an error) — call this out whenever
+rendering a bearer-mode token for a workspace that also uses the guard.
 
 ## Reconfiguring later
 
