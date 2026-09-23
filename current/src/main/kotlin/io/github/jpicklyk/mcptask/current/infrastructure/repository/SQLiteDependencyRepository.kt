@@ -37,10 +37,9 @@ class SQLiteDependencyRepository(
         }
 
     private fun insertDependencyInTransaction(dependency: Dependency): Dependency {
-        // Only check cycles for blocking dependency types — RELATES_TO is informational
-        if (dependency.type != DependencyType.RELATES_TO &&
-            checkCyclicDependencyInternal(dependency.fromItemId, dependency.toItemId)
-        ) {
+        // Only check cycles for blocking dependency types — RELATES_TO has no blocking edge.
+        val edge = dependency.blockingEdge()
+        if (edge != null && checkCyclicDependencyInternal(edge.first, edge.second)) {
             throw ValidationException("Creating this dependency would result in a circular dependency")
         }
 
@@ -154,9 +153,8 @@ class SQLiteDependencyRepository(
             // batch members in the graph. Transaction rollback handles atomicity on failure.
             // RELATES_TO deps are informational and cannot create blocking cycles — skip check.
             for (dep in dependencies) {
-                if (dep.type != DependencyType.RELATES_TO &&
-                    checkCyclicDependencyInternal(dep.fromItemId, dep.toItemId)
-                ) {
+                val edge = dep.blockingEdge()
+                if (edge != null && checkCyclicDependencyInternal(edge.first, edge.second)) {
                     throw ValidationException(
                         "Creating these dependencies would result in a circular dependency chain"
                     )
@@ -176,23 +174,26 @@ class SQLiteDependencyRepository(
         }
 
     override suspend fun hasCyclicDependency(
-        fromItemId: UUID,
-        toItemId: UUID
+        blockerId: UUID,
+        blockedId: UUID
     ): Boolean =
         suspendTransaction(db = databaseManager.getDatabase()) {
-            checkCyclicDependencyInternal(fromItemId, toItemId)
+            checkCyclicDependencyInternal(blockerId, blockedId)
         }
 
     /**
      * Internal cyclic dependency check that must be called within an existing transaction.
-     * Uses DFS to check if adding an edge from [fromItemId] to [toItemId] would create a cycle.
-     * A cycle exists if there's already a path from toItemId back to fromItemId.
+     * Uses DFS to check if adding a blocking edge from [blockerId] to [blockedId] (i.e.
+     * [blockerId] would block [blockedId]) would create a cycle in the blocker->blocked graph.
+     * A cycle exists if there's already a path from blockedId back to blockerId.
+     * Callers pass a proposed [Dependency]'s [Dependency.blockingEdge], never its raw
+     * (fromItemId, toItemId), which are swapped for IS_BLOCKED_BY.
      */
     private fun checkCyclicDependencyInternal(
-        fromItemId: UUID,
-        toItemId: UUID
+        blockerId: UUID,
+        blockedId: UUID
     ): Boolean {
-        if (fromItemId == toItemId) return true
+        if (blockerId == blockedId) return true
 
         val visited = mutableSetOf<UUID>()
         val visiting = mutableSetOf<UUID>()
@@ -212,7 +213,7 @@ class SQLiteDependencyRepository(
 
             for (dep in outgoing) {
                 if (dep.type == DependencyType.BLOCKS) {
-                    if (dep.toItemId == fromItemId) return true
+                    if (dep.toItemId == blockerId) return true
                     if (hasCycle(dep.toItemId)) return true
                 }
             }
@@ -226,7 +227,7 @@ class SQLiteDependencyRepository(
 
             for (dep in incoming) {
                 if (dep.type == DependencyType.IS_BLOCKED_BY) {
-                    if (dep.fromItemId == fromItemId) return true
+                    if (dep.fromItemId == blockerId) return true
                     if (hasCycle(dep.fromItemId)) return true
                 }
             }
@@ -236,7 +237,7 @@ class SQLiteDependencyRepository(
             return false
         }
 
-        return hasCycle(toItemId)
+        return hasCycle(blockedId)
     }
 
     override suspend fun findByItemIds(itemIds: Set<UUID>): Map<UUID, List<Dependency>> {

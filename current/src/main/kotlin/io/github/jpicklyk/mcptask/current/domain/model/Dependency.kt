@@ -44,4 +44,17 @@ data class Dependency(
         if (type == DependencyType.RELATES_TO) return null
         return unblockAt ?: "terminal"
     }
+
+    /**
+     * This dependency oriented as (blocker, blocked), or null for RELATES_TO (no blocking
+     * semantics). BLOCKS: [fromItemId] blocks [toItemId]. IS_BLOCKED_BY: [fromItemId] is blocked
+     * by [toItemId], so the pair is swapped.
+     */
+    fun blockingEdge(): Pair<UUID, UUID>? = type.orientBlocking(fromItemId, toItemId)
+
+    /** The item that blocks the other side, or null for RELATES_TO. See [blockingEdge]. */
+    fun blockerId(): UUID? = blockingEdge()?.first
+
+    /** The item blocked by the other side, or null for RELATES_TO. See [blockingEdge]. */
+    fun blockedId(): UUID? = blockingEdge()?.second
 }

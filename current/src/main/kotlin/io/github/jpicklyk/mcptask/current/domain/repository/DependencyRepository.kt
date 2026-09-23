@@ -35,9 +35,15 @@ interface DependencyRepository {
 
     suspend fun createBatch(dependencies: List<Dependency>): List<Dependency>
 
+    /**
+     * Checks whether a proposed blocking edge ([blockerId] would block [blockedId]) would create a
+     * cycle in the blocker->blocked dependency graph. For a [Dependency], pass its
+     * [Dependency.blockingEdge], not its raw fromItemId/toItemId (swapped for IS_BLOCKED_BY).
+     * RELATES_TO has no blocking edge, so callers skip the check for it.
+     */
     suspend fun hasCyclicDependency(
-        fromItemId: UUID,
-        toItemId: UUID
+        blockerId: UUID,
+        blockedId: UUID
     ): Boolean
 
     /**

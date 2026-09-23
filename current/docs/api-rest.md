@@ -436,11 +436,17 @@ the field's purpose is external verifiability, so it is deliberately not redacte
   "id": "<uuid>",
   "fromItemId": "<uuid>",
   "toItemId": "<uuid>",
-  "type": "blocks|relates_to",
+  "type": "blocks|is_blocked_by|relates_to",
   "unblockAt": "queue|work|review|terminal|null",
   "createdAt": "ISO-8601"
 }
 ```
+
+`type` includes `is_blocked_by` on reads (a row created via MCP `manage_dependencies` can be stored
+with that type; REST create only accepts `blocks`/`relates_to` — see POST /dependencies below).
+`unblockAt` is the effective unblock-role threshold: `null` only for `relates_to` (no blocking
+semantics); for `blocks` and `is_blocked_by` it is the stored value, defaulting to `"terminal"` when
+unset — never a raw possibly-null passthrough.
 
 ### BacklinkDto
 
@@ -1162,7 +1168,7 @@ Validation:
 - `unblockAt` must be absent or null for `relates_to` edges — `400 validation_error`
 - Both items must exist — `400 not_found`
 - Both items must be in scope — `403 scope_forbidden`
-- Cycle detection — `400 cycle_detected`
+- Cycle detection — `400 cycle_detected`. Runs only for `blocks` (the item that would block, `fromItemId`); `relates_to` has no blocking semantics and skips the check entirely. `is_blocked_by` is not an accepted create type over REST (see `type` above), so its reverse-direction cycle check is not exercised here — only via MCP `manage_dependencies`.
 
 **Responses:**
 - `201 Created` → `DependencyEdgeDto`

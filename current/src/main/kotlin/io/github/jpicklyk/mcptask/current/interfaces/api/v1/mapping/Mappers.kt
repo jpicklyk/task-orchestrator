@@ -147,7 +147,7 @@ fun Dependency.toDto(): DependencyEdgeDto =
         fromItemId = fromItemId.toString(),
         toItemId = toItemId.toString(),
         type = type.name.lowercase(),
-        unblockAt = unblockAt ?: if (type == DependencyType.BLOCKS) "terminal" else null,
+        unblockAt = effectiveUnblockRole(),
         createdAt = createdAt.toString(),
     )
 

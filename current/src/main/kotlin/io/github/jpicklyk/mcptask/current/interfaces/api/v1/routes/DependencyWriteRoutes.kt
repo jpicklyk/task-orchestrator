@@ -188,7 +188,9 @@ fun Route.dependencyWriteRoutes(
                     // suspendTransaction, which JOINS this one — so the cycle check and the
                     // insert stay atomic against a concurrent writer, as before.
                     suspendTransaction(db = repositoryProvider.database()) {
-                        val hasCycle = depRepo.hasCyclicDependency(fromId, toId)
+                        // RELATES_TO has no blocking edge, so it skips the cycle pre-check.
+                        val edge = dep.blockingEdge()
+                        val hasCycle = edge != null && depRepo.hasCyclicDependency(edge.first, edge.second)
                         if (hasCycle) null else depRepo.create(dep)
                     }
                 }
