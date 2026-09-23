@@ -86,6 +86,16 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "matcher": "mcp__mcp-task-orchestrator__advance_item",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/phase-guard-record.mjs",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "SubagentStart": [
@@ -96,6 +106,18 @@
             "type": "command",
             "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/subagent-start.mjs",
             "timeout": 3
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/phase-guard.mjs",
+            "timeout": 5
           }
         ]
       }

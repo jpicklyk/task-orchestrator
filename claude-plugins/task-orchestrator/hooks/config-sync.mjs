@@ -20,8 +20,7 @@ import { resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { createHash } from 'crypto';
 import { readSection, scalar } from './yaml-lite.mjs';
-
-const REQUEST_TIMEOUT_MS = 2000;
+import { apiBaseUrl, authHeader as buildAuthHeader, fetchWithTimeout } from './api-client.mjs';
 
 /** Locate .taskorchestrator/config.yaml (AGENT_CONFIG_DIR, then walk up from cwd) and return its RAW bytes. */
 function findConfigBytes() {
@@ -80,12 +79,6 @@ function emit(line) {
   );
 }
 
-function fetchWithTimeout(url, opts) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-  return fetch(url, { ...opts, signal: controller.signal }).finally(() => clearTimeout(timer));
-}
-
 /**
  * Decides what to do with the GET response's `relation` field (fast-forward guard — see
  * ProjectConfigRoutes.kt's `?fingerprint=` handling). Pure function, kept separate from `main` so
@@ -126,23 +119,21 @@ async function main() {
   const rootId = parseRootId(bytes.toString('utf-8'));
   if (!rootId) return; // not project-scoped → nothing to sync
 
-  const apiUrl = process.env.TASK_ORCHESTRATOR_API_URL;
-  if (!apiUrl) return; // stdio/local: the global config file already serves this workspace
+  const base = apiBaseUrl();
+  if (!base) return; // stdio/local: the global config file already serves this workspace
 
   // Token is optional — an unauthenticated server (API_AUTH_MODE=none +
   // API_ALLOW_UNAUTHENTICATED=true) needs no Authorization header at all.
-  const token = process.env.TASK_ORCHESTRATOR_API_TOKEN;
-
   const localFingerprint = createHash('sha256').update(bytes).digest('hex');
   const localEtag = `"cfg-${localFingerprint}"`;
-  const endpoint = `${apiUrl.replace(/\/+$/, '')}/api/v1/roots/${rootId}/config`;
-  const authHeader = token ? { Authorization: `Bearer ${token}` } : {};
+  const endpoint = `${base}/api/v1/roots/${rootId}/config`;
+  const auth = buildAuthHeader();
 
   // 1) Read the server's current fingerprint — and, via ?fingerprint=, how our local fingerprint
   //    relates to its history (fast-forward guard) — to decide whether a push is needed.
   let currentEtag = null;
   try {
-    const res = await fetchWithTimeout(`${endpoint}?fingerprint=${localFingerprint}`, { headers: authHeader });
+    const res = await fetchWithTimeout(`${endpoint}?fingerprint=${localFingerprint}`, { headers: auth });
     if (res.status === 200) {
       currentEtag = res.headers.get('etag');
 
@@ -192,7 +183,7 @@ async function main() {
 
   // 2) Push the exact bytes; If-Match guards against a concurrent update when a row exists.
   try {
-    const headers = { ...authHeader, 'Content-Type': 'application/yaml' };
+    const headers = { ...auth, 'Content-Type': 'application/yaml' };
     if (currentEtag) headers['If-Match'] = currentEtag;
     const res = await fetchWithTimeout(endpoint, { method: 'PUT', headers, body: bytes });
     if (res.status === 200) {
