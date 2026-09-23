@@ -5,7 +5,6 @@ import io.github.jpicklyk.mcptask.current.application.service.WorkTreeExecutor
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeInput
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeResult
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
-import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.PlanDocumentAdoptOutcome
@@ -129,17 +128,10 @@ class SQLiteWorkTreeService(
      * RELATES_TO edges are excluded from cycle detection (they are bidirectional by nature).
      */
     private fun detectInMemoryCycle(deps: List<TreeDepSpec>): String? {
-        // Build adjacency map oriented blocker -> blocked (for BLOCKS and IS_BLOCKED_BY only).
-        // BLOCKS: fromRef blocks toRef. IS_BLOCKED_BY: fromRef is blocked BY toRef, so toRef is
-        // the blocker — the edge must be added toRef -> fromRef, not fromRef -> toRef.
+        // Build adjacency map oriented blocker -> blocked; RELATES_TO has no blocking edge.
         val adj = mutableMapOf<String, MutableList<String>>()
         for (dep in deps) {
-            val (blockerRef, blockedRef) =
-                when (dep.type) {
-                    DependencyType.BLOCKS -> dep.fromRef to dep.toRef
-                    DependencyType.IS_BLOCKED_BY -> dep.toRef to dep.fromRef
-                    DependencyType.RELATES_TO -> continue
-                }
+            val (blockerRef, blockedRef) = dep.type.orientBlocking(dep.fromRef, dep.toRef) ?: continue
             adj.getOrPut(blockerRef) { mutableListOf() }.add(blockedRef)
         }
 

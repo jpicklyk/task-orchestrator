@@ -188,17 +188,9 @@ fun Route.dependencyWriteRoutes(
                     // suspendTransaction, which JOINS this one — so the cycle check and the
                     // insert stay atomic against a concurrent writer, as before.
                     suspendTransaction(db = repositoryProvider.database()) {
-                        // Only meaningful for blocking types — RELATES_TO has no blocker/blocked,
-                        // so blockerId()/blockedId() are null and the cycle pre-check is skipped
-                        // (REST only accepts "blocks" and "relates_to", so blockerId() is always
-                        // fromId when non-null, but go through the accessor for consistency with
-                        // the repository's (blocker, blocked) contract).
-                        val blockerId = dep.blockerId()
-                        val blockedId = dep.blockedId()
-                        val hasCycle =
-                            blockerId != null &&
-                                blockedId != null &&
-                                depRepo.hasCyclicDependency(blockerId, blockedId)
+                        // RELATES_TO has no blocking edge, so it skips the cycle pre-check.
+                        val edge = dep.blockingEdge()
+                        val hasCycle = edge != null && depRepo.hasCyclicDependency(edge.first, edge.second)
                         if (hasCycle) null else depRepo.create(dep)
                     }
                 }

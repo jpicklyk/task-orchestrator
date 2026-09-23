@@ -46,30 +46,15 @@ data class Dependency(
     }
 
     /**
-     * Returns the UUID of the item that BLOCKS the other side of this dependency, or null for
-     * RELATES_TO (no blocking semantics).
-     *
-     * - BLOCKS: `fromItemId` blocks `toItemId` -> blocker is [fromItemId].
-     * - IS_BLOCKED_BY: `fromItemId` is blocked by `toItemId` -> blocker is [toItemId].
+     * This dependency oriented as (blocker, blocked), or null for RELATES_TO (no blocking
+     * semantics). BLOCKS: [fromItemId] blocks [toItemId]. IS_BLOCKED_BY: [fromItemId] is blocked
+     * by [toItemId], so the pair is swapped.
      */
-    fun blockerId(): UUID? =
-        when (type) {
-            DependencyType.BLOCKS -> fromItemId
-            DependencyType.IS_BLOCKED_BY -> toItemId
-            DependencyType.RELATES_TO -> null
-        }
+    fun blockingEdge(): Pair<UUID, UUID>? = type.orientBlocking(fromItemId, toItemId)
 
-    /**
-     * Returns the UUID of the item that is BLOCKED by the other side of this dependency, or null
-     * for RELATES_TO (no blocking semantics).
-     *
-     * - BLOCKS: `fromItemId` blocks `toItemId` -> blocked is [toItemId].
-     * - IS_BLOCKED_BY: `fromItemId` is blocked by `toItemId` -> blocked is [fromItemId].
-     */
-    fun blockedId(): UUID? =
-        when (type) {
-            DependencyType.BLOCKS -> toItemId
-            DependencyType.IS_BLOCKED_BY -> fromItemId
-            DependencyType.RELATES_TO -> null
-        }
+    /** The item that blocks the other side, or null for RELATES_TO. See [blockingEdge]. */
+    fun blockerId(): UUID? = blockingEdge()?.first
+
+    /** The item blocked by the other side, or null for RELATES_TO. See [blockingEdge]. */
+    fun blockedId(): UUID? = blockingEdge()?.second
 }

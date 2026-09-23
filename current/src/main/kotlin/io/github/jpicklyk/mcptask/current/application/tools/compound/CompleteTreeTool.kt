@@ -352,8 +352,7 @@ Call when closing out a finished hierarchy — one atomic call instead of per-it
             // matches its stored toItemId. RELATES_TO has no blocker/blocked and is skipped.
             val incomingDeps = context.dependencyRepository().findByToItemId(item.id)
             for (dep in incomingDeps) {
-                val blockerId = dep.blockerId() ?: continue
-                val blockedId = dep.blockedId() ?: continue
+                val (blockerId, blockedId) = dep.blockingEdge() ?: continue
                 if (blockerId in targetIds && blockedId in targetIds) {
                     // blockerId blocks blockedId within the target set
                     inDegree[blockedId] = (inDegree[blockedId] ?: 0) + 1
