@@ -6,11 +6,10 @@ import java.util.UUID
  * Parses the `scope` / `to_scope` claim shared by the bearer-token secret file and JWKS JWTs
  * into an [ApiScope], failing closed on any malformed shape instead of silently widening access.
  *
- * The raw input is untyped ([Any]?) because the two callers reduce to the same Map/List/scalar
- * shapes: the bearer YAML loader passes a `Map<*, *>?` (from `tokenMap["scope"] as? Map<*, *>`,
- * already-null when the YAML value isn't a mapping — see [MALFORMED_ROOT] below for why that
- * itself must be treated as an error rather than silently accepted), and the JWKS verifier passes
- * the JSON object returned by `claims.getJSONObjectClaim("to_scope")`.
+ * The raw input is untyped ([Any]?) because both callers reduce to the same Map/List/scalar
+ * shapes: the bearer YAML loader passes the raw, UNCAST `tokenMap["scope"]` value, and the JWKS
+ * verifier passes the JSON object from `claims.getJSONObjectClaim("to_scope")`. Callers must not
+ * pre-cast with `as? Map`: that turned a scalar `scope:` into null, i.e. unrestricted.
  *
  * Rules (frozen by the planning seat's diagnosis note, decisions D2-D5, D10):
  * - `null` (absent) scope means fully unrestricted: `ApiScope(rootIds = null, tagsInclude = emptySet())`.

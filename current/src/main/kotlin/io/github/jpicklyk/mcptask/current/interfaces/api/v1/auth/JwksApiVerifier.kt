@@ -234,7 +234,7 @@ class JwksApiVerifier(
             } catch (e: Exception) {
                 logger.warn("Rejecting JWT: to_scope claim is not a JSON object: {}", e.message)
                 return null
-            } ?: return ApiScope(rootIds = null, tagsInclude = emptySet())
+            }
 
         return try {
             ScopeClaimParser.parse(toScope)
