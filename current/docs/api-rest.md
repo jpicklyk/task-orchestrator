@@ -1470,52 +1470,69 @@ Validates and stores raw `configYaml` for `{rootId}`. Requires `WRITE_CONFIG`.
 
 **Request body:** raw YAML text (`Content-Type: application/yaml` or `text/plain`); max 128 KiB.
 
-**Query parameter:** `force` (boolean, default `false`) — set `?force=true` to bypass push guards;
+**Query parameter:** `force` (boolean, default `false`) - set `?force=true` to bypass push guards;
 skips both the embedded `project.rootId` mismatch check (guard 5 below) and the fast-forward
-fingerprint guard (guard 6 below).
+fingerprint guard (guard 6 below). It does NOT skip guard 7 (`If-Match`) - an explicit
+compare-and-set precondition the caller supplied for this request is still enforced even under
+`?force=true`.
 
-**Validation pipeline (in order, stops at first failure — nothing is written on failure):**
-1. Body size ≤ 128 KiB
+**Validation pipeline (in order, stops at first failure - nothing is written on failure):**
+1. Body size <= 128 KiB
 2. `{rootId}` resolves to an existing WorkItem
 3. That WorkItem is depth-0 (configs anchor to project roots only)
 4. `configYaml` parses under a `SafeConstructor` YAML load (rejects `!!`-tagged arbitrary Java
-   type construction — CWE-502 — as well as ordinary syntax errors)
+   type construction - CWE-502 - as well as ordinary syntax errors)
 5. Unless `?force=true`: if the parsed document embeds a top-level `project.rootId` that parses as
    a UUID and differs from `{rootId}`, the push is rejected (an absent or non-UUID `project.rootId`
-   is not an error — the push proceeds as if it were absent)
+   is not an error - the push proceeds as if it were absent)
 6. Unless `?force=true`: the incoming `configYaml`'s fingerprint is classified against `{rootId}`'s
-   stored fingerprint history — a fast-forward (known-old) guard. A fingerprint that is
-   **superseded** (present in history but not current) is rejected, since writing it would silently
-   revert a later push made from elsewhere. **current** (idempotent re-push) and **unknown**
-   (divergent edit, or no row/history yet) both proceed normally.
-7. Optional `If-Match` (see below), evaluated against the CURRENT stored fingerprint
+   fingerprint history, and
+7. optional `If-Match` (see below) is compared against `{rootId}`'s fingerprint -
 
-On success, the parsed document's top-level keys are checked against the honored allowlist —
+   guards 6 and 7 are evaluated **atomically with the write itself**, inside the SAME transaction
+   `ProjectConfigRepository.upsertGuarded` uses to persist the row: both guards read the row once,
+   decide, and the write applies to that SAME row version, closing the read-then-write race a
+   separate guard-read followed by a separate write would leave open (a concurrent writer between
+   the read and the write can no longer cause a silently lost update or a silently reverted push -
+   the loser is retried internally, bounded, re-evaluating both guards against the winner's row).
+   Guard 6 rejects a fingerprint that is **superseded** (present in history but not current), since
+   writing it would silently revert a later push made from elsewhere; **current** (idempotent
+   re-push) and **unknown** (divergent edit, or no row/history yet) both proceed normally. Guard 7
+   rejects a supplied `If-Match` that does not match the row's fingerprint AT THE POINT the write
+   would occur; `If-Match` is ignored when no row exists yet (a first push is a create with nothing
+   to compare against).
+
+On success, the parsed document's top-level keys are checked against the honored allowlist -
 `work_item_schemas`, `note_schemas`, `traits`, `project`, `note_limits`, `status_labels`,
-`resources` — and any other key present (e.g. `actor_authentication`, which stays global-only — see
+`resources` - and any other key present (e.g. `actor_authentication`, which stays global-only - see
 [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md))
 is reported in the response's `ignoredSections` array so a push is never silently partial.
-`resources` is honored with an inverted precedence versus the other six keys — global wins on a
-registry key collision, not per-root — see "Per-root honorable settings" in `config-format.md`.
+`resources` is honored with an inverted precedence versus the other six keys - global wins on a
+registry key collision, not per-root - see "Per-root honorable settings" in `config-format.md`.
 
 **Responses:**
-- `200 OK` → `ProjectConfigResponseDto` (no `configYaml` field on this verb; `ignoredSections`
+- `200 OK` -> `ProjectConfigResponseDto` (no `configYaml` field on this verb; `ignoredSections`
   and `schemaWarnings` present only when non-empty). `schemaWarnings` carries per-entry parse
-  warnings from `YamlSchemaParser` (e.g. an invalid note `role` value) — the push still succeeds
+  warnings from `YamlSchemaParser` (e.g. an invalid note `role` value) - the push still succeeds
   and the config is still stored even when warnings are present; only a hard parse/shape failure
   (guards 1-6 above) short-circuits the push. `ETag: "cfg-<fingerprint>"`
-- `404 not_found` — `{rootId}` does not resolve to an existing WorkItem
-- `422 validation_error` — `{rootId}` is not depth-0
-- `422 parse_error` — `configYaml` failed SafeConstructor parse-validation
-- `422 rootid_mismatch` — `configYaml` embeds a `project.rootId` differing from `{rootId}` (message
+- `404 not_found` - `{rootId}` does not resolve to an existing WorkItem
+- `422 validation_error` - `{rootId}` is not depth-0
+- `422 parse_error` - `configYaml` failed SafeConstructor parse-validation
+- `422 rootid_mismatch` - `configYaml` embeds a `project.rootId` differing from `{rootId}` (message
   names both ids); retry with `?force=true` to bypass
-- `409 superseded` — `configYaml`'s fingerprint is known-old (guard 6 above); message names the
+- `409 superseded` - `configYaml`'s fingerprint is known-old (guard 6 above); message names the
   server's current `updatedAt`; retry with `?force=true` to overwrite anyway. Distinct from
-  `412 etag_mismatch` below — this is a known-old-**content** guard, not a concurrent-write guard.
-- `412 etag_mismatch` — `If-Match` supplied and mismatched against an EXISTING row's ETag (a
-  first push to a root with no prior row ignores `If-Match` — there is nothing to match yet)
-- `413 payload_too_large` — body exceeds 128 KiB; enforced before the body is fully buffered (see §5)
-- `403 scope_forbidden` — capability present but `{rootId}` outside token scope
+  `412 etag_mismatch` below - this is a known-old-**content** guard, not a concurrent-write guard.
+- `412 etag_mismatch` - `If-Match` supplied and mismatched against an EXISTING row's fingerprint AT
+  THE POINT the write would occur (guard 7 above; a first push to a root with no prior row ignores
+  `If-Match` - there is nothing to match yet); response carries a refreshed `ETag` header for the
+  row's actual current fingerprint
+- `413 payload_too_large` - body exceeds 128 KiB; enforced before the body is fully buffered (see §5)
+- `403 scope_forbidden` - capability present but `{rootId}` outside token scope
+- `500 db_error` - a repository failure (including exhausting the bounded compare-and-set retry
+  budget under sustained write contention) surfaces here rather than silently skipping a guard -
+  guard evaluation is fail-closed, not fail-open
 
 ### GET /roots/{rootId}/config
 
