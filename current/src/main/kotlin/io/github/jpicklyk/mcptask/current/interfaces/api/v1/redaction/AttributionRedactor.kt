@@ -63,10 +63,7 @@ class AttributionRedactor(
         // (admin or not, include=proof or not), so this always runs through the same helper the
         // transition mapper uses rather than short-circuiting on admin status.
         val redactedActor = redactActorProofIfNeeded(note.actor, call, redactActorProof)
-        // verification.proof (hash + verified claims) is admin-only, independent of
-        // API_REDACT_NOTE_ATTRIBUTION and NOT gated behind ?include=proof — see VerificationDto.
-        val redactedVerification = if (isAdmin) note.verification else note.verification?.copy(proof = null)
-        return note.copy(actor = redactedActor, verification = redactedVerification)
+        return note.copy(actor = redactedActor, verification = stripProofUnlessAdmin(note.verification, isAdmin))
     }
 
     /**
@@ -153,33 +150,28 @@ fun redactVerification(
     val principal = call.attributes.getOrNull(ApiPrincipalKey)
     val isAdmin = principal?.capabilities?.contains(ApiCapability.ADMIN) ?: false
     if (redactAttribution && !isAdmin) return null
-    return if (isAdmin) verification else verification?.copy(proof = null)
+    return stripProofUnlessAdmin(verification, isAdmin)
 }
 
 /**
- * The exact deprecation notice text for a request that passed `?include=proof`. A single
- * canonical string keeps every call site (and the tests asserting it) in sync.
+ * `verification.proof` (hash + verified claims) is admin-only — independent of
+ * `API_REDACT_NOTE_ATTRIBUTION` and NOT gated behind `?include=proof`. Single home for that rule,
+ * shared by the note and transition paths.
  */
+private fun stripProofUnlessAdmin(
+    verification: VerificationDto?,
+    isAdmin: Boolean,
+): VerificationDto? = if (isAdmin) verification else verification?.copy(proof = null)
+
+/** Canonical `Warning` header text for a request that passed the deprecated `?include=proof`. */
 private const val DEPRECATED_INCLUDE_PROOF_WARNING =
     "299 - \"include=proof is deprecated and ignored; actor proofs are no longer stored\""
 
 /**
- * Adds exactly one `Warning: 299 - "..."` response header when the request's `include` query
- * parameter names `proof` — whether as a lone value, one of several comma-separated values
- * within a single `include=` occurrence, or within any repeated `include=` occurrence
- * (`call.request.queryParameters` only exposes the first value per name via `get`, so this reads
- * every occurrence via `getAll`).
- *
- * `?include=proof` is accepted as a no-op for backward compatibility: actor proofs (raw JWTs)
- * are no longer persisted since migration V17, so there is nothing left to include — this header
- * is the caller-visible signal that the parameter no longer does anything. `ActorClaimDto.proof`
- * stays in the response shape but is always null; see [redactActorProofIfNeeded].
- *
- * RFC 9745's `Deprecation` header was considered and rejected — it dates deprecation of a
- * *resource*, not a request *parameter*, which does not fit this case. `Warning: 299` (RFC 7234
- * §5.5, still the closest fit for "this exact request did something now-ignored") is used
- * instead. Idempotent per response: multiple `include=proof` occurrences still produce exactly
- * one header.
+ * Adds exactly one `Warning: 299` (RFC 7234 §5.5) response header when any `include` query value
+ * — across comma-separated and repeated occurrences — names `proof`. The parameter is accepted as
+ * a no-op: raw proofs are no longer persisted since migration V17, and `ActorClaimDto.proof` is
+ * always null (see [redactActorProofIfNeeded]). Idempotent per response.
  */
 fun ApplicationCall.flagDeprecatedIncludeProof() {
     val includesProof =

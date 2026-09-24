@@ -5,11 +5,11 @@ import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
+import io.github.jpicklyk.mcptask.current.infrastructure.security.sha256Hex
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import org.slf4j.LoggerFactory
-import java.security.MessageDigest
 
 /**
  * Outcome of applying the [DegradedModePolicy] to a (claim, verification) pair.
@@ -102,8 +102,7 @@ interface ActorAware {
         // token ever presented", regardless of whether it validated).
         val hashedVerification =
             claim.proof?.takeIf { it.isNotBlank() }?.let { proof ->
-                val digest = MessageDigest.getInstance("SHA-256").digest(proof.toByteArray(Charsets.UTF_8))
-                verification.copy(proofSha256 = digest.joinToString("") { "%02x".format(it) })
+                verification.copy(proofSha256 = sha256Hex(proof.toByteArray(Charsets.UTF_8)))
             } ?: verification
         return ActorParseResult.Success(claim, hashedVerification)
     }
