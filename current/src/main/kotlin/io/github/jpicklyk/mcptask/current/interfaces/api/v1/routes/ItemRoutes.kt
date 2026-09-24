@@ -524,15 +524,23 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
             }
 
             val pp = call.pageParamsOrRespond() ?: return@get
-            // Fetch all children without pagination first when tag filtering is needed,
-            // so that the page slice is taken from the already-filtered set.
             val principalForChildren = call.attributes.getOrNull(ApiPrincipalKey)
+
+            // tags_include has no SQL representation, so a tag-scoped caller reads a wider
+            // candidate window (TAG_SCOPE_SCAN_LIMIT, same bound GET /items uses), filters it in
+            // memory, and is paginated from the SURVIVING set — filter before paging, matching the
+            // file KDoc above. countByFilters would count children the token cannot see, so it is
+            // not used on this branch; totalItems is the filtered count instead. Callers without a
+            // tag scope keep the original SQL LIMIT/OFFSET + countByFilters path unchanged.
+            val tagScoped = principalForChildren.hasTagScope()
+            val fetchLimit = if (tagScoped) TAG_SCOPE_SCAN_LIMIT else pp.pageSize
+            val fetchOffset = if (tagScoped) 0 else pp.offset
 
             val childrenResult =
                 workItemRepo.findByFilters(
                     parentId = id,
-                    limit = pp.pageSize,
-                    offset = pp.offset,
+                    limit = fetchLimit,
+                    offset = fetchOffset,
                 )
             when (childrenResult) {
                 is Result.Error -> {
@@ -540,15 +548,24 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
                     call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Database query failed"))
                 }
                 is Result.Success -> {
-                    // Post-filter by tagsInclude when the principal's scope carries a tag allowlist.
-                    // The entry-point check (enforceScopeForItem above) verified the parent item matches
-                    // the tag constraint. Children are not checked, so without this filter a tag-scoped
-                    // token would see ALL children regardless of their tags.
-                    val children = childrenResult.data.items.filterByTagScope(principalForChildren)
+                    if (tagScoped) {
+                        // Post-filter by tagsInclude when the principal's scope carries a tag
+                        // allowlist. The entry-point check (enforceScopeForItem above) verified the
+                        // parent item matches the tag constraint; children are not checked there.
+                        // Filter first, paginate second, so totalItems/hasMore never count a child
+                        // this token may not read.
+                        val filtered = childrenResult.data.items.filterByTagScope(principalForChildren)
+                        val page = filtered.drop(pp.offset).take(pp.pageSize)
+                        call.respond(
+                            HttpStatusCode.OK,
+                            buildPageDto(page.map { it.toDto() }, pp, filtered.size.toLong()),
+                        )
+                        return@get
+                    }
 
                     val totalResult = workItemRepo.countByFilters(parentId = id)
                     val total = if (totalResult is Result.Success) totalResult.data.toLong() else null
-                    val dtos = children.map { it.toDto() }
+                    val dtos = childrenResult.data.items.map { it.toDto() }
                     call.respond(HttpStatusCode.OK, buildPageDto(dtos, pp, total))
                 }
             }

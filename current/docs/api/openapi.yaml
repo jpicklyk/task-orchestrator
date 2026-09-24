@@ -1154,6 +1154,14 @@ paths:
       summary: Create a work item
       operationId: createItem
       tags: [items]
+      description: >-
+        When parentId is absent or null (a root-level create), the new item's ancestor chain is
+        only its own server-generated id, so a root_ids-scoped token is always denied (403
+        scope_forbidden) — a new id can never already be listed in root_ids. A tags_include-only
+        token may create a root only if the tags it creates that root with satisfy its own
+        tags_include allowlist (the new root is its own anchor, mirroring the parentId-outside-scope
+        check applied to a non-root create); otherwise 403 scope_forbidden, and nothing is
+        persisted.
       parameters:
         - name: Idempotency-Key
           in: header
@@ -1293,6 +1301,12 @@ paths:
         403 scope_forbidden (parent outside scope) -> this 400 validation_error (self/descendant
         cycle); nothing is written until all three clear. If the ancestor-chain lookup itself fails,
         the patch returns 500 db_error rather than admitting the re-parent.
+
+        When the patch instead moves the item TO root (parentId changed from non-null to null), a
+        root_ids-scoped token gets 403 scope_forbidden unless the item's own id is itself in
+        root_ids — after the move the item's chain is just itself, the same check DELETE
+        /items/{id} already applies. No additional tag check runs here: a reparent alone does not
+        change the item's tags, and the entry-point scope check already covered them.
       parameters:
         - $ref: "#/components/parameters/itemId"
         - name: If-Match
@@ -1562,6 +1576,11 @@ paths:
       summary: Direct children of an item
       operationId: getItemChildren
       tags: [items]
+      description: >-
+        For a tags_include-scoped caller, children are filtered by tag before pagination, over a
+        bounded 1000-row candidate window (same caveat as GET /items) — totalItems is the filtered
+        count, not a raw DB COUNT. Unscoped and root_ids-only callers keep SQL-level
+        LIMIT/OFFSET and an exact COUNT, unaffected.
       parameters:
         - $ref: "#/components/parameters/itemId"
         - $ref: "#/components/parameters/page"
