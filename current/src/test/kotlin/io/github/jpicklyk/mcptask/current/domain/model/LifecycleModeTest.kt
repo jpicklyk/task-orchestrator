@@ -18,13 +18,13 @@ class LifecycleModeTest {
     }
 
     @Test
-    fun `fromString returns AUTO_REOPEN for 'auto-reopen'`() {
-        assertEquals(LifecycleMode.AUTO_REOPEN, LifecycleMode.fromString("auto-reopen"))
+    fun `fromString returns null for 'auto-reopen' (AUTO_REOPEN removed)`() {
+        assertNull(LifecycleMode.fromString("auto-reopen"))
     }
 
     @Test
-    fun `fromString returns AUTO_REOPEN for 'AUTO_REOPEN'`() {
-        assertEquals(LifecycleMode.AUTO_REOPEN, LifecycleMode.fromString("AUTO_REOPEN"))
+    fun `fromString returns null for 'AUTO_REOPEN' (AUTO_REOPEN removed)`() {
+        assertNull(LifecycleMode.fromString("AUTO_REOPEN"))
     }
 
     @Test
@@ -50,13 +50,13 @@ class LifecycleModeTest {
     // --- hyphen-to-underscore normalization ---
 
     @Test
-    fun `fromString handles hyphen in auto-reopen`() {
-        assertEquals(LifecycleMode.AUTO_REOPEN, LifecycleMode.fromString("auto-reopen"))
+    fun `fromString returns null for hyphenated auto-reopen (AUTO_REOPEN removed)`() {
+        assertNull(LifecycleMode.fromString("auto-reopen"))
     }
 
     @Test
-    fun `fromString handles mixed case with hyphen`() {
-        assertEquals(LifecycleMode.AUTO_REOPEN, LifecycleMode.fromString("Auto-Reopen"))
+    fun `fromString returns null for mixed-case hyphenated Auto-Reopen (AUTO_REOPEN removed)`() {
+        assertNull(LifecycleMode.fromString("Auto-Reopen"))
     }
 
     // --- leading/trailing whitespace ---
