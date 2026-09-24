@@ -258,9 +258,15 @@ class AdvanceServiceApplyFailureLeaseTest {
             val cascade = success.result.cascadeEvents.single()
             assertFalse(cascade.applied)
             assertTrue(cascade.error?.isNotBlank() == true)
-            // No resources were declared anywhere in this scenario: the terminal-cascade failure path
-            // must not touch the lease store at all.
-            verify { leaseRepo wasNot Called }
+            // A terminal cascade acquires no leases for the PARENT, so its cascade-apply failure must
+            // never touch the parent's leases (arbitration case 2: the original blanket `wasNot Called`
+            // was too broad — it also forbade the CHILD's own pre-existing work-exit release below).
+            coVerify(exactly = 0) { leaseRepo.acquireAll(parentId, any(), any()) }
+            coVerify(exactly = 0) { leaseRepo.releaseAllForItem(parentId) }
+            // The child itself is in Role.WORK and "complete" moves it WORK->TERMINAL: per the
+            // resource-lease gate's work-exit rule ("leases release on every work exit"), the child's
+            // own leases are released exactly once — this predates the fix and is unrelated to it.
+            coVerify(exactly = 1) { leaseRepo.releaseAllForItem(childId) }
         }
 
     // ──────────────────────────────────────────────
