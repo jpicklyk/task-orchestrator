@@ -169,17 +169,23 @@ class CreateWorkTreeParentPlacementInTxnTest {
             val data = result["data"] as JsonObject
             val rootJson = data["root"] as JsonObject
             assertEquals(2, rootJson["depth"]!!.jsonPrimitive.int, "O1: new root must be at P's LIVE depth (1) + 1")
-            assertEquals(tree.q.id.toString(), rootJson["rootId"]?.jsonPrimitive?.content, "O1: new root must inherit P's LIVE rootId (Q)")
 
             val childJson = (data["children"] as JsonArray)[0].jsonObject
             assertEquals(3, childJson["depth"]!!.jsonPrimitive.int, "child derives from the (correctly live) new root's own depth")
-            assertEquals(tree.q.id.toString(), childJson["rootId"]?.jsonPrimitive?.content)
 
+            // O1 is a property of the PERSISTED row (test-plan: "P as PERSISTED at assert time");
+            // the create_work_tree response item does not carry a rootId field (arbitration,
+            // 3da296d8), so rootId is read back through the UNDERLYING repository instead.
             val rootId = UUID.fromString(rootJson["id"]!!.jsonPrimitive.content)
             val persistedRoot = repositoryProvider.workItemRepository().getById(rootId)
             assertTrue(persistedRoot is Result.Success)
             assertEquals(2, (persistedRoot as Result.Success).data.depth)
-            assertEquals(tree.q.id, persistedRoot.data.rootId)
+            assertEquals(tree.q.id, persistedRoot.data.rootId, "O1: new root must inherit P's LIVE rootId (Q)")
+
+            val childId = UUID.fromString(childJson["id"]!!.jsonPrimitive.content)
+            val persistedChild = repositoryProvider.workItemRepository().getById(childId)
+            assertTrue(persistedChild is Result.Success)
+            assertEquals(tree.q.id, (persistedChild as Result.Success).data.rootId)
         }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -219,16 +225,19 @@ class CreateWorkTreeParentPlacementInTxnTest {
             val data = result["data"] as JsonObject
             val childJson = (data["children"] as JsonArray)[0].jsonObject
             assertEquals(2, childJson["depth"]!!.jsonPrimitive.int, "O1: child must be at A's LIVE depth (1) + 1")
-            assertEquals(
-                q.id.toString(),
-                childJson["rootId"]?.jsonPrimitive?.content,
-                "O1: child must inherit A's LIVE rootId (Q), not the pre-transaction rootId (R) — depth alone (1+1=2) is coincidentally the same either way, so rootId is the discriminating assertion here"
-            )
 
+            // rootId is not carried on the response item (arbitration, 3da296d8) — read the
+            // persisted row through the underlying repository instead. depth alone (1+1=2) is
+            // coincidentally the same pre- and post-mutation here, so rootId is the discriminating
+            // assertion for this scenario.
             val childId = UUID.fromString(childJson["id"]!!.jsonPrimitive.content)
             val persistedChild = repositoryProvider.workItemRepository().getById(childId)
             assertTrue(persistedChild is Result.Success)
-            assertEquals(q.id, (persistedChild as Result.Success).data.rootId)
+            assertEquals(
+                q.id,
+                (persistedChild as Result.Success).data.rootId,
+                "O1: child must inherit A's LIVE rootId (Q), not the pre-transaction rootId (R)"
+            )
         }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -284,7 +293,12 @@ class CreateWorkTreeParentPlacementInTxnTest {
             for (r in listOf(first, second)) {
                 val rootJson = (r["data"] as JsonObject)["root"] as JsonObject
                 assertEquals(2, rootJson["depth"]!!.jsonPrimitive.int, "actual: $r")
-                assertEquals(root.id.toString(), rootJson["rootId"]?.jsonPrimitive?.content, "actual: $r")
+                // rootId is not carried on the response item (arbitration, 3da296d8) — read the
+                // persisted row through the underlying repository instead.
+                val newRootId = UUID.fromString(rootJson["id"]!!.jsonPrimitive.content)
+                val persisted = repositoryProvider.workItemRepository().getById(newRootId)
+                assertTrue(persisted is Result.Success)
+                assertEquals(root.id, (persisted as Result.Success).data.rootId, "actual: $r")
             }
         }
 

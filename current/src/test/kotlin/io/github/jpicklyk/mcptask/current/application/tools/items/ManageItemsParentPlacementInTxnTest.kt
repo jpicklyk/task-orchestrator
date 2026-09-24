@@ -281,9 +281,15 @@ class ManageItemsParentPlacementInTxnTest {
             assertEquals(1, data["created"]!!.jsonPrimitive.int, "actual: $result")
             val child = data["items"]!!.jsonArray[0] as JsonObject
             assertEquals(2, child["depth"]!!.jsonPrimitive.int, "O1: must be P's LIVE depth (1) + 1, not the pre-transaction depth (2) + 1")
+
+            // O1 is a property of the PERSISTED row (test-plan: "P as PERSISTED at assert time");
+            // the manage_items create response item does not carry a rootId field (arbitration,
+            // 3da296d8), so rootId is read back through the UNDERLYING (unwrapped) repository.
+            val childId = UUID.fromString(child["id"]!!.jsonPrimitive.content)
+            val persisted = (repositoryProvider.workItemRepository().getById(childId) as Result.Success).data
             assertEquals(
-                tree.q.id.toString(),
-                child["rootId"]?.jsonPrimitive?.content,
+                tree.q.id,
+                persisted.rootId,
                 "O1: must be P's LIVE rootId (Q), not the pre-transaction rootId (R)"
             )
         }
@@ -404,7 +410,12 @@ class ManageItemsParentPlacementInTxnTest {
             assertTrue(result["success"]!!.jsonPrimitive.boolean, "actual: $result")
             val item = (result["data"] as JsonObject)["items"]!!.jsonArray[0] as JsonObject
             assertEquals(0, item["depth"]!!.jsonPrimitive.int)
-            assertEquals(item["id"]!!.jsonPrimitive.content, item["rootId"]?.jsonPrimitive?.content)
+
+            // rootId is not carried on the response item (arbitration, 3da296d8) — read the
+            // persisted row through the underlying repository instead.
+            val itemId = UUID.fromString(item["id"]!!.jsonPrimitive.content)
+            val persisted = (repositoryProvider.workItemRepository().getById(itemId) as Result.Success).data
+            assertEquals(itemId, persisted.rootId)
             assertEquals(null, spy.resolveChildPlacementOrdinal, "a parentless create must never resolve a child placement")
         }
 
@@ -422,7 +433,12 @@ class ManageItemsParentPlacementInTxnTest {
 
             assertTrue(result["success"]!!.jsonPrimitive.boolean, "actual: $result")
             val child = (result["data"] as JsonObject)["items"]!!.jsonArray[0] as JsonObject
-            assertEquals(legacyParent.id.toString(), child["rootId"]?.jsonPrimitive?.content, "O1 fallback: rootId ?: id")
+
+            // rootId is not carried on the response item (arbitration, 3da296d8) — read the
+            // persisted row through the underlying repository instead.
+            val childId = UUID.fromString(child["id"]!!.jsonPrimitive.content)
+            val persisted = (repositoryProvider.workItemRepository().getById(childId) as Result.Success).data
+            assertEquals(legacyParent.id, persisted.rootId, "O1 fallback: rootId ?: id")
         }
 
     // ──────────────────────────────────────────────
@@ -481,7 +497,11 @@ class ManageItemsParentPlacementInTxnTest {
             for (r in listOf(first, second)) {
                 val child = (r["data"] as JsonObject)["items"]!!.jsonArray[0] as JsonObject
                 assertEquals(2, child["depth"]!!.jsonPrimitive.int, "actual: $r")
-                assertEquals(root.id.toString(), child["rootId"]?.jsonPrimitive?.content, "actual: $r")
+                // rootId is not carried on the response item (arbitration, 3da296d8) — read the
+                // persisted row through the underlying repository instead.
+                val childId = UUID.fromString(child["id"]!!.jsonPrimitive.content)
+                val persisted = (repositoryProvider.workItemRepository().getById(childId) as Result.Success).data
+                assertEquals(root.id, persisted.rootId, "actual: $r")
             }
         }
 
@@ -513,7 +533,11 @@ class ManageItemsParentPlacementInTxnTest {
             for (child in items) {
                 val obj = child as JsonObject
                 assertEquals(2, obj["depth"]!!.jsonPrimitive.int, "actual: $obj")
-                assertEquals(root.id.toString(), obj["rootId"]?.jsonPrimitive?.content, "actual: $obj")
+                // rootId is not carried on the response item (arbitration, 3da296d8) — read the
+                // persisted row through the underlying repository instead.
+                val childId = UUID.fromString(obj["id"]!!.jsonPrimitive.content)
+                val persisted = (repositoryProvider.workItemRepository().getById(childId) as Result.Success).data
+                assertEquals(root.id, persisted.rootId, "actual: $obj")
             }
         }
 

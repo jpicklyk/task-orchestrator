@@ -194,13 +194,15 @@ class ItemWriteRoutesParentPlacementInTxnTest {
             assertEquals(HttpStatusCode.Created, response.status, "actual: ${response.bodyAsText()}")
             val json = Json.parseToJsonElement(response.bodyAsText()).jsonObject
             assertEquals(2, json["depth"]?.jsonPrimitive?.int, "O1: must be P's LIVE depth (1) + 1, not the pre-transaction depth (2) + 1")
-            assertEquals(q.id.toString(), json["rootId"]?.jsonPrimitive?.content, "O1: must be P's LIVE rootId (Q)")
 
+            // O1 is a property of the PERSISTED row (test-plan: "P as PERSISTED at assert time");
+            // ItemDto does not carry a rootId field (arbitration, 3da296d8), so rootId is read back
+            // through the UNDERLYING (unwrapped) repository the test app was built with.
             val childId = UUID.fromString(json["id"]!!.jsonPrimitive.content)
             val persisted = runBlocking { repo.workItemRepository().getById(childId) }
             assertIs<Result.Success<WorkItem>>(persisted)
             assertEquals(2, persisted.data.depth)
-            assertEquals(q.id, persisted.data.rootId)
+            assertEquals(q.id, persisted.data.rootId, "O1: must be P's LIVE rootId (Q)")
         }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -236,12 +238,13 @@ class ItemWriteRoutesParentPlacementInTxnTest {
             assertEquals(HttpStatusCode.OK, response.status, "actual: ${response.bodyAsText()}")
             val json = Json.parseToJsonElement(response.bodyAsText()).jsonObject
             assertEquals(2, json["depth"]?.jsonPrimitive?.int, "O1: X must land at P's LIVE depth (1) + 1")
-            assertEquals(q.id.toString(), json["rootId"]?.jsonPrimitive?.content, "O1: X must inherit P's LIVE rootId (Q)")
 
+            // ItemDto does not carry a rootId field (arbitration, 3da296d8) — read the persisted
+            // row through the underlying repository instead.
             val persisted = runBlocking { repo.workItemRepository().getById(x.id) }
             assertIs<Result.Success<WorkItem>>(persisted)
             assertEquals(2, persisted.data.depth)
-            assertEquals(q.id, persisted.data.rootId)
+            assertEquals(q.id, persisted.data.rootId, "O1: X must inherit P's LIVE rootId (Q)")
         }
 
     // ─────────────────────────────────────────────────────────────────────────
