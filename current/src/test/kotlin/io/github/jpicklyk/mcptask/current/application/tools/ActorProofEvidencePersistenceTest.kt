@@ -37,6 +37,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.jetbrains.exposed.v1.jdbc.Database
+import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.security.MessageDigest
@@ -81,16 +82,62 @@ class ActorProofEvidencePersistenceTest {
     private lateinit var manageNotesTool: ManageNotesTool
     private lateinit var advanceItemTool: AdvanceItemTool
 
+    /** Raw handle to the same H2 database, for the B1 at-rest (raw-SQL) assertions. */
+    private lateinit var database: Database
+
     @BeforeEach
     fun setUp() {
         val dbName = "test_${System.nanoTime()}"
-        val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
+        database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
         val databaseManager = DatabaseManager(database)
         DirectDatabaseSchemaManager().updateSchema()
         repositoryProvider = DefaultRepositoryProvider(databaseManager)
         context = ToolExecutionContext(repositoryProvider)
         manageNotesTool = ManageNotesTool()
         advanceItemTool = AdvanceItemTool()
+    }
+
+    /**
+     * Reads the physical `actor_proof` / `actor_proof_sha256` columns directly via raw SQL,
+     * bypassing the repository mapper entirely (which hardcodes `proof = null` on every read,
+     * regardless of what the column actually holds). Used by the B1 at-rest assertions to pin the
+     * WRITE side of the fix independently of the READ side's own defense-in-depth.
+     *
+     * Matches by `body` rather than `key` -- `key` is a SQL-reserved word whose exact quoted
+     * physical column name/case in the Direct-mode (H2) schema is not among the supplied
+     * declarations, so this avoids depending on it. Assumes exactly one matching row (each B1 test
+     * uses a note body unique to that call).
+     */
+    private fun rawNoteProofColumns(body: String): Pair<String?, String?> {
+        var proof: String? = null
+        var sha: String? = null
+        transaction(db = database) {
+            exec("SELECT actor_proof, actor_proof_sha256 FROM notes WHERE body = '$body'") { rs ->
+                if (rs.next()) {
+                    proof = rs.getString("actor_proof")
+                    sha = rs.getString("actor_proof_sha256")
+                }
+            }
+        }
+        return proof to sha
+    }
+
+    /**
+     * Same as [rawNoteProofColumns] but for `role_transitions`. Assumes exactly one row exists in
+     * the table (true for every B1 test, each using its own freshly-created, isolated H2 database).
+     */
+    private fun rawTransitionProofColumns(): Pair<String?, String?> {
+        var proof: String? = null
+        var sha: String? = null
+        transaction(db = database) {
+            exec("SELECT actor_proof, actor_proof_sha256 FROM role_transitions") { rs ->
+                if (rs.next()) {
+                    proof = rs.getString("actor_proof")
+                    sha = rs.getString("actor_proof_sha256")
+                }
+            }
+        }
+        return proof to sha
     }
 
     private suspend fun createTestItem(title: String = "Test Item"): String {
@@ -218,6 +265,109 @@ class ActorProofEvidencePersistenceTest {
             assertNull(note.actorClaim?.proof, "raw proof must be scrubbed to null per item 983615e7 D5")
             assertEquals(expectedHash, note.verification?.proofSha256, "sha256 must equal SHA-256(\"abc\")")
             assertNull(note.verification?.proofClaims, "a noop verifier never produces VERIFIED claims")
+        }
+
+    // ===========================================================================================
+    // B1 (reviewer-flagged gap) -- pin the at-rest write directly via raw SQL. Every other
+    // assertion in this file reads through the repository mapper, which hardcodes `proof = null`
+    // on read (defense in depth) regardless of what the physical column holds -- so those
+    // assertions alone cannot distinguish "the WRITE nulls actor_proof" from "the WRITE never
+    // touches actor_proof but the READ hides it anyway". These three tests read the physical
+    // `notes` / `role_transitions` columns directly, bypassing the mapper entirely. Oracle:
+    // test-plan S1/S2 "row actor_proof NULL", diagnosis Fix step 5.
+    // ===========================================================================================
+
+    @Test
+    fun `B1a raw SQL confirms actor_proof is NULL and actor_proof_sha256 is set at rest after manage_notes upsert`(): Unit =
+        runBlocking {
+            val itemId = createTestItem()
+            val expectedHash = sha256Hex("abc")
+
+            manageNotesTool.execute(
+                buildJsonObject {
+                    put("operation", "upsert")
+                    put(
+                        "notes",
+                        buildJsonArray {
+                            add(noteWithActorJson(itemId, "b1a-note", "work", "B1a body", actorJson(id = "agent-b1a", proof = "abc")))
+                        }
+                    )
+                },
+                context
+            ) as JsonObject
+
+            val (rawProof, rawSha) = rawNoteProofColumns("B1a body")
+            assertNull(rawProof, "physical notes.actor_proof column must be NULL at rest after manage_notes upsert")
+            assertEquals(expectedHash, rawSha, "physical notes.actor_proof_sha256 column must hold the expected hash at rest")
+        }
+
+    @Test
+    fun `B1b raw SQL confirms actor_proof stays NULL and sha256 updates on a re-upsert of the same key (onUpdate path)`(): Unit =
+        runBlocking {
+            val itemId = createTestItem()
+
+            manageNotesTool.execute(
+                buildJsonObject {
+                    put("operation", "upsert")
+                    put(
+                        "notes",
+                        buildJsonArray {
+                            add(noteWithActorJson(itemId, "b1b-note", "work", "First", actorJson(id = "agent-b1b", proof = "abc")))
+                        }
+                    )
+                },
+                context
+            ) as JsonObject
+            val (firstRawProof, firstRawSha) = rawNoteProofColumns("First")
+            assertNull(firstRawProof, "insert path: physical notes.actor_proof column must be NULL at rest")
+            assertEquals(sha256Hex("abc"), firstRawSha, "insert path: physical notes.actor_proof_sha256 must hold the expected hash")
+
+            // Re-upsert the SAME (itemId, key) with a different proof -- exercises the onUpdate
+            // path (an existing row), not the insert path.
+            manageNotesTool.execute(
+                buildJsonObject {
+                    put("operation", "upsert")
+                    put(
+                        "notes",
+                        buildJsonArray {
+                            add(noteWithActorJson(itemId, "b1b-note", "work", "Second", actorJson(id = "agent-b1b", proof = "xyz")))
+                        }
+                    )
+                },
+                context
+            ) as JsonObject
+            val (secondRawProof, secondRawSha) = rawNoteProofColumns("Second")
+            assertNull(secondRawProof, "onUpdate path: physical notes.actor_proof column must be NULL at rest")
+            assertEquals(sha256Hex("xyz"), secondRawSha, "onUpdate path: physical notes.actor_proof_sha256 must reflect the new proof")
+        }
+
+    @Test
+    fun `B1c raw SQL confirms actor_proof is NULL and actor_proof_sha256 is set at rest after advance_item`(): Unit =
+        runBlocking {
+            val itemId = createTestItem()
+            val expectedHash = sha256Hex("abc")
+
+            advanceItemTool.execute(
+                buildJsonObject {
+                    put(
+                        "transitions",
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("itemId", itemId)
+                                    put("trigger", "start")
+                                    put("actor", actorJson(id = "agent-b1c", proof = "abc"))
+                                }
+                            )
+                        }
+                    )
+                },
+                context
+            ) as JsonObject
+
+            val (rawProof, rawSha) = rawTransitionProofColumns()
+            assertNull(rawProof, "physical role_transitions.actor_proof column must be NULL at rest after advance_item")
+            assertEquals(expectedHash, rawSha, "physical role_transitions.actor_proof_sha256 column must hold the expected hash at rest")
         }
 
     // ===========================================================================================
