@@ -1124,7 +1124,7 @@ Any resource lease that cascade itself acquired for entering `work` is released 
   ],
   // A cascade whose own apply step failed instead looks like:
   // { "itemId": "<uuid>", "title": "Parent", "previousRole": "work", "targetRole": "terminal",
-  //   "applied": false, "error": "Conflict: item was modified by another request" }
+  //   "applied": false, "error": "Failed to update item: WorkItem was modified by another transaction (version mismatch)" }
   "unblockedItems": [
     { "itemId": "<uuid>", "title": "Downstream" }
   ],
