@@ -84,28 +84,18 @@ class CreateItemHandler(
                         sharedParentId
                     }
 
-                // Validate hierarchy and compute depth
-                val depth =
+                // Validate hierarchy guards (self-parent, ancestor cycle) — the returned depth is
+                // NOT used to stamp; placement is resolved fresh inside the write transaction
+                // below so a concurrent reparent/delete of the parent cannot leave this item
+                // stamped with stale depth/rootId (AR-19).
+                if (parentId != null) {
                     hierarchyValidator.validateAndComputeDepth(
                         itemId = itemId,
                         parentId = parentId,
                         repo = repo,
                         errorPrefix = "Item at index $index"
                     )
-
-                // rootId: inherit the parent's root (or the parent's own id, if the parent
-                // predates the root_id backfill and has no rootId yet); own id at depth 0.
-                val rootId =
-                    if (parentId == null) {
-                        itemId
-                    } else {
-                        when (val parentResult = repo.getById(parentId)) {
-                            is Result.Success -> parentResult.data.rootId ?: parentResult.data.id
-                            is Result.Error -> throw ToolValidationException(
-                                "Item at index $index: parent '$parentId' not found"
-                            )
-                        }
-                    }
+                }
 
                 // Parse role with default
                 val role =
@@ -134,27 +124,71 @@ class CreateItemHandler(
                     throw ToolValidationException("Item at index $index: complexity must be between 1 and 10")
                 }
 
-                val workItem =
-                    WorkItem(
-                        id = itemId,
-                        parentId = parentId,
-                        rootId = rootId,
-                        title = title,
-                        description = description,
-                        summary = summary,
-                        role = role,
-                        statusLabel = statusLabel,
-                        priority = priority,
-                        complexity = complexity,
-                        requiresVerification = requiresVerification,
-                        depth = depth,
-                        metadata = metadata,
-                        tags = tags,
-                        type = type,
-                        properties = properties
-                    )
+                // Resolve depth/rootId and create in ONE transaction: when parentId is non-null,
+                // the parent is read via resolveChildPlacement INSIDE the same transaction as the
+                // insert, so a concurrent reparent/delete of the parent cannot leave this new item
+                // stamped with stale placement (AR-19). Root items (no parent) need no placement
+                // read at all.
+                var createResult: Result<WorkItem>? = null
+                var placementNotFoundMessage: String? = null
+                if (parentId == null) {
+                    val workItem =
+                        WorkItem(
+                            id = itemId,
+                            parentId = null,
+                            rootId = itemId,
+                            title = title,
+                            description = description,
+                            summary = summary,
+                            role = role,
+                            statusLabel = statusLabel,
+                            priority = priority,
+                            complexity = complexity,
+                            requiresVerification = requiresVerification,
+                            depth = 0,
+                            metadata = metadata,
+                            tags = tags,
+                            type = type,
+                            properties = properties
+                        )
+                    createResult = repo.create(workItem)
+                } else {
+                    repo.inTransaction {
+                        when (val placementResult = repo.resolveChildPlacement(parentId)) {
+                            is Result.Success -> {
+                                val placement = placementResult.data
+                                val workItem =
+                                    WorkItem(
+                                        id = itemId,
+                                        parentId = parentId,
+                                        rootId = placement.rootId,
+                                        title = title,
+                                        description = description,
+                                        summary = summary,
+                                        role = role,
+                                        statusLabel = statusLabel,
+                                        priority = priority,
+                                        complexity = complexity,
+                                        requiresVerification = requiresVerification,
+                                        depth = placement.depth,
+                                        metadata = metadata,
+                                        tags = tags,
+                                        type = type,
+                                        properties = properties
+                                    )
+                                createResult = repo.create(workItem)
+                            }
+                            is Result.Error -> {
+                                placementNotFoundMessage = "Item at index $index: parent '$parentId' not found"
+                            }
+                        }
+                    }
+                    if (placementNotFoundMessage != null) {
+                        throw ToolValidationException(placementNotFoundMessage!!)
+                    }
+                }
 
-                when (val result = repo.create(workItem)) {
+                when (val result = createResult!!) {
                     is Result.Success -> {
                         result.data.rootId?.let { createdRootIds.add(it) }
                         val createdTags = result.data.tags

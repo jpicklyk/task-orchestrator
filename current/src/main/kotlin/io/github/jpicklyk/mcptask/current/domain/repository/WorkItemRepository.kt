@@ -582,7 +582,56 @@ interface WorkItemRepository {
         limit: Int = 20,
         offset: Int = 0,
     ): SearchResult
+
+    /**
+     * Resolve the placement (`depth`/`rootId`) a new or reparented child of [parentId] must be
+     * stamped with, reading the parent AS OF the call site.
+     *
+     * **MUST be called inside the same [inTransaction] block as the write that stamps the
+     * returned [ChildPlacement] onto a child row.** Reading the parent in its own transaction and
+     * writing the child in a later, separate transaction lets a concurrent reparent or delete of
+     * the parent commit in between, silently stamping the child with stale placement — see AR-19.
+     * A read inside the write transaction instead makes a concurrent commit surface as a
+     * transaction failure (e.g. `SQLITE_BUSY_SNAPSHOT`) rather than a silent stale write.
+     *
+     * Default implementation: `getById(parentId)`, then `depth = parent.depth + 1`,
+     * `rootId = parent.rootId ?: parent.id`. Read-only, so implementations do not need to
+     * override this for the event-publishing decorator to keep working — no event is published
+     * by a read.
+     *
+     * @return [Result.Success] with the resolved [ChildPlacement], or [Result.Error] wrapping
+     *   [RepositoryError.NotFound] when [parentId] does not resolve to an existing item.
+     */
+    suspend fun resolveChildPlacement(parentId: UUID): Result<ChildPlacement> =
+        when (val parentResult = getById(parentId)) {
+            is Result.Success -> {
+                val parent = parentResult.data
+                Result.Success(
+                    ChildPlacement(
+                        parentId = parentId,
+                        depth = parent.depth + 1,
+                        rootId = parent.rootId ?: parent.id
+                    )
+                )
+            }
+
+            is Result.Error ->
+                Result.Error(
+                    RepositoryError.NotFound(parentId, "Parent item not found: $parentId")
+                )
+        }
 }
+
+/**
+ * The `depth`/`rootId` placement a child of [parentId] must be stamped with, resolved by
+ * [WorkItemRepository.resolveChildPlacement]. See that method's KDoc for the transactional
+ * contract this type's caller must uphold.
+ */
+data class ChildPlacement(
+    val parentId: UUID,
+    val depth: Int,
+    val rootId: UUID
+)
 
 /**
  * Three-way claim-status count returned by [WorkItemRepository.countByClaimStatus].

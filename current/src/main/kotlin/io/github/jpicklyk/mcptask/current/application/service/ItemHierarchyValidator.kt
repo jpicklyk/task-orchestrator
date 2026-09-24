@@ -18,13 +18,23 @@ import java.util.UUID
  */
 class ItemHierarchyValidator {
     /**
-     * Validates hierarchy constraints and computes the depth for an item given its parent.
+     * Validates hierarchy constraints (self-parent, ancestor cycle) and computes the depth for
+     * an item given its parent.
+     *
+     * The returned depth is a validation-time snapshot, not a value callers should stamp onto a
+     * write: it is read in its own transaction, separate from the later insert/update. Callers
+     * that write `depth`/`rootId` (CreateItemHandler, UpdateItemHandler, ItemWriteRoutes POST/PATCH,
+     * create_work_tree) call this method ONLY for its guard checks and instead resolve the actual
+     * placement to stamp via
+     * [io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository.resolveChildPlacement],
+     * inside the same transaction as the write — see that method's KDoc (AR-19).
      *
      * @param itemId The UUID of the item being created or updated
      * @param parentId The target parent UUID, or null for root items
      * @param repo The WorkItem repository for ancestor lookups
      * @param errorPrefix Context string for error messages (e.g., "Item at index 2" or "Item 'abc-123'")
-     * @return The computed depth (0 for root items, parent.depth + 1 for children)
+     * @return The computed depth (0 for root items, parent.depth + 1 for children) — a guard-time
+     *   snapshot; see the caution above before using it to stamp a write.
      * @throws ToolValidationException if any hierarchy constraint is violated
      */
     suspend fun validateAndComputeDepth(

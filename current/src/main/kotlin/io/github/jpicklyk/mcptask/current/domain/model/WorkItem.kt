@@ -10,9 +10,17 @@ data class WorkItem(
     /**
      * Denormalized id of this item's depth-0 ancestor (its own [id] when [depth] is 0).
      * Maintained by the application layer: stamped on create (CreateItemHandler,
-     * ItemWriteRoutes POST /items) and restamped on reparent, for the moved item and every
-     * descendant, in the same sweep as the depth cascade (ItemHierarchyValidator, and its
-     * call sites in UpdateItemHandler / ItemWriteRoutes PATCH).
+     * ItemWriteRoutes POST /items, create_work_tree) and restamped on reparent, for the moved
+     * item and every descendant, in the same sweep as the depth cascade (ItemHierarchyValidator,
+     * and its call sites in UpdateItemHandler / ItemWriteRoutes PATCH).
+     *
+     * Every one of those write paths resolves this value (together with [depth]) from the
+     * parent's CURRENT row via
+     * [io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository.resolveChildPlacement],
+     * called inside the same transaction as the write that stamps it — never from a parent read
+     * taken in an earlier, separate transaction. See that method's KDoc for why (AR-19): a parent
+     * reparented or deleted between an earlier read and a later write would otherwise leave this
+     * field stamped with stale data.
      *
      * Nullable and NOT validated against [depth] or [parentId] here — rows written before
      * the root_id backfill migration (or in H2 test fixtures that construct [WorkItem]
