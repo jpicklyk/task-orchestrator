@@ -146,22 +146,21 @@ interface ActorAware {
             policy: DegradedModePolicy
         ): PolicyResolution {
             val isVerified = verification.status == VerificationStatus.VERIFIED
+            // The cryptographically verified identity: the DID-trust subject when set (see KDoc
+            // case 1), otherwise claim.id (already the verified identity when requireSubMatch=true).
+            val verifiedIdentity = verification.verifiedSubject ?: claim.id
 
             return when (policy) {
                 DegradedModePolicy.ACCEPT_CACHED -> {
                     when {
-                        // VERIFIED (fresh or stale-cache with verifiedFromCache=true in metadata)
-                        // → trust the cryptographically verified identity. Under DID trust that is
-                        // verification.verifiedSubject (sub, bound equal to iss by JwksActorVerifier);
-                        // for static-JWKS verification verifiedSubject is null and claim.id is used
-                        // (already the verified identity when requireSubMatch=true).
-                        isVerified -> PolicyResolution.Trusted(verification.verifiedSubject ?: claim.id)
+                        // VERIFIED (fresh or stale-cache with verifiedFromCache=true in metadata).
+                        isVerified -> PolicyResolution.Trusted(verifiedIdentity)
 
                         // UNAVAILABLE + verifiedFromCache=true: JWT was verified against a stale key.
                         // Reserved for future verifier paths; JwksActorVerifier returns VERIFIED here.
                         verification.status == VerificationStatus.UNAVAILABLE &&
                             verification.metadata["verifiedFromCache"] == "true" ->
-                            PolicyResolution.Trusted(verification.verifiedSubject ?: claim.id)
+                            PolicyResolution.Trusted(verifiedIdentity)
 
                         // UNAVAILABLE without cache metadata: JWKS is down and no cached key exists.
                         // Fall back to self-reported id with WARN so operators see the degradation.
@@ -199,7 +198,7 @@ interface ActorAware {
 
                 DegradedModePolicy.REJECT -> {
                     if (isVerified) {
-                        PolicyResolution.Trusted(verification.verifiedSubject ?: claim.id)
+                        PolicyResolution.Trusted(verifiedIdentity)
                     } else {
                         val reason =
                             "degradedModePolicy=reject: actor verification status is " +
