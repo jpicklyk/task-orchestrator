@@ -168,7 +168,25 @@ interface ActorAware {
                             PolicyResolution.Trusted(claim.id)
                         }
 
-                        // Other statuses (ABSENT, UNCHECKED, REJECTED): fall back to self-reported id
+                        // REJECTED: verification was actively attempted and failed (bad signature,
+                        // wrong issuer/audience, expired, etc.) — this is a stronger signal than a
+                        // merely-unchecked claim, so it gets its own WARN (never the proof — proofs
+                        // are bearer tokens/JWTs and must not be logged) even though the resolved
+                        // result is unchanged: fall back to the self-reported id, preserving
+                        // pre-v3.3 implicit behavior for this policy.
+                        verification.status == VerificationStatus.REJECTED -> {
+                            logger.warn(
+                                "degradedModePolicy=accept-cached: actor verification REJECTED by " +
+                                    "verifier='{}' (reason={}); falling back to self-reported " +
+                                    "actor.id='{}'.",
+                                verification.verifier,
+                                verification.reason,
+                                claim.id
+                            )
+                            PolicyResolution.Trusted(claim.id)
+                        }
+
+                        // Other statuses (ABSENT, UNCHECKED): fall back to self-reported id silently,
                         // preserving pre-v3.3 implicit behavior.
                         else -> PolicyResolution.Trusted(claim.id)
                     }

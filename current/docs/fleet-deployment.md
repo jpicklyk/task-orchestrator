@@ -43,6 +43,22 @@ bind/start after DB init and schema update had already succeeded). A
 container orchestrators (Docker, Kubernetes, systemd) see a real startup failure instead of a
 process that silently logged an error and kept running.
 
+**The global `.taskorchestrator/config.yaml` fails startup, closed, if it is broken.** If the file
+at `AGENT_CONFIG_DIR/.taskorchestrator/config.yaml` exists but cannot be read, is not valid YAML,
+or its top-level document is not a mapping, both the note-schema loader and the
+`actor_authentication:` loader throw before the object graph finishes wiring — the exception
+propagates out of `ServerComposition.build()` and `CurrentMcpServer.run()`, so the process exits
+non-zero **before** the readiness marker is ever written and before any transport binds. The same
+applies to a present, non-null field that fails to parse under `actor_authentication:` (an
+unrecognized `degraded_mode_policy`, an unrecognized `verifier.type`, a non-mapping `verifier` or
+`actor_authentication` value, or `type: jwks` with no configured key source) — see "Policy Values"
+and "JWKS Sources" below. An absent file, or one that is empty or comment-only, is not an error: it
+keeps schema-free / no-actor-authentication defaults. **This is a behavior change**: a global
+config file that was broken before this fix ran silently in schema-free / noop-verifier mode; it
+now fails startup. Per-project config pushed via `manage_project_config` / `PUT
+/api/v1/roots/{rootId}/config` is unaffected — only the single, server-wide global file is on this
+fail-closed path.
+
 **Readiness marker.** Once DB init and schema update have both succeeded and the configured
 transport has bound, the server writes a readiness marker file at `READINESS_FILE` (default
 `/tmp/mcp-task-orchestrator.ready`; see the CLAUDE.md env-var table). The marker is cleared on
@@ -332,7 +348,7 @@ docker run --rm -i \
   task-orchestrator:dev
 ```
 
-Valid values (case-insensitive): `accept-cached`, `accept-self-reported`, `reject`. An invalid value causes an immediate startup failure with a descriptive error message. If unset, the YAML value applies; if neither is set, the server defaults to `accept-cached`.
+Valid values (case-insensitive): `accept-cached`, `accept-self-reported`, `reject`. An invalid value causes an immediate startup failure with a descriptive error message. If unset, the YAML value applies; if neither is set, the server defaults to `accept-cached`. A YAML `degraded_mode_policy` value that is unrecognized fails startup the same way (naming the config file path) — it is no longer silently coerced to `accept-cached`; the env var check above is one instance of a fail-closed rule that now also covers the YAML value.
 
 **Recommended for cross-org fleet deployments:** `DEGRADED_MODE_POLICY=reject` — ensures that agents without a valid JWT in `actor.proof` cannot claim items or advance claimed items, regardless of what the YAML config contains.
 
@@ -340,7 +356,7 @@ Valid values (case-insensitive): `accept-cached`, `accept-self-reported`, `rejec
 
 | Policy | Identity used | Recommended for |
 |---|---|---|
-| `accept-cached` | *(default)* Verified `actor.id` from JWT when stale JWKS cache was used (`UNAVAILABLE` status + stale cache). Self-reported `actor.id` for all other non-verified outcomes. | Single-org deployments; JWKS endpoint occasionally unreachable |
+| `accept-cached` | *(default)* Verified `actor.id` from JWT when stale JWKS cache was used (`UNAVAILABLE` status + stale cache). Self-reported `actor.id` for all other non-verified outcomes — with a WARN log (verifier, reason, actor id; never the proof) when the outcome is `REJECTED` (verification was attempted and actively failed), and a WARN when JWKS was unreachable with no usable cache; `ABSENT`/`UNCHECKED` fall back silently. A one-time startup WARN is also logged when a real `jwks` verifier is configured under this policy. | Single-org deployments; JWKS endpoint occasionally unreachable |
 | `accept-self-reported` | Always use self-reported `actor.id` from the caller, regardless of verification result. Equivalent to v3.2 implicit behavior. | Local dev; no JWKS; explicitly documented opt-out of identity guarantees |
 | `reject` | Reject any operation requiring verified identity when the actor is not fully verified. `claim_item` returns `rejected_by_policy`. `advance_item` on claimed items fails. | Cross-org `did:web` deployments; high-assurance environments |
 
@@ -459,7 +475,7 @@ The four stages below correspond to increasing identity-enforcement strictness. 
 |---|---|---|
 | **0 — Default orchestration** | `actor_authentication.enabled: false` (or absent) | `claim_item` works but is optional. `advance_item` does not enforce ownership. No actor required. |
 | **1 — Actor authentication on, self-reported identity** | `actor_authentication.enabled: true`, `degraded_mode_policy: accept-self-reported`, no `verifier` | Actor required on writes (when paired with an actor-attribution enforcement layer). `claim_item` enforces ownership on subsequent `advance_item` calls. Identity is self-reported — caller-supplied `actor.id` is trusted unconditionally. |
-| **2 — Verifier configured, fallback permitted** | + `verifier: { type: jwks, ... }`, `degraded_mode_policy: accept-cached` | When `actor.proof` is present and JWKS is reachable, the JWT `sub` becomes the trusted identity. When JWKS is briefly unreachable, the stale-cache fallback serves. Other non-verified outcomes fall back to self-reported `actor.id` with a WARN log. |
+| **2 — Verifier configured, fallback permitted** | + `verifier: { type: jwks, ... }`, `degraded_mode_policy: accept-cached` | When `actor.proof` is present and JWKS is reachable, the JWT `sub` becomes the trusted identity. When JWKS is briefly unreachable, the stale-cache fallback serves. A `REJECTED` verification (bad signature, wrong issuer/audience, etc.) or an unreachable JWKS with no usable cache both fall back to self-reported `actor.id` with a WARN log; `ABSENT`/`UNCHECKED` fall back silently. |
 | **3 — Verification required** | + `degraded_mode_policy: reject` | Operations requiring verified identity are rejected if verification status is not `VERIFIED`. Unclaimed items remain accessible to unverified actors so existing default-mode clients are not broken — only claim and advance-on-claimed flows are gated. |
 
 ### Recommended Sequence
@@ -494,7 +510,7 @@ TO does not read `iat`, `jti`, or any custom claims. Those are deployment concer
 
 ### `require_sub_match`
 
-When `true` (recommended for fleet deployments), TO verifies that the JWT `sub` matches the self-reported `actor.id` on the call. This prevents an agent from claiming items under one identity in `actor.id` while presenting a JWT issued for a different `sub`. When `false`, `sub` is not read at all — only signature and the iss/aud/exp/nbf claims are checked.
+When `true` (recommended for fleet deployments), TO verifies that the JWT `sub` matches the self-reported `actor.id` on the call. This prevents an agent from claiming items under one identity in `actor.id` while presenting a JWT issued for a different `sub`. When `false`, `sub` is not read at all — only signature and the iss/aud/exp/nbf claims are checked. (A `type: jwks` verifier configured with none of `oidc_discovery`/`jwks_uri`/`jwks_path`/`did_allowlist`/`did_pattern` — with no key source to check anything against — fails startup rather than silently downgrading to `noop`.)
 
 ### Algorithm Allowlist
 

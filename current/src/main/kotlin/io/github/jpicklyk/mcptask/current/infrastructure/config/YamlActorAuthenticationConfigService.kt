@@ -33,11 +33,21 @@ import java.nio.file.Path
  *     require_sub_match: true
  * ```
  *
- * For the `jwks` type, exactly one of `oidc_discovery`, `jwks_uri`, or `jwks_path` should be
- * provided. If none is present, a warning is added and the verifier falls back to [VerifierConfig.Noop].
+ * For the `jwks` type, exactly one of `oidc_discovery`, `jwks_uri`, `jwks_path` (static-JWKS mode)
+ * or `did_allowlist`/`did_pattern` (DID-trust mode) must be provided; see below for what happens
+ * when none is.
  *
- * If the config file is missing, the `actor_authentication:` section is absent, or any exception occurs
- * during parsing, [ActorAuthenticationConfig] defaults are returned (`enabled=true`, [VerifierConfig.Noop]).
+ * If the config file is missing, empty, or comment-only, or the `actor_authentication:` section is
+ * absent (or explicitly `null`), [ActorAuthenticationConfig] defaults are returned
+ * (`enabled=true`, [VerifierConfig.Noop]).
+ *
+ * **FAILS CLOSED**: if the file exists but cannot be read or parsed (YAML syntax error, non-mapping
+ * root document), or a present, non-null field fails to parse (an unrecognized
+ * `degraded_mode_policy`, an unrecognized `verifier.type`, a non-map `verifier` or
+ * `actor_authentication` value, or `type: jwks` with no configured key source),
+ * [IllegalArgumentException] is thrown naming the config path rather than silently substituting a
+ * default. A malformed field being silently ignored could otherwise turn a security-relevant
+ * misconfiguration into unverified access without any startup signal.
  *
  * ## `DEGRADED_MODE_POLICY` environment variable
  *
@@ -103,6 +113,17 @@ class YamlActorAuthenticationConfigService(
             )
     }
 
+    /**
+     * Loads the `actor_authentication:` section, failing closed on any parse problem.
+     *
+     * An absent file, an empty/comment-only file (parses to `null`), an absent
+     * `actor_authentication:` key, or an explicit `actor_authentication: null` all keep the coded
+     * defaults (`enabled=true`, [VerifierConfig.Noop]) — these are legitimate "nothing configured"
+     * states, not errors. Everything else that prevents a well-formed [ActorAuthenticationConfig]
+     * from being produced — a YAML syntax error, a root document that is not a mapping, or a
+     * present-and-non-null field that fails to parse — throws [IllegalArgumentException] naming
+     * [configPath] rather than silently substituting a default (see the class kdoc for why).
+     */
     @Suppress("UNCHECKED_CAST")
     private fun loadYamlConfig(): LoadResult {
         val warnings = mutableListOf<String>()
@@ -111,83 +132,101 @@ class YamlActorAuthenticationConfigService(
             return LoadResult(ActorAuthenticationConfig(), warnings)
         }
 
-        return try {
-            val yaml = Yaml()
-            FileReader(configPath.toFile()).use { reader ->
-                val root =
-                    yaml.load<Map<String, Any>>(reader)
-                        ?: return@use LoadResult(ActorAuthenticationConfig(), warnings)
-
-                // Hard cut: legacy auditing: key produces a clear migration error
-                if (root.containsKey("auditing")) {
-                    throw IllegalArgumentException(
-                        "Unknown top-level config key 'auditing:'. " +
-                            "Did you mean 'actor_authentication:'? See CHANGELOG for migration."
-                    )
-                }
-
-                val actorAuthSection =
-                    root["actor_authentication"] as? Map<String, Any>
-                        ?: run {
-                            logger.debug("No 'actor_authentication' section in config; using defaults")
-                            return@use LoadResult(ActorAuthenticationConfig(), warnings)
-                        }
-
-                val enabled = (actorAuthSection["enabled"] as? Boolean) ?: true
-
-                val verifierSection = actorAuthSection["verifier"] as? Map<String, Any>
-                val verifier =
-                    if (verifierSection != null) {
-                        parseVerifier(verifierSection, warnings)
-                    } else {
-                        VerifierConfig.Noop
-                    }
-
-                val degradedModePolicy = parseDegradedModePolicy(actorAuthSection, warnings)
-
-                LoadResult(
-                    ActorAuthenticationConfig(
-                        enabled = enabled,
-                        verifier = verifier,
-                        degradedModePolicy = degradedModePolicy
-                    ),
-                    warnings
+        val loaded =
+            try {
+                val yaml = Yaml()
+                FileReader(configPath.toFile()).use { reader -> yaml.load<Any?>(reader) }
+            } catch (e: IllegalArgumentException) {
+                throw e
+            } catch (e: Exception) {
+                throw IllegalArgumentException(
+                    "Failed to parse actor_authentication config from '$configPath': ${e.message}",
+                    e
                 )
             }
-        } catch (e: IllegalArgumentException) {
-            // Config constraint violations (e.g. mutual-exclusion, legacy key) are surfaced immediately
-            throw e
-        } catch (e: Exception) {
-            val msg = "Failed to load actor_authentication config from '$configPath': ${e.message}"
-            warnings.add(msg)
-            logger.warn(msg)
-            LoadResult(ActorAuthenticationConfig(), warnings)
+
+        // Empty or comment-only file parses to null — a legitimate "nothing configured" state.
+        if (loaded == null) return LoadResult(ActorAuthenticationConfig(), warnings)
+
+        val root =
+            loaded as? Map<String, Any>
+                ?: throw IllegalArgumentException(
+                    "Config file '$configPath' root must be a mapping; got '$loaded'"
+                )
+
+        // Hard cut: legacy auditing: key produces a clear migration error
+        if (root.containsKey("auditing")) {
+            throw IllegalArgumentException(
+                "Unknown top-level config key 'auditing:'. " +
+                    "Did you mean 'actor_authentication:'? See CHANGELOG for migration."
+            )
         }
+
+        val actorAuthRaw = root["actor_authentication"]
+        val actorAuthSection: Map<String, Any> =
+            when (actorAuthRaw) {
+                null -> {
+                    logger.debug("No 'actor_authentication' section in config; using defaults")
+                    return LoadResult(ActorAuthenticationConfig(), warnings)
+                }
+                is Map<*, *> -> actorAuthRaw as Map<String, Any>
+                else ->
+                    throw IllegalArgumentException(
+                        "actor_authentication in '$configPath' must be a mapping; got '$actorAuthRaw'"
+                    )
+            }
+
+        val enabled = (actorAuthSection["enabled"] as? Boolean) ?: true
+
+        val verifierRaw = actorAuthSection["verifier"]
+        val verifier: VerifierConfig =
+            when (verifierRaw) {
+                null -> VerifierConfig.Noop
+                is Map<*, *> -> parseVerifier(verifierRaw as Map<String, Any>)
+                else ->
+                    throw IllegalArgumentException(
+                        "actor_authentication.verifier in '$configPath' must be a mapping; got '$verifierRaw'"
+                    )
+            }
+
+        val degradedModePolicy = parseDegradedModePolicy(actorAuthSection)
+
+        return LoadResult(
+            ActorAuthenticationConfig(
+                enabled = enabled,
+                verifier = verifier,
+                degradedModePolicy = degradedModePolicy
+            ),
+            warnings
+        )
     }
 
-    private fun parseDegradedModePolicy(
-        actorAuthSection: Map<String, Any>,
-        warnings: MutableList<String>
-    ): DegradedModePolicy {
-        val raw = actorAuthSection["degraded_mode_policy"] as? String ?: return DegradedModePolicy.ACCEPT_CACHED
-        val parsed = DegradedModePolicy.fromConfigString(raw)
-        if (parsed == null) {
-            val msg =
-                "Unknown actor_authentication.degraded_mode_policy '$raw'; " +
-                    "valid values: accept-cached, accept-self-reported, reject. Defaulting to accept-cached."
-            warnings.add(msg)
-            logger.warn(msg)
-            return DegradedModePolicy.ACCEPT_CACHED
-        }
-        return parsed
+    private fun parseDegradedModePolicy(actorAuthSection: Map<String, Any>): DegradedModePolicy {
+        val raw = actorAuthSection["degraded_mode_policy"] ?: return DegradedModePolicy.ACCEPT_CACHED
+        val rawStr =
+            raw as? String
+                ?: throw IllegalArgumentException(
+                    "actor_authentication.degraded_mode_policy in '$configPath' must be a string; got '$raw'"
+                )
+        return DegradedModePolicy.fromConfigString(rawStr)
+            ?: throw IllegalArgumentException(
+                "Unknown actor_authentication.degraded_mode_policy '$rawStr' in '$configPath'; " +
+                    "valid values: accept-cached, accept-self-reported, reject"
+            )
     }
 
     @Suppress("UNCHECKED_CAST")
-    private fun parseVerifier(
-        verifierMap: Map<String, Any>,
-        warnings: MutableList<String>
-    ): VerifierConfig {
-        val type = (verifierMap["type"] as? String)?.lowercase()
+    private fun parseVerifier(verifierMap: Map<String, Any>): VerifierConfig {
+        val typeRaw = verifierMap["type"]
+        val type: String? =
+            when (typeRaw) {
+                null -> null
+                is String -> typeRaw.lowercase()
+                else ->
+                    throw IllegalArgumentException(
+                        "actor_authentication.verifier.type in '$configPath' must be a string; got '$typeRaw'"
+                    )
+            }
 
         return when (type) {
             null, "noop" -> VerifierConfig.Noop
@@ -224,15 +263,16 @@ class YamlActorAuthenticationConfigService(
                     )
                 }
 
-                // Neither DID trust nor static JWKS configured — no key source available
+                // Neither DID trust nor static JWKS configured — no key source available. This goes
+                // beyond a plain "unparseable field" fallback: a `type: jwks` verifier with no way to
+                // fetch keys is a security-relevant misconfiguration in the same class as the
+                // `algorithms` check below, so it is fatal rather than silently downgrading to Noop.
                 if (!isDidTrust && !isStaticJwks) {
-                    val msg =
-                        "actor_authentication.verifier type 'jwks' requires one of: " +
+                    throw IllegalArgumentException(
+                        "actor_authentication.verifier type 'jwks' in '$configPath' requires one of: " +
                             "oidc_discovery, jwks_uri, jwks_path (static JWKS mode), " +
-                            "or did_allowlist/did_pattern (DID-trust mode); falling back to Noop"
-                    warnings.add(msg)
-                    logger.warn(msg)
-                    return VerifierConfig.Noop
+                            "or did_allowlist/did_pattern (DID-trust mode); none configured"
+                    )
                 }
 
                 // When static JWKS mode, enforce "exactly one source" hard error
@@ -299,12 +339,11 @@ class YamlActorAuthenticationConfigService(
                 )
             }
 
-            else -> {
-                val msg = "Unknown actor_authentication.verifier type '$type'; falling back to Noop"
-                warnings.add(msg)
-                logger.warn(msg)
-                VerifierConfig.Noop
-            }
+            else ->
+                throw IllegalArgumentException(
+                    "Unknown actor_authentication.verifier.type '$type' in '$configPath'; " +
+                        "valid values: noop, jwks"
+                )
         }
     }
 }
