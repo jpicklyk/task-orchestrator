@@ -15,7 +15,7 @@ import io.ktor.server.response.header
  * | Variable | Default | Effect |
  * |----------|---------|--------|
  * | `API_REDACT_NOTE_ATTRIBUTION` | `true` | When `true` AND the caller lacks [ApiCapability.ADMIN], sets `actor` and `verification` to `null` on every [NoteDto]. |
- * | `API_REDACT_ACTOR_PROOF`      | `true` | **Deprecated, no-op since migration V17** — `actor.proof` is always `null` on the wire now (raw proofs are never persisted); see [io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig.deprecatedEnvWarnings]. Retained only so existing call sites/tests compile unchanged. |
+ * | `API_REDACT_ACTOR_PROOF`      | `true` | **Deprecated, no-op since migration V17** — `actor.proof` is now unconditionally `null` on every response, regardless of admin status, `?include=proof`, or this flag's value (raw proofs are never persisted); see [io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig.deprecatedEnvWarnings]. Retained only so existing call sites/tests compile unchanged. |
  *
  * `API_REDACT_NOTE_ATTRIBUTION` defaults to `true` (redact). Set to `"false"` to disable.
  *
@@ -59,9 +59,9 @@ class AttributionRedactor(
         }
 
         // Step 2: attribution is shown (admin caller, or attribution redaction disabled); the
-        // proof itself is still gated separately — a non-admin caller must never receive it even
-        // when API_REDACT_NOTE_ATTRIBUTION=false, so this always runs through the same helper the
-        // transition mapper uses rather than short-circuiting on `!isAdmin`.
+        // proof itself is still gated separately — actor.proof must be null on EVERY branch
+        // (admin or not, include=proof or not), so this always runs through the same helper the
+        // transition mapper uses rather than short-circuiting on admin status.
         val redactedActor = redactActorProofIfNeeded(note.actor, call, redactActorProof)
         // verification.proof (hash + verified claims) is admin-only, independent of
         // API_REDACT_NOTE_ATTRIBUTION and NOT gated behind ?include=proof — see VerificationDto.
@@ -105,42 +105,35 @@ class AttributionRedactor(
 }
 
 /**
- * Strips [ActorClaimDto.proof] unless proof redaction is disabled or the caller is an admin who
- * asked for it with `?include=proof`. Used for every REST path that shows actor attribution.
+ * Unconditionally strips [ActorClaimDto.proof]. Used for every REST path that shows actor
+ * attribution.
  *
  * Since migration V17, raw actor proofs are never persisted — [ActorClaimDto.proof] arrives here
- * already `null` in every case, so this function is now effectively a no-op kept for shape
- * compatibility with existing callers/tests. `?include=proof` is still accepted (see
- * [flagDeprecatedIncludeProof]) but returns nothing to include. Forensic evidence about the proof
- * (hash + verified claims) lives on `verification.proof` instead — see [redactVerification] and
- * [io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ProofEvidenceDto].
+ * already `null` in every case, so stripping it again is defense in depth: no future DTO
+ * construction path may leak a proof through this function, regardless of admin status,
+ * `?include=proof`, or the deprecated `API_REDACT_ACTOR_PROOF` flag. `?include=proof` is still
+ * accepted (see [flagDeprecatedIncludeProof]) but returns nothing to include. Forensic evidence
+ * about the proof (hash + verified claims) lives on `verification.proof` instead — see
+ * [redactVerification] and [io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ProofEvidenceDto].
  *
  * This is a standalone helper used by the role-transition mapper where [NoteDto] is not the
  * container.
  *
- * @param actor The actor claim to potentially strip proof from.
- * @param call The current HTTP request.
- * @param redactActorProof Whether proof redaction is enabled globally.
- * @return A (possibly modified) copy of [actor].
+ * @param actor The actor claim to strip proof from.
+ * @param call The current HTTP request. Unused now that proof stripping is unconditional; kept
+ *   for call-site compatibility.
+ * @param redactActorProof Deprecated, ignored — `actor.proof` is always nulled regardless of this
+ *   value. Kept in the signature for call-site compatibility.
+ * @return A copy of [actor] with `proof` set to `null`, or `null` if [actor] is `null`.
  */
+@Suppress("UNUSED_PARAMETER")
 fun redactActorProofIfNeeded(
     actor: ActorClaimDto?,
     call: ApplicationCall,
     redactActorProof: Boolean,
 ): ActorClaimDto? {
     if (actor == null) return null
-    if (!redactActorProof) return actor
-
-    val principal = call.attributes.getOrNull(ApiPrincipalKey)
-    val isAdmin = principal?.capabilities?.contains(ApiCapability.ADMIN) ?: false
-    if (!isAdmin) return actor.copy(proof = null)
-
-    val includeProof =
-        call.request.queryParameters["include"]
-            ?.split(",")
-            ?.map { it.trim() }
-            ?.contains("proof") ?: false
-    return if (includeProof) actor else actor.copy(proof = null)
+    return actor.copy(proof = null)
 }
 
 /**
