@@ -10,6 +10,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.domain.repository.ChildPlacement
 import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
@@ -37,6 +38,22 @@ class CreateWorkTreeToolTest {
         tool = CreateWorkTreeTool()
         workItemRepo = mockk()
         mockExecutor = mockk()
+
+        // Construction-only fixture repair (AR-19 / 3da296d8): the tool now wraps the executor
+        // call in inTransaction and resolves parent placement inside it via
+        // resolveChildPlacement. Run the block inline and derive the placement from whatever
+        // getById stub the individual test configures — no expectation changes.
+        coEvery { workItemRepo.inTransaction(any()) } coAnswers { firstArg<suspend () -> Unit>().invoke() }
+        coEvery { workItemRepo.resolveChildPlacement(any()) } coAnswers {
+            val parentId = firstArg<UUID>()
+            when (val parent = workItemRepo.getById(parentId)) {
+                is Result.Success ->
+                    Result.Success(
+                        ChildPlacement(parentId, parent.data.depth + 1, parent.data.rootId ?: parent.data.id),
+                    )
+                is Result.Error -> parent
+            }
+        }
 
         repoProvider = mockk()
         every { repoProvider.workItemRepository() } returns workItemRepo
