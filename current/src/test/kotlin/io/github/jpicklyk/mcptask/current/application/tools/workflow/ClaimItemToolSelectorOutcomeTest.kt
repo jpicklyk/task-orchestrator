@@ -79,6 +79,7 @@ class ClaimItemToolSelectorOutcomeTest : SQLiteRepositoryTestBase() {
 
     private val agentSelf = "agent-y"
     private val agentOther = "agent-x"
+    private val agentThird = "agent-z"
 
     @BeforeEach
     fun setUpTool() {
@@ -253,13 +254,17 @@ class ClaimItemToolSelectorOutcomeTest : SQLiteRepositoryTestBase() {
     @Test
     fun `S5 - combined real exclusion reasons report 1-1-1 and leak no fixture identity`(): Unit =
         runBlocking {
-            // Chain 1: a directly claimed QUEUE item.
+            // Chain 1: a directly claimed QUEUE item, held by agentOther.
             val claimedItem = createItem("Directly claimed")
             assertIs<ClaimResult.Success>(repository.claim(claimedItem.id, agentOther, 900))
 
             // Chain 2: an ancestor-claimed QUEUE child under a WORK-role claimed parent.
+            // One-claim-per-agent invariant (WorkItemRepository.claim KDoc: claiming an item
+            // atomically releases the SAME agent's prior claim first) -- reusing agentOther here
+            // would auto-release Chain 1's claim on claimedItem before the selector ever runs.
+            // A distinct third agent (agentThird) keeps both claims live simultaneously.
             val ancestorParent = createItem("Ancestor parent in WORK", role = Role.WORK)
-            assertIs<ClaimResult.Success>(repository.claim(ancestorParent.id, agentOther, 900))
+            assertIs<ClaimResult.Success>(repository.claim(ancestorParent.id, agentThird, 900))
             val ancestorChild = createItem("Ancestor-claimed child", parentId = ancestorParent.id)
 
             // Chain 3: a dependency-blocked QUEUE item behind a WORK-role blocker.
@@ -290,10 +295,12 @@ class ClaimItemToolSelectorOutcomeTest : SQLiteRepositoryTestBase() {
                     "none_eligible must never leak a fixture item UUID ($id). Got: $serialized"
                 )
             }
-            assertFalse(
-                "\"$agentOther\"" in serialized,
-                "none_eligible must never leak the contending agent id ($agentOther). Got: $serialized"
-            )
+            for (agentId in listOf(agentOther, agentThird)) {
+                assertFalse(
+                    "\"$agentId\"" in serialized,
+                    "none_eligible must never leak a contending agent id ($agentId). Got: $serialized"
+                )
+            }
         }
 
     // -----------------------------------------------------------------------
