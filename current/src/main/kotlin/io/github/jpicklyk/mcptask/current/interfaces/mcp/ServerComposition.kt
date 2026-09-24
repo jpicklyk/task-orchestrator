@@ -30,6 +30,8 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventBus
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventPublishingRepositoryProvider
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import java.nio.file.Path
+import java.nio.file.Paths
 
 /**
  * Resolved REST/SSE API wiring, computed ONCE at startup by [ServerComposition].
@@ -112,7 +114,7 @@ class ServerComposition(
         // AppConfig.fromEnv reads the same env var via the same AppConfig.resolveConfigBaseDir
         // fallback — but composition becomes testable without mutating the JVM environment.
         val globalConfigPath =
-            java.nio.file.Paths
+            Paths
                 .get(AppConfig.resolveConfigBaseDir(appConfig.agentConfigDir))
                 .resolve(".taskorchestrator/config.yaml")
 
@@ -275,7 +277,7 @@ class ServerComposition(
      * [YamlActorAuthenticationConfigService.getWarnings] — that list is asserted empty by a large
      * number of existing jwks-config tests, and is reserved for actual parse warnings.
      */
-    private fun createActorVerifierAndPolicy(configPath: java.nio.file.Path): Pair<ActorVerifier, DegradedModePolicy> {
+    private fun createActorVerifierAndPolicy(configPath: Path): Pair<ActorVerifier, DegradedModePolicy> {
         val configService = YamlActorAuthenticationConfigService(configPath, envResolver = appConfig.envResolver)
         configService.getWarnings().forEach { logger.warn("Actor authentication config: {}", it) }
         val config = configService.getConfig()

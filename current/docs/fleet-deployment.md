@@ -57,7 +57,8 @@ keeps schema-free / no-actor-authentication defaults. **This is a behavior chang
 config file that was broken before this fix ran silently in schema-free / noop-verifier mode; it
 now fails startup. Per-project config pushed via `manage_project_config` / `PUT
 /api/v1/roots/{rootId}/config` is unaffected — only the single, server-wide global file is on this
-fail-closed path.
+fail-closed path. One key in that file is exempt: a malformed `status_labels:` block (display-only
+labels) still falls back to the default labels with a WARN.
 
 **Readiness marker.** Once DB init and schema update have both succeeded and the configured
 transport has bound, the server writes a readiness marker file at `READINESS_FILE` (default
