@@ -31,8 +31,10 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipal
  * the request never reaches the route. However the [DegradedModePolicy] governs what happens to
  * the verification result when we call [ActorAware.resolveTrustedActorId]:
  *
- * - `reject` policy: when verification status is not VERIFIED → [PolicyResolution.Rejected] →
- *   routes return **401 Unauthorized**.
+ * - `reject` policy: a non-VERIFIED status would yield [PolicyResolution.Rejected], but that arm
+ *   is unreachable for REST — a bad JWT is already a 401 `invalid_token` at [ApiBearerAuth], and a
+ *   JWKS principal always maps to VERIFIED — so [resolveTrustedActorIdOrNull] fails closed with an
+ *   error there instead of returning a 401.
  * - `accept-cached` / `accept-self-reported`: tolerant of UNAVAILABLE — proceed with the synthesized id.
  *
  * Bearer mode: verification is not applicable (principal IS the trusted identity); we always produce
@@ -61,7 +63,8 @@ object ApiAuditBridge {
      * - JWKS mode: treat as VERIFIED (JWT was validated by [ApiBearerAuth] before the route ran)
      *
      * The verification result is passed to [ActorAware.resolveTrustedActorId] together with the
-     * [DegradedModePolicy]. Only REJECT policy with a non-VERIFIED status yields a 401.
+     * [DegradedModePolicy]. Only REJECT policy with a non-VERIFIED status would be rejected, which REST
+     * never reaches (see the class doc).
      */
     fun toVerificationResult(principal: ApiPrincipal): VerificationResult =
         when (principal.authMode) {

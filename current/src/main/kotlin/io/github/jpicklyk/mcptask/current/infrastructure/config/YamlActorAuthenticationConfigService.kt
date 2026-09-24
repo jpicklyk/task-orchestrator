@@ -6,8 +6,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
 import org.slf4j.LoggerFactory
 import org.yaml.snakeyaml.Yaml
 import java.io.FileReader
-import java.net.MalformedURLException
-import java.net.URL
 import java.nio.file.Path
 
 /**
@@ -350,34 +348,5 @@ class YamlActorAuthenticationConfigService(
         raw: String,
         keyName: String,
         allowInsecureUrl: Boolean
-    ) {
-        val url =
-            try {
-                URL(raw)
-            } catch (e: MalformedURLException) {
-                throw IllegalArgumentException(
-                    "actor_authentication.verifier.$keyName '$raw' is not a valid URL: ${e.message}"
-                )
-            }
-
-        val scheme = url.protocol?.lowercase()
-        if (scheme == "https") return
-
-        if (scheme == "http" && allowInsecureUrl && isLiteralLoopbackHost(url.host)) {
-            logger.warn(
-                "actor_authentication.verifier.{} '{}' uses plaintext http, permitted because " +
-                    "allow_insecure_url=true and host '{}' is a loopback address. This must only be " +
-                    "used for local development/testing.",
-                keyName,
-                raw,
-                url.host
-            )
-            return
-        }
-
-        throw IllegalArgumentException(
-            "actor_authentication.verifier.$keyName '$raw' must use https; plaintext http is permitted " +
-                "only for a loopback host (localhost, 127.x.x.x, ::1) with allow_insecure_url=true."
-        )
-    }
+    ) = requireHttpsOrLoopbackKeySource(raw, "actor_authentication.verifier.$keyName", allowInsecureUrl, logger)
 }

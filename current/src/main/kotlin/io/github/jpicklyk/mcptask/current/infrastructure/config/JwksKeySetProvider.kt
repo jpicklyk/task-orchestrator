@@ -25,8 +25,6 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.slf4j.LoggerFactory
-import java.net.MalformedURLException
-import java.net.URL
 import java.nio.file.Paths
 import java.time.Clock
 import java.time.Instant
@@ -445,34 +443,8 @@ class DefaultJwksKeySetProvider(
      * URI the discovery DOCUMENT names, which is only known at fetch time and could differ from
      * (or be redirected away from) the discovery URL's own scheme.
      */
-    private fun validateDiscoveredJwksUri(discoveredUri: String) {
-        val url =
-            try {
-                URL(discoveredUri)
-            } catch (e: MalformedURLException) {
-                throw IllegalArgumentException(
-                    "OIDC discovery for '${config.oidcDiscovery}' returned an invalid jwks_uri '$discoveredUri': ${e.message}"
-                )
-            }
-
-        val scheme = url.protocol?.lowercase()
-        if (scheme == "https") return
-
-        if (scheme == "http" && config.allowInsecureUrl && isLiteralLoopbackHost(url.host)) {
-            logger.warn(
-                "OIDC-discovered jwks_uri '{}' uses plaintext http, permitted because allow_insecure_url=true " +
-                    "and host '{}' is a loopback address. This must only be used for local development/testing.",
-                discoveredUri,
-                url.host
-            )
-            return
-        }
-
-        throw IllegalArgumentException(
-            "OIDC-discovered jwks_uri '$discoveredUri' must use https; plaintext http is permitted only for a " +
-                "loopback host (localhost, 127.x.x.x, ::1) with allow_insecure_url=true."
-        )
-    }
+    private fun validateDiscoveredJwksUri(discoveredUri: String) =
+        requireHttpsOrLoopbackKeySource(discoveredUri, "OIDC-discovered jwks_uri", config.allowInsecureUrl, logger)
 
     private suspend fun httpGet(url: String): String {
         val response = httpClient.get(url)

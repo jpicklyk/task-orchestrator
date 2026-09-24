@@ -283,3 +283,43 @@ internal fun isLiteralLoopbackHost(host: String?): Boolean {
     }
     return false
 }
+
+/**
+ * The key-source URL rule shared by the actor-auth YAML loader and OIDC discovery: an https URL
+ * passes; plaintext http passes only when [allowInsecureUrl] is set AND the host is a literal
+ * loopback address (logged as a WARN); anything else, including a malformed URL, throws
+ * [IllegalArgumentException] naming [label]. REST's `API_JWKS_URL` check keeps its own messages
+ * (env-var opt-in) but shares [isLiteralLoopbackHost].
+ */
+internal fun requireHttpsOrLoopbackKeySource(
+    raw: String,
+    label: String,
+    allowInsecureUrl: Boolean,
+    logger: org.slf4j.Logger,
+) {
+    val url =
+        try {
+            URL(raw)
+        } catch (e: MalformedURLException) {
+            throw IllegalArgumentException("$label '$raw' is not a valid URL: ${e.message}")
+        }
+
+    val scheme = url.protocol?.lowercase()
+    if (scheme == "https") return
+
+    if (scheme == "http" && allowInsecureUrl && isLiteralLoopbackHost(url.host)) {
+        logger.warn(
+            "{} '{}' uses plaintext http, permitted because allow_insecure_url=true and host '{}' is a " +
+                "loopback address. This must only be used for local development/testing.",
+            label,
+            raw,
+            url.host,
+        )
+        return
+    }
+
+    throw IllegalArgumentException(
+        "$label '$raw' must use https; plaintext http is permitted only for a loopback host " +
+            "(localhost, 127.x.x.x, ::1) with allow_insecure_url=true.",
+    )
+}
