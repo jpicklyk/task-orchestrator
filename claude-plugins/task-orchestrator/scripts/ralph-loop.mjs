@@ -316,17 +316,20 @@ while (stats.iterations < cfg.max) {
             break;
         case "idle": {
             // `none_eligible` (transient): matches exist but none is currently claimable.
-            // Back off and retry rather than treating this as a drained queue.
+            // Back off and retry rather than treating this as a drained queue. Count THIS
+            // idle before deciding — the first idle is consecutive idle #1, so
+            // `--idle-budget N` exits on the Nth consecutive idle (budget 0 exits on the
+            // very first), matching `decideIdleBackoff`'s own convention.
             stats.idle++;
+            stats.consecutiveIdle++;
             const decision = decideIdleBackoff({
                 retryAfterMs: outcome.retryAfterMs,
                 consecutiveIdle: stats.consecutiveIdle,
                 idleBudget: cfg.idleBudget,
             });
             if (decision.exit) {
-                stats.exitReason = `idle budget exhausted (${cfg.idleBudget} consecutive none_eligible outcomes)`;
+                stats.exitReason = `idle budget exhausted (${stats.consecutiveIdle} consecutive none_eligible outcomes)`;
             } else {
-                stats.consecutiveIdle++;
                 idleWaitMs = decision.waitMs;
             }
             break;
@@ -660,8 +663,8 @@ Options:
                              (default: ${DEFAULTS.maxContinuations}; 0 disables)
   --idle-budget <n>          Consecutive 'idle' (none_eligible) outcomes
                              tolerated before stopping. Each idle backs off
-                             --retryAfterMs (clamped 1s-300s, 30s default)
-                             from the claim response, then retries.
+                             for the claim result's retryAfterMs (clamped
+                             1s-300s, 30s default), then retries.
                              (default: ${DEFAULTS.idleBudget})
   --dry-run                  Print iteration command and exit
   -h, --help                 Show this message
