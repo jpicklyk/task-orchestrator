@@ -4,6 +4,8 @@ import io.github.jpicklyk.mcptask.current.application.tools.ResponseUtil
 import io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
+import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
+import io.github.jpicklyk.mcptask.current.domain.model.ToolError
 import io.modelcontextprotocol.kotlin.sdk.server.Server
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
 import io.modelcontextprotocol.kotlin.sdk.types.LoggingLevel
@@ -119,6 +121,40 @@ class McpToolAdapter {
                     content = listOf(TextContent(text = summary)),
                     isError = isError,
                     structuredContent = structuredData
+                )
+            } catch (e: PerRootConfigUnavailableException) {
+                // D5: every tool other than advance_item/complete_tree (which handle this
+                // per-transition/per-item themselves and never let it reach this adapter) fails
+                // the WHOLE call through this dedicated catch — isError plus a structured
+                // {kind, code, message} error envelope, so a caller can apply its own backoff
+                // without parsing free text (no retryAfterMs, per the documented ErrorKind rule).
+                val message = "Per-root config unavailable in '${toolDefinition.name}': ${e.message}"
+                logger.warn(message)
+                try {
+                    clientConnection.sendLoggingMessage(
+                        LoggingMessageNotification(
+                            LoggingMessageNotificationParams(
+                                level = LoggingLevel.Warning,
+                                data = JsonPrimitive(message),
+                                logger = "mcp-task-orchestrator.tools"
+                            )
+                        )
+                    )
+                } catch (_: Exception) {
+                }
+                logResponseSize(toolDefinition.name, success = false, responseChars = message.length)
+                // Reuse the same ToolError -> envelope -> structured-payload pipeline normal tool
+                // failures use below, rather than hand-building the {kind, code, message} object —
+                // the wire shape (isError, structuredContent.error.{kind,code,message}, no
+                // retryAfterMs) stays identical.
+                val errorEnvelope =
+                    ResponseUtil.createErrorResponse(
+                        ToolError.transient(code = PerRootConfigUnavailableException.CODE, message = message)
+                    )
+                CallToolResult(
+                    content = listOf(TextContent(text = message)),
+                    isError = true,
+                    structuredContent = ResponseUtil.extractErrorPayload(errorEnvelope)
                 )
             } catch (e: Exception) {
                 val message = "Internal error in '${toolDefinition.name}' (session ${clientConnection.sessionId}): ${e.message}"

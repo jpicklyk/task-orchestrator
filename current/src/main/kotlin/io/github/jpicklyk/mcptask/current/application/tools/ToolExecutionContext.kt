@@ -14,6 +14,7 @@ import io.github.jpicklyk.mcptask.current.application.service.WorkTreeExecutor
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
+import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceMode
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
@@ -536,6 +537,15 @@ class ToolExecutionContext(
      * parameter instead of independently calling the single-facet accessors on
      * [PerRootConfigService] — each of those would otherwise re-invoke [PerRootConfigService.resolve]
      * on its own, costing a redundant fingerprint-read per facet even when the cache is warm.
+     *
+     * Propagates [io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException]
+     * unchanged when [PerRootConfigService.getSnapshot] throws it (a per-root config read failed and
+     * there is no last-known-good entry for [rootId]) — this method, and every resolver in this class
+     * that calls it (including [resolveSchema] and [availableTraits]), does NOT catch it: a config
+     * read failure must surface as a failure, never as "no per-root config, use the global layer".
+     * Callers at an operation boundary (`AdvanceItemTool`, `CompleteTreeTool`, `McpToolAdapter`, the
+     * REST advance/gate routes, etc.) are responsible for catching it and reporting the transient
+     * `config_unavailable` outcome.
      */
     private suspend fun snapshotFor(rootId: UUID?): PerRootConfigService.Snapshot? = rootId?.let { perRootConfigService?.getSnapshot(it) }
 
@@ -702,3 +712,29 @@ data class ResolvedSchema(
     val source: SchemaSource,
     val fingerprint: String?
 )
+
+/**
+ * Runs [block] and, on [PerRootConfigUnavailableException], logs one WARN naming [what] and [id]
+ * and returns null instead of propagating. Shared by the several post-commit "decoration" call
+ * sites (dispatch hints, `schemaMatch`/`expectedNotes`, `availableTraits`, the `itemContext` entry)
+ * where the underlying write already succeeded — per D7, a per-root config read failure resolving a
+ * response-only hint must never be reported as a failure of an already-committed operation. Callers
+ * combine this with `?: continue` where the omission means skipping to the next loop item.
+ */
+internal inline fun <T> omitOnConfigUnavailable(
+    logger: org.slf4j.Logger,
+    what: String,
+    id: Any?,
+    block: () -> T
+): T? =
+    try {
+        block()
+    } catch (e: PerRootConfigUnavailableException) {
+        logger.warn(
+            "Per-root config unavailable resolving {} for {}; omitting from an already-committed operation: {}",
+            what,
+            id,
+            e.message
+        )
+        null
+    }

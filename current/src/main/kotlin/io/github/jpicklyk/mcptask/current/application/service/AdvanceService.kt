@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.application.service
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
+import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceMode
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
@@ -444,7 +445,20 @@ class AdvanceService(
             }
         }
         if (trigger == "reopen" && targetRole == Role.QUEUE) {
-            val reopenEvents = cascadeDetector.detectReopenCascades(appliedItem, workItemRepository, schemaResolver)
+            // Per D7: a per-root config read failure detecting reopen cascades must not fail the
+            // PRIMARY transition (already committed) — no reopen cascades are applied, WARN logged.
+            val reopenEvents =
+                try {
+                    cascadeDetector.detectReopenCascades(appliedItem, workItemRepository, schemaResolver)
+                } catch (e: PerRootConfigUnavailableException) {
+                    logger.warn(
+                        "Per-root config unavailable while detecting reopen cascades from item {}; " +
+                            "no reopen cascades applied: {}",
+                        appliedItem.id,
+                        e.message
+                    )
+                    emptyList()
+                }
             applyCascadeEvents(reopenEvents, "Auto-cascaded from child reopen", cascadeEvents, leaseGateActive)
         }
 
@@ -695,7 +709,23 @@ class AdvanceService(
         var cascadeSource: WorkItem = source
         var depth = 0
         while (depth < MAX_CASCADES) {
-            val events = cascadeDetector.detectCascades(cascadeSource, workItemRepository, schemaResolver)
+            // A per-root config read failure while detecting or gating a cascade must not be
+            // reported as a failure of the PRIMARY transition, which already committed before this
+            // method is ever called (see advance() step 6) — D7: the cascade is simply not applied,
+            // the parent is left unchanged, and a WARN is logged instead. Stop cascading up the tree
+            // rather than guessing whether a deeper ancestor's config would have been readable.
+            val events =
+                try {
+                    cascadeDetector.detectCascades(cascadeSource, workItemRepository, schemaResolver)
+                } catch (e: PerRootConfigUnavailableException) {
+                    logger.warn(
+                        "Per-root config unavailable while detecting terminal cascade from item {}; " +
+                            "cascade not applied, ancestor(s) left unchanged: {}",
+                        cascadeSource.id,
+                        e.message
+                    )
+                    break
+                }
             if (events.isEmpty()) break
 
             // Only the immediate parent cascade (first event) is reliable; deeper events may read
@@ -710,7 +740,18 @@ class AdvanceService(
 
             // Gate check: cascade-to-TERMINAL requires all required notes (like "complete").
             if (event.targetRole == Role.TERMINAL && !isCancelCascade) {
-                val parentSchema = schemaResolver(parentItem)
+                val parentSchema =
+                    try {
+                        schemaResolver(parentItem)
+                    } catch (e: PerRootConfigUnavailableException) {
+                        logger.warn(
+                            "Per-root config unavailable while gating terminal cascade for item {}; " +
+                                "cascade not applied, item left unchanged: {}",
+                            parentItem.id,
+                            e.message
+                        )
+                        break
+                    }
                 if (parentSchema != null) {
                     val parentNotes =
                         when (val nr = noteRepository.findByItemId(parentItem.id)) {
@@ -836,7 +877,21 @@ class AdvanceService(
             // must be filled, exactly as a direct `start` on the parent would require. Runs BEFORE
             // the resource gate so a gate-blocked parent never acquires a lease it cannot use.
             if (enforceNoteGate && event.targetRole == Role.WORK) {
-                val parentSchema = schemaResolver(parentItem)
+                // Per D7: a per-root config read failure while gating this cascade must not fail
+                // the PRIMARY transition (already committed) — skip only this cascade event, parent
+                // left unchanged, WARN logged.
+                val parentSchema =
+                    try {
+                        schemaResolver(parentItem)
+                    } catch (e: PerRootConfigUnavailableException) {
+                        logger.warn(
+                            "Per-root config unavailable while gating start cascade for item {}; " +
+                                "cascade not applied, item left unchanged: {}",
+                            parentItem.id,
+                            e.message
+                        )
+                        continue
+                    }
                 if (parentSchema != null) {
                     val parentNotes =
                         when (val nr = noteRepository.findByItemId(parentItem.id)) {
@@ -870,7 +925,21 @@ class AdvanceService(
 
             // Resource gate for a cascade INTO work: suppress this cascade on contention.
             if (event.targetRole == Role.WORK && leaseGateActive) {
-                val contended = acquireForCascadeIntoWork(parentItem)
+                // Per D7: a per-root config read failure resolving the parent's resource
+                // requirements must not fail the PRIMARY transition (already committed) — skip only
+                // this cascade event, parent left unchanged, WARN logged.
+                val contended =
+                    try {
+                        acquireForCascadeIntoWork(parentItem)
+                    } catch (e: PerRootConfigUnavailableException) {
+                        logger.warn(
+                            "Per-root config unavailable while resolving resource requirements for " +
+                                "start cascade on item {}; cascade not applied, item left unchanged: {}",
+                            parentItem.id,
+                            e.message
+                        )
+                        continue
+                    }
                 if (contended.isNotEmpty()) {
                     out.add(
                         AdvanceCascadeEvent(

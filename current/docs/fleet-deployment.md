@@ -191,6 +191,21 @@ The hook is **fail-open and opt-in** — it no-ops silently (exit 0) unless `TAS
 
 Set these per-workspace (e.g. in `.claude/settings.json`'s `env` block, or the shell environment). Against a bearer/jwks server the token needs only `write-config` for its own root — not `admin` (add `read` if the same token also serves the SubagentStop phase guard below). Against an unauthenticated server, no token is needed at all. Either way the server must have `API_ENABLED=true`. If the API is unreachable or returns an error, the hook logs a one-line note and continues; it never blocks session start.
 
+**Staleness semantics (last-known-good on a read error).** "Hot-reloaded, no restart" above describes
+the happy path — a per-root config read failing with a transient database error is a distinct case
+from "no per-root config for this root." `PerRootConfigService` never falls back to the mounted
+global config on a read error: it serves that root's last-known-good cached config instead, without
+evicting it, and logs a WARN naming the root and the error. Last-known-good has no TTL — the very
+next successful read refreshes it — and is held per service instance, so MCP and each REST route
+maintain their own independent cache. A root this instance has never successfully read before (a
+cold cache, e.g. right after a restart, before any request has resolved that root's config) has
+nothing to serve on a read error and fails closed: `advance_item`/`complete_tree` report a transient
+`config_unavailable` outcome per item, other MCP tools fail the whole call, and the REST `advance`
+and `gate` routes respond `503 config_unavailable` — see [api-reference.md](api-reference.md)'s
+Error Envelope and [api-rest.md](api-rest.md) §6 for the exact shapes. This is orthogonal to
+`config-sync.mjs` above: the hook pushes a NEW config version; last-known-good is what a READ falls
+back to when the DB itself is transiently unreachable.
+
 **HTTP-first policy.** New plugin-side infrastructure features — `config-sync.mjs`, SSE event
 streaming, the `plan-capture.mjs` hook (which stashes an approved plan as a `plan_document` via
 `PUT /roots/{rootId}/plans/{slug}`), and the SubagentStop phase guard below — are built HTTP-only, each fail-opening to a silent no-op when

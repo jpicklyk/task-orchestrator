@@ -9,6 +9,7 @@ import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.NoteSchemaJsonHelpers
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ErrorKind
+import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.ToolError
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
@@ -538,32 +539,41 @@ Call when closing out a finished hierarchy — one atomic call instead of per-it
         resultsList: MutableList<JsonObject>,
         terminalizedByCascade: MutableSet<UUID>
     ): ItemOutcome {
-        val advanceService =
-            AdvanceService(
-                workItemRepository = context.workItemRepository(),
-                roleTransitionRepository = context.roleTransitionRepository(),
-                dependencyRepository = context.dependencyRepository(),
-                noteRepository = context.noteRepository(),
-                statusLabelService = context.rootAwareStatusLabelService(item.rootId, trigger),
-                schemaResolver = { context.resolveSchema(it) },
-                resourceLeaseRepository = context.repositoryProvider.resourceLeaseRepository(),
-                resourceRequirementsResolver = { context.resolveResourceRequirements(it) },
-                resourceRegistryResolver = { context.resolveResourceRegistry(it) },
-                resourceLeasesEnforced = AdvanceService.resourceLeasesEnforcedFromEnv()
-            )
-
+        // Per D5: a per-root config read failure anywhere in this item's pre-commit pipeline
+        // (status label resolution, gate check, review-phase detection) is reported on that ONE
+        // item — skipped=true plus errorKind/errorCode — as a REJECTED outcome, so its in-set
+        // dependents are skipped exactly like any other rejection; the rest of the tree continues.
         val outcome =
-            advanceService.advance(
-                item = item,
-                trigger = trigger,
-                summary = null,
-                actorClaim = actorClaim,
-                verification = verification,
-                degradedModePolicy = context.degradedModePolicy,
-                enforceOwnership = true,
-                credentialRefs = emptyList(),
-                enforceResourceLeases = true
-            )
+            try {
+                val advanceService =
+                    AdvanceService(
+                        workItemRepository = context.workItemRepository(),
+                        roleTransitionRepository = context.roleTransitionRepository(),
+                        dependencyRepository = context.dependencyRepository(),
+                        noteRepository = context.noteRepository(),
+                        statusLabelService = context.rootAwareStatusLabelService(item.rootId, trigger),
+                        schemaResolver = { context.resolveSchema(it) },
+                        resourceLeaseRepository = context.repositoryProvider.resourceLeaseRepository(),
+                        resourceRequirementsResolver = { context.resolveResourceRequirements(it) },
+                        resourceRegistryResolver = { context.resolveResourceRegistry(it) },
+                        resourceLeasesEnforced = AdvanceService.resourceLeasesEnforcedFromEnv()
+                    )
+
+                advanceService.advance(
+                    item = item,
+                    trigger = trigger,
+                    summary = null,
+                    actorClaim = actorClaim,
+                    verification = verification,
+                    degradedModePolicy = context.degradedModePolicy,
+                    enforceOwnership = true,
+                    credentialRefs = emptyList(),
+                    enforceResourceLeases = true
+                )
+            } catch (e: PerRootConfigUnavailableException) {
+                resultsList.add(buildConfigUnavailableResult(item, e))
+                return ItemOutcome.REJECTED
+            }
 
         return when (outcome) {
             is AdvanceOutcome.Success -> {
@@ -739,6 +749,25 @@ Call when closing out a finished hierarchy — one atomic call instead of per-it
                 is AdvanceFailure.ResolutionFailed -> putSkipped(failure.message)
                 is AdvanceFailure.ApplyFailed -> putSkipped(failure.message)
             }
+        }
+
+    /**
+     * Result entry for an item whose per-root config could not be read (D5): `skipped=true` plus
+     * the structured `errorKind`/`errorCode` fields `advance_item` emits for the same condition,
+     * so a caller can distinguish this from an ordinary gate/ownership rejection without parsing
+     * the message.
+     */
+    private fun buildConfigUnavailableResult(
+        item: WorkItem,
+        exception: PerRootConfigUnavailableException
+    ): JsonObject =
+        buildJsonObject {
+            put("itemId", JsonPrimitive(item.id.toString()))
+            put("title", JsonPrimitive(item.title))
+            put("applied", JsonPrimitive(false))
+            putSkipped(exception.message)
+            put("errorKind", JsonPrimitive(ErrorKind.TRANSIENT.toJsonString()))
+            put("errorCode", JsonPrimitive(PerRootConfigUnavailableException.CODE))
         }
 
     /** The legacy non-gate rejection shape: `skipped` + `skippedReason`, plus a plain `error`. */

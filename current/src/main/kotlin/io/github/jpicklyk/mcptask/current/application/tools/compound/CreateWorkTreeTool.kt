@@ -912,7 +912,14 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
         // In attach mode the root was not inserted — use the fetched existing item for the response.
         // In create mode the root is treeResult.items.first().
         val rootResultItem = if (isExistingRoot) rootItem else treeResult.items.first()
-        val rootSchemaFields = buildSchemaResponseFields(context.resolveSchema(rootResultItem))
+        // The tree is ALREADY PERSISTED at this point (step 8 above) — per D7, a per-root config
+        // read failure resolving this response-only decoration must never be reported as a failure
+        // of the already-committed create. schemaMatch/expectedNotes are simply omitted and a WARN
+        // is logged.
+        val rootSchemaFields =
+            omitOnConfigUnavailable(logger, "schema", rootResultItem.id) {
+                buildSchemaResponseFields(context.resolveSchema(rootResultItem))
+            }
         val rootJson =
             buildJsonObject {
                 put("id", JsonPrimitive(rootResultItem.id.toString()))
@@ -920,8 +927,10 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
                 put("role", JsonPrimitive(rootResultItem.role.toJsonString()))
                 put("depth", JsonPrimitive(rootResultItem.depth))
                 rootResultItem.tags?.let { put("tags", JsonPrimitive(it)) }
-                put("schemaMatch", JsonPrimitive(rootSchemaFields.schemaMatch))
-                put("expectedNotes", rootSchemaFields.expectedNotes)
+                if (rootSchemaFields != null) {
+                    put("schemaMatch", JsonPrimitive(rootSchemaFields.schemaMatch))
+                    put("expectedNotes", rootSchemaFields.expectedNotes)
+                }
             }
 
         // In attach mode treeResult.items contains only children.
@@ -931,7 +940,10 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
             JsonArray(
                 childItems.map { item ->
                     val ref = idToRef[item.id] ?: "unknown"
-                    val childSchemaFields = buildSchemaResponseFields(context.resolveSchema(item))
+                    val childSchemaFields =
+                        omitOnConfigUnavailable(logger, "schema", item.id) {
+                            buildSchemaResponseFields(context.resolveSchema(item))
+                        }
                     buildJsonObject {
                         put("ref", JsonPrimitive(ref))
                         put("id", JsonPrimitive(item.id.toString()))
@@ -939,8 +951,10 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
                         put("role", JsonPrimitive(item.role.toJsonString()))
                         put("depth", JsonPrimitive(item.depth))
                         item.tags?.let { put("tags", JsonPrimitive(it)) }
-                        put("schemaMatch", JsonPrimitive(childSchemaFields.schemaMatch))
-                        put("expectedNotes", childSchemaFields.expectedNotes)
+                        if (childSchemaFields != null) {
+                            put("schemaMatch", JsonPrimitive(childSchemaFields.schemaMatch))
+                            put("expectedNotes", childSchemaFields.expectedNotes)
+                        }
                     }
                 }
             )

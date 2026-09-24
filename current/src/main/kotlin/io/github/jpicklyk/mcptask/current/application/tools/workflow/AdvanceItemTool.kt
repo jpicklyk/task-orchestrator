@@ -9,6 +9,7 @@ import io.github.jpicklyk.mcptask.current.application.service.buildExpectedNotes
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.model.ErrorKind
+import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.ToolError
 import io.github.jpicklyk.mcptask.current.domain.model.UserTrigger
@@ -459,36 +460,59 @@ Call to move an item between phases once its work is done — never edit status 
             // with its own per-root status_labels override (see
             // ToolExecutionContext.rootAwareStatusLabelService).
             // MCP enforces claim ownership (enforceOwnership = true); the REST route passes false.
-            val advanceService =
-                AdvanceService(
-                    workItemRepository = context.workItemRepository(),
-                    roleTransitionRepository = context.roleTransitionRepository(),
-                    dependencyRepository = context.dependencyRepository(),
-                    noteRepository = context.noteRepository(),
-                    statusLabelService = context.rootAwareStatusLabelService(item.rootId, trigger),
-                    schemaResolver = { context.resolveSchema(it) },
-                    resourceLeaseRepository = context.repositoryProvider.resourceLeaseRepository(),
-                    resourceRequirementsResolver = { context.resolveResourceRequirements(it) },
-                    resourceRegistryResolver = { context.resolveResourceRegistry(it) },
-                    resourceLeasesEnforced = AdvanceService.resourceLeasesEnforcedFromEnv()
-                )
-
-            // Delegate the full pipeline to the per-item AdvanceService above.
-            // MCP ALWAYS enforces resource leases — there is no tool-level override. An operator
-            // who must bypass a lease uses the ADMIN-gated REST surface (an `overrideResourceLeases`
-            // advance, or DELETE /api/v1/resources/leases/{key}), both of which are logged at WARN.
+            // A per-root config read failure anywhere in the pre-commit pipeline below (status
+            // label resolution, gate check, review-phase detection) must fail ONLY this transition
+            // with a transient config_unavailable outcome — the batch continues with the rest (D5).
+            // Nothing has been persisted for this transition at this point, so there is no
+            // committed-write-reported-as-failed risk here (contrast the post-commit dispatch
+            // decoration below, which is handled separately per D7).
             val outcome =
-                advanceService.advance(
-                    item = item,
-                    trigger = trigger,
-                    summary = summary,
-                    actorClaim = actorClaim,
-                    verification = verification,
-                    degradedModePolicy = context.degradedModePolicy,
-                    enforceOwnership = true,
-                    credentialRefs = credentialRefs,
-                    enforceResourceLeases = true
-                )
+                try {
+                    val advanceService =
+                        AdvanceService(
+                            workItemRepository = context.workItemRepository(),
+                            roleTransitionRepository = context.roleTransitionRepository(),
+                            dependencyRepository = context.dependencyRepository(),
+                            noteRepository = context.noteRepository(),
+                            statusLabelService = context.rootAwareStatusLabelService(item.rootId, trigger),
+                            schemaResolver = { context.resolveSchema(it) },
+                            resourceLeaseRepository = context.repositoryProvider.resourceLeaseRepository(),
+                            resourceRequirementsResolver = { context.resolveResourceRequirements(it) },
+                            resourceRegistryResolver = { context.resolveResourceRegistry(it) },
+                            resourceLeasesEnforced = AdvanceService.resourceLeasesEnforcedFromEnv()
+                        )
+
+                    // Delegate the full pipeline to the per-item AdvanceService above.
+                    // MCP ALWAYS enforces resource leases — there is no tool-level override. An
+                    // operator who must bypass a lease uses the ADMIN-gated REST surface (an
+                    // `overrideResourceLeases` advance, or DELETE /api/v1/resources/leases/{key}),
+                    // both of which are logged at WARN.
+                    advanceService.advance(
+                        item = item,
+                        trigger = trigger,
+                        summary = summary,
+                        actorClaim = actorClaim,
+                        verification = verification,
+                        degradedModePolicy = context.degradedModePolicy,
+                        enforceOwnership = true,
+                        credentialRefs = credentialRefs,
+                        enforceResourceLeases = true
+                    )
+                } catch (e: PerRootConfigUnavailableException) {
+                    failCount++
+                    resultsList.add(
+                        buildStructuredErrorResult(
+                            itemId,
+                            trigger,
+                            ToolError(
+                                kind = ErrorKind.TRANSIENT,
+                                code = PerRootConfigUnavailableException.CODE,
+                                message = e.message
+                            )
+                        )
+                    )
+                    continue
+                }
 
             val advanceResult =
                 when (outcome) {
@@ -549,7 +573,17 @@ Call to move an item between phases once its work is done — never edit status 
             // ToolExecutionContext.resolveDispatchProfile's KDoc for why AdvanceItemToolTest.kt:2119
             // needs this). Independent of the expectedNotes/gate machinery below, so it's computed
             // whether resolvedSchema is null or not — a trait-less item simply resolves to null.
-            val dispatchProfile = context.resolveDispatchProfile(item, targetRole, resolvedSchema)
+            //
+            // This transition ALREADY COMMITTED above — per D7, a per-root config read failure here
+            // must never be reported as a failure of the (already-applied) transition. The dispatch
+            // hint is simply omitted (null) and a WARN is logged.
+            // resolveDispatchProfile is itself nullable in the ordinary (trait-less) case, which the
+            // shared helper's null-on-unavailable return is indistinguishable from — but both paths
+            // resolve to the same `null` dispatch hint here, so collapsing them is correct.
+            val dispatchProfile =
+                omitOnConfigUnavailable(logger, "dispatch profile", itemId) {
+                    context.resolveDispatchProfile(item, targetRole, resolvedSchema)
+                }
 
             if (resolvedSchema == null) {
                 expectedNotesJson = JsonArray(emptyList())

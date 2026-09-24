@@ -2,11 +2,13 @@ package io.github.jpicklyk.mcptask.current.infrastructure.config
 
 import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
+import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository
+import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import org.slf4j.LoggerFactory
 import org.yaml.snakeyaml.LoaderOptions
@@ -45,9 +47,26 @@ import java.util.concurrent.ConcurrentHashMap
  *
  * ## Failure handling
  *
- * Parse failures (malformed YAML) are logged as warnings and treated as "no per-root config" —
- * [resolve] returns null, callers fall through to the global `.taskorchestrator/config.yaml`
- * loader. This class never throws on a read.
+ * Two distinct failure modes are handled differently, and the difference is load-bearing:
+ *
+ *  - **Absence.** The repository read succeeds and reports "no row for this root" (a fingerprint
+ *    or row of `null`), or the stored YAML fails to parse (malformed document). Both are logged
+ *    (parse failures as a warning) and treated as "no per-root config" — [resolve] evicts any
+ *    cached entry and returns null, and callers fall through to the global
+ *    `.taskorchestrator/config.yaml` loader. This is unchanged from before per-root error handling
+ *    existed, and is NOT cached as a negative result — a cold or config-less root re-checks on
+ *    every call.
+ *  - **Read failure.** The repository read itself fails (`Result.Error`, e.g. a transient database
+ *    error) — this is NOT the same as absence and must never be treated as "no per-root config".
+ *    [resolve] logs a WARN naming the root and the error, and serves the last-known-good (LKG)
+ *    cached parse for that root, if one exists, WITHOUT evicting it (an error can never evict —
+ *    only a confirmed absence or a fresher fingerprint can replace an LKG entry). The LKG entry has
+ *    no TTL; the next successful read refreshes it via the normal fingerprint-comparison path. When
+ *    there is no LKG entry to serve (a cold cache, e.g. this process's first read for this root),
+ *    [resolve] throws [PerRootConfigUnavailableException] — this class does NOT silently fall back
+ *    to the global layer on a read failure. Every public accessor on this class propagates that
+ *    exception unchanged; callers that need to translate it into a specific tool/HTTP outcome catch
+ *    it at their own boundary.
  */
 class PerRootConfigService(
     private val repository: ProjectConfigRepository
@@ -86,8 +105,9 @@ class PerRootConfigService(
     /**
      * Returns a [Snapshot] of every per-root config facet for [rootItemId] from a SINGLE [resolve]
      * pass, or null under the same conditions as every other accessor on this class: no config row
-     * for [rootItemId], or the stored YAML fails to parse (see class doc — failures fall through to
-     * the global loader rather than throwing).
+     * for [rootItemId], or the stored YAML fails to parse (both fall through to the global layer).
+     * A repository READ error is different: it serves the last-known-good entry, or throws
+     * [PerRootConfigUnavailableException] when none is cached — it never falls through.
      */
     suspend fun getSnapshot(rootItemId: UUID): Snapshot? {
         val parsed = resolve(rootItemId) ?: return null
@@ -124,7 +144,8 @@ class PerRootConfigService(
 
     /**
      * Returns the cached config fingerprint for [rootItemId], or null when no config row exists or
-     * it fails to parse. Goes through [resolve]'s normal fingerprint-check hot-reload path first
+     * it fails to parse; a read error serves the last-known-good fingerprint or throws
+     * [PerRootConfigUnavailableException]. Goes through [resolve]'s normal fingerprint-check hot-reload path first
      * (so this never returns a stale fingerprint after a concurrent push) — callers needing to
      * report which config version supplied a resolved schema (e.g. `query_items`'s `schema`
      * operation) should call this immediately after a [getSchemaForType]/[getSchemas] lookup that
@@ -158,14 +179,21 @@ class PerRootConfigService(
     /**
      * Returns the parsed config for [rootItemId], reusing the cached parse when the DB
      * fingerprint hasn't changed since it was cached. Returns null when there is no config row
-     * for this root, or the stored YAML fails to parse (see class doc — failures fall through to
-     * the global loader rather than throwing).
+     * for this root, or the stored YAML fails to parse (see class doc — both are absence, and fall
+     * through to the global loader). Serves the last-known-good cached parse, without evicting it,
+     * when the repository read itself fails — and throws [PerRootConfigUnavailableException] if
+     * there is no cached parse to serve in that case (see class doc "Failure handling").
      */
     private suspend fun resolve(rootItemId: UUID): YamlSchemaParser.ParsedConfig? {
-        val currentFingerprint = (repository.getFingerprint(rootItemId) as? Result.Success)?.data
+        val fingerprintResult = repository.getFingerprint(rootItemId)
+        val currentFingerprint =
+            when (fingerprintResult) {
+                is Result.Success -> fingerprintResult.data
+                is Result.Error -> return lastKnownGoodOrThrow(rootItemId, fingerprintResult.error)
+            }
         if (currentFingerprint == null) {
-            // No config row for this root (or the fingerprint read failed) — drop any stale
-            // cache entry (e.g. the row was deleted since we last cached it) and report "no config".
+            // No config row for this root — drop any stale cache entry (e.g. the row was deleted
+            // since we last cached it) and report "no config".
             cache.remove(rootItemId)
             return null
         }
@@ -174,7 +202,12 @@ class PerRootConfigService(
             if (cached.fingerprint == currentFingerprint) return cached.parsed
         }
 
-        val stored = (repository.get(rootItemId) as? Result.Success)?.data
+        val rowResult = repository.get(rootItemId)
+        val stored =
+            when (rowResult) {
+                is Result.Success -> rowResult.data
+                is Result.Error -> return lastKnownGoodOrThrow(rootItemId, rowResult.error)
+            }
         if (stored == null) {
             cache.remove(rootItemId)
             return null
@@ -188,6 +221,29 @@ class PerRootConfigService(
 
         cache[rootItemId] = CacheEntry(stored.fingerprint, parsed)
         return parsed
+    }
+
+    /**
+     * Handles a [Result.Error] from either read in [resolve]: logs a WARN naming [rootItemId] and
+     * [error], and serves the last-known-good cached parse for that root WITHOUT evicting it — an
+     * error must never evict a cache entry, only a confirmed absence or a fresher fingerprint can.
+     * Throws [PerRootConfigUnavailableException] when there is no cached entry to serve (a cold
+     * cache), since silently falling back to "no per-root config" would let the global layer's
+     * gates/traits/leases apply where this root's config should have governed instead.
+     */
+    private fun lastKnownGoodOrThrow(
+        rootItemId: UUID,
+        error: RepositoryError
+    ): YamlSchemaParser.ParsedConfig? {
+        logger.warn("Per-root config read failed for root {}: {}", rootItemId, error)
+        cache[rootItemId]?.let { return it.parsed }
+        // The full repository error (which may carry SQL/driver text) stays in the server log above;
+        // the exception message reaches MCP and REST clients, so it names only the root.
+        throw PerRootConfigUnavailableException(
+            rootItemId,
+            "Per-root config for root $rootItemId is temporarily unavailable (read failed; no last-known-good config cached)",
+            (error as? RepositoryError.DatabaseError)?.cause
+        )
     }
 
     /**
