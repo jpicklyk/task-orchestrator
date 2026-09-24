@@ -71,7 +71,7 @@ Hooks fire automatically — no invocation needed after installation.
 
 **Event:** `PostToolUse` on `advance_item` — fires after every `advance_item` call, in the main session and inside subagents.
 
-**What it does:** Acts only when the hook input carries `agent_id` (i.e. it fired inside a subagent call) and only when `TASK_ORCHESTRATOR_API_URL` is set. Parses the `advance_item` response and records the itemIds the subagent just entered its own phase for (results with no `errorCode` and a full UUID) into a per-(session, agent) state file under `os.tmpdir()/task-orchestrator/phase-guard-<key>.json`.
+**What it does:** Acts only when the hook input carries `agent_id` (i.e. it fired inside a subagent call) and only when `TASK_ORCHESTRATOR_API_URL` is set. Parses the `advance_item` response and records the itemIds the subagent just entered its own phase for — a full UUID with either `applied === true` or `errorCode === "gate_blocked"` (the "already in phase" case) — into a per-(session, agent) state file under `os.tmpdir()/task-orchestrator/phase-guard-<key>.json`. Every other structured failure (`not_claim_holder`, `resource_unavailable`, `dependency_blocked`, `item_not_found`, etc.) means the transition never touched the item and is not recorded.
 
 **Effect:** Feeds the SubagentStop guard below the list of items to re-check when this subagent tries to stop. Fail-open: no `agent_id`, no REST API configured, or any read/parse error → silent `{}` on stdout, exit 0 — this hook never blocks `advance_item` itself.
 

@@ -20,6 +20,7 @@ import {
     updateSpend,
     decideContinuation,
     buildResumeArgs,
+    decideIdleBackoff,
 } from "./ralph-lib.mjs";
 
 const execAsync = promisify(exec);
@@ -44,6 +45,7 @@ const DEFAULTS = {
     ttl: 1800, // seconds (30 min)
     model: "sonnet",
     maxContinuations: 2, // resume attempts for a marker-less clean exit; 0 disables
+    idleBudget: 3, // consecutive `idle` (none_eligible) outcomes tolerated before exiting
 };
 
 // ── CLI parsing ────────────────────────────────────────────────────────────
@@ -61,6 +63,7 @@ const { values } = parseArgs({
         "cleanup-on-terminal": { type: "boolean", default: true },
         "no-cleanup": { type: "boolean", default: false },
         "max-continuations": { type: "string", default: String(DEFAULTS.maxContinuations) },
+        "idle-budget": { type: "string", default: String(DEFAULTS.idleBudget) },
         "dry-run": { type: "boolean", default: false },
         help: { type: "boolean", default: false, short: "h" },
     },
@@ -84,6 +87,7 @@ const cfg = {
     // --no-cleanup overrides --cleanup-on-terminal (compatibility with both forms)
     cleanupOnTerminal: values["no-cleanup"] ? false : values["cleanup-on-terminal"],
     maxContinuations: parseIntStrict(values["max-continuations"], "max-continuations"),
+    idleBudget: parseIntStrict(values["idle-budget"], "idle-budget"),
     dryRun: values["dry-run"],
 };
 
@@ -143,9 +147,11 @@ const stats = {
     errored: 0,
     skipped: 0,
     noItem: 0,
+    idle: 0,
     continued: 0, // iterations that needed >=1 resume continuation before their final outcome
     consecutiveGateFailures: 0,
     consecutiveErrors: 0,
+    consecutiveIdle: 0,
     exitReason: null,
     outcomes: [],
 };
@@ -280,21 +286,25 @@ while (stats.iterations < cfg.max) {
     stats.outcomes[stats.outcomes.length - 1].worktree = worktreeName;
 
     // Update counters based on outcome
+    let idleWaitMs = 0;
     switch (outcome.status) {
         case "terminal":
             stats.terminal++;
             stats.consecutiveGateFailures = 0;
             stats.consecutiveErrors = 0;
+            stats.consecutiveIdle = 0;
             break;
         case "gate-blocked":
             stats.gateBlocked++;
             stats.consecutiveGateFailures++;
             stats.consecutiveErrors = 0;
+            stats.consecutiveIdle = 0;
             break;
         case "error":
             stats.errored++;
             stats.consecutiveErrors++;
             stats.consecutiveGateFailures = 0;
+            stats.consecutiveIdle = 0;
             break;
         case "skip":
             stats.skipped++;
@@ -304,6 +314,23 @@ while (stats.iterations < cfg.max) {
             stats.noItem++;
             stats.exitReason = "queue empty (no claimable items match filter)";
             break;
+        case "idle": {
+            // `none_eligible` (transient): matches exist but none is currently claimable.
+            // Back off and retry rather than treating this as a drained queue.
+            stats.idle++;
+            const decision = decideIdleBackoff({
+                retryAfterMs: outcome.retryAfterMs,
+                consecutiveIdle: stats.consecutiveIdle,
+                idleBudget: cfg.idleBudget,
+            });
+            if (decision.exit) {
+                stats.exitReason = `idle budget exhausted (${cfg.idleBudget} consecutive none_eligible outcomes)`;
+            } else {
+                stats.consecutiveIdle++;
+                idleWaitMs = decision.waitMs;
+            }
+            break;
+        }
     }
 
     console.log(formatIterEnd(iterIndex, outcome));
@@ -328,6 +355,10 @@ while (stats.iterations < cfg.max) {
     if (stats.consecutiveErrors >= cfg.errorBudget) {
         stats.exitReason = `error budget exhausted (${cfg.errorBudget} consecutive)`;
         break;
+    }
+    if (idleWaitMs > 0) {
+        console.log(`  ↳ idle (none_eligible): backing off ${idleWaitMs}ms before retrying`);
+        await new Promise((r) => setTimeout(r, idleWaitMs));
     }
 }
 
@@ -541,6 +572,7 @@ function formatIterEnd(i, outcome) {
         "gate-blocked": "⊘",
         error: "✗",
         skip: "—",
+        idle: "…",
         "no-item": "◯",
     };
     const itemRef = outcome.itemId ? ` [${outcome.itemId.slice(0, 8)}]` : "";
@@ -566,6 +598,7 @@ function formatSummary(stats) {
         `    ⊘ ${stats.gateBlocked} gate-blocked`,
         `    ✗ ${stats.errored} errored`,
         `    — ${stats.skipped} skipped`,
+        `    … ${stats.idle} idle`,
         `    ◯ ${stats.noItem} no-item`,
     ];
     if (stats.gateBlocked > 0 || stats.errored > 0) {
@@ -625,6 +658,11 @@ Options:
                              resuming once the cap is hit or remaining
                              per-iteration budget drops below $0.25.
                              (default: ${DEFAULTS.maxContinuations}; 0 disables)
+  --idle-budget <n>          Consecutive 'idle' (none_eligible) outcomes
+                             tolerated before stopping. Each idle backs off
+                             --retryAfterMs (clamped 1s-300s, 30s default)
+                             from the claim response, then retries.
+                             (default: ${DEFAULTS.idleBudget})
   --dry-run                  Print iteration command and exit
   -h, --help                 Show this message
 
@@ -648,7 +686,11 @@ Outcomes (signaled by RALPH_OUTCOME marker in iteration agent stdout):
   skip           Already-terminal, claim contention, resource-lease contention
                  (advance_item errorCode=resource_unavailable -- claim released,
                  iteration moves to a different item), or filter mismatch
-  no-item        No claimable items match filter -- queue drained
+  idle           claim_item selector returned none_eligible (transient) -- matches
+                 exist but all are claimed, ancestor-claimed, or dependency-blocked.
+                 Loop backs off and retries; --idle-budget consecutive idles exits.
+  no-item        claim_item selector returned queue_empty (permanent) -- nothing
+                 matches the filter at all; queue drained
 
 Compose with /loop for autonomous cadence:
   /loop 30m node claude-plugins/task-orchestrator/scripts/ralph-loop.mjs --filter "tag=bug-fix"

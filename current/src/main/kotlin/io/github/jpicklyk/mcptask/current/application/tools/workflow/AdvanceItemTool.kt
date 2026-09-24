@@ -376,6 +376,8 @@ Call to move an item between phases once its work is done — never edit status 
                         put("itemId", JsonPrimitive(itemIdStr))
                         put("applied", JsonPrimitive(false))
                         put("error", JsonPrimitive("Failed to resolve item ID: $itemIdStr"))
+                        put("errorCode", JsonPrimitive(ITEM_NOT_FOUND))
+                        put("errorKind", JsonPrimitive(ErrorKind.PERMANENT.toJsonString()))
                     }
                 )
                 continue
@@ -401,6 +403,8 @@ Call to move an item between phases once its work is done — never edit status 
                                 "Unknown trigger '$triggerStr'. Valid triggers: $validTriggers"
                             )
                         )
+                        put("errorCode", JsonPrimitive(INVALID_TRIGGER))
+                        put("errorKind", JsonPrimitive(ErrorKind.PERMANENT.toJsonString()))
                     }
                 )
                 continue
@@ -432,7 +436,15 @@ Call to move an item between phases once its work is done — never edit status 
                     is ActorParseResult.Absent -> null
                     is ActorParseResult.Invalid -> {
                         failCount++
-                        resultsList.add(buildErrorResult(itemId, trigger, actorResult.error))
+                        resultsList.add(
+                            buildErrorResult(
+                                itemId,
+                                trigger,
+                                actorResult.error,
+                                errorCode = INVALID_ACTOR,
+                                errorKind = ErrorKind.PERMANENT
+                            )
+                        )
                         continue
                     }
                 }
@@ -449,7 +461,15 @@ Call to move an item between phases once its work is done — never edit status 
                     is Result.Success -> itemResult.data
                     is Result.Error -> {
                         failCount++
-                        resultsList.add(buildErrorResult(itemId, trigger, "WorkItem not found: $itemId"))
+                        resultsList.add(
+                            buildErrorResult(
+                                itemId,
+                                trigger,
+                                "WorkItem not found: $itemId",
+                                errorCode = ITEM_NOT_FOUND,
+                                errorKind = ErrorKind.PERMANENT
+                            )
+                        )
                         continue
                     }
                 }
@@ -721,9 +741,9 @@ Call to move an item between phases once its work is done — never edit status 
                     contendedResources = failure.contendedResources
                 )
             is AdvanceFailure.ResolutionFailed ->
-                buildErrorResult(itemId, trigger, failure.message)
+                buildErrorResult(itemId, trigger, failure.message, errorCode = INVALID_TRANSITION, errorKind = ErrorKind.PERMANENT)
             is AdvanceFailure.ApplyFailed ->
-                buildErrorResult(itemId, trigger, failure.message)
+                buildErrorResult(itemId, trigger, failure.message, errorCode = APPLY_FAILED, errorKind = ErrorKind.TRANSIENT)
             is AdvanceFailure.ValidationFailed -> {
                 val blockersJson =
                     if (failure.blockers.isNotEmpty()) {
@@ -739,23 +759,40 @@ Call to move an item between phases once its work is done — never edit status 
                     } else {
                         null
                     }
-                buildErrorResult(itemId, trigger, failure.message, blockers = blockersJson)
+                val (code, kind) =
+                    if (failure.blockers.isNotEmpty()) {
+                        DEPENDENCY_BLOCKED to ErrorKind.PERMANENT
+                    } else {
+                        VALIDATION_FAILED to ErrorKind.PERMANENT
+                    }
+                buildErrorResult(itemId, trigger, failure.message, errorCode = code, errorKind = kind, blockers = blockersJson)
             }
             is AdvanceFailure.GateBlocked ->
                 buildErrorResult(
                     itemId,
                     trigger,
                     failure.message,
+                    errorCode = GATE_BLOCKED,
+                    errorKind = ErrorKind.PERMANENT,
                     missingNotes = NoteSchemaJsonHelpers.buildMissingNotesArray(failure.missingNotes),
                     previousRole = failure.previousRole,
                     targetRole = failure.targetRole
                 )
         }
 
+    /**
+     * Builds a per-transition failure result for an `applied:false` outcome, always including
+     * [errorCode] + [errorKind] alongside the legacy `error` string (and, where applicable,
+     * `blockers`/`missingNotes`/`previousRole`/`targetRole`) — every failure path in this tool
+     * carries a code so `subagent-start.mjs` and other hooks can branch on the code's presence
+     * rather than inferring "already in phase" from a codeless `applied:false`.
+     */
     private fun buildErrorResult(
         itemId: UUID,
         trigger: String,
         error: String,
+        errorCode: String,
+        errorKind: ErrorKind,
         blockers: JsonArray? = null,
         missingNotes: JsonArray? = null,
         previousRole: Role? = null,
@@ -766,6 +803,8 @@ Call to move an item between phases once its work is done — never edit status 
             put("trigger", JsonPrimitive(trigger))
             put("applied", JsonPrimitive(false))
             put("error", JsonPrimitive(error))
+            put("errorCode", JsonPrimitive(errorCode))
+            put("errorKind", JsonPrimitive(errorKind.toJsonString()))
             if (blockers != null) {
                 put("blockers", blockers)
             }
@@ -805,4 +844,30 @@ Call to move an item between phases once its work is done — never edit status 
                 put("contendedResources", JsonArray(contendedResources.map { JsonPrimitive(it) }))
             }
         }
+
+    companion object {
+        /** Item id in `transitions[].itemId` did not resolve to a full UUID or a known hex prefix. */
+        const val ITEM_NOT_FOUND = "item_not_found"
+
+        /** `transitions[].trigger` is not a recognized [UserTrigger] value. */
+        const val INVALID_TRIGGER = "invalid_trigger"
+
+        /** `transitions[].actor` failed to parse (see [ActorParseResult.Invalid]). */
+        const val INVALID_ACTOR = "invalid_actor"
+
+        /** [AdvanceFailure.GateBlocked] — required notes for the current phase are unfilled. */
+        const val GATE_BLOCKED = "gate_blocked"
+
+        /** [AdvanceFailure.ValidationFailed] with a non-empty `blockers` list. */
+        const val DEPENDENCY_BLOCKED = "dependency_blocked"
+
+        /** [AdvanceFailure.ValidationFailed] with no `blockers` (e.g. a `credentialRefs` rule). */
+        const val VALIDATION_FAILED = "validation_failed"
+
+        /** [AdvanceFailure.ResolutionFailed] — the trigger has no transition from the item's current role. */
+        const val INVALID_TRANSITION = "invalid_transition"
+
+        /** [AdvanceFailure.ApplyFailed] — the transition was valid but the DB write failed. */
+        const val APPLY_FAILED = "apply_failed"
+    }
 }

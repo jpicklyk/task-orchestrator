@@ -1289,6 +1289,8 @@ All cascade types are recorded in `cascadeEvents`.
       "trigger": "start",
       "applied": false,
       "error": "Gate check failed: required notes not filled for queue phase: requirements",
+      "errorCode": "dependency_blocked",
+      "errorKind": "permanent",
       "blockers": [
         { "fromItemId": "uuid-blocker", "currentRole": "queue", "requiredRole": "terminal" }
       ]
@@ -1300,6 +1302,8 @@ All cascade types are recorded in `cascadeEvents`.
 
 `blockers` is only present when the transition failed due to dependency constraints. `error` contains a human-readable description of why the transition was rejected. Note that (unlike success results) `trigger` **is** present on failed results, while `previousRole`, `newRole`, and `expectedNotes` are absent.
 
+**Every failure carries `errorCode` + `errorKind`.** Every `applied: false` result — not only ownership/policy/resource-lease rejections — includes these two fields, so a caller (or a hook such as `subagent-start.mjs`) can branch on the code without inferring meaning from field absence. Per-transition codes: `gate_blocked` (permanent), `dependency_blocked` (permanent, `blockers` present), `validation_failed` (permanent, e.g. a `credentialRefs` rule with no `blockers`), `invalid_transition` (permanent — no transition exists for the trigger from the item's current role), `apply_failed` (transient — the transition was valid but the write failed), `item_not_found` (permanent — the item id did not resolve, or a resolved id's row does not exist), `invalid_trigger` (permanent — unrecognized trigger string), `invalid_actor` (permanent — the `actor` object failed to parse). `not_claim_holder`, `rejected_by_policy`, and `resource_unavailable` are documented separately below.
+
 **Gate-blocked failure.** When the gate itself rejects the transition (missing required notes), the result includes a `missingNotes` array instead of `blockers`, plus `previousRole` and `targetRole` naming the blocked transition (the phase the item was in when the gate fired, and the phase it would have moved to). Each `missingNotes` entry carries the **full** guidance text — this and `manage_notes(upsert)`'s `itemContext.guidancePointer` are the only two places full guidance text is returned directly (everywhere else you get a `guidanceKey`/`skillPointer` reference and resolve via `query_items(operation="schema")`):
 
 ```json
@@ -1310,6 +1314,8 @@ All cascade types are recorded in `cascadeEvents`.
       "trigger": "start",
       "applied": false,
       "error": "Gate check failed: required notes not filled for queue phase: feature-summary",
+      "errorCode": "gate_blocked",
+      "errorKind": "permanent",
       "missingNotes": [
         { "key": "feature-summary", "description": "...", "guidance": "...", "skill": "spec-quality" }
       ],
@@ -1321,7 +1327,7 @@ All cascade types are recorded in `cascadeEvents`.
 }
 ```
 
-`guidance` and `skill` are omitted per-entry when unset. `previousRole`/`targetRole` are present only on gate-blocked failures — other failure shapes (dependency `blockers`, ownership/policy rejection, resource-lease contention) do not carry them.
+`guidance` and `skill` are omitted per-entry when unset. `previousRole`/`targetRole` are present only on gate-blocked failures — other failure shapes (dependency `blockers`, ownership/policy rejection, resource-lease contention) do not carry them. A hook such as `subagent-start.mjs` distinguishes "item already in your phase" from every other failure via `errorCode === "gate_blocked"` combined with `previousRole` equal to the caller's own phase — never via the mere absence of `errorCode`, since every failure now has one.
 
 **Ownership / policy rejection.** When a transition is rejected because another agent holds a live claim, or by `degradedModePolicy=reject`, the failed result carries structured fields alongside `error`: `errorKind`, `errorCode` (`not_claim_holder` or `rejected_by_policy`), and — for ownership rejections — `contendedItemId`.
 
@@ -1824,7 +1830,8 @@ The selector filter shape is identical to the `get_next_item` filter parameters 
 | Outcome | Meaning |
 |---|---|
 | `success` | Claim placed or TTL refreshed. Response includes own claim metadata. Selector claims also include `selectorResolved: true`. |
-| `no_match` | Selector found no eligible items; `kind=permanent`, `code="no_match"`. No claim attempted, no `retryAfterMs`, no `itemId`. |
+| `queue_empty` | Selector matched nothing at all; `kind=permanent`, `code="queue_empty"`. No claim attempted, no `retryAfterMs`, no `itemId`, no `excluded`. |
+| `none_eligible` | Selector matched items, but every match is excluded by claim or dependency state; `kind=transient`, `code="none_eligible"`. Response includes `retryAfterMs` (fixed 30000) and an aggregate `excluded` breakdown (`claimed`, `ancestorClaimed`, `dependencyBlocked` — counts only, never item or agent identities). No `itemId`. |
 | `already_claimed` | Another agent holds a live claim. Response includes `retryAfterMs` (no competing agent identity). |
 | `not_found` | No item with that ID. |
 | `terminal_item` | Item is in TERMINAL role; cannot be claimed. |
@@ -1891,15 +1898,15 @@ Selector mode resolves a filter+rank query and claims the top match in a single 
 }
 ```
 
-**Response (no eligible items match the selector):**
+**Response (queue genuinely empty for the selector):**
 
 ```json
 {
   "claimResults": [
     {
-      "outcome": "no_match",
+      "outcome": "queue_empty",
       "kind": "permanent",
-      "code": "no_match",
+      "code": "queue_empty",
       "claimRef": "worker-7-round-42"
     }
   ],
@@ -1907,7 +1914,27 @@ Selector mode resolves a filter+rank query and claims the top match in a single 
 }
 ```
 
-`no_match` means the queue is genuinely empty for the given filters at this moment. `kind=permanent` signals there is no point retrying with the same filters immediately — the condition will only change when new items enter the queue.
+`queue_empty` means nothing matches the selector's filters at all. `kind=permanent` signals there is no point retrying with the same filters immediately — the condition will only change when new items enter the queue.
+
+**Response (matches exist, but none is currently claimable):**
+
+```json
+{
+  "claimResults": [
+    {
+      "outcome": "none_eligible",
+      "kind": "transient",
+      "code": "none_eligible",
+      "retryAfterMs": 30000,
+      "excluded": { "claimed": 1, "ancestorClaimed": 0, "dependencyBlocked": 1 },
+      "claimRef": "worker-7-round-42"
+    }
+  ],
+  "releaseResults": []
+}
+```
+
+`none_eligible` means the selector's filters DID match items, but every match is currently excluded — by an active item-level claim, a claimed ancestor, or an unmet dependency. `kind=transient` signals the condition is expected to change soon (a claim expiring, a dependency clearing); retry after `retryAfterMs`. `excluded` is an aggregate breakdown only — it never names the contending item or agent.
 
 `selectorResolved: true` on success confirms the `itemId` in the result was resolved from the selector, not supplied directly by the caller.
 

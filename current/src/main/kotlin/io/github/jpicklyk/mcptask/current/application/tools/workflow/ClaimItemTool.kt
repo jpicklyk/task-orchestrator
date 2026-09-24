@@ -43,7 +43,11 @@ import java.util.UUID
  * - Each claim entry may use `selector` (instead of `itemId`) for atomic find-and-claim.
  * - Selector resolves a filter+rank query and claims the top match in one call.
  * - Single-claim-per-call enforced by validation for all claim modes (`claims.size > 1` rejected).
- * - `no_match` outcome (kind=permanent) when the queue is empty for the given filters.
+ * - `queue_empty` outcome (kind=permanent) when nothing matches the selector filters at all.
+ * - `none_eligible` outcome (kind=transient) when matches exist but none is currently claimable
+ *   (all excluded by an active claim, an ancestor's active claim, or an unmet dependency);
+ *   carries `retryAfterMs` (fixed [NONE_ELIGIBLE_RETRY_AFTER_MS]) and an `excluded` aggregate
+ *   breakdown — never item or agent identities.
  * - `claimRef` (optional, ≤64 chars) is echoed in every result for caller correlation.
  *
  * **Release semantics:**
@@ -81,9 +85,11 @@ Each `claims` entry uses exactly one of `itemId` (ID mode) or `selector` (find-a
 - `createdAfter`/`createdBefore`/`roleChangedAfter`/`roleChangedBefore` (ISO 8601): timestamp filters
 - `orderBy` (default "priority"): priority|oldest|newest
 
-**Claim outcomes:** `success`, `no_match` (selector found nothing; kind=permanent), `already_claimed`
-(returns `retryAfterMs`, never the competing agent's identity), `not_found`, `terminal_item`,
-`rejected_by_policy`.
+**Claim outcomes:** `success`, `queue_empty` (selector matched nothing at all; kind=permanent),
+`none_eligible` (selector matched, but every match is excluded by claim or dependency state;
+kind=transient, retries after `retryAfterMs` with an aggregate `excluded` breakdown),
+`already_claimed` (returns `retryAfterMs`, never the competing agent's identity), `not_found`,
+`terminal_item`, `rejected_by_policy`.
 
 **Release outcomes:** `success`, `not_claimed_by_you`, `not_found`.
 
@@ -472,16 +478,57 @@ Call only in claim-mode deployments, to take ownership before working an item.
                     is Result.Success -> {
                         val items = recommendResult.data
                         if (items.isEmpty()) {
-                            // no_match: queue is empty for this filter — permanent outcome
                             claimsFailed++
-                            claimResultsList.add(
-                                buildJsonObject {
-                                    put("outcome", JsonPrimitive("no_match"))
-                                    put("kind", JsonPrimitive(ErrorKind.PERMANENT.toJsonString()))
-                                    put("code", JsonPrimitive("no_match"))
-                                    claimRef?.let { put("claimRef", JsonPrimitive(it)) }
+                            when (val explainResult = context.nextItemRecommender.explainEmpty(criteria)) {
+                                is Result.Success -> {
+                                    val excluded = explainResult.data
+                                    if (excluded.total == 0) {
+                                        // queue_empty: nothing matches the selector filters at all — permanent.
+                                        claimResultsList.add(
+                                            buildJsonObject {
+                                                put("outcome", JsonPrimitive("queue_empty"))
+                                                put("kind", JsonPrimitive(ErrorKind.PERMANENT.toJsonString()))
+                                                put("code", JsonPrimitive("queue_empty"))
+                                                claimRef?.let { put("claimRef", JsonPrimitive(it)) }
+                                            }
+                                        )
+                                    } else {
+                                        // none_eligible: matches exist but none is currently claimable — transient.
+                                        // Aggregate counts only, never item/agent identities.
+                                        claimResultsList.add(
+                                            buildJsonObject {
+                                                put("outcome", JsonPrimitive("none_eligible"))
+                                                put("kind", JsonPrimitive(ErrorKind.TRANSIENT.toJsonString()))
+                                                put("code", JsonPrimitive("none_eligible"))
+                                                put("retryAfterMs", JsonPrimitive(NONE_ELIGIBLE_RETRY_AFTER_MS))
+                                                put(
+                                                    "excluded",
+                                                    buildJsonObject {
+                                                        put("claimed", JsonPrimitive(excluded.claimed))
+                                                        put("ancestorClaimed", JsonPrimitive(excluded.ancestorClaimed))
+                                                        put("dependencyBlocked", JsonPrimitive(excluded.dependencyBlocked))
+                                                    }
+                                                )
+                                                claimRef?.let { put("claimRef", JsonPrimitive(it)) }
+                                            }
+                                        )
+                                    }
                                 }
-                            )
+
+                                is Result.Error -> {
+                                    // Could not determine why the selector matched nothing — fall back to the
+                                    // existing db_error transient outcome rather than guessing.
+                                    claimResultsList.add(
+                                        buildJsonObject {
+                                            put("outcome", JsonPrimitive("db_error"))
+                                            put("kind", JsonPrimitive(ErrorKind.TRANSIENT.toJsonString()))
+                                            put("code", JsonPrimitive("db_error"))
+                                            put("message", JsonPrimitive("Database error while explaining empty selector result"))
+                                            claimRef?.let { put("claimRef", JsonPrimitive(it)) }
+                                        }
+                                    )
+                                }
+                            }
                             continue
                         }
 
@@ -898,4 +945,15 @@ Call only in claim-mode deployments, to take ownership before working an item.
                 message = "Actor rejected by degradedModePolicy: $reason"
             )
         )
+
+    companion object {
+        /**
+         * Fixed backoff hint (ms) returned on the `none_eligible` selector outcome. A constant,
+         * not derived from any competing claim's actual TTL — [ExclusionCounts] and this outcome
+         * report aggregate counts only, never holder identity or timing, so a real claim's
+         * remaining TTL is never leaked here the way `already_claimed.retryAfterMs` leaks it for
+         * a single contended item.
+         */
+        const val NONE_ELIGIBLE_RETRY_AFTER_MS = 30_000L
+    }
 }

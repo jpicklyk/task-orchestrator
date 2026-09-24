@@ -263,3 +263,37 @@ export function buildResumeArgs({ sessionId, cfg, remainingBudget, message }) {
         message,
     ];
 }
+
+/** Fallback backoff (ms) when `retryAfterMs` is absent or not a usable number. */
+export const DEFAULT_IDLE_BACKOFF_MS = 30_000;
+
+/** Floor clamp for the backoff wait — never sleep for less than this. */
+export const MIN_IDLE_BACKOFF_MS = 1_000;
+
+/** Ceiling clamp for the backoff wait — never sleep for longer than this. */
+export const MAX_IDLE_BACKOFF_MS = 300_000;
+
+/**
+ * Decide how the drain loop should react to a `claim_item` selector `none_eligible` (transient
+ * "idle") outcome: sleep and retry, or give up after too many consecutive idles.
+ *
+ * `retryAfterMs` comes from the claim response and is clamped to
+ * `[MIN_IDLE_BACKOFF_MS, MAX_IDLE_BACKOFF_MS]`; a missing, non-numeric, `NaN`, or negative value
+ * falls back to `DEFAULT_IDLE_BACKOFF_MS` before clamping. `idleBudget` is the
+ * `--idle-budget` count of consecutive idles the loop tolerates before exiting — reaching it
+ * (`consecutiveIdle >= idleBudget`, checked BEFORE computing a wait) exits immediately with
+ * `waitMs: 0`, including on the very first idle when `idleBudget` is 0.
+ */
+export function decideIdleBackoff({ retryAfterMs, consecutiveIdle, idleBudget }) {
+    if (consecutiveIdle >= idleBudget) {
+        return { exit: true, waitMs: 0 };
+    }
+
+    let waitMs = retryAfterMs;
+    if (typeof waitMs !== "number" || Number.isNaN(waitMs) || waitMs < 0) {
+        waitMs = DEFAULT_IDLE_BACKOFF_MS;
+    }
+    waitMs = Math.min(MAX_IDLE_BACKOFF_MS, Math.max(MIN_IDLE_BACKOFF_MS, waitMs));
+
+    return { exit: false, waitMs };
+}

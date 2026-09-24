@@ -953,7 +953,8 @@ The two-call pattern above has an inherent race: between `get_next_item` returni
 claim_item(claims=[{ selector: { priority: "high", complexityMax: 4, orderBy: "oldest" }, ttlSeconds: 900 }],
            actor={...}, requestId=<uuid>)
   outcome=success, selectorResolved=true → proceed with advance_item + work (itemId is in the result)
-  outcome=no_match, kind=permanent       → queue is empty for these filters; back off or wait
+  outcome=queue_empty, kind=permanent    → nothing matches these filters at all; back off or wait
+  outcome=none_eligible, kind=transient  → matches exist but none is claimable now (see `excluded`); retry after `retryAfterMs`
   outcome=already_claimed                → TOCTOU race (rare); retry immediately with a fresh requestId
 advance_item(trigger="start")       → ownership enforced: actor must match claimedBy
   ... do work ...
@@ -976,9 +977,9 @@ advance_item(trigger="complete")    → ownership enforced at completion too
 }
 ```
 
-`orderBy: "oldest"` provides fair-share FIFO draining: agents process items in creation order rather than racing to the same high-priority items. When `no_match` is returned, the queue is drained — the agent can idle, exit, or poll after a delay.
+`orderBy: "oldest"` provides fair-share FIFO draining: agents process items in creation order rather than racing to the same high-priority items. When `queue_empty` is returned, the queue is genuinely drained — the agent can idle, exit, or poll after a delay. When `none_eligible` is returned instead, matches exist but are all excluded right now; the agent should back off `retryAfterMs` and retry rather than treating the drain as finished.
 
-**Selector hygiene and ancestor-claim filtering.** In selector mode, items whose ancestor chain contains a live claim held by a *different* agent are automatically excluded from the eligible set. This sub-tree isolation protects in-progress feature orchestration from fleet drain workers picking up child items. Use specific selectors (`parentId: null` to restrict to top-level items, or tag filters such as `tags: "feature"`) when your fleet operates at the top level; broader selectors like `role: queue` will naturally skip sub-items of in-progress features without returning errors. Items excluded by ancestor-claim filtering appear as `no_match` rather than surfacing information about the competing agent's identity. See [Fleet Deployment Guide — Fleet Topology Patterns](./fleet-deployment.md#fleet-topology-patterns) for recommended patterns.
+**Selector hygiene and ancestor-claim filtering.** In selector mode, items whose ancestor chain contains a live claim held by a *different* agent are automatically excluded from the eligible set. This sub-tree isolation protects in-progress feature orchestration from fleet drain workers picking up child items. Use specific selectors (`parentId: null` to restrict to top-level items, or tag filters such as `tags: "feature"`) when your fleet operates at the top level; broader selectors like `role: queue` will naturally skip sub-items of in-progress features without returning errors. Items excluded by ancestor-claim filtering appear as `none_eligible` (`excluded.ancestorClaimed`) rather than surfacing information about the competing agent's identity. See [Fleet Deployment Guide — Fleet Topology Patterns](./fleet-deployment.md#fleet-topology-patterns) for recommended patterns.
 
 `claimRef` (up to 64 chars) is echoed verbatim in every result and is useful for correlating claim results back to your agent's internal loop state without parsing `itemId` values.
 

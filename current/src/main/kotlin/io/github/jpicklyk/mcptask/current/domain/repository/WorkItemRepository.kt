@@ -477,6 +477,82 @@ interface WorkItemRepository {
     ): Result<ClaimStatusCounts>
 
     /**
+     * Count how many items match the selector filters used by [findClaimable] — same filter set
+     * (minus [findClaimable]'s `orderBy`, `limit` and `requestingAgentId`, which affect ranking
+     * and ancestor-claim isolation rather than which rows match) — without the active-claim
+     * exclusion [findClaimable] always applies. Used by `NextItemRecommender.explainEmpty` to
+     * distinguish an empty queue (`matched == 0`) from a queue that has matches but none are
+     * currently claimable.
+     *
+     * @return [SelectorMatchCounts.matched] — total rows matching the filters, claimed or not.
+     *   [SelectorMatchCounts.activelyClaimed] — subset of [SelectorMatchCounts.matched] with a
+     *   live claim (`claimed_by IS NOT NULL AND claim_expires_at > now`), by any holder including
+     *   the caller.
+     *
+     * Default implementation delegates to [countByFilters], which shares [findByFilters]'s filter
+     * set rather than [findClaimable]'s: it lacks [complexityMax] and [rootIds] scoping, so this
+     * default silently ignores both. It exists only so callers that implement this interface
+     * without overriding the new member still compile; [complexityMax]/[rootIds]-accurate counts
+     * require overriding this method against the same condition builder [findClaimable] uses (see
+     * `SQLiteWorkItemRepository`).
+     */
+    suspend fun countSelectorMatches(
+        role: Role,
+        parentId: UUID? = null,
+        tags: List<String>? = null,
+        priority: Priority? = null,
+        type: String? = null,
+        complexityMax: Int? = null,
+        createdAfter: Instant? = null,
+        createdBefore: Instant? = null,
+        modifiedAfter: Instant? = null,
+        modifiedBefore: Instant? = null,
+        roleChangedAfter: Instant? = null,
+        roleChangedBefore: Instant? = null,
+        rootIds: Set<UUID>? = null,
+    ): Result<SelectorMatchCounts> {
+        val matchedResult =
+            countByFilters(
+                parentId = parentId,
+                role = role,
+                priority = priority,
+                tags = tags,
+                createdAfter = createdAfter,
+                createdBefore = createdBefore,
+                modifiedAfter = modifiedAfter,
+                modifiedBefore = modifiedBefore,
+                roleChangedAfter = roleChangedAfter,
+                roleChangedBefore = roleChangedBefore,
+                type = type,
+            )
+        if (matchedResult is Result.Error) return matchedResult
+
+        val claimedResult =
+            countByFilters(
+                parentId = parentId,
+                role = role,
+                priority = priority,
+                tags = tags,
+                createdAfter = createdAfter,
+                createdBefore = createdBefore,
+                modifiedAfter = modifiedAfter,
+                modifiedBefore = modifiedBefore,
+                roleChangedAfter = roleChangedAfter,
+                roleChangedBefore = roleChangedBefore,
+                type = type,
+                claimStatus = "claimed",
+            )
+        if (claimedResult is Result.Error) return claimedResult
+
+        return Result.Success(
+            SelectorMatchCounts(
+                matched = (matchedResult as Result.Success).data,
+                activelyClaimed = (claimedResult as Result.Success).data,
+            )
+        )
+    }
+
+    /**
      * Find work items that are within the subtree rooted at any of [rootIds] (roots included).
      *
      * When [rootIds] is empty, returns an empty list immediately (no implicit fallback to
@@ -583,6 +659,17 @@ data class ClaimStatusCounts(
     val active: Int,
     val expired: Int,
     val unclaimed: Int
+)
+
+/**
+ * Result of [WorkItemRepository.countSelectorMatches].
+ *
+ * @property matched Total rows matching the selector filters, claimed or not.
+ * @property activelyClaimed Subset of [matched] with a live claim (any holder, incl. the caller).
+ */
+data class SelectorMatchCounts(
+    val matched: Int,
+    val activelyClaimed: Int
 )
 
 /**
