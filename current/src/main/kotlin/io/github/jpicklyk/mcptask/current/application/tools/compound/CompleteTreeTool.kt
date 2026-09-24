@@ -662,6 +662,7 @@ Call when closing out a finished hierarchy — one atomic call instead of per-it
                 put("contendedResources", JsonArray(event.contendedResources.map { JsonPrimitive(it) }))
             }
             event.statusLabel?.let { put("statusLabel", JsonPrimitive(it)) }
+            event.error?.let { put("error", JsonPrimitive(it)) }
         }
 
     /**

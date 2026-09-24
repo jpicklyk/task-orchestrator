@@ -1099,6 +1099,11 @@ resource-suppressed cascade from any other unapplied one by field alone; this is
 additive follow-up, not a blocking gap (the child item's own transition still fully succeeds either
 way).
 
+`CascadeEventDto` DOES carry `error` (string, optional, omitted when null): populated when a
+cascade's own apply step fails outright (a persistence conflict) — as opposed to being suppressed
+by `gateBlocked`, or by the not-yet-parity-mapped resource block above — naming the failure reason.
+Any resource lease that cascade itself acquired for entering `work` is released in the same call.
+
 **Response `200 OK`:** `AdvanceResponseDto`
 ```json
 {
@@ -1117,6 +1122,9 @@ way).
       "statusLabel": "done"
     }
   ],
+  // A cascade whose own apply step failed instead looks like:
+  // { "itemId": "<uuid>", "title": "Parent", "previousRole": "work", "targetRole": "terminal",
+  //   "applied": false, "error": "Conflict: item was modified by another request" }
   "unblockedItems": [
     { "itemId": "<uuid>", "title": "Downstream" }
   ],

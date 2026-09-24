@@ -1122,6 +1122,15 @@ invariant, and not fairness. Read this section before relying on it for anything
   every WORK exit, and `complete_tree` — which applies completions/cancellations directly rather
   than through `advance_item` — independently releases leases on the same "leaving WORK" condition,
   so a batch completion via `complete_tree` does not orphan leases until TTL expiry.
+- **A transition that acquires a lease and then fails to apply releases it in the same call.**
+  Acquiring the lease and persisting the role change are separate steps; if the persistence step
+  fails (a DB conflict, most commonly a concurrent writer), the item never actually entered WORK, so
+  any lease(s) that call itself just acquired are released before the failure is returned — same for
+  a cascade whose own resource acquire succeeded but whose apply then failed. This release is skipped
+  (WARN logged, the failure returned unchanged either way) when it cannot be proven safe: any
+  acquired lease that was a refresh of a pre-existing hold rather than a brand-new acquire by this
+  call, or a re-read showing the item has concurrently reached WORK by another call. A skipped
+  release simply falls back to the TTL backstop above.
 - **The exclusivity subject is the work item, not the actor.** Leases are keyed on `holder_item_id`,
   not on `acquired_by_actor_id` (audit metadata only). This makes the guarantee independent of actor
   identity quality — it holds the same whether or not `actor_authentication` is configured, and

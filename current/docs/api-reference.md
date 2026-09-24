@@ -1223,7 +1223,12 @@ Trait notes are merged into the resolved schema: `default_traits` from config ap
 
 **Reopen cascade.** When a child item is reopened (TERMINAL → QUEUE) and its parent is TERMINAL, the parent is automatically reopened to WORK. This ensures the parent reflects that it has active children again. Reopen cascades never gate on notes — the direct `reopen` trigger itself bypasses gate enforcement (see the `reopen` row above), so gating its cascade would contradict that.
 
-All cascade types are recorded in `cascadeEvents`.
+All cascade types are recorded in `cascadeEvents`. When a cascade's own apply step fails (a
+persistence conflict, not a gate/resource suppression), the entry carries `applied: false` and an
+`error` (string) naming the reason; `error` is omitted whenever the cascade applied successfully or
+was suppressed by `gateBlocked`/`resourceBlocked` instead. Any resource lease that cascade itself
+acquired for entering WORK is released in the same call (see [`workflow-guide.md`](./workflow-guide.md)
+§ Resource Leasing).
 
 **Examples.**
 
@@ -1333,7 +1338,10 @@ none). `mode: advisory` keys never lock; they are recorded into `consumedCredent
 audit visibility only. The lease is released on every exit from `work` (`complete`, `cancel`,
 `block`/`hold`, `reopen`, or a terminal cascade) and is not re-validated while the item stays in
 `work` — it is a precondition captured at entry, not a continuously-checked invariant. Items that
-declare no resources are entirely unaffected (zero extra queries, byte-identical behavior).
+declare no resources are entirely unaffected (zero extra queries, byte-identical behavior). A
+transition that acquires the lease and then FAILS to persist the role change (see `ApplyFailed`
+below) releases it too, in the same call, so a failed `start`/`resume` never orphans a lease it just
+took — see [`workflow-guide.md`](./workflow-guide.md) § Resource Leasing for the exact conditions.
 
 *Contention.* When an exclusive key is already held, the transition is rejected as **transient**,
 not gate-blocked — the fix is to wait and retry (or work a different item), not to write more notes:
