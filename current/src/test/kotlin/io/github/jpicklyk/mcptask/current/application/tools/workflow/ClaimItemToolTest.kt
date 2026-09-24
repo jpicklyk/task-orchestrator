@@ -1305,9 +1305,11 @@ class ClaimItemToolTest {
         }
 
     @Test
-    fun `selector with no matches returns no_match outcome with kind permanent`(): Unit =
+    fun `selector with no matches returns queue_empty outcome with permanent kind`(): Unit =
         runBlocking {
             val recommender = mockRecommender(emptyList())
+            coEvery { recommender.explainEmpty(any()) } returns
+                Result.Success(NextItemRecommender.ExclusionCounts(0, 0, 0))
 
             val result =
                 tool.execute(
@@ -1317,13 +1319,13 @@ class ClaimItemToolTest {
 
             val data = (result as JsonObject)["data"] as JsonObject
             val first = (data["claimResults"] as JsonArray)[0] as JsonObject
-            assertEquals("no_match", first["outcome"]?.jsonPrimitive?.content)
+            assertEquals("queue_empty", first["outcome"]?.jsonPrimitive?.content)
             assertEquals("permanent", first["kind"]?.jsonPrimitive?.content)
-            assertEquals("no_match", first["code"]?.jsonPrimitive?.content)
-            // no retryAfterMs for no_match
-            assertNull(first["retryAfterMs"], "no_match must not have retryAfterMs")
-            // no itemId for no_match (nothing was resolved)
-            assertNull(first["itemId"], "no_match must not have itemId")
+            assertEquals("queue_empty", first["code"]?.jsonPrimitive?.content)
+            // no retryAfterMs for queue_empty
+            assertNull(first["retryAfterMs"], "queue_empty must not have retryAfterMs")
+            // no itemId for queue_empty (nothing was resolved)
+            assertNull(first["itemId"], "queue_empty must not have itemId")
             // Summary block dropped; the single failed outcome is visible in claimResults above.
             assertNull(data["summary"], "summary block must be omitted")
         }
@@ -1406,9 +1408,11 @@ class ClaimItemToolTest {
         }
 
     @Test
-    fun `claimRef is echoed on no_match outcome from selector`(): Unit =
+    fun `claimRef is echoed on queue_empty outcome from selector`(): Unit =
         runBlocking {
             val recommender = mockRecommender(emptyList())
+            coEvery { recommender.explainEmpty(any()) } returns
+                Result.Success(NextItemRecommender.ExclusionCounts(0, 0, 0))
 
             val result =
                 tool.execute(
@@ -1418,7 +1422,7 @@ class ClaimItemToolTest {
 
             val data = (result as JsonObject)["data"] as JsonObject
             val first = (data["claimResults"] as JsonArray)[0] as JsonObject
-            assertEquals("no_match", first["outcome"]?.jsonPrimitive?.content)
+            assertEquals("queue_empty", first["outcome"]?.jsonPrimitive?.content)
             assertEquals("my-ref-42", first["claimRef"]?.jsonPrimitive?.content)
         }
 
@@ -1493,19 +1497,22 @@ class ClaimItemToolTest {
 
     /**
      * Verifies that the selector path passes the resolved trustedAgentId to the criteria
-     * as requestingAgentId, enabling the repository's ancestor-claim filter to perform
+     * as requestingAgentId, enabling the repository ancestor-claim filter to perform
      * same-agent vs. cross-agent distinction.
      *
      * When the recommender returns empty (simulating that the ancestor-claim filter excluded
-     * the only candidate), the outcome must be no_match.
+     * the only candidate) and explainEmpty reports that exclusion as an ancestor claim, the
+     * outcome must be none_eligible (matches existed, all excluded), not queue_empty.
      */
     @Test
-    fun `selector mode returns no_match when all candidates excluded by ancestor-claim filter (cross-agent)`(): Unit =
+    fun `selector mode returns none_eligible when all candidates excluded by ancestor-claim filter (cross-agent)`(): Unit =
         runBlocking {
-            // Recommender returns empty — simulates the repository's ancestor-claim filter
+            // Recommender returns empty — simulates the repository ancestor-claim filter
             // having excluded the only candidate because its parent is claimed by a different agent.
             val recommender = mockk<NextItemRecommender>()
             coEvery { recommender.recommend(any(), 1) } returns Result.Success(emptyList())
+            coEvery { recommender.explainEmpty(any()) } returns
+                Result.Success(NextItemRecommender.ExclusionCounts(claimed = 0, ancestorClaimed = 1, dependencyBlocked = 0))
 
             val result =
                 tool.execute(
@@ -1519,11 +1526,11 @@ class ClaimItemToolTest {
             val data = (result as JsonObject)["data"] as JsonObject
             val first = (data["claimResults"] as JsonArray)[0] as JsonObject
             assertEquals(
-                "no_match",
+                "none_eligible",
                 first["outcome"]?.jsonPrimitive?.content,
-                "Selector must return no_match when ancestor-claim filter excludes all candidates"
+                "Selector must return none_eligible when ancestor-claim filter excludes all candidates"
             )
-            assertEquals("permanent", first["kind"]?.jsonPrimitive?.content)
+            assertEquals("transient", first["kind"]?.jsonPrimitive?.content)
         }
 
     @Test
