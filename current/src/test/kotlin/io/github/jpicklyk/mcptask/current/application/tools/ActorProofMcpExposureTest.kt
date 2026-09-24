@@ -29,6 +29,7 @@ import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -435,11 +436,12 @@ class ActorProofMcpExposureTest {
         }
 
     // -----------------------------------------------------------------------
-    // S15 — raw proof remains persisted in the repository (D2: MCP-only omission)
+    // S15 — raw proof is scrubbed to null in the repository (item 983615e7 D5: proof evidence,
+    // not the credential itself, is what gets persisted)
     // -----------------------------------------------------------------------
 
     @Test
-    fun `S15 note repository still persists the raw proof though MCP responses omit it`(): Unit =
+    fun `S15 note repository stores no raw proof though MCP responses already omitted it`(): Unit =
         runBlocking {
             val itemId = createTestItem()
             val secret = freshSecret()
@@ -466,14 +468,14 @@ class ActorProofMcpExposureTest {
                     context
                 ) as JsonObject
             assertTrue(upsertResult["success"]!!.jsonPrimitive.boolean, "expected success; got $upsertResult")
-            // The MCP echo itself must still be SECRET-free even though the value is persisted underneath.
+            // The MCP echo itself must still be SECRET-free even though it never reaches storage underneath.
             assertFalse(upsertResult.toString().contains(secret), "MCP echo must remain SECRET-free")
 
             val persisted = context.noteRepository().findByItemIdAndKey(UUID.fromString(itemId), "persisted-proof")
             assertTrue(persisted is Result.Success, "expected the note to be found; got $persisted")
             val note = persisted.data
             assertNotNull(note, "note should be persisted")
-            assertEquals(secret, note.actorClaim?.proof, "raw proof must remain persisted per D2")
+            assertNull(note.actorClaim?.proof, "raw proof must be scrubbed to null on write per item 983615e7 D5")
         }
 
     // -----------------------------------------------------------------------

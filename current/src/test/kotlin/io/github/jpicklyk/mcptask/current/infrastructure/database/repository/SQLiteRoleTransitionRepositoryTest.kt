@@ -365,7 +365,7 @@ class SQLiteRoleTransitionRepositoryTest {
             assertEquals("agent-42", found.actorClaim.id)
             assertEquals(ActorKind.SUBAGENT, found.actorClaim.kind)
             assertEquals("orchestrator-1", found.actorClaim.parent)
-            assertEquals("proof-token", found.actorClaim.proof)
+            assertNull(found.actorClaim.proof, "raw proof must be scrubbed to null on read-back per item 983615e7 D5")
             assertNotNull(found.verification)
             assertEquals(VerificationStatus.UNCHECKED, found.verification.status)
             assertEquals("noop", found.verification.verifier)

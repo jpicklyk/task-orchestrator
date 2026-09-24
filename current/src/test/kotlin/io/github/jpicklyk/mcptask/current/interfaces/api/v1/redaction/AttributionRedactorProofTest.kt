@@ -139,11 +139,13 @@ class AttributionRedactorProofTest {
     }
 
     // -------------------------------------------------------------------------
-    // S11 (guard) — admin + ?include=proof must still work: the fix must not regress this path.
+    // admin + ?include=proof: item 983615e7 D6/D7 — proofs are no longer stored, so this path now
+    // returns null instead of the (former) raw proof. (Was labelled "S11" for item d426fbfa; that
+    // numbering is unrelated to item 983615e7's own test-plan S11.)
     // -------------------------------------------------------------------------
 
     @Test
-    fun `S11 admin with include=proof still receives the raw proof`() {
+    fun `admin with include=proof no longer receives the raw proof`() {
         val redactor = AttributionRedactor.of(redactNoteAttribution = true, redactActorProof = true)
         val note = makeNoteWithActor(proof = secret)
         val call = makeCall(isAdmin = true, includeProof = true)
@@ -151,7 +153,7 @@ class AttributionRedactorProofTest {
         val result = redactor.redact(note, call)
 
         assertNotNull(result.actor)
-        assertEquals(secret, result.actor.proof, "admin with ?include=proof must still receive the raw proof")
+        assertNull(result.actor.proof, "admin with ?include=proof must no longer receive the raw proof per item 983615e7 D6")
     }
 
     // -------------------------------------------------------------------------
