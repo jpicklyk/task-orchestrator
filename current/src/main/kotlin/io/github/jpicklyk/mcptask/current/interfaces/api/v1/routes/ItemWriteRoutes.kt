@@ -269,20 +269,8 @@ fun Route.itemWriteRoutes(
     // ─── POST /items ─────────────────────────────────────────────────────────
     requireCapability(ApiCapability.WRITE_ITEMS) {
         post("/items") {
-            val principal =
-                call.attributes.getOrNull(ApiPrincipalKey) ?: run {
-                    call.respond(HttpStatusCode.Unauthorized, ErrorDto("unauthenticated", "No authenticated principal"))
-                    return@post
-                }
-
-            val trustedActorId =
-                ApiAuditBridge.resolveTrustedActorIdOrNull(principal, degradedModePolicy) ?: run {
-                    call.respond(
-                        HttpStatusCode.Unauthorized,
-                        ErrorDto("verification_failed", "Actor verification failed (degradedModePolicy=reject)"),
-                    )
-                    return@post
-                }
+            val principal = call.attributes[ApiPrincipalKey]
+            val trustedActorId = ApiAuditBridge.resolveTrustedActorIdOrNull(principal, degradedModePolicy)
 
             // Content-Type gate — explicit because the body is no longer read through
             // `receive<ItemCreateDto>()`, which let ContentNegotiation reject a non-JSON body with
@@ -416,20 +404,8 @@ fun Route.itemWriteRoutes(
     // ─── PATCH /items/{id} ───────────────────────────────────────────────────
     requireCapability(ApiCapability.WRITE_ITEMS) {
         patch("/items/{id}") {
-            val principal =
-                call.attributes.getOrNull(ApiPrincipalKey) ?: run {
-                    call.respond(HttpStatusCode.Unauthorized, ErrorDto("unauthenticated", "No authenticated principal"))
-                    return@patch
-                }
-
-            val trustedActorId =
-                ApiAuditBridge.resolveTrustedActorIdOrNull(principal, degradedModePolicy) ?: run {
-                    call.respond(
-                        HttpStatusCode.Unauthorized,
-                        ErrorDto("verification_failed", "Actor verification failed (degradedModePolicy=reject)"),
-                    )
-                    return@patch
-                }
+            val principal = call.attributes[ApiPrincipalKey]
+            val trustedActorId = ApiAuditBridge.resolveTrustedActorIdOrNull(principal, degradedModePolicy)
 
             // Content-Type check — accept merge-patch+json and application/json
             val contentType =
@@ -758,20 +734,6 @@ fun Route.itemWriteRoutes(
     // ─── DELETE /items/{id} ──────────────────────────────────────────────────
     requireCapability(ApiCapability.WRITE_ITEMS) {
         delete("/items/{id}") {
-            val principal =
-                call.attributes.getOrNull(ApiPrincipalKey) ?: run {
-                    call.respond(HttpStatusCode.Unauthorized, ErrorDto("unauthenticated", "No authenticated principal"))
-                    return@delete
-                }
-
-            ApiAuditBridge.resolveTrustedActorIdOrNull(principal, degradedModePolicy) ?: run {
-                call.respond(
-                    HttpStatusCode.Unauthorized,
-                    ErrorDto("verification_failed", "Actor verification failed (degradedModePolicy=reject)"),
-                )
-                return@delete
-            }
-
             val rawId =
                 call.parameters["id"] ?: run {
                     call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing item id"))
@@ -822,20 +784,11 @@ fun Route.itemWriteRoutes(
     // ─── POST /items/{id}/advance ────────────────────────────────────────────
     requireCapability(ApiCapability.ADVANCE) {
         post("/items/{id}/advance") {
-            val principal =
-                call.attributes.getOrNull(ApiPrincipalKey) ?: run {
-                    call.respond(HttpStatusCode.Unauthorized, ErrorDto("unauthenticated", "No authenticated principal"))
-                    return@post
-                }
-
-            val trustedActorId =
-                ApiAuditBridge.resolveTrustedActorIdOrNull(principal, degradedModePolicy) ?: run {
-                    call.respond(
-                        HttpStatusCode.Unauthorized,
-                        ErrorDto("verification_failed", "Actor verification failed (degradedModePolicy=reject)"),
-                    )
-                    return@post
-                }
+            val principal = call.attributes[ApiPrincipalKey]
+            // Resolved for its fail-closed side effect (an unverified JWKS actor would throw
+            // here) — the id itself is not otherwise used on this route; the audit trail below
+            // is built directly from `principal` via ApiAuditBridge.toActorClaim/toVerificationResult.
+            ApiAuditBridge.resolveTrustedActorIdOrNull(principal, degradedModePolicy)
 
             val rawId =
                 call.parameters["id"] ?: run {

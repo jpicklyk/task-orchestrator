@@ -126,7 +126,8 @@ val ApiBearerAuth =
             }
 
             val authHeader = call.request.headers["Authorization"]
-            if (authHeader == null || !authHeader.startsWith("Bearer ", ignoreCase = true)) {
+            val token = authHeader?.let { extractBearerToken(it) }
+            if (token == null) {
                 logger.debug("Missing or malformed Authorization header")
                 call.response.header("WWW-Authenticate", "Bearer error=\"invalid_request\"")
                 call.respond(
@@ -139,7 +140,6 @@ val ApiBearerAuth =
                 return@onCall
             }
 
-            val token = authHeader.removePrefix("Bearer ").removePrefix("bearer ").trim()
             if (token.isEmpty()) {
                 call.response.header("WWW-Authenticate", "Bearer error=\"invalid_request\"")
                 call.respond(HttpStatusCode.Unauthorized, mapOf("error" to "invalid_request", "error_description" to "Empty token"))
@@ -200,4 +200,30 @@ val ApiBearerAuth =
 private fun sha256(input: String): ByteArray {
     val md = MessageDigest.getInstance("SHA-256")
     return md.digest(input.toByteArray(Charsets.UTF_8))
+}
+
+/**
+ * Parses an `Authorization` header value for the `Bearer` auth-scheme (RFC 7235 §2.1,
+ * RFC 6750 §2.1): `credentials = auth-scheme [ 1*SP ( token68 / #auth-param ) ]`.
+ *
+ * Returns `null` unless [headerValue] starts with the case-insensitive literal `Bearer` followed
+ * by at least one space (`SP`, 0x20) — this codebase treats a single literal space as satisfying
+ * `1*SP`. A tab, another separator, or no separator at all (bare `"Bearer"`, or a mismatched
+ * scheme like `"Basic T"`) does not match and returns `null`.
+ *
+ * When it matches, returns everything after that one separator, trimmed of surrounding
+ * whitespace — this MAY be `""` (e.g. `"Bearer   "` → `""`); callers that require a non-empty
+ * credential must check for that themselves.
+ *
+ * Only ONE `Bearer`/`bearer` prefix is ever stripped: `"Bearer bearer T"` returns `"bearer T"`,
+ * not `"T"`. RFC 6750's `b64token` grammar has no internal whitespace, so a value containing a
+ * second, un-stripped `bearer ` prefix cannot be a valid token — callers should reject it as
+ * `invalid_token` rather than silently authenticating the inner value.
+ */
+internal fun extractBearerToken(headerValue: String): String? {
+    val schemeLength = "Bearer".length
+    if (headerValue.length <= schemeLength) return null
+    if (!headerValue.regionMatches(0, "Bearer", 0, schemeLength, ignoreCase = true)) return null
+    if (headerValue[schemeLength] != ' ') return null
+    return headerValue.substring(schemeLength + 1).trim()
 }

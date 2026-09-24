@@ -140,6 +140,13 @@ sealed class VerifierConfig {
      *   that single key is used for verification (single-key guard). Multi-key documents still require
      *   an exact `kid` match regardless of this setting. Set false to require strict `kid` matching
      *   in all cases.
+     * @param allowInsecureUrl Opt-in flag (config key `allow_insecure_url`, default false) mirroring
+     *   the REST API's `API_JWKS_ALLOW_INSECURE_URL`. When false (default), [jwksUri] and
+     *   [oidcDiscovery] — plus a `jwks_uri` discovered via that OIDC document — must use `https`.
+     *   When true, `http` is additionally accepted for a literal loopback host
+     *   (`localhost`, `127.x.x.x`, `::1`) — local development/testing only. Does not affect
+     *   [jwksPath] (a local file) or DID-trust mode, which are always resolved over `https` by the
+     *   DID resolver itself.
      */
     data class Jwks(
         val oidcDiscovery: String? = null,
@@ -154,6 +161,7 @@ sealed class VerifierConfig {
         val didAllowlist: List<String> = emptyList(),
         val didPattern: String? = null,
         val didStrictRelationship: Boolean = true,
-        val didLooseKidMatch: Boolean = true
+        val didLooseKidMatch: Boolean = true,
+        val allowInsecureUrl: Boolean = false
     ) : VerifierConfig()
 }

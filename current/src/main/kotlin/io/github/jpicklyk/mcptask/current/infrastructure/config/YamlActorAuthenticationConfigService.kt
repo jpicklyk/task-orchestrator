@@ -273,6 +273,18 @@ class YamlActorAuthenticationConfigService(
                 val didStrictRelationship = verifierMap.optBoolean("did_strict_relationship", default = true)
                 val didLooseKidMatch = verifierMap.optBoolean("did_loose_kid_match", default = true)
 
+                // Type-checked whenever type=jwks, regardless of source or scheme — a malformed
+                // value (e.g. a string) must fail loudly rather than silently default to false.
+                val rawAllowInsecureUrl = verifierMap["allow_insecure_url"]
+                val allowInsecureUrl: Boolean =
+                    when (rawAllowInsecureUrl) {
+                        null -> false
+                        is Boolean -> rawAllowInsecureUrl
+                        else -> throw IllegalArgumentException(
+                            "actor_authentication.verifier.allow_insecure_url must be a boolean; got '$rawAllowInsecureUrl'"
+                        )
+                    }
+
                 val isDidTrust = didAllowlist.isNotEmpty() || didPattern != null
                 val isStaticJwks = oidcDiscovery != null || jwksUri != null || jwksPath != null
 
@@ -317,6 +329,15 @@ class YamlActorAuthenticationConfigService(
                                 "jwks_uri, or jwks_path; multiple were provided: $provided"
                         )
                     }
+
+                    // https-or-loopback rule for the single configured key source. jwks_path (a
+                    // local file) is exempt — this only governs sources fetched over HTTP(S).
+                    if (oidcDiscovery != null) {
+                        validateKeySourceUrl(oidcDiscovery, "oidc_discovery", allowInsecureUrl)
+                    }
+                    if (jwksUri != null) {
+                        validateKeySourceUrl(jwksUri, "jwks_uri", allowInsecureUrl)
+                    }
                 }
 
                 val issuer = verifierMap.optString("issuer")
@@ -358,7 +379,8 @@ class YamlActorAuthenticationConfigService(
                     didAllowlist = didAllowlist,
                     didPattern = didPattern,
                     didStrictRelationship = didStrictRelationship,
-                    didLooseKidMatch = didLooseKidMatch
+                    didLooseKidMatch = didLooseKidMatch,
+                    allowInsecureUrl = allowInsecureUrl
                 )
             }
 
@@ -369,4 +391,24 @@ class YamlActorAuthenticationConfigService(
                 )
         }
     }
+
+    /**
+     * Enforces the https-or-loopback rule (mirroring the REST API's `API_JWKS_URL` /
+     * `API_JWKS_ALLOW_INSECURE_URL` contract, see [ApiAuthConfigLoader]) on a single configured
+     * actor-authentication key-source value ([raw] — either `oidc_discovery` or `jwks_uri`,
+     * named by [keyName] for the error message).
+     *
+     * `https` is always accepted. `http` is accepted only when [allowInsecureUrl] is true AND the
+     * URL's host is a literal loopback address ([isLiteralLoopbackHost] — no DNS resolution, so a
+     * host merely resolving to loopback is still rejected). Every other outcome — any other
+     * scheme, a malformed URL, or `http` without both conditions — throws
+     * [IllegalArgumentException] naming `actor_authentication.verifier.<keyName>`, which the
+     * caller's `catch (e: IllegalArgumentException)` re-throws rather than swallowing into a
+     * silent Noop fallback (unlike the generic `catch (e: Exception)` below it).
+     */
+    private fun validateKeySourceUrl(
+        raw: String,
+        keyName: String,
+        allowInsecureUrl: Boolean
+    ) = requireHttpsOrLoopbackKeySource(raw, "actor_authentication.verifier.$keyName", allowInsecureUrl, logger)
 }
