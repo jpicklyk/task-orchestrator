@@ -29,7 +29,7 @@ dimensions below fit its 4-question limit). Do not interrogate dimension by dime
 | **Work shape** | What flows through: features/bugs, loop tasks, research questions, content pieces, tickets, pipeline runs, incidents, documents, generic tasks | Picks the primary profile |
 | **Sign-off** | Does anything require human or second-agent approval before an item closes? Who reviews, and what evidence do they need? | Decides whether a `review` phase exists and what its gate note carries |
 | **Executors** | One orchestrated agent, or multiple independent workers pulling from a pool? Crash-recovery needed? | Pull-based fleet → claim-mode conventions (TTL leases); single driver → orchestration mode |
-| **Contention & recurrence** | Shared resources only one worker may touch at a time? Standing queues? Work that reopens? | Resource traits (`exclusive`/`advisory`); lifecycle (`permanent`, `auto-reopen`) |
+| **Contention & recurrence** | Shared resources only one worker may touch at a time? Standing queues? Work that reopens? | Resource traits (`exclusive`/`advisory`); lifecycle (`permanent`); a closed item that needs new work reopened onto it uses the explicit `reopen` trigger, not a lifecycle mode |
 
 ### Profile index
 
@@ -38,9 +38,9 @@ dimensions below fit its 4-question limit). Do not interrogate dimension by dime
 | `autonomous-loop.md` | "overnight runs", "agent loop", "queue drain", "autonomous coding", "Ralph" | Leaf `loop-task`: queue completion-oracle gate (machine-checkable done signal + iteration bound), work iteration-evidence; NO review phase (PR is the human gate); claim mode if loops run concurrently |
 | `spec-driven-team.md` | "spec first", "PRD", "plan before code", "team of devs + agents", "epics" | `sdd-epic` (manual lifecycle, dual queue gates spec+plan, work integration-notes, review spec-alignment audit) + `sdd-task` children (task-definition, implementation-evidence) |
 | `research-pipeline.md` | "research", "deep dive", "report with sources", "parallel investigation" | `research-mission` (manual; plan gate, synthesis, review citation-audit by a separate agent) + `research-thread` children (brief gates dispatch; findings note IS the report, maxLength-bounded) |
-| `content-production.md` | "blog", "articles", "editorial", "publish", "SEO", "content calendar" | `content-piece` (auto-reopen for refresh cycles; brief approval gate → work fact-check → review editorial-signoff) + `revision-task` children; per-item `needs-legal-review` trait for regulated claims |
+| `content-production.md` | "blog", "articles", "editorial", "publish", "SEO", "content calendar" | `content-piece` (auto lifecycle; explicit `reopen` before adding a refresh child; brief approval gate → work fact-check → review editorial-signoff) + `revision-task` children; per-item `needs-legal-review` trait for regulated claims |
 | `support-triage.md` | "tickets", "triage", "worker pool", "escalate to a human", "support" | `support-ticket` (triage queue gate w/ confidence routing, work resolution) + permanent `intake` container; per-item `needs-escalation` trait adds review escalation-packet; claim-mode dispatch convention |
-| `data-pipeline-ops.md` | "ETL", "data pipeline", "warehouse", "one run at a time", "data quality" | `pipeline-run` leaf with exclusive resource lease trait (+ advisory credential), work quality-scorecard; `data-product` auto-reopen container; `needs-anomaly-review` trait on threshold breach |
+| `data-pipeline-ops.md` | "ETL", "data pipeline", "warehouse", "one run at a time", "data quality" | `pipeline-run` leaf with exclusive resource lease trait (+ advisory credential), work quality-scorecard; `data-product` permanent container; `needs-anomaly-review` trait on threshold breach |
 | `incident-response.md` | "incidents", "on-call", "runbook", "postmortem", "SRE" | `incident` (severity-triage gate, containment-log, review postmortem — can't close without it) + permanent `incidents` container; `needs-prod-access` trait with advisory credential audit |
 | `document-review.md` | "contracts", "documents to review", "redline", "sign-off", "compliance", "audit trail" | `contract-review`: intake gate → work deviation-analysis (flags, not raw text) → review human sign-off; pair with global `actor_authentication` for verified authorship |
 | `schema-free.md` | "just track tasks", "kanban", "no gates", "simple statuses" | Empty `default` schema — status/dependency/hierarchy tracking only; doubles as the per-root fence on a shared server |
@@ -63,7 +63,7 @@ Use these when explaining a recommendation or resolving a customization question
 | Tree closes itself when children finish | `auto` (default) |
 | A human/lead decides when it closes | `manual` |
 | Standing container that never closes (intake queues, category containers) | `permanent` |
-| Closed parent reopens when new child work arrives (refresh cycles, recurring runs) | `auto-reopen` |
+| Closed parent needs new work reopened onto it (refresh cycles, recurring runs) | `auto` + an explicit `reopen` trigger before adding the new child (there is no lifecycle mode that reopens automatically) |
 
 **Dispatch model** (usage convention — not a config key; mention it in the recommendation):
 

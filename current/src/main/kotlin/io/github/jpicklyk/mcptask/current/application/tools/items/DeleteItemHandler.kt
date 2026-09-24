@@ -4,8 +4,11 @@ import io.github.jpicklyk.mcptask.current.application.tools.ResponseUtil
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.application.tools.resolveWorkItemIdString
+import io.github.jpicklyk.mcptask.current.domain.repository.LeaseReleaseResult
+import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import kotlinx.serialization.json.*
+import java.util.UUID
 
 /**
  * Handles the `delete` operation for [ManageItemsTool].
@@ -29,6 +32,7 @@ class DeleteItemHandler {
         context: ToolExecutionContext
     ): JsonElement {
         val repo = context.workItemRepository()
+        val leaseRepo = context.repositoryProvider.resourceLeaseRepository()
 
         val deletedIds = mutableListOf<String>()
         var descendantsDeleted = 0
@@ -84,6 +88,7 @@ class DeleteItemHandler {
                             // parents are removed (batch DELETE can trigger FK violations mid-statement).
                             val sortedDescendants = descendants.sortedByDescending { it.depth }
                             for (descendant in sortedDescendants) {
+                                releaseLeasesOrThrow(leaseRepo, descendant.id)
                                 when (val delResult = repo.delete(descendant.id)) {
                                     is Result.Success -> if (delResult.data) localDescendantsDeleted++
                                     is Result.Error ->
@@ -94,6 +99,7 @@ class DeleteItemHandler {
                             }
                         }
 
+                        releaseLeasesOrThrow(leaseRepo, id)
                         when (val result = repo.delete(id)) {
                             is Result.Success ->
                                 if (result.data) {
@@ -145,7 +151,31 @@ class DeleteItemHandler {
                     continue
                 }
 
-                when (val result = repo.delete(id)) {
+                var leaseReleaseFailure: String? = null
+                var deleteResult: Result<Boolean>? = null
+                repo.inTransaction {
+                    when (val release = leaseRepo.releaseAllForItem(id)) {
+                        is LeaseReleaseResult.Success -> {
+                            deleteResult = repo.delete(id)
+                        }
+                        is LeaseReleaseResult.DBError -> {
+                            leaseReleaseFailure =
+                                "Failed to release resource leases for '$idStr': ${release.cause.message}"
+                        }
+                    }
+                }
+
+                if (leaseReleaseFailure != null) {
+                    failures.add(
+                        buildJsonObject {
+                            put("id", JsonPrimitive(idStr))
+                            put("error", JsonPrimitive(leaseReleaseFailure))
+                        }
+                    )
+                    continue
+                }
+
+                when (val result = deleteResult) {
                     is Result.Success ->
                         if (result.data) {
                             deletedIds.add(idStr)
@@ -165,6 +195,7 @@ class DeleteItemHandler {
                             }
                         )
                     }
+                    null -> Unit
                 }
             }
         }
@@ -183,6 +214,31 @@ class DeleteItemHandler {
             }
 
         return ResponseUtil.createSuccessResponse(data)
+    }
+
+    /**
+     * Releases every resource lease held by [itemId], closing its lease-history interval(s), before
+     * the caller deletes the row. Called inside the same [io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository.inTransaction]
+     * block as the delete so release and delete commit (or roll back) together.
+     *
+     * Fails closed on purpose: unlike [io.github.jpicklyk.mcptask.current.application.service.AdvanceService]'s
+     * `releaseLeases` (which logs and continues because the lease TTL is still a backstop for a
+     * surviving item), a deleted item's row is gone — its lease can never be released again, so a
+     * release failure here must abort the delete rather than silently leaving the interval open
+     * forever. Throws [DeleteFailureException] on [io.github.jpicklyk.mcptask.current.domain.repository.LeaseReleaseResult.DBError]
+     * so the enclosing transaction rolls back.
+     */
+    private suspend fun releaseLeasesOrThrow(
+        leaseRepo: ResourceLeaseRepository,
+        itemId: UUID
+    ) {
+        when (val release = leaseRepo.releaseAllForItem(itemId)) {
+            is LeaseReleaseResult.Success -> Unit
+            is LeaseReleaseResult.DBError ->
+                throw DeleteFailureException(
+                    "Failed to release resource leases for '$itemId': ${release.cause.message}"
+                )
+        }
     }
 
     /**

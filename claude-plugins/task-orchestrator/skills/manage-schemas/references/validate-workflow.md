@@ -38,7 +38,7 @@ Parse the file. If YAML is invalid, report the parse error with line number (if 
 **For `work_item_schemas` entries:**
 - Schema key should be kebab-case (warn if not)
 - Value must be a mapping containing optional `lifecycle`, optional `default_traits`, and a `notes` list
-- `lifecycle` (if present) must be one of: `auto`, `manual`, `auto-reopen`, `permanent`
+- `lifecycle` (if present) must be one of: `auto`, `manual`, `permanent`
 - `default_traits` (if present) must be a list of strings
 - `notes` must be a list of note definitions
 

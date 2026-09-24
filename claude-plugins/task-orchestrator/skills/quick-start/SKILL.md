@@ -225,7 +225,7 @@ Briefly mention that MCP items can have **required notes** that act as documenta
 - A `.taskorchestrator/config.yaml` file defines schemas under `work_item_schemas:` — which notes must be filled before an item can advance
 - Items match schemas via their `type` field (e.g., `type: "feature-implementation"` activates that schema's notes and gates)
 - Example: the `feature-implementation` schema requires a `feature-summary` note before work can start, and a `review-checklist` note before completion
-- Each schema can set a **lifecycle mode** (auto, manual, auto-reopen, permanent) controlling cascade behavior
+- Each schema can set a **lifecycle mode** (auto, manual, permanent) controlling cascade behavior
 - Notes can carry a `guidance` field (authoring hints) and a `skill` field (structured evaluation framework to invoke before filling)
 - **Composable traits** add additional note requirements per-item — e.g., `traits: "needs-security-review"` adds a `security-assessment` note at the review phase
 - Run `/manage-schemas` to set one up interactively — it can also generate a companion lifecycle skill for your schema

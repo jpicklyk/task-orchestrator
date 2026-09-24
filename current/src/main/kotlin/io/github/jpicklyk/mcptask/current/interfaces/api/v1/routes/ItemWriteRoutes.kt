@@ -16,6 +16,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableE
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.UserTrigger
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.domain.repository.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
@@ -769,13 +770,38 @@ fun Route.itemWriteRoutes(
                 return@delete
             }
 
-            when (val result = workItemRepo.delete(id)) {
+            // Release this item's resource leases (closing their lease-history intervals) inside the
+            // same transaction as the delete, before the row is deleted — see DeleteItemHandler for
+            // the MCP-side equivalent and why this fails closed rather than logging and continuing.
+            var leaseReleaseFailure: String? = null
+            var deleteResult: Result<Boolean>? = null
+            workItemRepo.inTransaction {
+                when (val release = repositoryProvider.resourceLeaseRepository().releaseAllForItem(id)) {
+                    is LeaseReleaseResult.Success -> {
+                        deleteResult = workItemRepo.delete(id)
+                    }
+                    is LeaseReleaseResult.DBError -> {
+                        leaseReleaseFailure = release.cause.message
+                    }
+                }
+            }
+
+            if (leaseReleaseFailure != null) {
+                writeLogger.warn("DELETE /items/{} lease release DB error: {}", id, leaseReleaseFailure)
+                call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Failed to delete item"))
+                return@delete
+            }
+
+            when (val result = deleteResult) {
                 is Result.Error -> {
                     writeLogger.warn("DELETE /items/{} DB error: {}", id, result.error.message)
                     call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Failed to delete item"))
                 }
                 is Result.Success -> {
                     call.respond(HttpStatusCode.NoContent)
+                }
+                null -> {
+                    call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Failed to delete item"))
                 }
             }
         }

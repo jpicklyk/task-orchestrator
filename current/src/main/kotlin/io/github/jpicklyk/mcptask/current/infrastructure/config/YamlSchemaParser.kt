@@ -196,14 +196,23 @@ internal object YamlSchemaParser {
             val lifecycleRaw = schemaMap["lifecycle"] as? String
             val lifecycleMode =
                 if (lifecycleRaw != null) {
-                    val parsed = LifecycleMode.fromString(lifecycleRaw)
-                    if (parsed == null) {
+                    val normalized = lifecycleRaw.trim().uppercase().replace('-', '_')
+                    if (normalized == "AUTO_REOPEN") {
                         warnings.add(
-                            "Schema '$schemaName' has invalid lifecycle value '$lifecycleRaw'; defaulting to AUTO"
+                            "Schema '$schemaName': lifecycle 'auto-reopen' was removed (it behaved exactly like " +
+                                "'auto'); treating as 'auto'"
                         )
                         LifecycleMode.AUTO
                     } else {
-                        parsed
+                        val parsed = LifecycleMode.fromString(lifecycleRaw)
+                        if (parsed == null) {
+                            warnings.add(
+                                "Schema '$schemaName' has invalid lifecycle value '$lifecycleRaw'; defaulting to AUTO"
+                            )
+                            LifecycleMode.AUTO
+                        } else {
+                            parsed
+                        }
                     }
                 } else {
                     LifecycleMode.AUTO

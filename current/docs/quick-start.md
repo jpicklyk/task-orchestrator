@@ -332,7 +332,7 @@ Create `.taskorchestrator/config.yaml` in your project root:
 # Preferred format — supports lifecycle and traits fields
 work_item_schemas:
   task-implementation:
-    lifecycle: AUTO          # AUTO (default), MANUAL, AUTO_REOPEN, or PERMANENT
+    lifecycle: AUTO          # AUTO (default), MANUAL, or PERMANENT
     notes:
       - key: acceptance-criteria
         role: queue

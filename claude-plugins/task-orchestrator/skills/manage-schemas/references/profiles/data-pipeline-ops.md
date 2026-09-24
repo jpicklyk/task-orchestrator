@@ -25,8 +25,8 @@ work_item_schemas:
         description: "Row counts, anomaly score, schema-drift check results."
         guidance: "On a threshold breach: apply the needs-anomaly-review trait so a data
           engineer disposition gate is added before the run closes."
-  data-product:                 # container per recurring pipeline; new runs reopen it
-    lifecycle: auto-reopen
+  data-product:                 # container per recurring pipeline; never closes on its own
+    lifecycle: permanent
     notes: []
 
 traits:
