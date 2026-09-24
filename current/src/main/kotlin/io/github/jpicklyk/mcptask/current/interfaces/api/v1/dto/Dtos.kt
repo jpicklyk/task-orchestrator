@@ -189,6 +189,20 @@ data class ErrorDto(
     val details: JsonObject? = null,
 )
 
+/**
+ * Response body for `DELETE /api/v1/items/{id}?recursive=true` (200 OK).
+ *
+ * `deleted` is the total row count removed (the target item plus every descendant);
+ * `descendantsDeleted` is the descendant-only count, matching the MCP `manage_items` delete
+ * operation's `deleted` / `descendantsDeleted` fields.
+ */
+@Serializable
+data class ItemDeleteResultDto(
+    val id: String,
+    val deleted: Int,
+    val descendantsDeleted: Int,
+)
+
 // ─── Phase 4: Config / schema-discovery DTOs ────────────────────────────────
 
 /**

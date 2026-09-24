@@ -335,6 +335,8 @@ All error responses use:
 | `scope_forbidden` | 403 | Item exists but is outside the caller's scope; also returned for `POST /items` creating a root item, or `PATCH /items/{id}` moving an item to root, when the resulting root-level item would be outside the caller's scope (see §3) |
 | `field_not_patchable` | 400 | PATCH attempted on a server-owned field |
 | `cycle_detected` | 400 | Dependency would create a cycle |
+| `has_children` | 409 | `DELETE /items/{id}` refused: item has one or more direct children and `?recursive=true` was not given; `details.childCount` is the direct child count |
+| `duplicate_dependency` | 409 | `POST /dependencies`: an edge with the same `fromItemId`/`toItemId`/`type` already exists |
 | `unsupported_media_type` | 415 | Wrong `Content-Type` for PATCH (see §23), or a non-JSON `Content-Type` on `POST /items`, `PUT /items/{id}/notes/{key}`, `POST /items/{id}/advance`, or `POST /dependencies` (see §5) |
 | `etag_mismatch` | 412 | `If-Match` header does not match current ETag |
 | `payload_too_large` | 413 | Request body exceeds its route's byte limit — the `Content-Length` header alone if it declares a size over the limit (body untouched), otherwise the actual bytes read, capped at `limit + 1` so an oversized body is never buffered in full. `POST /items`, `PATCH /items/{id}`, `POST /items/{id}/advance`, `PUT /items/{id}/notes/{key}`, and `POST /dependencies` share a 1 MiB limit; `PUT /roots/{rootId}/config` is 128 KiB; `PUT /roots/{rootId}/plans/{slug}` is 64 KiB (see §18, §19). |
@@ -1006,14 +1008,27 @@ Supports `Idempotency-Key` header.
 
 ### DELETE /items/{id}
 
-Cascade delete (removes item and all descendants, notes, and dependencies). Requires `WRITE_ITEMS`.
+Deletes the item. Requires `WRITE_ITEMS`. A parent item (one with direct children) is refused
+with `409 has_children` unless `?recursive=true` is given, in which case it and every descendant
+(notes and dependencies cascade with each row) are deleted, leaves-first, inside one
+transaction — all-or-nothing, matching the MCP `manage_items` delete operation's semantics
+(`WorkItemDeletion`, shared by both surfaces).
+
+**Query parameter:** `recursive` — case-insensitive `"true"`/`"false"`; absent means `"false"`.
+Any other value → `400 validation_error`.
 
 **Optional:** `If-Match` header — when supplied, mismatched ETag → `412 etag_mismatch`.
 
 **Responses:**
-- `204 No Content`
+- `200 OK` — recursive delete succeeded: `{"id", "deleted", "descendantsDeleted"}` (`deleted` is the
+  total row count including the target item; `descendantsDeleted` is descendant-only)
+- `204 No Content` — non-recursive delete of a leaf item succeeded
+- `400 validation_error` — invalid `recursive` value
 - `404 not_found`
+- `409 has_children` — item has direct children and `?recursive=true` was not given;
+  `details.childCount` is the direct child count
 - `412 etag_mismatch`
+- `500 db_error`
 
 ### POST /items/{id}/advance
 
@@ -1267,9 +1282,12 @@ Validation:
 - Both items must exist — `400 not_found`
 - Both items must be in scope — `403 scope_forbidden`
 - Cycle detection — `400 cycle_detected`. Runs only for `blocks` (the item that would block, `fromItemId`); `relates_to` has no blocking semantics and skips the check entirely. `is_blocked_by` is not an accepted create type over REST (see `type` above), so its reverse-direction cycle check is not exercised here — only via MCP `manage_dependencies`.
+- Duplicate edge — `409 duplicate_dependency` when an edge with the same `fromItemId`/`toItemId`/`type` already exists.
 
 **Responses:**
 - `201 Created` → `DependencyEdgeDto`
+- `400 cycle_detected` / `validation_error` / `not_found`
+- `409 duplicate_dependency`
 - `413 payload_too_large` — body exceeds the shared 1 MiB write-body limit (see §5, §6)
 - `415 unsupported_media_type` — `Content-Type` is present and is not `application/json` (an absent header is accepted as `*/*`); checked before the body is read
 

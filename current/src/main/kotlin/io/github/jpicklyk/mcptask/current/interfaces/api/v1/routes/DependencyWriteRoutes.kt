@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
+import io.github.jpicklyk.mcptask.current.domain.validation.DuplicateDependencyException
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.enforceScopeForItem
@@ -47,6 +48,9 @@ private val JSON_WRITE_CONTENT_TYPES = setOf("application/json", "*/*")
  * - `type` one of "blocks" | "relates_to"
  * - `unblockAt` absent or null for RELATES_TO
  * - Cycle detection via [DependencyRepository.hasCyclicDependency] → 400 `cycle_detected`
+ * - Duplicate edge (same `fromItemId`/`toItemId`/`type`) → 409 `duplicate_dependency`, caught from
+ *   [io.github.jpicklyk.mcptask.current.domain.validation.DuplicateDependencyException] thrown by
+ *   the repository's insert path
  *
  * Note: [DependencyRepository]'s read/write methods are suspend but still JDBC-blocking under
  * the hood; all calls are wrapped in [withContext(IO)] to keep the Ktor event loop free.
@@ -165,18 +169,26 @@ fun Route.dependencyWriteRoutes(
                 }
 
             val created: Dependency? =
-                withContext(Dispatchers.IO) {
-                    // suspendTransaction, not transaction: the repo methods below are suspend and
-                    // cannot be called from Exposed's non-suspend transaction lambda. The outer
-                    // transaction is still ONE transaction — each repo method opens its own
-                    // suspendTransaction, which JOINS this one — so the cycle check and the
-                    // insert stay atomic against a concurrent writer, as before.
-                    suspendTransaction(db = repositoryProvider.database()) {
-                        // RELATES_TO has no blocking edge, so it skips the cycle pre-check.
-                        val edge = dep.blockingEdge()
-                        val hasCycle = edge != null && depRepo.hasCyclicDependency(edge.first, edge.second)
-                        if (hasCycle) null else depRepo.create(dep)
+                try {
+                    withContext(Dispatchers.IO) {
+                        // suspendTransaction, not transaction: the repo methods below are suspend and
+                        // cannot be called from Exposed's non-suspend transaction lambda. The outer
+                        // transaction is still ONE transaction — each repo method opens its own
+                        // suspendTransaction, which JOINS this one — so the cycle check and the
+                        // insert stay atomic against a concurrent writer, as before.
+                        suspendTransaction(db = repositoryProvider.database()) {
+                            // RELATES_TO has no blocking edge, so it skips the cycle pre-check.
+                            val edge = dep.blockingEdge()
+                            val hasCycle = edge != null && depRepo.hasCyclicDependency(edge.first, edge.second)
+                            if (hasCycle) null else depRepo.create(dep)
+                        }
                     }
+                } catch (e: DuplicateDependencyException) {
+                    call.respond(
+                        HttpStatusCode.Conflict,
+                        ErrorDto("duplicate_dependency", e.message ?: "A dependency of this type already exists between these items"),
+                    )
+                    return@post
                 }
 
             if (created == null) {

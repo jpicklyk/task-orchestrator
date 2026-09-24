@@ -11,12 +11,13 @@ import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaServ
 import io.github.jpicklyk.mcptask.current.application.service.rest.MergePatchApplier
 import io.github.jpicklyk.mcptask.current.application.service.rest.WorkItemPatchProjection
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.application.tools.items.WorkItemDeleteOutcome
+import io.github.jpicklyk.mcptask.current.application.tools.items.WorkItemDeletion
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.UserTrigger
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.repository.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
@@ -34,6 +35,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.requireCapabili
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.AdvanceRequestDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ItemCreateDto
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ItemDeleteResultDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ItemDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ItemPatchDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.etag.etagFor
@@ -221,7 +223,10 @@ private suspend fun respondAdvanceFailure(
  * Endpoints:
  * - `POST   /items`              — create item ([ApiCapability.WRITE_ITEMS])
  * - `PATCH  /items/{id}`         — JSON Merge Patch update; requires `If-Match` ([ApiCapability.WRITE_ITEMS])
- * - `DELETE /items/{id}`         — cascade delete ([ApiCapability.WRITE_ITEMS])
+ * - `DELETE /items/{id}`         — delete; a parent refuses with 409 `has_children` unless
+ *   `?recursive=true`, which cascades (matching the MCP `manage_items` delete operation's
+ *   semantics via [io.github.jpicklyk.mcptask.current.application.tools.items.WorkItemDeletion])
+ *   ([ApiCapability.WRITE_ITEMS])
  * - `POST   /items/{id}/advance` — role transition ([ApiCapability.ADVANCE])
  *
  * **Audit:** every write synthesizes an [ActorClaim] server-side from the [ApiPrincipal];
@@ -820,6 +825,26 @@ fun Route.itemWriteRoutes(
                     return@delete
                 }
 
+            // `recursive` is trimmed and case-insensitive. Absent means non-recursive (the default,
+            // preserving the previous single-row behavior); "true"/"false" (any case) are the only
+            // other accepted values — anything else (e.g. "1", "yes", "") is a validation error.
+            // Checked here (before the existence/scope/If-Match checks below) per the REST contract's
+            // check order: id -> recursive -> 404 -> 403 -> If-Match 412.
+            val recursiveParam = call.request.queryParameters["recursive"]?.trim()
+            val recursive =
+                when {
+                    recursiveParam == null -> false
+                    recursiveParam.equals("false", ignoreCase = true) -> false
+                    recursiveParam.equals("true", ignoreCase = true) -> true
+                    else -> {
+                        call.respond(
+                            HttpStatusCode.BadRequest,
+                            ErrorDto("validation_error", "recursive must be 'true' or 'false', got: $recursiveParam"),
+                        )
+                        return@delete
+                    }
+                }
+
             val itemResult = workItemRepo.getById(id)
             if (itemResult is Result.Error) {
                 call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Item $id not found"))
@@ -844,34 +869,48 @@ fun Route.itemWriteRoutes(
                 return@delete
             }
 
-            // Release this item's resource leases (closing their lease-history intervals) inside the
-            // same transaction as the delete, before the row is deleted — see DeleteItemHandler for
-            // the MCP-side equivalent and why this fails closed rather than logging and continuing.
-            // Release and delete must commit (or roll back) together: workItemRepo.delete() reports
-            // failure via Result.Error rather than by throwing, and a returned Result.Error does not
-            // by itself abort the transaction — so a lease-release DBError or a delete Result.Error
-            // is converted into a thrown DeleteLeaseReleaseFailureException inside the block, which
-            // is what actually forces the rollback (matching the existing 500 db_error outcome).
-            // Result.Success (found-and-deleted or already-absent) commits normally, same as before.
-            try {
-                workItemRepo.inTransaction {
-                    when (val release = repositoryProvider.resourceLeaseRepository().releaseAllForItem(id)) {
-                        is LeaseReleaseResult.Success -> Unit
-                        is LeaseReleaseResult.DBError ->
-                            throw DeleteLeaseReleaseFailureException(release.cause.message)
-                    }
-                    when (val result = workItemRepo.delete(id)) {
-                        is Result.Success -> Unit
-                        is Result.Error -> throw DeleteLeaseReleaseFailureException(result.error.message)
+            // Delegate to the shared helper (see WorkItemDeletion's KDoc) — release-before-delete,
+            // the non-recursive children guard, and the recursive all-or-nothing subtree delete are
+            // all identical to the MCP `manage_items` delete operation (DeleteItemHandler).
+            val deletion = WorkItemDeletion(repositoryProvider)
+            when (val outcome = deletion.delete(id, recursive)) {
+                is WorkItemDeleteOutcome.Deleted -> {
+                    if (recursive) {
+                        call.respond(
+                            HttpStatusCode.OK,
+                            ItemDeleteResultDto(
+                                id = outcome.id.toString(),
+                                deleted = 1 + outcome.descendantsDeleted,
+                                descendantsDeleted = outcome.descendantsDeleted,
+                            ),
+                        )
+                    } else {
+                        call.respond(HttpStatusCode.NoContent)
                     }
                 }
-            } catch (e: DeleteLeaseReleaseFailureException) {
-                writeLogger.warn("DELETE /items/{} DB error: {}", id, e.message)
-                call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Failed to delete item"))
-                return@delete
+                is WorkItemDeleteOutcome.HasChildren -> {
+                    val details =
+                        buildJsonObject {
+                            put("childCount", JsonPrimitive(outcome.childCount))
+                        }
+                    call.respond(
+                        HttpStatusCode.Conflict,
+                        ErrorDto(
+                            "has_children",
+                            "Item $id has ${outcome.childCount} child item(s). " +
+                                "Use ?recursive=true to delete the item and all its descendants.",
+                            details,
+                        ),
+                    )
+                }
+                is WorkItemDeleteOutcome.NotFound -> {
+                    call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Item $id not found"))
+                }
+                is WorkItemDeleteOutcome.Failed -> {
+                    writeLogger.warn("DELETE /items/{} DB error: {}", id, outcome.message)
+                    call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Failed to delete item"))
+                }
             }
-
-            call.respond(HttpStatusCode.NoContent)
         }
     }
 
@@ -1111,19 +1150,4 @@ fun Route.itemWriteRoutes(
  */
 private class DepthCascadeException(
     message: String
-) : Exception(message)
-
-/**
- * Internal marker exception used to abort the shared `workItemRepo.inTransaction` block in the
- * DELETE `/items/{id}` handler when the resource-lease release or the row delete itself fails.
- * `workItemRepo.delete()` (and `ResourceLeaseRepository.releaseAllForItem()`) report failure via a
- * `Result`/`LeaseReleaseResult` value rather than by throwing, and returning such a value does not
- * by itself abort or roll back a transaction — so both failure paths are converted into a throw
- * here, which is what actually forces the release and the delete to roll back together rather
- * than the block committing with the lease released and the row still present. Caught immediately
- * around the `inTransaction` call and converted into the existing 500 `db_error` response; never
- * surfaced to the client as a raw exception.
- */
-private class DeleteLeaseReleaseFailureException(
-    message: String?
 ) : Exception(message)
