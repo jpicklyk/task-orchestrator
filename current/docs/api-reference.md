@@ -684,7 +684,7 @@ rejections skip in-set dependents exactly like a gate failure does.
 
 **Per-root config unavailable (`applied: false`, `errorCode: "config_unavailable"`):** when an
 item's per-root config cannot be read (a transient database error) and there is no last-known-good
-cached config for that root (see `manage_project_config`'s Purpose note above), that item's entry
+cached config for that root (see `manage_project_config`'s Purpose note below), that item's entry
 carries `skipped: true`, `errorKind: "transient"`, `errorCode: "config_unavailable"` — no
 `retryAfterMs` — and counts as a rejection (`skipped`, not `gateFailures`); its in-set dependents are
 skipped exactly like any other rejection. The rest of the batch (siblings, and items whose own root's
@@ -1383,7 +1383,7 @@ force-release, item-keyed exclusivity, single-DB arbiter, opaque-labels-never-se
 
 **Per-root config unavailable.** When a transition's per-root config cannot be read (a transient
 database error) and there is no last-known-good cached config for that root (see
-`manage_project_config`'s Purpose note above), that ONE transition is rejected as **transient** —
+`manage_project_config`'s Purpose note below), that ONE transition is rejected as **transient** —
 the rest of a batch continues — and nothing is persisted for it:
 
 ```json
@@ -2403,7 +2403,7 @@ on `code`/`kind` without parsing the text summary:
 
 **`config_unavailable` (transient).** A root's per-root config could not be read (a transient
 database error on `getFingerprint`/`get`) and there was no last-known-good cached config for that
-root to serve instead — see `manage_project_config`'s Purpose note below for the last-known-good
+root to serve instead — see `manage_project_config`'s Purpose note above for the last-known-good
 cache this falls back to. `retryAfterMs` is null, per the `transient` kind's own-backoff rule.
 `advance_item` reports this per transition (the rest of a batch continues) and `complete_tree`
 reports it per item (`skipped: true`, outcome `REJECTED`, in-set dependents skipped); `manage_notes`

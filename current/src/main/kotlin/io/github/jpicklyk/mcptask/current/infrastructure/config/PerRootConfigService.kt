@@ -105,8 +105,9 @@ class PerRootConfigService(
     /**
      * Returns a [Snapshot] of every per-root config facet for [rootItemId] from a SINGLE [resolve]
      * pass, or null under the same conditions as every other accessor on this class: no config row
-     * for [rootItemId], or the stored YAML fails to parse (see class doc — failures fall through to
-     * the global loader rather than throwing).
+     * for [rootItemId], or the stored YAML fails to parse (both fall through to the global layer).
+     * A repository READ error is different: it serves the last-known-good entry, or throws
+     * [PerRootConfigUnavailableException] when none is cached — it never falls through.
      */
     suspend fun getSnapshot(rootItemId: UUID): Snapshot? {
         val parsed = resolve(rootItemId) ?: return null
@@ -143,7 +144,8 @@ class PerRootConfigService(
 
     /**
      * Returns the cached config fingerprint for [rootItemId], or null when no config row exists or
-     * it fails to parse. Goes through [resolve]'s normal fingerprint-check hot-reload path first
+     * it fails to parse; a read error serves the last-known-good fingerprint or throws
+     * [PerRootConfigUnavailableException]. Goes through [resolve]'s normal fingerprint-check hot-reload path first
      * (so this never returns a stale fingerprint after a concurrent push) — callers needing to
      * report which config version supplied a resolved schema (e.g. `query_items`'s `schema`
      * operation) should call this immediately after a [getSchemaForType]/[getSchemas] lookup that
@@ -235,9 +237,12 @@ class PerRootConfigService(
     ): YamlSchemaParser.ParsedConfig? {
         logger.warn("Per-root config read failed for root {}: {}", rootItemId, error)
         cache[rootItemId]?.let { return it.parsed }
+        // The full repository error (which may carry SQL/driver text) stays in the server log above;
+        // the exception message reaches MCP and REST clients, so it names only the root.
         throw PerRootConfigUnavailableException(
             rootItemId,
-            "Per-root config read failed for root $rootItemId and no last-known-good config is cached: $error"
+            "Per-root config for root $rootItemId is temporarily unavailable (read failed; no last-known-good config cached)",
+            (error as? RepositoryError.DatabaseError)?.cause
         )
     }
 
