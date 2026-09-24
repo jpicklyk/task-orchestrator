@@ -90,7 +90,18 @@ tokens:
 - `id` — stable identifier used in audit records (prefixed with `api:`)
 - `token_sha256` — lowercase hex SHA-256 of the plaintext token
 - `capabilities` — list of granted operations (see §2)
-- `scope.root_ids` — optional list of root-item UUIDs; null/empty means unrestricted
+- `scope` — optional; when present must be a mapping with only `root_ids` and/or `tags_include`
+  keys (any other key, including a typo, fails startup)
+  - `scope.root_ids` — a list of root-item UUID strings, or absent/`null` for unrestricted access.
+    An empty list `[]` is **rejected at startup** — root scope is the isolation boundary, so `[]`
+    cannot mean "every root"; omit the key (or set it `null`) instead.
+  - `scope.tags_include` — a list of non-blank tag strings, or absent/`null`/`[]` for no tag
+    constraint (`[]` is the canonical unrestricted form here, unlike `root_ids`)
+  - Any malformed shape (a scalar instead of a list, a non-string or blank element, an unquoted
+    YAML boolean like `yes`/`on`) fails startup with `IllegalArgumentException` naming the token id
+    and the key path — never silently falls back to unrestricted
+  - A token entry itself only accepts the keys `id`, `description`, `token_sha256`, `expires_at`,
+    `scope`, `capabilities` — an unrecognized entry key (e.g. a `scopes:` typo) also fails startup
 - `expires_at` — optional token expiry; expired tokens are rejected at lookup time
 - Token rotation requires a server restart (tokens are loaded once at startup).
 
@@ -112,7 +123,23 @@ printf '%s' "$TOKEN" | openssl dgst -sha256 | awk '{print $NF}'
 
 Present a JWT in the `Authorization: Bearer` header. The server validates the JWT against the JWKS endpoint configured by `API_JWKS_URL`. Claims extracted: `iss`, `aud`, `sub`, `exp`, `nbf`. `exp` is **required** — a JWT with no `exp` claim is rejected with `401 invalid_token`; there is no max-lifetime knob to accept exp-less tokens instead.
 
-Capabilities and scope are derived from the JWT's `sub` claim (mapped to a principal) or from the token store if applicable — the exact mapping is deployment-specific; consult your JWKS issuer configuration.
+The principal's `tokenId` is the JWT's `sub` claim. Scope and capabilities are derived from two
+custom claims the issuer sets:
+
+- `to_scope` — optional; when present must be a JSON object with only `root_ids` and/or
+  `tags_include` keys, following the same fail-closed rules as the bearer `scope` block above
+  (absent/`null` means unrestricted; `root_ids: []` is malformed and rejected; `tags_include`
+  absent/`null`/`[]` means no tag constraint; any other shape, or an unrecognized key inside
+  `to_scope`, is malformed). A malformed `to_scope` makes verification fail closed — the whole
+  JWT is rejected with `401 invalid_token`, not just the scope claim; a WARN is logged naming the
+  claim path (never the JWT itself).
+- `to_capabilities` — optional list of capability strings (see §2); absent or empty defaults to
+  `[read]`. Unlike scope, an unknown capability value is dropped (not fail-closed) and logged at
+  WARN naming `to_capabilities`; if the claim is present but is not a string list, it is treated as
+  absent (WARN logged) and the default `[read]` applies.
+
+Unrecognized top-level JWT claims (added by the IdP) are ignored — only unrecognized keys nested
+inside `to_scope` are treated as malformed.
 
 **Failing requests receive:**
 - `401 Unauthorized` + `WWW-Authenticate: Bearer error="invalid_request"` — missing token
