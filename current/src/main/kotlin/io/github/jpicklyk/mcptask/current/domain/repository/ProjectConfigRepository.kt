@@ -21,7 +21,7 @@ interface ProjectConfigRepository {
      * Unconditional — no compare-and-set guard. Prefer [upsertGuarded] for any caller that needs
      * to evaluate an If-Match / fast-forward guard against the SAME row version it then writes;
      * this method is kept for callers (and existing tests) that genuinely want an unconditional
-     * write, and as the plain building block [upsertGuarded] itself is built from.
+     * write; [upsertGuarded] has its own single-transaction implementation and does not call it.
      */
     suspend fun upsert(
         rootItemId: UUID,

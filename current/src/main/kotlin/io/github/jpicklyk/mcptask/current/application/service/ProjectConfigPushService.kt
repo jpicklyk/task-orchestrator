@@ -343,8 +343,8 @@ sealed class ProjectConfigPushResult {
      * match [rootItemId]'s stored fingerprint AT THE POINT the write would have happened (evaluated
      * inside the same transaction as the write itself, closing the separate-guard-read-then-write
      * race). [currentFingerprint] is the row's actual fingerprint at that point — REST maps this to
-     * 412 with a refreshed `ETag` header; ignored (never returned) when no row exists yet, or when
-     * `force: true` was passed.
+     * 412 with a refreshed `ETag` header; ignored (never returned) when no row exists yet. NOT
+     * skipped by `force: true` — force bypasses only the root-id-mismatch and fast-forward guards.
      */
     data class PreconditionFailed(
         val rootItemId: UUID,
