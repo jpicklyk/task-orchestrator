@@ -655,16 +655,43 @@ passes it gets exactly one `Warning: 299 - "include=proof is deprecated and igno
 are no longer stored"` response header instead of a silent no-op, so a caller relying on the old
 behavior notices. `API_REDACT_ACTOR_PROOF` is likewise a deprecated no-op (see the table above).
 
-**Pre-upgrade backups still hold live tokens.** A SQLite database file or backup (`docker cp`,
-volume snapshot) taken *before* upgrading to a build with V17 still contains raw proofs from
-before the scrub — those remain replayable as a `VERIFIED` identity until each token's own `exp`.
-V17's migration scrubs every existing `actor_proof` column value to `NULL` in the live database
-(with `PRAGMA secure_delete = ON` so SQLite zeroes the freed page content rather than leaving it
-recoverable), but a backup taken earlier is unaffected by that scrub. Rotate long-lived actor
-tokens/keys and purge old pre-upgrade backups after upgrading. Historical rows scrubbed by V17
-get no hash and no claims — there was no way to recompute a SHA-256 of a value that is being
-erased without a code-executing migration, which was rejected as out of scope; this is a known,
-accepted forensic gap for anything written before the upgrade.
+**Pre-upgrade backups and pre-upgrade free space may still hold live tokens.** A SQLite database
+file or backup (`docker cp`, volume snapshot) taken *before* upgrading to a build with V17 still
+contains raw proofs from before the scrub — those remain replayable as a `VERIFIED` identity until
+each token's own `exp`.
+
+V17's migration sets every existing `actor_proof` value to `NULL` in the live database, with
+`PRAGMA secure_delete = ON` so the cells that scrub frees are zeroed. This is partial: copies
+SQLite had already moved or freed before the upgrade (page splits, notes deleted or re-upserted)
+can survive in the file's free space, and no scrub reaches a backup taken earlier.
+
+Historical rows scrubbed by V17 get no hash and no claims — there was no way to recompute a
+SHA-256 of a value that is being erased without a code-executing migration, which was rejected as
+out of scope; this is a known, accepted forensic gap for anything written before the upgrade.
+
+#### Remediation
+
+1. **Rotate first.** Rotate actor signing keys and reissue long-lived tokens. The only remedy
+   reaching every copy; then purge pre-upgrade backups.
+2. **Optional offline compaction.** Live file only; needs free disk ≥2× DB size.
+   1. Stop the server.
+   2. Run
+      `docker run --rm -v mcp-task-data:/data alpine:3.20 sh -c "apk add sqlite && sqlite3 /data/current-tasks.db"`.
+      The image has no `sqlite3`.
+   3. Execute in order:
+      - `PRAGMA wal_checkpoint(TRUNCATE);`
+      - `VACUUM;`
+      - `INSERT INTO t(t) VALUES('rebuild');` and then `VALUES('integrity-check')`, for each `t` in
+        `work_items_fts_trigram`, `work_items_fts_text`, `notes_fts_trigram`, `notes_fts_text`
+      - `PRAGMA integrity_check;`
+      - `PRAGMA wal_checkpoint(TRUNCATE);`
+   4. `chown -R 1001:1001 /data`, then restart.
+
+   Warn: skipping the rebuilds silently desyncs search; compaction misses backups and filesystem
+   slack.
+
+Direct mode (`USE_FLYWAY=false`) does not apply V17 to an existing database; migrate it via
+Flyway.
 
 ---
 
@@ -806,6 +833,7 @@ The identity resolution chain:
 | `work_items.claimed_by` | Current claim holder identity |
 | Audit notes (when `actor_authentication.enabled`) | Actor claim object on every write — `id`, `kind`, `parent`, verification metadata |
 | `query_notes` body content | Audit notes are readable via standard note queries |
+| `notes.actor_proof_claims` / `role_transitions.actor_proof_claims` (V17) | Verified JWT claims JSON on a `VERIFIED` proof — can hold `sub`/`iss`, so the same PII sensitivity as `claimedBy` applies here too |
 
 Operators are responsible for choosing a `sub` value with appropriate sensitivity for their compliance regime. Pseudonymous identifiers (UUIDs, `did:web` identifiers, opaque session tokens) avoid PII concerns entirely. Email-as-`sub` is supported but creates compliance obligations downstream.
 

@@ -428,10 +428,11 @@ Query parameters: `?page=<int>` (default 1, must be an integer in `1..100000`) a
 {
   "id": "api:dashboard-editor",
   "kind": "orchestrator|subagent|user|external",
-  "parent": "string|null",
-  "proof": null  // ALWAYS null — since migration V17, raw actor proofs (JWTs) are never persisted.
-                 // `?include=proof` is accepted but deprecated: it only adds a `Warning` response
-                 // header now (see §22). Use VerificationDto.proof for forensic evidence instead.
+  "parent": "string|null"
+  // "proof" is deprecated and never sent: since migration V17, raw actor proofs (JWTs) are never
+  // persisted, so this field is always omitted from the wire (server-wide `explicitNulls=false`).
+  // `?include=proof` is accepted but deprecated: it only adds a `Warning` response header now (see
+  // §22). Use VerificationDto.proof for forensic evidence instead.
 }
 ```
 
@@ -444,7 +445,10 @@ For REST API writes, `id` is always `"api:<tokenId>"` and `kind` is always `"ext
   "status": "unverified|verified|unavailable|unchecked",
   "verifier": "api-bearer|api-jwks|null",
   "reason": "string|null",
-  "proof": {                    // null unless caller has ADMIN, or no proof was ever supplied
+  "proof": {                    // present only for ADMIN callers, and only when a proof was
+                                 // supplied; omitted otherwise (explicitNulls=false) — independent
+                                 // of `?include=proof` (deprecated no-op, see §22) and
+                                 // API_REDACT_NOTE_ATTRIBUTION
     "sha256": "ba7816bf...",    // SHA-256 hex digest of the proof; present whenever a proof was supplied
     "iss": "string|null",       // verified JWT claims below — present only when status was "verified"
     "sub": "string|null",
@@ -1741,7 +1745,13 @@ All write endpoints (POST, PATCH, PUT, DELETE) synthesize an actor server-side f
   `actor_proof_sha256`/`actor_proof_claims` columns). `?include=proof` is still accepted for
   backward compatibility but is a deprecated no-op: it adds one
   `Warning: 299 - "include=proof is deprecated and ignored; actor proofs are no longer stored"`
-  response header and nothing else.
+  response header and nothing else. That header is added on any of the five GET endpoints that
+  accept `?include=proof`, whenever the request passes it:
+  - `GET /items/{id}`
+  - `GET /items/{id}/notes`
+  - `GET /items/{id}/notes/{key}`
+  - `GET /items/{id}/transitions`
+  - `GET /transitions`
 - `verification.proof`: the evidence that replaced the raw proof — a SHA-256 hash of the proof
   (whenever one was supplied) plus, only when the proof was cryptographically `verified`, the
   verified JWT claims (`iss`/`sub`/`aud`/`jti`/`iat`/`exp`/`kid`/`alg`). Requires `ADMIN`

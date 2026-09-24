@@ -6,8 +6,9 @@
 -- and the verified JWT claims as JSON (only on a VERIFIED outcome). MCP item 983615e7.
 --
 -- `actor_proof` is kept (DROP COLUMN would force a table recreation against the notes FTS5 triggers,
--- see V7/V8) and is always written as NULL by the repositories from now on. `PRAGMA secure_delete`
--- makes SQLite zero the freed cell content instead of leaving it in a free page; VACUUM is
+-- see V7/V8) and is always written as NULL by the repositories from now on. PRAGMA secure_delete applies to this
+-- migration's connection only: it zeroes the cells this UPDATE frees, NOT stale copies left in free
+-- space by earlier page splits or pre-upgrade deletes/re-upserts (see "Proof handling"). VACUUM is
 -- deliberately NOT used — it cannot run inside Flyway's transaction and can renumber the implicit
 -- rowids the FTS5 indexes bind to (`content_rowid='rowid'` on BLOB-keyed tables).
 --
