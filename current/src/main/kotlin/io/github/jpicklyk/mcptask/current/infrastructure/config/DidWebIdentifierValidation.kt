@@ -13,10 +13,11 @@ package io.github.jpicklyk.mcptask.current.infrastructure.config
 //   "/", "?", "#", "@" (and any other non-idchar) are rejected outright.
 // - In the host segment, the only percent-encoding allowed is "%3A" (either case, decodes to ":").
 //   The decoded host must match [A-Za-z0-9.-]+ with an optional ":" + 1-5 digit port.
+//   The port, when present, must be 1-65535.
 // - Each path segment, percent-decoded once, must not contain "/", "?", "#", "@" or "%" (catching
-//   both raw delimiters and double-encoding such as "%252F" decoding to the literal "%2F"), and
-//   must not decode to "." or ".." (dot-segments, RFC 3986 §5.2.4). Empty segments stay legal
-//   (fleet-deployment.md:385).
+//   both raw delimiters and double-encoding such as "%252F" decoding to the literal "%2F"), nor a
+//   control character (U+0000-U+001F, U+007F) or a backslash, and must not decode to "." or ".."
+//   (dot-segments, RFC 3986 §5.2.4). Empty segments and "%20" stay legal (fleet-deployment.md).
 // -------------------------------------------------------------------------
 
 /** Message prefix for every violation raised here. */
@@ -82,10 +83,12 @@ private fun validateDidHostSegment(hostSegment: String) {
             i += 1
         }
     }
-    if (!DID_HOST_PATTERN.matches(decoded)) {
-        throw DidSecurityViolationException(
-            "$MALFORMED_DID_MESSAGE_PREFIX: invalid host segment '$hostSegment'"
-        )
+    val match =
+        DID_HOST_PATTERN.matchEntire(decoded)
+            ?: throw DidSecurityViolationException("$MALFORMED_DID_MESSAGE_PREFIX: invalid host segment '$hostSegment'")
+    val port = match.groupValues[1]
+    if (port.isNotEmpty() && port.toInt() !in 1..65535) {
+        throw DidSecurityViolationException("$MALFORMED_DID_MESSAGE_PREFIX: port out of range in host segment '$hostSegment'")
     }
 }
 
@@ -97,7 +100,7 @@ private fun validateDidPathSegment(segment: String) {
             "$MALFORMED_DID_MESSAGE_PREFIX: dot-segment '$decoded' in path"
         )
     }
-    if (decoded.any { it == '/' || it == '?' || it == '#' || it == '@' || it == '%' }) {
+    if (decoded.any { it in "/?#@%\\" || it < ' ' || it == '\u007F' }) {
         throw DidSecurityViolationException(
             "$MALFORMED_DID_MESSAGE_PREFIX: disallowed character in decoded path segment '$decoded'"
         )
@@ -119,4 +122,4 @@ private fun isHexDigit(c: Char): Boolean = c in '0'..'9' || c in 'A'..'F' || c i
 
 private fun isAsciiAlnum(c: Char): Boolean = c in '0'..'9' || c in 'A'..'Z' || c in 'a'..'z'
 
-private val DID_HOST_PATTERN = Regex("^[A-Za-z0-9.-]+(:[0-9]{1,5})?$")
+private val DID_HOST_PATTERN = Regex("^[A-Za-z0-9.-]+(?::([0-9]{1,5}))?$")

@@ -387,12 +387,13 @@ colon-delimited DID segment — it will not cross a `:` boundary. Example:
 If your fleet uses a two-level path (`did:web:host:team:agent`), use two explicit wildcard
 segments (`did:web:host:*:*`) or enumerate teams in `did_allowlist`.
 
-**Host-segment wildcard character set.** A `*` in the *host* segment of a `did_pattern` (the
-portion before the first `:`) matches `[A-Za-z0-9.-]*` and can span dot-separated labels — for
-example `did:web:*.example.com` matches `did:web:a.b.example.com`. It never matches `%`
-(percent-encoding, e.g. an encoded `:` or a literal `%`), so a pattern cannot be defeated by
-encoding a would-be segment separator. A `*` in a *path* segment keeps its existing
-single-colon-segment meaning described above.
+**Wildcard character set.** A `*` in a `did_pattern` matches `[A-Za-z0-9._-]*`. In the *host*
+segment (the portion before the first `:`) it can span dot-separated labels — for example
+`did:web:*.example.com` matches `did:web:a.b.example.com` — and `_` never matches there in
+practice, because a host containing `_` is rejected as malformed first. In a *path* segment it
+keeps the single-colon-segment meaning described above. A `*` never matches `%`, so a pattern
+cannot be defeated by encoding a would-be segment separator; an agent whose DID path segment is
+percent-encoded (e.g. `agents:abc%20def`) must be listed explicitly in `did_allowlist`.
 
 **`sub`/`iss` binding under DID trust.** Because each agent is identified by its own `did:web` DID
 (there is no separate operator-configured `issuer`), the verifier binds the JWT `sub` to `iss`
@@ -402,7 +403,10 @@ validation and before the `require_sub_match` check, so an untrusted issuer is s
 `failureKind: policy` and a `kid` mismatch is still reported as `failureKind: crypto` ahead of it.
 A mismatch here is rejected with `failureKind: claims` and a reason starting `sub/iss mismatch
 under DID trust`. Without this binding, an agent could sign a token with its own key asserting
-`sub` equal to a *different* trusted DID and be verified as that other agent.
+`sub` equal to a *different* trusted DID and be verified as that other agent. The binding turns
+such a token into `REJECTED`; it blocks the impersonation only under `degraded_mode_policy:
+reject` — under `accept-cached`, a `REJECTED` proof still falls back to the self-reported
+`actor.id` (see [Identity Configuration](#identity-configuration--authdegradedmodepolicy)).
 
 **Verified identity under DID trust.** On a `VERIFIED` result under DID trust, the resolved
 identity used by `resolveTrustedActorId` (under `accept-cached` and `reject`) is the verified DID
@@ -418,11 +422,11 @@ static-JWKS (non-DID) verification are unaffected — see [Identity Model](#iden
   (`%` followed by exactly two hex digits). Raw `/`, `?`, `#`, `@` are rejected outright, as is a
   malformed percent-encoding.
 - In the host segment, the only percent-encoding accepted is `%3A` (either case, decoding to
-  `:`); the decoded host must be `[A-Za-z0-9.-]+` with an optional `:` plus a 1-5 digit port.
+  `:`); the decoded host must be `[A-Za-z0-9.-]+` with an optional `:` plus a port in 1-65535.
 - Each path segment, percent-decoded once, must not contain `/ ? # @ %` (this also catches
-  double-encoding such as `%252F`, which decodes once to the literal `%2F`) and must not decode to
-  `.` or `..`. Empty segments (e.g. a trailing `:`) remain legal, as shown in the wildcard table
-  above.
+  double-encoding such as `%252F`, which decodes once to the literal `%2F`), a control character
+  or a backslash, and must not decode to `.` or `..`. Empty segments (e.g. a trailing `:`) and
+  `%20` remain legal, as shown in the wildcard table above.
 
 A violation raises a security-violation error whose message starts with `malformed DID`, surfaced
 to the caller as `REJECTED` with `failureKind: policy` — distinct from `issuer not in DID trust

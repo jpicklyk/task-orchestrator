@@ -332,8 +332,9 @@ class DefaultJwksKeySetProvider(
         return false
     }
 
-    // Glob match: "*" matches any single DID path segment restricted to host-safe characters
-    // (letters, digits, "." and "-"). This prevents sub-path hijack where, for example,
+    // Glob match: "*" matches any single DID segment restricted to letters, digits, ".", "-" and
+    // "_" (DID Core idchars; "_" can only ever match in a path segment, because the host validator
+    // rejects it before this runs). This prevents sub-path hijack where, for example,
     // "did:web:host:agents:alice:fake" would wrongly match "did:web:host:agents:*" under an
     // unrestricted ".*" wildcard, and it prevents a "*" from ever matching "%" (percent-encoding,
     // e.g. an encoded port or colon) or spilling across a ":" segment boundary. In a host segment
@@ -348,7 +349,7 @@ class DefaultJwksKeySetProvider(
         val regex =
             pattern
                 .split("*")
-                .joinToString("[A-Za-z0-9.-]*") { Regex.escape(it) }
+                .joinToString("[A-Za-z0-9._-]*") { Regex.escape(it) }
                 .let { Regex("^$it$") }
         return regex.matches(value)
     }
