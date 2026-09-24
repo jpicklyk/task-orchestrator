@@ -6,6 +6,7 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.toJsonString
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
+import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
@@ -20,9 +21,11 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.GateStatusDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ItemDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ItemGateDto
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.PageDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.etag.respondWithEtagCheck
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.buildDependenciesDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.toDto
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.pagination.PageParams
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.pagination.buildPageDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.pagination.pageParamsOrRespond
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.redaction.AttributionRedactor
@@ -47,6 +50,16 @@ private val logger = LoggerFactory.getLogger("ItemRoutes")
  * tag-scoped principals take this path; every other caller keeps SQL-level pagination.
  */
 private const val TAG_SCOPE_SCAN_LIMIT = 1000
+
+/**
+ * One page of an already scope-filtered, in-memory [visible] set: the page is sliced from the
+ * survivors and totalItems is their count, so paging never counts an item the caller may not read.
+ */
+private fun pageOfVisible(
+    visible: List<WorkItem>,
+    pp: PageParams,
+    skipped: Int? = null,
+): PageDto<ItemDto> = buildPageDto(visible.drop(pp.offset).take(pp.pageSize).map { it.toDto() }, pp, visible.size.toLong(), skipped)
 
 /**
  * Registers item-read routes under the `/api/v1` route prefix.
@@ -194,12 +207,7 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
                         // Filter first, paginate second: the surviving rows ARE the caller's
                         // universe, so totalItems is their count — never a DB count that
                         // includes items this token may not read.
-                        val filtered = items.data.filterByTagScope(principal)
-                        val page = filtered.drop(pp.offset).take(pp.pageSize)
-                        call.respond(
-                            HttpStatusCode.OK,
-                            buildPageDto(page.map { it.toDto() }, pp, filtered.size.toLong(), skippedCount),
-                        )
+                        call.respond(HttpStatusCode.OK, pageOfVisible(items.data.filterByTagScope(principal), pp, skippedCount))
                         return@get
                     }
                     val total =
@@ -256,9 +264,7 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
                             val r = workItemRepo.getById(rid)
                             if (r is Result.Success && r.data.parentId == null) r.data else null
                         }.filterByTagScope(principal)
-                val page = roots.drop(pp.offset).take(pp.pageSize)
-                val dtos = page.map { it.toDto() }
-                call.respond(HttpStatusCode.OK, buildPageDto(dtos, pp, roots.size.toLong()))
+                call.respond(HttpStatusCode.OK, pageOfVisible(roots, pp))
             } else if (principal.hasTagScope()) {
                 // Unrestricted rootIds but a tag allowlist: read a bounded candidate window,
                 // drop out-of-scope roots, then paginate the survivors (see TAG_SCOPE_SCAN_LIMIT).
@@ -269,11 +275,9 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
                         call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Database query failed"))
                     }
                     is Result.Success -> {
-                        val filtered = result.data.items.filterByTagScope(principal)
-                        val page = filtered.drop(pp.offset).take(pp.pageSize)
                         call.respond(
                             HttpStatusCode.OK,
-                            buildPageDto(page.map { it.toDto() }, pp, filtered.size.toLong(), result.data.skipped),
+                            pageOfVisible(result.data.items.filterByTagScope(principal), pp, result.data.skipped),
                         )
                     }
                 }
@@ -524,15 +528,23 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
             }
 
             val pp = call.pageParamsOrRespond() ?: return@get
-            // Fetch all children without pagination first when tag filtering is needed,
-            // so that the page slice is taken from the already-filtered set.
             val principalForChildren = call.attributes.getOrNull(ApiPrincipalKey)
+
+            // tags_include has no SQL representation, so a tag-scoped caller reads a wider
+            // candidate window (TAG_SCOPE_SCAN_LIMIT, same bound GET /items uses), filters it in
+            // memory, and is paginated from the SURVIVING set — filter before paging, matching the
+            // file KDoc above. countByFilters would count children the token cannot see, so it is
+            // not used on this branch; totalItems is the filtered count instead. Callers without a
+            // tag scope keep the original SQL LIMIT/OFFSET + countByFilters path unchanged.
+            val tagScoped = principalForChildren.hasTagScope()
+            val fetchLimit = if (tagScoped) TAG_SCOPE_SCAN_LIMIT else pp.pageSize
+            val fetchOffset = if (tagScoped) 0 else pp.offset
 
             val childrenResult =
                 workItemRepo.findByFilters(
                     parentId = id,
-                    limit = pp.pageSize,
-                    offset = pp.offset,
+                    limit = fetchLimit,
+                    offset = fetchOffset,
                 )
             when (childrenResult) {
                 is Result.Error -> {
@@ -540,15 +552,22 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
                     call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Database query failed"))
                 }
                 is Result.Success -> {
-                    // Post-filter by tagsInclude when the principal's scope carries a tag allowlist.
-                    // The entry-point check (enforceScopeForItem above) verified the parent item matches
-                    // the tag constraint. Children are not checked, so without this filter a tag-scoped
-                    // token would see ALL children regardless of their tags.
-                    val children = childrenResult.data.items.filterByTagScope(principalForChildren)
+                    if (tagScoped) {
+                        // Post-filter by tagsInclude when the principal's scope carries a tag
+                        // allowlist. The entry-point check (enforceScopeForItem above) verified the
+                        // parent item matches the tag constraint; children are not checked there.
+                        // Filter first, paginate second, so totalItems/hasMore never count a child
+                        // this token may not read.
+                        call.respond(
+                            HttpStatusCode.OK,
+                            pageOfVisible(childrenResult.data.items.filterByTagScope(principalForChildren), pp),
+                        )
+                        return@get
+                    }
 
                     val totalResult = workItemRepo.countByFilters(parentId = id)
                     val total = if (totalResult is Result.Success) totalResult.data.toLong() else null
-                    val dtos = children.map { it.toDto() }
+                    val dtos = childrenResult.data.items.map { it.toDto() }
                     call.respond(HttpStatusCode.OK, buildPageDto(dtos, pp, total))
                 }
             }

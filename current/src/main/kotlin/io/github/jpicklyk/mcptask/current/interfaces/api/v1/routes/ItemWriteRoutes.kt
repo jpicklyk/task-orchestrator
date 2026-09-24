@@ -24,8 +24,10 @@ import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryPr
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.audit.ApiAuditBridge
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.allowsItemTags
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.enforceScopeForItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.hasCapability
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.mayHoldRoot
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.requireCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.AdvanceRequestDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
@@ -330,6 +332,10 @@ fun Route.itemWriteRoutes(
                 // rootId = own id without a second round trip.
                 val itemId = UUID.randomUUID()
 
+                // Computed here (rather than alongside propertiesStr below) because the
+                // root-create scope check below needs the exact CSV that will be persisted.
+                val tagsStr = dto.tags?.joinToString(",")?.takeIf { it.isNotBlank() }
+
                 val depth: Int
                 val rootId: UUID
                 if (parentId != null) {
@@ -346,6 +352,13 @@ fun Route.itemWriteRoutes(
                     // the root_id backfill and has no rootId yet).
                     rootId = parentData.rootId ?: parentData.id
                 } else {
+                    // A root-level create has no parent to anchor the scope check on: the new item
+                    // is its own anchor. rootIds-wise it can never be in scope (see mayHoldRoot);
+                    // tag-wise the tags it is created WITH must satisfy the principal's tag scope,
+                    // mirroring the parent-tag check taken above for a non-root create.
+                    if (!principal.mayHoldRoot(itemId) || !principal.allowsItemTags(tagsStr)) {
+                        return errorCaptured(HttpStatusCode.Forbidden, "scope_forbidden", "Access denied to create a root item")
+                    }
                     depth = 0
                     rootId = itemId
                 }
@@ -357,7 +370,6 @@ fun Route.itemWriteRoutes(
                     } ?: Priority.MEDIUM
 
                 val propertiesStr = dto.properties?.toString()
-                val tagsStr = dto.tags?.joinToString(",")?.takeIf { it.isNotBlank() }
 
                 val item =
                     try {
@@ -573,7 +585,14 @@ fun Route.itemWriteRoutes(
                     newDepth = existing.depth
                     newRootId = existing.rootId
                 } else if (newParentId == null) {
-                    // Move to root — the item becomes its own root.
+                    // Move to root — the item becomes its own root. After the move its chain is
+                    // just {id}, so a rootIds-restricted principal stays in scope iff id itself is
+                    // one of the listed roots (not an escape when it is: such a principal may
+                    // already DELETE the item). The tag half was enforced above via
+                    // enforceScopeForItem(call, id, ...) on the item's pre-patch tags.
+                    if (!principal.mayHoldRoot(id)) {
+                        return errorCaptured(HttpStatusCode.Forbidden, "scope_forbidden", "Access denied to move item $id to root")
+                    }
                     newDepth = 0
                     newRootId = id
                 } else {

@@ -193,6 +193,22 @@ drift apart.
   (`200 OK` with a filtered, possibly-empty collection — never `403` for the counterparty side)
 - `GET /api/v1/events` (SSE) — a `tags_include` token is enforced per-event, identically for the
   live stream and Last-Event-ID replay (see §21)
+- `GET /items/{id}/children` — the parent gets the same `enforceScopeForItem` check as any other
+  single item; a `tags_include` token additionally has the returned children filtered to items
+  carrying an allowed tag (see the pagination caveat below — filtering happens before paging)
+
+**Creating or moving an item to root level is scope-checked too.** A newly created item's ancestor
+chain is only its own (server-generated) id, so it can never already be listed in a `root_ids`
+allowlist — `POST /items` with `parentId` absent or `null` returns `403 scope_forbidden` for any
+token with a non-null `scope.root_ids`. A `tags_include`-only token may create a root item only if
+the tags it is creating that root *with* satisfy its own `tags_include` allowlist (the new root is
+its own anchor, the same way an existing parent's tags anchor a non-root create) — otherwise `403
+scope_forbidden`, and nothing is persisted. Symmetrically, `PATCH /items/{id}` that changes
+`parentId` from non-null to `null` (move to root) returns `403 scope_forbidden` when the caller has
+a non-null `scope.root_ids` and `id` itself is not in that set — after the move the item's chain is
+just itself. (When `id` is itself a listed root the move is allowed; such a caller may already
+`DELETE` that item, so this grants nothing new.) The tag half of a move-to-root is the existing
+entry-point check against the item's tags as they are before the patch.
 
 **A collection endpoint never turns a tag-scope mismatch into `403`.** Unlike the single-item case,
 a tag-scoped caller whose scope matches nothing on a collection response (`GET /items`,
@@ -200,13 +216,14 @@ a tag-scoped caller whose scope matches nothing on a collection response (`GET /
 `200 OK` with an empty (or partially filtered) result — `403 scope_forbidden` is reserved for the
 single-item case where an out-of-scope item is named directly.
 
-**Pagination under `tags_include`.** The filter has no SQL form, so `GET /items` and
-`GET /items/roots` read a bounded candidate window (1000 rows, offset 0) for a tag-scoped caller,
-filter it by `tags_include`, and paginate the *filtered* result in memory. `totalItems` in that case
-counts only the visible (post-filter) items, not the raw candidate window — a tag-scoped caller with
-more than 1000 matching candidates will see a short/incomplete page. This mirrors the existing
-`GET /items/{id}/tree` shape and only applies to tag-scoped principals; unscoped and `root_ids`-only
-callers are unaffected.
+**Pagination under `tags_include`.** The filter has no SQL form, so `GET /items`,
+`GET /items/roots` and `GET /items/{id}/children` read a bounded candidate window (1000 rows, offset
+0) for a tag-scoped caller, filter it by `tags_include`, and paginate the *filtered* result in
+memory. `totalItems` in that case counts only the visible (post-filter) items, not the raw candidate
+window or an unfiltered DB count — a tag-scoped caller with more than 1000 matching candidates will
+see a short/incomplete page. This mirrors the existing `GET /items/{id}/tree` shape and only applies
+to tag-scoped principals; unscoped and `root_ids`-only callers keep SQL-level `LIMIT`/`OFFSET` and a
+DB `COUNT` and are unaffected.
 
 ---
 
@@ -286,7 +303,7 @@ All error responses use:
 | `validation_error` | 400 | Invalid field value or deserialization failure; or (SSE-specific) `GET /api/v1/events` was called with a `?root=` query parameter that yields no valid UUID (see §21) |
 | `precondition_required` | 400 | `PATCH` missing required `If-Match` header |
 | `not_found` | 404 | Item, note, or dependency not found |
-| `scope_forbidden` | 403 | Item exists but is outside the caller's scope |
+| `scope_forbidden` | 403 | Item exists but is outside the caller's scope; also returned for `POST /items` creating a root item, or `PATCH /items/{id}` moving an item to root, when the resulting root-level item would be outside the caller's scope (see §3) |
 | `field_not_patchable` | 400 | PATCH attempted on a server-owned field |
 | `cycle_detected` | 400 | Dependency would create a cycle |
 | `unsupported_media_type` | 415 | Wrong `Content-Type` for PATCH (see §23), or a non-JSON `Content-Type` on `POST /items`, `PUT /items/{id}/notes/{key}`, `POST /items/{id}/advance`, or `POST /dependencies` (see §5) |
@@ -819,7 +836,12 @@ Ancestor chain from root to the target item (inclusive). Chain is truncated at t
 
 Direct children of an item, paginated.
 
+For a `tags_include`-scoped caller, children are filtered by tag before being paginated (bounded
+candidate window; see §3's pagination caveat) — `totalItems` is the filtered count, not a raw DB
+`COUNT`. Unscoped and `root_ids`-only callers keep SQL-level `LIMIT`/`OFFSET` and an exact `COUNT`.
+
 **Response:** `200 OK` → `PageDto<ItemDto>`
+- `403 scope_forbidden` — parent item outside scope
 
 ### GET /items/{id}/gate
 
@@ -871,7 +893,10 @@ Create a work item. Requires `WRITE_ITEMS`.
 - `201 Created` → `ItemDto` + `ETag` header
 - `400 validation_error` — invalid field values
 - `400 not_found` — parentId not found
-- `403 scope_forbidden` — parent outside scope
+- `403 scope_forbidden` — parent outside scope; or, when `parentId` is absent/`null` (a root-level
+  create), a `root_ids`-scoped token is always denied (a new item's chain can never already be in
+  `root_ids`), and a `tags_include`-only token is denied unless the tags it creates the root
+  *with* satisfy its own `tags_include` (see §3)
 - `413 payload_too_large` — body exceeds the shared 1 MiB write-body limit (see §5, §6)
 - `415 unsupported_media_type` — `Content-Type` is present and is not `application/json` (an absent header is accepted as `*/*`); checked before the `Idempotency-Key` header or body is read
 
@@ -898,7 +923,11 @@ JSON Merge Patch update. Requires `WRITE_ITEMS`, `If-Match`, and `Content-Type: 
   changed to a non-null value), the target parent is scope-checked the same way `POST /items`
   checks a create-time `parentId` — an existence check alone is not authorization. A `parentId`
   patch to a non-existent parent still returns `400 not_found` first; scope is checked only after
-  the parent is confirmed to exist, so it never becomes an existence oracle.
+  the parent is confirmed to exist, so it never becomes an existence oracle. When the patch instead
+  moves the item TO root (`parentId` changed from non-null to `null`), a `root_ids`-scoped token
+  gets `403 scope_forbidden` unless the item's own id is itself in `root_ids` (see §3). The tag
+  half is the entry-point `enforceScopeForItem` check, made against the item's tags as they are
+  before the patch.
 - `400 validation_error` — re-parent would create a cycle: `parentId` equals the item's own id
   (message: `"An item cannot be its own parent"`) or names one of the item's own descendants
   (message: `"Cannot re-parent an item under its own descendant"`). Checked with an identity
