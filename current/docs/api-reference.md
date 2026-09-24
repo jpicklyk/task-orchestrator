@@ -746,7 +746,7 @@ Each upsert note element may include an optional `actor` object:
 - `id` (required string): Identifier for the actor writing this note
 - `kind` (required string): One of `orchestrator`, `subagent`, `user`, `external`
 - `parent` (optional string): ID of the dispatching agent (forms delegation chain)
-- `proof` (optional string): Opaque credential blob — verified by the configured actor verifier, persisted, never returned in MCP responses
+- `proof` (optional string): Opaque credential blob — checked by the configured actor verifier (not verified under `noop`), persisted, never returned in MCP responses
 
 When provided, the upsert response includes an `actor` object on each successfully upserted note, and the note is persisted with actor claim data that appears in subsequent `query_notes` responses. A `verification` object is also included, *except* when no actor verifier is configured (the default `noop` verifier) — in that case `verification` is omitted entirely, since a no-op result carries no information beyond "no verifier is configured." See [Verification Record](#verification-record).
 
@@ -1173,7 +1173,7 @@ Each transition element may include an optional `actor` object:
 - `id` (required string): Identifier for the actor making this transition
 - `kind` (required string): One of `orchestrator`, `subagent`, `user`, `external`
 - `parent` (optional string): ID of the dispatching agent (forms delegation chain)
-- `proof` (optional string): Opaque credential blob — verified by the configured actor verifier, persisted, never returned in MCP responses
+- `proof` (optional string): Opaque credential blob — checked by the configured actor verifier (not verified under `noop`), persisted, never returned in MCP responses
 
 When provided, the response includes an `actor` object on each successful transition. A `verification` object is also included, *except* when no actor verifier is configured (the default `noop` verifier) — in that case `verification` is omitted entirely. See [Verification Record](#verification-record).
 
@@ -2377,7 +2377,7 @@ Actor attribution tracks *who* made changes to work items. Every `advance_item` 
 | id | string | yes | Identifier for the actor |
 | kind | string | yes | `orchestrator`, `subagent`, `user`, or `external` |
 | parent | string | no | ID of the dispatching agent — forms a delegation chain |
-| proof | string | no | Opaque credential — verified by the configured actor verifier, persisted verbatim, never returned in MCP responses |
+| proof | string | no | Opaque credential — checked by the configured actor verifier (not verified under `noop`), persisted verbatim, never returned in MCP responses |
 
 ### Verification Record
 

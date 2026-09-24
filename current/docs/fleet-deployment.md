@@ -544,6 +544,12 @@ raw proof is still persisted verbatim on notes and role transitions. Over REST i
 to a caller with the `ADMIN` capability, and only when the request includes `?include=proof`; see
 `API_REDACT_ACTOR_PROOF` above.
 
+Because the raw proof is persisted, treat the SQLite database file and its backups as a store of
+bearer credentials, and treat a REST `ADMIN` token as able to read agents' proofs: a proof read
+back that way can be replayed as a `VERIFIED` identity until its `exp`. Proofs that were readable
+over MCP before this change (earlier releases returned them from `query_notes`) remain replayable
+until they expire. Prefer short-lived actor tokens, and rotate long-lived ones after upgrading.
+
 ---
 
 ## SQLite Version Requirement

@@ -98,8 +98,8 @@ class AttributionRedactor(
 }
 
 /**
- * Redacts sensitive fields from an [ActorClaimDto] when attribution is shown to admin callers
- * but proof must still be hidden.
+ * Strips [ActorClaimDto.proof] unless proof redaction is disabled or the caller is an admin who
+ * asked for it with `?include=proof`. Used for every REST path that shows actor attribution.
  *
  * This is a standalone helper used by the role-transition mapper where [NoteDto] is not the
  * container.
