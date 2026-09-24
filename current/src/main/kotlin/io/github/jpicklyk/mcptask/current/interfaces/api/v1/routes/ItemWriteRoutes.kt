@@ -325,6 +325,31 @@ fun Route.itemWriteRoutes(
                 // root-create scope check below needs the exact CSV that will be persisted.
                 val tagsStr = dto.tags?.joinToString(",")?.takeIf { it.isNotBlank() }
 
+                // Parent existence / scope pre-checks (and the root-create scope check) run BEFORE
+                // the priority parse below, matching base error precedence: a bad parentId or an
+                // out-of-scope caller must surface before a merely malformed priority value.
+                // Placement (depth/rootId) itself is intentionally NOT read here — it is resolved
+                // fresh inside the write transaction further down (via resolveChildPlacement) so a
+                // concurrent reparent/delete of the parent between this check and that write cannot
+                // leave the new item stamped with stale placement (AR-19).
+                if (parentId != null) {
+                    val parentResult = workItemRepo.getById(parentId)
+                    if (parentResult is Result.Error) {
+                        return errorCaptured(HttpStatusCode.BadRequest, "not_found", "Parent item $parentId not found")
+                    }
+                    if (!enforceScopeForItem(call, parentId, workItemRepo)) {
+                        return errorCaptured(HttpStatusCode.Forbidden, "scope_forbidden", "Access denied for parent $parentId")
+                    }
+                } else {
+                    // A root-level create has no parent to anchor the scope check on: the new item
+                    // is its own anchor. rootIds-wise it can never be in scope (see mayHoldRoot);
+                    // tag-wise the tags it is created WITH must satisfy the principal's tag scope,
+                    // mirroring the parent-tag check taken above for a non-root create.
+                    if (!principal.mayHoldRoot(itemId) || !principal.allowsItemTags(tagsStr)) {
+                        return errorCaptured(HttpStatusCode.Forbidden, "scope_forbidden", "Access denied to create a root item")
+                    }
+                }
+
                 val priority =
                     dto.priority?.let { pStr ->
                         Priority.entries.find { it.name.equals(pStr, ignoreCase = true) }
@@ -363,14 +388,6 @@ fun Route.itemWriteRoutes(
                 var notFoundMessage: String? = null
                 var validationMessage: String? = null
                 if (parentId != null) {
-                    val parentResult = workItemRepo.getById(parentId)
-                    if (parentResult is Result.Error) {
-                        return errorCaptured(HttpStatusCode.BadRequest, "not_found", "Parent item $parentId not found")
-                    }
-                    if (!enforceScopeForItem(call, parentId, workItemRepo)) {
-                        return errorCaptured(HttpStatusCode.Forbidden, "scope_forbidden", "Access denied for parent $parentId")
-                    }
-
                     workItemRepo.inTransaction {
                         when (val placementResult = workItemRepo.resolveChildPlacement(parentId)) {
                             is Result.Success -> {
@@ -396,13 +413,6 @@ fun Route.itemWriteRoutes(
                         return errorCaptured(HttpStatusCode.BadRequest, "validation_error", validationMessage!!)
                     }
                 } else {
-                    // A root-level create has no parent to anchor the scope check on: the new item
-                    // is its own anchor. rootIds-wise it can never be in scope (see mayHoldRoot);
-                    // tag-wise the tags it is created WITH must satisfy the principal's tag scope,
-                    // mirroring the parent-tag check taken above for a non-root create.
-                    if (!principal.mayHoldRoot(itemId) || !principal.allowsItemTags(tagsStr)) {
-                        return errorCaptured(HttpStatusCode.Forbidden, "scope_forbidden", "Access denied to create a root item")
-                    }
                     val item =
                         try {
                             buildItem(0, itemId)

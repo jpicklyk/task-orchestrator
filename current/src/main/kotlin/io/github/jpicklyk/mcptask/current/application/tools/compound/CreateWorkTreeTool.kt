@@ -8,6 +8,7 @@ import io.github.jpicklyk.mcptask.current.application.service.WorkTreeResult
 import io.github.jpicklyk.mcptask.current.application.service.buildSchemaResponseFields
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.model.*
+import io.github.jpicklyk.mcptask.current.domain.repository.ChildPlacement
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
@@ -563,6 +564,36 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
             isExistingRoot = false
         }
 
+        // ── 3.3. Best-effort refresh of the tree's effective rootId ─────────────
+        // In create mode, rootItem was JUST built from a parent read taken moments ago (or has no
+        // anchor at all) — already as fresh as anything pre-transaction can be. In attach mode,
+        // rootItem was fetched independently above and its OWN rootId may already be stale
+        // relative to a concurrent reparent of the root itself. Re-read via resolveChildPlacement
+        // (its rootId component is exactly the queried item's own effective rootId, independent of
+        // the +1 depth offset that method computes for a hypothetical child) so the schema
+        // resolution (step 6) and docRef root default (step 3.5) below use the CURRENT value
+        // rather than one captured before this call.
+        //
+        // This is a best-effort read, not the correctness-critical one: it only feeds decisions
+        // made before any write (which schema/document applies), and per-root schema selection
+        // must happen before notes are built, well before the write transaction opens. The
+        // AUTHORITATIVE read that actually gates the write happens again inside that transaction
+        // at step 8 (also via resolveChildPlacement) and is what restamps the rows actually
+        // written — a race in the narrow window between this read and that one could only affect
+        // which schema/document was selected, never the depth/rootId values persisted (AR-19).
+        val effectiveRootId: UUID =
+            if (isAttachMode) {
+                when (val placementResult = context.workItemRepository().resolveChildPlacement(rootItem.id)) {
+                    is Result.Success -> placementResult.data.rootId
+                    is Result.Error -> return errorResponse(
+                        "Root item '$rootIdStr' not found: ${placementResult.error.message}",
+                        ErrorCodes.RESOURCE_NOT_FOUND
+                    )
+                }
+            } else {
+                rootItem.rootId ?: rootItem.id
+            }
+
         // ── 3.5. Resolve docRef (materialize-from-document), if provided ───────
         // Purely in-memory at this point — no DB writes have happened yet for either mode, so
         // any failure below returns before create/attach even reaches the executor.
@@ -572,7 +603,7 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
         if (docRefElement != null && docRefElement !is JsonNull) {
             val docRefObj = docRefElement as JsonObject
             docSlug = (docRefObj["slug"] as JsonPrimitive).content
-            val expectedDocRootId = rootItem.rootId ?: rootItem.id
+            val expectedDocRootId = effectiveRootId
             val explicitRootIdStr =
                 (docRefObj["rootId"] as? JsonPrimitive)?.takeIf { it.isString }?.content?.takeIf { it.isNotBlank() }
             if (explicitRootIdStr != null) {
@@ -703,9 +734,12 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
         val notesList = mutableListOf<Note>()
 
         // Resolve schemas once per item; reused for strict role enforcement on
-        // explicit notes AND for createNotes=true schema-blank fill.
+        // explicit notes AND for createNotes=true schema-blank fill. Per-root config selection
+        // (ToolExecutionContext.resolveSchema) keys off item.rootId — every item in this tree
+        // shares ONE root, so resolve against effectiveRootId (step 3.3's refreshed value) rather
+        // than each item's own possibly-stale rootId field.
         val itemSchemas: Map<String, WorkItemSchema?> =
-            refToItem.mapValues { (_, item) -> context.resolveSchema(item) }
+            refToItem.mapValues { (_, item) -> context.resolveSchema(item.copy(rootId = effectiveRootId)) }
 
         // Parse explicit notes; track (itemRef, key) -> index in notesList for last-wins dedup
         val explicitByRefKey = mutableMapOf<Pair<String, String>, Int>()
@@ -908,6 +942,11 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
         val workItemRepo = context.workItemRepository()
         var treeResultVar: WorkTreeResult? = null
         var anchorNotFoundMessage: String? = null
+        // Attach mode only: the root itself is not re-inserted, so it is never in orderedItems /
+        // treeResult.items — capture the SAME authoritative placement resolved below so the
+        // response can report the root's current depth/rootId instead of the possibly-stale
+        // fetched value (review obs 4).
+        var finalRootPlacementVar: ChildPlacement? = null
 
         try {
             workItemRepo.inTransaction {
@@ -916,6 +955,7 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
                     when (val placementResult = workItemRepo.resolveChildPlacement(anchorId)) {
                         is Result.Success -> {
                             val placement = placementResult.data
+                            if (isAttachMode) finalRootPlacementVar = placement
                             // The base depth each item's chain was originally built from: for a
                             // new root (create mode) that is the root's own depth; for attach
                             // mode (root not re-inserted) that is the depth its DIRECT children
@@ -953,14 +993,23 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
             return errorResponse(anchorNotFoundMessage!!, ErrorCodes.RESOURCE_NOT_FOUND)
         }
         val treeResult = treeResultVar!!
+        // In attach mode, correct the root's depth/rootId to the SAME authoritative values just
+        // stamped onto its children above (placement.depth - 1 / placement.rootId), rather than
+        // the value fetched back at step 3 — the root row itself is not rewritten by this call, so
+        // this is response-shaping only, not a second write.
+        val finalRootItem =
+            finalRootPlacementVar?.let { placement ->
+                rootItem.copy(depth = placement.depth - 1, rootId = placement.rootId)
+            } ?: rootItem
 
         // ── 9. Build response ──────────────────────────────────────────────────
         // Build ref-to-result-item map for note lookup
         val idToRef = treeResult.refToId.entries.associate { (ref, id) -> id to ref }
 
-        // In attach mode the root was not inserted — use the fetched existing item for the response.
-        // In create mode the root is treeResult.items.first().
-        val rootResultItem = if (isExistingRoot) rootItem else treeResult.items.first()
+        // In attach mode the root was not inserted — use finalRootItem (corrected to the same
+        // authoritative depth/rootId just stamped onto its children, see step 8) for the response.
+        // In create mode the root is treeResult.items.first() (already the persisted, restamped row).
+        val rootResultItem = if (isExistingRoot) finalRootItem else treeResult.items.first()
         // The tree is ALREADY PERSISTED at this point (step 8 above) — per D7, a per-root config
         // read failure resolving this response-only decoration must never be reported as a failure
         // of the already-committed create. schemaMatch/expectedNotes are simply omitted and a WARN
