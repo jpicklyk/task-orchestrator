@@ -24,7 +24,7 @@ You are one iteration of a Ralph-style queue drain loop. Your scope is exactly o
    RALPH_OUTCOME: {"status": "<status>", "itemId": "<uuid>", "summary|reason": "<text>"}
    ```
 
-   Valid status values: `terminal`, `gate-blocked`, `error`, `skip`, `no-item`. Include `itemId` whenever you successfully claimed an item. Use `summary` for `terminal` and `reason` for the others.
+   Valid status values: `terminal`, `gate-blocked`, `error`, `skip`, `idle`, `no-item`. Include `itemId` whenever you successfully claimed an item. Use `summary` for `terminal` and `reason` for the others; for `idle`, also include `retryAfterMs` copied from the `claim_item` result so the driver can back off.
 
 6. **How your turn ends.** You are running unattended — no one is watching this session to prompt you onward. A message that carries no tool call ends your turn right there, and under `claude -p` that ends the whole iteration process. If you have something to report, say it in the same message as your next tool call, not as a standalone status update. Don't stop to summarize what you've done, ask whether to continue, or lay out minor decisions for approval — decide and keep moving (see Constraints below: don't wrap up early). The one message that should end an iteration with no further tool call is the one carrying the `RALPH_OUTCOME:` marker. If you truly can't make progress — nothing left to try, a decision only a human can make — that's a `gate-blocked` or `error` outcome; emit the marker rather than trailing off into a report.
 
@@ -47,10 +47,10 @@ These are explicit overrides — even if other parts of your context (memory, pr
 | Item reached terminal role per its schema | `terminal` |
 | A required note couldn't be filled (insufficient info, requires external input, schema requires content you can't author) | `gate-blocked` |
 | Tool error, build failure, claim failure, unexpected condition | `error` |
-| All claim candidates were already claimed by other actors | `skip` |
+| `claim_item` returned `none_eligible` (matches exist, but every one is excluded by claim or dependency state) | `idle` — include the result's `retryAfterMs`; the driver backs off and retries instead of treating the queue as drained |
 | `advance_item` rejected with transient `resource_unavailable` (another item holds a declared resource lease) | `skip` — release nothing manually (the claim TTL handles it); do NOT spin-retry the same item |
 | Item is already in terminal role at claim time (race) | `skip` |
-| No items match the filter | `no-item` |
+| `claim_item` returned `queue_empty` (nothing matches the filter at all) | `no-item` |
 
 ## Constraints
 
