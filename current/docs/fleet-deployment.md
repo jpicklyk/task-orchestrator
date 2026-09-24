@@ -150,7 +150,7 @@ API_ALLOW_UNAUTHENTICATED=true
 | `API_ALLOW_QUERY_TOKEN_FOR_SSE` | SSE + browser | `false` | Allow `?token=` auth for SSE (browser EventSource workaround). |
 | `API_SSE_AUTH_CHECK_INTERVAL_SECONDS` | SSE in use | `30` | Interval for token-expiry checks on open SSE connections. |
 | `API_REDACT_NOTE_ATTRIBUTION` | always | `true` | When `true`, non-admin callers see no `actor`/`verification` on notes/transitions. |
-| `API_REDACT_ACTOR_PROOF` | always | `true` | When `true`, `actor.proof` is redacted even from admin callers unless `?include=proof`. |
+| `API_REDACT_ACTOR_PROOF` | always | `true` | When `true`, `actor.proof` is redacted even from admin callers unless `?include=proof`. A non-admin caller never receives `actor.proof` while this is `true`, regardless of `API_REDACT_NOTE_ATTRIBUTION` — even with attribution redaction disabled (`API_REDACT_NOTE_ATTRIBUTION=false`), the proof itself is still stripped for non-admins. |
 | `API_WARN_ON_CLAIMED_ADVANCE` | always | `true` | Log WARN when API caller advances a claimed item. |
 | `RESOURCE_LEASES_ENFORCED` | always | `true` | Deployment-wide kill switch for the resource-lease gate (see Resource Leasing below). Only the literal `false` (case-insensitive) disables it — any other value, including unset, leaves enforcement on. Disables **acquisition only**; releases always run regardless. Unlike every other flag in this table, this is read **per advance call**, not once at process start — `AdvanceService` is constructed fresh per `advance_item`/`POST .../advance` invocation, so flipping this var takes effect on the very next call, no restart required. |
 
@@ -571,7 +571,7 @@ When `verifier.type: jwks` is configured, TO reads a narrow subset of claims fro
 | `iss` | Only if `issuer` is configured (explicitly or via OIDC discovery); **always read under DID trust** (`did_allowlist`/`did_pattern`) to resolve the DID and to bind against `sub` | Must match the configured/discovered issuer; mismatch → rejected with `failureKind: claims`. Under DID trust, also see the `sub`/`iss` binding below. |
 | `aud` | Only if `audience` is configured | Must contain the configured audience; mismatch → rejected with `failureKind: claims` |
 | `sub` | Only when `require_sub_match: true`; **always read under DID trust**, regardless of `require_sub_match` | Verified against the caller's self-reported `actor.id`; mismatch → rejected with `failureKind: claims`. When `require_sub_match: false` and DID trust is not configured, `sub` is not read. Under DID trust, `sub` must equal `iss` exactly (see below) even when `require_sub_match: false`. |
-| `exp` | Optional | If present, enforced with a **60-second clock-skew allowance**; past-expiry → rejected with `failureKind: claims`. A missing `exp` claim is accepted (no expiry check). |
+| `exp` | Required | Enforced with a **60-second clock-skew allowance**; past-expiry → rejected with `failureKind: claims`. A missing `exp` claim is rejected with `reason: "missing exp claim"`, `failureKind: claims` (parity with `JwksApiVerifier`, which has no max-lifetime knob either). |
 | `nbf` | Optional | If present, enforced with a **60-second clock-skew allowance**; not-yet-valid → rejected with `failureKind: claims` |
 
 TO does not read `iat`, `jti`, or any custom claims. Those are deployment concerns outside the TO contract.
@@ -630,6 +630,21 @@ When a presented JWT is past `exp`, the verifier returns a non-`VERIFIED` status
 For long-running work under `reject`, size JWT lifetime to comfortably exceed the heartbeat cadence so the holder always presents a fresh token. Under `accept-cached`, JWT expiry is non-fatal as long as the holder's `actor.id` is stable.
 
 The JWKS cache (governed by `cache_ttl_seconds`) is separate from JWT lifetime — it caches the verifier's public key material, not the JWTs themselves.
+
+### Proof handling
+
+`actor.proof` is never returned in an MCP response — `manage_notes`, `query_notes`, `advance_item`,
+and `create_work_tree` all omit the `proof` field from the `actor` object they echo back; the
+`verification` object (`status`/`verifier`) is the non-secret signal that a proof was checked. The
+raw proof is still persisted verbatim on notes and role transitions. Over REST it is visible only
+to a caller with the `ADMIN` capability, and only when the request includes `?include=proof`; see
+`API_REDACT_ACTOR_PROOF` above.
+
+Because the raw proof is persisted, treat the SQLite database file and its backups as a store of
+bearer credentials, and treat a REST `ADMIN` token as able to read agents' proofs: a proof read
+back that way can be replayed as a `VERIFIED` identity until its `exp`. Proofs that were readable
+over MCP before this change (earlier releases returned them from `query_notes`) remain replayable
+until they expire. Prefer short-lived actor tokens, and rotate long-lived ones after upgrading.
 
 ---
 

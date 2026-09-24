@@ -53,25 +53,13 @@ class AttributionRedactor(
             return note.copy(actor = null, verification = null)
         }
 
-        // Step 2: caller is admin (or redaction is disabled); possibly redact proof only
+        // Step 2: attribution is shown (admin caller, or attribution redaction disabled); the
+        // proof itself is still gated separately — a non-admin caller must never receive it even
+        // when API_REDACT_NOTE_ATTRIBUTION=false, so this always runs through the same helper the
+        // transition mapper uses rather than short-circuiting on `!isAdmin`.
         val actor = note.actor ?: return note
-        if (!redactActorProof || !isAdmin) {
-            // No proof redaction needed
-            return note
-        }
-
-        // Proof redaction: require admin AND ?include=proof
-        val includeProof =
-            call.request.queryParameters["include"]
-                ?.split(",")
-                ?.map { it.trim() }
-                ?.contains("proof") ?: false
-
-        return if (includeProof) {
-            note
-        } else {
-            note.copy(actor = actor.copy(proof = null))
-        }
+        val redactedActor = redactActorProofIfNeeded(actor, call, redactActorProof)
+        return if (redactedActor === actor) note else note.copy(actor = redactedActor)
     }
 
     /**
@@ -110,8 +98,8 @@ class AttributionRedactor(
 }
 
 /**
- * Redacts sensitive fields from an [ActorClaimDto] when attribution is shown to admin callers
- * but proof must still be hidden.
+ * Strips [ActorClaimDto.proof] unless proof redaction is disabled or the caller is an admin who
+ * asked for it with `?include=proof`. Used for every REST path that shows actor attribution.
  *
  * This is a standalone helper used by the role-transition mapper where [NoteDto] is not the
  * container.
