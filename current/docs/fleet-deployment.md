@@ -159,7 +159,10 @@ API_ALLOW_UNAUTHENTICATED=true
 See [api-rest.md §1](api-rest.md#1-authentication) for the full YAML format. Key points:
 - `token_sha256` must be a 64-char lowercase hex SHA-256 digest of the plaintext token
 - `capabilities` grant specific operations: `read`, `write-notes`, `write-items`, `advance`, `manage-dependencies`, `write-config`, `admin`
-- `scope.root_ids` restricts access to specific subtrees (null/empty = unrestricted)
+- `scope.root_ids` restricts access to specific subtrees (absent/`null` = unrestricted; an empty
+  list `[]` fails startup rather than meaning unrestricted — omit the key instead); `scope` itself
+  and `scope.tags_include` fail closed on any malformed shape too — see
+  [api-rest.md §1](api-rest.md#1-authentication) for the full fail-closed rules
 - Token rotation requires a server restart (no live reload)
 - `admin` capability unlocks attribution fields in responses (subject to `API_REDACT_*` env flags)
 

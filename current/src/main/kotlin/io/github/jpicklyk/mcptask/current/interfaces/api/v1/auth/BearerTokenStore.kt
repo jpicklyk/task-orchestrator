@@ -8,7 +8,6 @@ import java.io.FileReader
 import java.security.MessageDigest
 import java.time.Instant
 import java.time.format.DateTimeParseException
-import java.util.UUID
 
 /**
  * Loads API bearer tokens from a YAML secret file and builds an in-memory
@@ -119,6 +118,7 @@ class BearerTokenStore(
                     "API token file: duplicate token id '$tokenId' at index $index.",
                 )
             }
+            validateEntryKeys(tokenId, tokenMap)
 
             val description = tokenMap["description"] as? String
             if (description != null && description.length > 1024) {
@@ -139,8 +139,7 @@ class BearerTokenStore(
 
             val expiresAt = parseExpiresAt(tokenId, tokenMap)
 
-            val scopeMap = tokenMap["scope"] as? Map<*, *>
-            val scope = parseScope(tokenId, scopeMap)
+            val scope = parseScope(tokenId, tokenMap["scope"])
 
             val rawCapabilities = tokenMap["capabilities"]
             val capabilities = parseCapabilities(tokenId, rawCapabilities)
@@ -250,6 +249,7 @@ class BearerTokenStore(
                     ?: throw IllegalArgumentException("Token at index $index missing 'id'.")
             if (tokenId.isBlank()) throw IllegalArgumentException("Token at index $index has blank 'id'.")
             if (!seenIds.add(tokenId)) throw IllegalArgumentException("Duplicate token id '$tokenId'.")
+            validateEntryKeys(tokenId, tokenMap)
 
             val description = tokenMap["description"] as? String
             if (description != null && description.length > 1024) {
@@ -263,8 +263,7 @@ class BearerTokenStore(
             val hashBytes = hexToBytes(hashHex)
 
             val expiresAt = parseExpiresAt(tokenId, tokenMap)
-            val scopeMap = tokenMap["scope"] as? Map<*, *>
-            val scope = parseScope(tokenId, scopeMap)
+            val scope = parseScope(tokenId, tokenMap["scope"])
             val capabilities = parseCapabilities(tokenId, tokenMap["capabilities"])
 
             val principal =
@@ -328,48 +327,33 @@ class BearerTokenStore(
         }
     }
 
-    /** Parses the [scope] block from the token map. */
-    @Suppress("UNCHECKED_CAST")
+    /**
+     * Validates that [tokenMap] contains only recognized keys, so a typo (e.g. `scopes:` instead
+     * of `scope:`) fails startup instead of silently leaving the token unrestricted.
+     */
+    private fun validateEntryKeys(
+        tokenId: String,
+        tokenMap: Map<*, *>,
+    ) {
+        val unknownKeys = tokenMap.keys.map { it.toString() }.filter { it !in ALLOWED_ENTRY_KEYS }
+        if (unknownKeys.isNotEmpty()) {
+            throw IllegalArgumentException(
+                "API token file: token '$tokenId' has unknown key(s): ${unknownKeys.joinToString(", ")}. " +
+                    "Allowed keys: ${ALLOWED_ENTRY_KEYS.joinToString(", ")}.",
+            )
+        }
+    }
+
+    /** Parses the `scope` block from the token map via [ScopeClaimParser], failing startup on malformed shapes. */
     private fun parseScope(
         tokenId: String,
-        scopeMap: Map<*, *>?,
-    ): ApiScope {
-        if (scopeMap == null) return ApiScope(rootIds = null, tagsInclude = emptySet())
-
-        val rawRootIds = scopeMap["root_ids"]
-        val rootIds: Set<UUID>? =
-            when (rawRootIds) {
-                null, is List<*> -> {
-                    val list = (rawRootIds as? List<*>) ?: emptyList<Any>()
-                    if (list.isEmpty()) {
-                        null // empty list → unrestricted (same as null per spec)
-                    } else {
-                        list
-                            .map { item ->
-                                try {
-                                    UUID.fromString(item.toString())
-                                } catch (e: IllegalArgumentException) {
-                                    throw IllegalArgumentException(
-                                        "API token file: token '$tokenId' scope.root_ids contains " +
-                                            "invalid UUID '$item': ${e.message}",
-                                    )
-                                }
-                            }.toSet()
-                    }
-                }
-                else -> null
-            }
-
-        val rawTags = scopeMap["tags_include"]
-        val tagsInclude: Set<String> =
-            when (rawTags) {
-                null -> emptySet()
-                is List<*> -> rawTags.filterIsInstance<String>().toSet()
-                else -> emptySet()
-            }
-
-        return ApiScope(rootIds = rootIds, tagsInclude = tagsInclude)
-    }
+        rawScope: Any?,
+    ): ApiScope =
+        try {
+            ScopeClaimParser.parse(rawScope)
+        } catch (e: IllegalArgumentException) {
+            throw IllegalArgumentException("API token file: token '$tokenId' ${e.message}")
+        }
 
     /** Parses the [capabilities] list from the raw YAML value. */
     private fun parseCapabilities(
@@ -413,4 +397,10 @@ class BearerTokenStore(
         val principal: ApiPrincipal,
         val expiresAt: Instant?,
     )
+
+    companion object {
+        /** Recognized keys for a single token entry; anything else fails startup (see D6). */
+        private val ALLOWED_ENTRY_KEYS =
+            setOf("id", "description", "token_sha256", "expires_at", "scope", "capabilities")
+    }
 }
