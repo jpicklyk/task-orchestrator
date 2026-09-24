@@ -288,7 +288,7 @@ class YamlActorAuthenticationConfigServiceTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `verifier type jwks with no source URI, path, or discovery produces warning and falls back to Noop`() {
+    fun `verifier type jwks with no source URI, path, or discovery throws IllegalArgumentException naming the missing sources`() {
         val configFile =
             createConfigFile(
                 """
@@ -300,13 +300,17 @@ class YamlActorAuthenticationConfigServiceTest {
             )
         val service = YamlActorAuthenticationConfigService(configFile)
 
-        assertEquals(VerifierConfig.Noop, service.getConfig().verifier)
-        assertTrue(service.getWarnings().isNotEmpty())
-        assertTrue(service.getWarnings().any { it.contains("jwks") && it.contains("oidc_discovery") })
+        // Fail-closed per diagnosis D2: a `type: jwks` verifier with no key source is a
+        // security-relevant misconfiguration, not a silent fallback to Noop.
+        val ex = assertThrows(IllegalArgumentException::class.java) { service.getConfig() }
+        assertTrue(
+            ex.message?.contains("oidc_discovery") == true && ex.message?.contains("jwks_uri") == true,
+            "Expected the missing key sources to be named, got: ${ex.message}"
+        )
     }
 
     @Test
-    fun `unknown verifier type produces warning and falls back to Noop`() {
+    fun `unknown verifier type throws IllegalArgumentException naming the value`() {
         val configFile =
             createConfigFile(
                 """
@@ -317,9 +321,10 @@ class YamlActorAuthenticationConfigServiceTest {
             )
         val service = YamlActorAuthenticationConfigService(configFile)
 
-        assertEquals(VerifierConfig.Noop, service.getConfig().verifier)
-        assertTrue(service.getWarnings().isNotEmpty())
-        assertTrue(service.getWarnings().any { it.contains("magic-unicorn") })
+        // Fail-closed per diagnosis D2: an unrecognized verifier.type is fatal, not a silent
+        // fallback to Noop.
+        val ex = assertThrows(IllegalArgumentException::class.java) { service.getConfig() }
+        assertTrue(ex.message?.contains("magic-unicorn") == true, "Expected 'magic-unicorn' in: ${ex.message}")
     }
 
     // -------------------------------------------------------------------------
@@ -567,7 +572,7 @@ class YamlActorAuthenticationConfigServiceTest {
     }
 
     @Test
-    fun `degraded_mode_policy unknown value produces warning and defaults to ACCEPT_CACHED`() {
+    fun `degraded_mode_policy unknown value throws IllegalArgumentException naming the value`() {
         val configFile =
             createConfigFile(
                 """
@@ -579,9 +584,11 @@ class YamlActorAuthenticationConfigServiceTest {
                 """.trimIndent()
             )
         val service = YamlActorAuthenticationConfigService(configFile)
-        assertEquals(DegradedModePolicy.ACCEPT_CACHED, service.getConfig().degradedModePolicy)
-        assertTrue(service.getWarnings().isNotEmpty())
-        assertTrue(service.getWarnings().any { it.contains("banana") })
+
+        // Fail-closed per diagnosis D2: an unrecognized degraded_mode_policy is fatal, not a
+        // silent fallback to ACCEPT_CACHED.
+        val ex = assertThrows(IllegalArgumentException::class.java) { service.getConfig() }
+        assertTrue(ex.message?.contains("banana") == true, "Expected 'banana' in: ${ex.message}")
     }
 
     @Test
@@ -923,7 +930,7 @@ class YamlActorAuthenticationConfigServiceTest {
     }
 
     @Test
-    fun `no source configured at all produces warning and falls back to Noop`() {
+    fun `no source configured at all throws IllegalArgumentException naming the missing sources`() {
         val configFile =
             createConfigFile(
                 """
@@ -936,9 +943,13 @@ class YamlActorAuthenticationConfigServiceTest {
             )
         val service = YamlActorAuthenticationConfigService(configFile)
 
-        assertEquals(VerifierConfig.Noop, service.getConfig().verifier)
-        assertTrue(service.getWarnings().isNotEmpty())
-        assertTrue(service.getWarnings().any { it.contains("oidc_discovery") && it.contains("jwks_uri") })
+        // Fail-closed per diagnosis D2: no key source at all is fatal, not a silent fallback to
+        // Noop.
+        val ex = assertThrows(IllegalArgumentException::class.java) { service.getConfig() }
+        assertTrue(
+            ex.message?.contains("oidc_discovery") == true && ex.message?.contains("jwks_uri") == true,
+            "Expected the missing key sources to be named, got: ${ex.message}"
+        )
     }
 
     // -------------------------------------------------------------------------
@@ -1060,14 +1071,18 @@ class YamlActorAuthenticationConfigServiceTest {
     // -------------------------------------------------------------------------
 
     @Test
-    fun `malformed YAML falls back to defaults gracefully`() {
+    fun `malformed YAML throws IllegalArgumentException naming the config path`() {
         val configFile =
             createConfigFile("{{{{invalid yaml!!!")
         val service = YamlActorAuthenticationConfigService(configFile)
 
-        val config = service.getConfig()
-        assertEquals(ActorAuthenticationConfig(), config)
-        assertTrue(service.getWarnings().isNotEmpty())
+        // Fail-closed per diagnosis D1: a YAML syntax error is fatal, not a silent fallback to
+        // defaults.
+        val ex = assertThrows(IllegalArgumentException::class.java) { service.getConfig() }
+        assertTrue(
+            ex.message?.contains(configFile.toString()) == true,
+            "Expected the config path to be named, got: ${ex.message}"
+        )
     }
 
     // -------------------------------------------------------------------------

@@ -14,8 +14,12 @@ package io.github.jpicklyk.mcptask.current.domain.model
  *   when a stale cached key successfully validates the JWT during a JWKS fetch failure), the
  *   verified `actor.id` from the JWT is trusted. When verification status is
  *   [VerificationStatus.UNAVAILABLE] (JWKS down with no usable cache), falls back to the
- *   self-reported `actor.id` with a WARN log so operators see the degradation. For other
- *   non-VERIFIED outcomes (ABSENT, UNCHECKED, REJECTED), falls back silently to the
+ *   self-reported `actor.id` with a WARN log so operators see the degradation. When verification
+ *   status is [VerificationStatus.REJECTED] (verification was attempted and actively failed —
+ *   bad signature, wrong issuer/audience, expired, etc.), also falls back to the self-reported
+ *   `actor.id`, logging a WARN naming the verifier and reason (never the proof) so operators
+ *   running a real verifier under this policy see that a failed verification was still accepted.
+ *   For the remaining non-VERIFIED outcomes (ABSENT, UNCHECKED), falls back silently to the
  *   self-reported `actor.id` (same as pre-v3.3 implicit behavior).
  *
  *   Note: `ActorAware.resolveTrustedActorId` also handles a defensive

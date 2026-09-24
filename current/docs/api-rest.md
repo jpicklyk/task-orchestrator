@@ -251,7 +251,7 @@ note is upserted or the config changes, without the item itself being touched.
 ### Config ETags
 
 Config/schema endpoints (`/config`, `/config/schemas`, etc.) use a fingerprint-based ETag:
-- Format: `"cfg-<fingerprint>"` where fingerprint is derived from the config file content
+- Format: `"cfg-<fingerprint>"` where fingerprint is a SHA-256 hex digest computed once, at process startup, over the exact bytes parsed from the global config file — not a fresh re-read of the file on each request, so it is stable for the life of the process even if the file changes on disk (restart to pick up new bytes; there is no lastModified/size fallback)
 - Stable across reads when the config has not changed
 - `If-None-Match` → `304` when fingerprint matches
 

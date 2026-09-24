@@ -109,6 +109,13 @@ internal object YamlSchemaParser {
      *   parsed to a non-empty [DispatchProfile], is absent from this map entirely (not mapped to an
      *   empty map) — parity with [traitResources]. Appended LAST with a default so this field is
      *   additive to every existing [ParsedConfig] construction site.
+     * @property fingerprint a SHA-256 hex digest computed by the file-backed caller
+     *   ([YamlWorkItemSchemaService.loadSchemas]) over the exact bytes that were parsed into this
+     *   result, or `null` when no config file was present. [parseRoot] never sets this itself — it
+     *   only sees an already-deserialized root map, not the source bytes — so every call site
+     *   constructing a [ParsedConfig] via [parseRoot] (including [PerRootConfigService], which has
+     *   no file-fingerprint concept) leaves it at the default `null` and the file-backed loader
+     *   attaches it afterward via `.copy(fingerprint = ...)`.
      */
     data class ParsedConfig(
         val workItemSchemas: Map<String, WorkItemSchema>,
@@ -119,7 +126,8 @@ internal object YamlSchemaParser {
         val statusLabels: Map<String, String?>? = null,
         val traitResources: Map<String, List<ResourceRequirement>> = emptyMap(),
         val resourceRegistry: Map<String, ResourceDefinition> = emptyMap(),
-        val traitDispatch: Map<String, Map<Role, DispatchProfile>> = emptyMap()
+        val traitDispatch: Map<String, Map<Role, DispatchProfile>> = emptyMap(),
+        val fingerprint: String? = null
     )
 
     /**
