@@ -1304,9 +1304,8 @@ paths:
 
         When the patch instead moves the item TO root (parentId changed from non-null to null), a
         root_ids-scoped token gets 403 scope_forbidden unless the item's own id is itself in
-        root_ids — after the move the item's chain is just itself, the same check DELETE
-        /items/{id} already applies. No additional tag check runs here: a reparent alone does not
-        change the item's tags, and the entry-point scope check already covered them.
+        root_ids — after the move the item's chain is just itself. The tag half is the entry-point
+        scope check, made against the item's tags as they are before the patch.
       parameters:
         - $ref: "#/components/parameters/itemId"
         - name: If-Match

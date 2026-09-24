@@ -587,10 +587,9 @@ fun Route.itemWriteRoutes(
                 } else if (newParentId == null) {
                     // Move to root — the item becomes its own root. After the move its chain is
                     // just {id}, so a rootIds-restricted principal stays in scope iff id itself is
-                    // one of the listed roots (this is not an escape when it is: DELETE of the
-                    // same item is already allowed by an identical id-in-rootIds check). The tag
-                    // half was already enforced above via enforceScopeForItem(call, id, ...) on
-                    // the item's CURRENT tags, which are unchanged by a reparent alone.
+                    // one of the listed roots (not an escape when it is: such a principal may
+                    // already DELETE the item). The tag half was enforced above via
+                    // enforceScopeForItem(call, id, ...) on the item's pre-patch tags.
                     if (!principal.mayHoldRoot(id)) {
                         return errorCaptured(HttpStatusCode.Forbidden, "scope_forbidden", "Access denied to move item $id to root")
                     }

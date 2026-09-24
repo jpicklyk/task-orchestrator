@@ -206,9 +206,9 @@ its own anchor, the same way an existing parent's tags anchor a non-root create)
 scope_forbidden`, and nothing is persisted. Symmetrically, `PATCH /items/{id}` that changes
 `parentId` from non-null to `null` (move to root) returns `403 scope_forbidden` when the caller has
 a non-null `scope.root_ids` and `id` itself is not in that set — after the move the item's chain is
-just itself, so this is the same check `DELETE /items/{id}` already applies. The tag half of a
-move-to-root is covered by the existing entry-point check against the item's current tags (a
-reparent alone does not change them).
+just itself. (When `id` is itself a listed root the move is allowed; such a caller may already
+`DELETE` that item, so this grants nothing new.) The tag half of a move-to-root is the existing
+entry-point check against the item's tags as they are before the patch.
 
 **A collection endpoint never turns a tag-scope mismatch into `403`.** Unlike the single-item case,
 a tag-scoped caller whose scope matches nothing on a collection response (`GET /items`,
@@ -925,9 +925,9 @@ JSON Merge Patch update. Requires `WRITE_ITEMS`, `If-Match`, and `Content-Type: 
   patch to a non-existent parent still returns `400 not_found` first; scope is checked only after
   the parent is confirmed to exist, so it never becomes an existence oracle. When the patch instead
   moves the item TO root (`parentId` changed from non-null to `null`), a `root_ids`-scoped token
-  gets `403 scope_forbidden` unless the item's own id is itself in `root_ids` (see §3) — no
-  additional tag check runs here, since a reparent alone does not change the item's tags and the
-  entry-point `enforceScopeForItem` check already covered them.
+  gets `403 scope_forbidden` unless the item's own id is itself in `root_ids` (see §3). The tag
+  half is the entry-point `enforceScopeForItem` check, made against the item's tags as they are
+  before the patch.
 - `400 validation_error` — re-parent would create a cycle: `parentId` equals the item's own id
   (message: `"An item cannot be its own parent"`) or names one of the item's own descendants
   (message: `"Cannot re-parent an item under its own descendant"`). Checked with an identity
