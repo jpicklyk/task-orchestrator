@@ -134,12 +134,20 @@ fun Dependency.toJson(): JsonObject =
 
 // ── Actor attribution serializers ──
 
+/**
+ * Serializes an [ActorClaim] for MCP tool responses.
+ *
+ * [ActorClaim.proof] is a bearer credential and is intentionally never included here — MCP
+ * responses expose only [io.github.jpicklyk.mcptask.current.domain.model.VerificationResult]
+ * (status/verifier) as the non-secret signal that a proof was checked. The raw proof is still
+ * persisted (see `SQLiteNoteRepository`/`SQLiteRoleTransitionRepository`) and is readable only via
+ * the REST admin `?include=proof` view (see `AttributionRedactor`).
+ */
 fun ActorClaim.toJson(): JsonObject =
     buildJsonObject {
         put("id", JsonPrimitive(id))
         put("kind", JsonPrimitive(kind.toJsonString()))
         parent?.let { put("parent", JsonPrimitive(it)) }
-        proof?.let { put("proof", JsonPrimitive(it)) }
     }
 
 fun VerificationResult.toJson(): JsonObject =
