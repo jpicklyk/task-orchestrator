@@ -163,7 +163,7 @@ advance_item(transitions=[{ "itemId": "<item-UUID>", "trigger": "start" }])
 
 This moves the item into the subagent's phase (queue→work or work→review). The response includes `guidanceKey` (reference to the first required note with guidance) and `noteProgress { filled, remaining, total }`.
 
-If the item is already in the target phase (`applied: false` in the response), call `get_context(itemId="<item-UUID>")` instead to get the guidance.
+If the item is already in the target phase (`applied: false` with `errorCode: "gate_blocked"` and `previousRole` equal to the target phase — every `advance_item` failure now carries an `errorCode`, so branch on that positive code, never on its absence), call `get_context(itemId="<item-UUID>")` instead to get the guidance. Any other `errorCode` means the item is not in your phase: stop and report it.
 
 **2. Read guidance:**
 
