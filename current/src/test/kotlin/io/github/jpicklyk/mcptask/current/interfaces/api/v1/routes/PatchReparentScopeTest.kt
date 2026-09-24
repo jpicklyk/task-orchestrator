@@ -43,8 +43,9 @@ import kotlin.test.assertTrue
  *      `rootIds` walks the ancestor chain (item's own id counts), `tagsInclude` is item-only
  *      (no ancestor walk), an empty/null scope is unrestricted.
  *   O4 RFC 7396 sec.2 — an absent key leaves the field unchanged; an explicit `null` removes it
- *      (a `parentId: null` patch moves the item to root — there is no "new parent" object to
- *      scope-check in that case).
+ *      (a `parentId: null` patch moves the item to root). Per item `e6967195`'s D3, a move-to-root
+ *      is now scope-checked against the ITEM'S OWN id (after the move its ancestor chain is just
+ *      `{id}`) whenever `rootIds` is non-null -- see the updated S7 below.
  *
  * Blindness: this file was authored from the item's `test-plan` note, the public signature of
  * `enforceScopeForItem`/`allowsItemTags`/`ApiScope`/`ApiPrincipal`, the existing POST /items scope
@@ -306,7 +307,7 @@ class PatchReparentScopeTest {
     // ─────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `S7 reparent parentId null under rootIds scope moves item to root without a parent scope check`(): Unit =
+    fun `S7 reparent parentId null under rootIds scope where the item's own id is out of scope is rejected 403 scope_forbidden`(): Unit =
         testApplication {
             val repo = buildH2RepositoryProvider()
             val (root, x) =
@@ -332,21 +333,22 @@ class PatchReparentScopeTest {
                     setBody("""{"parentId":null}""")
                 }
 
-            // Documented outcome per RFC 7396 (O4) + established parentId:null semantics: there is
-            // no "new parent" object to scope-check, so the move succeeds. NOTE (test-plan S7):
-            // ESCALATE during review if the fix changes this — an item exiting its scoped subtree
-            // to become an unscoped root is itself a potential scope-escape vector, but that is a
-            // pre-existing, separate concern from the NEW-parent check this item adds.
+            // Updated per D3 (item e6967195): a move-to-root is now scope-checked against the
+            // item's OWN id, since after the move its ancestor chain is just {id}. Here the scope
+            // is rootIds={root.id}, not {x.id}, so X leaving its scoped subtree to become an
+            // unscoped root is rejected -- closing exactly the scope-escape vector the prior
+            // version of this test flagged as an ESCALATE-during-review note.
             assertEquals(
-                HttpStatusCode.OK,
+                HttpStatusCode.Forbidden,
                 response.status,
-                "parentId:null under scope must move to root (documented outcome): ${response.bodyAsText()}"
+                "Move-to-root must be rejected when the item's own id is not itself a scope member: ${response.bodyAsText()}"
             )
+            assertTrue(response.bodyAsText().contains("scope_forbidden"), "Should report scope_forbidden: ${response.bodyAsText()}")
             val persisted = runBlocking { repo.workItemRepository().getById(x.id) }
             assertIs<Result.Success<WorkItem>>(persisted)
-            assertEquals(null, persisted.data.parentId)
-            assertEquals(0, persisted.data.depth)
-            assertEquals(x.id, persisted.data.rootId, "Item must become its own root")
+            assertEquals(root.id, persisted.data.parentId, "X's parentId must be unchanged after a rejected move-to-root")
+            assertEquals(1, persisted.data.depth, "X's depth must be unchanged after a rejected move-to-root")
+            assertEquals(root.id, persisted.data.rootId, "X's rootId must be unchanged after a rejected move-to-root")
         }
 
     // ─────────────────────────────────────────────────────────────────────
