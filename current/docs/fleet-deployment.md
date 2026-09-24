@@ -152,9 +152,9 @@ See [api-rest.md §1](api-rest.md#1-authentication) for the full YAML format. Ke
 
 ### `degradedModePolicy` and the REST API
 
-When `API_AUTH_MODE=jwks` and `DEGRADED_MODE_POLICY=reject`, write endpoints (`POST`, `PATCH`, `PUT`, `DELETE`, advance) return `401 verification_failed` if JWKS verification fails. **Bearer mode is always trusted** — the REST API bearer token was validated at the HTTP layer and has no JWKS verification chain.
+When `API_AUTH_MODE=jwks`, a JWT reaching a REST write route has already passed full validation in `ApiBearerAuth` — so its audit-trail verification status is always `VERIFIED`, and every `DEGRADED_MODE_POLICY` (including `reject`) trusts a `VERIFIED` result. REST write endpoints therefore never actually return `401 verification_failed` in practice, regardless of `DEGRADED_MODE_POLICY`. **Bearer mode is always trusted** — the REST API bearer token was validated at the HTTP layer and has no JWKS verification chain.
 
-This is different from the MCP actor `reject` policy, which governs MCP tool calls (`claim_item`, `advance_item`). Both layers share the same `DEGRADED_MODE_POLICY` env var but apply it independently.
+This is different from the MCP actor `reject` policy, which governs MCP tool calls (`claim_item`, `advance_item`) carrying a self-reported `actor.id` under a degraded (non-`VERIFIED`) JWKS verification result — that path can still reject. Both layers share the same `DEGRADED_MODE_POLICY` env var but apply it independently.
 
 ### Client-side config sync (SessionStart hook)
 
@@ -509,6 +509,17 @@ The provider supports three sources, merged when multiple are configured:
 - `jwks_path` — local file, resolved relative to `AGENT_CONFIG_DIR` or `user.dir`
 
 Keys from URI and path sources are merged into a single key set used for signature verification.
+
+**`oidc_discovery` and `jwks_uri` must use `https`.** A configured `oidc_discovery` or `jwks_uri` value, and a `jwks_uri` discovered from an OIDC discovery document, are all validated at load time (or, for the discovered value, at fetch time): `https` is always accepted, and plaintext `http` is accepted only when `allow_insecure_url: true` is also set AND the URL's host is a literal loopback address (`localhost`, `127.x.x.x`, `::1` — no DNS resolution, so a host that merely resolves to loopback is still rejected). Any other case — `http` without the opt-in, `http` to a non-loopback host, or a non-http(s) scheme (`file`, `ftp`, ...) — fails startup with an `IllegalArgumentException` naming the offending config key. `jwks_path` (a local file) and `did:web` DID-trust mode are unaffected — this rule only governs sources fetched over the network. This mirrors the REST API's `API_JWKS_URL` / `API_JWKS_ALLOW_INSECURE_URL` contract (see the `degradedModePolicy` and REST API section above), but the actor-authentication key is `allow_insecure_url` under `actor_authentication.verifier:`, not an environment variable.
+
+```yaml
+actor_authentication:
+  verifier:
+    type: jwks
+    jwks_uri: "http://localhost:8080/jwks.json"
+    allow_insecure_url: true   # local dev/test only — never in production
+    algorithms: [RS256]
+```
 
 ### `cache_ttl_seconds`, `stale_on_error`, and Degraded Mode
 

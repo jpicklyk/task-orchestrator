@@ -237,7 +237,7 @@ class ApiAuthConfigLoader(
         }
 
         if (scheme == "http" && allowInsecure) {
-            if (isLoopbackHost(url.host)) {
+            if (isLiteralLoopbackHost(url.host)) {
                 logger.warn(
                     "API_JWKS_URL '{}' uses plaintext http, permitted because {}=true and host '{}' is a " +
                         "loopback address. This must only be used for local development.",
@@ -259,22 +259,27 @@ class ApiAuthConfigLoader(
                 "plaintext http is permitted only for a loopback host with $ALLOW_INSECURE_JWKS_URL_ENV=true.",
         )
     }
+}
 
-    /**
-     * True when [host] is a literal loopback address: `localhost` (case-insensitive), an IPv4
-     * literal beginning `127.` with four valid octets, or `::1` (with or without the `[...]`
-     * literal-IPv6 brackets [URL.getHost] may retain). No DNS resolution is performed — a host
-     * that merely resolves to loopback (or is crafted to look like one, e.g.
-     * `127.0.0.1.evil.com` or `localhost.evil.com`) is rejected.
-     */
-    private fun isLoopbackHost(host: String?): Boolean {
-        if (host.isNullOrBlank()) return false
-        val normalized = host.trim().lowercase().removeSurrounding("[", "]")
-        if (normalized == "localhost" || normalized == "::1") return true
-        if (normalized.startsWith("127.")) {
-            val octets = normalized.split(".")
-            return octets.size == 4 && octets.all { octet -> octet.toIntOrNull()?.let { it in 0..255 } == true }
-        }
-        return false
+/**
+ * True when [host] is a literal loopback address: `localhost` (case-insensitive), an IPv4
+ * literal beginning `127.` with four valid octets, or `::1` (with or without the `[...]`
+ * literal-IPv6 brackets [URL.getHost] may retain). No DNS resolution is performed — a host
+ * that merely resolves to loopback (or is crafted to look like one, e.g.
+ * `127.0.0.1.evil.com` or `localhost.evil.com`) is rejected.
+ *
+ * Top-level and `internal` so it is shared, verbatim, by [ApiAuthConfigLoader] (REST
+ * `API_JWKS_URL` / `API_JWKS_ALLOW_INSECURE_URL`) and the actor-authentication https-source
+ * validation in `YamlActorAuthenticationConfigService` / `DefaultJwksKeySetProvider` — one
+ * predicate cannot drift out of sync with the other.
+ */
+internal fun isLiteralLoopbackHost(host: String?): Boolean {
+    if (host.isNullOrBlank()) return false
+    val normalized = host.trim().lowercase().removeSurrounding("[", "]")
+    if (normalized == "localhost" || normalized == "::1") return true
+    if (normalized.startsWith("127.")) {
+        val octets = normalized.split(".")
+        return octets.size == 4 && octets.all { octet -> octet.toIntOrNull()?.let { it in 0..255 } == true }
     }
+    return false
 }

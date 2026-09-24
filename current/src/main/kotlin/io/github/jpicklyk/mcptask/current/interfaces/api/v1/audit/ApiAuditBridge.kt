@@ -88,10 +88,6 @@ object ApiAuditBridge {
     /**
      * Applies the [degradedModePolicy] to the synthesized claim and returns the trusted actor id.
      *
-     * Returns null when the policy is [DegradedModePolicy.REJECT] and the auth mode is JWKS
-     * but verification somehow failed (defensive — in practice JWKS tokens are verified by
-     * [ApiBearerAuth] before routes are entered, so `toVerificationResult` returns VERIFIED).
-     *
      * **Bearer mode is always trusted** regardless of [degradedModePolicy] — bearer auth has
      * no JWKS verification chain. The spec says: "API_AUTH_MODE=bearer is unaffected — bearer
      * auth has no verification chain." Bearer tokens are validated by the auth plugin before
@@ -100,11 +96,19 @@ object ApiAuditBridge {
      * **Unauthenticated mode is likewise always trusted** — like bearer, there is no JWKS
      * verification chain to run; the synthetic [io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.LOCAL_UNAUTH_PRINCIPAL]
      * is attached unconditionally by the auth plugin.
+     *
+     * **JWKS mode never actually rejects here in practice**: [toVerificationResult] always
+     * reports [VerificationStatus.VERIFIED] for JWKS principals (the JWT was already validated
+     * by [ApiBearerAuth] before the route ran), and every [DegradedModePolicy] trusts a VERIFIED
+     * result. The [PolicyResolution.Rejected] arm below is therefore unreachable through this
+     * call path today; it fails CLOSED (throws, rather than silently returning a sentinel) so
+     * that if verification semantics ever change, a caller relying on this always returning a
+     * usable id does not silently write an invalid attribution instead.
      */
     fun resolveTrustedActorIdOrNull(
         principal: ApiPrincipal,
         degradedModePolicy: DegradedModePolicy,
-    ): String? {
+    ): String {
         // Bearer and Unauthenticated modes: always trusted — no JWKS chain, auth was validated
         // (or synthesized) at plugin level.
         if (principal.authMode == ApiAuthMode.BEARER || principal.authMode == ApiAuthMode.UNAUTHENTICATED) {
@@ -115,7 +119,12 @@ object ApiAuditBridge {
         val verification = toVerificationResult(principal)
         return when (val r = ActorAware.resolveTrustedActorId(claim, verification, degradedModePolicy)) {
             is PolicyResolution.Trusted -> r.trustedId
-            is PolicyResolution.Rejected -> null
+            is PolicyResolution.Rejected ->
+                error(
+                    "Actor verification rejected for JWKS principal tokenId='${principal.tokenId}' " +
+                        "under degradedModePolicy=$degradedModePolicy (reason=${r.reason}) — this path is " +
+                        "unreachable in practice since JWKS verification is always VERIFIED before routes run.",
+                )
         }
     }
 }

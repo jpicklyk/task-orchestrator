@@ -2528,6 +2528,7 @@ Use `DEGRADED_MODE_POLICY=reject` for cross-org or multi-tenant fleet deployment
 | `cache_ttl_seconds` | How long to cache fetched JWKS keys (default: 300). |
 | `stale_on_error` | When true (default), a stale cached key set is used if a JWKS refresh fails. The result is `verified` with `metadata.verifiedFromCache="true"` and `metadata.cacheAgeSeconds` set. When false, fetch failures always return `unavailable`. |
 | `require_sub_match` | When true, the JWT `sub` claim must match `actor.id`. |
+| `allow_insecure_url` | Boolean, default `false`. Must be a boolean — any other type fails startup. When `false` (default), `oidc_discovery` and `jwks_uri` (plus a `jwks_uri` discovered via `oidc_discovery`) must use `https`; any other scheme fails startup. When `true`, plaintext `http` is additionally accepted, but only for a literal loopback host (`localhost`, `127.x.x.x`, `::1`) — local dev/test only. Does not affect `jwks_path` or DID-trust mode. |
 
 ### Docker — JWKS Path Mount
 

@@ -80,20 +80,8 @@ fun Route.noteWriteRoutes(
     requireCapability(ApiCapability.WRITE_NOTES) {
         // ─── PUT /items/{id}/notes/{key} (upsert) ───────────────────────────
         put("/items/{id}/notes/{key}") {
-            val principal =
-                call.attributes.getOrNull(ApiPrincipalKey) ?: run {
-                    call.respond(HttpStatusCode.Unauthorized, ErrorDto("unauthenticated", "No authenticated principal"))
-                    return@put
-                }
-
-            val trustedActorId =
-                ApiAuditBridge.resolveTrustedActorIdOrNull(principal, degradedModePolicy) ?: run {
-                    call.respond(
-                        HttpStatusCode.Unauthorized,
-                        ErrorDto("verification_failed", "Actor verification failed (degradedModePolicy=reject)"),
-                    )
-                    return@put
-                }
+            val principal = call.attributes[ApiPrincipalKey]
+            val trustedActorId = ApiAuditBridge.resolveTrustedActorIdOrNull(principal, degradedModePolicy)
 
             // Content-Type gate — explicit because the body is no longer read through
             // `receive<NoteWriteDto>()`, which let ContentNegotiation reject a non-JSON body with
@@ -228,20 +216,6 @@ fun Route.noteWriteRoutes(
 
         // ─── DELETE /items/{id}/notes/{key} ─────────────────────────────────
         delete("/items/{id}/notes/{key}") {
-            val principal =
-                call.attributes.getOrNull(ApiPrincipalKey) ?: run {
-                    call.respond(HttpStatusCode.Unauthorized, ErrorDto("unauthenticated", "No authenticated principal"))
-                    return@delete
-                }
-
-            ApiAuditBridge.resolveTrustedActorIdOrNull(principal, degradedModePolicy) ?: run {
-                call.respond(
-                    HttpStatusCode.Unauthorized,
-                    ErrorDto("verification_failed", "Actor verification failed (degradedModePolicy=reject)"),
-                )
-                return@delete
-            }
-
             val rawId =
                 call.parameters["id"] ?: run {
                     call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing item id"))

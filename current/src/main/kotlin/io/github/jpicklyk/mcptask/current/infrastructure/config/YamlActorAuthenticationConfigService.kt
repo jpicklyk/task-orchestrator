@@ -6,6 +6,8 @@ import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
 import org.slf4j.LoggerFactory
 import org.yaml.snakeyaml.Yaml
 import java.io.FileReader
+import java.net.MalformedURLException
+import java.net.URL
 import java.nio.file.Path
 
 /**
@@ -207,6 +209,18 @@ class YamlActorAuthenticationConfigService(
                 val didStrictRelationship = (verifierMap["did_strict_relationship"] as? Boolean) ?: true
                 val didLooseKidMatch = (verifierMap["did_loose_kid_match"] as? Boolean) ?: true
 
+                // Type-checked whenever type=jwks, regardless of source or scheme — a malformed
+                // value (e.g. a string) must fail loudly rather than silently default to false.
+                val rawAllowInsecureUrl = verifierMap["allow_insecure_url"]
+                val allowInsecureUrl: Boolean =
+                    when (rawAllowInsecureUrl) {
+                        null -> false
+                        is Boolean -> rawAllowInsecureUrl
+                        else -> throw IllegalArgumentException(
+                            "actor_authentication.verifier.allow_insecure_url must be a boolean; got '$rawAllowInsecureUrl'"
+                        )
+                    }
+
                 val isDidTrust = didAllowlist.isNotEmpty() || didPattern != null
                 val isStaticJwks = oidcDiscovery != null || jwksUri != null || jwksPath != null
 
@@ -249,6 +263,15 @@ class YamlActorAuthenticationConfigService(
                             "actor_authentication.verifier type 'jwks' requires exactly one of oidc_discovery, " +
                                 "jwks_uri, or jwks_path; multiple were provided: $provided"
                         )
+                    }
+
+                    // https-or-loopback rule for the single configured key source. jwks_path (a
+                    // local file) is exempt — this only governs sources fetched over HTTP(S).
+                    if (oidcDiscovery != null) {
+                        validateKeySourceUrl(oidcDiscovery, "oidc_discovery", allowInsecureUrl)
+                    }
+                    if (jwksUri != null) {
+                        validateKeySourceUrl(jwksUri, "jwks_uri", allowInsecureUrl)
                     }
                 }
 
@@ -295,7 +318,8 @@ class YamlActorAuthenticationConfigService(
                     didAllowlist = didAllowlist,
                     didPattern = didPattern,
                     didStrictRelationship = didStrictRelationship,
-                    didLooseKidMatch = didLooseKidMatch
+                    didLooseKidMatch = didLooseKidMatch,
+                    allowInsecureUrl = allowInsecureUrl
                 )
             }
 
@@ -306,5 +330,54 @@ class YamlActorAuthenticationConfigService(
                 VerifierConfig.Noop
             }
         }
+    }
+
+    /**
+     * Enforces the https-or-loopback rule (mirroring the REST API's `API_JWKS_URL` /
+     * `API_JWKS_ALLOW_INSECURE_URL` contract, see [ApiAuthConfigLoader]) on a single configured
+     * actor-authentication key-source value ([raw] — either `oidc_discovery` or `jwks_uri`,
+     * named by [keyName] for the error message).
+     *
+     * `https` is always accepted. `http` is accepted only when [allowInsecureUrl] is true AND the
+     * URL's host is a literal loopback address ([isLiteralLoopbackHost] — no DNS resolution, so a
+     * host merely resolving to loopback is still rejected). Every other outcome — any other
+     * scheme, a malformed URL, or `http` without both conditions — throws
+     * [IllegalArgumentException] naming `actor_authentication.verifier.<keyName>`, which the
+     * caller's `catch (e: IllegalArgumentException)` re-throws rather than swallowing into a
+     * silent Noop fallback (unlike the generic `catch (e: Exception)` below it).
+     */
+    private fun validateKeySourceUrl(
+        raw: String,
+        keyName: String,
+        allowInsecureUrl: Boolean
+    ) {
+        val url =
+            try {
+                URL(raw)
+            } catch (e: MalformedURLException) {
+                throw IllegalArgumentException(
+                    "actor_authentication.verifier.$keyName '$raw' is not a valid URL: ${e.message}"
+                )
+            }
+
+        val scheme = url.protocol?.lowercase()
+        if (scheme == "https") return
+
+        if (scheme == "http" && allowInsecureUrl && isLiteralLoopbackHost(url.host)) {
+            logger.warn(
+                "actor_authentication.verifier.{} '{}' uses plaintext http, permitted because " +
+                    "allow_insecure_url=true and host '{}' is a loopback address. This must only be " +
+                    "used for local development/testing.",
+                keyName,
+                raw,
+                url.host
+            )
+            return
+        }
+
+        throw IllegalArgumentException(
+            "actor_authentication.verifier.$keyName '$raw' must use https; plaintext http is permitted " +
+                "only for a loopback host (localhost, 127.x.x.x, ::1) with allow_insecure_url=true."
+        )
     }
 }

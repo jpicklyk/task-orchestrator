@@ -25,6 +25,8 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.slf4j.LoggerFactory
+import java.net.MalformedURLException
+import java.net.URL
 import java.nio.file.Paths
 import java.time.Clock
 import java.time.Instant
@@ -419,6 +421,13 @@ class DefaultJwksKeySetProvider(
         val discovered = json["jwks_uri"]?.jsonPrimitive?.content
         val issuer = json["issuer"]?.jsonPrimitive?.content
         if (discovered != null) {
+            // Validate BEFORE assigning resolvedJwksUri/resolvedIssuer: a discovery document
+            // (even one reached over https) could point jwks_uri at a plaintext http endpoint,
+            // which would let a network attacker substitute keys during the subsequent key
+            // fetch. A rejection here throws, is caught by fetchKeySet's caller (logged as a
+            // WARN), and leaves no discovered source — getKeySet then has nothing to fetch and
+            // JwksActorVerifier reports UNAVAILABLE, same as any other discovery failure.
+            validateDiscoveredJwksUri(discovered)
             resolvedJwksUri = discovered
             logger.debug("OIDC discovery resolved jwks_uri={}", discovered)
         }
@@ -426,6 +435,43 @@ class DefaultJwksKeySetProvider(
             resolvedIssuer = issuer
             logger.debug("OIDC discovery resolved issuer={}", issuer)
         }
+    }
+
+    /**
+     * Enforces the same https-or-loopback rule as
+     * `YamlActorAuthenticationConfigService.validateKeySourceUrl` on the `jwks_uri` discovered via
+     * OIDC discovery, using [VerifierConfig.Jwks.allowInsecureUrl]. The statically-configured
+     * `oidcDiscovery`/`jwksUri` values are validated once, at config-load time; this covers the
+     * URI the discovery DOCUMENT names, which is only known at fetch time and could differ from
+     * (or be redirected away from) the discovery URL's own scheme.
+     */
+    private fun validateDiscoveredJwksUri(discoveredUri: String) {
+        val url =
+            try {
+                URL(discoveredUri)
+            } catch (e: MalformedURLException) {
+                throw IllegalArgumentException(
+                    "OIDC discovery for '${config.oidcDiscovery}' returned an invalid jwks_uri '$discoveredUri': ${e.message}"
+                )
+            }
+
+        val scheme = url.protocol?.lowercase()
+        if (scheme == "https") return
+
+        if (scheme == "http" && config.allowInsecureUrl && isLiteralLoopbackHost(url.host)) {
+            logger.warn(
+                "OIDC-discovered jwks_uri '{}' uses plaintext http, permitted because allow_insecure_url=true " +
+                    "and host '{}' is a loopback address. This must only be used for local development/testing.",
+                discoveredUri,
+                url.host
+            )
+            return
+        }
+
+        throw IllegalArgumentException(
+            "OIDC-discovered jwks_uri '$discoveredUri' must use https; plaintext http is permitted only for a " +
+                "loopback host (localhost, 127.x.x.x, ::1) with allow_insecure_url=true."
+        )
     }
 
     private suspend fun httpGet(url: String): String {
