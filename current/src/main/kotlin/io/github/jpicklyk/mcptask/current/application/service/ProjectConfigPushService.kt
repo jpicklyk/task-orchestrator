@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.domain.model.FingerprintRelation
+import io.github.jpicklyk.mcptask.current.domain.model.GuardedUpsertOutcome
 import io.github.jpicklyk.mcptask.current.domain.model.ProjectConfig
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlSchemaParser
@@ -22,8 +23,10 @@ import java.util.UUID
  *
  * Pipeline, in order: size cap -> root exists -> root is depth-0 -> [SafeConstructor]
  * parse-validate -> embedded-rootId guard (skipped when `force: true`) ->
- * [io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository.upsert].
- * The pipeline stops at the first failing step; nothing is written on failure.
+ * [io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository.upsertGuarded]
+ * (fast-forward + optional [expectedFingerprint] compare-and-set guard, evaluated in the SAME
+ * transaction as the write — see that method's KDoc). The pipeline stops at the first failing
+ * step; nothing is written on failure.
  */
 class ProjectConfigPushService(
     private val repositoryProvider: RepositoryProvider,
@@ -39,21 +42,28 @@ class ProjectConfigPushService(
      * wrong project root before it silently overwrites the target root's gates. An absent or
      * non-UUID embedded `project.rootId` is not an error; the push proceeds unchanged.
      *
-     * A second guard runs right after: the fast-forward (known-old) guard. The incoming
-     * `configYaml`'s fingerprint is classified against the root's stored fingerprint history (see
-     * [io.github.jpicklyk.mcptask.current.domain.model.FingerprintRelation]) — a fingerprint that is
-     * [FingerprintRelation.SUPERSEDED] (known-old: present in history but not current) is rejected as
-     * [ProjectConfigPushResult.Superseded], since writing it would silently revert a later push made
-     * from elsewhere. [FingerprintRelation.CURRENT] (idempotent re-push) and
-     * [FingerprintRelation.UNKNOWN] (divergent edit, or no row/history yet) both proceed normally.
+     * The fast-forward (known-old) guard and, when [expectedFingerprint] is supplied, the
+     * compare-and-set guard both run inside
+     * [io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository.upsertGuarded]'s
+     * single transaction, alongside the write itself — this closes the separate-guard-read-then-
+     * separate-write race the previous two-step implementation had. A fingerprint that is
+     * [FingerprintRelation.SUPERSEDED] (known-old: present in history but not current) is rejected
+     * as [ProjectConfigPushResult.Superseded]; a supplied [expectedFingerprint] that does not match
+     * the row's fingerprint AT THE POINT the write would occur is rejected as
+     * [ProjectConfigPushResult.PreconditionFailed]. [FingerprintRelation.CURRENT] (idempotent
+     * re-push) and [FingerprintRelation.UNKNOWN] (divergent edit, or no row/history yet) both
+     * proceed normally.
      *
-     * Passing `force: true` skips BOTH guards (bypasses push guards generally — this single flag is
-     * shared across guards).
+     * Passing `force: true` skips the rootId-mismatch and fast-forward guards (bypasses those push
+     * guards -- this single flag is shared across them), but does NOT skip [expectedFingerprint]:
+     * an explicit compare-and-set precondition the caller supplied for this request is still
+     * enforced even under `force: true`.
      */
     suspend fun push(
         rootItemId: UUID,
         configYaml: String,
         force: Boolean = false,
+        expectedFingerprint: String? = null,
     ): ProjectConfigPushResult {
         val sizeBytes = configYaml.toByteArray(Charsets.UTF_8).size
         if (sizeBytes > MAX_CONFIG_YAML_BYTES) {
@@ -93,33 +103,33 @@ class ProjectConfigPushService(
 
         val projectConfigRepository = repositoryProvider.projectConfigRepository()
 
-        if (!force) {
-            val incomingFingerprint = projectConfigRepository.computeFingerprint(configYaml)
-            val relation =
-                when (val relationResult = projectConfigRepository.classifyFingerprint(rootItemId, incomingFingerprint)) {
-                    is Result.Success -> relationResult.data
-                    is Result.Error -> return ProjectConfigPushResult.RepositoryError(relationResult.error.message)
-                }
-            if (relation == FingerprintRelation.SUPERSEDED) {
-                val currentUpdatedAt =
-                    when (val currentResult = projectConfigRepository.get(rootItemId)) {
-                        is Result.Success -> currentResult.data?.updatedAt
-                        is Result.Error -> null
-                    } ?: Instant.now()
-                return ProjectConfigPushResult.Superseded(rootItemId, currentUpdatedAt)
-            }
-        }
-
-        return when (val result = projectConfigRepository.upsert(rootItemId, configYaml)) {
-            is Result.Success ->
-                ProjectConfigPushResult.Success(
-                    rootItemId = result.data.rootItemId,
-                    fingerprint = result.data.fingerprint,
-                    updatedAt = result.data.updatedAt,
-                    warning = typeWarning,
-                    ignoredSections = computeIgnoredSections(parsedRoot),
-                    schemaWarnings = schemaWarnings,
+        return when (
+            val result =
+                projectConfigRepository.upsertGuarded(
+                    rootItemId = rootItemId,
+                    configYaml = configYaml,
+                    // Unlike rejectSuperseded, expectedFingerprint is NOT skipped by force=true:
+                    // force bypasses the rootId-mismatch and fast-forward guards only, not an
+                    // explicit If-Match precondition the caller supplied for THIS request.
+                    expectedFingerprint = expectedFingerprint,
+                    rejectSuperseded = !force,
                 )
+        ) {
+            is Result.Success ->
+                when (val outcome = result.data) {
+                    is GuardedUpsertOutcome.Applied ->
+                        ProjectConfigPushResult.Success(
+                            rootItemId = outcome.config.rootItemId,
+                            fingerprint = outcome.config.fingerprint,
+                            updatedAt = outcome.config.updatedAt,
+                            warning = typeWarning,
+                            ignoredSections = computeIgnoredSections(parsedRoot),
+                            schemaWarnings = schemaWarnings,
+                        )
+                    is GuardedUpsertOutcome.Superseded -> ProjectConfigPushResult.Superseded(rootItemId, outcome.currentUpdatedAt)
+                    is GuardedUpsertOutcome.PreconditionFailed ->
+                        ProjectConfigPushResult.PreconditionFailed(rootItemId, outcome.currentFingerprint)
+                }
             is Result.Error -> ProjectConfigPushResult.RepositoryError(result.error.message)
         }
     }
@@ -326,6 +336,19 @@ sealed class ProjectConfigPushResult {
     data class Superseded(
         val rootItemId: UUID,
         val currentUpdatedAt: Instant
+    ) : ProjectConfigPushResult()
+
+    /**
+     * The caller supplied `expectedFingerprint` to [ProjectConfigPushService.push] and it did not
+     * match [rootItemId]'s stored fingerprint AT THE POINT the write would have happened (evaluated
+     * inside the same transaction as the write itself, closing the separate-guard-read-then-write
+     * race). [currentFingerprint] is the row's actual fingerprint at that point — REST maps this to
+     * 412 with a refreshed `ETag` header; ignored (never returned) when no row exists yet, or when
+     * `force: true` was passed.
+     */
+    data class PreconditionFailed(
+        val rootItemId: UUID,
+        val currentFingerprint: String
     ) : ProjectConfigPushResult()
 
     /** The upsert itself failed at the repository layer. */

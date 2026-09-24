@@ -237,6 +237,15 @@ the root's stored fingerprint history.
                         "pull or copy back before editing, or pass force: true to overwrite anyway",
                     ErrorCodes.CONFLICT_ERROR
                 )
+            is ProjectConfigPushResult.PreconditionFailed ->
+                // Unreachable from this tool today (no expectedFingerprint MCP param exists yet;
+                // ManageProjectConfigTool never passes one to push) -- present only so this when
+                // stays exhaustive against ProjectConfigPushResult without an else branch masking
+                // a future forgotten case.
+                errorResponse(
+                    "Project config was modified concurrently; current fingerprint is ${result.currentFingerprint}",
+                    ErrorCodes.CONFLICT_ERROR
+                )
             is ProjectConfigPushResult.RepositoryError ->
                 errorResponse(
                     "Failed to store project config: ${result.message}",

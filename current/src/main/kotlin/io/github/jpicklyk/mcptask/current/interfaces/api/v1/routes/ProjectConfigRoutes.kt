@@ -35,6 +35,18 @@ private val projectConfigLogger = LoggerFactory.getLogger("ProjectConfigRoutes")
  */
 private fun configEtag(fingerprint: String): String = "\"cfg-$fingerprint\""
 
+/** The `"cfg-"` prefix of [configEtag]'s ETag format, factored out for If-Match header parsing. */
+private const val CFG_ETAG_PREFIX = "\"cfg-"
+
+/**
+ * Stands in for an If-Match header value that does not parse as `"cfg-<fingerprint>"` (including
+ * an empty string) -- passed through to [ProjectConfigPushService.push] as `expectedFingerprint`
+ * so it can never equal a real stored fingerprint, guaranteeing a mismatch (412/PreconditionFailed)
+ * on an EXISTING row while still being ignored when no row exists yet (upsertGuarded only compares
+ * expectedFingerprint against a row that exists).
+ */
+private const val NON_MATCHING_FINGERPRINT_SENTINEL = "<malformed-if-match>"
+
 /**
  * Registers the per-root config read/write/delete routes under `/api/v1/roots/{rootId}/config`.
  *
@@ -150,30 +162,27 @@ fun Route.projectConfigRoutes(repositoryProvider: RepositoryProvider) {
                 val configYaml =
                     call.receiveBounded(ProjectConfigPushService.MAX_CONFIG_YAML_BYTES) ?: return@put
 
-                // If-Match is only enforced against an EXISTING row — mirrors NoteWriteRoutes' PUT
-                // upsert semantics: a first push is a create with no prior ETag to match, so a
-                // stray If-Match on a not-yet-existing root is ignored rather than 412'd.
+                // If-Match maps "cfg-<fingerprint>" to the raw fingerprint; any other supplied
+                // value (including an empty string) maps to a sentinel that can never equal a real
+                // fingerprint, preserving the prior "mismatch on an EXISTING row -> 412, ignored
+                // when no row exists yet" behavior (a first push is a create with nothing to
+                // compare against). Evaluated INSIDE service.push's upsertGuarded transaction, per
+                // api-rest.md PUT step order: size cap -> root exists -> depth-0 -> parse ->
+                // rootId guard -> THEN this precondition, atomic with the fast-forward guard and
+                // the write itself -- no separate pre-read here, so a fingerprint-read failure can
+                // no longer silently skip If-Match (previously fail-open: a getFingerprint
+                // Result.Error mapped to null and the check was skipped; now a repository error
+                // surfaces as ProjectConfigPushResult.RepositoryError -> 500 db_error, fail-closed).
                 val ifMatch = call.request.headers[HttpHeaders.IfMatch]?.trim()
-                if (ifMatch != null) {
-                    val existingFingerprint =
-                        when (val fpResult = projectConfigRepo.getFingerprint(rootId)) {
-                            is Result.Success -> fpResult.data
-                            is Result.Error -> null
-                        }
-                    if (existingFingerprint != null) {
-                        val currentEtag = configEtag(existingFingerprint)
-                        if (ifMatch != currentEtag) {
-                            call.response.header(HttpHeaders.ETag, currentEtag)
-                            call.respond(
-                                HttpStatusCode.PreconditionFailed,
-                                ErrorDto("etag_mismatch", "ETag mismatch; current ETag is $currentEtag"),
-                            )
-                            return@put
-                        }
+                val expectedFingerprint =
+                    when {
+                        ifMatch == null -> null
+                        ifMatch.startsWith(CFG_ETAG_PREFIX) && ifMatch.endsWith("\"") ->
+                            ifMatch.removePrefix(CFG_ETAG_PREFIX).removeSuffix("\"")
+                        else -> NON_MATCHING_FINGERPRINT_SENTINEL
                     }
-                }
 
-                when (val result = service.push(rootId, configYaml, force)) {
+                when (val result = service.push(rootId, configYaml, force, expectedFingerprint)) {
                     is ProjectConfigPushResult.Success -> {
                         val etag = configEtag(result.fingerprint)
                         call.response.header(HttpHeaders.ETag, etag)
@@ -235,6 +244,14 @@ fun Route.projectConfigRoutes(repositoryProvider: RepositoryProvider) {
                                     "pull or copy back before editing, or retry with ?force=true",
                             ),
                         )
+                    is ProjectConfigPushResult.PreconditionFailed -> {
+                        val currentEtag = configEtag(result.currentFingerprint)
+                        call.response.header(HttpHeaders.ETag, currentEtag)
+                        call.respond(
+                            HttpStatusCode.PreconditionFailed,
+                            ErrorDto("etag_mismatch", "ETag mismatch; current ETag is $currentEtag"),
+                        )
+                    }
                     is ProjectConfigPushResult.RepositoryError -> {
                         projectConfigLogger.warn("PUT /roots/{}/config DB error: {}", rootId, result.message)
                         call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Failed to store project config"))
