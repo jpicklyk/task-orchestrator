@@ -10,6 +10,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.domain.repository.ItemSortFields
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.SearchMatchMode
 import io.github.jpicklyk.mcptask.current.domain.repository.SearchScope
@@ -478,6 +479,18 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
                 val offsetVal = optionalInt(params, "offset")
                 if (offsetVal != null && offsetVal < 0) {
                     throw ToolValidationException("offset must be non-negative")
+                }
+                val sortByVal = optionalString(params, "sortBy")
+                if (sortByVal != null && ItemSortFields.canonicalField(sortByVal) == null) {
+                    throw ToolValidationException(
+                        "Invalid sortBy: \"$sortByVal\". Valid values: ${ItemSortFields.FIELDS.joinToString(", ")}"
+                    )
+                }
+                val sortOrderVal = optionalString(params, "sortOrder")
+                if (sortOrderVal != null && sortOrderVal.lowercase() !in ItemSortFields.ORDERS) {
+                    throw ToolValidationException(
+                        "Invalid sortOrder: \"$sortOrderVal\". Valid values: ${ItemSortFields.ORDERS.joinToString(", ")}"
+                    )
                 }
             }
             "overview" -> {
@@ -1427,9 +1440,21 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
                                 is Result.Success -> result.data
                                 is Result.Error -> emptyList()
                             }
-                        // Same excludeTerminal semantics as the scoped-overview `children` array.
+                        // Same excludeTerminal semantics as the scoped-overview `children` array:
+                        // a terminal-role child that still has non-terminal descendants is
+                        // RETAINED (bug 18fd99a7) — matches executeScopedOverview/executeAnchoredOverview.
                         val visibleChildren =
-                            if (excludeTerminal) children.filterNot { it.role == Role.TERMINAL } else children
+                            if (excludeTerminal) {
+                                buildList {
+                                    for (child in children) {
+                                        if (child.role != Role.TERMINAL || hasOpenDescendants(child.id, context)) {
+                                            add(child)
+                                        }
+                                    }
+                                }
+                            } else {
+                                children
+                            }
                         put("children", JsonArray(visibleChildren.map { enrichChildJson(it, context) }))
                     }
                 }
