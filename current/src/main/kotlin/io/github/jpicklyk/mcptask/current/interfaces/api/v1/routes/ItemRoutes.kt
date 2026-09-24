@@ -30,6 +30,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.pagination.PageParam
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.pagination.buildPageDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.pagination.pageParamsOrRespond
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.redaction.AttributionRedactor
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.redaction.flagDeprecatedIncludeProof
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.call
 import io.ktor.server.response.respond
@@ -313,6 +314,7 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
 
         // ─── GET /items/{id} ─────────────────────────────────────────────────
         get("/items/{id}") {
+            call.flagDeprecatedIncludeProof()
             val rawId =
                 call.parameters["id"] ?: run {
                     call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing item id"))

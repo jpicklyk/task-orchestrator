@@ -9,6 +9,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import org.slf4j.LoggerFactory
+import java.security.MessageDigest
 
 /**
  * Outcome of applying the [DegradedModePolicy] to a (claim, verification) pair.
@@ -94,7 +95,17 @@ interface ActorAware {
                 proof = actorObj["proof"]?.jsonPrimitive?.contentOrNull
             )
         val verification = context.actorVerifier().verify(claim)
-        return ActorParseResult.Success(claim, verification)
+        // Forensic hash: computed here (not in the verifier) so EVERY verifier — jwks, noop, and
+        // any future one — gets identical, evidence-preserving behavior for free. Only set when a
+        // non-blank proof was supplied; independent of verification outcome (REJECTED proofs are
+        // still worth hashing — the hash is what lets an operator later confirm "was THIS specific
+        // token ever presented", regardless of whether it validated).
+        val hashedVerification =
+            claim.proof?.takeIf { it.isNotBlank() }?.let { proof ->
+                val digest = MessageDigest.getInstance("SHA-256").digest(proof.toByteArray(Charsets.UTF_8))
+                verification.copy(proofSha256 = digest.joinToString("") { "%02x".format(it) })
+            } ?: verification
+        return ActorParseResult.Success(claim, hashedVerification)
     }
 
     companion object {

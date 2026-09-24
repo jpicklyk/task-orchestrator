@@ -14,6 +14,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.RoleTransitionDt
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.toDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.pagination.buildPageDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.pagination.pageParamsOrRespond
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.redaction.flagDeprecatedIncludeProof
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.redaction.redactActorProofIfNeeded
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.redaction.redactVerification
 import io.ktor.http.HttpStatusCode
@@ -48,7 +49,9 @@ private const val TRANSITION_SCAN_LIMIT = 1000
  *
  * `actor` and `verification` on transitions use the same admin-only redaction as notes:
  * - Non-admin callers: `actor` is stripped to `null` and `verification` to `null`
- * - Admin callers: `actor` visible; `proof` still redacted unless `?include=proof`
+ * - Admin callers: `actor` visible (`actor.proof` is always `null` since V17 — raw proofs are no
+ *   longer persisted); `verification.proof` (hash + verified claims) visible without needing
+ *   `?include=proof`, which is now a deprecated no-op that only adds a `Warning` header
  */
 fun Route.transitionRoutes(
     repositoryProvider: RepositoryProvider,
@@ -61,6 +64,7 @@ fun Route.transitionRoutes(
     requireCapability(ApiCapability.READ) {
         // ─── GET /items/{id}/transitions ────────────────────────────────────
         get("/items/{id}/transitions") {
+            call.flagDeprecatedIncludeProof()
             val rawId =
                 call.parameters["id"] ?: run {
                     call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing item id"))
@@ -106,6 +110,7 @@ fun Route.transitionRoutes(
 
         // ─── GET /transitions ────────────────────────────────────────────────
         get("/transitions") {
+            call.flagDeprecatedIncludeProof()
             val principal = call.attributes.getOrNull(ApiPrincipalKey)
             val sinceRaw = call.request.queryParameters["since"]
             val since =

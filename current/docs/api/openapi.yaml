@@ -187,7 +187,10 @@ components:
         proof:
           type: string
           nullable: true
-          description: Redacted unless ADMIN + ?include=proof
+          description: >-
+            Always null. Since migration V17, raw actor proofs (JWTs) are never persisted.
+            `?include=proof` is still accepted but is a deprecated no-op — it only adds a
+            `Warning` response header now. See VerificationDto.proof for forensic evidence.
 
     VerificationDto:
       type: object
@@ -201,6 +204,53 @@ components:
           type: string
           nullable: true
         reason:
+          type: string
+          nullable: true
+        proof:
+          allOf:
+            - $ref: '#/components/schemas/ProofEvidenceDto'
+          nullable: true
+          description: >-
+            Forensic evidence about the proof (SHA-256 hash + verified JWT claims), in place of
+            the raw proof. Requires ADMIN capability; independent of API_REDACT_NOTE_ATTRIBUTION
+            and NOT gated behind ?include=proof. Null when no proof was supplied, or for a
+            non-admin caller.
+
+    ProofEvidenceDto:
+      type: object
+      required: [sha256]
+      properties:
+        sha256:
+          type: string
+          description: Lowercase hex SHA-256 digest of the proof's UTF-8 bytes.
+        iss:
+          type: string
+          nullable: true
+        sub:
+          type: string
+          nullable: true
+        aud:
+          type: array
+          items:
+            type: string
+          nullable: true
+        jti:
+          type: string
+          nullable: true
+        iat:
+          type: integer
+          format: int64
+          nullable: true
+          description: Epoch seconds.
+        exp:
+          type: integer
+          format: int64
+          nullable: true
+          description: Epoch seconds.
+        kid:
+          type: string
+          nullable: true
+        alg:
           type: string
           nullable: true
 

@@ -20,6 +20,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ExpectedNoteDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ItemDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.MissingNoteDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.NoteDto
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ProofEvidenceDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ResourceLeaseDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ResourceLeaseIntervalDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.RoleTransitionDto
@@ -110,12 +111,33 @@ fun ActorClaim.toDto(): ActorClaimDto =
         proof = proof,
     )
 
-/** Maps a [VerificationResult] domain object to a [VerificationDto]. */
+/**
+ * Maps a [VerificationResult] domain object to a [VerificationDto].
+ *
+ * `proof` is always populated here when [VerificationResult.proofSha256] is present — like
+ * [ActorClaim.toDto]'s raw `proof` field, redaction for non-admin callers is applied downstream
+ * by [io.github.jpicklyk.mcptask.current.interfaces.api.v1.redaction.AttributionRedactor] /
+ * `redactVerification`, not by this call-context-free mapper.
+ */
 fun VerificationResult.toDto(): VerificationDto =
     VerificationDto(
         status = status.toJsonString(),
         verifier = verifier,
         reason = reason,
+        proof =
+            proofSha256?.let { sha256 ->
+                ProofEvidenceDto(
+                    sha256 = sha256,
+                    iss = proofClaims?.iss,
+                    sub = proofClaims?.sub,
+                    aud = proofClaims?.aud,
+                    jti = proofClaims?.jti,
+                    iat = proofClaims?.iat,
+                    exp = proofClaims?.exp,
+                    kid = proofClaims?.kid,
+                    alg = proofClaims?.alg,
+                )
+            },
     )
 
 /**

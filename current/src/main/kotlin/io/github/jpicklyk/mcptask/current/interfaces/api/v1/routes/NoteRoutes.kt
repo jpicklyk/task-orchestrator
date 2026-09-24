@@ -14,6 +14,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.SearchHitDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.toDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.redaction.AttributionRedactor
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.redaction.flagDeprecatedIncludeProof
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.call
@@ -52,6 +53,7 @@ fun Route.noteRoutes(repositoryProvider: RepositoryProvider) {
     requireCapability(ApiCapability.READ) {
         // ─── GET /items/{id}/notes ──────────────────────────────────────────
         get("/items/{id}/notes") {
+            call.flagDeprecatedIncludeProof()
             val rawId =
                 call.parameters["id"] ?: run {
                     call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing item id"))
@@ -95,6 +97,7 @@ fun Route.noteRoutes(repositoryProvider: RepositoryProvider) {
 
         // ─── GET /items/{id}/notes/{key} ────────────────────────────────────
         get("/items/{id}/notes/{key}") {
+            call.flagDeprecatedIncludeProof()
             val rawId =
                 call.parameters["id"] ?: run {
                     call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing item id"))

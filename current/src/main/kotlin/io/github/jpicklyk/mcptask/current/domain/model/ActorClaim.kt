@@ -40,4 +40,11 @@ data class ActorClaim(
             throw ValidationException("ActorClaim proof must not exceed 10000 characters")
         }
     }
+
+    /**
+     * Masks [proof] — a bearer credential/JWT that must never appear in logs, stack traces, or
+     * any other incidental `toString()` output (e.g. a logger call that interpolates an
+     * [ActorClaim] directly). Every other field is safe to surface as-is.
+     */
+    override fun toString(): String = "ActorClaim(id=$id, kind=$kind, parent=$parent, proof=${if (proof == null) "null" else "<redacted>"})"
 }

@@ -103,7 +103,11 @@ class SQLiteNoteRepository(
                 it[NotesTable.actorId] = note.actorClaim?.id
                 it[NotesTable.actorKind] = note.actorClaim?.kind?.toJsonString()
                 it[NotesTable.actorParent] = note.actorClaim?.parent
-                it[NotesTable.actorProof] = note.actorClaim?.proof
+                // Actor proofs (JWTs) are no longer persisted — only forensic evidence (hash +
+                // verified claims) is. See migration V17__Store_Actor_Proof_Evidence.sql.
+                it[NotesTable.actorProof] = null
+                it[NotesTable.actorProofSha256] = note.verification?.proofSha256
+                it[NotesTable.actorProofClaims] = note.verification?.proofClaims?.toJsonStringOrNull()
                 it[NotesTable.verificationStatus] = note.verification?.status?.toJsonString()
                 it[NotesTable.verificationVerifier] = note.verification?.verifier
                 it[NotesTable.verificationReason] = note.verification?.reason
@@ -119,7 +123,9 @@ class SQLiteNoteRepository(
             it[NotesTable.actorId] = note.actorClaim?.id
             it[NotesTable.actorKind] = note.actorClaim?.kind?.toJsonString()
             it[NotesTable.actorParent] = note.actorClaim?.parent
-            it[NotesTable.actorProof] = note.actorClaim?.proof
+            it[NotesTable.actorProof] = null
+            it[NotesTable.actorProofSha256] = note.verification?.proofSha256
+            it[NotesTable.actorProofClaims] = note.verification?.proofClaims?.toJsonStringOrNull()
             it[NotesTable.verificationStatus] = note.verification?.status?.toJsonString()
             it[NotesTable.verificationVerifier] = note.verification?.verifier
             it[NotesTable.verificationReason] = note.verification?.reason
@@ -212,7 +218,9 @@ class SQLiteNoteRepository(
                         id = actorId,
                         kind = ActorKind.fromString(kindStr),
                         parent = row[NotesTable.actorParent],
-                        proof = row[NotesTable.actorProof]
+                        // Never surface a legacy/unscrubbed raw proof — defense in depth alongside
+                        // the V17 scrub. actor_proof is written NULL on every insert/update path.
+                        proof = null
                     )
                 } catch (e: IllegalArgumentException) {
                     logger.warn("Note {}: invalid actorKind '{}'; skipping actor", noteId, kindStr)
@@ -225,7 +233,9 @@ class SQLiteNoteRepository(
                     VerificationResult(
                         status = VerificationStatus.fromString(status),
                         verifier = row[NotesTable.verificationVerifier],
-                        reason = row[NotesTable.verificationReason]
+                        reason = row[NotesTable.verificationReason],
+                        proofSha256 = row[NotesTable.actorProofSha256],
+                        proofClaims = parseProofClaimsOrNull(row[NotesTable.actorProofClaims], logger, "Note $noteId")
                     )
                 } catch (e: IllegalArgumentException) {
                     logger.warn("Note {}: invalid verificationStatus '{}'; skipping verification", noteId, status)
