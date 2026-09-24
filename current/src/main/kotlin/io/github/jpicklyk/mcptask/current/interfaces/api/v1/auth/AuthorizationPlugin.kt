@@ -147,6 +147,14 @@ fun ApiPrincipal?.allowsItemTags(tags: String?): Boolean {
 fun ApiPrincipal?.hasTagScope(): Boolean = !this?.scope?.tagsInclude.isNullOrEmpty()
 
 /**
+ * True when this principal's `root_ids` scope admits [id] as a ROOT item, i.e. an item whose
+ * ancestor chain is just itself. An unrestricted principal (`rootIds = null`) always may; a
+ * root-restricted one only when [id] is itself a listed root -- never for a server-generated id,
+ * so a root-restricted principal can neither create a root nor move an unlisted item to root.
+ */
+fun ApiPrincipal.mayHoldRoot(id: UUID): Boolean = scope.rootIds?.contains(id) ?: true
+
+/**
  * Drops every item the principal's `tags_include` allowlist excludes.
  *
  * A no-op (returns the receiver unchanged) when the principal has no tag scope.

@@ -30,6 +30,8 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventBus
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventPublishingRepositoryProvider
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import java.nio.file.Path
+import java.nio.file.Paths
 
 /**
  * Resolved REST/SSE API wiring, computed ONCE at startup by [ServerComposition].
@@ -105,10 +107,25 @@ class ServerComposition(
      */
     fun build(): CompositionResult {
         val repositoryProvider: RepositoryProvider = DefaultRepositoryProvider(databaseManager)
-        val noteSchemaService = YamlNoteSchemaService()
-        val statusLabelService = YamlStatusLabelService()
+
+        // Resolve the single, server-wide global config path ONCE from the typed AppConfig snapshot
+        // (rather than each loader independently re-reading AGENT_CONFIG_DIR from the environment)
+        // and share it across all three global-file readers. Production behavior is unchanged —
+        // AppConfig.fromEnv reads the same env var via the same AppConfig.resolveConfigBaseDir
+        // fallback — but composition becomes testable without mutating the JVM environment.
+        val globalConfigPath =
+            Paths
+                .get(AppConfig.resolveConfigBaseDir(appConfig.agentConfigDir))
+                .resolve(".taskorchestrator/config.yaml")
+
+        val noteSchemaService = YamlNoteSchemaService(globalConfigPath)
+        // Force the lazy schema load NOW, before anything else is wired, so a broken global config
+        // file fails startup here (surfaced to CurrentMcpServer.run() -> CurrentMain, before the
+        // readiness marker is ever written) rather than on first incidental use deep in a request.
+        noteSchemaService.getLoadWarnings()
+        val statusLabelService = YamlStatusLabelService(globalConfigPath)
         val mcpLoggingService = DefaultMcpLoggingService()
-        val (actorVerifier, degradedModePolicy) = createActorVerifierAndPolicy()
+        val (actorVerifier, degradedModePolicy) = createActorVerifierAndPolicy(globalConfigPath)
         val idempotencyCache = IdempotencyCache()
 
         // Resolve the REST/SSE API wiring ONCE, EARLY — before the tool context is built — so the
@@ -146,9 +163,11 @@ class ServerComposition(
         )
 
         // actor_authentication status surfaced via /info (HTTP transport) — derived from the same
-        // config the verifier was built from.
+        // config the verifier was built from. (This re-parses the same file a second time — see
+        // createActorVerifierAndPolicy above; de-duplicating the two parses is deferred, tracked
+        // separately, and not part of this fail-closed fix.)
         val actorAuthEnabled =
-            YamlActorAuthenticationConfigService(envResolver = appConfig.envResolver)
+            YamlActorAuthenticationConfigService(globalConfigPath, envResolver = appConfig.envResolver)
                 .getConfig()
                 .let { it.verifier !is VerifierConfig.Noop }
 
@@ -247,9 +266,19 @@ class ServerComposition(
     /**
      * Creates the appropriate [ActorVerifier] and reads [DegradedModePolicy] from configuration.
      * Returns a [Pair] of (verifier, policy) so both can be wired into [ToolExecutionContext].
+     *
+     * When the effective (post-env-override) configuration is a real ([VerifierConfig.Jwks])
+     * verifier under [DegradedModePolicy.ACCEPT_CACHED], logs one startup WARN: under that policy,
+     * a [io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus.REJECTED] result is
+     * still resolved to the self-reported actor id (see
+     * [io.github.jpicklyk.mcptask.current.application.tools.ActorAware.resolveTrustedActorId]) — an
+     * operator running a real verifier should know that up front, once, rather than only from a
+     * per-call WARN buried in request logs. This is intentionally NOT added to
+     * [YamlActorAuthenticationConfigService.getWarnings] — that list is asserted empty by a large
+     * number of existing jwks-config tests, and is reserved for actual parse warnings.
      */
-    private fun createActorVerifierAndPolicy(): Pair<ActorVerifier, DegradedModePolicy> {
-        val configService = YamlActorAuthenticationConfigService(envResolver = appConfig.envResolver)
+    private fun createActorVerifierAndPolicy(configPath: Path): Pair<ActorVerifier, DegradedModePolicy> {
+        val configService = YamlActorAuthenticationConfigService(configPath, envResolver = appConfig.envResolver)
         configService.getWarnings().forEach { logger.warn("Actor authentication config: {}", it) }
         val config = configService.getConfig()
         logger.info("Degraded mode policy: {}", config.degradedModePolicy.toConfigString())
@@ -266,6 +295,14 @@ class ServerComposition(
                         vc.jwksPath ?: "none",
                         vc.oidcDiscovery ?: "none",
                     )
+                    if (config.degradedModePolicy == DegradedModePolicy.ACCEPT_CACHED) {
+                        logger.warn(
+                            "degraded_mode_policy=accept-cached with a jwks verifier configured: a " +
+                                "REJECTED verification result (e.g. bad signature, wrong issuer/audience) " +
+                                "still falls back to the self-reported actor.id. Use degraded_mode_policy=" +
+                                "reject for cross-org deployments that must not trust an unverified claim.",
+                        )
+                    }
                     JwksActorVerifier(vc).also { jwksVerifier ->
                         shutdownCoordinator?.addCleanupAction("Close JWKS ActorVerifier") {
                             jwksVerifier.close()

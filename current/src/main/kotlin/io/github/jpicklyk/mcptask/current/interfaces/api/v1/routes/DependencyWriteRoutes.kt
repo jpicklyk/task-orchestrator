@@ -5,9 +5,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.audit.ApiAuditBridge
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.enforceScopeForItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.requireCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.DependencyCreateDto
@@ -55,7 +53,7 @@ private val JSON_WRITE_CONTENT_TYPES = setOf("application/json", "*/*")
  */
 fun Route.dependencyWriteRoutes(
     repositoryProvider: RepositoryProvider,
-    degradedModePolicy: DegradedModePolicy,
+    @Suppress("UNUSED_PARAMETER") degradedModePolicy: DegradedModePolicy,
 ) {
     val workItemRepo = repositoryProvider.workItemRepository()
     val depRepo = repositoryProvider.dependencyRepository()
@@ -63,20 +61,6 @@ fun Route.dependencyWriteRoutes(
     requireCapability(ApiCapability.MANAGE_DEPENDENCIES) {
         // ─── POST /dependencies ──────────────────────────────────────────────
         post("/dependencies") {
-            val principal =
-                call.attributes.getOrNull(ApiPrincipalKey) ?: run {
-                    call.respond(HttpStatusCode.Unauthorized, ErrorDto("unauthenticated", "No authenticated principal"))
-                    return@post
-                }
-
-            ApiAuditBridge.resolveTrustedActorIdOrNull(principal, degradedModePolicy) ?: run {
-                call.respond(
-                    HttpStatusCode.Unauthorized,
-                    ErrorDto("verification_failed", "Actor verification failed (degradedModePolicy=reject)"),
-                )
-                return@post
-            }
-
             // Content-Type gate — explicit because the body is no longer read through
             // `receive<DependencyCreateDto>()`, which let ContentNegotiation reject a non-JSON
             // body with 415. It runs before the bounded body read, so 415 still precedes
@@ -208,20 +192,6 @@ fun Route.dependencyWriteRoutes(
 
         // ─── DELETE /dependencies/{id} ───────────────────────────────────────
         delete("/dependencies/{id}") {
-            val principal =
-                call.attributes.getOrNull(ApiPrincipalKey) ?: run {
-                    call.respond(HttpStatusCode.Unauthorized, ErrorDto("unauthenticated", "No authenticated principal"))
-                    return@delete
-                }
-
-            ApiAuditBridge.resolveTrustedActorIdOrNull(principal, degradedModePolicy) ?: run {
-                call.respond(
-                    HttpStatusCode.Unauthorized,
-                    ErrorDto("verification_failed", "Actor verification failed (degradedModePolicy=reject)"),
-                )
-                return@delete
-            }
-
             val rawId =
                 call.parameters["id"] ?: run {
                     call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing dependency id"))

@@ -14,8 +14,12 @@ package io.github.jpicklyk.mcptask.current.domain.model
  *   when a stale cached key successfully validates the JWT during a JWKS fetch failure), the
  *   verified `actor.id` from the JWT is trusted. When verification status is
  *   [VerificationStatus.UNAVAILABLE] (JWKS down with no usable cache), falls back to the
- *   self-reported `actor.id` with a WARN log so operators see the degradation. For other
- *   non-VERIFIED outcomes (ABSENT, UNCHECKED, REJECTED), falls back silently to the
+ *   self-reported `actor.id` with a WARN log so operators see the degradation. When verification
+ *   status is [VerificationStatus.REJECTED] (verification was attempted and actively failed —
+ *   bad signature, wrong issuer/audience, expired, etc.), also falls back to the self-reported
+ *   `actor.id`, logging a WARN naming the verifier and reason (never the proof) so operators
+ *   running a real verifier under this policy see that a failed verification was still accepted.
+ *   For the remaining non-VERIFIED outcomes (ABSENT, UNCHECKED), falls back silently to the
  *   self-reported `actor.id` (same as pre-v3.3 implicit behavior).
  *
  *   Note: `ActorAware.resolveTrustedActorId` also handles a defensive
@@ -136,6 +140,13 @@ sealed class VerifierConfig {
      *   that single key is used for verification (single-key guard). Multi-key documents still require
      *   an exact `kid` match regardless of this setting. Set false to require strict `kid` matching
      *   in all cases.
+     * @param allowInsecureUrl Opt-in flag (config key `allow_insecure_url`, default false) mirroring
+     *   the REST API's `API_JWKS_ALLOW_INSECURE_URL`. When false (default), [jwksUri] and
+     *   [oidcDiscovery] — plus a `jwks_uri` discovered via that OIDC document — must use `https`.
+     *   When true, `http` is additionally accepted for a literal loopback host
+     *   (`localhost`, `127.x.x.x`, `::1`) — local development/testing only. Does not affect
+     *   [jwksPath] (a local file) or DID-trust mode, which are always resolved over `https` by the
+     *   DID resolver itself.
      */
     data class Jwks(
         val oidcDiscovery: String? = null,
@@ -150,6 +161,7 @@ sealed class VerifierConfig {
         val didAllowlist: List<String> = emptyList(),
         val didPattern: String? = null,
         val didStrictRelationship: Boolean = true,
-        val didLooseKidMatch: Boolean = true
+        val didLooseKidMatch: Boolean = true,
+        val allowInsecureUrl: Boolean = false
     ) : VerifierConfig()
 }

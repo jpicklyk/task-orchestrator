@@ -6,6 +6,7 @@ import java.io.File
 import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
@@ -578,7 +579,7 @@ note_schemas:
     }
 
     @Test
-    fun `malformed YAML produces warning and empty schemas`() {
+    fun `malformed YAML throws IllegalArgumentException naming the config path`() {
         val tempDir = createTempConfigDir()
         writeConfig(
             tempDir,
@@ -588,11 +589,13 @@ note_schemas:
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
         val service = YamlNoteSchemaService(configPath)
 
-        val schema = service.getSchemaForTags(listOf("my-schema"))
-        assertNull(schema)
-        val warnings = service.getLoadWarnings()
-        assertEquals(1, warnings.size)
-        assertTrue(warnings[0].contains("Failed to load"), "Warning should describe load failure")
+        // Fail-closed per diagnosis D1: a YAML syntax error is fatal, not a silent fallback to
+        // empty schemas.
+        val ex = assertFailsWith<IllegalArgumentException> { service.getLoadWarnings() }
+        assertTrue(
+            ex.message?.contains(configPath.toString()) == true,
+            "Expected the config path to be named, got: ${ex.message}"
+        )
     }
 
     @Test
@@ -1559,7 +1562,7 @@ note_schemas:
     // ──────────────────────────────────────────────
 
     @Test
-    fun `configFingerprint changes when a maxLength value changes`() {
+    fun `configFingerprint stays pinned to the bytes read at first access, a new instance sees a maxLength rewrite`() {
         val tempDir = createTempConfigDir()
         val configFile =
             writeConfig(
@@ -1579,9 +1582,12 @@ note_schemas:
 
         val fingerprintBefore = service.getConfigFingerprint()
 
-        // configFingerprint hashes the raw config file bytes (SHA-256) on every call — it is not
-        // cached alongside the lazily-loaded schema map — so rewriting the file with a different
-        // maxLength changes the fingerprint without needing a new service instance.
+        // Per diagnosis D4: the fingerprint is computed ONCE, at parse time, over the bytes the
+        // lazily-loaded schema cache actually parsed -- it is not a fresh re-read of the file on
+        // every call. A live instance's fingerprint therefore stays pinned to whatever it first
+        // read, even after the file on disk changes underneath it; only a NEW instance over the
+        // rewritten file observes the new bytes (restart-to-reload, matching every other
+        // global-config value).
         configFile.writeText(
             """
 note_schemas:
@@ -1592,10 +1598,21 @@ note_schemas:
       maxLength: 999
             """.trimIndent()
         )
-        val fingerprintAfter = service.getConfigFingerprint()
+        val fingerprintAfterRewriteSameInstance = service.getConfigFingerprint()
 
         assertNotNull(fingerprintBefore)
-        assertNotNull(fingerprintAfter)
-        assertTrue(fingerprintBefore != fingerprintAfter, "fingerprint must change when maxLength changes")
+        assertNotNull(fingerprintAfterRewriteSameInstance)
+        assertEquals(
+            fingerprintBefore,
+            fingerprintAfterRewriteSameInstance,
+            "a live instance's fingerprint must stay pinned to the bytes it first parsed"
+        )
+
+        val newInstanceFingerprint = YamlNoteSchemaService(configPath).getConfigFingerprint()
+        assertNotNull(newInstanceFingerprint)
+        assertTrue(
+            fingerprintBefore != newInstanceFingerprint,
+            "a new instance over the rewritten file must see the new maxLength"
+        )
     }
 }

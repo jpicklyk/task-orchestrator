@@ -65,6 +65,8 @@ Present a static token in the `Authorization` header:
 Authorization: Bearer <token>
 ```
 
+The `Bearer` scheme name is matched case-insensitively (`bearer`, `BEARER`, `bEaReR` all work — RFC 7235 §2.1) and requires at least one space before the token (RFC 6750 `1*SP`; a tab, or no separator, does not match: `Bearer<token>` and `Bearer\t<token>` are both rejected as missing). Only one `Bearer`/`bearer` prefix is ever stripped from the header value — a doubled prefix such as `Bearer bearer <token>` is passed through as `bearer <token>` and fails lookup as an invalid token, rather than being unwrapped down to `<token>`.
+
 Tokens are defined in a YAML secret file (path: `API_TOKENS_PATH`, default `/run/secrets/api-tokens.yaml`). Each token is stored as a SHA-256 hex digest for security — the plaintext never touches disk.
 
 **Token file format (version 1):**
@@ -90,7 +92,18 @@ tokens:
 - `id` — stable identifier used in audit records (prefixed with `api:`)
 - `token_sha256` — lowercase hex SHA-256 of the plaintext token
 - `capabilities` — list of granted operations (see §2)
-- `scope.root_ids` — optional list of root-item UUIDs; null/empty means unrestricted
+- `scope` — optional; when present must be a mapping with only `root_ids` and/or `tags_include`
+  keys (any other key, including a typo, fails startup)
+  - `scope.root_ids` — a list of root-item UUID strings, or absent/`null` for unrestricted access.
+    An empty list `[]` is **rejected at startup** — root scope is the isolation boundary, so `[]`
+    cannot mean "every root"; omit the key (or set it `null`) instead.
+  - `scope.tags_include` — a list of non-blank tag strings, or absent/`null`/`[]` for no tag
+    constraint (`[]` is the canonical unrestricted form here, unlike `root_ids`)
+  - Any malformed shape (a scalar instead of a list, a non-string or blank element, an unquoted
+    YAML boolean like `yes`/`on`) fails startup with `IllegalArgumentException` naming the token id
+    and the key path — never silently falls back to unrestricted
+  - A token entry itself only accepts the keys `id`, `description`, `token_sha256`, `expires_at`,
+    `scope`, `capabilities` — an unrecognized entry key (e.g. a `scopes:` typo) also fails startup
 - `expires_at` — optional token expiry; expired tokens are rejected at lookup time
 - Token rotation requires a server restart (tokens are loaded once at startup).
 
@@ -112,14 +125,30 @@ printf '%s' "$TOKEN" | openssl dgst -sha256 | awk '{print $NF}'
 
 Present a JWT in the `Authorization: Bearer` header. The server validates the JWT against the JWKS endpoint configured by `API_JWKS_URL`. Claims extracted: `iss`, `aud`, `sub`, `exp`, `nbf`. `exp` is **required** — a JWT with no `exp` claim is rejected with `401 invalid_token`; there is no max-lifetime knob to accept exp-less tokens instead.
 
-Capabilities and scope are derived from the JWT's `sub` claim (mapped to a principal) or from the token store if applicable — the exact mapping is deployment-specific; consult your JWKS issuer configuration.
+The principal's `tokenId` is the JWT's `sub` claim. Scope and capabilities are derived from two
+custom claims the issuer sets:
+
+- `to_scope` — optional; when present must be a JSON object with only `root_ids` and/or
+  `tags_include` keys, following the same fail-closed rules as the bearer `scope` block above
+  (absent/`null` means unrestricted; `root_ids: []` is malformed and rejected; `tags_include`
+  absent/`null`/`[]` means no tag constraint; any other shape, or an unrecognized key inside
+  `to_scope`, is malformed). A malformed `to_scope` makes verification fail closed — the whole
+  JWT is rejected with `401 invalid_token`, not just the scope claim; a WARN is logged naming the
+  claim path (never the JWT itself).
+- `to_capabilities` — optional list of capability strings (see §2); absent or empty defaults to
+  `[read]`. Unlike scope, an unknown capability value is dropped (not fail-closed) and logged at
+  WARN naming `to_capabilities`; if the claim is present but is not a string list, it is treated as
+  absent (WARN logged) and the default `[read]` applies.
+
+Unrecognized top-level JWT claims (added by the IdP) are ignored — only unrecognized keys nested
+inside `to_scope` are treated as malformed.
 
 **Failing requests receive:**
-- `401 Unauthorized` + `WWW-Authenticate: Bearer error="invalid_request"` — missing token
+- `401 Unauthorized` + `WWW-Authenticate: Bearer error="invalid_request"` — missing `Authorization` header, a header that does not use the `Bearer` scheme (wrong scheme name, or no space between the scheme and the token — the scheme name itself is case-insensitive), or a present-but-empty Bearer credential
 - `401 Unauthorized` + `WWW-Authenticate: Bearer error="invalid_token"` — bad/expired token
 - `403 Forbidden` — token valid but lacks required capability
 
-**`degradedModePolicy` interaction (JWKS mode):** When `DEGRADED_MODE_POLICY=reject` and JWKS verification fails, write endpoints return `401` with error `verification_failed`. Read endpoints and the bearer mode are unaffected (bearer auth has no JWKS chain).
+**`degradedModePolicy` interaction (JWKS mode):** a JWT reaching a route handler has already been validated by the auth plugin, so its verification status is always `VERIFIED` by the time `DegradedModePolicy` is applied to the synthesized audit actor — every policy, including `reject`, trusts a `VERIFIED` result. Write endpoints therefore never actually return `verification_failed` in practice; `DEGRADED_MODE_POLICY` only changes behavior for MCP tool calls carrying a self-reported `actor.id` under a degraded (non-`VERIFIED`) JWKS verification result. Bearer mode and unauthenticated mode are unaffected regardless (neither has a JWKS chain to degrade).
 
 ### Unauthenticated Mode (`API_AUTH_MODE=none`, opt-in)
 
@@ -193,6 +222,22 @@ drift apart.
   (`200 OK` with a filtered, possibly-empty collection — never `403` for the counterparty side)
 - `GET /api/v1/events` (SSE) — a `tags_include` token is enforced per-event, identically for the
   live stream and Last-Event-ID replay (see §21)
+- `GET /items/{id}/children` — the parent gets the same `enforceScopeForItem` check as any other
+  single item; a `tags_include` token additionally has the returned children filtered to items
+  carrying an allowed tag (see the pagination caveat below — filtering happens before paging)
+
+**Creating or moving an item to root level is scope-checked too.** A newly created item's ancestor
+chain is only its own (server-generated) id, so it can never already be listed in a `root_ids`
+allowlist — `POST /items` with `parentId` absent or `null` returns `403 scope_forbidden` for any
+token with a non-null `scope.root_ids`. A `tags_include`-only token may create a root item only if
+the tags it is creating that root *with* satisfy its own `tags_include` allowlist (the new root is
+its own anchor, the same way an existing parent's tags anchor a non-root create) — otherwise `403
+scope_forbidden`, and nothing is persisted. Symmetrically, `PATCH /items/{id}` that changes
+`parentId` from non-null to `null` (move to root) returns `403 scope_forbidden` when the caller has
+a non-null `scope.root_ids` and `id` itself is not in that set — after the move the item's chain is
+just itself. (When `id` is itself a listed root the move is allowed; such a caller may already
+`DELETE` that item, so this grants nothing new.) The tag half of a move-to-root is the existing
+entry-point check against the item's tags as they are before the patch.
 
 **A collection endpoint never turns a tag-scope mismatch into `403`.** Unlike the single-item case,
 a tag-scoped caller whose scope matches nothing on a collection response (`GET /items`,
@@ -200,13 +245,14 @@ a tag-scoped caller whose scope matches nothing on a collection response (`GET /
 `200 OK` with an empty (or partially filtered) result — `403 scope_forbidden` is reserved for the
 single-item case where an out-of-scope item is named directly.
 
-**Pagination under `tags_include`.** The filter has no SQL form, so `GET /items` and
-`GET /items/roots` read a bounded candidate window (1000 rows, offset 0) for a tag-scoped caller,
-filter it by `tags_include`, and paginate the *filtered* result in memory. `totalItems` in that case
-counts only the visible (post-filter) items, not the raw candidate window — a tag-scoped caller with
-more than 1000 matching candidates will see a short/incomplete page. This mirrors the existing
-`GET /items/{id}/tree` shape and only applies to tag-scoped principals; unscoped and `root_ids`-only
-callers are unaffected.
+**Pagination under `tags_include`.** The filter has no SQL form, so `GET /items`,
+`GET /items/roots` and `GET /items/{id}/children` read a bounded candidate window (1000 rows, offset
+0) for a tag-scoped caller, filter it by `tags_include`, and paginate the *filtered* result in
+memory. `totalItems` in that case counts only the visible (post-filter) items, not the raw candidate
+window or an unfiltered DB count — a tag-scoped caller with more than 1000 matching candidates will
+see a short/incomplete page. This mirrors the existing `GET /items/{id}/tree` shape and only applies
+to tag-scoped principals; unscoped and `root_ids`-only callers keep SQL-level `LIMIT`/`OFFSET` and a
+DB `COUNT` and are unaffected.
 
 ---
 
@@ -234,7 +280,7 @@ note is upserted or the config changes, without the item itself being touched.
 ### Config ETags
 
 Config/schema endpoints (`/config`, `/config/schemas`, etc.) use a fingerprint-based ETag:
-- Format: `"cfg-<fingerprint>"` where fingerprint is derived from the config file content
+- Format: `"cfg-<fingerprint>"` where fingerprint is a SHA-256 hex digest computed once, at process startup, over the exact bytes parsed from the global config file — not a fresh re-read of the file on each request, so it is stable for the life of the process even if the file changes on disk (restart to pick up new bytes; there is no lastModified/size fallback)
 - Stable across reads when the config has not changed
 - `If-None-Match` → `304` when fingerprint matches
 
@@ -286,7 +332,7 @@ All error responses use:
 | `validation_error` | 400 | Invalid field value or deserialization failure; or (SSE-specific) `GET /api/v1/events` was called with a `?root=` query parameter that yields no valid UUID (see §21) |
 | `precondition_required` | 400 | `PATCH` missing required `If-Match` header |
 | `not_found` | 404 | Item, note, or dependency not found |
-| `scope_forbidden` | 403 | Item exists but is outside the caller's scope |
+| `scope_forbidden` | 403 | Item exists but is outside the caller's scope; also returned for `POST /items` creating a root item, or `PATCH /items/{id}` moving an item to root, when the resulting root-level item would be outside the caller's scope (see §3) |
 | `field_not_patchable` | 400 | PATCH attempted on a server-owned field |
 | `cycle_detected` | 400 | Dependency would create a cycle |
 | `unsupported_media_type` | 415 | Wrong `Content-Type` for PATCH (see §23), or a non-JSON `Content-Type` on `POST /items`, `PUT /items/{id}/notes/{key}`, `POST /items/{id}/advance`, or `POST /dependencies` (see §5) |
@@ -294,11 +340,12 @@ All error responses use:
 | `payload_too_large` | 413 | Request body exceeds its route's byte limit — the `Content-Length` header alone if it declares a size over the limit (body untouched), otherwise the actual bytes read, capped at `limit + 1` so an oversized body is never buffered in full. `POST /items`, `PATCH /items/{id}`, `POST /items/{id}/advance`, `PUT /items/{id}/notes/{key}`, and `POST /dependencies` share a 1 MiB limit; `PUT /roots/{rootId}/config` is 128 KiB; `PUT /roots/{rootId}/plans/{slug}` is 64 KiB (see §18, §19). |
 | `version_conflict` | 409 | `PATCH /items/{id}`: `If-Match` matched at read time, but a concurrent writer's update won the version race before this write committed — optimistic-lock loss, distinct from `etag_mismatch`. Retry with a fresh `If-Match` ETag. |
 | `unauthenticated` | 401 | No authenticated principal (missing/invalid token) |
-| `verification_failed` | 401 | JWKS verification failed under `reject` policy |
+| `verification_failed` | 401 | Not currently reachable via REST — a JWT passing `ApiBearerAuth` is always `VERIFIED`, which every `degradedModePolicy` trusts. Reserved for the same audit-policy check used by MCP tool calls, where a self-reported actor under a degraded JWKS result can still be rejected. |
 | `insufficient_capability` | 403 | Caller's token lacks a capability required by the request itself (distinct from `scope_forbidden`'s root-scope check) — e.g. a non-ADMIN caller sets `overrideResourceLeases: true` on `POST /items/{id}/advance`, or calls `DELETE /api/v1/resources/leases/{key}` without `ADMIN` |
 | `insufficient_scope` | 403 | A generic `requireCapability` check failed for the plugin's configured capability; (SSE-specific) a `GET /api/v1/events` connection carries a `tags_include` scope but the route has no `WorkItemRepository` wired to filter by it — fail-closed rather than serving an unfiltered stream; or (SSE-specific) a root-scoped principal's `?root=` values do not intersect its token's `scope.rootIds` — the requested roots are entirely outside scope (see §21) |
 | `transition_failed` | 422 | Role transition rejected (invalid trigger, gate failure, dependency blocker) |
 | `resource_unavailable` | 409 | Resource-lease gate contention on `POST /items/{id}/advance` into WORK — transient, retryable. Carries a `Retry-After` header and `details.contendedResources`/`details.retryAfterMs`. Never discloses the current holder. |
+| `config_unavailable` | 503 | Per-root config read failed (a transient database error) and there was no last-known-good cached config to serve for that root — transient, retryable; the caller applies its own backoff (no `Retry-After` header). Returned by `POST /items/{id}/advance` and `GET /items/{id}/gate` (see §9, §10). |
 | `db_error` | 500 | Database query failed |
 
 ---
@@ -819,7 +866,12 @@ Ancestor chain from root to the target item (inclusive). Chain is truncated at t
 
 Direct children of an item, paginated.
 
+For a `tags_include`-scoped caller, children are filtered by tag before being paginated (bounded
+candidate window; see §3's pagination caveat) — `totalItems` is the filtered count, not a raw DB
+`COUNT`. Unscoped and `root_ids`-only callers keep SQL-level `LIMIT`/`OFFSET` and an exact `COUNT`.
+
 **Response:** `200 OK` → `PageDto<ItemDto>`
+- `403 scope_forbidden` — parent item outside scope
 
 ### GET /items/{id}/gate
 
@@ -839,6 +891,8 @@ cannot be loaded.
 - `400 bad_request` — invalid UUID
 - `403 scope_forbidden`
 - `404 not_found`
+- `503 config_unavailable` — the item's per-root config could not be read and there was no
+  last-known-good cached config for that root (see §6); transient, no `Retry-After` header
 
 ---
 
@@ -871,7 +925,10 @@ Create a work item. Requires `WRITE_ITEMS`.
 - `201 Created` → `ItemDto` + `ETag` header
 - `400 validation_error` — invalid field values
 - `400 not_found` — parentId not found
-- `403 scope_forbidden` — parent outside scope
+- `403 scope_forbidden` — parent outside scope; or, when `parentId` is absent/`null` (a root-level
+  create), a `root_ids`-scoped token is always denied (a new item's chain can never already be in
+  `root_ids`), and a `tags_include`-only token is denied unless the tags it creates the root
+  *with* satisfy its own `tags_include` (see §3)
 - `413 payload_too_large` — body exceeds the shared 1 MiB write-body limit (see §5, §6)
 - `415 unsupported_media_type` — `Content-Type` is present and is not `application/json` (an absent header is accepted as `*/*`); checked before the `Idempotency-Key` header or body is read
 
@@ -898,7 +955,11 @@ JSON Merge Patch update. Requires `WRITE_ITEMS`, `If-Match`, and `Content-Type: 
   changed to a non-null value), the target parent is scope-checked the same way `POST /items`
   checks a create-time `parentId` — an existence check alone is not authorization. A `parentId`
   patch to a non-existent parent still returns `400 not_found` first; scope is checked only after
-  the parent is confirmed to exist, so it never becomes an existence oracle.
+  the parent is confirmed to exist, so it never becomes an existence oracle. When the patch instead
+  moves the item TO root (`parentId` changed from non-null to `null`), a `root_ids`-scoped token
+  gets `403 scope_forbidden` unless the item's own id is itself in `root_ids` (see §3). The tag
+  half is the entry-point `enforceScopeForItem` check, made against the item's tags as they are
+  before the patch.
 - `400 validation_error` — re-parent would create a cycle: `parentId` equals the item's own id
   (message: `"An item cannot be its own parent"`) or names one of the item's own descendants
   (message: `"Cannot re-parent an item under its own descendant"`). Checked with an identity
@@ -1055,6 +1116,9 @@ The `cascadeEvents`, `unblockedItems`, and `expectedNotes` fields are **additive
 - `422 gate_blocked` — a required-note gate failed; `details.missingNotes` lists the unfilled required notes
 - `422 transition_blocked` — a dependency blocker prevents the transition; `details.blockers` lists the blocking edges
 - `422 transition_failed` — invalid state transition (resolution/apply failure)
+- `503 config_unavailable` — the item's per-root config could not be read and there was no
+  last-known-good cached config for that root (see §6); transient, no `Retry-After` header — the
+  transition was NOT applied
 
 **Gate-rejection example (`422`):**
 ```json
@@ -1720,6 +1784,6 @@ it incorrectly. Unlike the dependency-event root resolution above, which now fal
 DB query on a cache miss, there is no live row left to query here for `item.deleted` — the
 fail-closed drop for tag-scoped subscribers is unconditional.
 
-**SSE honors bearer and unauthenticated modes; JWKS is untested on this route.** The pre-flight auth plugin for the SSE route resolves `Authorization: Bearer` (and, when enabled, `?token=`) the same way `ApiBearerAuth` does, and explicitly short-circuits for `API_AUTH_MODE=none` (§1/§21) exactly like the bearer route. JWKS-mode JWT authentication for SSE has not been separately verified — the pre-flight plugin's bearer-token path is what's exercised; treat JWKS+SSE as unconfirmed rather than assuming parity until it's tested.
+**SSE honors bearer, JWKS, and unauthenticated modes.** The pre-flight auth plugin for the SSE route resolves `Authorization: Bearer` (and, when enabled, `?token=`) using the same shared Bearer-scheme parser as `ApiBearerAuth`, and explicitly short-circuits for `API_AUTH_MODE=none` (§1/§21) exactly like the bearer route. JWKS-mode JWT authentication for SSE is exercised by the automated expiry-watchdog test suite, which sends JWKS-signed tokens through this plugin.
 
 **FTS5 requires SQLite.** Search endpoints (`GET /search`, `GET /notes/search`) return empty results when the repository is H2-backed (test/embedded environments). FTS5 is only available against the production SQLite database.

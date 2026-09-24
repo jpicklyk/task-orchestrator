@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.application.tools.notes
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.model.Note
+import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.security.PathContainment
@@ -418,6 +419,19 @@ field naming the limit and actual size; `mode: reject` fails that note with `cod
                         put("error", JsonPrimitive(e.message ?: "Validation failed"))
                     }
                 )
+            } catch (e: PerRootConfigUnavailableException) {
+                // D10: a per-root config read failure resolving THIS note's schema (maxLength) or
+                // note-limits mode fails only this note — mirroring the per-transition transient
+                // outcome AdvanceItemTool emits for the same exception (D5). Nothing is stored for
+                // this note; the other notes in the batch proceed.
+                failures.add(
+                    buildJsonObject {
+                        put("index", JsonPrimitive(index))
+                        put("error", JsonPrimitive(e.message))
+                        put("errorKind", JsonPrimitive("transient"))
+                        put("errorCode", JsonPrimitive(PerRootConfigUnavailableException.CODE))
+                    }
+                )
             } catch (e: Exception) {
                 failures.add(
                     buildJsonObject {
@@ -441,7 +455,21 @@ field naming the limit and actual size; `mode: reject` fails that note with `cod
                     val itemId = UUID.fromString(itemIdStr)
                     val item = validatedItems[itemId] ?: continue
 
-                    val resolvedSchema = context.resolveSchema(item)
+                    // The notes for this item are ALREADY PERSISTED at this point (the per-index
+                    // upsert loop above already ran) — per D7, a per-root config read failure
+                    // resolving this response-only `itemContext` decoration must never be reported
+                    // as a failure of the already-committed upsert(s). The entry for this itemId is
+                    // simply omitted and a WARN is logged.
+                    // resolveSchema legitimately returns null (no matching schema) as a normal
+                    // outcome, distinct from the config-unavailable case below — the call is boxed
+                    // in a non-null Result so `?: continue` only fires on the exception, not on an
+                    // ordinary null schema.
+                    val resolvedSchema =
+                        (
+                            omitOnConfigUnavailable(logger, "itemContext", itemId) {
+                                kotlin.Result.success(context.resolveSchema(item))
+                            } ?: continue
+                        ).getOrThrow()
                     val allNotes =
                         when (val nr = noteRepo.findByItemId(itemId)) {
                             is Result.Success -> nr.data

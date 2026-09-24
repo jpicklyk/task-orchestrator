@@ -12,6 +12,7 @@ import io.github.jpicklyk.mcptask.current.application.service.rest.MergePatchApp
 import io.github.jpicklyk.mcptask.current.application.service.rest.WorkItemPatchProjection
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
+import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.UserTrigger
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
@@ -24,8 +25,10 @@ import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryPr
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.audit.ApiAuditBridge
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.allowsItemTags
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.enforceScopeForItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.hasCapability
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.mayHoldRoot
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.requireCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.AdvanceRequestDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
@@ -266,20 +269,8 @@ fun Route.itemWriteRoutes(
     // ─── POST /items ─────────────────────────────────────────────────────────
     requireCapability(ApiCapability.WRITE_ITEMS) {
         post("/items") {
-            val principal =
-                call.attributes.getOrNull(ApiPrincipalKey) ?: run {
-                    call.respond(HttpStatusCode.Unauthorized, ErrorDto("unauthenticated", "No authenticated principal"))
-                    return@post
-                }
-
-            val trustedActorId =
-                ApiAuditBridge.resolveTrustedActorIdOrNull(principal, degradedModePolicy) ?: run {
-                    call.respond(
-                        HttpStatusCode.Unauthorized,
-                        ErrorDto("verification_failed", "Actor verification failed (degradedModePolicy=reject)"),
-                    )
-                    return@post
-                }
+            val principal = call.attributes[ApiPrincipalKey]
+            val trustedActorId = ApiAuditBridge.resolveTrustedActorIdOrNull(principal, degradedModePolicy)
 
             // Content-Type gate — explicit because the body is no longer read through
             // `receive<ItemCreateDto>()`, which let ContentNegotiation reject a non-JSON body with
@@ -330,6 +321,10 @@ fun Route.itemWriteRoutes(
                 // rootId = own id without a second round trip.
                 val itemId = UUID.randomUUID()
 
+                // Computed here (rather than alongside propertiesStr below) because the
+                // root-create scope check below needs the exact CSV that will be persisted.
+                val tagsStr = dto.tags?.joinToString(",")?.takeIf { it.isNotBlank() }
+
                 val depth: Int
                 val rootId: UUID
                 if (parentId != null) {
@@ -346,6 +341,13 @@ fun Route.itemWriteRoutes(
                     // the root_id backfill and has no rootId yet).
                     rootId = parentData.rootId ?: parentData.id
                 } else {
+                    // A root-level create has no parent to anchor the scope check on: the new item
+                    // is its own anchor. rootIds-wise it can never be in scope (see mayHoldRoot);
+                    // tag-wise the tags it is created WITH must satisfy the principal's tag scope,
+                    // mirroring the parent-tag check taken above for a non-root create.
+                    if (!principal.mayHoldRoot(itemId) || !principal.allowsItemTags(tagsStr)) {
+                        return errorCaptured(HttpStatusCode.Forbidden, "scope_forbidden", "Access denied to create a root item")
+                    }
                     depth = 0
                     rootId = itemId
                 }
@@ -357,7 +359,6 @@ fun Route.itemWriteRoutes(
                     } ?: Priority.MEDIUM
 
                 val propertiesStr = dto.properties?.toString()
-                val tagsStr = dto.tags?.joinToString(",")?.takeIf { it.isNotBlank() }
 
                 val item =
                     try {
@@ -403,20 +404,8 @@ fun Route.itemWriteRoutes(
     // ─── PATCH /items/{id} ───────────────────────────────────────────────────
     requireCapability(ApiCapability.WRITE_ITEMS) {
         patch("/items/{id}") {
-            val principal =
-                call.attributes.getOrNull(ApiPrincipalKey) ?: run {
-                    call.respond(HttpStatusCode.Unauthorized, ErrorDto("unauthenticated", "No authenticated principal"))
-                    return@patch
-                }
-
-            val trustedActorId =
-                ApiAuditBridge.resolveTrustedActorIdOrNull(principal, degradedModePolicy) ?: run {
-                    call.respond(
-                        HttpStatusCode.Unauthorized,
-                        ErrorDto("verification_failed", "Actor verification failed (degradedModePolicy=reject)"),
-                    )
-                    return@patch
-                }
+            val principal = call.attributes[ApiPrincipalKey]
+            val trustedActorId = ApiAuditBridge.resolveTrustedActorIdOrNull(principal, degradedModePolicy)
 
             // Content-Type check — accept merge-patch+json and application/json
             val contentType =
@@ -573,7 +562,14 @@ fun Route.itemWriteRoutes(
                     newDepth = existing.depth
                     newRootId = existing.rootId
                 } else if (newParentId == null) {
-                    // Move to root — the item becomes its own root.
+                    // Move to root — the item becomes its own root. After the move its chain is
+                    // just {id}, so a rootIds-restricted principal stays in scope iff id itself is
+                    // one of the listed roots (not an escape when it is: such a principal may
+                    // already DELETE the item). The tag half was enforced above via
+                    // enforceScopeForItem(call, id, ...) on the item's pre-patch tags.
+                    if (!principal.mayHoldRoot(id)) {
+                        return errorCaptured(HttpStatusCode.Forbidden, "scope_forbidden", "Access denied to move item $id to root")
+                    }
                     newDepth = 0
                     newRootId = id
                 } else {
@@ -738,20 +734,6 @@ fun Route.itemWriteRoutes(
     // ─── DELETE /items/{id} ──────────────────────────────────────────────────
     requireCapability(ApiCapability.WRITE_ITEMS) {
         delete("/items/{id}") {
-            val principal =
-                call.attributes.getOrNull(ApiPrincipalKey) ?: run {
-                    call.respond(HttpStatusCode.Unauthorized, ErrorDto("unauthenticated", "No authenticated principal"))
-                    return@delete
-                }
-
-            ApiAuditBridge.resolveTrustedActorIdOrNull(principal, degradedModePolicy) ?: run {
-                call.respond(
-                    HttpStatusCode.Unauthorized,
-                    ErrorDto("verification_failed", "Actor verification failed (degradedModePolicy=reject)"),
-                )
-                return@delete
-            }
-
             val rawId =
                 call.parameters["id"] ?: run {
                     call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing item id"))
@@ -802,20 +784,11 @@ fun Route.itemWriteRoutes(
     // ─── POST /items/{id}/advance ────────────────────────────────────────────
     requireCapability(ApiCapability.ADVANCE) {
         post("/items/{id}/advance") {
-            val principal =
-                call.attributes.getOrNull(ApiPrincipalKey) ?: run {
-                    call.respond(HttpStatusCode.Unauthorized, ErrorDto("unauthenticated", "No authenticated principal"))
-                    return@post
-                }
-
-            val trustedActorId =
-                ApiAuditBridge.resolveTrustedActorIdOrNull(principal, degradedModePolicy) ?: run {
-                    call.respond(
-                        HttpStatusCode.Unauthorized,
-                        ErrorDto("verification_failed", "Actor verification failed (degradedModePolicy=reject)"),
-                    )
-                    return@post
-                }
+            val principal = call.attributes[ApiPrincipalKey]
+            // Resolved for its fail-closed side effect (an unverified JWKS actor would throw
+            // here) — the id itself is not otherwise used on this route; the audit trail below
+            // is built directly from `principal` via ApiAuditBridge.toActorClaim/toVerificationResult.
+            ApiAuditBridge.resolveTrustedActorIdOrNull(principal, degradedModePolicy)
 
             val rawId =
                 call.parameters["id"] ?: run {
@@ -966,36 +939,50 @@ fun Route.itemWriteRoutes(
             // statusLabelService is bound to THIS item's rootId via the SAME root-aware factory
             // AdvanceItemTool uses, so REST advances stamp identical (config-driven, per-root)
             // status labels instead of applying none at all (bug 80e48e55).
-            val advanceService =
-                AdvanceService(
-                    workItemRepository = workItemRepo,
-                    roleTransitionRepository = roleTransitionRepo,
-                    dependencyRepository = depRepo,
-                    noteRepository = repositoryProvider.noteRepository(),
-                    statusLabelService =
-                        schemaResolutionContext.rootAwareStatusLabelService(
-                            item.rootId,
-                            userTrigger.triggerString,
-                        ),
-                    schemaResolver = { schemaResolutionContext.resolveSchema(it) },
-                    resourceLeaseRepository = repositoryProvider.resourceLeaseRepository(),
-                    resourceRequirementsResolver = { schemaResolutionContext.resolveResourceRequirements(it) },
-                    resourceRegistryResolver = { schemaResolutionContext.resolveResourceRegistry(it) },
-                    resourceLeasesEnforced = AdvanceService.resourceLeasesEnforcedFromEnv(),
-                )
-
+            // Per D6: a per-root config read failure anywhere in this pre-commit pipeline (status
+            // label resolution, gate check, review-phase detection) responds 503 with a
+            // config_unavailable ErrorDto — no Retry-After header, matching the ErrorKind contract
+            // used on the MCP side (RFC 9110 §15.6.4: 503 describes a temporary server-side
+            // inability, distinct from the 409 used for resource-state conflicts).
             val outcome =
-                advanceService.advance(
-                    item = item,
-                    trigger = userTrigger.triggerString,
-                    summary = transitionSummary,
-                    actorClaim = actorClaim,
-                    verification = verification,
-                    degradedModePolicy = degradedModePolicy,
-                    enforceOwnership = false,
-                    credentialRefs = credentialRefs,
-                    enforceResourceLeases = !overrideResourceLeases,
-                )
+                try {
+                    val advanceService =
+                        AdvanceService(
+                            workItemRepository = workItemRepo,
+                            roleTransitionRepository = roleTransitionRepo,
+                            dependencyRepository = depRepo,
+                            noteRepository = repositoryProvider.noteRepository(),
+                            statusLabelService =
+                                schemaResolutionContext.rootAwareStatusLabelService(
+                                    item.rootId,
+                                    userTrigger.triggerString,
+                                ),
+                            schemaResolver = { schemaResolutionContext.resolveSchema(it) },
+                            resourceLeaseRepository = repositoryProvider.resourceLeaseRepository(),
+                            resourceRequirementsResolver = { schemaResolutionContext.resolveResourceRequirements(it) },
+                            resourceRegistryResolver = { schemaResolutionContext.resolveResourceRegistry(it) },
+                            resourceLeasesEnforced = AdvanceService.resourceLeasesEnforcedFromEnv(),
+                        )
+
+                    advanceService.advance(
+                        item = item,
+                        trigger = userTrigger.triggerString,
+                        summary = transitionSummary,
+                        actorClaim = actorClaim,
+                        verification = verification,
+                        degradedModePolicy = degradedModePolicy,
+                        enforceOwnership = false,
+                        credentialRefs = credentialRefs,
+                        enforceResourceLeases = !overrideResourceLeases,
+                    )
+                } catch (e: PerRootConfigUnavailableException) {
+                    writeLogger.warn("Per-root config unavailable advancing item {}: {}", id, e.message)
+                    call.respond(
+                        HttpStatusCode.ServiceUnavailable,
+                        ErrorDto(PerRootConfigUnavailableException.CODE, e.message),
+                    )
+                    return@post
+                }
 
             val advanceResult =
                 when (outcome) {

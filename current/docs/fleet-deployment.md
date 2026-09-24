@@ -43,6 +43,25 @@ bind/start after DB init and schema update had already succeeded). A
 container orchestrators (Docker, Kubernetes, systemd) see a real startup failure instead of a
 process that silently logged an error and kept running.
 
+**The global `.taskorchestrator/config.yaml` fails startup, closed, if it is broken.** If the file
+at `AGENT_CONFIG_DIR/.taskorchestrator/config.yaml` exists but cannot be read, is not valid YAML,
+or its top-level document is not a mapping, both the note-schema loader and the
+`actor_authentication:` loader throw before the object graph finishes wiring — the exception
+propagates out of `ServerComposition.build()` and `CurrentMcpServer.run()`, so the process exits
+non-zero **before** the readiness marker is ever written and before any transport binds. The same
+applies to a present, non-null field that fails to parse under `actor_authentication:` (an
+unrecognized `degraded_mode_policy`, an unrecognized `verifier.type`, a non-mapping `verifier` or
+`actor_authentication` value, `type: jwks` with no configured key source, or any `verifier` field of
+the wrong type — e.g. a list-valued `audience`, which would otherwise silently disable the audience
+check) — see "Policy Values"
+and "JWKS Sources" below. An absent file, or one that is empty or comment-only, is not an error: it
+keeps schema-free / no-actor-authentication defaults. **This is a behavior change**: a global
+config file that was broken before this fix ran silently in schema-free / noop-verifier mode; it
+now fails startup. Per-project config pushed via `manage_project_config` / `PUT
+/api/v1/roots/{rootId}/config` is unaffected — only the single, server-wide global file is on this
+fail-closed path. One key in that file is exempt: a malformed `status_labels:` block (display-only
+labels) still falls back to the default labels with a WARN.
+
 **Readiness marker.** Once DB init and schema update have both succeeded and the configured
 transport has bound, the server writes a readiness marker file at `READINESS_FILE` (default
 `/tmp/mcp-task-orchestrator.ready`; see the CLAUDE.md env-var table). The marker is cleared on
@@ -140,7 +159,10 @@ API_ALLOW_UNAUTHENTICATED=true
 See [api-rest.md §1](api-rest.md#1-authentication) for the full YAML format. Key points:
 - `token_sha256` must be a 64-char lowercase hex SHA-256 digest of the plaintext token
 - `capabilities` grant specific operations: `read`, `write-notes`, `write-items`, `advance`, `manage-dependencies`, `write-config`, `admin`
-- `scope.root_ids` restricts access to specific subtrees (null/empty = unrestricted)
+- `scope.root_ids` restricts access to specific subtrees (absent/`null` = unrestricted; an empty
+  list `[]` fails startup rather than meaning unrestricted — omit the key instead); `scope` itself
+  and `scope.tags_include` fail closed on any malformed shape too — see
+  [api-rest.md §1](api-rest.md#1-authentication) for the full fail-closed rules
 - Token rotation requires a server restart (no live reload)
 - `admin` capability unlocks attribution fields in responses (subject to `API_REDACT_*` env flags)
 
@@ -152,9 +174,9 @@ See [api-rest.md §1](api-rest.md#1-authentication) for the full YAML format. Ke
 
 ### `degradedModePolicy` and the REST API
 
-When `API_AUTH_MODE=jwks` and `DEGRADED_MODE_POLICY=reject`, write endpoints (`POST`, `PATCH`, `PUT`, `DELETE`, advance) return `401 verification_failed` if JWKS verification fails. **Bearer mode is always trusted** — the REST API bearer token was validated at the HTTP layer and has no JWKS verification chain.
+When `API_AUTH_MODE=jwks`, a JWT reaching a REST write route has already passed full validation in `ApiBearerAuth` — so its audit-trail verification status is always `VERIFIED`, and every `DEGRADED_MODE_POLICY` (including `reject`) trusts a `VERIFIED` result. REST write endpoints therefore never actually return `401 verification_failed` in practice, regardless of `DEGRADED_MODE_POLICY`. **Bearer mode is always trusted** — the REST API bearer token was validated at the HTTP layer and has no JWKS verification chain.
 
-This is different from the MCP actor `reject` policy, which governs MCP tool calls (`claim_item`, `advance_item`). Both layers share the same `DEGRADED_MODE_POLICY` env var but apply it independently.
+This is different from the MCP actor `reject` policy, which governs MCP tool calls (`claim_item`, `advance_item`) carrying a self-reported `actor.id` under a degraded (non-`VERIFIED`) JWKS verification result — that path can still reject. Both layers share the same `DEGRADED_MODE_POLICY` env var but apply it independently.
 
 ### Client-side config sync (SessionStart hook)
 
@@ -168,6 +190,21 @@ The hook is **fail-open and opt-in** — it no-ops silently (exit 0) unless `TAS
 | `TASK_ORCHESTRATOR_API_TOKEN` | no | Bearer token with the `write-config` capability, scoped (`scope.root_ids`) to this workspace's project root. **Optional** — omit it entirely when the server runs in [unauthenticated mode](#unauthenticated-mode); the hook then sends the request with no `Authorization` header at all. |
 
 Set these per-workspace (e.g. in `.claude/settings.json`'s `env` block, or the shell environment). Against a bearer/jwks server the token needs only `write-config` for its own root — not `admin` (add `read` if the same token also serves the SubagentStop phase guard below). Against an unauthenticated server, no token is needed at all. Either way the server must have `API_ENABLED=true`. If the API is unreachable or returns an error, the hook logs a one-line note and continues; it never blocks session start.
+
+**Staleness semantics (last-known-good on a read error).** "Hot-reloaded, no restart" above describes
+the happy path — a per-root config read failing with a transient database error is a distinct case
+from "no per-root config for this root." `PerRootConfigService` never falls back to the mounted
+global config on a read error: it serves that root's last-known-good cached config instead, without
+evicting it, and logs a WARN naming the root and the error. Last-known-good has no TTL — the very
+next successful read refreshes it — and is held per service instance, so MCP and each REST route
+maintain their own independent cache. A root this instance has never successfully read before (a
+cold cache, e.g. right after a restart, before any request has resolved that root's config) has
+nothing to serve on a read error and fails closed: `advance_item`/`complete_tree` report a transient
+`config_unavailable` outcome per item, other MCP tools fail the whole call, and the REST `advance`
+and `gate` routes respond `503 config_unavailable` — see [api-reference.md](api-reference.md)'s
+Error Envelope and [api-rest.md](api-rest.md) §6 for the exact shapes. This is orthogonal to
+`config-sync.mjs` above: the hook pushes a NEW config version; last-known-good is what a READ falls
+back to when the DB itself is transiently unreachable.
 
 **HTTP-first policy.** New plugin-side infrastructure features — `config-sync.mjs`, SSE event
 streaming, the `plan-capture.mjs` hook (which stashes an approved plan as a `plan_document` via
@@ -332,7 +369,7 @@ docker run --rm -i \
   task-orchestrator:dev
 ```
 
-Valid values (case-insensitive): `accept-cached`, `accept-self-reported`, `reject`. An invalid value causes an immediate startup failure with a descriptive error message. If unset, the YAML value applies; if neither is set, the server defaults to `accept-cached`.
+Valid values (case-insensitive): `accept-cached`, `accept-self-reported`, `reject`. An invalid value causes an immediate startup failure with a descriptive error message. If unset, the YAML value applies; if neither is set, the server defaults to `accept-cached`. A YAML `degraded_mode_policy` value that is unrecognized fails startup the same way (naming the config file path) — it is no longer silently coerced to `accept-cached`; the env var check above is one instance of a fail-closed rule that now also covers the YAML value.
 
 **Recommended for cross-org fleet deployments:** `DEGRADED_MODE_POLICY=reject` — ensures that agents without a valid JWT in `actor.proof` cannot claim items or advance claimed items, regardless of what the YAML config contains.
 
@@ -340,7 +377,7 @@ Valid values (case-insensitive): `accept-cached`, `accept-self-reported`, `rejec
 
 | Policy | Identity used | Recommended for |
 |---|---|---|
-| `accept-cached` | *(default)* Verified `actor.id` from JWT when stale JWKS cache was used (`UNAVAILABLE` status + stale cache). Self-reported `actor.id` for all other non-verified outcomes. | Single-org deployments; JWKS endpoint occasionally unreachable |
+| `accept-cached` | *(default)* Verified `actor.id` from JWT when stale JWKS cache was used (`UNAVAILABLE` status + stale cache). Self-reported `actor.id` for all other non-verified outcomes — with a WARN log (verifier, reason, actor id; never the proof) when the outcome is `REJECTED` (verification was attempted and actively failed), and a WARN when JWKS was unreachable with no usable cache; `ABSENT`/`UNCHECKED` fall back silently. A one-time startup WARN is also logged when a real `jwks` verifier is configured under this policy. | Single-org deployments; JWKS endpoint occasionally unreachable |
 | `accept-self-reported` | Always use self-reported `actor.id` from the caller, regardless of verification result. Equivalent to v3.2 implicit behavior. | Local dev; no JWKS; explicitly documented opt-out of identity guarantees |
 | `reject` | Reject any operation requiring verified identity when the actor is not fully verified. `claim_item` returns `rejected_by_policy`. `advance_item` on claimed items fails. | Cross-org `did:web` deployments; high-assurance environments |
 
@@ -386,6 +423,53 @@ colon-delimited DID segment — it will not cross a `:` boundary. Example:
 
 If your fleet uses a two-level path (`did:web:host:team:agent`), use two explicit wildcard
 segments (`did:web:host:*:*`) or enumerate teams in `did_allowlist`.
+
+**Wildcard character set.** A `*` in a `did_pattern` matches `[A-Za-z0-9._-]*`. In the *host*
+segment (the portion before the first `:`) it can span dot-separated labels — for example
+`did:web:*.example.com` matches `did:web:a.b.example.com` — and `_` never matches there in
+practice, because a host containing `_` is rejected as malformed first. In a *path* segment it
+keeps the single-colon-segment meaning described above. A `*` never matches `%`, so a pattern
+cannot be defeated by encoding a would-be segment separator; an agent whose DID path segment is
+percent-encoded (e.g. `agents:abc%20def`) must be listed explicitly in `did_allowlist`.
+
+**`sub`/`iss` binding under DID trust.** Because each agent is identified by its own `did:web` DID
+(there is no separate operator-configured `issuer`), the verifier binds the JWT `sub` to `iss`
+under DID trust: `sub` must equal `iss` exactly, **regardless of `require_sub_match`**. A missing
+or empty `sub` is treated as a mismatch. This check runs after signature/`exp`/`nbf`/`iss`/`aud`
+validation and before the `require_sub_match` check, so an untrusted issuer is still reported as
+`failureKind: policy` and a `kid` mismatch is still reported as `failureKind: crypto` ahead of it.
+A mismatch here is rejected with `failureKind: claims` and a reason starting `sub/iss mismatch
+under DID trust`. Without this binding, an agent could sign a token with its own key asserting
+`sub` equal to a *different* trusted DID and be verified as that other agent. The binding turns
+such a token into `REJECTED`; it blocks the impersonation only under `degraded_mode_policy:
+reject` — under `accept-cached`, a `REJECTED` proof still falls back to the self-reported
+`actor.id` (see [Identity Configuration](#identity-configuration--authdegradedmodepolicy)).
+
+**Verified identity under DID trust.** On a `VERIFIED` result under DID trust, the resolved
+identity used by `resolveTrustedActorId` (under `accept-cached` and `reject`) is the verified DID
+(`sub`, which the binding above guarantees equals `iss`) — not the caller's self-reported
+`actor.id`. This holds even when `require_sub_match: false`, so operators cannot silently weaken
+the identity guarantee for `did:web` fleets by turning that flag off. `accept-self-reported` and
+static-JWKS (non-DID) verification are unaffected — see [Identity Model](#identity-model).
+
+**DID identifier validation.** Before a `did:web` issuer is checked against `did_allowlist` /
+`did_pattern`, and before any network fetch, TO validates the identifier's structure:
+- Only [W3C DID Core §3.1](https://www.w3.org/TR/did-core/#did-syntax) `idchar`s are allowed:
+  ASCII letters/digits, `.`, `-`, `_`, `:` (the segment separator), and percent-encoded octets
+  (`%` followed by exactly two hex digits). Raw `/`, `?`, `#`, `@` are rejected outright, as is a
+  malformed percent-encoding.
+- In the host segment, the only percent-encoding accepted is `%3A` (either case, decoding to
+  `:`); the decoded host must be `[A-Za-z0-9.-]+` with an optional `:` plus a port in 1-65535.
+- Each path segment, percent-decoded once, must not contain `/ ? # @ %` (this also catches
+  double-encoding such as `%252F`, which decodes once to the literal `%2F`), a control character
+  or a backslash, and must not decode to `.` or `..`. Empty segments (e.g. a trailing `:`) and
+  `%20` remain legal, as shown in the wildcard table above.
+
+A violation raises a security-violation error whose message starts with `malformed DID`, surfaced
+to the caller as `REJECTED` with `failureKind: policy` — distinct from `issuer not in DID trust
+policy` for a well-formed but untrusted DID. This validation runs both where the issuer is looked
+up against the trust policy and, independently, inside DID resolution itself, so a malformed DID
+can never reach an outbound fetch.
 
 `did:web` identifiers work as `claimedBy` values natively — they are opaque strings and require no
 special handling. Under `reject`, any agent without a valid JWT in `actor.proof` cannot claim items
@@ -459,7 +543,7 @@ The four stages below correspond to increasing identity-enforcement strictness. 
 |---|---|---|
 | **0 — Default orchestration** | `actor_authentication.enabled: false` (or absent) | `claim_item` works but is optional. `advance_item` does not enforce ownership. No actor required. |
 | **1 — Actor authentication on, self-reported identity** | `actor_authentication.enabled: true`, `degraded_mode_policy: accept-self-reported`, no `verifier` | Actor required on writes (when paired with an actor-attribution enforcement layer). `claim_item` enforces ownership on subsequent `advance_item` calls. Identity is self-reported — caller-supplied `actor.id` is trusted unconditionally. |
-| **2 — Verifier configured, fallback permitted** | + `verifier: { type: jwks, ... }`, `degraded_mode_policy: accept-cached` | When `actor.proof` is present and JWKS is reachable, the JWT `sub` becomes the trusted identity. When JWKS is briefly unreachable, the stale-cache fallback serves. Other non-verified outcomes fall back to self-reported `actor.id` with a WARN log. |
+| **2 — Verifier configured, fallback permitted** | + `verifier: { type: jwks, ... }`, `degraded_mode_policy: accept-cached` | When `actor.proof` is present and JWKS is reachable, the JWT `sub` becomes the trusted identity. When JWKS is briefly unreachable, the stale-cache fallback serves. A `REJECTED` verification (bad signature, wrong issuer/audience, etc.) or an unreachable JWKS with no usable cache both fall back to self-reported `actor.id` with a WARN log; `ABSENT`/`UNCHECKED` fall back silently. |
 | **3 — Verification required** | + `degraded_mode_policy: reject` | Operations requiring verified identity are rejected if verification status is not `VERIFIED`. Unclaimed items remain accessible to unverified actors so existing default-mode clients are not broken — only claim and advance-on-claimed flows are gated. |
 
 ### Recommended Sequence
@@ -484,9 +568,9 @@ When `verifier.type: jwks` is configured, TO reads a narrow subset of claims fro
 
 | Claim | Required | Used for |
 |---|---|---|
-| `iss` | Only if `issuer` is configured (explicitly or via OIDC discovery) | Must match the configured/discovered issuer; mismatch → rejected with `failureKind: claims` |
+| `iss` | Only if `issuer` is configured (explicitly or via OIDC discovery); **always read under DID trust** (`did_allowlist`/`did_pattern`) to resolve the DID and to bind against `sub` | Must match the configured/discovered issuer; mismatch → rejected with `failureKind: claims`. Under DID trust, also see the `sub`/`iss` binding below. |
 | `aud` | Only if `audience` is configured | Must contain the configured audience; mismatch → rejected with `failureKind: claims` |
-| `sub` | Only when `require_sub_match: true` | Verified against the caller's self-reported `actor.id`; mismatch → rejected with `failureKind: claims`. When `require_sub_match: false`, `sub` is not read. |
+| `sub` | Only when `require_sub_match: true`; **always read under DID trust**, regardless of `require_sub_match` | Verified against the caller's self-reported `actor.id`; mismatch → rejected with `failureKind: claims`. When `require_sub_match: false` and DID trust is not configured, `sub` is not read. Under DID trust, `sub` must equal `iss` exactly (see below) even when `require_sub_match: false`. |
 | `exp` | Required | Enforced with a **60-second clock-skew allowance**; past-expiry → rejected with `failureKind: claims`. A missing `exp` claim is rejected with `reason: "missing exp claim"`, `failureKind: claims` (parity with `JwksApiVerifier`, which has no max-lifetime knob either). |
 | `nbf` | Optional | If present, enforced with a **60-second clock-skew allowance**; not-yet-valid → rejected with `failureKind: claims` |
 
@@ -494,7 +578,9 @@ TO does not read `iat`, `jti`, or any custom claims. Those are deployment concer
 
 ### `require_sub_match`
 
-When `true` (recommended for fleet deployments), TO verifies that the JWT `sub` matches the self-reported `actor.id` on the call. This prevents an agent from claiming items under one identity in `actor.id` while presenting a JWT issued for a different `sub`. When `false`, `sub` is not read at all — only signature and the iss/aud/exp/nbf claims are checked.
+When `true` (recommended for fleet deployments), TO verifies that the JWT `sub` matches the self-reported `actor.id` on the call. This prevents an agent from claiming items under one identity in `actor.id` while presenting a JWT issued for a different `sub`. When `false`, `sub` is not read at all — only signature and the iss/aud/exp/nbf claims are checked. (A `type: jwks` verifier configured with none of `oidc_discovery`/`jwks_uri`/`jwks_path`/`did_allowlist`/`did_pattern` — with no key source to check anything against — fails startup rather than silently downgrading to `noop`.)
+
+**Exception under DID trust (`did_allowlist`/`did_pattern` configured):** `require_sub_match` does not control whether `sub` is read. Each agent is identified by its own `did:web` DID, so the verifier unconditionally binds `sub` to `iss` (`sub` must equal `iss` exactly; missing/empty `sub` is a mismatch) whether or not `require_sub_match` is set. See [Cross-Org `did:web` Deployments](#cross-org-didweb-deployments) for the full rule and rejection semantics.
 
 ### Algorithm Allowlist
 
@@ -502,13 +588,23 @@ When `algorithms` is configured (non-empty), only listed algorithms are accepted
 
 ### JWKS Sources
 
-The provider supports three sources, merged when multiple are configured:
+The provider supports three sources; configure exactly one (more than one fails startup):
 
 - `oidc_discovery` — fetches the discovery document, extracts `jwks_uri` (and `issuer`, unless explicitly configured)
-- `jwks_uri` — fetched directly; explicit value overrides any OIDC-discovered URI
+- `jwks_uri` — fetched directly
 - `jwks_path` — local file, resolved relative to `AGENT_CONFIG_DIR` or `user.dir`
 
-Keys from URI and path sources are merged into a single key set used for signature verification.
+
+**`oidc_discovery` and `jwks_uri` must use `https`.** A configured `oidc_discovery` or `jwks_uri` value, and a `jwks_uri` discovered from an OIDC discovery document, are all validated at load time (or, for the discovered value, at fetch time): `https` is always accepted, and plaintext `http` is accepted only when `allow_insecure_url: true` is also set AND the URL's host is a literal loopback address (`localhost`, `127.x.x.x`, `::1` — no DNS resolution, so a host that merely resolves to loopback is still rejected). Any other case — `http` without the opt-in, `http` to a non-loopback host, or a non-http(s) scheme (`file`, `ftp`, ...) — fails startup with an `IllegalArgumentException` naming the offending config key; a discovered `jwks_uri` that breaks the rule is refused at fetch time instead (no keys are fetched, and verification reports `UNAVAILABLE`). `jwks_path` (a local file) and `did:web` DID-trust mode are unaffected — this rule only governs sources fetched over the network. This mirrors the REST API's `API_JWKS_URL` / `API_JWKS_ALLOW_INSECURE_URL` contract (see the `API_JWKS_URL` row in the REST API environment-variable table above), but the actor-authentication key is `allow_insecure_url` under `actor_authentication.verifier:`, not an environment variable.
+
+```yaml
+actor_authentication:
+  verifier:
+    type: jwks
+    jwks_uri: "http://localhost:8080/jwks.json"
+    allow_insecure_url: true   # local dev/test only — never in production
+    algorithms: [RS256]
+```
 
 ### `cache_ttl_seconds`, `stale_on_error`, and Degraded Mode
 
@@ -673,8 +769,10 @@ The `claimedBy` field on a `WorkItem` is an uninterpreted opaque string. The ser
 
 When a JWKS verifier is configured and the `actor.proof` JWT is valid, the server uses the JWT `sub` claim as the trusted identity. This overrides any `agentId` parameter on individual claim entries.
 
+Under **DID trust** (`did_allowlist`/`did_pattern` configured), the verifier additionally binds `sub` to `iss` (see [`require_sub_match`](#require_sub_match)), so the identity used here is the verified `did:web` DID — the same value whether or not `require_sub_match` is set. Under plain (non-DID) JWKS verification, this override applies only when `require_sub_match: true`, since `sub` is otherwise not read.
+
 The identity resolution chain:
-1. `actor.proof` JWT present and valid → use JWT `sub` claim as `claimedBy`
+1. `actor.proof` JWT present and valid → use JWT `sub` claim as `claimedBy` (under DID trust: the DID, bound equal to `iss`)
 2. `actor.proof` missing/invalid, `degradedModePolicy=accept-cached` → use self-reported `actor.id`
 3. `actor.proof` missing/invalid, `degradedModePolicy=accept-self-reported` → use self-reported `actor.id`
 4. `actor.proof` missing/invalid, `degradedModePolicy=reject` → reject the operation (`rejected_by_policy`)

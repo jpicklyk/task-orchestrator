@@ -6,6 +6,7 @@ import io.github.jpicklyk.mcptask.current.application.tools.PropertiesHelper
 import io.github.jpicklyk.mcptask.current.application.tools.ResponseUtil
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
+import io.github.jpicklyk.mcptask.current.application.tools.omitOnConfigUnavailable
 import io.github.jpicklyk.mcptask.current.application.tools.resolveWorkItemIdString
 import io.github.jpicklyk.mcptask.current.application.tools.toJsonString
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
@@ -13,6 +14,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import kotlinx.serialization.json.*
+import org.slf4j.LoggerFactory
 import java.util.UUID
 
 /**
@@ -24,6 +26,8 @@ import java.util.UUID
 class CreateItemHandler(
     private val hierarchyValidator: ItemHierarchyValidator = ItemHierarchyValidator()
 ) {
+    private val logger = LoggerFactory.getLogger(CreateItemHandler::class.java)
+
     /**
      * Executes a batch create of WorkItems.
      *
@@ -154,8 +158,15 @@ class CreateItemHandler(
                     is Result.Success -> {
                         result.data.rootId?.let { createdRootIds.add(it) }
                         val createdTags = result.data.tags
-                        val resolvedSchema = context.resolveSchema(result.data)
-                        val schemaFields = buildSchemaResponseFields(resolvedSchema)
+                        // The item is ALREADY PERSISTED at this point — per D7, a per-root config
+                        // read failure while resolving its response-decoration schema must never be
+                        // reported as a failure of this (already-committed) create. schemaMatch and
+                        // expectedNotes are simply omitted from this entry and a WARN is logged; the
+                        // wrapping catch(Exception) below intentionally does NOT see this exception.
+                        val schemaFields =
+                            omitOnConfigUnavailable(logger, "schema", result.data.id) {
+                                buildSchemaResponseFields(context.resolveSchema(result.data))
+                            }
                         createdItems.add(
                             buildJsonObject {
                                 put("id", JsonPrimitive(result.data.id.toString()))
@@ -169,8 +180,10 @@ class CreateItemHandler(
                                 } else {
                                     put("tags", JsonNull)
                                 }
-                                put("schemaMatch", JsonPrimitive(schemaFields.schemaMatch))
-                                put("expectedNotes", schemaFields.expectedNotes)
+                                if (schemaFields != null) {
+                                    put("schemaMatch", JsonPrimitive(schemaFields.schemaMatch))
+                                    put("expectedNotes", schemaFields.expectedNotes)
+                                }
                             }
                         )
                     }
@@ -200,7 +213,13 @@ class CreateItemHandler(
             }
         }
 
-        val availableTraits = context.availableTraits(createdRootIds)
+        // All items above are ALREADY PERSISTED — per D7, a per-root config read failure resolving
+        // this response-only hint must never fail the whole batch. `availableTraits` is simply
+        // omitted and a WARN is logged.
+        val availableTraits =
+            omitOnConfigUnavailable(logger, "availableTraits", createdRootIds) {
+                context.availableTraits(createdRootIds)
+            } ?: emptyList()
         val data =
             buildJsonObject {
                 put("items", JsonArray(createdItems))

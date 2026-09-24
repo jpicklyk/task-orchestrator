@@ -14,7 +14,6 @@ import org.slf4j.LoggerFactory
 import java.time.Clock
 import java.time.Instant
 import java.util.Date
-import java.util.UUID
 
 /**
  * A successfully verified API JWT: the resolved [ApiPrincipal] plus the token's own expiry.
@@ -200,7 +199,11 @@ class JwksApiVerifier(
                     return null
                 }
 
-        val scope = extractScope(claims)
+        val scope =
+            extractScope(claims) ?: run {
+                logger.debug("JWT rejected: malformed to_scope claim")
+                return null
+            }
         val capabilities = extractCapabilities(claims)
 
         return VerifiedApiToken(
@@ -216,58 +219,44 @@ class JwksApiVerifier(
     }
 
     /**
-     * Extracts scope from the `to_scope` JWT claim.
+     * Extracts scope from the `to_scope` JWT claim via [ScopeClaimParser].
      *
-     * If `to_scope` is absent, returns unrestricted scope (null rootIds, empty tags).
+     * If `to_scope` is absent, returns unrestricted scope (null rootIds, empty tags). If
+     * `to_scope` is present but malformed (not a JSON object, an unknown key, or a malformed
+     * `root_ids`/`tags_include` shape — see [ScopeClaimParser]), returns null so the caller
+     * fails the whole JWT closed rather than silently widening access. A single WARN is logged
+     * naming the claim path and the defect; it never includes the JWT itself.
      */
-    @Suppress("UNCHECKED_CAST")
-    private fun extractScope(claims: com.nimbusds.jwt.JWTClaimsSet): ApiScope {
-        val toScope = claims.getJSONObjectClaim("to_scope") ?: return ApiScope(rootIds = null, tagsInclude = emptySet())
-
-        val rawRootIds = toScope["root_ids"]
-        val rootIds: Set<UUID>? =
-            when (rawRootIds) {
-                null -> null
-                is List<*> -> {
-                    val list = rawRootIds.filterIsInstance<String>()
-                    if (list.isEmpty()) {
-                        null
-                    } else {
-                        list
-                            .mapNotNull { idStr ->
-                                try {
-                                    UUID.fromString(idStr)
-                                } catch (e: IllegalArgumentException) {
-                                    logger.debug("Ignoring invalid UUID in to_scope.root_ids: '{}'", idStr)
-                                    null
-                                }
-                            }.toSet()
-                            .ifEmpty { null }
-                    }
-                }
-                else -> null
+    private fun extractScope(claims: com.nimbusds.jwt.JWTClaimsSet): ApiScope? {
+        val toScope =
+            try {
+                claims.getJSONObjectClaim("to_scope")
+            } catch (e: Exception) {
+                logger.warn("Rejecting JWT: to_scope claim is not a JSON object: {}", e.message)
+                return null
             }
 
-        val rawTags = toScope["tags_include"]
-        val tagsInclude: Set<String> =
-            when (rawTags) {
-                is List<*> -> rawTags.filterIsInstance<String>().toSet()
-                else -> emptySet()
-            }
-
-        return ApiScope(rootIds = rootIds, tagsInclude = tagsInclude)
+        return try {
+            ScopeClaimParser.parse(toScope)
+        } catch (e: IllegalArgumentException) {
+            logger.warn("Rejecting JWT: to_scope {}", e.message)
+            null
+        }
     }
 
     /**
      * Extracts capabilities from the `to_capabilities` JWT claim.
      *
-     * If absent, returns `[READ]` as per the plan's default (§4.3).
+     * If absent, returns `[READ]` as per the plan's default (§4.3). Unknown values are still
+     * dropped (not fail-closed — capability semantics are unchanged), but each drop and a
+     * non-string-list claim now log a WARN naming `to_capabilities` so the widening is visible.
      */
     private fun extractCapabilities(claims: com.nimbusds.jwt.JWTClaimsSet): Set<ApiCapability> {
         val rawCaps =
             try {
                 claims.getStringListClaim("to_capabilities")
             } catch (e: Exception) {
+                logger.warn("JWT to_capabilities claim is present but is not a string list: {}", e.message)
                 null
             }
 
@@ -280,7 +269,7 @@ class JwksApiVerifier(
                 try {
                     ApiCapability.fromConfigString(capStr)
                 } catch (e: IllegalArgumentException) {
-                    logger.debug("Ignoring unknown capability in JWT to_capabilities: '{}'", capStr)
+                    logger.warn("Ignoring unknown value in JWT to_capabilities: '{}'", capStr)
                     null
                 }
             }.toSet()

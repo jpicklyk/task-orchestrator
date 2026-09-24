@@ -10,6 +10,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.JwksApiVerifier
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.LOCAL_UNAUTH_PRINCIPAL
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.allowedItemIdsForTagScope
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.extractBearerToken
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.hasTagScope
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEvent
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventBus
@@ -224,13 +225,18 @@ private val sseInlineAuthPlugin =
             }
 
             // Resolution order: Authorization header → (opt-in) ?token= query param → 401.
+            //
+            // extractBearerToken returns null when the header is absent OR does not use the
+            // Bearer scheme at all (wrong scheme, missing separator) — that case falls through to
+            // the opt-in ?token= path below. A present-but-empty Bearer credential ("Bearer   ")
+            // returns "" (not null), which is NOT treated as "no header" — it proceeds to the
+            // digest/JWKS checks below and fails there with 401 invalid_token, same as before this
+            // fix.
             val authHeader = call.request.headers["Authorization"]
+            val bearerToken = authHeader?.let { extractBearerToken(it) }
             val rawToken: String? =
                 when {
-                    authHeader != null && authHeader.startsWith("Bearer ", ignoreCase = true) ->
-                        // The matched prefix is always 7 chars ("Bearer ") regardless of case;
-                        // strip by length so non-standard casing (e.g. "BEARER ") isn't left in the token.
-                        authHeader.substring("Bearer ".length).trim()
+                    bearerToken != null -> bearerToken
                     allowQueryToken ->
                         call.request.queryParameters["token"]
                             ?.trim()

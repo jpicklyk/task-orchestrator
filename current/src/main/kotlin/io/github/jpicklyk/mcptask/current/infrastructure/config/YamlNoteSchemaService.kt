@@ -12,7 +12,6 @@ import org.slf4j.LoggerFactory
 import org.yaml.snakeyaml.LoaderOptions
 import org.yaml.snakeyaml.Yaml
 import org.yaml.snakeyaml.constructor.SafeConstructor
-import java.io.FileReader
 import java.nio.file.Paths
 
 /**
@@ -113,33 +112,33 @@ class YamlWorkItemSchemaService(
     override fun getNoteLimitsMode(): String = loadResult.noteLimitsMode
 
     /**
-     * Returns a SHA-256 fingerprint of the config file bytes, or
-     * `"${lastModified}-${size}"` if reading the file fails.
-     * Returns `null` when no config file is present.
+     * Returns the SHA-256 fingerprint computed once, at parse time, over the exact bytes
+     * [loadSchemas] parsed (see [YamlSchemaParser.ParsedConfig.fingerprint]) — not a fresh re-read
+     * of the file. Because [loadResult] is cached (`by lazy`), the fingerprint a running process
+     * reports is stable for that process's lifetime even if the file on disk changes underneath it;
+     * restart to pick up new bytes (consistent with every other global-config value, which is also
+     * read once at startup — see the class kdoc). Returns `null` when no config file was present at
+     * load time.
      */
-    override fun getConfigFingerprint(): String? {
-        val file = configPath.toFile()
-        if (!file.exists()) return null
-        return try {
-            sha256Hex(file.readBytes())
-        } catch (
-            @Suppress("TooGenericExceptionCaught") e: Exception
-        ) {
-            logger.warn("Failed to compute config fingerprint: ${e.message}")
-            "${file.lastModified()}-${file.length()}"
-        }
-    }
+    override fun getConfigFingerprint(): String? = loadResult.fingerprint
 
     /**
      * Reads and parses the config file, delegating the "root map -> schemas/traits/warnings"
      * step to [YamlSchemaParser.parseRoot] (shared with [PerRootConfigService]). This method
      * retains only the file-specific concerns: existence check, IO, YAML syntax-error handling,
-     * and the summary log line.
+     * fingerprinting, and the summary log line.
      *
      * Parses via [SafeConstructor] rather than SnakeYAML's default `Constructor` — matching
      * [PerRootConfigService]'s parse of the same shared format, so a `!!`-tagged arbitrary-Java-type
      * payload (CWE-502) is rejected the same way regardless of whether it arrived via a locally
      * edited `.taskorchestrator/config.yaml` or a pushed per-root document.
+     *
+     * **Fails closed**: a file that exists but cannot be read, is not valid YAML, or whose parsed
+     * root is not a mapping throws [IllegalArgumentException] naming [configPath] rather than
+     * silently falling back to an empty (schema-free) [YamlSchemaParser.ParsedConfig] — see
+     * [ServerComposition.build], which forces this lazy load at startup so the failure surfaces
+     * before the readiness marker is written. An absent, empty, or comment-only file is not an
+     * error: it keeps the coded "schema-free mode" defaults.
      */
     private fun loadSchemas(): YamlSchemaParser.ParsedConfig {
         if (!configPath.toFile().exists()) {
@@ -147,22 +146,52 @@ class YamlWorkItemSchemaService(
             return YamlSchemaParser.ParsedConfig(emptyMap(), emptyMap(), emptyList())
         }
 
-        return try {
-            val yaml = Yaml(SafeConstructor(LoaderOptions()))
-            FileReader(configPath.toFile()).use { reader ->
+        // Read the bytes once: the fingerprint is computed over, and the YAML is parsed from,
+        // this exact same byte array (D4) — no separate re-read of a possibly-changed file.
+        val bytes =
+            try {
+                configPath.toFile().readBytes()
+            } catch (e: Exception) {
+                throw IllegalArgumentException(
+                    "Failed to read note schemas config from '$configPath': ${e.message}",
+                    e
+                )
+            }
+        val fingerprint = sha256Hex(bytes)
+
+        val root =
+            try {
+                val yaml = Yaml(SafeConstructor(LoaderOptions()))
+                yaml.load<Any?>(String(bytes, Charsets.UTF_8))
+            } catch (e: Exception) {
+                throw IllegalArgumentException(
+                    "Failed to load note schemas from '$configPath': ${e.message}",
+                    e
+                )
+            }
+
+        val parsed =
+            if (root == null) {
+                YamlSchemaParser.ParsedConfig(emptyMap(), emptyMap(), emptyList())
+            } else {
                 @Suppress("UNCHECKED_CAST")
-                val root = yaml.load<Map<String, Any>>(reader)
-                if (root == null) {
-                    YamlSchemaParser.ParsedConfig(emptyMap(), emptyMap(), emptyList())
-                } else {
-                    YamlSchemaParser.parseRoot(root)
+                val rootMap =
+                    root as? Map<String, Any>
+                        ?: throw IllegalArgumentException(
+                            "Config file '$configPath' root must be a mapping; got '$root'"
+                        )
+                try {
+                    YamlSchemaParser.parseRoot(rootMap)
+                } catch (e: IllegalArgumentException) {
+                    throw e
+                } catch (e: Exception) {
+                    // An unexpected section shape (e.g. a ClassCastException from an unchecked cast)
+                    // must still fail startup naming the file, like every other global-config error.
+                    throw IllegalArgumentException("Failed to parse note schemas in '$configPath': ${e.message}", e)
                 }
             }
-        } catch (e: Exception) {
-            val msg = "Failed to load note schemas from '$configPath': ${e.message}"
-            logger.warn(msg)
-            YamlSchemaParser.ParsedConfig(emptyMap(), emptyMap(), listOf(msg))
-        }.also { result ->
+
+        return parsed.copy(fingerprint = fingerprint).also { result ->
             result.warnings.forEach { w -> logger.warn(w) }
             val totalEntries = result.workItemSchemas.values.sumOf { it.notes.size }
             logger.info(
