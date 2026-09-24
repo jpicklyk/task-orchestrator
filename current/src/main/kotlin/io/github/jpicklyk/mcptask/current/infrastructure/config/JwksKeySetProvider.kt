@@ -244,6 +244,7 @@ class DefaultJwksKeySetProvider(
     }
 
     override suspend fun getKeySetForIssuer(issuer: String): JwksResult {
+        validateDidWebIssuerIfApplicable(issuer)
         if (!isIssuerTrusted(issuer)) {
             throw IssuerNotTrustedException(issuer)
         }
@@ -331,10 +332,14 @@ class DefaultJwksKeySetProvider(
         return false
     }
 
-    // Glob match: "*" matches any single DID path segment (i.e., any sequence of characters
-    // that does NOT contain ":"). This prevents sub-path hijack where, for example,
+    // Glob match: "*" matches any single DID path segment restricted to host-safe characters
+    // (letters, digits, "." and "-"). This prevents sub-path hijack where, for example,
     // "did:web:host:agents:alice:fake" would wrongly match "did:web:host:agents:*" under an
-    // unrestricted ".*" wildcard. No "**" escape-hatch is provided in v1.
+    // unrestricted ".*" wildcard, and it prevents a "*" from ever matching "%" (percent-encoding,
+    // e.g. an encoded port or colon) or spilling across a ":" segment boundary. In a host segment
+    // this lets "*" span dot-separated labels (e.g. "did:web:special.*" matches
+    // "did:web:special.other.example.com"); in a path segment it keeps its single-segment meaning.
+    // No "**" escape-hatch is provided in v1.
     // Compile pattern to regex once per call (acceptable; patterns are typically short).
     internal fun matchesGlob(
         value: String,
@@ -343,9 +348,22 @@ class DefaultJwksKeySetProvider(
         val regex =
             pattern
                 .split("*")
-                .joinToString("[^:]*") { Regex.escape(it) }
+                .joinToString("[A-Za-z0-9.-]*") { Regex.escape(it) }
                 .let { Regex("^$it$") }
         return regex.matches(value)
+    }
+
+    /**
+     * Validates a `did:web` issuer's method-specific identifier before it is evaluated against
+     * the allowlist/pattern or resolved over the network — see [validateDidWebIdentifier] for the
+     * rules. Non-`did:web` issuers are not validated here (the only registered [DidResolver] is
+     * [DidWebResolver], so an untrusted non-`did:web` issuer is rejected downstream by
+     * [isIssuerTrusted] instead).
+     */
+    private fun validateDidWebIssuerIfApplicable(issuer: String) {
+        if (issuer.startsWith(DID_WEB_PREFIX)) {
+            validateDidWebIdentifier(issuer.removePrefix(DID_WEB_PREFIX))
+        }
     }
 
     override fun getResolvedIssuer(): String? = resolvedIssuer
@@ -462,6 +480,7 @@ class DefaultJwksKeySetProvider(
     companion object {
         private val FRESH_CACHE = CacheState(fromStaleCache = false, ageSeconds = null)
         private const val MAX_DID_CACHE_ENTRIES = 256
+        private const val DID_WEB_PREFIX = "did:web:"
 
         /** Maximum response body size accepted from a JWKS or OIDC discovery endpoint (1 MiB). */
         const val MAX_BODY_BYTES: Int = 1 * 1024 * 1024
@@ -471,3 +490,132 @@ class DefaultJwksKeySetProvider(
         private const val SOCKET_TIMEOUT_MS = 5_000L
     }
 }
+
+// -------------------------------------------------------------------------
+// DID identifier validation.
+//
+// Validates a did:web method-specific identifier (the part after "did:web:") BEFORE it is
+// evaluated against a didAllowlist/didPattern and before any network fetch is attempted.
+// [DidWebResolver.resolve] repeats this same check independently as defense in depth — the two
+// call sites are intentionally not shared through a common parser (deferred as structural work).
+//
+// Rules (frozen by planning seat, see item a890542c decision D3):
+// - The identifier is colon-separated into a host segment followed by zero or more path segments.
+// - Every character must be a W3C DID Core §3.1 idchar: ASCII letter/digit, ".", "-", "_", ":" (the
+//   segment separator), or a percent-encoded octet ("%" followed by exactly two hex digits). Raw
+//   "/", "?", "#", "@" (and any other non-idchar) are rejected outright.
+// - In the host segment, the only percent-encoding allowed is "%3A" (either case, decodes to ":").
+//   The decoded host must match [A-Za-z0-9.-]+ with an optional ":" + 1-5 digit port.
+// - Each path segment, percent-decoded once, must not contain "/", "?", "#", "@" or "%" (catching
+//   both raw delimiters and double-encoding such as "%252F" decoding to the literal "%2F"), and
+//   must not decode to "." or ".." (dot-segments, RFC 3986 §5.2.4). Empty segments stay legal
+//   (fleet-deployment.md:385).
+// -------------------------------------------------------------------------
+
+/**
+ * Message prefix for every violation raised here. [DidWebResolver] independently validates and
+ * raises the same prefix from its own duplicate implementation — the two are not shared code
+ * (see the block comment above): this constant is local to this file only.
+ */
+private const val MALFORMED_DID_MESSAGE_PREFIX = "malformed DID"
+
+private fun validateDidWebIdentifier(identifier: String) {
+    validateDidIdChars(identifier)
+    val parts = identifier.split(":")
+    val hostSegment = parts.first()
+    if (hostSegment.isEmpty()) {
+        throw DidSecurityViolationException("$MALFORMED_DID_MESSAGE_PREFIX: empty host segment in '$identifier'")
+    }
+    validateDidHostSegment(hostSegment)
+    parts.drop(1).forEach { validateDidPathSegment(it) }
+}
+
+/** Validates every character in the raw (not yet decoded) identifier is a DID Core §3.1 idchar. */
+private fun validateDidIdChars(identifier: String) {
+    var i = 0
+    while (i < identifier.length) {
+        val c = identifier[i]
+        when {
+            c == '%' -> {
+                val hexDigits = identifier.drop(i + 1).take(2)
+                if (hexDigits.length != 2 || !hexDigits.all { isHexDigit(it) }) {
+                    throw DidSecurityViolationException(
+                        "$MALFORMED_DID_MESSAGE_PREFIX: invalid percent-encoding in '$identifier'"
+                    )
+                }
+                i += 3
+            }
+            isAsciiAlnum(c) || c == '.' || c == '-' || c == '_' || c == ':' -> i += 1
+            else ->
+                throw DidSecurityViolationException(
+                    "$MALFORMED_DID_MESSAGE_PREFIX: disallowed character '$c' in '$identifier'"
+                )
+        }
+    }
+}
+
+/** Validates the did:web host segment, restricting percent-encoding to "%3A" only. */
+private fun validateDidHostSegment(hostSegment: String) {
+    val decoded = StringBuilder()
+    var i = 0
+    while (i < hostSegment.length) {
+        val c = hostSegment[i]
+        if (c == '%') {
+            val hex = hostSegment.drop(i + 1).take(2)
+            if (!hex.equals("3A", ignoreCase = true)) {
+                throw DidSecurityViolationException(
+                    "$MALFORMED_DID_MESSAGE_PREFIX: disallowed percent-encoding '%$hex' in host segment '$hostSegment'"
+                )
+            }
+            decoded.append(':')
+            i += 3
+        } else {
+            decoded.append(c)
+            i += 1
+        }
+    }
+    if (!DID_HOST_PATTERN.matches(decoded)) {
+        throw DidSecurityViolationException(
+            "$MALFORMED_DID_MESSAGE_PREFIX: invalid host segment '$hostSegment'"
+        )
+    }
+}
+
+/** Validates a single did:web path segment (percent-decoded once) per the rules above. */
+private fun validateDidPathSegment(segment: String) {
+    val decoded = decodeDidSegmentOnce(segment)
+    if (decoded == "." || decoded == "..") {
+        throw DidSecurityViolationException(
+            "$MALFORMED_DID_MESSAGE_PREFIX: dot-segment '$decoded' in path"
+        )
+    }
+    if (decoded.any { it == '/' || it == '?' || it == '#' || it == '@' || it == '%' }) {
+        throw DidSecurityViolationException(
+            "$MALFORMED_DID_MESSAGE_PREFIX: disallowed character in decoded path segment '$decoded'"
+        )
+    }
+}
+
+/** Percent-decodes a segment exactly once — every "%XX" is already known-valid (see [validateDidIdChars]). */
+private fun decodeDidSegmentOnce(segment: String): String {
+    val sb = StringBuilder()
+    var i = 0
+    while (i < segment.length) {
+        val c = segment[i]
+        if (c == '%') {
+            val hex = segment.substring(i + 1, i + 3)
+            sb.append(hex.toInt(16).toChar())
+            i += 3
+        } else {
+            sb.append(c)
+            i += 1
+        }
+    }
+    return sb.toString()
+}
+
+private fun isHexDigit(c: Char): Boolean = c in '0'..'9' || c in 'A'..'F' || c in 'a'..'f'
+
+private fun isAsciiAlnum(c: Char): Boolean = c in '0'..'9' || c in 'A'..'Z' || c in 'a'..'z'
+
+private val DID_HOST_PATTERN = Regex("^[A-Za-z0-9.-]+(:[0-9]{1,5})?$")

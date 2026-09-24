@@ -30,6 +30,9 @@ import java.util.Date
  * 3. Fetch the public key matching the JWT's `kid` header from the [JwksKeySetProvider].
  * 4. Verify the JWT signature.
  * 5. Validate standard claims: `exp`, `iss`, `aud`, and optionally `sub` vs. [ActorClaim.id].
+ *    Under DID-rooted trust (`didAllowlist`/`didPattern` configured), `sub` must additionally
+ *    equal `iss` exactly — regardless of `requireSubMatch` — and the verified subject is
+ *    surfaced via [VerificationResult.verifiedSubject].
  *
  * A missing or blank [ActorClaim.proof] returns [ABSENT] — the caller may choose to treat
  * absent-proof actors differently from actors whose proof failed validation.
@@ -178,6 +181,21 @@ class JwksActorVerifier(
             }
         }
 
+        // sub/iss binding under DID-rooted trust — unconditional, independent of requireSubMatch.
+        // Each agent is identified by its own DID (fleet-deployment.md:358), so under DID trust the
+        // JWT subject must equal the DID issuer exactly; a missing or blank sub is a mismatch.
+        // Runs after signature/exp/nbf/iss/aud so an untrusted issuer still reports as "policy" and
+        // a kid mismatch still reports as "crypto" ahead of this claims-level check.
+        if (isDidTrust) {
+            val sub = claims.subject
+            if (sub.isNullOrEmpty() || sub != claims.issuer) {
+                return rejected(
+                    "sub/iss mismatch under DID trust: iss=${claims.issuer}, sub=$sub",
+                    "claims"
+                )
+            }
+        }
+
         // sub vs actor.id
         if (config.requireSubMatch) {
             val sub = claims.subject
@@ -199,10 +217,15 @@ class JwksActorVerifier(
                 emptyMap()
             }
 
+        // Under DID trust, the sub/iss binding check above guarantees claims.subject == claims.issuer,
+        // so it is safe to surface as the cryptographically verified identity.
+        val verifiedSubject = if (isDidTrust) claims.subject else null
+
         return VerificationResult(
             status = VERIFIED,
             verifier = VERIFIER_NAME,
-            metadata = successMetadata
+            metadata = successMetadata,
+            verifiedSubject = verifiedSubject
         )
     }
 

@@ -387,6 +387,49 @@ colon-delimited DID segment — it will not cross a `:` boundary. Example:
 If your fleet uses a two-level path (`did:web:host:team:agent`), use two explicit wildcard
 segments (`did:web:host:*:*`) or enumerate teams in `did_allowlist`.
 
+**Host-segment wildcard character set.** A `*` in the *host* segment of a `did_pattern` (the
+portion before the first `:`) matches `[A-Za-z0-9.-]*` and can span dot-separated labels — for
+example `did:web:*.example.com` matches `did:web:a.b.example.com`. It never matches `%`
+(percent-encoding, e.g. an encoded `:` or a literal `%`), so a pattern cannot be defeated by
+encoding a would-be segment separator. A `*` in a *path* segment keeps its existing
+single-colon-segment meaning described above.
+
+**`sub`/`iss` binding under DID trust.** Because each agent is identified by its own `did:web` DID
+(there is no separate operator-configured `issuer`), the verifier binds the JWT `sub` to `iss`
+under DID trust: `sub` must equal `iss` exactly, **regardless of `require_sub_match`**. A missing
+or empty `sub` is treated as a mismatch. This check runs after signature/`exp`/`nbf`/`iss`/`aud`
+validation and before the `require_sub_match` check, so an untrusted issuer is still reported as
+`failureKind: policy` and a `kid` mismatch is still reported as `failureKind: crypto` ahead of it.
+A mismatch here is rejected with `failureKind: claims` and a reason starting `sub/iss mismatch
+under DID trust`. Without this binding, an agent could sign a token with its own key asserting
+`sub` equal to a *different* trusted DID and be verified as that other agent.
+
+**Verified identity under DID trust.** On a `VERIFIED` result under DID trust, the resolved
+identity used by `resolveTrustedActorId` (under `accept-cached` and `reject`) is the verified DID
+(`sub`, which the binding above guarantees equals `iss`) — not the caller's self-reported
+`actor.id`. This holds even when `require_sub_match: false`, so operators cannot silently weaken
+the identity guarantee for `did:web` fleets by turning that flag off. `accept-self-reported` and
+static-JWKS (non-DID) verification are unaffected — see [Identity Model](#identity-model).
+
+**DID identifier validation.** Before a `did:web` issuer is checked against `did_allowlist` /
+`did_pattern`, and before any network fetch, TO validates the identifier's structure:
+- Only [W3C DID Core §3.1](https://www.w3.org/TR/did-core/#did-syntax) `idchar`s are allowed:
+  ASCII letters/digits, `.`, `-`, `_`, `:` (the segment separator), and percent-encoded octets
+  (`%` followed by exactly two hex digits). Raw `/`, `?`, `#`, `@` are rejected outright, as is a
+  malformed percent-encoding.
+- In the host segment, the only percent-encoding accepted is `%3A` (either case, decoding to
+  `:`); the decoded host must be `[A-Za-z0-9.-]+` with an optional `:` plus a 1-5 digit port.
+- Each path segment, percent-decoded once, must not contain `/ ? # @ %` (this also catches
+  double-encoding such as `%252F`, which decodes once to the literal `%2F`) and must not decode to
+  `.` or `..`. Empty segments (e.g. a trailing `:`) remain legal, as shown in the wildcard table
+  above.
+
+A violation raises a security-violation error whose message starts with `malformed DID`, surfaced
+to the caller as `REJECTED` with `failureKind: policy` — distinct from `issuer not in DID trust
+policy` for a well-formed but untrusted DID. This validation runs both where the issuer is looked
+up against the trust policy and, independently, inside DID resolution itself, so a malformed DID
+can never reach an outbound fetch.
+
 `did:web` identifiers work as `claimedBy` values natively — they are opaque strings and require no
 special handling. Under `reject`, any agent without a valid JWT in `actor.proof` cannot claim items
 or advance claimed items. Unclaimed items remain accessible to unverified actors to preserve backward
@@ -484,9 +527,9 @@ When `verifier.type: jwks` is configured, TO reads a narrow subset of claims fro
 
 | Claim | Required | Used for |
 |---|---|---|
-| `iss` | Only if `issuer` is configured (explicitly or via OIDC discovery) | Must match the configured/discovered issuer; mismatch → rejected with `failureKind: claims` |
+| `iss` | Only if `issuer` is configured (explicitly or via OIDC discovery); **always read under DID trust** (`did_allowlist`/`did_pattern`) to resolve the DID and to bind against `sub` | Must match the configured/discovered issuer; mismatch → rejected with `failureKind: claims`. Under DID trust, also see the `sub`/`iss` binding below. |
 | `aud` | Only if `audience` is configured | Must contain the configured audience; mismatch → rejected with `failureKind: claims` |
-| `sub` | Only when `require_sub_match: true` | Verified against the caller's self-reported `actor.id`; mismatch → rejected with `failureKind: claims`. When `require_sub_match: false`, `sub` is not read. |
+| `sub` | Only when `require_sub_match: true`; **always read under DID trust**, regardless of `require_sub_match` | Verified against the caller's self-reported `actor.id`; mismatch → rejected with `failureKind: claims`. When `require_sub_match: false` and DID trust is not configured, `sub` is not read. Under DID trust, `sub` must equal `iss` exactly (see below) even when `require_sub_match: false`. |
 | `exp` | Optional | If present, enforced with a **60-second clock-skew allowance**; past-expiry → rejected with `failureKind: claims`. A missing `exp` claim is accepted (no expiry check). |
 | `nbf` | Optional | If present, enforced with a **60-second clock-skew allowance**; not-yet-valid → rejected with `failureKind: claims` |
 
@@ -495,6 +538,8 @@ TO does not read `iat`, `jti`, or any custom claims. Those are deployment concer
 ### `require_sub_match`
 
 When `true` (recommended for fleet deployments), TO verifies that the JWT `sub` matches the self-reported `actor.id` on the call. This prevents an agent from claiming items under one identity in `actor.id` while presenting a JWT issued for a different `sub`. When `false`, `sub` is not read at all — only signature and the iss/aud/exp/nbf claims are checked.
+
+**Exception under DID trust (`did_allowlist`/`did_pattern` configured):** `require_sub_match` does not control whether `sub` is read. Each agent is identified by its own `did:web` DID, so the verifier unconditionally binds `sub` to `iss` (`sub` must equal `iss` exactly; missing/empty `sub` is a mismatch) whether or not `require_sub_match` is set. See [Cross-Org `did:web` Deployments](#cross-org-didweb-deployments) for the full rule and rejection semantics.
 
 ### Algorithm Allowlist
 
@@ -658,8 +703,10 @@ The `claimedBy` field on a `WorkItem` is an uninterpreted opaque string. The ser
 
 When a JWKS verifier is configured and the `actor.proof` JWT is valid, the server uses the JWT `sub` claim as the trusted identity. This overrides any `agentId` parameter on individual claim entries.
 
+Under **DID trust** (`did_allowlist`/`did_pattern` configured), the verifier additionally binds `sub` to `iss` (see [`require_sub_match`](#require_sub_match)), so the identity used here is the verified `did:web` DID — the same value whether or not `require_sub_match` is set. Under plain (non-DID) JWKS verification, this override applies only when `require_sub_match: true`, since `sub` is otherwise not read.
+
 The identity resolution chain:
-1. `actor.proof` JWT present and valid → use JWT `sub` claim as `claimedBy`
+1. `actor.proof` JWT present and valid → use JWT `sub` claim as `claimedBy` (under DID trust: the DID, bound equal to `iss`)
 2. `actor.proof` missing/invalid, `degradedModePolicy=accept-cached` → use self-reported `actor.id`
 3. `actor.proof` missing/invalid, `degradedModePolicy=accept-self-reported` → use self-reported `actor.id`
 4. `actor.proof` missing/invalid, `degradedModePolicy=reject` → reject the operation (`rejected_by_policy`)
