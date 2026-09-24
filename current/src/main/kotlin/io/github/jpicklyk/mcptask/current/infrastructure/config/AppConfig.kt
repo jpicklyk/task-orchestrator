@@ -70,6 +70,29 @@ data class AppConfig(
     // ---- Raw env resolver (for validated loaders that parse env themselves) ----
     val envResolver: (String) -> String?,
 ) {
+    /**
+     * Deployment-set environment variables that are now ignored, each with a human-readable
+     * WARN-level explanation. Logged once at startup by [io.github.jpicklyk.mcptask.current.interfaces.mcp.CurrentMcpServer.run]
+     * so an operator who kept an old override notices it does nothing rather than silently
+     * assuming it still applies.
+     *
+     * Currently: `API_REDACT_ACTOR_PROOF` — since migration V17, raw actor proofs are never
+     * persisted, so there is nothing left for this flag to redact or expose; [apiRedactActorProof]
+     * is retained as a no-op field (see [io.github.jpicklyk.mcptask.current.interfaces.api.v1.redaction.redactActorProofIfNeeded])
+     * purely to avoid churn at call sites and tests.
+     */
+    fun deprecatedEnvWarnings(): List<String> {
+        val warnings = mutableListOf<String>()
+        if (envResolver("API_REDACT_ACTOR_PROOF") != null) {
+            warnings.add(
+                "API_REDACT_ACTOR_PROOF is set but is deprecated and ignored: actor proofs " +
+                    "(raw JWTs) are no longer persisted since migration V17, so there is nothing " +
+                    "left for this flag to redact."
+            )
+        }
+        return warnings
+    }
+
     companion object {
         // Bearer token store default — mirrors CurrentMcpServer.resolveApiWiring.
         internal const val DEFAULT_API_TOKENS_PATH = "/run/secrets/api-tokens.yaml"

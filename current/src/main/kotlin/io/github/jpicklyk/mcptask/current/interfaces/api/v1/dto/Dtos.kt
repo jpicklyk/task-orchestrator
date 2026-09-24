@@ -76,6 +76,34 @@ data class VerificationDto(
     val status: String,
     val verifier: String?,
     val reason: String?,
+    /**
+     * Forensic evidence about the proof (hash + verified claims), in place of the raw proof
+     * (which is never stored since migration V17 — see [ActorClaimDto.proof]). Populated only for
+     * callers with [io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability.ADMIN]
+     * — its own admin check, independent of `API_REDACT_NOTE_ATTRIBUTION` and NOT gated behind
+     * `?include=proof` (unlike the deprecated, always-null [ActorClaimDto.proof]). Null when no
+     * proof was ever supplied, or for a non-admin caller.
+     */
+    val proof: ProofEvidenceDto? = null,
+)
+
+/**
+ * DTO for the forensic evidence retained about an actor proof since migration V17: a SHA-256
+ * hash of the raw proof (always present when a proof was supplied, regardless of verification
+ * outcome) plus the cryptographically verified JWT claims (present only when the proof was
+ * VERIFIED). Mirrors [io.github.jpicklyk.mcptask.current.domain.model.ProofClaims].
+ */
+@Serializable
+data class ProofEvidenceDto(
+    val sha256: String,
+    val iss: String? = null,
+    val sub: String? = null,
+    val aud: List<String>? = null,
+    val jti: String? = null,
+    val iat: Long? = null,
+    val exp: Long? = null,
+    val kid: String? = null,
+    val alg: String? = null,
 )
 
 /** DTO for a single role-transition row (append-only audit surface). */

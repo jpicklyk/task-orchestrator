@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
+import io.github.jpicklyk.mcptask.current.infrastructure.security.sha256Hex
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
@@ -94,7 +95,16 @@ interface ActorAware {
                 proof = actorObj["proof"]?.jsonPrimitive?.contentOrNull
             )
         val verification = context.actorVerifier().verify(claim)
-        return ActorParseResult.Success(claim, verification)
+        // Forensic hash: computed here (not in the verifier) so EVERY verifier — jwks, noop, and
+        // any future one — gets identical, evidence-preserving behavior for free. Only set when a
+        // non-blank proof was supplied; independent of verification outcome (REJECTED proofs are
+        // still worth hashing — the hash is what lets an operator later confirm "was THIS specific
+        // token ever presented", regardless of whether it validated).
+        val hashedVerification =
+            claim.proof?.takeIf { it.isNotBlank() }?.let { proof ->
+                verification.copy(proofSha256 = sha256Hex(proof.toByteArray(Charsets.UTF_8)))
+            } ?: verification
+        return ActorParseResult.Success(claim, hashedVerification)
     }
 
     companion object {

@@ -150,7 +150,7 @@ API_ALLOW_UNAUTHENTICATED=true
 | `API_ALLOW_QUERY_TOKEN_FOR_SSE` | SSE + browser | `false` | Allow `?token=` auth for SSE (browser EventSource workaround). |
 | `API_SSE_AUTH_CHECK_INTERVAL_SECONDS` | SSE in use | `30` | Interval for token-expiry checks on open SSE connections. |
 | `API_REDACT_NOTE_ATTRIBUTION` | always | `true` | When `true`, non-admin callers see no `actor`/`verification` on notes/transitions. |
-| `API_REDACT_ACTOR_PROOF` | always | `true` | When `true`, `actor.proof` is redacted even from admin callers unless `?include=proof`. A non-admin caller never receives `actor.proof` while this is `true`, regardless of `API_REDACT_NOTE_ATTRIBUTION` — even with attribution redaction disabled (`API_REDACT_NOTE_ATTRIBUTION=false`), the proof itself is still stripped for non-admins. |
+| `API_REDACT_ACTOR_PROOF` | **deprecated, no-op** | `true` | Since migration V17, raw actor proofs are never persisted, so `actor.proof` is always `null` on the wire regardless of this variable — there is nothing left for it to redact. Setting it (to any value) logs one WARN at startup (see `AppConfig.deprecatedEnvWarnings()`). Retained only so existing deployments/tests that set it keep working unchanged. See "Proof handling" below for the evidence (hash + verified claims) that replaced it. |
 | `API_WARN_ON_CLAIMED_ADVANCE` | always | `true` | Log WARN when API caller advances a claimed item. |
 | `RESOURCE_LEASES_ENFORCED` | always | `true` | Deployment-wide kill switch for the resource-lease gate (see Resource Leasing below). Only the literal `false` (case-insensitive) disables it — any other value, including unset, leaves enforcement on. Disables **acquisition only**; releases always run regardless. Unlike every other flag in this table, this is read **per advance call**, not once at process start — `AdvanceService` is constructed fresh per `advance_item`/`POST .../advance` invocation, so flipping this var takes effect on the very next call, no restart required. |
 
@@ -635,16 +635,63 @@ The JWKS cache (governed by `cache_ttl_seconds`) is separate from JWT lifetime �
 
 `actor.proof` is never returned in an MCP response — `manage_notes`, `query_notes`, `advance_item`,
 and `create_work_tree` all omit the `proof` field from the `actor` object they echo back; the
-`verification` object (`status`/`verifier`) is the non-secret signal that a proof was checked. The
-raw proof is still persisted verbatim on notes and role transitions. Over REST it is visible only
-to a caller with the `ADMIN` capability, and only when the request includes `?include=proof`; see
-`API_REDACT_ACTOR_PROOF` above.
+`verification` object (`status`/`verifier`) is the non-secret signal that a proof was checked.
 
-Because the raw proof is persisted, treat the SQLite database file and its backups as a store of
-bearer credentials, and treat a REST `ADMIN` token as able to read agents' proofs: a proof read
-back that way can be replayed as a `VERIFIED` identity until its `exp`. Proofs that were readable
-over MCP before this change (earlier releases returned them from `query_notes`) remain replayable
-until they expire. Prefer short-lived actor tokens, and rotate long-lived ones after upgrading.
+**Since migration `V17__Store_Actor_Proof_Evidence.sql`, the raw proof (the JWT) is not persisted
+at all.** Only forensic *evidence about* the proof is stored on the `notes` and `role_transitions`
+rows:
+- a lowercase hex SHA-256 hash of the proof's UTF-8 bytes, whenever a non-blank proof was
+  supplied (independent of verification outcome), and
+- the cryptographically verified JWT claims (`iss`, `sub`, `aud`, `jti`, `iat`, `exp`, `kid`,
+  `alg`) — only when the proof was `VERIFIED`.
+
+Over REST, this evidence is exposed as `verification.proof` and is visible only to a caller with
+the `ADMIN` capability — independent of `?include=proof` (which is now a deprecated no-op; see
+below) and independent of `API_REDACT_NOTE_ATTRIBUTION`. `actor.proof` itself stays in the DTO
+shape for backward compatibility but is always `null` on the wire.
+
+`?include=proof` is still accepted — it no longer has anything to include, but a request that
+passes it gets exactly one `Warning: 299 - "include=proof is deprecated and ignored; actor proofs
+are no longer stored"` response header instead of a silent no-op, so a caller relying on the old
+behavior notices. `API_REDACT_ACTOR_PROOF` is likewise a deprecated no-op (see the table above).
+
+**Pre-upgrade backups and pre-upgrade free space may still hold live tokens.** A SQLite database
+file or backup (`docker cp`, volume snapshot) taken *before* upgrading to a build with V17 still
+contains raw proofs from before the scrub — those remain replayable as a `VERIFIED` identity until
+each token's own `exp`.
+
+V17's migration sets every existing `actor_proof` value to `NULL` in the live database, with
+`PRAGMA secure_delete = ON` so the cells that scrub frees are zeroed. This is partial: copies
+SQLite had already moved or freed before the upgrade (page splits, notes deleted or re-upserted)
+can survive in the file's free space, and no scrub reaches a backup taken earlier.
+
+Historical rows scrubbed by V17 get no hash and no claims — there was no way to recompute a
+SHA-256 of a value that is being erased without a code-executing migration, which was rejected as
+out of scope; this is a known, accepted forensic gap for anything written before the upgrade.
+
+#### Remediation
+
+1. **Rotate first.** Rotate actor signing keys and reissue long-lived tokens. The only remedy
+   reaching every copy; then purge pre-upgrade backups.
+2. **Optional offline compaction.** Live file only; needs free disk ≥2× DB size.
+   1. Stop the server.
+   2. Run
+      `docker run --rm -v mcp-task-data:/data alpine:3.20 sh -c "apk add sqlite && sqlite3 /data/current-tasks.db"`.
+      The image has no `sqlite3`.
+   3. Execute in order:
+      - `PRAGMA wal_checkpoint(TRUNCATE);`
+      - `VACUUM;`
+      - `INSERT INTO t(t) VALUES('rebuild');` and then `VALUES('integrity-check')`, for each `t` in
+        `work_items_fts_trigram`, `work_items_fts_text`, `notes_fts_trigram`, `notes_fts_text`
+      - `PRAGMA integrity_check;`
+      - `PRAGMA wal_checkpoint(TRUNCATE);`
+   4. `chown -R 1001:1001 /data`, then restart.
+
+   Warn: skipping the rebuilds silently desyncs search; compaction misses backups and filesystem
+   slack.
+
+Direct mode (`USE_FLYWAY=false`) does not apply V17 to an existing database; migrate it via
+Flyway.
 
 ---
 
@@ -786,6 +833,7 @@ The identity resolution chain:
 | `work_items.claimed_by` | Current claim holder identity |
 | Audit notes (when `actor_authentication.enabled`) | Actor claim object on every write — `id`, `kind`, `parent`, verification metadata |
 | `query_notes` body content | Audit notes are readable via standard note queries |
+| `notes.actor_proof_claims` / `role_transitions.actor_proof_claims` (V17) | Verified JWT claims JSON on a `VERIFIED` proof — can hold `sub`/`iss`, so the same PII sensitivity as `claimedBy` applies here too |
 
 Operators are responsible for choosing a `sub` value with appropriate sensitivity for their compliance regime. Pseudonymous identifiers (UUIDs, `did:web` identifiers, opaque session tokens) avoid PII concerns entirely. Email-as-`sub` is supported but creates compliance obligations downstream.
 

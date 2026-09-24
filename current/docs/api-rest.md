@@ -428,8 +428,11 @@ Query parameters: `?page=<int>` (default 1, must be an integer in `1..100000`) a
 {
   "id": "api:dashboard-editor",
   "kind": "orchestrator|subagent|user|external",
-  "parent": "string|null",
-  "proof": null  // null unless caller has ADMIN and ?include=proof
+  "parent": "string|null"
+  // "proof" is deprecated and never sent: since migration V17, raw actor proofs (JWTs) are never
+  // persisted, so this field is always omitted from the wire (server-wide `explicitNulls=false`).
+  // `?include=proof` is accepted but deprecated: it only adds a `Warning` response header now (see
+  // §22). Use VerificationDto.proof for forensic evidence instead.
 }
 ```
 
@@ -441,9 +444,29 @@ For REST API writes, `id` is always `"api:<tokenId>"` and `kind` is always `"ext
 {
   "status": "unverified|verified|unavailable|unchecked",
   "verifier": "api-bearer|api-jwks|null",
-  "reason": "string|null"
+  "reason": "string|null",
+  "proof": {                    // present only for ADMIN callers, and only when a proof was
+                                 // supplied; omitted otherwise (explicitNulls=false) — independent
+                                 // of `?include=proof` (deprecated no-op, see §22) and
+                                 // API_REDACT_NOTE_ATTRIBUTION
+    "sha256": "ba7816bf...",    // SHA-256 hex digest of the proof; present whenever a proof was supplied
+    "iss": "string|null",       // verified JWT claims below — present only when status was "verified"
+    "sub": "string|null",
+    "aud": ["string"] | null,
+    "jti": "string|null",
+    "iat": 1700000000,
+    "exp": 1700003600,
+    "kid": "string|null",
+    "alg": "string|null"
+  }
 }
 ```
+
+`VerificationDto.proof` is the forensic-evidence replacement for the raw proof (see
+`ActorClaimDto.proof` above): a SHA-256 hash plus, when the proof was cryptographically
+`verified`, the JWT claims that were checked. It has its own `ADMIN`-only gate, independent of
+`API_REDACT_NOTE_ATTRIBUTION` and NOT gated behind `?include=proof` — any `ADMIN` caller sees it
+whenever `verification` itself is shown; a non-admin caller never sees it.
 
 ### RoleTransitionDto
 
@@ -1320,7 +1343,7 @@ No pruning/retention in v1 — the table is append-only and grows with lease-eve
 
 ## 15. Endpoints — Transitions (Audit)
 
-All require `READ`. `actor` and `verification` fields are redacted (null) for non-admin callers; admin callers see them subject to `API_REDACT_NOTE_ATTRIBUTION` and `API_REDACT_ACTOR_PROOF` env vars. Proof requires `ADMIN` + `?include=proof`.
+All require `READ`. `actor` and `verification` fields are redacted (null) for non-admin callers; admin callers see them subject to `API_REDACT_NOTE_ATTRIBUTION` (`API_REDACT_ACTOR_PROOF` is deprecated/no-op — see §22). `verification.proof` (forensic hash + verified claims) requires `ADMIN`; `actor.proof` is always `null`.
 
 ### GET /items/{id}/transitions
 
@@ -1716,12 +1739,29 @@ All write endpoints (POST, PATCH, PUT, DELETE) synthesize an actor server-side f
 
 **Attribution redaction (applies to notes and transitions):**
 - Non-admin callers: `actor` and `verification` fields are `null` in responses
-- Admin callers: fields are visible subject to `API_REDACT_NOTE_ATTRIBUTION` and `API_REDACT_ACTOR_PROOF` env vars
-- `proof` within `actor`: requires `ADMIN` capability AND `?include=proof` in the request
+- Admin callers: fields are visible subject to `API_REDACT_NOTE_ATTRIBUTION`
+- `actor.proof`: **always `null`** — since migration V17, raw actor proofs (JWTs) are never
+  persisted, on either the MCP or REST write path (see `notes`/`role_transitions`
+  `actor_proof_sha256`/`actor_proof_claims` columns). `?include=proof` is still accepted for
+  backward compatibility but is a deprecated no-op: it adds one
+  `Warning: 299 - "include=proof is deprecated and ignored; actor proofs are no longer stored"`
+  response header and nothing else. That header is added on any of the five GET endpoints that
+  accept `?include=proof`, whenever the request passes it:
+  - `GET /items/{id}`
+  - `GET /items/{id}/notes`
+  - `GET /items/{id}/notes/{key}`
+  - `GET /items/{id}/transitions`
+  - `GET /transitions`
+- `verification.proof`: the evidence that replaced the raw proof — a SHA-256 hash of the proof
+  (whenever one was supplied) plus, only when the proof was cryptographically `verified`, the
+  verified JWT claims (`iss`/`sub`/`aud`/`jti`/`iat`/`exp`/`kid`/`alg`). Requires `ADMIN`
+  capability; independent of `API_REDACT_NOTE_ATTRIBUTION` and NOT gated behind `?include=proof`.
 
 **Redaction env vars:**
 - `API_REDACT_NOTE_ATTRIBUTION` (default `true`) — when `true`, non-admin callers see no attribution
-- `API_REDACT_ACTOR_PROOF` (default `true`) — when `true`, `proof` is redacted even from admin callers unless `?include=proof`
+- `API_REDACT_ACTOR_PROOF` — **deprecated, no-op.** Retained only for backward compatibility;
+  setting it logs a startup WARN (`AppConfig.deprecatedEnvWarnings()`). There is nothing left for
+  it to redact since `actor.proof` is unconditionally `null`.
 
 ---
 

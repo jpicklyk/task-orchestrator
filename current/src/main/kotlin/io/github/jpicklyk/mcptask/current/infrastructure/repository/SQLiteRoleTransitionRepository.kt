@@ -48,7 +48,11 @@ class SQLiteRoleTransitionRepository(
                 it[RoleTransitionsTable.actorId] = transition.actorClaim?.id
                 it[RoleTransitionsTable.actorKind] = transition.actorClaim?.kind?.toJsonString()
                 it[RoleTransitionsTable.actorParent] = transition.actorClaim?.parent
-                it[RoleTransitionsTable.actorProof] = transition.actorClaim?.proof
+                // Actor proofs (JWTs) are no longer persisted — only forensic evidence (hash +
+                // verified claims) is. See migration V17__Store_Actor_Proof_Evidence.sql.
+                it[RoleTransitionsTable.actorProof] = null
+                it[RoleTransitionsTable.actorProofSha256] = transition.verification?.proofSha256
+                it[RoleTransitionsTable.actorProofClaims] = transition.verification?.proofClaims?.toJsonStringOrNull()
                 it[RoleTransitionsTable.verificationStatus] = transition.verification?.status?.toJsonString()
                 it[RoleTransitionsTable.verificationVerifier] = transition.verification?.verifier
                 it[RoleTransitionsTable.verificationReason] = transition.verification?.reason
@@ -141,7 +145,9 @@ class SQLiteRoleTransitionRepository(
                         id = actorId,
                         kind = ActorKind.fromString(kindStr),
                         parent = row[RoleTransitionsTable.actorParent],
-                        proof = row[RoleTransitionsTable.actorProof]
+                        // Never surface a legacy/unscrubbed raw proof — defense in depth alongside
+                        // the V17 scrub. actor_proof is written NULL on every insert path.
+                        proof = null
                     )
                 } catch (e: IllegalArgumentException) {
                     logger.warn("RoleTransition {}: invalid actorKind '{}'; skipping actor", transitionId, kindStr)
@@ -154,7 +160,14 @@ class SQLiteRoleTransitionRepository(
                     VerificationResult(
                         status = VerificationStatus.fromString(status),
                         verifier = row[RoleTransitionsTable.verificationVerifier],
-                        reason = row[RoleTransitionsTable.verificationReason]
+                        reason = row[RoleTransitionsTable.verificationReason],
+                        proofSha256 = row[RoleTransitionsTable.actorProofSha256],
+                        proofClaims =
+                            parseProofClaimsOrNull(
+                                row[RoleTransitionsTable.actorProofClaims],
+                                logger,
+                                "RoleTransition $transitionId"
+                            )
                     )
                 } catch (e: IllegalArgumentException) {
                     logger.warn(

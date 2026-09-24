@@ -754,7 +754,7 @@ Each upsert note element may include an optional `actor` object:
 - `id` (required string): Identifier for the actor writing this note
 - `kind` (required string): One of `orchestrator`, `subagent`, `user`, `external`
 - `parent` (optional string): ID of the dispatching agent (forms delegation chain)
-- `proof` (optional string): Opaque credential blob — checked by the configured actor verifier (not verified under `noop`), persisted, never returned in MCP responses
+- `proof` (optional string): Opaque credential blob — checked by the configured actor verifier (not verified under `noop`), never returned in MCP responses. Since migration V17, the raw proof is never persisted — only a SHA-256 hash (always, when non-blank) and the verified JWT claims (when VERIFIED) are stored; see [Verification Record](#verification-record).
 
 When provided, the upsert response includes an `actor` object on each successfully upserted note, and the note is persisted with actor claim data that appears in subsequent `query_notes` responses. A `verification` object is also included, *except* when no actor verifier is configured (the default `noop` verifier) — in that case `verification` is omitted entirely, since a no-op result carries no information beyond "no verifier is configured." See [Verification Record](#verification-record).
 
@@ -1183,7 +1183,7 @@ Each transition element may include an optional `actor` object:
 - `id` (required string): Identifier for the actor making this transition
 - `kind` (required string): One of `orchestrator`, `subagent`, `user`, `external`
 - `parent` (optional string): ID of the dispatching agent (forms delegation chain)
-- `proof` (optional string): Opaque credential blob — checked by the configured actor verifier (not verified under `noop`), persisted, never returned in MCP responses
+- `proof` (optional string): Opaque credential blob — checked by the configured actor verifier (not verified under `noop`), never returned in MCP responses. Since migration V17, the raw proof is never persisted — only a SHA-256 hash (always, when non-blank) and the verified JWT claims (when VERIFIED) are stored; see [Verification Record](#verification-record).
 
 When provided, the response includes an `actor` object on each successful transition. A `verification` object is also included, *except* when no actor verifier is configured (the default `noop` verifier) — in that case `verification` is omitted entirely. See [Verification Record](#verification-record).
 
@@ -2439,7 +2439,7 @@ Actor attribution tracks *who* made changes to work items. Every `advance_item` 
 | id | string | yes | Identifier for the actor |
 | kind | string | yes | `orchestrator`, `subagent`, `user`, or `external` |
 | parent | string | no | ID of the dispatching agent — forms a delegation chain |
-| proof | string | no | Opaque credential — checked by the configured actor verifier (not verified under `noop`), persisted verbatim, never returned in MCP responses |
+| proof | string | no | Opaque credential — checked by the configured actor verifier (not verified under `noop`), never returned in MCP responses. Since migration V17, the raw proof is never persisted — only a SHA-256 hash (always, when non-blank) and the verified JWT claims (when VERIFIED) are stored; see [Verification Record](#verification-record). |
 
 ### Verification Record
 
@@ -2460,6 +2460,15 @@ legitimately returns `unchecked` with a `reason` — serializes in full.
 | verifier | string | Which verifier produced the result (e.g., `noop`, `jwks`) |
 | reason | string | Failure detail or exception message; null when absent or verified |
 | metadata | object | Optional key/value bag — omitted when empty (see below) |
+
+**Proof evidence (V17+, never on the MCP surface).** Since migration `V17__Store_Actor_Proof_Evidence.sql`,
+the database additionally stores `proofSha256` (a SHA-256 hex digest of the raw proof, set
+whenever a non-blank proof was supplied) and `proofClaims` (the verified JWT claims — `iss`,
+`sub`, `aud`, `jti`, `iat`, `exp`, `kid`, `alg` — set only when `status` is `verified`). Neither
+field is ever included in an MCP tool response — `VerificationResult.toJson()` enumerates only
+`status`/`verifier`/`reason`/`metadata` by design. They are surfaced only over REST, as
+`verification.proof` on `NoteDto`/`RoleTransitionDto`, and only to callers with `ADMIN`
+capability. See [api-rest.md](api-rest.md) §5/§22.
 
 **VerificationStatus values:**
 

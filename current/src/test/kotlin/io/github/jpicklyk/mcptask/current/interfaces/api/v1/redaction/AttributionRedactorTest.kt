@@ -109,13 +109,13 @@ class AttributionRedactorTest {
     }
 
     @Test
-    fun `proof is shown for admin with include=proof`() {
+    fun `proof stays null for admin even with include=proof`() {
         val redactor = AttributionRedactor.of(redactNoteAttribution = true, redactActorProof = true)
         val note = makeNoteWithActor(proof = "super-secret-jwt")
         val call = makeReadCall(isAdmin = true, includeProof = true)
         val result = redactor.redact(note, call)
         assertNotNull(result.actor, "Expected actor for admin")
-        assertEquals("super-secret-jwt", result.actor!!.proof, "Expected proof to be present with ?include=proof")
+        assertNull(result.actor!!.proof, "Expected proof to remain null even with ?include=proof per item 983615e7 D6")
     }
 
     // ─── Redaction disabled ──────────────────────────────────────────────────

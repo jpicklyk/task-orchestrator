@@ -11,6 +11,7 @@ import com.nimbusds.jose.jwk.RSAKey
 import com.nimbusds.jwt.SignedJWT
 import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
+import io.github.jpicklyk.mcptask.current.domain.model.ProofClaims
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus.ABSENT
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus.REJECTED
@@ -222,11 +223,30 @@ class JwksActorVerifier(
         // so it is safe to surface as the cryptographically verified identity.
         val verifiedSubject = if (isDidTrust) claims.subject else null
 
+        // Forensic evidence: verified claims are safe to surface here only because we've reached
+        // this point after signature + exp/nbf/iss/aud (+ DID sub/iss, + requireSubMatch) all
+        // passed. REJECTED/UNAVAILABLE outcomes never reach this line, so their claims (still
+        // attacker-controlled / unverified) are never captured as ProofClaims elsewhere.
+        val proofClaims =
+            ProofClaims(
+                iss = claims.issuer,
+                sub = claims.subject,
+                aud = claims.audience?.takeIf { it.isNotEmpty() },
+                // Explicit getter call (not the synthetic Kotlin property) — JWTClaimsSet.getJWTID()'s
+                // all-caps "ID" suffix makes the auto-derived property name ambiguous/fragile.
+                jti = claims.getJWTID(),
+                iat = claims.issueTime?.toInstant()?.epochSecond,
+                exp = claims.expirationTime?.toInstant()?.epochSecond,
+                kid = signedJWT.header.keyID,
+                alg = alg.name
+            )
+
         return VerificationResult(
             status = VERIFIED,
             verifier = VERIFIER_NAME,
             metadata = successMetadata,
-            verifiedSubject = verifiedSubject
+            verifiedSubject = verifiedSubject,
+            proofClaims = proofClaims
         )
     }
 

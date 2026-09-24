@@ -117,7 +117,7 @@ When `actor_authentication.verifier.type: jwks` is configured, the server valida
    { "id": "agent-7", "kind": "subagent", "parent": "orchestrator-1", "proof": "eyJhbG..." }
    ```
 2. The `proof` field is validated as a JWT — signature, expiry, issuer, audience, and subject match are checked.
-3. The verification result (`VERIFIED`, `UNVERIFIED`, or `FAILED`) is stored in the `RoleTransition` or `Note` audit record.
+3. The verification result (`VERIFIED`, `UNVERIFIED`, or `FAILED`) is stored in the `RoleTransition` or `Note` audit record — along with forensic evidence about the proof itself: a SHA-256 hash (whenever a proof was supplied) and the verified JWT claims (`iss`, `sub`, `aud`, `jti`, `iat`, `exp`, `kid`, `alg`; only when the proof was cryptographically VERIFIED). **The raw proof (the JWT) is never persisted** — only this evidence is. A stored hash lets an operator later confirm whether a specific token was ever presented, and rows written after the upgrade never contain a replayable credential. Tokens stored before the upgrade may survive in the database file's free space and in earlier backups until each token's `exp` — see fleet-deployment.md, "Proof handling".
 4. **A failed verification does not block the operation.** The write proceeds regardless of verification status. This is an accountability mechanism, not an access control gate.
 
 **When to use JWKS verification:**
@@ -243,6 +243,7 @@ This means that in deployments where non-Claude-Code clients connect to the serv
 - **SQLite database**: Stored on a Docker volume (`mcp-task-data`) or a local file path. Ensure appropriate file permissions on the host mount. The database is not encrypted at rest — use disk-level encryption if required.
 - **Config files**: `.taskorchestrator/config.yaml` is mounted read-only (`:ro`) in Docker. It contains workflow rules and optional JWKS endpoints, not credentials. JWKS URIs point to public key endpoints — no secrets are stored in config.
 - **No secrets in actor claims**: The `actor.proof` field should contain a JWT token, not raw credentials. The `claimedBy` field on a `WorkItem` should contain an identifier (session ID, container name, JWT `jti`, or `did:web` identifier), not secrets. These values appear in audit trails and diagnostic tool responses.
+- **Actor proofs are not stored verbatim**: since the `V17__Store_Actor_Proof_Evidence.sql` migration, `notes`/`role_transitions` rows never persist the raw `actor.proof` JWT — only a SHA-256 hash and (when VERIFIED) the verified claims are kept. Pre-upgrade backups, and free space in the live file left from before that migration, may still hold live tokens until each token's own `exp` — rotate long-lived actor keys/tokens (the only remedy reaching every copy), optionally compact offline (fleet-deployment.md, "Proof handling"), and purge old backups. The REST admin `verification.proof` view (hash + claims) requires `ApiCapability.ADMIN`; `?include=proof` is a deprecated no-op retained only for backward compatibility (it now only adds a `Warning` response header, since `actor.proof` on the wire is always `null`).
 
 ### Threat Model Summary
 

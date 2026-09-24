@@ -114,7 +114,7 @@ class TagScopeSearchRoutesIntegrationTest {
                         body TEXT NOT NULL DEFAULT '',
                         created_at TIMESTAMP NOT NULL,
                         modified_at TIMESTAMP NOT NULL,
-                        actor_id TEXT, actor_kind TEXT, actor_parent TEXT, actor_proof TEXT,
+                        actor_id TEXT, actor_kind TEXT, actor_parent TEXT, actor_proof TEXT, actor_proof_sha256 TEXT, actor_proof_claims TEXT,
                         verification_status TEXT, verification_verifier TEXT, verification_reason TEXT
                     )
                     """.trimIndent()
@@ -142,7 +142,7 @@ class TagScopeSearchRoutesIntegrationTest {
                         trigger TEXT NOT NULL,
                         summary TEXT,
                         transition_at TIMESTAMP NOT NULL,
-                        actor_id TEXT, actor_kind TEXT, actor_parent TEXT, actor_proof TEXT,
+                        actor_id TEXT, actor_kind TEXT, actor_parent TEXT, actor_proof TEXT, actor_proof_sha256 TEXT, actor_proof_claims TEXT,
                         verification_status TEXT, verification_verifier TEXT, verification_reason TEXT
                     )
                     """.trimIndent()
