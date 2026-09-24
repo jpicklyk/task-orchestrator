@@ -29,6 +29,7 @@ import org.bouncycastle.crypto.params.Ed25519KeyGenerationParameters
 import org.bouncycastle.crypto.params.Ed25519PrivateKeyParameters
 import org.bouncycastle.crypto.params.Ed25519PublicKeyParameters
 import org.bouncycastle.jce.provider.BouncyCastleProvider
+import org.junit.jupiter.api.Assertions.assertDoesNotThrow
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -330,4 +331,130 @@ class DidIdentifierValidationTest {
             }
             coVerify(exactly = 0) { registry.resolve(any()) }
         }
+
+    // -------------------------------------------------------------------------
+    // D8 (post-review amendment) — wildcard char class, control-char rejection, port range
+    // -------------------------------------------------------------------------
+
+    // S18: "*" spans "_" within a path segment (D8a) and an issuer matching via that wildcard
+    // passes the trust check — neither malformed nor untrusted. D8a
+    @Test
+    fun `S18 wildcard matches an underscore path segment and the issuer passes the trust check`() =
+        runTest {
+            val did = "did:web:example.com:agents:alice_bob"
+            val pattern = "did:web:example.com:agents:*"
+            val doc = buildDidDocument(did)
+            val registry = mockk<DidResolverRegistry>()
+            coEvery { registry.resolve(did) } returns doc
+
+            val config = VerifierConfig.Jwks(didPattern = pattern, cacheTtlSeconds = 300)
+            val provider = DefaultJwksKeySetProvider(config, clock = fixedClock(), didResolverRegistry = registry)
+
+            assertTrue(provider.matchesGlob(did, pattern))
+
+            val result = provider.getKeySetForIssuer(did)
+            assertNotNull(result.keys)
+            assertEquals(1, result.keys.keys.size)
+        }
+
+    // S19: "*" never matches a percent-encoded octet, even though the identifier itself stays
+    // legal. The pattern miss surfaces as IssuerNotTrustedException, not a malformed-DID
+    // validation error, because the identifier is well-formed on its own. D8a, D8b (guard)
+    @Test
+    fun `S19 wildcard does not match a percent-encoded space though the identifier stays legal`() =
+        runTest {
+            val pattern = "did:web:example.com:agents:*"
+            val spaceDid = "did:web:example.com:agents:abc%20def"
+            val registry = mockk<DidResolverRegistry>()
+            val config = VerifierConfig.Jwks(didPattern = pattern, cacheTtlSeconds = 300)
+            val provider = DefaultJwksKeySetProvider(config, clock = fixedClock(), didResolverRegistry = registry)
+
+            assertTrue(!provider.matchesGlob(spaceDid, pattern))
+            assertDoesNotThrow { validateDidWebIdentifier("example.com:agents:abc%20def") }
+
+            assertThrows<IssuerNotTrustedException> {
+                provider.getKeySetForIssuer(spaceDid)
+            }
+            coVerify(exactly = 0) { registry.resolve(any()) }
+        }
+
+    // S20: a decoded path segment containing a control character or a literal backslash rejects
+    // as malformed before any allowlist/pattern check or network fetch, both through
+    // getKeySetForIssuer and directly through DidWebResolver.resolve. D8b
+    @Test
+    fun `S20 control characters and backslash in a path segment reject as malformed with zero HTTP requests`() =
+        runTest {
+            val encodings = listOf("%5C", "%5c", "%0A", "%00", "%7F", "%1F")
+            for (enc in encodings) {
+                val malformedDid = "did:web:h.example.com:a${enc}b"
+
+                var providerRequestCount = 0
+                val providerEngine =
+                    MockEngine { _ ->
+                        providerRequestCount++
+                        respond(
+                            content = "{}",
+                            status = HttpStatusCode.OK,
+                            headers = headersOf("Content-Type", "application/json")
+                        )
+                    }
+                val registry = DidResolverRegistry(listOf(DidWebResolver(providerEngine)))
+                val config = VerifierConfig.Jwks(didPattern = "did:web:h.example.com:*", cacheTtlSeconds = 300)
+                val provider =
+                    DefaultJwksKeySetProvider(config, clock = fixedClock(), didResolverRegistry = registry)
+
+                val providerEx =
+                    assertThrows<DidSecurityViolationException> {
+                        provider.getKeySetForIssuer(malformedDid)
+                    }
+                assertTrue(
+                    providerEx.message!!.startsWith("malformed DID"),
+                    "enc='$enc': expected message to start with 'malformed DID', got: ${providerEx.message}"
+                )
+                assertEquals(0, providerRequestCount, "enc='$enc': provider must not fetch for a malformed DID")
+
+                var resolverRequestCount = 0
+                val resolverEngine =
+                    MockEngine { _ ->
+                        resolverRequestCount++
+                        respond(
+                            content = "{}",
+                            status = HttpStatusCode.OK,
+                            headers = headersOf("Content-Type", "application/json")
+                        )
+                    }
+                val resolver = DidWebResolver(resolverEngine)
+
+                val resolverEx =
+                    assertThrows<DidSecurityViolationException> {
+                        resolver.resolve(malformedDid)
+                    }
+                assertTrue(
+                    resolverEx.message!!.startsWith("malformed DID"),
+                    "enc='$enc': expected message to start with 'malformed DID', got: ${resolverEx.message}"
+                )
+                assertEquals(0, resolverRequestCount, "enc='$enc': resolver must not fetch for a malformed DID")
+            }
+        }
+
+    // S21: port must be in 1-65535; 0 and 65536 are malformed, 1 and 65535 are legal. D8c
+    @Test
+    fun `S21 out-of-range percent-encoded ports reject as malformed while 1 and 65535 stay legal`() {
+        val malformed = listOf("a.example.com%3A65536", "a.example.com%3A0")
+        for (identifier in malformed) {
+            val ex =
+                assertThrows<DidSecurityViolationException> {
+                    validateDidWebIdentifier(identifier)
+                }
+            assertTrue(
+                ex.message!!.startsWith("malformed DID"),
+                "identifier='$identifier': expected message to start with 'malformed DID', got: ${ex.message}"
+            )
+        }
+
+        val legal = listOf("a.example.com%3A65535", "a.example.com%3A1")
+        for (identifier in legal) {
+            assertDoesNotThrow { validateDidWebIdentifier(identifier) }
+        }
+    }
 }
