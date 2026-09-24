@@ -809,6 +809,8 @@ The `(itemId, key)` pair is unique — upserting with an existing pair updates t
 
 Each note in the `notes` response array also carries a `warning` field when its body exceeded a schema `maxLength` under `note_limits.mode: warn` (naming the limit and actual length). Under `mode: reject`, an over-limit note instead appears in `failures` with `code: "NOTE_BODY_TOO_LONG"`, `key`, `maxLength`, and `actualLength`.
 
+A note whose schema or note-limits-mode could not be resolved because its item's per-root config was unavailable (see [Error Envelope](#error-envelope)) instead appears in `failures` as `{index, error, errorKind: "transient", errorCode: "config_unavailable"}`; nothing is stored for it and the rest of the batch proceeds.
+
 Note that `itemContext[itemId].guidancePointer` here carries the **full** guidance text (unlike `get_context`/`advance_item`, which return only a `guidanceKey` reference) — this is one of the two places full guidance text is returned directly, the other being the gate-failure `missingNotes` payload (see `advance_item`).
 
 The `itemContext` map is keyed by each `itemId` that had at least one successful upsert. For each item:
@@ -2404,8 +2406,11 @@ database error on `getFingerprint`/`get`) and there was no last-known-good cache
 root to serve instead — see `manage_project_config`'s Purpose note below for the last-known-good
 cache this falls back to. `retryAfterMs` is null, per the `transient` kind's own-backoff rule.
 `advance_item` reports this per transition (the rest of a batch continues) and `complete_tree`
-reports it per item (`skipped: true`, outcome `REJECTED`, in-set dependents skipped); every other
-tool fails the whole call with this envelope. A read failure resolving a RESPONSE-ONLY decoration
+reports it per item (`skipped: true`, outcome `REJECTED`, in-set dependents skipped); `manage_notes`
+reports it per note — a note whose schema/note-limits-mode resolution hits this error appears in
+`failures` as `{index, error, errorKind: "transient", errorCode: "config_unavailable"}` with nothing
+stored for that note, while the rest of the batch's notes are upserted normally; every other tool
+fails the whole call with this envelope. A read failure resolving a RESPONSE-ONLY decoration
 (e.g. `advance_item`'s `dispatch`, `create_item`/`create_work_tree`'s `schemaMatch`/`expectedNotes`,
 `availableTraits`, or `manage_notes`'s `itemContext` entry) on an already-committed write is never
 reported as a failure of that write — the decoration is simply omitted and a WARN is logged instead.

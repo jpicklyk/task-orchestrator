@@ -22,6 +22,11 @@ import java.util.UUID
  */
 class PerRootConfigUnavailableException(
     val rootId: UUID,
-    message: String,
+    override val message: String,
     cause: Throwable? = null
-) : RuntimeException(message, cause)
+) : RuntimeException(message, cause) {
+    companion object {
+        /** MCP `errorCode` / REST `ErrorDto.error` literal for this failure mode. */
+        const val CODE = "config_unavailable"
+    }
+}

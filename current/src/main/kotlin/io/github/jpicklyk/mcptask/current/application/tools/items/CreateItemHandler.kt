@@ -6,9 +6,9 @@ import io.github.jpicklyk.mcptask.current.application.tools.PropertiesHelper
 import io.github.jpicklyk.mcptask.current.application.tools.ResponseUtil
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
+import io.github.jpicklyk.mcptask.current.application.tools.omitOnConfigUnavailable
 import io.github.jpicklyk.mcptask.current.application.tools.resolveWorkItemIdString
 import io.github.jpicklyk.mcptask.current.application.tools.toJsonString
-import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
@@ -164,16 +164,8 @@ class CreateItemHandler(
                         // expectedNotes are simply omitted from this entry and a WARN is logged; the
                         // wrapping catch(Exception) below intentionally does NOT see this exception.
                         val schemaFields =
-                            try {
+                            omitOnConfigUnavailable(logger, "schema", result.data.id) {
                                 buildSchemaResponseFields(context.resolveSchema(result.data))
-                            } catch (e: PerRootConfigUnavailableException) {
-                                logger.warn(
-                                    "Per-root config unavailable resolving schema for created item {}; " +
-                                        "omitting schemaMatch/expectedNotes from an already-created item: {}",
-                                    result.data.id,
-                                    e.message
-                                )
-                                null
                             }
                         createdItems.add(
                             buildJsonObject {
@@ -225,17 +217,9 @@ class CreateItemHandler(
         // this response-only hint must never fail the whole batch. `availableTraits` is simply
         // omitted and a WARN is logged.
         val availableTraits =
-            try {
+            omitOnConfigUnavailable(logger, "availableTraits", createdRootIds) {
                 context.availableTraits(createdRootIds)
-            } catch (e: PerRootConfigUnavailableException) {
-                logger.warn(
-                    "Per-root config unavailable resolving availableTraits for roots {}; omitting " +
-                        "the hint from an already-committed create batch: {}",
-                    createdRootIds,
-                    e.message
-                )
-                emptyList()
-            }
+            } ?: emptyList()
         val data =
             buildJsonObject {
                 put("items", JsonArray(createdItems))

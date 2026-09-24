@@ -506,8 +506,8 @@ Call to move an item between phases once its work is done — never edit status 
                             trigger,
                             ToolError(
                                 kind = ErrorKind.TRANSIENT,
-                                code = "config_unavailable",
-                                message = e.message ?: "Per-root config unavailable for root ${e.rootId}"
+                                code = PerRootConfigUnavailableException.CODE,
+                                message = e.message
                             )
                         )
                     )
@@ -577,17 +577,12 @@ Call to move an item between phases once its work is done — never edit status 
             // This transition ALREADY COMMITTED above — per D7, a per-root config read failure here
             // must never be reported as a failure of the (already-applied) transition. The dispatch
             // hint is simply omitted (null) and a WARN is logged.
+            // resolveDispatchProfile is itself nullable in the ordinary (trait-less) case, which the
+            // shared helper's null-on-unavailable return is indistinguishable from — but both paths
+            // resolve to the same `null` dispatch hint here, so collapsing them is correct.
             val dispatchProfile =
-                try {
+                omitOnConfigUnavailable(logger, "dispatch profile", itemId) {
                     context.resolveDispatchProfile(item, targetRole, resolvedSchema)
-                } catch (e: PerRootConfigUnavailableException) {
-                    logger.warn(
-                        "Per-root config unavailable resolving dispatch profile for item {}; " +
-                            "omitting dispatch hint from an already-applied transition: {}",
-                        itemId,
-                        e.message
-                    )
-                    null
                 }
 
             if (resolvedSchema == null) {

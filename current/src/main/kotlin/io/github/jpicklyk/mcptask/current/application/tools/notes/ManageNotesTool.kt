@@ -419,6 +419,19 @@ field naming the limit and actual size; `mode: reject` fails that note with `cod
                         put("error", JsonPrimitive(e.message ?: "Validation failed"))
                     }
                 )
+            } catch (e: PerRootConfigUnavailableException) {
+                // D10: a per-root config read failure resolving THIS note's schema (maxLength) or
+                // note-limits mode fails only this note — mirroring the per-transition transient
+                // outcome AdvanceItemTool emits for the same exception (D5). Nothing is stored for
+                // this note; the other notes in the batch proceed.
+                failures.add(
+                    buildJsonObject {
+                        put("index", JsonPrimitive(index))
+                        put("error", JsonPrimitive(e.message))
+                        put("errorKind", JsonPrimitive("transient"))
+                        put("errorCode", JsonPrimitive(PerRootConfigUnavailableException.CODE))
+                    }
+                )
             } catch (e: Exception) {
                 failures.add(
                     buildJsonObject {
@@ -447,18 +460,16 @@ field naming the limit and actual size; `mode: reject` fails that note with `cod
                     // resolving this response-only `itemContext` decoration must never be reported
                     // as a failure of the already-committed upsert(s). The entry for this itemId is
                     // simply omitted and a WARN is logged.
+                    // resolveSchema legitimately returns null (no matching schema) as a normal
+                    // outcome, distinct from the config-unavailable case below — the call is boxed
+                    // in a non-null Result so `?: continue` only fires on the exception, not on an
+                    // ordinary null schema.
                     val resolvedSchema =
-                        try {
-                            context.resolveSchema(item)
-                        } catch (e: PerRootConfigUnavailableException) {
-                            logger.warn(
-                                "Per-root config unavailable resolving itemContext for item {}; " +
-                                    "omitting its itemContext entry from an already-committed upsert: {}",
-                                itemId,
-                                e.message
-                            )
-                            continue
-                        }
+                        (
+                            omitOnConfigUnavailable(logger, "itemContext", itemId) {
+                                kotlin.Result.success(context.resolveSchema(item))
+                            } ?: continue
+                        ).getOrThrow()
                     val allNotes =
                         when (val nr = noteRepo.findByItemId(itemId)) {
                             is Result.Success -> nr.data

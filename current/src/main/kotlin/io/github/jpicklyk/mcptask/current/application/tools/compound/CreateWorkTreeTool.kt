@@ -917,16 +917,8 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
         // of the already-committed create. schemaMatch/expectedNotes are simply omitted and a WARN
         // is logged.
         val rootSchemaFields =
-            try {
+            omitOnConfigUnavailable(logger, "schema", rootResultItem.id) {
                 buildSchemaResponseFields(context.resolveSchema(rootResultItem))
-            } catch (e: PerRootConfigUnavailableException) {
-                logger.warn(
-                    "Per-root config unavailable resolving schema for root item {}; omitting " +
-                        "schemaMatch/expectedNotes from an already-created tree: {}",
-                    rootResultItem.id,
-                    e.message
-                )
-                null
             }
         val rootJson =
             buildJsonObject {
@@ -949,16 +941,8 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
                 childItems.map { item ->
                     val ref = idToRef[item.id] ?: "unknown"
                     val childSchemaFields =
-                        try {
+                        omitOnConfigUnavailable(logger, "schema", item.id) {
                             buildSchemaResponseFields(context.resolveSchema(item))
-                        } catch (e: PerRootConfigUnavailableException) {
-                            logger.warn(
-                                "Per-root config unavailable resolving schema for created item {}; " +
-                                    "omitting schemaMatch/expectedNotes from an already-created tree: {}",
-                                item.id,
-                                e.message
-                            )
-                            null
                         }
                     buildJsonObject {
                         put("ref", JsonPrimitive(ref))

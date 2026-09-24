@@ -1007,7 +1007,7 @@ fun Route.itemWriteRoutes(
                     writeLogger.warn("Per-root config unavailable advancing item {}: {}", id, e.message)
                     call.respond(
                         HttpStatusCode.ServiceUnavailable,
-                        ErrorDto("config_unavailable", e.message ?: "Per-root config unavailable for root ${e.rootId}"),
+                        ErrorDto(PerRootConfigUnavailableException.CODE, e.message),
                     )
                     return@post
                 }

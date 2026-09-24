@@ -624,7 +624,7 @@ fun Route.itemGateRoutes(
                 } catch (e: PerRootConfigUnavailableException) {
                     call.respond(
                         HttpStatusCode.ServiceUnavailable,
-                        ErrorDto("config_unavailable", e.message ?: "Per-root config unavailable for root ${e.rootId}"),
+                        ErrorDto(PerRootConfigUnavailableException.CODE, e.message),
                     )
                     return@get
                 }

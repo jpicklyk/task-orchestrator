@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
+import io.github.jpicklyk.mcptask.current.domain.model.ToolError
 import io.modelcontextprotocol.kotlin.sdk.server.Server
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
 import io.modelcontextprotocol.kotlin.sdk.types.LoggingLevel
@@ -15,7 +16,6 @@ import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonObject
 import org.slf4j.LoggerFactory
 
 /**
@@ -143,20 +143,18 @@ class McpToolAdapter {
                 } catch (_: Exception) {
                 }
                 logResponseSize(toolDefinition.name, success = false, responseChars = message.length)
+                // Reuse the same ToolError -> envelope -> structured-payload pipeline normal tool
+                // failures use below, rather than hand-building the {kind, code, message} object —
+                // the wire shape (isError, structuredContent.error.{kind,code,message}, no
+                // retryAfterMs) stays identical.
+                val errorEnvelope =
+                    ResponseUtil.createErrorResponse(
+                        ToolError.transient(code = PerRootConfigUnavailableException.CODE, message = message)
+                    )
                 CallToolResult(
                     content = listOf(TextContent(text = message)),
                     isError = true,
-                    structuredContent =
-                        buildJsonObject {
-                            put(
-                                "error",
-                                buildJsonObject {
-                                    put("kind", JsonPrimitive("transient"))
-                                    put("code", JsonPrimitive("config_unavailable"))
-                                    put("message", JsonPrimitive(message))
-                                }
-                            )
-                        }
+                    structuredContent = ResponseUtil.extractErrorPayload(errorEnvelope)
                 )
             } catch (e: Exception) {
                 val message = "Internal error in '${toolDefinition.name}' (session ${clientConnection.sessionId}): ${e.message}"

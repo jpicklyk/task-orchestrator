@@ -765,10 +765,9 @@ Call when closing out a finished hierarchy — one atomic call instead of per-it
             put("itemId", JsonPrimitive(item.id.toString()))
             put("title", JsonPrimitive(item.title))
             put("applied", JsonPrimitive(false))
-            val message = exception.message ?: "Per-root config unavailable for root ${exception.rootId}"
-            putSkipped(message)
+            putSkipped(exception.message)
             put("errorKind", JsonPrimitive(ErrorKind.TRANSIENT.toJsonString()))
-            put("errorCode", JsonPrimitive("config_unavailable"))
+            put("errorCode", JsonPrimitive(PerRootConfigUnavailableException.CODE))
         }
 
     /** The legacy non-gate rejection shape: `skipped` + `skippedReason`, plus a plain `error`. */
