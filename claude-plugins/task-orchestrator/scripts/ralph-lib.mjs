@@ -278,8 +278,8 @@ export const MAX_IDLE_BACKOFF_MS = 300_000;
  * "idle") outcome: sleep and retry, or give up after too many consecutive idles.
  *
  * `retryAfterMs` comes from the claim response and is clamped to
- * `[MIN_IDLE_BACKOFF_MS, MAX_IDLE_BACKOFF_MS]`; a missing, non-numeric, `NaN`, or negative value
- * falls back to `DEFAULT_IDLE_BACKOFF_MS` before clamping. `idleBudget` is the
+ * `[MIN_IDLE_BACKOFF_MS, MAX_IDLE_BACKOFF_MS]`; a missing, non-numeric, non-finite (`NaN`/`±Infinity`),
+ * or negative value falls back to `DEFAULT_IDLE_BACKOFF_MS` before clamping. `idleBudget` is the
  * `--idle-budget` count of consecutive idles the loop tolerates before exiting — reaching it
  * (`consecutiveIdle >= idleBudget`, checked BEFORE computing a wait) exits immediately with
  * `waitMs: 0`, including on the very first idle when `idleBudget` is 0.
@@ -290,7 +290,7 @@ export function decideIdleBackoff({ retryAfterMs, consecutiveIdle, idleBudget })
     }
 
     let waitMs = retryAfterMs;
-    if (typeof waitMs !== "number" || Number.isNaN(waitMs) || waitMs < 0) {
+    if (typeof waitMs !== "number" || !Number.isFinite(waitMs) || waitMs < 0) {
         waitMs = DEFAULT_IDLE_BACKOFF_MS;
     }
     waitMs = Math.min(MAX_IDLE_BACKOFF_MS, Math.max(MIN_IDLE_BACKOFF_MS, waitMs));
