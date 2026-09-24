@@ -464,4 +464,193 @@ class GlobalConfigFailClosedTest {
     // handling, are N/A here -- configPath is an operator-supplied Path (AGENT_CONFIG_DIR), never
     // parsed from untrusted request input, so there is no attacker-controlled path-encoding surface
     // to probe. Recorded in test-manifest per the probe catalog's N/A convention.
+
+    // -------------------------------------------------------------------------
+    // Amendment D8 (post-review, orchestrator-frozen before implementation) -- a present non-null
+    // `type: jwks` verifier field of the wrong YAML type throws IAE naming that field's key.
+    // Oracle source: diagnosis D8a only, never this file's own reading of the fixed source. Each
+    // fixture below is otherwise valid (single key source where applicable, non-empty algorithms)
+    // so only the field under test is invalid -- EXISTING-SURFACE, no revert needed since the
+    // wrong-type check applies to already-public Jwks fields.
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun `S17 audience as a list throws IAE naming audience`() {
+        val file =
+            writeConfig(
+                "s17-audience-list",
+                """
+                actor_authentication:
+                  verifier:
+                    type: jwks
+                    jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
+                    algorithms:
+                      - RS256
+                    audience:
+                      - a
+                      - b
+                """.trimIndent()
+            )
+        val ex = assertFailsWith<IllegalArgumentException> { YamlActorAuthenticationConfigService(file).getConfig() }
+        assertTrue(ex.message?.contains("audience") == true, "Expected 'audience' in: ${ex.message}")
+    }
+
+    @Test
+    fun `S18 issuer as a number throws IAE naming issuer`() {
+        val file =
+            writeConfig(
+                "s18-issuer-number",
+                """
+                actor_authentication:
+                  verifier:
+                    type: jwks
+                    jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
+                    algorithms:
+                      - RS256
+                    issuer: 42
+                """.trimIndent()
+            )
+        val ex = assertFailsWith<IllegalArgumentException> { YamlActorAuthenticationConfigService(file).getConfig() }
+        assertTrue(ex.message?.contains("issuer") == true, "Expected 'issuer' in: ${ex.message}")
+    }
+
+    @Test
+    fun `S18 jwks_uri as a list throws IAE naming jwks_uri`() {
+        val file =
+            writeConfig(
+                "s18-jwks-uri-list",
+                """
+                actor_authentication:
+                  verifier:
+                    type: jwks
+                    jwks_uri:
+                      - x
+                    algorithms:
+                      - RS256
+                """.trimIndent()
+            )
+        val ex = assertFailsWith<IllegalArgumentException> { YamlActorAuthenticationConfigService(file).getConfig() }
+        assertTrue(ex.message?.contains("jwks_uri") == true, "Expected 'jwks_uri' in: ${ex.message}")
+    }
+
+    @Test
+    fun `S19 algorithms with a non-string element throws IAE naming algorithms`() {
+        val file =
+            writeConfig(
+                "s19-algorithms-non-string",
+                """
+                actor_authentication:
+                  verifier:
+                    type: jwks
+                    jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
+                    algorithms:
+                      - RS256
+                      - 7
+                """.trimIndent()
+            )
+        val ex = assertFailsWith<IllegalArgumentException> { YamlActorAuthenticationConfigService(file).getConfig() }
+        assertTrue(ex.message?.contains("algorithms") == true, "Expected 'algorithms' in: ${ex.message}")
+    }
+
+    @Test
+    fun `S19 did_allowlist with a non-string element throws IAE naming did_allowlist`() {
+        val file =
+            writeConfig(
+                "s19-did-allowlist-non-string",
+                """
+                actor_authentication:
+                  verifier:
+                    type: jwks
+                    did_allowlist:
+                      - "did:web:a.example.com"
+                      - x: 1
+                    algorithms:
+                      - EdDSA
+                """.trimIndent()
+            )
+        val ex = assertFailsWith<IllegalArgumentException> { YamlActorAuthenticationConfigService(file).getConfig() }
+        assertTrue(ex.message?.contains("did_allowlist") == true, "Expected 'did_allowlist' in: ${ex.message}")
+    }
+
+    @Test
+    fun `S19 require_sub_match as a string throws IAE naming require_sub_match`() {
+        val file =
+            writeConfig(
+                "s19-require-sub-match-string",
+                """
+                actor_authentication:
+                  verifier:
+                    type: jwks
+                    jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
+                    algorithms:
+                      - RS256
+                    require_sub_match: "yes"
+                """.trimIndent()
+            )
+        val ex = assertFailsWith<IllegalArgumentException> { YamlActorAuthenticationConfigService(file).getConfig() }
+        assertTrue(
+            ex.message?.contains("require_sub_match") == true,
+            "Expected 'require_sub_match' in: ${ex.message}"
+        )
+    }
+
+    @Test
+    fun `S19 cache_ttl_seconds as a string throws IAE naming cache_ttl_seconds`() {
+        val file =
+            writeConfig(
+                "s19-cache-ttl-seconds-string",
+                """
+                actor_authentication:
+                  verifier:
+                    type: jwks
+                    jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
+                    algorithms:
+                      - RS256
+                    cache_ttl_seconds: "300"
+                """.trimIndent()
+            )
+        val ex = assertFailsWith<IllegalArgumentException> { YamlActorAuthenticationConfigService(file).getConfig() }
+        assertTrue(
+            ex.message?.contains("cache_ttl_seconds") == true,
+            "Expected 'cache_ttl_seconds' in: ${ex.message}"
+        )
+    }
+
+    // -------------------------------------------------------------------------
+    // S20 (guard) -- explicit YAML null for every D8a-checked field is "absent", not "wrong type",
+    // and must NOT throw; the resulting Jwks carries the documented coded defaults.
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun `S20 explicit null for every D8a wrong-type-checked field keeps documented defaults`() {
+        val file =
+            writeConfig(
+                "s20-explicit-nulls",
+                """
+                actor_authentication:
+                  verifier:
+                    type: jwks
+                    jwks_uri: "https://accounts.example.com/.well-known/jwks.json"
+                    algorithms:
+                      - RS256
+                    issuer: null
+                    audience: null
+                    cache_ttl_seconds: null
+                    require_sub_match: null
+                    stale_on_error: null
+                    did_strict_relationship: null
+                    did_loose_kid_match: null
+                """.trimIndent()
+            )
+        val verifier = YamlActorAuthenticationConfigService(file).getConfig().verifier
+        assertTrue(verifier is VerifierConfig.Jwks, "expected a Jwks verifier, got: $verifier")
+        verifier as VerifierConfig.Jwks
+        assertNull(verifier.issuer, "issuer should default to null")
+        assertNull(verifier.audience, "audience should default to null")
+        assertEquals(300L, verifier.cacheTtlSeconds, "cache_ttl_seconds should default to 300")
+        assertTrue(verifier.requireSubMatch, "require_sub_match should default to true")
+        assertTrue(verifier.staleOnError, "stale_on_error should default to true")
+        assertTrue(verifier.didStrictRelationship, "did_strict_relationship should default to true")
+        assertTrue(verifier.didLooseKidMatch, "did_loose_kid_match should default to true")
+    }
 }
