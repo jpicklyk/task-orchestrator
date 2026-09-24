@@ -2515,7 +2515,7 @@ Use `DEGRADED_MODE_POLICY=reject` for cross-org or multi-tenant fleet deployment
 
 ### JWKS Key Sources
 
-`oidc_discovery`, `jwks_uri`, and `jwks_path` can be used alone or combined. URI-sourced keys and file-sourced keys are merged into a single key set. When both `oidc_discovery` and explicit `jwks_uri`/`issuer` are set, the explicit values override the OIDC-discovered values.
+Configure exactly one of `oidc_discovery`, `jwks_uri`, or `jwks_path`; more than one fails startup. An explicit `issuer` overrides the issuer found by OIDC discovery.
 
 | Field | Description |
 |---|---|

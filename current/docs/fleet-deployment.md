@@ -502,15 +502,14 @@ When `algorithms` is configured (non-empty), only listed algorithms are accepted
 
 ### JWKS Sources
 
-The provider supports three sources, merged when multiple are configured:
+The provider supports three sources; configure exactly one (more than one fails startup):
 
 - `oidc_discovery` — fetches the discovery document, extracts `jwks_uri` (and `issuer`, unless explicitly configured)
-- `jwks_uri` — fetched directly; explicit value overrides any OIDC-discovered URI
+- `jwks_uri` — fetched directly
 - `jwks_path` — local file, resolved relative to `AGENT_CONFIG_DIR` or `user.dir`
 
-Keys from URI and path sources are merged into a single key set used for signature verification.
 
-**`oidc_discovery` and `jwks_uri` must use `https`.** A configured `oidc_discovery` or `jwks_uri` value, and a `jwks_uri` discovered from an OIDC discovery document, are all validated at load time (or, for the discovered value, at fetch time): `https` is always accepted, and plaintext `http` is accepted only when `allow_insecure_url: true` is also set AND the URL's host is a literal loopback address (`localhost`, `127.x.x.x`, `::1` — no DNS resolution, so a host that merely resolves to loopback is still rejected). Any other case — `http` without the opt-in, `http` to a non-loopback host, or a non-http(s) scheme (`file`, `ftp`, ...) — fails startup with an `IllegalArgumentException` naming the offending config key. `jwks_path` (a local file) and `did:web` DID-trust mode are unaffected — this rule only governs sources fetched over the network. This mirrors the REST API's `API_JWKS_URL` / `API_JWKS_ALLOW_INSECURE_URL` contract (see the `degradedModePolicy` and REST API section above), but the actor-authentication key is `allow_insecure_url` under `actor_authentication.verifier:`, not an environment variable.
+**`oidc_discovery` and `jwks_uri` must use `https`.** A configured `oidc_discovery` or `jwks_uri` value, and a `jwks_uri` discovered from an OIDC discovery document, are all validated at load time (or, for the discovered value, at fetch time): `https` is always accepted, and plaintext `http` is accepted only when `allow_insecure_url: true` is also set AND the URL's host is a literal loopback address (`localhost`, `127.x.x.x`, `::1` — no DNS resolution, so a host that merely resolves to loopback is still rejected). Any other case — `http` without the opt-in, `http` to a non-loopback host, or a non-http(s) scheme (`file`, `ftp`, ...) — fails startup with an `IllegalArgumentException` naming the offending config key; a discovered `jwks_uri` that breaks the rule is refused at fetch time instead (no keys are fetched, and verification reports `UNAVAILABLE`). `jwks_path` (a local file) and `did:web` DID-trust mode are unaffected — this rule only governs sources fetched over the network. This mirrors the REST API's `API_JWKS_URL` / `API_JWKS_ALLOW_INSECURE_URL` contract (see the `API_JWKS_URL` row in the REST API environment-variable table above), but the actor-authentication key is `allow_insecure_url` under `actor_authentication.verifier:`, not an environment variable.
 
 ```yaml
 actor_authentication:
