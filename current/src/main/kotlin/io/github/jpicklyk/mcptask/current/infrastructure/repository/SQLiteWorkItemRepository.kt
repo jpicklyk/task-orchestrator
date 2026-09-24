@@ -10,6 +10,7 @@ import io.github.jpicklyk.mcptask.current.domain.repository.ClaimResult
 import io.github.jpicklyk.mcptask.current.domain.repository.ClaimStatusCounts
 import io.github.jpicklyk.mcptask.current.domain.repository.FTS_CANDIDATE_ROWS
 import io.github.jpicklyk.mcptask.current.domain.repository.ItemFetchResult
+import io.github.jpicklyk.mcptask.current.domain.repository.ItemSortFields
 import io.github.jpicklyk.mcptask.current.domain.repository.MAX_FTS_RESULTS
 import io.github.jpicklyk.mcptask.current.domain.repository.MAX_TRAVERSAL_DEPTH
 import io.github.jpicklyk.mcptask.current.domain.repository.ReleaseResult
@@ -339,6 +340,62 @@ class SQLiteWorkItemRepository(
             Result.Success(items)
         }
 
+    /**
+     * Applies the shared sortBy/sortOrder mapping (AR-46) used by both [findByFilters] and
+     * [findInScope]: every value [ItemSortFields] advertises (`title`, `priority`, `complexity`,
+     * `createdAt`, `modifiedAt`) sorts by its own column, plus the legacy `created`/`modified`
+     * aliases. `priority` sorts by rank (high/medium/low), not the raw varchar column.
+     * `complexity` sorts with NULLs last regardless of direction. Unresolved/null [sortBy]
+     * falls back to `createdAt` (already validated at the tool/route boundary; this is
+     * defense-in-depth for direct repository callers). A secondary `id ASC` tiebreak makes
+     * pagination stable across ties on the primary sort key (offset/limit no longer risk
+     * skipping or repeating a row that shares a sort value with its neighbors).
+     */
+    private fun applySort(
+        query: Query,
+        sortBy: String?,
+        sortOrder: String?,
+    ): Query {
+        val order =
+            when (sortOrder?.lowercase()) {
+                "asc" -> SortOrder.ASC
+                "desc" -> SortOrder.DESC
+                else -> SortOrder.DESC
+            }
+        val canonical = sortBy?.let { ItemSortFields.canonicalField(it) } ?: ItemSortFields.CREATED_AT
+
+        return when (canonical) {
+            ItemSortFields.TITLE ->
+                query.orderBy(WorkItemsTable.title, order).orderBy(WorkItemsTable.id, SortOrder.ASC)
+            ItemSortFields.PRIORITY -> {
+                // Rank HIGH=0, MEDIUM=1, LOW=2. "desc" means high-first, i.e. rank ASCENDING;
+                // "asc" means low-first, i.e. rank DESCENDING — the inverse of the raw sortOrder.
+                val priorityRank =
+                    Case()
+                        .When(
+                            WorkItemsTable.priority eq Priority.HIGH.name.lowercase(),
+                            LiteralOp(IntegerColumnType(), 0),
+                        ).When(
+                            WorkItemsTable.priority eq Priority.MEDIUM.name.lowercase(),
+                            LiteralOp(IntegerColumnType(), 1),
+                        ).When(
+                            WorkItemsTable.priority eq Priority.LOW.name.lowercase(),
+                            LiteralOp(IntegerColumnType(), 2),
+                        ).Else(LiteralOp(IntegerColumnType(), 99))
+                val rankOrder = if (order == SortOrder.DESC) SortOrder.ASC else SortOrder.DESC
+                query.orderBy(priorityRank, rankOrder).orderBy(WorkItemsTable.id, SortOrder.ASC)
+            }
+            ItemSortFields.COMPLEXITY -> {
+                val complexityOrder = if (order == SortOrder.ASC) SortOrder.ASC_NULLS_LAST else SortOrder.DESC_NULLS_LAST
+                query.orderBy(WorkItemsTable.complexity, complexityOrder).orderBy(WorkItemsTable.id, SortOrder.ASC)
+            }
+            ItemSortFields.MODIFIED_AT ->
+                query.orderBy(WorkItemsTable.modifiedAt, order).orderBy(WorkItemsTable.id, SortOrder.ASC)
+            else ->
+                query.orderBy(WorkItemsTable.createdAt, order).orderBy(WorkItemsTable.id, SortOrder.ASC)
+        }
+    }
+
     override suspend fun findByFilters(
         parentId: UUID?,
         depth: Int?,
@@ -384,26 +441,10 @@ class SQLiteWorkItemRepository(
                     nowFromDb
                 )
 
-            // Determine sort column and order
-            val sortColumn =
-                when (sortBy?.lowercase()) {
-                    "created" -> WorkItemsTable.createdAt
-                    "modified" -> WorkItemsTable.modifiedAt
-                    "priority" -> WorkItemsTable.priority
-                    else -> WorkItemsTable.createdAt
-                }
-            val order =
-                when (sortOrder?.lowercase()) {
-                    "asc" -> SortOrder.ASC
-                    "desc" -> SortOrder.DESC
-                    else -> SortOrder.DESC
-                }
-
             // Fetch the raw rows first so a skipped count can be derived (rows.size - items.size)
             // rather than threading a mutable counter through mapNotNull.
             val rows =
-                baseQuery
-                    .orderBy(sortColumn, order)
+                applySort(baseQuery, sortBy, sortOrder)
                     .limit(limit)
                     .offset(offset.coerceAtLeast(0).toLong()) // No upper bound needed — absurd values safely return empty results
                     .toList()
@@ -1547,23 +1588,8 @@ class SQLiteWorkItemRepository(
                         nowFromDb,
                     )
 
-                val sortColumn =
-                    when (sortBy?.lowercase()) {
-                        "created" -> WorkItemsTable.createdAt
-                        "modified" -> WorkItemsTable.modifiedAt
-                        "priority" -> WorkItemsTable.priority
-                        else -> WorkItemsTable.createdAt
-                    }
-                val order =
-                    when (sortOrder?.lowercase()) {
-                        "asc" -> SortOrder.ASC
-                        "desc" -> SortOrder.DESC
-                        else -> SortOrder.DESC
-                    }
-
                 val items =
-                    base
-                        .orderBy(sortColumn, order)
+                    applySort(base, sortBy, sortOrder)
                         .limit(limit)
                         .offset(offset.coerceAtLeast(0).toLong())
                         .mapNotNull { toWorkItemOrNull(it) }

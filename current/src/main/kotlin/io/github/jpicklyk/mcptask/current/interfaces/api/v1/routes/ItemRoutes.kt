@@ -8,6 +8,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableE
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.domain.repository.ItemSortFields
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
@@ -118,6 +119,24 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
             val claimStatus = params["claimStatus"]?.takeIf { it.isNotBlank() }
             val orderBy = params["orderBy"]?.takeIf { it.isNotBlank() }
             val orderDir = params["orderDir"]?.takeIf { it.isNotBlank() }
+
+            // Validate against the same vocabulary the repository maps (ItemSortFields) so an
+            // unsupported value fails fast with a structured 400 instead of silently falling
+            // back to createdAt/desc (AR-46).
+            if (orderBy != null && ItemSortFields.canonicalField(orderBy) == null) {
+                call.respond(
+                    HttpStatusCode.BadRequest,
+                    ErrorDto("bad_request", "Invalid orderBy: $orderBy"),
+                )
+                return@get
+            }
+            if (orderDir != null && orderDir.lowercase() !in ItemSortFields.ORDERS) {
+                call.respond(
+                    HttpStatusCode.BadRequest,
+                    ErrorDto("bad_request", "Invalid orderDir: $orderDir"),
+                )
+                return@get
+            }
 
             val scopeRootIds = principal?.scope?.rootIds
 

@@ -839,8 +839,8 @@ Paginated list of work items with optional filters.
 | `createdAfter` | ISO-8601 | Created after this timestamp |
 | `createdBefore` | ISO-8601 | Created before this timestamp |
 | `claimStatus` | string | Filter by claim state: `claimed`, `unclaimed`, `expired` |
-| `orderBy` | string | Sort field |
-| `orderDir` | string | Sort direction: `asc`, `desc` |
+| `orderBy` | string | Sort field: `title`, `priority`, `complexity`, `createdAt`, `modifiedAt` (also accepts legacy `created`/`modified` aliases). Unknown value → `400 bad_request`. |
+| `orderDir` | string | Sort direction: `asc`, `desc` (default: `desc`). Unknown value → `400 bad_request`. |
 
 **Response:** `200 OK` → `PageDto<ItemDto>` (see §7 for `skipped` semantics; populated on the unscoped branch)
 

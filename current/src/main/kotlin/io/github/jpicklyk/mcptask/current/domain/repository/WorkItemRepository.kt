@@ -172,6 +172,16 @@ interface WorkItemRepository {
      *   - "claimed"   — items where `claimed_by IS NOT NULL AND claim_expires_at > now`
      *   - "unclaimed" — items where `claimed_by IS NULL`
      *   - "expired"   — items where `claimed_by IS NOT NULL AND claim_expires_at <= now`
+     * @param sortBy One of [ItemSortFields.FIELDS] (`title`, `priority`, `complexity`,
+     *   `createdAt`, `modifiedAt`), case-insensitive, plus the legacy `created`/`modified`
+     *   aliases; see [ItemSortFields.canonicalField]. `priority` sorts by rank
+     *   (high/medium/low), not the raw column. `complexity` sorts NULLs last regardless of
+     *   direction. Null or unresolved falls back to `createdAt`. Callers should validate
+     *   against [ItemSortFields] before calling so an invalid value surfaces as a client
+     *   error rather than silently falling back.
+     * @param sortOrder One of [ItemSortFields.ORDERS] (`asc`, `desc`); null or unresolved
+     *   defaults to `desc`. Every sort applies a secondary `id ASC` tiebreak for stable
+     *   pagination.
      */
     suspend fun findByFilters(
         parentId: UUID? = null,
@@ -490,6 +500,8 @@ interface WorkItemRepository {
      *
      * @param rootIds Set of item UUIDs whose full subtrees (inclusive) are included in scope.
      *   Must be non-empty; pass `emptySet()` only when you want an empty result.
+     * @param sortBy Same vocabulary and semantics as [findByFilters]'s `sortBy`.
+     * @param sortOrder Same vocabulary and semantics as [findByFilters]'s `sortOrder`.
      */
     suspend fun findInScope(
         rootIds: Set<UUID>,
