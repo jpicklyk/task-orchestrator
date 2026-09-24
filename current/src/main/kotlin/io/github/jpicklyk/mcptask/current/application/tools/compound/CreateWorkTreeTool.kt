@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.application.service.DocRefSpec
 import io.github.jpicklyk.mcptask.current.application.service.MarkdownSectionSplitter
 import io.github.jpicklyk.mcptask.current.application.service.TreeDepSpec
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeInput
+import io.github.jpicklyk.mcptask.current.application.service.WorkTreeResult
 import io.github.jpicklyk.mcptask.current.application.service.buildSchemaResponseFields
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.model.*
@@ -894,16 +895,64 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
                 docRef = docSlug?.let { slug -> DocRefSpec(rootItemId = docRootId!!, slug = slug, adoptingItemId = rootItem.id) }
             )
 
-        // ── 8. Execute atomically via WorkTreeExecutor ──────────────────────────
-        val treeResult =
-            try {
-                context.workTreeExecutor().execute(input)
-            } catch (e: Exception) {
-                return errorResponse(
-                    "Work tree creation failed: ${e.message}",
-                    ErrorCodes.INTERNAL_ERROR
-                )
+        // ── 8. Re-resolve the anchor's placement and execute atomically ────────
+        // Every item built above (steps 3-7) carries a depth/rootId computed from an EARLIER,
+        // now possibly-stale read of the anchor (parentId in create mode, or the fetched root in
+        // attach mode). Re-read the anchor via resolveChildPlacement INSIDE the same transaction
+        // as the write, and shift every new item's depth by the resulting delta and set every
+        // item's rootId to the freshly resolved value, so a concurrent reparent/delete of the
+        // anchor between step 3 and this write cannot leave the new tree stamped with stale
+        // placement (AR-19). Root-level create (no parentId, not attach mode) has no anchor to
+        // re-read — the new tree's own root is unaffected by any concurrent write.
+        val anchorId = if (isAttachMode) rootItem.id else parentId
+        val workItemRepo = context.workItemRepository()
+        var treeResultVar: WorkTreeResult? = null
+        var anchorNotFoundMessage: String? = null
+
+        try {
+            workItemRepo.inTransaction {
+                var finalInput = input
+                if (anchorId != null) {
+                    when (val placementResult = workItemRepo.resolveChildPlacement(anchorId)) {
+                        is Result.Success -> {
+                            val placement = placementResult.data
+                            // The base depth each item's chain was originally built from: for a
+                            // new root (create mode) that is the root's own depth; for attach
+                            // mode (root not re-inserted) that is the depth its DIRECT children
+                            // were built with, i.e. the root's stale depth + 1 — exactly what
+                            // resolveChildPlacement(rootItem.id) recomputes fresh as placement.depth.
+                            val staleBaseDepth = if (isAttachMode) rootItem.depth + 1 else rootItem.depth
+                            val delta = placement.depth - staleBaseDepth
+                            val restampedItems =
+                                orderedItems.map { item ->
+                                    item.copy(depth = item.depth + delta, rootId = placement.rootId)
+                                }
+                            finalInput = input.copy(items = restampedItems)
+                        }
+                        is Result.Error -> {
+                            anchorNotFoundMessage =
+                                if (isAttachMode) {
+                                    "Root item '$rootIdStr' not found: ${placementResult.error.message}"
+                                } else {
+                                    "Parent item '$parentId' not found: ${placementResult.error.message}"
+                                }
+                            return@inTransaction
+                        }
+                    }
+                }
+                treeResultVar = context.workTreeExecutor().execute(finalInput)
             }
+        } catch (e: Exception) {
+            return errorResponse(
+                "Work tree creation failed: ${e.message}",
+                ErrorCodes.INTERNAL_ERROR
+            )
+        }
+
+        if (anchorNotFoundMessage != null) {
+            return errorResponse(anchorNotFoundMessage!!, ErrorCodes.RESOURCE_NOT_FOUND)
+        }
+        val treeResult = treeResultVar!!
 
         // ── 9. Build response ──────────────────────────────────────────────────
         // Build ref-to-result-item map for note lookup

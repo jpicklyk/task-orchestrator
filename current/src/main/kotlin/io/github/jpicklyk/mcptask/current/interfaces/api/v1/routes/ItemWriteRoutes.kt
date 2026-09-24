@@ -325,33 +325,6 @@ fun Route.itemWriteRoutes(
                 // root-create scope check below needs the exact CSV that will be persisted.
                 val tagsStr = dto.tags?.joinToString(",")?.takeIf { it.isNotBlank() }
 
-                val depth: Int
-                val rootId: UUID
-                if (parentId != null) {
-                    val parentResult = workItemRepo.getById(parentId)
-                    if (parentResult is Result.Error) {
-                        return errorCaptured(HttpStatusCode.BadRequest, "not_found", "Parent item $parentId not found")
-                    }
-                    if (!enforceScopeForItem(call, parentId, workItemRepo)) {
-                        return errorCaptured(HttpStatusCode.Forbidden, "scope_forbidden", "Access denied for parent $parentId")
-                    }
-                    val parentData = (parentResult as Result.Success).data
-                    depth = parentData.depth + 1
-                    // Inherit the parent's root (or the parent's own id, if the parent predates
-                    // the root_id backfill and has no rootId yet).
-                    rootId = parentData.rootId ?: parentData.id
-                } else {
-                    // A root-level create has no parent to anchor the scope check on: the new item
-                    // is its own anchor. rootIds-wise it can never be in scope (see mayHoldRoot);
-                    // tag-wise the tags it is created WITH must satisfy the principal's tag scope,
-                    // mirroring the parent-tag check taken above for a non-root create.
-                    if (!principal.mayHoldRoot(itemId) || !principal.allowsItemTags(tagsStr)) {
-                        return errorCaptured(HttpStatusCode.Forbidden, "scope_forbidden", "Access denied to create a root item")
-                    }
-                    depth = 0
-                    rootId = itemId
-                }
-
                 val priority =
                     dto.priority?.let { pStr ->
                         Priority.entries.find { it.name.equals(pStr, ignoreCase = true) }
@@ -360,30 +333,86 @@ fun Route.itemWriteRoutes(
 
                 val propertiesStr = dto.properties?.toString()
 
-                val item =
-                    try {
-                        WorkItem(
-                            id = itemId,
-                            title = dto.title,
-                            description = dto.description,
-                            summary = dto.summary ?: "",
-                            parentId = parentId,
-                            rootId = rootId,
-                            depth = depth,
-                            type = dto.type,
-                            priority = priority,
-                            complexity = dto.complexity,
-                            requiresVerification = dto.requiresVerification ?: false,
-                            tags = tagsStr,
-                            statusLabel = dto.statusLabel,
-                            properties = propertiesStr,
-                            metadata = dto.metadata,
-                        )
-                    } catch (e: Exception) {
-                        return errorCaptured(HttpStatusCode.BadRequest, "validation_error", e.message ?: "Validation failed")
+                fun buildItem(
+                    depth: Int,
+                    rootId: UUID
+                ): WorkItem =
+                    WorkItem(
+                        id = itemId,
+                        title = dto.title,
+                        description = dto.description,
+                        summary = dto.summary ?: "",
+                        parentId = parentId,
+                        rootId = rootId,
+                        depth = depth,
+                        type = dto.type,
+                        priority = priority,
+                        complexity = dto.complexity,
+                        requiresVerification = dto.requiresVerification ?: false,
+                        tags = tagsStr,
+                        statusLabel = dto.statusLabel,
+                        properties = propertiesStr,
+                        metadata = dto.metadata,
+                    )
+
+                // depth/rootId are resolved from the CURRENT parent state INSIDE the same
+                // transaction as the insert (via resolveChildPlacement) so a concurrent
+                // reparent/delete of the parent between the pre-checks above and this write
+                // cannot leave the new item stamped with stale placement (AR-19).
+                var createResult: Result<WorkItem>? = null
+                var notFoundMessage: String? = null
+                var validationMessage: String? = null
+                if (parentId != null) {
+                    val parentResult = workItemRepo.getById(parentId)
+                    if (parentResult is Result.Error) {
+                        return errorCaptured(HttpStatusCode.BadRequest, "not_found", "Parent item $parentId not found")
+                    }
+                    if (!enforceScopeForItem(call, parentId, workItemRepo)) {
+                        return errorCaptured(HttpStatusCode.Forbidden, "scope_forbidden", "Access denied for parent $parentId")
                     }
 
-                return when (val result = workItemRepo.create(item)) {
+                    workItemRepo.inTransaction {
+                        when (val placementResult = workItemRepo.resolveChildPlacement(parentId)) {
+                            is Result.Success -> {
+                                val placement = placementResult.data
+                                val item =
+                                    try {
+                                        buildItem(placement.depth, placement.rootId)
+                                    } catch (e: Exception) {
+                                        validationMessage = e.message ?: "Validation failed"
+                                        return@inTransaction
+                                    }
+                                createResult = workItemRepo.create(item)
+                            }
+                            is Result.Error -> {
+                                notFoundMessage = "Parent item $parentId not found"
+                            }
+                        }
+                    }
+                    if (notFoundMessage != null) {
+                        return errorCaptured(HttpStatusCode.BadRequest, "not_found", notFoundMessage!!)
+                    }
+                    if (validationMessage != null) {
+                        return errorCaptured(HttpStatusCode.BadRequest, "validation_error", validationMessage!!)
+                    }
+                } else {
+                    // A root-level create has no parent to anchor the scope check on: the new item
+                    // is its own anchor. rootIds-wise it can never be in scope (see mayHoldRoot);
+                    // tag-wise the tags it is created WITH must satisfy the principal's tag scope,
+                    // mirroring the parent-tag check taken above for a non-root create.
+                    if (!principal.mayHoldRoot(itemId) || !principal.allowsItemTags(tagsStr)) {
+                        return errorCaptured(HttpStatusCode.Forbidden, "scope_forbidden", "Access denied to create a root item")
+                    }
+                    val item =
+                        try {
+                            buildItem(0, itemId)
+                        } catch (e: Exception) {
+                            return errorCaptured(HttpStatusCode.BadRequest, "validation_error", e.message ?: "Validation failed")
+                        }
+                    createResult = workItemRepo.create(item)
+                }
+
+                return when (val result = createResult!!) {
                     is Result.Error -> {
                         writeLogger.warn("POST /items DB error: {}", result.error.message)
                         errorCaptured(HttpStatusCode.InternalServerError, "db_error", "Failed to create item")
@@ -549,130 +578,153 @@ fun Route.itemWriteRoutes(
                     } ?: existing.priority
 
                 // parentId: patchDto.parentId is the FINAL parent (null = move to root). Depth is
-                // server-owned: recompute only when the resolved parent actually changes.
+                // server-owned and, when the parent actually changes, is resolved fresh INSIDE the
+                // write transaction below (via resolveChildPlacement) rather than from a pre-write
+                // read here — a concurrent reparent/delete of the new parent between a pre-write
+                // read and this write would otherwise leave this item stamped with stale placement
+                // (AR-19).
                 val newParentId =
                     patchDto.parentId?.let { pid ->
                         runCatching { UUID.fromString(pid) }.getOrNull()
                             ?: return errorCaptured(HttpStatusCode.BadRequest, "validation_error", "Invalid parentId UUID: $pid")
                     }
+                val parentChanged = newParentId != existing.parentId
 
-                val newDepth: Int
-                val newRootId: UUID?
-                if (newParentId == existing.parentId) {
-                    newDepth = existing.depth
-                    newRootId = existing.rootId
-                } else if (newParentId == null) {
-                    // Move to root — the item becomes its own root. After the move its chain is
-                    // just {id}, so a rootIds-restricted principal stays in scope iff id itself is
-                    // one of the listed roots (not an escape when it is: such a principal may
-                    // already DELETE the item). The tag half was enforced above via
-                    // enforceScopeForItem(call, id, ...) on the item's pre-patch tags.
-                    if (!principal.mayHoldRoot(id)) {
-                        return errorCaptured(HttpStatusCode.Forbidden, "scope_forbidden", "Access denied to move item $id to root")
-                    }
-                    newDepth = 0
-                    newRootId = id
-                } else {
-                    val parentResult = workItemRepo.getById(newParentId)
-                    if (parentResult is Result.Error) {
-                        return errorCaptured(HttpStatusCode.BadRequest, "not_found", "Parent item $newParentId not found")
-                    }
-                    // A re-parent target is the same authorization object as a create-time parent,
-                    // so it gets the same check the POST /items path applies — otherwise PATCH is a
-                    // way to move items under a parent the caller is not scoped to. Ordered after
-                    // the existence check so a bogus UUID still reports not_found, not 403.
-                    if (!enforceScopeForItem(call, newParentId, workItemRepo)) {
-                        return errorCaptured(HttpStatusCode.Forbidden, "scope_forbidden", "Access denied for parent $newParentId")
-                    }
-                    val parentData = (parentResult as Result.Success).data
+                // Guard/authorization checks that do not need to be co-transactional with the
+                // placement read: existence, scope, self-parent, and ancestor-cycle. A parent that
+                // passes these but is reparented/deleted before the transaction below runs simply
+                // fails resolveChildPlacement there (surfaced as the same not_found error).
+                if (parentChanged) {
+                    if (newParentId == null) {
+                        // Move to root — the item becomes its own root. After the move its chain is
+                        // just {id}, so a rootIds-restricted principal stays in scope iff id itself is
+                        // one of the listed roots (not an escape when it is: such a principal may
+                        // already DELETE the item). The tag half was enforced above via
+                        // enforceScopeForItem(call, id, ...) on the item's pre-patch tags.
+                        if (!principal.mayHoldRoot(id)) {
+                            return errorCaptured(HttpStatusCode.Forbidden, "scope_forbidden", "Access denied to move item $id to root")
+                        }
+                    } else {
+                        val parentResult = workItemRepo.getById(newParentId)
+                        if (parentResult is Result.Error) {
+                            return errorCaptured(HttpStatusCode.BadRequest, "not_found", "Parent item $newParentId not found")
+                        }
+                        // A re-parent target is the same authorization object as a create-time parent,
+                        // so it gets the same check the POST /items path applies — otherwise PATCH is a
+                        // way to move items under a parent the caller is not scoped to. Ordered after
+                        // the existence check so a bogus UUID still reports not_found, not 403.
+                        if (!enforceScopeForItem(call, newParentId, workItemRepo)) {
+                            return errorCaptured(HttpStatusCode.Forbidden, "scope_forbidden", "Access denied for parent $newParentId")
+                        }
 
-                    // Cycle guard. Re-parenting an item onto itself, or onto one of its own
-                    // descendants, makes the hierarchy cyclic — and the descendant depth/rootId
-                    // cascade further down then walks that cycle forever, so the request hangs
-                    // instead of failing. Reject both as client errors BEFORE any write. Ordered
-                    // after the existence and scope checks so not_found / scope_forbidden
-                    // precedence is unchanged.
-                    if (newParentId == id) {
-                        return errorCaptured(HttpStatusCode.BadRequest, "validation_error", "An item cannot be its own parent")
-                    }
-                    // Walk the proposed parent's full ancestor chain: if this item appears in it,
-                    // the proposed parent lives inside this item's own subtree. Delegated to
-                    // findAncestorChains rather than a manual getById walk — it carries its own
-                    // visited set (so it is unbounded by, and unaffected by, this row's own
-                    // possibly-stale `depth` column) and is one batched query instead of N
-                    // sequential round-trips. On a lookup failure, fail CLOSED: a transient DB
-                    // error must not be treated as "not an ancestor" and let a cyclic re-parent
-                    // through into the depth cascade below, which cannot handle a cycle.
-                    val ancestorChainResult = workItemRepo.findAncestorChains(setOf(newParentId))
-                    if (ancestorChainResult is Result.Error) {
-                        writeLogger.warn(
-                            "PATCH /items/{} ancestor-chain lookup failed for proposed parent {}: {}",
-                            id,
-                            newParentId,
-                            ancestorChainResult.error.message,
-                        )
-                        return errorCaptured(HttpStatusCode.InternalServerError, "db_error", "Failed to update item")
-                    }
-                    val ancestorChain = (ancestorChainResult as Result.Success).data[newParentId] ?: emptyList()
-                    if (ancestorChain.any { it.id == id }) {
-                        return errorCaptured(
-                            HttpStatusCode.BadRequest,
-                            "validation_error",
-                            "Cannot re-parent an item under its own descendant",
-                        )
-                    }
-
-                    newDepth = parentData.depth + 1
-                    // Inherit the new parent's root (or the parent's own id, if the parent
-                    // predates the root_id backfill and has no rootId yet).
-                    newRootId = parentData.rootId ?: parentData.id
-                }
-
-                val updated =
-                    try {
-                        existing.update { item ->
-                            item.copy(
-                                title = patchDto.title ?: item.title,
-                                description = patchDto.description,
-                                summary = patchDto.summary ?: item.summary,
-                                statusLabel = patchDto.statusLabel,
-                                priority = newPriority,
-                                complexity = patchDto.complexity,
-                                requiresVerification = patchDto.requiresVerification ?: item.requiresVerification,
-                                tags = patchDto.tags,
-                                type = patchDto.type,
-                                properties = patchDto.properties,
-                                metadata = patchDto.metadata,
-                                parentId = newParentId,
-                                rootId = newRootId,
-                                depth = newDepth,
+                        // Cycle guard. Re-parenting an item onto itself, or onto one of its own
+                        // descendants, makes the hierarchy cyclic — and the descendant depth/rootId
+                        // cascade further down then walks that cycle forever, so the request hangs
+                        // instead of failing. Reject both as client errors BEFORE any write. Ordered
+                        // after the existence and scope checks so not_found / scope_forbidden
+                        // precedence is unchanged.
+                        if (newParentId == id) {
+                            return errorCaptured(HttpStatusCode.BadRequest, "validation_error", "An item cannot be its own parent")
+                        }
+                        // Walk the proposed parent's full ancestor chain: if this item appears in it,
+                        // the proposed parent lives inside this item's own subtree. Delegated to
+                        // findAncestorChains rather than a manual getById walk — it carries its own
+                        // visited set (so it is unbounded by, and unaffected by, this row's own
+                        // possibly-stale `depth` column) and is one batched query instead of N
+                        // sequential round-trips. On a lookup failure, fail CLOSED: a transient DB
+                        // error must not be treated as "not an ancestor" and let a cyclic re-parent
+                        // through into the depth cascade below, which cannot handle a cycle.
+                        val ancestorChainResult = workItemRepo.findAncestorChains(setOf(newParentId))
+                        if (ancestorChainResult is Result.Error) {
+                            writeLogger.warn(
+                                "PATCH /items/{} ancestor-chain lookup failed for proposed parent {}: {}",
+                                id,
+                                newParentId,
+                                ancestorChainResult.error.message,
+                            )
+                            return errorCaptured(HttpStatusCode.InternalServerError, "db_error", "Failed to update item")
+                        }
+                        val ancestorChain = (ancestorChainResult as Result.Success).data[newParentId] ?: emptyList()
+                        if (ancestorChain.any { it.id == id }) {
+                            return errorCaptured(
+                                HttpStatusCode.BadRequest,
+                                "validation_error",
+                                "Cannot re-parent an item under its own descendant",
                             )
                         }
-                    } catch (e: Exception) {
-                        return errorCaptured(HttpStatusCode.BadRequest, "validation_error", e.message ?: "Validation failed")
+                    }
+                }
+
+                fun buildUpdated(
+                    depth: Int,
+                    rootId: UUID?
+                ): WorkItem =
+                    existing.update { item ->
+                        item.copy(
+                            title = patchDto.title ?: item.title,
+                            description = patchDto.description,
+                            summary = patchDto.summary ?: item.summary,
+                            statusLabel = patchDto.statusLabel,
+                            priority = newPriority,
+                            complexity = patchDto.complexity,
+                            requiresVerification = patchDto.requiresVerification ?: item.requiresVerification,
+                            tags = patchDto.tags,
+                            type = patchDto.type,
+                            properties = patchDto.properties,
+                            metadata = patchDto.metadata,
+                            parentId = newParentId,
+                            rootId = rootId,
+                            depth = depth,
+                        )
                     }
 
-                // When the parent actually changes, the item's own write and the
-                // descendant-depth/rootId cascade must succeed or fail together — wrap both in a
-                // shared transaction so a cascade failure (e.g. a version-mismatch conflict on a
-                // descendant) rolls back the parent's own write too, rather than leaving the tree
+                // When the parent actually changes, resolving the new placement (depth/rootId),
+                // writing the item's own row, and cascading descendant depth/rootId must all
+                // happen inside ONE transaction: resolving placement inside the same transaction
+                // as the write protects against a concurrent reparent/delete of the new parent
+                // (AR-19), and a cascade failure (e.g. a version-mismatch conflict on a descendant)
+                // must roll back the parent's own write too, rather than leaving the tree
                 // half-updated. Gated on parentId change rather than depthDelta != 0: moving an
                 // item between two different root subtrees at the same depth leaves depth
                 // unchanged but still requires a rootId cascade over every descendant.
-                val depthDelta = newDepth - existing.depth
-                val parentChanged = newParentId != existing.parentId
                 var updateResult: Result<WorkItem>? = null
                 var cascadeErrorMessage: String? = null
+                var notFoundMessage: String? = null
+                var validationMessage: String? = null
                 if (parentChanged) {
                     try {
                         workItemRepo.inTransaction {
+                            val newDepth: Int
+                            val newRootId: UUID?
+                            if (newParentId != null) {
+                                when (val placementResult = workItemRepo.resolveChildPlacement(newParentId)) {
+                                    is Result.Success -> {
+                                        newDepth = placementResult.data.depth
+                                        newRootId = placementResult.data.rootId
+                                    }
+                                    is Result.Error -> {
+                                        notFoundMessage = "Parent item $newParentId not found"
+                                        return@inTransaction
+                                    }
+                                }
+                            } else {
+                                // Explicit move-to-root — no parent to read.
+                                newDepth = 0
+                                newRootId = id
+                            }
+
+                            val updated =
+                                try {
+                                    buildUpdated(newDepth, newRootId)
+                                } catch (e: Exception) {
+                                    validationMessage = e.message ?: "Validation failed"
+                                    return@inTransaction
+                                }
+
+                            val depthDelta = newDepth - existing.depth
                             val txResult = workItemRepo.update(updated)
                             updateResult = txResult
                             if (txResult is Result.Success) {
-                                // newRootId is always non-null on this branch (see the if/else
-                                // above — only the unchanged-parent branch, which implies
-                                // parentChanged == false, can leave it null); `?: id` only
-                                // satisfies the nullable type.
                                 when (
                                     val cascadeResult =
                                         hierarchyValidator.recomputeDescendantDepths(id, depthDelta, newRootId ?: id, workItemRepo)
@@ -689,7 +741,19 @@ fun Route.itemWriteRoutes(
                         // Expected abort path — cascadeErrorMessage already holds the detail and the
                         // transaction has rolled back, so no partial writes remain.
                     }
+                    if (notFoundMessage != null) {
+                        return errorCaptured(HttpStatusCode.BadRequest, "not_found", notFoundMessage!!)
+                    }
+                    if (validationMessage != null) {
+                        return errorCaptured(HttpStatusCode.BadRequest, "validation_error", validationMessage!!)
+                    }
                 } else {
+                    val updated =
+                        try {
+                            buildUpdated(existing.depth, existing.rootId)
+                        } catch (e: Exception) {
+                            return errorCaptured(HttpStatusCode.BadRequest, "validation_error", e.message ?: "Validation failed")
+                        }
                     updateResult = workItemRepo.update(updated)
                 }
 
