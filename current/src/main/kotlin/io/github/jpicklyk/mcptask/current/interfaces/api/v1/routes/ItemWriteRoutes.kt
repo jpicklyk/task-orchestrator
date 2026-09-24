@@ -27,6 +27,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.allowsItemTags
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.enforceScopeForItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.hasCapability
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.mayHoldRoot
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.requireCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.AdvanceRequestDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ErrorDto
@@ -351,18 +352,11 @@ fun Route.itemWriteRoutes(
                     // the root_id backfill and has no rootId yet).
                     rootId = parentData.rootId ?: parentData.id
                 } else {
-                    // A root-level create has no parent to anchor the scope check on — the new
-                    // item's own chain is just itself (its rootId IS its own id), so it can only
-                    // ever be in scope for a rootIds-restricted principal by already being listed,
-                    // which is impossible for a server-generated id. A rootIds-scoped principal is
-                    // therefore never allowed to create a root. A tag-scoped principal may create
-                    // one only if the tags it is creating the root WITH satisfy its own tag scope —
-                    // the root is its own anchor, mirroring the parent-tag check taken above for a
-                    // non-root create.
-                    if (principal.scope.rootIds != null) {
-                        return errorCaptured(HttpStatusCode.Forbidden, "scope_forbidden", "Access denied to create a root item")
-                    }
-                    if (!principal.allowsItemTags(tagsStr)) {
+                    // A root-level create has no parent to anchor the scope check on: the new item
+                    // is its own anchor. rootIds-wise it can never be in scope (see mayHoldRoot);
+                    // tag-wise the tags it is created WITH must satisfy the principal's tag scope,
+                    // mirroring the parent-tag check taken above for a non-root create.
+                    if (!principal.mayHoldRoot(itemId) || !principal.allowsItemTags(tagsStr)) {
                         return errorCaptured(HttpStatusCode.Forbidden, "scope_forbidden", "Access denied to create a root item")
                     }
                     depth = 0
@@ -597,8 +591,7 @@ fun Route.itemWriteRoutes(
                     // same item is already allowed by an identical id-in-rootIds check). The tag
                     // half was already enforced above via enforceScopeForItem(call, id, ...) on
                     // the item's CURRENT tags, which are unchanged by a reparent alone.
-                    val rootIds = principal.scope.rootIds
-                    if (rootIds != null && id !in rootIds) {
+                    if (!principal.mayHoldRoot(id)) {
                         return errorCaptured(HttpStatusCode.Forbidden, "scope_forbidden", "Access denied to move item $id to root")
                     }
                     newDepth = 0
