@@ -12,6 +12,7 @@ import io.github.jpicklyk.mcptask.current.application.service.rest.MergePatchApp
 import io.github.jpicklyk.mcptask.current.application.service.rest.WorkItemPatchProjection
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
+import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.UserTrigger
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
@@ -966,36 +967,50 @@ fun Route.itemWriteRoutes(
             // statusLabelService is bound to THIS item's rootId via the SAME root-aware factory
             // AdvanceItemTool uses, so REST advances stamp identical (config-driven, per-root)
             // status labels instead of applying none at all (bug 80e48e55).
-            val advanceService =
-                AdvanceService(
-                    workItemRepository = workItemRepo,
-                    roleTransitionRepository = roleTransitionRepo,
-                    dependencyRepository = depRepo,
-                    noteRepository = repositoryProvider.noteRepository(),
-                    statusLabelService =
-                        schemaResolutionContext.rootAwareStatusLabelService(
-                            item.rootId,
-                            userTrigger.triggerString,
-                        ),
-                    schemaResolver = { schemaResolutionContext.resolveSchema(it) },
-                    resourceLeaseRepository = repositoryProvider.resourceLeaseRepository(),
-                    resourceRequirementsResolver = { schemaResolutionContext.resolveResourceRequirements(it) },
-                    resourceRegistryResolver = { schemaResolutionContext.resolveResourceRegistry(it) },
-                    resourceLeasesEnforced = AdvanceService.resourceLeasesEnforcedFromEnv(),
-                )
-
+            // Per D6: a per-root config read failure anywhere in this pre-commit pipeline (status
+            // label resolution, gate check, review-phase detection) responds 503 with a
+            // config_unavailable ErrorDto — no Retry-After header, matching the ErrorKind contract
+            // used on the MCP side (RFC 9110 §15.6.4: 503 describes a temporary server-side
+            // inability, distinct from the 409 used for resource-state conflicts).
             val outcome =
-                advanceService.advance(
-                    item = item,
-                    trigger = userTrigger.triggerString,
-                    summary = transitionSummary,
-                    actorClaim = actorClaim,
-                    verification = verification,
-                    degradedModePolicy = degradedModePolicy,
-                    enforceOwnership = false,
-                    credentialRefs = credentialRefs,
-                    enforceResourceLeases = !overrideResourceLeases,
-                )
+                try {
+                    val advanceService =
+                        AdvanceService(
+                            workItemRepository = workItemRepo,
+                            roleTransitionRepository = roleTransitionRepo,
+                            dependencyRepository = depRepo,
+                            noteRepository = repositoryProvider.noteRepository(),
+                            statusLabelService =
+                                schemaResolutionContext.rootAwareStatusLabelService(
+                                    item.rootId,
+                                    userTrigger.triggerString,
+                                ),
+                            schemaResolver = { schemaResolutionContext.resolveSchema(it) },
+                            resourceLeaseRepository = repositoryProvider.resourceLeaseRepository(),
+                            resourceRequirementsResolver = { schemaResolutionContext.resolveResourceRequirements(it) },
+                            resourceRegistryResolver = { schemaResolutionContext.resolveResourceRegistry(it) },
+                            resourceLeasesEnforced = AdvanceService.resourceLeasesEnforcedFromEnv(),
+                        )
+
+                    advanceService.advance(
+                        item = item,
+                        trigger = userTrigger.triggerString,
+                        summary = transitionSummary,
+                        actorClaim = actorClaim,
+                        verification = verification,
+                        degradedModePolicy = degradedModePolicy,
+                        enforceOwnership = false,
+                        credentialRefs = credentialRefs,
+                        enforceResourceLeases = !overrideResourceLeases,
+                    )
+                } catch (e: PerRootConfigUnavailableException) {
+                    writeLogger.warn("Per-root config unavailable advancing item {}: {}", id, e.message)
+                    call.respond(
+                        HttpStatusCode.ServiceUnavailable,
+                        ErrorDto("config_unavailable", e.message ?: "Per-root config unavailable for root ${e.rootId}"),
+                    )
+                    return@post
+                }
 
             val advanceResult =
                 when (outcome) {

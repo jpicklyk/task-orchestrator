@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.toJsonString
+import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
@@ -614,7 +615,19 @@ fun Route.itemGateRoutes(
                 return@get
             }
 
-            val resolvedSchema = context.resolveSchema(item)
+            // Per D6: a per-root config read failure resolving the gate's schema responds 503 with
+            // a config_unavailable ErrorDto — no Retry-After header, same contract as the advance
+            // route (RFC 9110 §15.6.4: 503 describes a temporary server-side inability).
+            val resolvedSchema =
+                try {
+                    context.resolveSchema(item)
+                } catch (e: PerRootConfigUnavailableException) {
+                    call.respond(
+                        HttpStatusCode.ServiceUnavailable,
+                        ErrorDto("config_unavailable", e.message ?: "Per-root config unavailable for root ${e.rootId}"),
+                    )
+                    return@get
+                }
 
             val notesResult = noteRepo.findByItemId(item.id)
             val notes = if (notesResult is Result.Success) notesResult.data else emptyList()

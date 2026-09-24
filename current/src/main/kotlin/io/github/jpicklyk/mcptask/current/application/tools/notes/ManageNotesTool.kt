@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.application.tools.notes
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.model.Note
+import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.security.PathContainment
@@ -441,7 +442,23 @@ field naming the limit and actual size; `mode: reject` fails that note with `cod
                     val itemId = UUID.fromString(itemIdStr)
                     val item = validatedItems[itemId] ?: continue
 
-                    val resolvedSchema = context.resolveSchema(item)
+                    // The notes for this item are ALREADY PERSISTED at this point (the per-index
+                    // upsert loop above already ran) — per D7, a per-root config read failure
+                    // resolving this response-only `itemContext` decoration must never be reported
+                    // as a failure of the already-committed upsert(s). The entry for this itemId is
+                    // simply omitted and a WARN is logged.
+                    val resolvedSchema =
+                        try {
+                            context.resolveSchema(item)
+                        } catch (e: PerRootConfigUnavailableException) {
+                            logger.warn(
+                                "Per-root config unavailable resolving itemContext for item {}; " +
+                                    "omitting its itemContext entry from an already-committed upsert: {}",
+                                itemId,
+                                e.message
+                            )
+                            continue
+                        }
                     val allNotes =
                         when (val nr = noteRepo.findByItemId(itemId)) {
                             is Result.Success -> nr.data

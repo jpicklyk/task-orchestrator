@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.application.tools.ResponseUtil
 import io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
+import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.modelcontextprotocol.kotlin.sdk.server.Server
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
 import io.modelcontextprotocol.kotlin.sdk.types.LoggingLevel
@@ -14,6 +15,7 @@ import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import org.slf4j.LoggerFactory
 
 /**
@@ -119,6 +121,42 @@ class McpToolAdapter {
                     content = listOf(TextContent(text = summary)),
                     isError = isError,
                     structuredContent = structuredData
+                )
+            } catch (e: PerRootConfigUnavailableException) {
+                // D5: every tool other than advance_item/complete_tree (which handle this
+                // per-transition/per-item themselves and never let it reach this adapter) fails
+                // the WHOLE call through this dedicated catch — isError plus a structured
+                // {kind, code, message} error envelope, so a caller can apply its own backoff
+                // without parsing free text (no retryAfterMs, per the documented ErrorKind rule).
+                val message = "Per-root config unavailable in '${toolDefinition.name}': ${e.message}"
+                logger.warn(message)
+                try {
+                    clientConnection.sendLoggingMessage(
+                        LoggingMessageNotification(
+                            LoggingMessageNotificationParams(
+                                level = LoggingLevel.Warning,
+                                data = JsonPrimitive(message),
+                                logger = "mcp-task-orchestrator.tools"
+                            )
+                        )
+                    )
+                } catch (_: Exception) {
+                }
+                logResponseSize(toolDefinition.name, success = false, responseChars = message.length)
+                CallToolResult(
+                    content = listOf(TextContent(text = message)),
+                    isError = true,
+                    structuredContent =
+                        buildJsonObject {
+                            put(
+                                "error",
+                                buildJsonObject {
+                                    put("kind", JsonPrimitive("transient"))
+                                    put("code", JsonPrimitive("config_unavailable"))
+                                    put("message", JsonPrimitive(message))
+                                }
+                            )
+                        }
                 )
             } catch (e: Exception) {
                 val message = "Internal error in '${toolDefinition.name}' (session ${clientConnection.sessionId}): ${e.message}"

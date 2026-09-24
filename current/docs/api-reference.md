@@ -682,6 +682,14 @@ whichever of `errorKind`, `errorCode`, `retryAfterMs`, `contendedItemId`, and `c
 apply to that failure — see [Error Envelope](#error-envelope) for the full field set. These
 rejections skip in-set dependents exactly like a gate failure does.
 
+**Per-root config unavailable (`applied: false`, `errorCode: "config_unavailable"`):** when an
+item's per-root config cannot be read (a transient database error) and there is no last-known-good
+cached config for that root (see `manage_project_config`'s Purpose note above), that item's entry
+carries `skipped: true`, `errorKind: "transient"`, `errorCode: "config_unavailable"` — no
+`retryAfterMs` — and counts as a rejection (`skipped`, not `gateFailures`); its in-set dependents are
+skipped exactly like any other rejection. The rest of the batch (siblings, and items whose own root's
+config IS readable) is unaffected.
+
 **Dependency-validation-failure fields (`applied: false`, no `skipped` key):** an item rejected
 because a blocker outside the target set is still non-terminal (`AdvanceService`'s
 `ValidationFailed` outcome) reports `error` (a message string) and a `blockers` array — the same
@@ -1371,6 +1379,32 @@ guarantees-vs-non-guarantees statement (no fairness/queueing, crash recovery via
 force-release, item-keyed exclusivity, single-DB arbiter, opaque-labels-never-secrets) and the
 `exclusive` vs `advisory` modeling guidance.
 
+**Per-root config unavailable.** When a transition's per-root config cannot be read (a transient
+database error) and there is no last-known-good cached config for that root (see
+`manage_project_config`'s Purpose note above), that ONE transition is rejected as **transient** —
+the rest of a batch continues — and nothing is persisted for it:
+
+```json
+{
+  "results": [
+    {
+      "itemId": "uuid",
+      "trigger": "start",
+      "applied": false,
+      "error": "Per-root config read failed for root <uuid> and no last-known-good config is cached: ...",
+      "errorKind": "transient",
+      "errorCode": "config_unavailable"
+    }
+  ],
+  "summary": { "total": 1, "succeeded": 0, "failed": 1 }
+}
+```
+
+No `retryAfterMs` is populated (the caller applies its own backoff, per the `ErrorKind` contract
+above). A read failure resolving the RESPONSE-ONLY `dispatch` hint on an ALREADY-APPLIED transition
+is handled differently: the transition is reported as `applied: true` and `dispatch` is simply
+omitted, never turned into a failure of a transition that already committed.
+
 ---
 
 ### get_next_status
@@ -2000,6 +2034,18 @@ text keyed by a project root's WorkItem UUID; `ToolExecutionContext.resolveSchem
 per-root config over the global config on every schema-resolving read (see `PerRootConfigService` —
 hot-reload is a property of that read path, so no separate reload call is needed after a push).
 
+**Read-error fallback (last-known-good).** A read (`getFingerprint`/`get`) failing with a transient
+repository error is NOT the same as "no per-root config" — `PerRootConfigService` never falls back
+to the global config on a read error. It instead serves that root's last cached parse (last-known-good)
+without evicting it, and logs a WARN naming the root and the error. Last-known-good has no TTL: the
+next successful read refreshes it via the normal fingerprint-comparison hot-reload path, and it is
+held per service instance (MCP and each REST route construct their own `PerRootConfigService`, so a
+last-known-good entry is not shared across them). When there is no cached entry to serve — a cold
+cache, e.g. this instance's first read for the root — the read fails closed with a transient
+`config_unavailable` error (see [Error Envelope](#error-envelope)) rather than silently resolving
+against the global config. This is distinct from an explicit absence (no config row, or malformed
+stored YAML), which is unchanged: evict any cached entry, fall through to the global config.
+
 Supports two operations, selected via `operation`:
 
 #### `push`
@@ -2338,7 +2384,7 @@ on `code`/`kind` without parsing the text summary:
 
 | Kind | Meaning | Retry behavior |
 |---|---|---|
-| `transient` | Temporary failure; retrying may succeed | Retry with exponential backoff. Typical causes: lock contention, JWKS unavailable, transient DB busy. |
+| `transient` | Temporary failure; retrying may succeed | Retry with exponential backoff. Typical causes: lock contention, JWKS unavailable, transient DB busy, per-root config read failure (`config_unavailable` — see below). |
 | `permanent` | Definitive failure; retrying will produce the same result | Do not retry. Typical causes: validation errors, authorization failures, not-found. |
 | `shedding` | Server temporarily over capacity | Retry after `retryAfterMs` milliseconds. Typical causes: writer queue saturated, circuit-breaker open. |
 
@@ -2352,6 +2398,17 @@ on `code`/`kind` without parsing the text summary:
 | `retryAfterMs` | integer (nullable) | Milliseconds to wait before retrying. Populated for `shedding`; null otherwise (use own backoff). |
 | `contendedItemId` | string UUID (nullable) | UUID of the work item involved in a contention error. Populated for `transient` claim-race or version-conflict failures. Allows agents to distinguish "retry this item" from "pick a different item" without parsing `message`. |
 | `details` | any (nullable) | Additional structured detail specific to the failure (e.g., gate `missingNotes`, dependency `blockers`). Omitted when there is nothing beyond `message`. |
+
+**`config_unavailable` (transient).** A root's per-root config could not be read (a transient
+database error on `getFingerprint`/`get`) and there was no last-known-good cached config for that
+root to serve instead — see `manage_project_config`'s Purpose note below for the last-known-good
+cache this falls back to. `retryAfterMs` is null, per the `transient` kind's own-backoff rule.
+`advance_item` reports this per transition (the rest of a batch continues) and `complete_tree`
+reports it per item (`skipped: true`, outcome `REJECTED`, in-set dependents skipped); every other
+tool fails the whole call with this envelope. A read failure resolving a RESPONSE-ONLY decoration
+(e.g. `advance_item`'s `dispatch`, `create_item`/`create_work_tree`'s `schemaMatch`/`expectedNotes`,
+`availableTraits`, or `manage_notes`'s `itemContext` entry) on an already-committed write is never
+reported as a failure of that write — the decoration is simply omitted and a WARN is logged instead.
 
 ### Retry Decision Guide
 

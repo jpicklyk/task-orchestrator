@@ -536,6 +536,15 @@ class ToolExecutionContext(
      * parameter instead of independently calling the single-facet accessors on
      * [PerRootConfigService] — each of those would otherwise re-invoke [PerRootConfigService.resolve]
      * on its own, costing a redundant fingerprint-read per facet even when the cache is warm.
+     *
+     * Propagates [io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException]
+     * unchanged when [PerRootConfigService.getSnapshot] throws it (a per-root config read failed and
+     * there is no last-known-good entry for [rootId]) — this method, and every resolver in this class
+     * that calls it (including [resolveSchema] and [availableTraits]), does NOT catch it: a config
+     * read failure must surface as a failure, never as "no per-root config, use the global layer".
+     * Callers at an operation boundary (`AdvanceItemTool`, `CompleteTreeTool`, `McpToolAdapter`, the
+     * REST advance/gate routes, etc.) are responsible for catching it and reporting the transient
+     * `config_unavailable` outcome.
      */
     private suspend fun snapshotFor(rootId: UUID?): PerRootConfigService.Snapshot? = rootId?.let { perRootConfigService?.getSnapshot(it) }
 
