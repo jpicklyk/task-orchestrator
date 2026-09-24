@@ -215,6 +215,36 @@ class YamlActorAuthenticationConfigService(
             )
     }
 
+    private fun wrongVerifierFieldType(
+        key: String,
+        expected: String,
+        value: Any,
+    ) = IllegalArgumentException("actor_authentication.verifier.$key in '$configPath' must be $expected; got '$value'")
+
+    private fun Map<String, Any>.optString(key: String): String? =
+        when (val v = this[key]) {
+            null -> null
+            is String -> v
+            else -> throw wrongVerifierFieldType(key, "a string", v)
+        }
+
+    private fun Map<String, Any>.optBoolean(
+        key: String,
+        default: Boolean,
+    ): Boolean =
+        when (val v = this[key]) {
+            null -> default
+            is Boolean -> v
+            else -> throw wrongVerifierFieldType(key, "a boolean", v)
+        }
+
+    private fun Map<String, Any>.optStringList(key: String): List<String> =
+        when (val v = this[key]) {
+            null -> emptyList()
+            is List<*> -> v.map { it as? String ?: throw wrongVerifierFieldType(key, "a list of strings", v) }
+            else -> throw wrongVerifierFieldType(key, "a list of strings", v)
+        }
+
     @Suppress("UNCHECKED_CAST")
     private fun parseVerifier(verifierMap: Map<String, Any>): VerifierConfig {
         val typeRaw = verifierMap["type"]
@@ -232,19 +262,16 @@ class YamlActorAuthenticationConfigService(
             null, "noop" -> VerifierConfig.Noop
 
             "jwks" -> {
-                val oidcDiscovery = verifierMap["oidc_discovery"] as? String
-                val jwksUri = verifierMap["jwks_uri"] as? String
-                val jwksPath = verifierMap["jwks_path"] as? String
+                // Every field below is typed strictly: a present, non-null value of the wrong type is
+                // fatal (e.g. a list-valued `audience` would otherwise silently disable the aud check).
+                val oidcDiscovery = verifierMap.optString("oidc_discovery")
+                val jwksUri = verifierMap.optString("jwks_uri")
+                val jwksPath = verifierMap.optString("jwks_path")
 
-                val rawDidAllowlist = verifierMap["did_allowlist"]
-                val didAllowlist: List<String> =
-                    when (rawDidAllowlist) {
-                        is List<*> -> rawDidAllowlist.filterIsInstance<String>()
-                        else -> emptyList()
-                    }
-                val didPattern = verifierMap["did_pattern"] as? String
-                val didStrictRelationship = (verifierMap["did_strict_relationship"] as? Boolean) ?: true
-                val didLooseKidMatch = (verifierMap["did_loose_kid_match"] as? Boolean) ?: true
+                val didAllowlist = verifierMap.optStringList("did_allowlist")
+                val didPattern = verifierMap.optString("did_pattern")
+                val didStrictRelationship = verifierMap.optBoolean("did_strict_relationship", default = true)
+                val didLooseKidMatch = verifierMap.optBoolean("did_loose_kid_match", default = true)
 
                 val isDidTrust = didAllowlist.isNotEmpty() || didPattern != null
                 val isStaticJwks = oidcDiscovery != null || jwksUri != null || jwksPath != null
@@ -292,15 +319,10 @@ class YamlActorAuthenticationConfigService(
                     }
                 }
 
-                val issuer = verifierMap["issuer"] as? String
-                val audience = verifierMap["audience"] as? String
+                val issuer = verifierMap.optString("issuer")
+                val audience = verifierMap.optString("audience")
 
-                val rawAlgorithms = verifierMap["algorithms"]
-                val algorithms: List<String> =
-                    when (rawAlgorithms) {
-                        is List<*> -> rawAlgorithms.filterIsInstance<String>()
-                        else -> emptyList()
-                    }
+                val algorithms = verifierMap.optStringList("algorithms")
 
                 // algorithms is required under type: jwks — no implicit default list
                 if (algorithms.isEmpty()) {
@@ -315,12 +337,13 @@ class YamlActorAuthenticationConfigService(
                         is Int -> raw.toLong()
                         is Long -> raw
                         is Number -> raw.toLong()
-                        else -> 300L
+                        null -> 300L
+                        else -> throw wrongVerifierFieldType("cache_ttl_seconds", "a number", raw)
                     }
 
-                val requireSubMatch = (verifierMap["require_sub_match"] as? Boolean) ?: true
+                val requireSubMatch = verifierMap.optBoolean("require_sub_match", default = true)
 
-                val staleOnError = (verifierMap["stale_on_error"] as? Boolean) ?: true
+                val staleOnError = verifierMap.optBoolean("stale_on_error", default = true)
 
                 VerifierConfig.Jwks(
                     oidcDiscovery = oidcDiscovery,

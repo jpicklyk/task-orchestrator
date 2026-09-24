@@ -51,7 +51,9 @@ propagates out of `ServerComposition.build()` and `CurrentMcpServer.run()`, so t
 non-zero **before** the readiness marker is ever written and before any transport binds. The same
 applies to a present, non-null field that fails to parse under `actor_authentication:` (an
 unrecognized `degraded_mode_policy`, an unrecognized `verifier.type`, a non-mapping `verifier` or
-`actor_authentication` value, or `type: jwks` with no configured key source) — see "Policy Values"
+`actor_authentication` value, `type: jwks` with no configured key source, or any `verifier` field of
+the wrong type — e.g. a list-valued `audience`, which would otherwise silently disable the audience
+check) — see "Policy Values"
 and "JWKS Sources" below. An absent file, or one that is empty or comment-only, is not an error: it
 keeps schema-free / no-actor-authentication defaults. **This is a behavior change**: a global
 config file that was broken before this fix ran silently in schema-free / noop-verifier mode; it

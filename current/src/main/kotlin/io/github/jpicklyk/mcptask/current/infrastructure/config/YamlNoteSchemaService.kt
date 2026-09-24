@@ -180,7 +180,15 @@ class YamlWorkItemSchemaService(
                         ?: throw IllegalArgumentException(
                             "Config file '$configPath' root must be a mapping; got '$root'"
                         )
-                YamlSchemaParser.parseRoot(rootMap)
+                try {
+                    YamlSchemaParser.parseRoot(rootMap)
+                } catch (e: IllegalArgumentException) {
+                    throw e
+                } catch (e: Exception) {
+                    // An unexpected section shape (e.g. a ClassCastException from an unchecked cast)
+                    // must still fail startup naming the file, like every other global-config error.
+                    throw IllegalArgumentException("Failed to parse note schemas in '$configPath': ${e.message}", e)
+                }
             }
 
         return parsed.copy(fingerprint = fingerprint).also { result ->
