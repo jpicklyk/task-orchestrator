@@ -110,9 +110,14 @@ interface ActorAware {
          * **Policy behaviour:**
          * - [DegradedModePolicy.ACCEPT_CACHED]: Three sub-cases:
          *   1. [VerificationStatus.VERIFIED] (fresh or stale-cache where
-         *      `metadata["verifiedFromCache"] == "true"`): the JWT-validated `claim.id`
-         *      is returned as trusted. [JwksActorVerifier] enforces `sub == actor.id`
-         *      when `requireSubMatch=true`, so `claim.id` is already the verified identity.
+         *      `metadata["verifiedFromCache"] == "true"`): trusts
+         *      `verification.verifiedSubject ?: claim.id`. Under DID-rooted trust,
+         *      [JwksActorVerifier] binds `sub == iss` and populates `verifiedSubject` with that
+         *      cryptographically verified DID, which is trusted here even when
+         *      `requireSubMatch=false` reports `claim.id` as an unrelated self-reported label.
+         *      For static-JWKS verification `verifiedSubject` is null, so this falls through to
+         *      the pre-existing `claim.id` behavior (already the verified identity when
+         *      `requireSubMatch=true`).
          *   2. [VerificationStatus.UNAVAILABLE] with `metadata["verifiedFromCache"] == "true"`:
          *      the JWT was cryptographically verified against a stale key — trust `claim.id`.
          *      (Reserved for future verifier paths that return UNAVAILABLE instead of VERIFIED
@@ -141,20 +146,21 @@ interface ActorAware {
             policy: DegradedModePolicy
         ): PolicyResolution {
             val isVerified = verification.status == VerificationStatus.VERIFIED
+            // The cryptographically verified identity: the DID-trust subject when set (see KDoc
+            // case 1), otherwise claim.id (already the verified identity when requireSubMatch=true).
+            val verifiedIdentity = verification.verifiedSubject ?: claim.id
 
             return when (policy) {
                 DegradedModePolicy.ACCEPT_CACHED -> {
                     when {
-                        // VERIFIED (fresh or stale-cache with verifiedFromCache=true in metadata)
-                        // → trust the JWT-validated actor.id. JwksActorVerifier enforces sub==actor.id
-                        // so claim.id is already the cryptographically verified identity.
-                        isVerified -> PolicyResolution.Trusted(claim.id)
+                        // VERIFIED (fresh or stale-cache with verifiedFromCache=true in metadata).
+                        isVerified -> PolicyResolution.Trusted(verifiedIdentity)
 
                         // UNAVAILABLE + verifiedFromCache=true: JWT was verified against a stale key.
                         // Reserved for future verifier paths; JwksActorVerifier returns VERIFIED here.
                         verification.status == VerificationStatus.UNAVAILABLE &&
                             verification.metadata["verifiedFromCache"] == "true" ->
-                            PolicyResolution.Trusted(claim.id)
+                            PolicyResolution.Trusted(verifiedIdentity)
 
                         // UNAVAILABLE without cache metadata: JWKS is down and no cached key exists.
                         // Fall back to self-reported id with WARN so operators see the degradation.
@@ -192,7 +198,7 @@ interface ActorAware {
 
                 DegradedModePolicy.REJECT -> {
                     if (isVerified) {
-                        PolicyResolution.Trusted(claim.id)
+                        PolicyResolution.Trusted(verifiedIdentity)
                     } else {
                         val reason =
                             "degradedModePolicy=reject: actor verification status is " +

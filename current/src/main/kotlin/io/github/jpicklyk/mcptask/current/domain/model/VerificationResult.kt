@@ -48,10 +48,14 @@ enum class VerificationStatus {
  *   - `failureKind`: one of `crypto`, `claims`, `policy`, `network`, `internal`
  *   - `verifiedFromCache`: `"true"` when the VERIFIED result was produced using a stale JWKS cache
  *   - `cacheAgeSeconds`: seconds since the stale cache entry was fetched
+ * @param verifiedSubject Under DID-rooted trust, the cryptographically verified identity (the JWT
+ *   `sub`, which [JwksActorVerifier] binds equal to `iss`) when [status] is [VerificationStatus.VERIFIED].
+ *   Null for static-JWKS verification and for any non-VERIFIED outcome; not persisted or serialized.
  */
 data class VerificationResult(
     val status: VerificationStatus,
     val verifier: String? = null,
     val reason: String? = null,
-    val metadata: Map<String, String> = emptyMap()
+    val metadata: Map<String, String> = emptyMap(),
+    val verifiedSubject: String? = null
 )

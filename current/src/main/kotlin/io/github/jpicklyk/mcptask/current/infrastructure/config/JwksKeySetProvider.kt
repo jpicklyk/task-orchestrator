@@ -244,6 +244,7 @@ class DefaultJwksKeySetProvider(
     }
 
     override suspend fun getKeySetForIssuer(issuer: String): JwksResult {
+        validateDidWebIssuerIfApplicable(issuer)
         if (!isIssuerTrusted(issuer)) {
             throw IssuerNotTrustedException(issuer)
         }
@@ -331,10 +332,15 @@ class DefaultJwksKeySetProvider(
         return false
     }
 
-    // Glob match: "*" matches any single DID path segment (i.e., any sequence of characters
-    // that does NOT contain ":"). This prevents sub-path hijack where, for example,
+    // Glob match: "*" matches any single DID segment restricted to letters, digits, ".", "-" and
+    // "_" (DID Core idchars; "_" can only ever match in a path segment, because the host validator
+    // rejects it before this runs). This prevents sub-path hijack where, for example,
     // "did:web:host:agents:alice:fake" would wrongly match "did:web:host:agents:*" under an
-    // unrestricted ".*" wildcard. No "**" escape-hatch is provided in v1.
+    // unrestricted ".*" wildcard, and it prevents a "*" from ever matching "%" (percent-encoding,
+    // e.g. an encoded port or colon) or spilling across a ":" segment boundary. In a host segment
+    // this lets "*" span dot-separated labels (e.g. "did:web:special.*" matches
+    // "did:web:special.other.example.com"); in a path segment it keeps its single-segment meaning.
+    // No "**" escape-hatch is provided in v1.
     // Compile pattern to regex once per call (acceptable; patterns are typically short).
     internal fun matchesGlob(
         value: String,
@@ -343,9 +349,22 @@ class DefaultJwksKeySetProvider(
         val regex =
             pattern
                 .split("*")
-                .joinToString("[^:]*") { Regex.escape(it) }
+                .joinToString("[A-Za-z0-9._-]*") { Regex.escape(it) }
                 .let { Regex("^$it$") }
         return regex.matches(value)
+    }
+
+    /**
+     * Validates a `did:web` issuer's method-specific identifier before it is evaluated against
+     * the allowlist/pattern or resolved over the network — see [validateDidWebIdentifier] for the
+     * rules. Non-`did:web` issuers are not validated here (the only registered [DidResolver] is
+     * [DidWebResolver], so an untrusted non-`did:web` issuer is rejected downstream by
+     * [isIssuerTrusted] instead).
+     */
+    private fun validateDidWebIssuerIfApplicable(issuer: String) {
+        if (issuer.startsWith(DID_WEB_PREFIX)) {
+            validateDidWebIdentifier(issuer.removePrefix(DID_WEB_PREFIX))
+        }
     }
 
     override fun getResolvedIssuer(): String? = resolvedIssuer
@@ -462,6 +481,7 @@ class DefaultJwksKeySetProvider(
     companion object {
         private val FRESH_CACHE = CacheState(fromStaleCache = false, ageSeconds = null)
         private const val MAX_DID_CACHE_ENTRIES = 256
+        private const val DID_WEB_PREFIX = "did:web:"
 
         /** Maximum response body size accepted from a JWKS or OIDC discovery endpoint (1 MiB). */
         const val MAX_BODY_BYTES: Int = 1 * 1024 * 1024

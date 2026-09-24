@@ -71,6 +71,11 @@ class DidWebResolver(
             throw DidResolutionException("empty identifier in did:web DID: $did")
         }
 
+        // Defense in depth: [DefaultJwksKeySetProvider.getKeySetForIssuer] already validates the
+        // identifier before this resolver is reached in the JWT-verification path; validating here
+        // too keeps a malformed DID from reaching buildUrl/fetch through any other caller.
+        validateDidWebIdentifier(identifier)
+
         val url = buildUrl(identifier)
         logger.debug("Resolving {} → {}", did, url)
 

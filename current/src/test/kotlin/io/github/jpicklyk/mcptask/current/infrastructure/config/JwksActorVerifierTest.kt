@@ -560,13 +560,15 @@ class JwksActorVerifierTest {
         }
 
         // DID-V1: DID-trust happy path — kid matches, VERIFIED
+        // Fixture fix (test-plan / diagnosis D1): sub must equal iss under DID trust, so this
+        // fixture signs sub=didIssuer instead of the unrelated "agent-1" used pre-fix.
         @Test
         fun `DID-trust happy path with matching kid returns VERIFIED`() =
             runTest {
                 val claims =
                     JWTClaimsSet
                         .Builder()
-                        .subject("agent-1")
+                        .subject(didIssuer)
                         .issuer(didIssuer)
                         .expirationTime(Date.from(Instant.now().plusSeconds(300)))
                         .build()
@@ -640,6 +642,8 @@ class JwksActorVerifierTest {
             }
 
         // DID-V4: loose-kid match — single key, kid mismatch, didLooseKidMatch=true → VERIFIED
+        // Fixture fix (test-plan / diagnosis D1): sub must equal iss under DID trust, so this
+        // fixture signs sub=didIssuer instead of the unrelated "agent-1" used pre-fix.
         @Test
         fun `loose-kid match with single key and mismatched kid returns VERIFIED`() =
             runTest {
@@ -647,7 +651,7 @@ class JwksActorVerifierTest {
                 val claims =
                     JWTClaimsSet
                         .Builder()
-                        .subject("agent-1")
+                        .subject(didIssuer)
                         .issuer(didIssuer)
                         .expirationTime(Date.from(Instant.now().plusSeconds(300)))
                         .build()
