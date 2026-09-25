@@ -172,17 +172,19 @@ class ItemDeleteLeaseReleaseRouteTest : SQLiteRepositoryTestBase() {
         }
 
     /**
-     * Review fix-up B1 (O2): a successful release followed by a FAILING row delete must roll the
-     * release back too — otherwise history would say "released" while the row (and its
-     * now-orphaned lease) survives. Reproduction per the reviewer: DELETE a PARENT that holds a
-     * lease — this branch has no HasChildren pre-check on the REST route, so the delete reaches
-     * the DB and the child's `parent_id` FK aborts it (`foreign_keys=ON`, real SQLite via
-     * [SQLiteRepositoryTestBase]) — a 500 `db_error`, exactly like any other row-delete failure.
-     * Oracle: diagnosis "release and delete commit or roll back together" + V16 "an open interval
-     * is closed exactly once, only when its holder row is actually deleted".
+     * Review fix-up B1, corrected per fc8f3748 arbitration case 2 (2026-09-25): fc8f3748's
+     * HasChildren pre-check now runs BEFORE any lease release on the REST route, so the child-FK
+     * 500 this test originally reproduced is unreachable through the route — a parent with
+     * children and no `?recursive=true` is refused with a structured 409 before the delete (and
+     * any lease release) is ever attempted. Oracle: fc8f3748 diagnosis F1 / test-plan — "REST
+     * DELETE of an item with children and no `?recursive=true` -> structured 409 `has_children`
+     * (child count in details), nothing deleted". The lease-rollback-on-FK-failure scenario this
+     * test originally named is exercised, via a failing-repository seam rather than the
+     * unreachable FK path, in
+     * [io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.ItemDeleteRecursiveSqliteRouteTest].
      */
     @Test
-    fun `B1 REST DELETE of a leased parent whose row delete fails on the child FK rolls back the release too`(): Unit =
+    fun `B1 REST DELETE of a leased parent without recursive is refused with 409 has_children and touches no lease`(): Unit =
         testApplication {
             application { configureWriteTestApp(repositoryProvider) }
             val parent =
@@ -206,18 +208,27 @@ class ItemDeleteLeaseReleaseRouteTest : SQLiteRepositoryTestBase() {
                     header("Authorization", "Bearer $WRITE_TOKEN")
                 }
 
-            assertEquals(HttpStatusCode.InternalServerError, response.status, "body: ${response.bodyAsText()}")
+            assertEquals(HttpStatusCode.Conflict, response.status, "body: ${response.bodyAsText()}")
             val json = Json.parseToJsonElement(response.bodyAsText()).jsonObject
-            assertEquals("db_error", json["error"]?.jsonPrimitive?.content)
+            assertEquals("has_children", json["error"]?.jsonPrimitive?.content)
+            assertEquals(
+                1,
+                json["details"]
+                    ?.jsonObject
+                    ?.get("childCount")
+                    ?.jsonPrimitive
+                    ?.content
+                    ?.toInt()
+            )
 
             val persistedParent = runBlocking { repositoryProvider.workItemRepository().getById(parent.id) }
-            assertTrue(persistedParent is Result.Success, "the parent's row delete failed — it must remain")
+            assertTrue(persistedParent is Result.Success, "the parent must remain — nothing was deleted")
             val persistedChild = runBlocking { repositoryProvider.workItemRepository().getById(child.id) }
             assertTrue(persistedChild is Result.Success, "the child must remain untouched")
 
             val interval = leaseRepo.findRecentIntervals("k-b1-rest", 10).single()
-            assertNull(interval.releaseReason, "the release must be rolled back together with the failed delete")
-            assertNull(interval.releasedAt, "the release must be rolled back together with the failed delete")
+            assertNull(interval.releaseReason, "the has_children refusal must precede any lease release")
+            assertNull(interval.releasedAt, "the has_children refusal must precede any lease release")
             assertEquals(1, leaseRepo.findActiveForItem(parent.id).size, "the parent's lease must still be ACTIVE")
         }
 }

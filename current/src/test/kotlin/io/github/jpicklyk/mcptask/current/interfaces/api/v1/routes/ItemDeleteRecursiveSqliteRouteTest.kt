@@ -1,11 +1,20 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
+import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
+import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
+import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
+import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.LeaseAcquireResult
+import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
+import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.test.SQLiteRepositoryTestBase
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
@@ -13,7 +22,15 @@ import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import io.ktor.serialization.kotlinx.json.json
+import io.ktor.server.application.Application
+import io.ktor.server.application.install
+import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.server.routing.route
+import io.ktor.server.routing.routing
+import io.ktor.server.sse.SSE
 import io.ktor.server.testing.testApplication
+import io.modelcontextprotocol.kotlin.sdk.types.McpJson
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
@@ -27,6 +44,66 @@ import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+
+/**
+ * Wraps a real [WorkItemRepository], failing [delete] for exactly one id -- returning
+ * [Result.Error] rather than throwing. Mirrors
+ * [io.github.jpicklyk.mcptask.current.application.tools.items.DeleteItemLeaseReleaseTest]'s
+ * `DeleteFailOnIdWorkItemRepository` idiom; renamed to avoid the same-package top-level name
+ * collision with [io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.ItemDeleteLeaseReleaseRouteTest]'s
+ * `FailOnIdResourceLeaseRepository`/`FailOnIdRepositoryProvider` (top-level `private` classes
+ * still collide by simple name within a package).
+ */
+private class DeleteRouteFailOnIdWorkItemRepository(
+    private val delegate: WorkItemRepository,
+    private val failingId: UUID,
+) : WorkItemRepository by delegate {
+    override suspend fun delete(id: UUID): Result<Boolean> =
+        if (id == failingId) {
+            Result.Error(RepositoryError.DatabaseError("Simulated delete failure for $id"))
+        } else {
+            delegate.delete(id)
+        }
+}
+
+/** Wraps a real [RepositoryProvider], substituting [failingWorkItemRepo] for [workItemRepository]. */
+private class DeleteRouteFailOnIdRepositoryProvider(
+    private val delegate: RepositoryProvider,
+    private val failingWorkItemRepo: WorkItemRepository,
+) : RepositoryProvider by delegate {
+    override fun workItemRepository(): WorkItemRepository = failingWorkItemRepo
+}
+
+/**
+ * A write-route app wired directly against `itemWriteRoutes` (not [configureWriteTestApp], which
+ * is pinned to [io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider])
+ * so a [RepositoryProvider] wrapper -- [DeleteRouteFailOnIdRepositoryProvider] -- can be installed.
+ * Mirrors [ItemDeleteLeaseReleaseRouteTest]'s `configureDeleteLeaseTestApp`, renamed for the same
+ * same-package top-level collision reason as the classes above.
+ */
+private fun Application.configureDeleteRouteFailTestApp(provider: RepositoryProvider) {
+    install(ContentNegotiation) { json(McpJson) }
+    install(SSE)
+    val authConfig = makeWriteAuthConfig()
+    routing {
+        route("/api/v1") {
+            install(ApiBearerAuth) {
+                this.authConfig = authConfig
+                tokenEntries =
+                    authConfig.tokens.mapValues { (_, p) ->
+                        BearerTokenStore.TokenEntry(p, expiresAt = null)
+                    }
+            }
+            itemWriteRoutes(
+                provider,
+                DegradedModePolicy.ACCEPT_CACHED,
+                IdempotencyCache(),
+                NoOpNoteSchemaService,
+                statusLabelService = NoOpStatusLabelService,
+            )
+        }
+    }
+}
 
 /**
  * Independent test authorship for item fc8f3748 (needs-test-author) -- REST DELETE /items/{id}
@@ -442,6 +519,48 @@ class ItemDeleteRecursiveSqliteRouteTest : SQLiteRepositoryTestBase() {
             val interval = runBlocking { leaseRepo.findRecentIntervals("k-s18", 10) }.single()
             assertNotNull(interval.releasedAt, "G lease history interval must be closed")
             assertEquals("released", interval.releaseReason)
+        }
+
+    // -----------------------------------------------------------------------
+    // B1a-REST -- REST analogue of 2cef6ca4's B1a: a successful release followed by a FAILING
+    // row delete must roll the release back too, on the non-recursive leaf path (a leaf so the
+    // fc8f3748 HasChildren pre-check does not intercept it first). Oracle: fc8f3748 diagnosis
+    // "release and delete commit or roll back together" + 2cef6ca4 diagnosis "an open interval is
+    // closed exactly once, only when its holder row is actually deleted".
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun `B1a-REST DELETE of a leased leaf whose row delete fails after a successful release rolls back too`(): Unit =
+        testApplication {
+            val leaf = runBlocking { createRoot("Will Fail") }
+            val leaseRepo = repositoryProvider.resourceLeaseRepository()
+            assertIs<LeaseAcquireResult.Success>(
+                runBlocking { leaseRepo.acquireAll(leaf.id, "agent-a", listOf("k-b1a-rest" to 900)) },
+            )
+            val failingWorkItemRepo = DeleteRouteFailOnIdWorkItemRepository(repositoryProvider.workItemRepository(), leaf.id)
+            application {
+                configureDeleteRouteFailTestApp(DeleteRouteFailOnIdRepositoryProvider(repositoryProvider, failingWorkItemRepo))
+            }
+
+            val response =
+                client.delete("/api/v1/items/${leaf.id}") {
+                    header("Authorization", "Bearer $WRITE_TOKEN")
+                }
+
+            assertEquals(HttpStatusCode.InternalServerError, response.status, "body: ${response.bodyAsText()}")
+            val json = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+            assertEquals("db_error", json["error"]?.jsonPrimitive?.content)
+
+            runBlocking { assertTrue(exists(leaf.id), "the row delete failed -- the item must remain") }
+
+            val interval = runBlocking { leaseRepo.findRecentIntervals("k-b1a-rest", 10) }.single()
+            assertNull(interval.releaseReason, "the release must be rolled back together with the failed delete")
+            assertNull(interval.releasedAt, "the release must be rolled back together with the failed delete")
+            assertEquals(
+                1,
+                runBlocking { leaseRepo.findActiveForItem(leaf.id) }.size,
+                "the lease must still be ACTIVE, not just history-open",
+            )
         }
 
     // -----------------------------------------------------------------------
