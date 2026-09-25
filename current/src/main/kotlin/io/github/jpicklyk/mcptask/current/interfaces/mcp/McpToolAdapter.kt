@@ -7,6 +7,7 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.ToolError
+import io.github.jpicklyk.mcptask.current.infrastructure.logging.MdcValues
 import io.modelcontextprotocol.kotlin.sdk.server.Server
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
 import io.modelcontextprotocol.kotlin.sdk.types.LoggingLevel
@@ -38,6 +39,15 @@ import java.util.UUID
 class McpToolAdapter {
     private val logger = LoggerFactory.getLogger(McpToolAdapter::class.java)
 
+    companion object {
+        /**
+         * Max length of the `actorId` MDC value (see [MdcValues.bounded]). Real ids are agent
+         * names (~30 chars), UUIDs (36), or JWT `sub`/email values (typically under 64, 254 at the
+         * RFC maximum) — 128 keeps every realistic id intact while bounding per-line log cost.
+         */
+        private const val ACTOR_ID_MDC_MAX_LENGTH = 128
+    }
+
     /**
      * Registers a single tool with the MCP server.
      *
@@ -68,14 +78,16 @@ class McpToolAdapter {
             // because the handler suspends and may resume on a different thread — plain
             // MDC.put/clear would lose or leak values across that hop. actorId is the
             // self-reported, unverified `arguments.actor.id` (present only when it is a JSON
-            // string) — omitted, not "null", when absent.
+            // string) — omitted, not "null", when absent. The MDC copy is length-capped via
+            // [MdcValues.bounded] (max 128) so an oversized caller-supplied id cannot blow up
+            // per-line log cost; the tool itself still receives the full, uncapped `actor` value.
             val correlationFields =
                 buildMap {
                     put("transport", "mcp")
                     put("tool", toolDefinition.name)
                     put("sessionId", clientConnection.sessionId)
                     put("requestId", UUID.randomUUID().toString())
-                    actorIdFrom(request.arguments)?.let { put("actorId", it) }
+                    actorIdFrom(request.arguments)?.let { put("actorId", MdcValues.bounded(it, max = ACTOR_ID_MDC_MAX_LENGTH)) }
                 }
             withContext(MDCContext((MDC.getCopyOfContextMap() ?: emptyMap()) + correlationFields)) {
                 try {
@@ -235,6 +247,8 @@ class McpToolAdapter {
      * This is a self-reported, unverified value — it is NOT the same as any actor-authentication
      * verification result — so callers must treat it as advisory. Returns null (never the string
      * "null") when `actor` is absent, `actor.id` is absent, or `actor.id` is not a JSON string.
+     * The returned value is the FULL, uncapped id — the caller (this class's `registerToolWithServer`)
+     * applies the [MdcValues.bounded] length cap only to the MDC copy, never to what tools receive.
      */
     internal fun actorIdFrom(arguments: JsonElement?): String? {
         val actor = (arguments as? JsonObject)?.get("actor") as? JsonObject ?: return null

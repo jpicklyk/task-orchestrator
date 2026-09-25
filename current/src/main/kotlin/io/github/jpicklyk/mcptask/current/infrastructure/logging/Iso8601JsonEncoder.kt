@@ -3,6 +3,8 @@ package io.github.jpicklyk.mcptask.current.infrastructure.logging
 import ch.qos.logback.classic.encoder.JsonEncoder
 import ch.qos.logback.classic.spi.ILoggingEvent
 import java.time.Instant
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
 
 /**
  * Subclass of logback-classic's stock [JsonEncoder] that swaps the epoch-millis `timestamp` field
@@ -24,8 +26,21 @@ import java.time.Instant
  * `message` (the raw, unformatted message — redundant with `formattedMessage`), `arguments`.
  *
  * One line per event, UTF-8, ending in `\n` — unchanged from the stock encoder's framing.
+ *
+ * The `timestamp` field always carries exactly 3 fractional-second digits, via a fixed-pattern
+ * [DateTimeFormatter] rather than [Instant.toString], which drops the fractional part entirely
+ * for whole-second instants (e.g. `1970-01-01T00:00:01Z` instead of
+ * `1970-01-01T00:00:01.000Z`) — a variable-width field that breaks naive fixed-offset parsing
+ * and length-based assumptions downstream. [DateTimeFormatter] instances are immutable and
+ * thread-safe, so a single shared companion instance is safe to reuse across concurrent log
+ * events.
  */
 class Iso8601JsonEncoder : JsonEncoder() {
+    companion object {
+        private val TIMESTAMP_FORMATTER: DateTimeFormatter =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'").withZone(ZoneOffset.UTC)
+    }
+
     init {
         // JsonEncoder exposes only setters (no getters) for these flags, so Kotlin cannot
         // synthesize `var` properties for them — call the setters directly.
@@ -53,6 +68,6 @@ class Iso8601JsonEncoder : JsonEncoder() {
         event: ILoggingEvent
     ) {
         sb.append(',')
-        appenderMember(sb, "timestamp", Instant.ofEpochMilli(event.timeStamp).toString())
+        appenderMember(sb, "timestamp", TIMESTAMP_FORMATTER.format(Instant.ofEpochMilli(event.timeStamp)))
     }
 }

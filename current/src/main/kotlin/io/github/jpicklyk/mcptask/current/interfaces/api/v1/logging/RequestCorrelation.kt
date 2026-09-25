@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.logging
 
+import io.github.jpicklyk.mcptask.current.infrastructure.logging.MdcValues
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationCallPipeline
 import io.ktor.server.application.call
@@ -11,8 +12,20 @@ import kotlinx.coroutines.withContext
 import org.slf4j.MDC
 import java.util.UUID
 
-/** Matches a safe, loggable `X-Request-Id` value: ASCII alphanumerics, `.`, `_`, `-`, 1-64 chars. */
+/**
+ * Matches a safe, loggable `X-Request-Id` value: ASCII alphanumerics, `.`, `_`, `-`, 1-64 chars.
+ *
+ * Deliberately reject-and-replace, NOT length-capped like `httpPath` below: `requestId` is a
+ * correlation KEY used to tie related log lines together. Truncating an over-long or malformed
+ * key would silently coalesce distinct requests under a shared, truncated prefix — a false
+ * correlation that is worse than falling back to a fresh, unambiguous UUID.
+ */
 private val SAFE_REQUEST_ID = Regex("^[A-Za-z0-9._-]{1,64}$")
+
+/** Max length of the `httpPath` MDC value (see [MdcValues.bounded]). `/api/v1` paths are a fixed
+ * prefix plus at most two UUIDs, comfortably under 120 chars — 256 leaves generous headroom.
+ */
+private const val HTTP_PATH_MDC_MAX_LENGTH = 256
 
 /**
  * Installs MDC correlation fields for every REST request under `/api/v1`, mirroring the MCP-path
@@ -30,6 +43,8 @@ private val SAFE_REQUEST_ID = Regex("^[A-Za-z0-9._-]{1,64}$")
  * [SAFE_REQUEST_ID], else a fresh UUID — this bounds what a caller-supplied header can inject into
  * a JSON log line), `httpMethod`, and `httpPath` ([io.ktor.server.request.path], which excludes
  * the query string — so no `?token=` bearer/SSE query param ever lands in MDC or a log line).
+ * `httpPath` is length-capped via [MdcValues.bounded] (max [HTTP_PATH_MDC_MAX_LENGTH]) since it is
+ * client-controlled (any path segment, however long, reaches routing before this interceptor runs).
  *
  * Scoped to `/api/v1` only: non-API paths (`/mcp`, `/.well-known/...`) proceed with no MDC change.
  */
@@ -54,7 +69,7 @@ internal fun Application.installRequestCorrelation() {
                 "transport" to "rest",
                 "requestId" to requestId,
                 "httpMethod" to call.request.httpMethod.value,
-                "httpPath" to path,
+                "httpPath" to MdcValues.bounded(path, max = HTTP_PATH_MDC_MAX_LENGTH),
             )
         withContext(MDCContext((MDC.getCopyOfContextMap() ?: emptyMap()) + fields)) {
             proceed()

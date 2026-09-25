@@ -116,6 +116,37 @@ class RequestCorrelationTest {
     }
 
     @Test
+    fun `L16 - an over-long httpPath is capped in MDC via MdcValues`() {
+        val longSegment = "s".repeat(300)
+        val snapshots =
+            captureProbeSnapshots {
+                testApplication {
+                    application {
+                        installRequestCorrelation()
+                        routing {
+                            route("/api/v1") {
+                                get("/probe/{seg}") {
+                                    LoggerFactory.getLogger(probeLoggerName).info("probe hit")
+                                    call.respondText("ok")
+                                }
+                            }
+                        }
+                    }
+                    client.get("/api/v1/probe/$longSegment")
+                }
+            }
+
+        assertEquals(1, snapshots.size)
+        val httpPath = snapshots.single()["httpPath"]
+        assertTrue(httpPath != null, "Expected an httpPath in MDC")
+        // MdcValues.bounded truncates to 256 chars, then appends the "...[truncated]" marker (14
+        // chars) — the capped result is therefore 270 chars, not <=256 (see MdcValuesTest L12/L13
+        // for the same fixed-overhead shape).
+        assertEquals(270, httpPath!!.length, "capped httpPath must be exactly max(256) + marker(14) chars")
+        assertTrue(httpPath.endsWith("...[truncated]"), "An over-long path must carry the truncation marker")
+    }
+
+    @Test
     fun `paths outside api v1 are not tagged with rest MDC fields`() {
         val snapshots =
             captureProbeSnapshots {

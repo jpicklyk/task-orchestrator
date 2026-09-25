@@ -118,6 +118,11 @@ dependencies {
     // Konsist — architecture layering test (LayeringTest.kt)
     testImplementation(libs.konsist)
 
+    // Compile-only access to KotlinLoggingConfiguration for KotlinLoggingBannerGuardTest.kt
+    // (O5 drift guard). Does NOT change test-runtime resolution: kotlin-logging-jvm still reaches
+    // the test classpath only transitively via the MCP SDK, same as production compileOnly above.
+    testCompileOnly(libs.kotlin.logging.jvm)
+
     // Ktor mock engine for hermetic HTTP tests
     testImplementation(libs.ktor.client.mock)
 
@@ -184,6 +189,14 @@ tasks.test {
             rootProject.file("server.json"),
             rootProject.file("smithery.yaml"),
         ).withPropertyName("distributionManifestInputs")
+
+    // KotlinLoggingBannerGuardTest reads the `kotlinLogging` version pin directly out of the
+    // catalog file at runtime and compares it to the resolved jar on the classpath. Declare the
+    // catalog as a task input so a version-only bump (no Kotlin source change) invalidates the
+    // cached test result instead of reporting UP-TO-DATE and silently skipping re-verification.
+    inputs
+        .files(rootProject.file("gradle/libs.versions.toml"))
+        .withPropertyName("kotlinLoggingCatalogInput")
 }
 
 kotlin {
