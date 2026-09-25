@@ -1768,7 +1768,9 @@ Both `sync.lost` and `auth.expired` are **control events** — they always bypas
 
 **`item.advanced` note:** This event is emitted on role change (via `POST /items/{id}/advance` or any write path that triggers `RoleTransitionHandler`). It carries the `newRole` field. This is distinct from `item.updated` — a role change emits `item.advanced` (not `item.updated`).
 
-**Claim/release note:** A successful MCP `claim_item` or `release_item` call emits `item.updated` for the claimed/released item — and, for a claim that auto-releases the agent's other held items, one additional `item.updated` per auto-released item.
+**Claim/release note:** A successful claim or release through the MCP `claim_item` tool (its `claims` and `releases` arrays) emits `item.updated` for the claimed/released item — and, for a claim that auto-releases the agent's other held items, one additional `item.updated` per auto-released item.
+
+**Bulk-write note:** `create_work_tree` emits `item.created` for each newly created item (root first; an attach-mode pre-existing root emits nothing), then `dependency.added` per edge and `note.upserted` per note, all after the enclosing transaction commits — a rolled-back tree emits nothing. Deleting all of an item's notes at once emits a single `note.deleted` for that item, not one per note; removing all of an item's dependencies emits one `dependency.removed` per edge.
 
 ---
 
