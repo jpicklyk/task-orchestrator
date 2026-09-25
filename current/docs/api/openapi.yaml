@@ -637,6 +637,13 @@ components:
           description: Present only when gateBlocked is true.
           items:
             $ref: "#/components/schemas/MissingNoteDto"
+        error:
+          type: string
+          nullable: true
+          description: >-
+            Reason this cascade's own apply step failed (a persistence conflict), when applied is
+            false and gateBlocked is not true. Null on success and on every gate/resource
+            suppression.
 
     UnblockedItemDto:
       type: object

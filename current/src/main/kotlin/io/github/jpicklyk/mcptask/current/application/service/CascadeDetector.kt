@@ -49,10 +49,15 @@ data class UnblockedItem(
  * them to the caller. The caller then applies each event in its own transaction. No single
  * transaction spans both detect and apply.
  *
- * In theory this creates a window where concurrent writers could observe stale state
- * (e.g. a sibling's role changes between detect and apply). In practice SQLite's
- * single-writer model means only one write can proceed at a time, which eliminates
- * the concurrency risk for the common deployment scenario.
+ * This creates a real window where concurrent writers can observe stale state (e.g. a
+ * sibling's role changes between detect and apply): SQLite's single-writer model serializes
+ * COMMITS, one at a time, but detect and apply here are separate transactions/commits, so another
+ * writer's commit can land in the gap between them — the single-writer model does not make detect
+ * and apply atomic together. Staleness is not eliminated; it is CAUGHT, at apply time, by the
+ * optimistic version check on the item's row (see `SQLiteWorkItemRepository`'s update path), which
+ * surfaces as a failed apply — reported to the caller as `applied = false` plus a populated `error`
+ * (see [io.github.jpicklyk.mcptask.current.application.service.AdvanceCascadeEvent.error]) and
+ * logged at WARN, not silently absorbed.
  *
  * For multi-level hierarchies (child → parent → grandparent), [AdvanceItemTool]
  * compensates with an **iterative detect-apply loop**: after each cascade event is

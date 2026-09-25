@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition
+import io.github.jpicklyk.mcptask.current.domain.model.ResourceLease
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceMode
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.Role
@@ -116,6 +117,11 @@ sealed class AdvanceFailure {
  *   advance still succeeded — only the parent's auto-start was skipped.
  * @property contendedResources contended resource keys on the parent (only when [resourceBlocked]);
  *   never carries holder identity.
+ * @property error human-readable reason the cascade's apply step failed (e.g. a persistence
+ *   conflict during the parent's role transition). Populated only when [applied] is false AND
+ *   neither [gateBlocked] nor [resourceBlocked] suppressed the cascade — i.e. the cascade was
+ *   attempted and its apply step itself failed. Null on success and on every gate/resource
+ *   suppression.
  */
 data class AdvanceCascadeEvent(
     val itemId: java.util.UUID,
@@ -127,7 +133,8 @@ data class AdvanceCascadeEvent(
     val gateBlocked: Boolean = false,
     val gateMissingNotes: List<NoteSchemaEntry> = emptyList(),
     val resourceBlocked: Boolean = false,
-    val contendedResources: List<String> = emptyList()
+    val contendedResources: List<String> = emptyList(),
+    val error: String? = null
 )
 
 /** A downstream item that became fully unblocked as a result of the primary advance. */
@@ -387,11 +394,18 @@ class AdvanceService(
         // AND "resume" BLOCKED->WORK, which the note gate above deliberately does not (its
         // trigger == "start" || "complete" condition is left untouched).
         val leaseGateActive = enforceResourceLeases && resourceLeasesEnforced
+        // Leases acquired for THIS transition by step 4.5, if any — needed to compute the
+        // compensating release below if step 5 (apply) fails. Empty whenever the gate did not run
+        // or the item declares no resources; never populated from a refresh of a pre-existing hold.
+        var acquiredThisCall: List<ResourceLease> = emptyList()
         val effectiveCredentialRefs =
             if (targetRole == Role.WORK && leaseGateActive) {
                 when (val gate = runResourceLeaseGate(item, targetRole, actorClaim, credentialRefs)) {
                     is ResourceGateOutcome.Rejected -> return AdvanceOutcome.Failure(gate.failure)
-                    is ResourceGateOutcome.Proceed -> gate.credentialRefs
+                    is ResourceGateOutcome.Proceed -> {
+                        acquiredThisCall = gate.acquired
+                        gate.credentialRefs
+                    }
                 }
             } else {
                 credentialRefs
@@ -415,6 +429,7 @@ class AdvanceService(
                 consumedCredentials = effectiveCredentialRefs
             )
         if (!applyResult.success || applyResult.item == null) {
+            releaseFreshLeasesOnApplyFailure(item.id, acquiredThisCall, "apply-failed ($trigger)")
             return AdvanceOutcome.Failure(
                 AdvanceFailure.ApplyFailed(applyResult.error ?: "Failed to apply transition")
             )
@@ -525,9 +540,17 @@ class AdvanceService(
 
     /** Result of the step-4.5 resource gate: proceed (with derived refs) or reject the advance. */
     private sealed class ResourceGateOutcome {
-        /** Leases acquired (or none needed); [credentialRefs] is the final audit list to persist. */
+        /**
+         * Leases acquired (or none needed); [credentialRefs] is the final audit list to persist.
+         *
+         * @property acquired the [ResourceLease] rows returned by [ResourceLeaseRepository.acquireAll]
+         *   for THIS call (empty when the item declares no resources). Includes rows for keys that
+         *   were freshly created (`version == 0`) AND rows for keys refreshed on a pre-existing hold
+         *   (`version > 0`) — the compensating-release path at the call site filters on `version`.
+         */
         data class Proceed(
-            val credentialRefs: List<String>
+            val credentialRefs: List<String>,
+            val acquired: List<ResourceLease> = emptyList()
         ) : ResourceGateOutcome()
 
         data class Rejected(
@@ -585,6 +608,7 @@ class AdvanceService(
 
         val exclusiveKeys = requirements.filter { it.mode == ResourceMode.EXCLUSIVE }.map { it.key }
         val advisoryKeys = requirements.filter { it.mode == ResourceMode.ADVISORY }.map { it.key }
+        var acquiredLeases: List<ResourceLease> = emptyList()
 
         // (4) Acquire the EXCLUSIVE set. Actor id is audit metadata ONLY — exclusivity is keyed on
         // the holder ITEM in the repository, so a shared or self-reported actor id cannot widen or
@@ -606,7 +630,7 @@ class AdvanceService(
                         .filter { it.mode == ResourceMode.EXCLUSIVE }
                         .map { it.key to resolveTtlSeconds(it, registry) }
                 when (val acquire = leaseRepo.acquireAll(item.id, actorClaim?.id, leaseRequests)) {
-                    is LeaseAcquireResult.Success -> {} // proceed
+                    is LeaseAcquireResult.Success -> acquiredLeases = acquire.leases
                     is LeaseAcquireResult.Contended ->
                         return ResourceGateOutcome.Rejected(
                             AdvanceFailure.ResourceLeaseUnavailable(
@@ -643,7 +667,10 @@ class AdvanceService(
         // (5) Derivation: derived keys first (exclusive, then advisory), caller extras appended.
         // Deduped, order-preserving. The MAX_ENTRIES cap in CredentialRefValidation constrains
         // CALLER input only — server-derived keys are trusted and are never truncated.
-        return ResourceGateOutcome.Proceed((exclusiveKeys + advisoryKeys + credentialRefs).distinct())
+        return ResourceGateOutcome.Proceed(
+            credentialRefs = (exclusiveKeys + advisoryKeys + credentialRefs).distinct(),
+            acquired = acquiredLeases
+        )
     }
 
     /**
@@ -690,6 +717,69 @@ class AdvanceService(
                     release.cause.message
                 )
         }
+    }
+
+    /**
+     * Compensating release for leases ACQUIRED BY THIS CALL when the transition they were acquired
+     * for then fails to apply (primary apply failure, or a cascade's own apply failure).
+     *
+     * Releases [itemId]'s leases ONLY when every one of [acquired] is fresh (`version == 0` — see
+     * [ResourceLease.version] KDoc: 0 on a brand-new INSERT, incremented on every same-holder
+     * refresh). A mix of fresh and refreshed/pre-held leases, or [acquired] being empty, skips the
+     * release entirely: releasing a lease this call did not itself create could steal a resource out
+     * from under whatever call is genuinely holding it. As a final safeguard, [itemId] is re-read
+     * immediately before releasing — if a concurrent call has already moved it into
+     * [Role.WORK], this call's own failed apply is racing a successful one, and releasing now would
+     * strip the lease out from under the item that IS in WORK; the release is skipped in that case
+     * too. Every skip is logged at WARN. The actual release (when it proceeds) reuses
+     * [releaseLeases]'s log-and-continue policy — a release failure here must never turn an
+     * already-decided [AdvanceFailure.ApplyFailed] into a different outcome.
+     */
+    private suspend fun releaseFreshLeasesOnApplyFailure(
+        itemId: java.util.UUID,
+        acquired: List<ResourceLease>,
+        reason: String
+    ) {
+        if (acquired.isEmpty()) return
+
+        val fresh = acquired.filter { it.version == 0 }
+        if (fresh.size != acquired.size) {
+            logger.warn(
+                "Skipping compensating lease release for item {} on {}: {} of {} acquired lease(s) were " +
+                    "refreshes of a pre-existing hold rather than fresh acquires by this call.",
+                itemId,
+                reason,
+                acquired.size - fresh.size,
+                acquired.size
+            )
+            return
+        }
+
+        val rereadRole =
+            when (val reread = workItemRepository.getById(itemId)) {
+                is Result.Success -> reread.data.role
+                is Result.Error -> null
+            }
+        if (rereadRole == null) {
+            logger.warn(
+                "Skipping compensating lease release for item {} on {}: could not re-read the item to " +
+                    "confirm it is not concurrently in WORK.",
+                itemId,
+                reason
+            )
+            return
+        }
+        if (rereadRole == Role.WORK) {
+            logger.warn(
+                "Skipping compensating lease release for item {} on {}: the item is now in WORK — a " +
+                    "concurrent call already re-acquired (or holds) this call's leases.",
+                itemId,
+                reason
+            )
+            return
+        }
+
+        releaseLeases(itemId, reason)
     }
 
     /**
@@ -787,6 +877,16 @@ class AdvanceService(
                     statusLabel = statusLabelService.resolveLabel("cascade")
                 )
 
+            if (!cascadeApply.success) {
+                val cascadeError = cascadeApply.error ?: "Cascade apply failed"
+                logger.warn(
+                    "Terminal cascade apply failed for item {} (target role {}): {}",
+                    event.itemId,
+                    event.targetRole,
+                    cascadeError
+                )
+            }
+
             out.add(
                 AdvanceCascadeEvent(
                     itemId = event.itemId,
@@ -794,7 +894,8 @@ class AdvanceService(
                     previousRole = event.currentRole,
                     targetRole = event.targetRole,
                     applied = cascadeApply.success,
-                    statusLabel = cascadeApply.item?.statusLabel
+                    statusLabel = cascadeApply.item?.statusLabel,
+                    error = if (cascadeApply.success) null else (cascadeApply.error ?: "Cascade apply failed")
                 )
             )
 
@@ -924,11 +1025,12 @@ class AdvanceService(
             }
 
             // Resource gate for a cascade INTO work: suppress this cascade on contention.
+            var acquiredForCascade: List<ResourceLease> = emptyList()
             if (event.targetRole == Role.WORK && leaseGateActive) {
                 // Per D7: a per-root config read failure resolving the parent's resource
                 // requirements must not fail the PRIMARY transition (already committed) — skip only
                 // this cascade event, parent left unchanged, WARN logged.
-                val contended =
+                val acquireOutcome =
                     try {
                         acquireForCascadeIntoWork(parentItem)
                     } catch (e: PerRootConfigUnavailableException) {
@@ -940,7 +1042,7 @@ class AdvanceService(
                         )
                         continue
                     }
-                if (contended.isNotEmpty()) {
+                if (acquireOutcome.contendedKeys.isNotEmpty()) {
                     out.add(
                         AdvanceCascadeEvent(
                             itemId = event.itemId,
@@ -949,11 +1051,12 @@ class AdvanceService(
                             targetRole = event.targetRole,
                             applied = false,
                             resourceBlocked = true,
-                            contendedResources = contended
+                            contendedResources = acquireOutcome.contendedKeys
                         )
                     )
                     continue
                 }
+                acquiredForCascade = acquireOutcome.acquired
             }
 
             val cascadeApply =
@@ -966,6 +1069,20 @@ class AdvanceService(
                     statusLabel = statusLabelService.resolveLabel("cascade")
                 )
 
+            if (!cascadeApply.success) {
+                val cascadeError = cascadeApply.error ?: "Cascade apply failed"
+                logger.warn(
+                    "Cascade apply failed for item {} (target role {}): {}",
+                    event.itemId,
+                    event.targetRole,
+                    cascadeError
+                )
+                // The parent's leases (if any were acquired for this cascade) were acquired for a
+                // transition into WORK that never committed — release them, same compensating rule
+                // as the primary apply-failure path.
+                releaseFreshLeasesOnApplyFailure(event.itemId, acquiredForCascade, "cascade-apply-failed")
+            }
+
             out.add(
                 AdvanceCascadeEvent(
                     itemId = event.itemId,
@@ -973,7 +1090,8 @@ class AdvanceService(
                     previousRole = event.currentRole,
                     targetRole = event.targetRole,
                     applied = cascadeApply.success,
-                    statusLabel = cascadeApply.item?.statusLabel
+                    statusLabel = cascadeApply.item?.statusLabel,
+                    error = if (cascadeApply.success) null else (cascadeApply.error ?: "Cascade apply failed")
                 )
             )
 
@@ -987,34 +1105,46 @@ class AdvanceService(
     }
 
     /**
+     * Result of [acquireForCascadeIntoWork]: either the contended keys (cascade must be suppressed)
+     * or the leases acquired for this call (possibly empty — no resources declared, or no lease
+     * repository wired), needed later to compute the compensating release if the cascade's own
+     * apply then fails.
+     */
+    private data class CascadeAcquireOutcome(
+        val contendedKeys: List<String>,
+        val acquired: List<ResourceLease>
+    )
+
+    /**
      * Attempts to acquire [parentItem]'s EXCLUSIVE leases ahead of a cascade into [Role.WORK].
      *
-     * @return the contended keys (empty when the acquire succeeded, when the parent declares no
-     *   exclusive resources, or when no lease repository is wired) — a non-empty result means the
-     *   caller must suppress the cascade.
+     * @return [CascadeAcquireOutcome] — non-empty `contendedKeys` means the caller must suppress the
+     *   cascade (empty when the acquire succeeded, when the parent declares no exclusive resources,
+     *   or when no lease repository is wired); `acquired` carries the leases this call itself
+     *   acquired, for the compensating release on a subsequent cascade-apply failure.
      */
-    private suspend fun acquireForCascadeIntoWork(parentItem: WorkItem): List<String> {
+    private suspend fun acquireForCascadeIntoWork(parentItem: WorkItem): CascadeAcquireOutcome {
         val requirements = resourceRequirementsResolver(parentItem)
-        if (requirements.isEmpty()) return emptyList()
+        if (requirements.isEmpty()) return CascadeAcquireOutcome(emptyList(), emptyList())
 
         val exclusive = requirements.filter { it.mode == ResourceMode.EXCLUSIVE }
-        if (exclusive.isEmpty()) return emptyList()
+        if (exclusive.isEmpty()) return CascadeAcquireOutcome(emptyList(), emptyList())
 
-        val leaseRepo = resourceLeaseRepository ?: return emptyList()
+        val leaseRepo = resourceLeaseRepository ?: return CascadeAcquireOutcome(emptyList(), emptyList())
         val registry = resourceRegistryResolver(parentItem.rootId)
         val leaseRequests = exclusive.map { it.key to resolveTtlSeconds(it, registry) }
 
         // Cascades have no actor by construction (see RoleTransitionHandler.cascadeTransition),
         // so the lease's audit actor is null here.
         return when (val acquire = leaseRepo.acquireAll(parentItem.id, null, leaseRequests)) {
-            is LeaseAcquireResult.Success -> emptyList()
+            is LeaseAcquireResult.Success -> CascadeAcquireOutcome(emptyList(), acquire.leases)
             is LeaseAcquireResult.Contended -> {
                 logger.info(
                     "Start cascade into work suppressed for item {}: resource(s) {} held by another item",
                     parentItem.id,
                     acquire.contendedKeys
                 )
-                acquire.contendedKeys
+                CascadeAcquireOutcome(acquire.contendedKeys, emptyList())
             }
             is LeaseAcquireResult.DBError -> {
                 logger.warn(
@@ -1023,7 +1153,7 @@ class AdvanceService(
                     exclusive.map { it.key },
                     acquire.cause.message
                 )
-                exclusive.map { it.key }
+                CascadeAcquireOutcome(exclusive.map { it.key }, emptyList())
             }
         }
     }

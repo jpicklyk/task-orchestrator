@@ -569,6 +569,7 @@ Call to move an item between phases once its work is done — never edit status 
                             )
                         }
                         event.statusLabel?.let { put("statusLabel", JsonPrimitive(it)) }
+                        event.error?.let { put("error", JsonPrimitive(it)) }
                     }
                 }
 

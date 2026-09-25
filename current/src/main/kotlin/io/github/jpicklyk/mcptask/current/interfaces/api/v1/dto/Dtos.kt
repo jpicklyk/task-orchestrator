@@ -438,7 +438,9 @@ data class MissingNoteDto(
  *
  * Mirrors the MCP `advance_item` cascadeEvents shape. When [gateBlocked] is true the cascade was
  * suppressed because the parent had unfilled required notes; [applied] is then false and
- * [missingNotes] lists the structured gaps.
+ * [missingNotes] lists the structured gaps. When [applied] is false and [gateBlocked] is false, the
+ * cascade's own apply step failed and [error] carries the reason (omitted from the wire format when
+ * null, since `explicitNulls = false`).
  */
 @Serializable
 data class CascadeEventDto(
@@ -450,6 +452,7 @@ data class CascadeEventDto(
     val statusLabel: String? = null,
     val gateBlocked: Boolean = false,
     val missingNotes: List<MissingNoteDto>? = null,
+    val error: String? = null,
 )
 
 /** A downstream item that became fully unblocked as a result of an advance. */

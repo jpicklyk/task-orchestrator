@@ -303,6 +303,7 @@ fun AdvanceResult.toDto(existingNoteKeys: Set<String>): AdvanceResponseDto {
                         } else {
                             null
                         },
+                    error = event.error,
                 )
             },
         unblockedItems =
