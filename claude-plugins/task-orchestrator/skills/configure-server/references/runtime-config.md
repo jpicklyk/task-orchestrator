@@ -50,6 +50,7 @@ TASK_ORCHESTRATOR_API_URL=http://localhost:3001
 | Debug on | `-e LOG_LEVEL=DEBUG -e DATABASE_SHOW_SQL=true` |
 | Log to file (opt-in) | `-e LOG_FILE=/app/data/logs/task-orchestrator.log` (JSON on stderr always; this also writes the same JSON lines to that file, on the existing `/app/data` volume) |
 | Port publish (loopback only) | `-p 127.0.0.1:3001:3001` |
+| Non-loopback Host | `-e MCP_ALLOWED_HOSTS=<name>[,<name>:<port>]` |
 
 ## REST-mode env tuples (full, copy-paste)
 
@@ -94,6 +95,48 @@ See `api-rest.md` §1 for the token file format and hash generation.
 This mirrors the existing `/mcp` guidance already documented in `current/docs/quick-start.md` (Step 9,
 HTTP transport security) and `current/docs/fleet-deployment.md` — both already establish that host
 exposure is controlled by the `-p` mapping, not `MCP_HTTP_HOST`, for Docker deployments.
+
+---
+
+## Host allowlist (MCP_ALLOWED_HOSTS)
+
+**When it is needed:** the server rejects any non-loopback `Host` header on `/mcp`, `/api/v1/*` and
+`/.well-known` with a 403 (Setup-phase `HostAllowlistPlugin`, HTTP transport only — stdio never
+installs the guard). Render this fragment whenever the user, client, or a proxy in front of the
+server will reach it by any name other than `localhost` / `127.0.0.1` / `[::1]` — those three always
+match, on any port, with no config needed.
+
+**Format:** CSV, extending (never replacing) the always-on loopback defaults. A bare `host` entry
+matches any port; `host:port` matches only that port; bracket IPv6 entries. Matching ignores case and
+one trailing dot, otherwise it is exact — no subdomains, no CIDR ranges. See
+[`fleet-deployment.md`](../../../../../current/docs/fleet-deployment.md) for the full parsing rules
+(entries with a scheme/path/`@`/non-digit port are dropped with a startup WARN and never widen the
+allowlist; `*` disables the guard with a WARN — never render `*`).
+
+**Examples:**
+
+1. **docker-compose:** an agent container reaching the server at `http://task-orchestrator:3001`
+   needs `-e MCP_ALLOWED_HOSTS=task-orchestrator`. A devcontainer reaching the host needs
+   `-e MCP_ALLOWED_HOSTS=host.docker.internal`.
+2. **LAN:** `-e MCP_ALLOWED_HOSTS=tohost.lan`, with the port published beyond loopback. This is ONLY
+   safe with bearer or jwks auth — see the loopback footgun above; a non-loopback publish with
+   unauthenticated REST is never safe regardless of the Host allowlist.
+3. **Reverse proxy:** if the proxy forwards the original Host (e.g. nginx
+   `proxy_set_header Host $host`), add the public name, e.g. `-e MCP_ALLOWED_HOSTS=tasks.example.com`.
+   Alternatively, have the proxy send `Host: localhost:3001` and skip the env var entirely.
+
+**Symptoms of a missing entry:** a 403 on `/mcp` (JSON-RPC error, code -32000, "Host header not in
+the allowed list. Configure MCP_ALLOWED_HOSTS...") or a 403 `{error:"host_not_allowed"}` on
+`/api/v1/*` / `/.well-known`. This check runs before authentication, so it fires regardless of
+`API_AUTH_MODE`. It also silently breaks `config-sync` and the phase-guard hook when
+`TASK_ORCHESTRATOR_API_URL` uses a non-allowed name — both fail open/no-op rather than surfacing this
+403 directly, so a non-loopback client-side URL is a first thing to check.
+
+**Hard rules:**
+- Never render `MCP_ALLOWED_HOSTS=*` — it disables the guard entirely.
+- Allowing a non-loopback name does NOT make unauthenticated REST safe. The loopback footgun rule
+  above still holds unconditionally: unauthenticated mode always uses `-p 127.0.0.1:3001:3001`, and
+  any non-loopback access implies bearer or jwks auth.
 
 ---
 

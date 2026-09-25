@@ -86,6 +86,8 @@ project-local research agent, etc.) gets no output at all. See "Execution modes"
 
 **What it does:** For every item the Phase-Guard Record hook recorded for this subagent, calls `GET /items/{id}/gate` (see [api-rest.md](../api-rest.md) §9) and checks `gateStatus`. If a `work`- or `review`-phase item still has required notes missing (`gateStatus.missing` non-empty), the hook blocks the stop with a reason naming the item, the missing note keys, and — when present — the first missing note's `guidanceKey` or `skillPointer`.
 
+**Seat awareness:** the hook input's `agent_type` field (same SubagentStop field `subagent-start.mjs` already reads) identifies which seat is stopping. `phaseOwnerSeat(agentType)` (`execution-mode.mjs`) resolves it to `implementer` (owns `work`), `reviewer` (owns `review`), or `null`. When the seat is known and the item's `gateStatus.role` does not match the role that seat owns, the item is still fetched but never named as a blocker — a reviewer stopping on a work-phase item, or an implementer stopping on a review-phase item, is never demanded notes outside its own seat. Independently, keys in `TEST_AUTHOR_OWNED_KEYS` (currently just `test-manifest`) are dropped from `missing` before the block decision unless `isTestAuthorAgentType(agentType)` is true — those notes belong to a separately dispatched test-author seat (see the `needs-test-author` trait) and must never be demanded of the implementer or reviewer. When `agent_type` is absent or unrecognised (an older Claude Code build, or a non-seat helper type like `task-orchestrator:implementer-helper`), the guard falls back to today's role-agnostic behavior — it still applies the test-author key filter, just without the seat-to-role check. Because the DTO's `guidanceKey`/`skillPointer` describe only the first raw missing key, the block reason surfaces that hint only when the first key survives the test-author filter.
+
 **Effect:** Sends the subagent back to fill required notes instead of letting it end its turn with an incomplete phase. Capped at **2 blocks per subagent** (`agent_id`) — beyond the cap the guard steps aside even with notes still missing, so a stuck subagent is never looped forever. Requires `TASK_ORCHESTRATOR_API_URL` and, in bearer mode, a `TASK_ORCHESTRATOR_API_TOKEN` with `read` capability (same REST dependency as `config-sync.mjs`, see [fleet-deployment.md](../fleet-deployment.md)); fails open — no block, silent `{}`, exit 0 — on a missing API URL, a missing/unreadable state file, a non-2xx or errored gate fetch for an item, or any other error.
 
 **Known limitation:** The guard only engages for subagents that enter their phase with `advance_item(trigger="start")` — the Agent-Owned-Phase Protocol below. A subagent dispatched under an orchestrator-owns-transitions dispatch contract, which never calls `advance_item` itself, has nothing recorded by the Phase-Guard Record hook, so the guard stays inert for it.
@@ -96,8 +98,10 @@ No documented Claude Code hook-input field distinguishes an interactive session 
 `claude -p` run, so the `ralph` skill's drain loop (`scripts/ralph-loop.mjs`) sets an explicit
 signal: it spawns every iteration (the initial spawn and every `--resume` continuation) with
 `TASK_ORCHESTRATOR_MODE=headless-iteration` in the child's environment. `hooks/execution-mode.mjs`
-exposes `isHeadlessIteration()` (reads that var) and `isPhaseOwnerAgentType(agentType)` (matches
-`implementer`/`reviewer`, bare or plugin-qualified) for the hooks below to branch on:
+exposes `isHeadlessIteration()` (reads that var), `isPhaseOwnerAgentType(agentType)` (matches
+`implementer`/`reviewer`, bare or plugin-qualified), the seat-returning `phaseOwnerSeat(agentType)` it is
+now built on (`implementer`/`reviewer`/`null`), and `isTestAuthorAgentType(agentType)` (matches
+`test-author`, bare or plugin-qualified) for the hooks below to branch on:
 
 | Hook | Headless ralph iteration | Interactive subagent (`agent_id` present) |
 |---|---|---|

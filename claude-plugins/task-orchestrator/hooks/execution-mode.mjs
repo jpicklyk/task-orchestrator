@@ -25,13 +25,31 @@ export function isSubagentInvocation(hookInput) {
 }
 
 /**
- * True when `agentType` names a phase-owner agent — `implementer` or `reviewer`, either bare
- * (project-local agent definitions) or plugin-qualified (`<plugin>:implementer`,
- * `<plugin>:reviewer`, e.g. `task-orchestrator:implementer`). Does NOT match a type that merely
- * ends with one of those words as a substring of a longer segment (e.g.
- * `task-orchestrator:implementer-helper`) — the segment after the last `:` (or the whole string
- * when there is no `:`) must equal `implementer` or `reviewer` exactly.
+ * Returns `'implementer'`, `'reviewer'`, or `null` for `agentType` — bare (project-local agent
+ * definitions) or plugin-qualified (`<plugin>:implementer`, `<plugin>:reviewer`, e.g.
+ * `task-orchestrator:implementer`). Does NOT match a type that merely ends with one of those
+ * words as a substring of a longer segment (e.g. `task-orchestrator:implementer-helper`) — the
+ * segment after the last `:` (or the whole string when there is no `:`) must equal `implementer`
+ * or `reviewer` exactly.
+ */
+export function phaseOwnerSeat(agentType) {
+  const match = /(^|:)(implementer|reviewer)$/.exec(agentType ?? '');
+  return match ? match[2] : null;
+}
+
+/**
+ * True when `agentType` names a phase-owner agent — `implementer` or `reviewer`. See
+ * `phaseOwnerSeat` for the exact matching rule; this is a boolean view of the same regex.
  */
 export function isPhaseOwnerAgentType(agentType) {
-  return /(^|:)(implementer|reviewer)$/.test(agentType ?? '');
+  return phaseOwnerSeat(agentType) !== null;
+}
+
+/**
+ * True when `agentType` names a test-author seat — bare `test-author` or plugin-qualified
+ * (`<plugin>:test-author`). Same last-segment matching discipline as `phaseOwnerSeat`: does not
+ * match a longer segment that merely ends with `test-author`.
+ */
+export function isTestAuthorAgentType(agentType) {
+  return /(^|:)test-author$/.test(agentType ?? '');
 }
