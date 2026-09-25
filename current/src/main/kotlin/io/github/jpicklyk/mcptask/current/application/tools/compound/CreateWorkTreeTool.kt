@@ -583,7 +583,9 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
         if (docRefError != null) return docRefError
         val (docSlug, docRootId) = docRefSource!!
 
-        val (childrenResult, childrenError) = buildChildren(paramsObj, rootItem)
+        val childrenArray = paramsObj["children"] as? JsonArray ?: JsonArray(emptyList())
+
+        val (childrenResult, childrenError) = buildChildren(childrenArray, rootItem)
         if (childrenError != null) return childrenError
         val (refToItem, sortedChildRefs) = childrenResult!!
 
@@ -591,21 +593,19 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
         if (depsError != null) return depsError
         val depSpecs = depSpecsResult!!
 
-        val childrenArray = paramsObj["children"] as? JsonArray ?: JsonArray(emptyList())
-        val (notesListResult, notesError) =
-            buildNotes(
-                paramsObj,
-                params,
-                rootObj,
-                childrenArray,
-                refToItem,
-                effectiveRootId,
-                docSlug,
-                docRootId,
-                context,
-                noteActorClaim,
-                noteVerification
+        val treeBuildContext =
+            TreeBuildContext(
+                rootObj = rootObj,
+                childrenArray = childrenArray,
+                refToItem = refToItem,
+                effectiveRootId = effectiveRootId,
+                docSlug = docSlug,
+                docRootId = docRootId,
+                context = context,
+                noteActorClaim = noteActorClaim,
+                noteVerification = noteVerification
             )
+        val (notesListResult, notesError) = buildNotes(paramsObj, params, treeBuildContext)
         if (notesError != null) return notesError
         val notesList = notesListResult!!
 
@@ -815,6 +815,23 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
         val sortedChildRefs: List<String>
     )
 
+    /**
+     * Bundles the per-tree-build values shared across [buildNotes] and [resolveAnchorNotes] (each
+     * of which previously took ~11 overlapping positional params), built once in
+     * [executeCreateWorkTree].
+     */
+    private data class TreeBuildContext(
+        val rootObj: JsonObject,
+        val childrenArray: JsonArray,
+        val refToItem: Map<String, WorkItem>,
+        val effectiveRootId: UUID,
+        val docSlug: String?,
+        val docRootId: UUID?,
+        val context: ToolExecutionContext,
+        val noteActorClaim: ActorClaim?,
+        val noteVerification: VerificationResult?
+    )
+
     /** Topologically sorts `children` by their `parentRef` chain (Kahn's algorithm), root-first. */
     private fun topoSortChildRefs(childrenArray: JsonArray): Pair<List<String>, Map<String, String>> {
         // Build ref→parentRef map (default "root" if absent)
@@ -865,10 +882,9 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
      * authoritative anchor is re-read inside the write transaction (see [runWorkTreeTransaction]).
      */
     private fun buildChildren(
-        paramsObj: JsonObject,
+        childrenArray: JsonArray,
         rootItem: WorkItem
     ): Pair<ChildrenBuildResult?, JsonElement?> {
-        val childrenArray = paramsObj["children"] as? JsonArray ?: JsonArray(emptyList())
         val refToItem = mutableMapOf<String, WorkItem>()
         refToItem[ROOT_REF] = rootItem
 
@@ -966,6 +982,24 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
     )
 
     /**
+     * Shared schema-role-mismatch check used by both [buildExplicitNotes] and [resolveAnchorNotes]:
+     * when [schema] declares [key], the note's [role] must match the schema's declared role. Returns
+     * an error [JsonElement] (built via [buildMessage], so each call site keeps its own exact wording)
+     * on mismatch, or null when the key is off-schema, the item is schema-free, or the role matches.
+     */
+    private fun checkSchemaRoleMatch(
+        schema: WorkItemSchema?,
+        key: String,
+        role: String,
+        buildMessage: (expectedRole: String) -> String
+    ): JsonElement? {
+        val schemaEntry = schema?.notes?.firstOrNull { it.key == key } ?: return null
+        val expectedRole = schemaEntry.role.toJsonString()
+        if (role == expectedRole) return null
+        return errorResponse(buildMessage(expectedRole), ErrorCodes.VALIDATION_ERROR)
+    }
+
+    /**
      * Parses the explicit `notes` array, enforcing strict schema-role matching per (itemRef, key)
      * and last-wins dedup within the array itself. Off-schema keys and schema-free items are
      * unconstrained.
@@ -1002,22 +1036,14 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
             // UNIQUE(itemId, key) constraint, so only one note per key can exist; allowing a role
             // mismatch would silently leave the gate-required role unfilled.
             val schema = itemSchemas[itemRef]
-            if (schema != null) {
-                val schemaEntry = schema.notes.firstOrNull { it.key == key }
-                if (schemaEntry != null) {
-                    val expectedRole = schemaEntry.role.toJsonString()
-                    if (role != expectedRole) {
-                        return null to
-                            errorResponse(
-                                "notes[$index]: key '$key' is declared in the schema for itemRef " +
-                                    "'$itemRef' with role '$expectedRole', but the explicit note has " +
-                                    "role '$role'. Schema-declared keys must use the schema role; " +
-                                    "off-schema keys may use any valid role.",
-                                ErrorCodes.VALIDATION_ERROR
-                            )
-                    }
+            val roleMismatchError =
+                checkSchemaRoleMatch(schema, key, role) { expectedRole ->
+                    "notes[$index]: key '$key' is declared in the schema for itemRef " +
+                        "'$itemRef' with role '$expectedRole', but the explicit note has " +
+                        "role '$role'. Schema-declared keys must use the schema role; " +
+                        "off-schema keys may use any valid role."
                 }
-            }
+            if (roleMismatchError != null) return null to roleMismatchError
 
             val note =
                 Note(
@@ -1051,18 +1077,20 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
      * write, so zero items are created.
      */
     private suspend fun resolveAnchorNotes(
-        docSlug: String?,
-        docRootId: UUID?,
-        rootObj: JsonObject,
-        childrenArray: JsonArray,
-        refToItem: Map<String, WorkItem>,
+        treeCtx: TreeBuildContext,
         itemSchemas: Map<String, WorkItemSchema?>,
         explicitByRefKey: Map<Pair<String, String>, Int>,
-        notesList: MutableList<Note>,
-        context: ToolExecutionContext,
-        noteActorClaim: ActorClaim?,
-        noteVerification: VerificationResult?
+        notesList: MutableList<Note>
     ): Pair<MutableMap<Pair<String, String>, Int>?, JsonElement?> {
+        val docSlug = treeCtx.docSlug
+        val docRootId = treeCtx.docRootId
+        val rootObj = treeCtx.rootObj
+        val childrenArray = treeCtx.childrenArray
+        val refToItem = treeCtx.refToItem
+        val context = treeCtx.context
+        val noteActorClaim = treeCtx.noteActorClaim
+        val noteVerification = treeCtx.noteVerification
+
         val anchorByRefKey = mutableMapOf<Pair<String, String>, Int>()
         if (docSlug == null) return anchorByRefKey to null
 
@@ -1103,21 +1131,13 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
                         )
 
             val schema = itemSchemas[anchor.itemRef]
-            if (schema != null) {
-                val schemaEntry = schema.notes.firstOrNull { it.key == anchor.noteKey }
-                if (schemaEntry != null) {
-                    val expectedRole = schemaEntry.role.toJsonString()
-                    if (anchor.role != expectedRole) {
-                        return null to
-                            errorResponse(
-                                "noteAnchors: key '${anchor.noteKey}' is declared in the schema for itemRef " +
-                                    "'${anchor.itemRef}' with role '$expectedRole', but the anchor has role " +
-                                    "'${anchor.role}'. Schema-declared keys must use the schema role.",
-                                ErrorCodes.VALIDATION_ERROR
-                            )
-                    }
+            val roleMismatchError =
+                checkSchemaRoleMatch(schema, anchor.noteKey, anchor.role) { expectedRole ->
+                    "noteAnchors: key '${anchor.noteKey}' is declared in the schema for itemRef " +
+                        "'${anchor.itemRef}' with role '$expectedRole', but the anchor has role " +
+                        "'${anchor.role}'. Schema-declared keys must use the schema role."
                 }
-            }
+            if (roleMismatchError != null) return null to roleMismatchError
 
             val sliced =
                 MarkdownSectionSplitter.slice(doc.body, anchor.anchor)
@@ -1187,19 +1207,15 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
     private suspend fun buildNotes(
         paramsObj: JsonObject,
         params: JsonElement,
-        rootObj: JsonObject,
-        childrenArray: JsonArray,
-        refToItem: Map<String, WorkItem>,
-        effectiveRootId: UUID,
-        docSlug: String?,
-        docRootId: UUID?,
-        context: ToolExecutionContext,
-        noteActorClaim: ActorClaim?,
-        noteVerification: VerificationResult?
+        treeCtx: TreeBuildContext
     ): Pair<List<Note>?, JsonElement?> {
+        val refToItem = treeCtx.refToItem
+        val noteActorClaim = treeCtx.noteActorClaim
+        val noteVerification = treeCtx.noteVerification
+
         val createNotes = optionalBoolean(params, "createNotes", defaultValue = false)
         val explicitNotesArray = paramsObj["notes"] as? JsonArray ?: JsonArray(emptyList())
-        val itemSchemas = resolveItemSchemas(refToItem, effectiveRootId, context)
+        val itemSchemas = resolveItemSchemas(refToItem, treeCtx.effectiveRootId, treeCtx.context)
 
         val (explicitResult, explicitError) =
             buildExplicitNotes(explicitNotesArray, refToItem, itemSchemas, noteActorClaim, noteVerification)
@@ -1207,19 +1223,7 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
         val (notesList, explicitByRefKey) = explicitResult!!
 
         val (anchorByRefKey, anchorError) =
-            resolveAnchorNotes(
-                docSlug,
-                docRootId,
-                rootObj,
-                childrenArray,
-                refToItem,
-                itemSchemas,
-                explicitByRefKey,
-                notesList,
-                context,
-                noteActorClaim,
-                noteVerification
-            )
+            resolveAnchorNotes(treeCtx, itemSchemas, explicitByRefKey, notesList)
         if (anchorError != null) return null to anchorError
 
         fillCreateNotesBlanks(

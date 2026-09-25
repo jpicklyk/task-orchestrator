@@ -419,7 +419,7 @@ Call to move an item between phases once its work is done — never edit status 
                     failCount++
                     resultsList.add(
                         buildStructuredErrorResult(
-                            ready.itemId,
+                            ready.item.id,
                             ready.trigger,
                             ToolError(
                                 kind = ErrorKind.TRANSIENT,
@@ -436,7 +436,7 @@ Call to move an item between phases once its work is done — never edit status 
                     is AdvanceOutcome.Success -> outcome.result
                     is AdvanceOutcome.Failure -> {
                         failCount++
-                        resultsList.add(buildFailureResult(ready.itemId, ready.trigger, outcome.failure))
+                        resultsList.add(buildFailureResult(ready.item.id, ready.trigger, outcome.failure))
                         continue
                     }
                 }
@@ -473,7 +473,6 @@ Call to move an item between phases once its work is done — never edit status 
      */
     private sealed class PreCheckResult {
         data class Ready(
-            val itemId: UUID,
             val trigger: String,
             val summary: String?,
             val credentialRefs: List<String>,
@@ -595,7 +594,7 @@ Call to move an item between phases once its work is done — never edit status 
                 }
             }
 
-        return PreCheckResult.Ready(itemId, trigger, summary, credentialRefs, actorClaim, verification, item)
+        return PreCheckResult.Ready(trigger, summary, credentialRefs, actorClaim, verification, item)
     }
 
     /**
@@ -631,8 +630,8 @@ Call to move an item between phases once its work is done — never edit status 
         advanceResult: AdvanceResult,
         context: ToolExecutionContext
     ): JsonObject {
-        val itemId = ready.itemId
         val item = ready.item
+        val itemId = item.id
         val summary = ready.summary
         val actorClaim = ready.actorClaim
         val verification = ready.verification

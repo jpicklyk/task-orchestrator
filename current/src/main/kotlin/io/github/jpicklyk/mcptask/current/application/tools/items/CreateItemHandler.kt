@@ -136,7 +136,32 @@ class CreateItemHandler(
         val type: String?,
         val properties: String?,
         val parentId: UUID?
-    )
+    ) {
+        /** Builds the [WorkItem] for this spec once [parentId]/[rootId]/[depth] placement is resolved. */
+        fun toWorkItem(
+            parentId: UUID?,
+            rootId: UUID,
+            depth: Int
+        ): WorkItem =
+            WorkItem(
+                id = itemId,
+                parentId = parentId,
+                rootId = rootId,
+                title = title,
+                description = description,
+                summary = summary,
+                role = role,
+                statusLabel = statusLabel,
+                priority = priority,
+                complexity = complexity,
+                requiresVerification = requiresVerification,
+                depth = depth,
+                metadata = metadata,
+                tags = tags,
+                type = type,
+                properties = properties
+            )
+    }
 
     /**
      * Extracts and validates all fields for one item-at-`index` in a create batch: title,
@@ -255,25 +280,7 @@ class CreateItemHandler(
         var createResult: Result<WorkItem>? = null
         var placementNotFoundMessage: String? = null
         if (spec.parentId == null) {
-            val workItem =
-                WorkItem(
-                    id = spec.itemId,
-                    parentId = null,
-                    rootId = spec.itemId,
-                    title = spec.title,
-                    description = spec.description,
-                    summary = spec.summary,
-                    role = spec.role,
-                    statusLabel = spec.statusLabel,
-                    priority = spec.priority,
-                    complexity = spec.complexity,
-                    requiresVerification = spec.requiresVerification,
-                    depth = 0,
-                    metadata = spec.metadata,
-                    tags = spec.tags,
-                    type = spec.type,
-                    properties = spec.properties
-                )
+            val workItem = spec.toWorkItem(parentId = null, rootId = spec.itemId, depth = 0)
             createResult = repo.create(workItem)
         } else {
             repo.inTransaction {
@@ -281,24 +288,7 @@ class CreateItemHandler(
                     is Result.Success -> {
                         val placement = placementResult.data
                         val workItem =
-                            WorkItem(
-                                id = spec.itemId,
-                                parentId = spec.parentId,
-                                rootId = placement.rootId,
-                                title = spec.title,
-                                description = spec.description,
-                                summary = spec.summary,
-                                role = spec.role,
-                                statusLabel = spec.statusLabel,
-                                priority = spec.priority,
-                                complexity = spec.complexity,
-                                requiresVerification = spec.requiresVerification,
-                                depth = placement.depth,
-                                metadata = spec.metadata,
-                                tags = spec.tags,
-                                type = spec.type,
-                                properties = spec.properties
-                            )
+                            spec.toWorkItem(parentId = spec.parentId, rootId = placement.rootId, depth = placement.depth)
                         createResult = repo.create(workItem)
                     }
                     is Result.Error -> {

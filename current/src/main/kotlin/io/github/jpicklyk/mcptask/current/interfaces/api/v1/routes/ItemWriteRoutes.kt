@@ -42,6 +42,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.etag.etagFor
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.toDto
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.call
 import io.ktor.server.request.contentType
 import io.ktor.server.response.header
@@ -103,6 +104,28 @@ private val writeJson =
         encodeDefaults = true
     }
 
+/**
+ * Responds 415 `unsupported_media_type` when [call]'s Content-Type is not JSON (per
+ * [JSON_WRITE_CONTENT_TYPES]) and returns true; returns false (no response sent) otherwise. Shared
+ * by `POST /items` and the advance route's `parseAdvanceRequest` — both gates are byte-identical
+ * (status, error code, and message).
+ */
+private suspend fun respondIfNotJsonContentType(call: ApplicationCall): Boolean {
+    val contentType =
+        call.request
+            .contentType()
+            .withoutParameters()
+            .toString()
+    if (contentType !in JSON_WRITE_CONTENT_TYPES) {
+        call.respond(
+            HttpStatusCode.UnsupportedMediaType,
+            ErrorDto("unsupported_media_type", "Use Content-Type: application/json"),
+        )
+        return true
+    }
+    return false
+}
+
 /** Builds a [CachedHttpResponse] from an [ErrorDto] at [status]. */
 private fun errorCaptured(
     status: HttpStatusCode,
@@ -130,9 +153,12 @@ private fun errorCaptured(
  * - [AdvanceFailure.PolicyRejected] → **401** `verification_failed` (defensive — ownership is not
  *   enforced on the REST path, so this is not expected to occur here).
  * - [AdvanceFailure.OwnershipRejected] → **409** `not_claim_holder` (defensive — same caveat).
+ *
+ * See also [respondAdvanceConfigUnavailable], which handles the sibling 503 case raised by a
+ * [PerRootConfigUnavailableException] mid-pipeline rather than by an [AdvanceFailure] outcome.
  */
 private suspend fun respondAdvanceFailure(
-    call: io.ktor.server.application.ApplicationCall,
+    call: ApplicationCall,
     failure: AdvanceFailure,
 ) {
     when (failure) {
@@ -168,6 +194,24 @@ private suspend fun respondAdvanceFailure(
         is AdvanceFailure.OwnershipRejected ->
             call.respond(HttpStatusCode.Conflict, ErrorDto("not_claim_holder", failure.message))
     }
+}
+
+/**
+ * Responds 503 `config_unavailable` for a [PerRootConfigUnavailableException] raised mid-advance-
+ * pipeline (status label resolution, gate check, review-phase detection — see the advance route's
+ * D6 note). Sibling to [respondAdvanceFailure]; the catch site still decides when to call this and
+ * still returns immediately afterward.
+ */
+private suspend fun respondAdvanceConfigUnavailable(
+    call: ApplicationCall,
+    itemId: UUID,
+    e: PerRootConfigUnavailableException,
+) {
+    writeLogger.warn("Per-root config unavailable advancing item {}: {}", itemId, e.message)
+    call.respond(
+        HttpStatusCode.ServiceUnavailable,
+        ErrorDto(PerRootConfigUnavailableException.CODE, e.message),
+    )
 }
 
 /** Builds the `details` object for a [AdvanceFailure.GateBlocked] 422 response. */
@@ -290,23 +334,14 @@ fun Route.itemWriteRoutes(
         )
 
     // Parses and validates the POST /items/{id}/advance request body: the 415 Content-Type gate,
-    // the bounded body read + AdvanceRequestDto decode, trigger parsing, credentialRefs
-    // validation, and the ADMIN-only overrideResourceLeases 403 check. On any failure this
-    // already calls `call.respond(...)` and returns null — the caller does `?: return@post`.
-    // Mirrors the pre-refactor inline logic byte-for-byte, including error precedence.
-    suspend fun parseAdvanceRequest(call: io.ktor.server.application.ApplicationCall,): ParsedAdvanceRequest? {
-        val advanceContentType =
-            call.request
-                .contentType()
-                .withoutParameters()
-                .toString()
-        if (advanceContentType !in JSON_WRITE_CONTENT_TYPES) {
-            call.respond(
-                HttpStatusCode.UnsupportedMediaType,
-                ErrorDto("unsupported_media_type", "Use Content-Type: application/json"),
-            )
-            return null
-        }
+    // the bounded body read + AdvanceRequestDto decode, trigger parsing, and credentialRefs
+    // validation. The ADMIN-only overrideResourceLeases 403 check is a separate step
+    // (checkLeaseOverrideAllowed below), called by the caller immediately after this returns — same
+    // overall precedence as before extraction. On any failure this already calls `call.respond(...)`
+    // and returns null — the caller does `?: return@post`. Mirrors the pre-refactor inline logic
+    // byte-for-byte, including error precedence.
+    suspend fun parseAdvanceRequest(call: ApplicationCall): ParsedAdvanceRequest? {
+        if (respondIfNotJsonContentType(call)) return null
 
         val advanceBodyText = call.receiveBounded(MAX_JSON_WRITE_BODY_BYTES) ?: return null
 
@@ -343,10 +378,21 @@ fun Route.itemWriteRoutes(
             is CredentialRefValidation.Result.Valid -> {} // ok
         }
 
-        // Optional ADMIN-only resource-lease override. Sent by a non-admin principal this is a
-        // hard 403, never a silent no-op: an operator who thinks they bypassed the lease and
-        // did not would go on to touch a resource another item is actively holding.
         val overrideResourceLeases = advanceDto.overrideResourceLeases == true
+
+        return ParsedAdvanceRequest(advanceDto, userTrigger, credentialRefs, overrideResourceLeases)
+    }
+
+    // Optional ADMIN-only resource-lease override gate, called right after parseAdvanceRequest
+    // returns (same position in the overall check order as the inline check it replaces). Sent by
+    // a non-admin principal this is a hard 403, never a silent no-op: an operator who thinks they
+    // bypassed the lease and did not would go on to touch a resource another item is actively
+    // holding. On failure this already calls `call.respond(...)` and returns false — the caller
+    // does `if (!checkLeaseOverrideAllowed(...)) return@post`.
+    suspend fun checkLeaseOverrideAllowed(
+        call: ApplicationCall,
+        overrideResourceLeases: Boolean,
+    ): Boolean {
         if (overrideResourceLeases && !hasCapability(call, ApiCapability.ADMIN)) {
             call.respond(
                 HttpStatusCode.Forbidden,
@@ -355,10 +401,9 @@ fun Route.itemWriteRoutes(
                     "overrideResourceLeases requires the admin capability",
                 ),
             )
-            return null
+            return false
         }
-
-        return ParsedAdvanceRequest(advanceDto, userTrigger, credentialRefs, overrideResourceLeases)
+        return true
     }
 
     // Builds the per-request AdvanceService, bound to `item`'s rootId (per-root status-label
@@ -390,18 +435,7 @@ fun Route.itemWriteRoutes(
             // `receive<ItemCreateDto>()`, which let ContentNegotiation reject a non-JSON body with
             // 415. Same shape as the PATCH gate below, minus merge-patch. It runs before the body
             // read, so 415 still precedes anything that depends on the body.
-            val createContentType =
-                call.request
-                    .contentType()
-                    .withoutParameters()
-                    .toString()
-            if (createContentType !in JSON_WRITE_CONTENT_TYPES) {
-                call.respond(
-                    HttpStatusCode.UnsupportedMediaType,
-                    ErrorDto("unsupported_media_type", "Use Content-Type: application/json"),
-                )
-                return@post
-            }
+            if (respondIfNotJsonContentType(call)) return@post
 
             val idempotencyKeyResult = call.parseIdempotencyKey()
             if (idempotencyKeyResult is IdempotencyKeyResult.Invalid) return@post
@@ -1050,6 +1084,7 @@ fun Route.itemWriteRoutes(
             val userTrigger = parsedRequest.userTrigger
             val credentialRefs = parsedRequest.credentialRefs
             val overrideResourceLeases = parsedRequest.overrideResourceLeases
+            if (!checkLeaseOverrideAllowed(call, overrideResourceLeases)) return@post
 
             val itemResult = workItemRepo.getById(id)
             if (itemResult is Result.Error) {
@@ -1139,11 +1174,7 @@ fun Route.itemWriteRoutes(
                         enforceResourceLeases = !overrideResourceLeases,
                     )
                 } catch (e: PerRootConfigUnavailableException) {
-                    writeLogger.warn("Per-root config unavailable advancing item {}: {}", id, e.message)
-                    call.respond(
-                        HttpStatusCode.ServiceUnavailable,
-                        ErrorDto(PerRootConfigUnavailableException.CODE, e.message),
-                    )
+                    respondAdvanceConfigUnavailable(call, id, e)
                     return@post
                 }
 
