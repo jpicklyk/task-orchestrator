@@ -200,13 +200,13 @@ test('S4: guidanceKey/skillPointer, when present, are surfaced in the block reas
   const itemId = '6c68a08e-b656-4ebf-b97a-d8e768d316d4';
   seedMarker(tempDir, sessionId, agentId, { items: [itemId], blocks: 0 });
   const server = await startStub({
-    [itemId]: gateOk({ itemId, role: 'review', missing: ['test-manifest'], skillPointer: 'test-author' }),
+    [itemId]: gateOk({ itemId, role: 'review', missing: ['review-checklist'], skillPointer: 'review-quality' }),
   });
   try {
     const res = await runHook({ session_id: sessionId, agent_id: agentId }, tempDir, `http://127.0.0.1:${server.address().port}`);
     const out = JSON.parse(res.stdout);
     assert.equal(out.decision, 'block');
-    assert.ok(out.reason.includes('test-author'), out.reason);
+    assert.ok(out.reason.includes('review-quality'), out.reason);
   } finally {
     await stopStub(server);
     rmSync(tempDir, { recursive: true, force: true });
@@ -471,6 +471,318 @@ test('multiple recorded items — only the ones with missing work/review notes a
 });
 
 // ── 004d65fd: S12 — headless iteration never fetches the gate, even with a recorded marker ───
+
+// ── Seat awareness (8b4afacc / 8c6170d6 / 2c90be3d): agent_type-driven seat filtering ──────────
+
+test('S1: implementer, work, missing [test-manifest] -> {}, marker deleted', async () => {
+  const tempDir = freshTempDir();
+  const sessionId = `seat-s1-${randomUUID()}`;
+  const agentId = 'agent-1';
+  const itemId = '10101010-1111-2222-3333-444444444444';
+  seedMarker(tempDir, sessionId, agentId, { items: [itemId], blocks: 0 });
+  const server = await startStub({
+    [itemId]: gateOk({ itemId, role: 'work', missing: ['test-manifest'] }),
+  });
+  try {
+    const res = await runHook(
+      { session_id: sessionId, agent_id: agentId, agent_type: 'task-orchestrator:implementer' },
+      tempDir,
+      `http://127.0.0.1:${server.address().port}`
+    );
+    assert.equal(res.status, 0);
+    assert.equal(res.stdout.trim(), '{}');
+    assert.deepEqual(readMarker(tempDir, sessionId, agentId).items, []);
+  } finally {
+    await stopStub(server);
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('S2: implementer, work, missing [session-tracking, test-manifest] -> blocks on session-tracking only', async () => {
+  const tempDir = freshTempDir();
+  const sessionId = `seat-s2-${randomUUID()}`;
+  const agentId = 'agent-1';
+  const itemId = '20202020-1111-2222-3333-444444444444';
+  seedMarker(tempDir, sessionId, agentId, { items: [itemId], blocks: 0 });
+  const server = await startStub({
+    [itemId]: gateOk({ itemId, role: 'work', missing: ['session-tracking', 'test-manifest'] }),
+  });
+  try {
+    const res = await runHook(
+      { session_id: sessionId, agent_id: agentId, agent_type: 'task-orchestrator:implementer' },
+      tempDir,
+      `http://127.0.0.1:${server.address().port}`
+    );
+    const out = JSON.parse(res.stdout);
+    assert.equal(out.decision, 'block');
+    assert.ok(out.reason.includes('session-tracking'), out.reason);
+    assert.ok(!out.reason.includes('test-manifest'), out.reason);
+    assert.equal(readMarker(tempDir, sessionId, agentId).blocks, 1);
+  } finally {
+    await stopStub(server);
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('S3: implementer, work, missing [session-tracking] (non-test-author item) -> blocks (regression check)', async () => {
+  const tempDir = freshTempDir();
+  const sessionId = `seat-s3-${randomUUID()}`;
+  const agentId = 'agent-1';
+  const itemId = '30303030-1111-2222-3333-444444444444';
+  seedMarker(tempDir, sessionId, agentId, { items: [itemId], blocks: 0 });
+  const server = await startStub({
+    [itemId]: gateOk({ itemId, role: 'work', missing: ['session-tracking'] }),
+  });
+  try {
+    const res = await runHook(
+      { session_id: sessionId, agent_id: agentId, agent_type: 'task-orchestrator:implementer' },
+      tempDir,
+      `http://127.0.0.1:${server.address().port}`
+    );
+    const out = JSON.parse(res.stdout);
+    assert.equal(out.decision, 'block');
+    assert.ok(out.reason.includes('session-tracking'), out.reason);
+  } finally {
+    await stopStub(server);
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('S4-seat: reviewer, review, missing [test-independence-audit] -> blocks, naming it', async () => {
+  const tempDir = freshTempDir();
+  const sessionId = `seat-s4-${randomUUID()}`;
+  const agentId = 'agent-1';
+  const itemId = '40404040-1111-2222-3333-444444444444';
+  seedMarker(tempDir, sessionId, agentId, { items: [itemId], blocks: 0 });
+  const server = await startStub({
+    [itemId]: gateOk({ itemId, role: 'review', missing: ['test-independence-audit'] }),
+  });
+  try {
+    const res = await runHook(
+      { session_id: sessionId, agent_id: agentId, agent_type: 'task-orchestrator:reviewer' },
+      tempDir,
+      `http://127.0.0.1:${server.address().port}`
+    );
+    const out = JSON.parse(res.stdout);
+    assert.equal(out.decision, 'block');
+    assert.ok(out.reason.includes('test-independence-audit'), out.reason);
+  } finally {
+    await stopStub(server);
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('S5: reviewer seat, item in work, missing [session-tracking] -> {} (seat/role mismatch, never blocks)', async () => {
+  const tempDir = freshTempDir();
+  const sessionId = `seat-s5-${randomUUID()}`;
+  const agentId = 'agent-1';
+  const itemId = '50505050-1111-2222-3333-444444444444';
+  seedMarker(tempDir, sessionId, agentId, { items: [itemId], blocks: 0 });
+  const server = await startStub({
+    [itemId]: gateOk({ itemId, role: 'work', missing: ['session-tracking'] }),
+  });
+  try {
+    const res = await runHook(
+      { session_id: sessionId, agent_id: agentId, agent_type: 'task-orchestrator:reviewer' },
+      tempDir,
+      `http://127.0.0.1:${server.address().port}`
+    );
+    assert.equal(res.status, 0);
+    assert.equal(res.stdout.trim(), '{}');
+  } finally {
+    await stopStub(server);
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('S6: implementer seat, item in review, missing [review-checklist] -> {} (seat/role mismatch, never blocks)', async () => {
+  const tempDir = freshTempDir();
+  const sessionId = `seat-s6-${randomUUID()}`;
+  const agentId = 'agent-1';
+  const itemId = '60606060-1111-2222-3333-444444444444';
+  seedMarker(tempDir, sessionId, agentId, { items: [itemId], blocks: 0 });
+  const server = await startStub({
+    [itemId]: gateOk({ itemId, role: 'review', missing: ['review-checklist'] }),
+  });
+  try {
+    const res = await runHook(
+      { session_id: sessionId, agent_id: agentId, agent_type: 'task-orchestrator:implementer' },
+      tempDir,
+      `http://127.0.0.1:${server.address().port}`
+    );
+    assert.equal(res.status, 0);
+    assert.equal(res.stdout.trim(), '{}');
+  } finally {
+    await stopStub(server);
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('S7-seat: agent_type absent, work, missing [session-tracking, test-manifest] -> blocks on session-tracking only', async () => {
+  const tempDir = freshTempDir();
+  const sessionId = `seat-s7-${randomUUID()}`;
+  const agentId = 'agent-1';
+  const itemId = '70707070-1111-2222-3333-444444444444';
+  seedMarker(tempDir, sessionId, agentId, { items: [itemId], blocks: 0 });
+  const server = await startStub({
+    [itemId]: gateOk({ itemId, role: 'work', missing: ['session-tracking', 'test-manifest'] }),
+  });
+  try {
+    const res = await runHook({ session_id: sessionId, agent_id: agentId }, tempDir, `http://127.0.0.1:${server.address().port}`);
+    const out = JSON.parse(res.stdout);
+    assert.equal(out.decision, 'block');
+    assert.ok(out.reason.includes('session-tracking'), out.reason);
+    assert.ok(!out.reason.includes('test-manifest'), out.reason);
+  } finally {
+    await stopStub(server);
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('S8-seat: agent_type absent, work, missing [test-manifest] -> {}', async () => {
+  const tempDir = freshTempDir();
+  const sessionId = `seat-s8-${randomUUID()}`;
+  const agentId = 'agent-1';
+  const itemId = '80808080-1111-2222-3333-444444444444';
+  seedMarker(tempDir, sessionId, agentId, { items: [itemId], blocks: 0 });
+  const server = await startStub({
+    [itemId]: gateOk({ itemId, role: 'work', missing: ['test-manifest'] }),
+  });
+  try {
+    const res = await runHook({ session_id: sessionId, agent_id: agentId }, tempDir, `http://127.0.0.1:${server.address().port}`);
+    assert.equal(res.status, 0);
+    assert.equal(res.stdout.trim(), '{}');
+  } finally {
+    await stopStub(server);
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('S9: test-author and x:test-author, work, missing [test-manifest] -> blocks', async () => {
+  const tempDir = freshTempDir();
+  for (const agentType of ['test-author', 'x:test-author']) {
+    const sessionId = `seat-s9-${randomUUID()}`;
+    const agentId = 'agent-1';
+    const itemId = '90909090-1111-2222-3333-444444444444';
+    seedMarker(tempDir, sessionId, agentId, { items: [itemId], blocks: 0 });
+    const server = await startStub({
+      [itemId]: gateOk({ itemId, role: 'work', missing: ['test-manifest'] }),
+    });
+    try {
+      const res = await runHook(
+        { session_id: sessionId, agent_id: agentId, agent_type: agentType },
+        tempDir,
+        `http://127.0.0.1:${server.address().port}`
+      );
+      const out = JSON.parse(res.stdout);
+      assert.equal(out.decision, 'block', `expected block for agent_type=${agentType}`);
+      assert.ok(out.reason.includes('test-manifest'), out.reason);
+    } finally {
+      await stopStub(server);
+    }
+  }
+  rmSync(tempDir, { recursive: true, force: true });
+});
+
+test('S10: bare "implementer" behaves exactly like S1', async () => {
+  const tempDir = freshTempDir();
+  const sessionId = `seat-s10-${randomUUID()}`;
+  const agentId = 'agent-1';
+  const itemId = 'a0a0a0a0-1111-2222-3333-444444444444';
+  seedMarker(tempDir, sessionId, agentId, { items: [itemId], blocks: 0 });
+  const server = await startStub({
+    [itemId]: gateOk({ itemId, role: 'work', missing: ['test-manifest'] }),
+  });
+  try {
+    const res = await runHook(
+      { session_id: sessionId, agent_id: agentId, agent_type: 'implementer' },
+      tempDir,
+      `http://127.0.0.1:${server.address().port}`
+    );
+    assert.equal(res.status, 0);
+    assert.equal(res.stdout.trim(), '{}');
+  } finally {
+    await stopStub(server);
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('S11: task-orchestrator:implementer-helper, review, missing [x] -> blocks (fallback applies, not a seat)', async () => {
+  const tempDir = freshTempDir();
+  const sessionId = `seat-s11-${randomUUID()}`;
+  const agentId = 'agent-1';
+  const itemId = 'b0b0b0b0-1111-2222-3333-444444444444';
+  seedMarker(tempDir, sessionId, agentId, { items: [itemId], blocks: 0 });
+  const server = await startStub({
+    [itemId]: gateOk({ itemId, role: 'review', missing: ['x'] }),
+  });
+  try {
+    const res = await runHook(
+      { session_id: sessionId, agent_id: agentId, agent_type: 'task-orchestrator:implementer-helper' },
+      tempDir,
+      `http://127.0.0.1:${server.address().port}`
+    );
+    const out = JSON.parse(res.stdout);
+    assert.equal(out.decision, 'block');
+    assert.ok(out.reason.includes('x'), out.reason);
+  } finally {
+    await stopStub(server);
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('S12-seat: two items, A filters to empty (test-manifest only), B has its own missing key -> reason names only B', async () => {
+  const tempDir = freshTempDir();
+  const sessionId = `seat-s12-${randomUUID()}`;
+  const agentId = 'agent-1';
+  const itemA = 'c0c0c0c0-1111-2222-3333-444444444444';
+  const itemB = 'd0d0d0d0-1111-2222-3333-444444444444';
+  seedMarker(tempDir, sessionId, agentId, { items: [itemA, itemB], blocks: 0 });
+  const server = await startStub({
+    [itemA]: gateOk({ itemId: itemA, role: 'work', missing: ['test-manifest'], title: 'A' }),
+    [itemB]: gateOk({ itemId: itemB, role: 'work', missing: ['session-tracking'], title: 'B' }),
+  });
+  try {
+    const res = await runHook(
+      { session_id: sessionId, agent_id: agentId, agent_type: 'task-orchestrator:implementer' },
+      tempDir,
+      `http://127.0.0.1:${server.address().port}`
+    );
+    const out = JSON.parse(res.stdout);
+    assert.equal(out.decision, 'block');
+    assert.ok(!out.reason.includes(itemA.slice(0, 8)), out.reason);
+    assert.ok(out.reason.includes(itemB.slice(0, 8)), out.reason);
+    assert.ok(out.reason.includes('session-tracking'), out.reason);
+  } finally {
+    await stopStub(server);
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('S13: raw missing [test-manifest, session-tracking] with skillPointer test-author -> reason omits the hint', async () => {
+  const tempDir = freshTempDir();
+  const sessionId = `seat-s13-${randomUUID()}`;
+  const agentId = 'agent-1';
+  const itemId = 'e0e0e0e0-1111-2222-3333-444444444444';
+  seedMarker(tempDir, sessionId, agentId, { items: [itemId], blocks: 0 });
+  const server = await startStub({
+    [itemId]: gateOk({ itemId, role: 'work', missing: ['test-manifest', 'session-tracking'], skillPointer: 'test-author' }),
+  });
+  try {
+    const res = await runHook(
+      { session_id: sessionId, agent_id: agentId, agent_type: 'task-orchestrator:implementer' },
+      tempDir,
+      `http://127.0.0.1:${server.address().port}`
+    );
+    const out = JSON.parse(res.stdout);
+    assert.equal(out.decision, 'block');
+    assert.ok(out.reason.includes('session-tracking'), out.reason);
+    assert.ok(!out.reason.includes('test-author'), out.reason);
+  } finally {
+    await stopStub(server);
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
 
 test('S12: headless iteration with an existing marker and a missing-notes gate -> {} with zero fetches', async () => {
   const tempDir = freshTempDir();

@@ -1,6 +1,6 @@
 ---
 name: configure-server
-description: "Configures how the MCP Task Orchestrator SERVER runs and is reached — transport (HTTP vs STDIO), the REST API, port publishing, config mounts, and config-sync. Use when a user says: run the server, register the image, set up the Docker container, enable the REST API, set up config-sync, reconfigure the server, change transport, expose the API, or reconnect to a different endpoint. NOT for first-time onboarding (that's quick-start) and NOT for note schemas / gates / traits / actor_authentication policy (that's manage-schemas) — this skill only decides how the container is launched and reached."
+description: "Configures how the MCP Task Orchestrator SERVER runs and is reached — transport (HTTP vs STDIO), the REST API, port publishing, config mounts, and config-sync. Use when a user says: run the server, register the image, set up the Docker container, enable the REST API, set up config-sync, reconfigure the server, change transport, expose the API, reconnect to a different endpoint, or allow a hostname. NOT for first-time onboarding (that's quick-start) and NOT for note schemas / gates / traits / actor_authentication policy (that's manage-schemas) — this skill only decides how the container is launched and reached."
 argument-hint: "[optional: 'recommended', 'http', 'stdio', 'bearer', or a change request e.g. 'enable REST']"
 ---
 
@@ -176,6 +176,14 @@ No REST, no port, no config-sync — say so.
 If REST mode is **unauthenticated**, always print the SECURITY caveat (verbatim from
 `references/runtime-config.md` → "Loopback footgun") immediately before or after the docker run block.
 
+**Non-loopback Host:** if the user will reach the server by any name other than
+`localhost`/`127.0.0.1`/`[::1]` — this includes a `TASK_ORCHESTRATOR_API_URL` or a `.mcp.json` `url`
+using a compose service name, `host.docker.internal`, a LAN name, or a reverse-proxy hostname — add
+the `MCP_ALLOWED_HOSTS` fragment from `references/runtime-config.md` → "Host allowlist
+(MCP_ALLOWED_HOSTS)" to the docker run command, and point the user at that section for the format and
+examples. Do not add a new `AskUserQuestion` step for this — infer it from the URL/hostname already in
+play.
+
 ---
 
 ## Step 6 — HTTP lifecycle (verify it's actually working)
@@ -191,6 +199,9 @@ For any HTTP render, walk through:
 3. **Reconnect the client:** update `.mcp.json` (Step 5, piece 2) if not already in place, then run
    `/mcp` in Claude Code — confirm `mcp-task-orchestrator` shows connected with all tools listed.
 4. If REST is enabled, sanity-check it: `curl http://localhost:3001/api/v1/health` should return `200`.
+5. A 403, `host_not_allowed`, or a JSON-RPC error (code -32000) on `/mcp` means the request's `Host`
+   header is not allowlisted — see `references/runtime-config.md` → "Host allowlist
+   (MCP_ALLOWED_HOSTS)".
 
 ---
 
