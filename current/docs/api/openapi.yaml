@@ -372,6 +372,19 @@ components:
           type: object
           nullable: true
 
+    ItemDeleteResultDto:
+      type: object
+      required: [id, deleted, descendantsDeleted]
+      properties:
+        id:
+          type: string
+        deleted:
+          type: integer
+          description: Total rows removed (the target item plus every descendant).
+        descendantsDeleted:
+          type: integer
+          description: Descendant-only count.
+
     PageDto:
       type: object
       required: [items, page, pageSize, hasMore]
@@ -1465,31 +1478,65 @@ paths:
           $ref: "#/components/responses/InternalServerError"
 
     delete:
-      summary: Cascade delete item
+      summary: Delete item, or cascade-delete with ?recursive=true
+      description: |
+        Deletes the item. A parent item (one with direct children) is refused with 409
+        `has_children` (details.childCount = direct child count) unless `?recursive=true` is
+        given, in which case it and every descendant are deleted, leaves-first, inside one
+        transaction — all-or-nothing, matching the MCP `manage_items` delete operation's
+        semantics. A non-recursive delete of a leaf item still returns 204; a recursive delete
+        (of a leaf or a parent) returns 200 with an ItemDeleteResultDto body.
       operationId: deleteItem
       tags: [items]
       parameters:
         - $ref: "#/components/parameters/itemId"
+        - name: recursive
+          in: query
+          schema:
+            type: string
+          description: >
+            Case-insensitive "true" or "false"; absent means "false" (non-recursive, refuses a
+            parent with 409). Any other value (e.g. "1", "yes", "") is a 400 validation_error.
         - name: If-Match
           in: header
           schema:
             type: string
           description: Optional conditional delete
       responses:
+        "200":
+          description: Recursive delete succeeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ItemDeleteResultDto"
         "204":
-          description: Deleted
+          description: Non-recursive delete of a leaf item succeeded
+        "400":
+          description: Missing/invalid item id (bad_request) or an invalid `recursive` value (validation_error)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDto"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "409":
+          description: Item has children and `?recursive=true` was not given
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDto"
         "412":
           description: ETag mismatch
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorDto"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 
   /items/{id}/advance:
     post:
@@ -1990,6 +2037,13 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "409":
+          description: >-
+            duplicate_dependency — an edge with the same fromItemId/toItemId/type already exists.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDto"
         "413":
           description: >-
             Payload too large — body exceeds the shared 1 MiB write-body limit, enforced before

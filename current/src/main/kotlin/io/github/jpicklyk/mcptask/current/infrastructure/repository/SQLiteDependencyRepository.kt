@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.BacklinkRow
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
+import io.github.jpicklyk.mcptask.current.domain.validation.DuplicateDependencyException
 import io.github.jpicklyk.mcptask.current.domain.validation.ValidationException
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.DependenciesTable
@@ -54,7 +55,7 @@ class SQLiteDependencyRepository(
                 }.singleOrNull()
 
         if (existing != null) {
-            throw ValidationException("A dependency of this type already exists between these items")
+            throw DuplicateDependencyException("A dependency of this type already exists between these items")
         }
 
         DependenciesTable.insert {
@@ -142,7 +143,7 @@ class SQLiteDependencyRepository(
                         }.singleOrNull()
 
                 if (existing != null) {
-                    throw ValidationException(
+                    throw DuplicateDependencyException(
                         "A dependency of type ${dep.type} already exists between items ${dep.fromItemId} and ${dep.toItemId}"
                     )
                 }

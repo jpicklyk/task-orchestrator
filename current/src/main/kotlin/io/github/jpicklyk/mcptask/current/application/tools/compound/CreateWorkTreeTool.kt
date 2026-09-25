@@ -249,6 +249,8 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
             }
         }
 
+        validatePriorityField(rootObj, "root")
+
         rejectNestedChildren(rootObj, "root")
 
         // Validate docRef if provided — required whenever any item spec carries noteAnchors.
@@ -295,6 +297,7 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
                 if (title.isNullOrBlank()) {
                     throw ToolValidationException("children[$index]: 'title' is required")
                 }
+                validatePriorityField(childObj, "children[$index]")
                 rejectNestedChildren(childObj, "children[$index]")
                 if (validateNoteAnchorsField(childObj, "children[$index]")) anyNoteAnchors = true
                 allRefs.add(ref)
@@ -387,6 +390,26 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
 
         if (anyNoteAnchors && !docRefPresent) {
             throw ToolValidationException("'noteAnchors' requires top-level 'docRef' to be provided")
+        }
+    }
+
+    /**
+     * Validates an item spec's optional `priority` field the same way `manage_items` does
+     * ([io.github.jpicklyk.mcptask.current.application.tools.items.CreateItemHandler]): a blank or
+     * non-string value means "absent" and defaults to [Priority.MEDIUM] downstream in
+     * [buildWorkItem]; a non-blank string that fails case-insensitive [Priority.fromString] is a
+     * validation error rather than a silent coercion to MEDIUM.
+     */
+    private fun validatePriorityField(
+        itemObj: JsonObject,
+        contextLabel: String
+    ) {
+        val priorityStr = (itemObj["priority"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+        if (priorityStr.isNullOrBlank()) return
+        if (Priority.fromString(priorityStr) == null) {
+            throw ToolValidationException(
+                "$contextLabel: invalid priority '$priorityStr'. Valid: high, medium, low"
+            )
         }
     }
 

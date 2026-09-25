@@ -484,6 +484,8 @@ under it at `existing.depth + 1`. Providing both `root.id` and `parentId` is rej
 | `actor` | object | No | Actor claim `{ id, kind: orchestrator\|subagent\|user\|external, parent?, proof? }`. Used for idempotency keying AND propagated as the actor attribution on every persisted note (explicit, `noteAnchors`-sourced, and `createNotes=true` blanks alike). |
 | `requestId` | string (UUID) | No | Client-generated UUID for idempotency. See [Idempotency](#idempotency). Requires `actor` to function. |
 
+`root.priority` and each `children[i].priority` must be one of `high`, `medium`, `low` (case-insensitive); a blank or absent value defaults to `medium`, the same rule `manage_items` applies. An unrecognized non-blank value (e.g. `"urgent"`) is rejected with a validation error, not silently coerced to `medium`.
+
 Nesting depth is unbounded. The root item can be at any depth; each child's depth is its resolved parent's depth + 1 — root.depth + 1 for direct children (default `parentRef: "root"`), deeper when nested under another child via `parentRef`. In attach mode, children derive depth from the existing root's depth. `parentRef` cycles are rejected at validation; cycle protection is also enforced at the database level. Descendant traversal (e.g. cascade delete, re-parent depth recompute) is additionally bounded to 1000 levels and fails with a data error on a cycle or a subtree at/beyond the bound, instead of hanging or silently truncating; subtree search instead bounds-and-continues, excluding anything past the cap.
 
 #### Materialize-from-document (`docRef` + `noteAnchors`)
