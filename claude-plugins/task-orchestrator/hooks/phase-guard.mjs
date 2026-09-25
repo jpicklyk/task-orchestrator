@@ -6,6 +6,17 @@
 // progress report instead of finished work: treat the early stop as a report, check the external
 // checklist (the item's gate status), and send a capped continuation naming what's still open.
 //
+// Seat awareness: the hook-input `agent_type` (documented SubagentStop field, same as
+// SubagentStart) identifies which seat is stopping. `phaseOwnerSeat()` maps it to `'implementer'`
+// (owns `work`), `'reviewer'` (owns `review`), or `null` (unrecognised/pre-field build — keeps the
+// prior role-agnostic behaviour). A recognised seat never blocks on an item outside the role it
+// owns (SEAT_ROLE) — it is still fetched, just never named as a blocker. Independently of seat,
+// keys in TEST_AUTHOR_OWNED_KEYS (e.g. `test-manifest`) are dropped from `missing` unless the
+// stopping agent is itself a test-author seat (`isTestAuthorAgentType`) — those notes are filled
+// by a separately dispatched seat and must never be demanded of the implementer or reviewer. The
+// DTO's `skillPointer`/`guidanceKey` describe only the FIRST raw missing key, so the block reason
+// surfaces them only when that first key survives the test-author filter.
+//
 // Known limitation (non-goal, not addressed here): the guard only engages for subagents that
 // enter their phase with `advance_item(start)` — the plugin's agent-owned-phase protocol. A
 // subagent dispatched under an orchestrator-owns-transitions contract (never calling
@@ -23,11 +34,13 @@ import { resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { apiBaseUrl, authHeader, fetchWithTimeout } from './api-client.mjs';
 import { phaseGuardMarkerPath, readPhaseGuardMarker, writePhaseGuardMarker } from './phase-guard-record.mjs';
-import { isHeadlessIteration } from './execution-mode.mjs';
+import { isHeadlessIteration, phaseOwnerSeat, isTestAuthorAgentType } from './execution-mode.mjs';
 
 const MAX_BLOCKS_PER_AGENT = 2;
 const GATE_TIMEOUT_MS = 2000;
 const BLOCKING_ROLES = new Set(['work', 'review']);
+const SEAT_ROLE = { implementer: 'work', reviewer: 'review' };
+export const TEST_AUTHOR_OWNED_KEYS = new Set(['test-manifest']);
 
 function emitEmpty() {
   process.stdout.write('{}');
@@ -64,13 +77,15 @@ async function fetchGate(base, itemId) {
 }
 
 function buildReason(blockers) {
-  const parts = blockers.map(({ gate, missing }) => {
+  const parts = blockers.map(({ gate, missing, hintValid }) => {
     const uuid8 = gate.itemId.slice(0, 8);
-    const hint = gate.skillPointer
-      ? ` Invoke the ${gate.skillPointer} skill for guidance.`
-      : gate.guidanceKey
-        ? ` See guidance: ${gate.guidanceKey}.`
-        : '';
+    const hint = !hintValid
+      ? ''
+      : gate.skillPointer
+        ? ` Invoke the ${gate.skillPointer} skill for guidance.`
+        : gate.guidanceKey
+          ? ` See guidance: ${gate.guidanceKey}.`
+          : '';
     return `Item ${uuid8} "${gate.title}" is in ${gate.role} with required notes still missing: ${missing.join(', ')}.${hint}`;
   });
   return (
@@ -114,14 +129,26 @@ async function main() {
 
     const gates = await Promise.all(marker.items.map((itemId) => fetchGate(base, itemId)));
 
+    const seat = phaseOwnerSeat(hookInput.agent_type);
+    const isTestAuthor = isTestAuthorAgentType(hookInput.agent_type);
+
     const blockers = [];
     for (const gate of gates) {
       if (!gate) continue; // non-2xx / fetch error / timeout for this item — does not block
       if (!BLOCKING_ROLES.has(gate.role)) continue; // queue/blocked/terminal — never blocks
+      // A recognised seat only ever answers for the phase it owns — still fetched above, but
+      // never named as a blocker outside that role (e.g. a reviewer stopping on a work-phase item).
+      if (seat && gate.role !== SEAT_ROLE[seat]) continue;
       const rawMissing = Array.isArray(gate.gateStatus?.missing) ? gate.gateStatus.missing : [];
-      const missing = rawMissing.map(missingKey).filter(Boolean);
+      const normalizedMissing = rawMissing.map(missingKey).filter(Boolean);
+      const missing = isTestAuthor
+        ? normalizedMissing
+        : normalizedMissing.filter((key) => !TEST_AUTHOR_OWNED_KEYS.has(key));
       if (missing.length === 0) continue;
-      blockers.push({ gate, missing });
+      // The DTO's skillPointer/guidanceKey describe only the FIRST raw missing key; only surface
+      // them when that key survived the test-author filter above.
+      const hintValid = missing[0] === normalizedMissing[0];
+      blockers.push({ gate, missing, hintValid });
     }
 
     if (blockers.length === 0) {

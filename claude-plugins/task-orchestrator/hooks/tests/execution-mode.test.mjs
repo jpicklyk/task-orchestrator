@@ -3,7 +3,13 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { isHeadlessIteration, isSubagentInvocation, isPhaseOwnerAgentType } from '../execution-mode.mjs';
+import {
+  isHeadlessIteration,
+  isSubagentInvocation,
+  isPhaseOwnerAgentType,
+  phaseOwnerSeat,
+  isTestAuthorAgentType,
+} from '../execution-mode.mjs';
 
 // ── S1: isHeadlessIteration ───────────────────────────────────────────────────────────────────
 
@@ -47,4 +53,30 @@ test('S2: isPhaseOwnerAgentType is false for other agent types, including near-m
   assert.equal(isPhaseOwnerAgentType('task-orchestrator:implementer-helper'), false);
   assert.equal(isPhaseOwnerAgentType(undefined), false);
   assert.equal(isPhaseOwnerAgentType(''), false);
+});
+
+// ── S14: phaseOwnerSeat ───────────────────────────────────────────────────────────────────────
+
+test('S14: phaseOwnerSeat returns the right value for bare, qualified, helper, undefined and empty inputs', () => {
+  assert.equal(phaseOwnerSeat('implementer'), 'implementer');
+  assert.equal(phaseOwnerSeat('reviewer'), 'reviewer');
+  assert.equal(phaseOwnerSeat('task-orchestrator:implementer'), 'implementer');
+  assert.equal(phaseOwnerSeat('task-orchestrator:reviewer'), 'reviewer');
+  assert.equal(phaseOwnerSeat('some-project-plugin:reviewer'), 'reviewer');
+  assert.equal(phaseOwnerSeat('task-orchestrator:implementer-helper'), null);
+  assert.equal(phaseOwnerSeat('general-purpose'), null);
+  assert.equal(phaseOwnerSeat(undefined), null);
+  assert.equal(phaseOwnerSeat(''), null);
+});
+
+// ── S15: isTestAuthorAgentType ────────────────────────────────────────────────────────────────
+
+test('S15: isTestAuthorAgentType returns the right value for the same kinds of input', () => {
+  assert.equal(isTestAuthorAgentType('test-author'), true);
+  assert.equal(isTestAuthorAgentType('task-orchestrator:test-author'), true);
+  assert.equal(isTestAuthorAgentType('x:test-author'), true);
+  assert.equal(isTestAuthorAgentType('task-orchestrator:test-author-helper'), false);
+  assert.equal(isTestAuthorAgentType('implementer'), false);
+  assert.equal(isTestAuthorAgentType(undefined), false);
+  assert.equal(isTestAuthorAgentType(''), false);
 });

@@ -16,3 +16,5 @@ The SubagentStart hook injects the Agent-Owned-Phase Protocol, plus any dispatch
 and commit instructions for this run — follow it exactly, including its file-ownership and commit
 discipline. Enter your phase only as that protocol directs; never call `advance_item` beyond that
 single entry, and never call it again after — the orchestrator owns every later transition.
+
+**Seat rule.** You fill only the implementer seat's notes. Some work-phase notes belong to a separately dispatched seat — on items carrying `needs-test-author`, `test-manifest` (and any note whose `skill` is `test-author`) is filled by an independent test author after you return. Do not fill it, do not load the `test-author` skill, and do not write tests on the test author's behalf. Fill your own notes (e.g. `implementation-notes`, `session-tracking`), commit, and return in the format your dispatch prompt asks for. If a stop guard names another seat's note, say so in one line and stop.
