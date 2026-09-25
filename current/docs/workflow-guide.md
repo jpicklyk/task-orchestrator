@@ -597,7 +597,7 @@ get_blocked_items(parentId="feature-uuid", includeAncestors=true)
 
 `advance_item` automatically cascades role transitions up the hierarchy in two situations:
 
-**Start cascade (QUEUE → WORK):** When a child item transitions to WORK, the parent is automatically advanced from QUEUE to WORK (if it is still in QUEUE). This cascade continues up the ancestor chain.
+**Start cascade (QUEUE → WORK):** When a child item transitions to WORK, the parent is automatically advanced from QUEUE to WORK (if it is still in QUEUE). This applies to the immediate parent only — it does not recurse further up the ancestor chain — and is skipped when the parent's current-phase required notes are missing (`gateBlocked`) or a declared resource lease is contended (`resourceBlocked`). See [`advance_item`](./api-reference.md#advance_item) for the full cascade contract.
 
 **Terminal cascade (all children → TERMINAL):** When a child item reaches TERMINAL, if all siblings are also terminal, the parent is automatically advanced to TERMINAL. This cascade also continues up the ancestor chain.
 
@@ -662,7 +662,7 @@ Key behaviors:
 - **`get_context` session resume** includes actor/verification on recent transitions
 - **`query_notes`** includes actor/verification on notes that have them
 
-Actor claims are self-reported — the server trusts them as-is in Stage 1. To require actor claims on all write operations, enable actor authentication in `.taskorchestrator/config.yaml` (set `actor_authentication.enabled: true`). See [Enforcing Actor Attribution](./api-reference.md#enforcing-actor-attribution) in the API reference.
+Actor claims are self-reported unless `actor_authentication.verifier` is configured, in which case claims are cryptographically verified (JWKS). Requiring a claim at all on write operations is enforced client-side, by the plugin's PreToolUse hook, not by the server. To require actor claims on all write operations, enable actor authentication in `.taskorchestrator/config.yaml` (set `actor_authentication.enabled: true`). See [Enforcing Actor Attribution](./api-reference.md#enforcing-actor-attribution) in the API reference.
 
 ---
 
@@ -1119,9 +1119,9 @@ invariant, and not fairness. Read this section before relying on it for anything
   re-checked or re-validated for the remainder of the item's time in WORK — it holds the key until
   it leaves WORK (complete, cancel, block/hold, reopen, or the TTL elapses), full stop. Both exit
   paths release leases: `advance_item` (and the equivalent REST advance route) release inline on
-  every WORK exit, and `complete_tree` — which applies completions/cancellations directly rather
-  than through `advance_item` — independently releases leases on the same "leaving WORK" condition,
-  so a batch completion via `complete_tree` does not orphan leases until TTL expiry.
+  every WORK exit, and `complete_tree` drives each item through the same `AdvanceService` pipeline,
+  so lease release goes through that same work-exit path — a batch completion via `complete_tree`
+  does not orphan leases until TTL expiry.
 - **A transition that acquires a lease and then fails to apply releases it in the same call.**
   Acquiring the lease and persisting the role change are separate steps; if the persistence step
   fails (a DB conflict, most commonly a concurrent writer), the item never actually entered WORK, so
@@ -1168,11 +1168,14 @@ invariant, and not fairness. Read this section before relying on it for anything
   verified actor to an item with a TTL, and an agent can hold its item claim and the item's
   resource leases simultaneously by design. The release-side corollary of the same assumption:
   any actor's work-exit transition on the shared item releases the lease for all of them.
-- **The kill switch is read per request, not once at startup.** `RESOURCE_LEASES_ENFORCED=false`
-  disables acquisition (releases still always run) — and because the pipeline is constructed fresh
-  per `advance_item`/`POST .../advance` call, flipping this env var takes effect on the **next
-  call**, not after a server restart. Do not assume the usual "env vars need a restart" convention
-  applies here.
+- **The kill switch is read fresh on every advance call, but the env var itself only changes at
+  process/container restart.** `AdvanceService` reads `RESOURCE_LEASES_ENFORCED` each time it is
+  constructed, on every `advance_item`/`POST .../advance` call — but a running JVM's environment
+  cannot change mid-process, and a container's environment changes only when the container is
+  recreated. So in practice, flipping this var takes effect only after the process or container
+  restarts. `false`/`0`/`no` disable acquisition (releases still always run); `true`/`1`/`yes` or
+  unset leave it on; matching is case-insensitive and trimmed; any other value logs a WARN and
+  enforcement stays on.
 - **No selector-level awareness.** `get_next_item` and `claim_item`'s selector mode do not know
   about resource contention — they can still hand an agent an item that will immediately reject with
   `resource_unavailable` on `start`. This is a known, deliberately deferred gap (see Non-Goals in

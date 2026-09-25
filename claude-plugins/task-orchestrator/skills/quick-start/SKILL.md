@@ -46,7 +46,7 @@ If the user accepts:
      rootId: "<created-item-uuid>"
      name: "<project name>"
    ```
-4. Older servers may not expose it, so check the tool list before calling — if a `manage_project_config` tool is available, push the full current file text (not just the `project:` block — the server never reads that block itself; see `references/config-format.md` → Project Scoping) so per-root schema resolution picks it up immediately without waiting on a config reload:
+4. Older servers may not expose it, so check the tool list before calling — if a `manage_project_config` tool is available, push the full current file text (not just the `project:` block — pushing the whole file also carries the `project:` block, which IS honored per-root; see `references/config-format.md` → Project Scoping) so per-root schema resolution picks it up immediately without waiting on a config reload:
    ```
    manage_project_config(operation="push", rootId="<created-item-uuid>", configYaml="<full current file text from step 3>")
    ```

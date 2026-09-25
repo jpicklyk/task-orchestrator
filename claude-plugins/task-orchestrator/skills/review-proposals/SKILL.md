@@ -174,8 +174,9 @@ If the user picks Reject or Defer, either take a one-line reason from their foll
    - On `CONFLICT_ERROR`: never force blindly. Call `manage_project_config(operation="get", rootId="<rootId>")`,
      diff the server's stored config against the local file, and surface the divergence to the user.
      Only re-push with `force: true` after explicit user confirmation.
-   - A response listing `ignoredSections` containing `retrospective` and/or `project` is **expected**,
-     not an error — those sections are client-side-only and never resolved server-side.
+   - A response listing `ignoredSections` containing `retrospective` (and other non-honored keys) is
+     **expected**, not an error — those sections are never resolved server-side. `project` is honored
+     per-root and will NOT appear in `ignoredSections`.
 6. Upsert the closure note:
    ```
    manage_notes(operation="upsert", notes=[{

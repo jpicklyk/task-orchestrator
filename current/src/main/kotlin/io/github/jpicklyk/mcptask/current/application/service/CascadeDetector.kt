@@ -37,7 +37,7 @@ data class UnblockedItem(
  *    current persisted DB state at each level. For multi-level cascades (parent -> grandparent),
  *    callers should use an iterative detect-apply loop: apply the first cascade event, then
  *    re-detect from the cascaded parent with fresh DB state. See
- *    [AdvanceItemTool] for the canonical usage pattern.
+ *    [AdvanceService.detectAndApplyTerminalCascades] for the canonical usage pattern.
  *
  * 2. **Unblock detection** -- when a WorkItem transitions, find any downstream items
  *    whose incoming blocking dependencies are now fully satisfied.
@@ -59,7 +59,7 @@ data class UnblockedItem(
  * (see [io.github.jpicklyk.mcptask.current.application.service.AdvanceCascadeEvent.error]) and
  * logged at WARN, not silently absorbed.
  *
- * For multi-level hierarchies (child → parent → grandparent), [AdvanceItemTool]
+ * For multi-level hierarchies (child → parent → grandparent), [AdvanceService.detectAndApplyTerminalCascades]
  * compensates with an **iterative detect-apply loop**: after each cascade event is
  * applied and persisted, detection is re-run on the newly advanced item with fresh
  * DB state. This ensures each level's decision is based on accurate, up-to-date data.
@@ -90,8 +90,9 @@ class CascadeDetector {
      * multi-level hierarchies, only the first returned event is guaranteed to
      * reflect accurate state. Callers must apply cascades iteratively --
      * apply the first event, persist it, then re-invoke this method on the
-     * cascaded parent to detect the next level. The iterative loop in [AdvanceItemTool]
-     * owns the runaway-recursion guard.
+     * cascaded parent to detect the next level. The iterative loop in
+     * [AdvanceService.detectAndApplyTerminalCascades] owns the runaway-recursion guard
+     * (`MAX_CASCADES`).
      *
      * @param schemaResolver optional function to resolve the [WorkItemSchema] for a parent item.
      *   Used to check [LifecycleMode] and suppress cascades for MANUAL or PERMANENT schemas.

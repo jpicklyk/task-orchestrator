@@ -198,7 +198,11 @@ class RoleTransitionHandler {
 
     /**
      * Public entry point for transitions initiated by an external caller (agent, user,
-     * orchestrator) through the `advance_item` MCP tool.
+     * orchestrator). NOTE: this is not currently on the production `advance_item` path —
+     * `advance_item` (MCP tool) and the REST advance route both go through [AdvanceService],
+     * which uses `cascadeTransition` internally, not this method. As of this writing the only
+     * caller of [userTransition] is `RoleTransitionHandlerTest`. Retained (not deleted) as a
+     * standalone entry point for the caller-facing transition rules below.
      *
      * Accepts only [UserTrigger] values — "cascade" is not a valid [UserTrigger] and
      * therefore cannot reach this path.

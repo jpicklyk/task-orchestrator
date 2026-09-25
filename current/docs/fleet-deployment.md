@@ -185,7 +185,7 @@ API_ALLOW_UNAUTHENTICATED=true
 | `API_REDACT_NOTE_ATTRIBUTION` | always | `true` | When `true`, non-admin callers see no `actor`/`verification` on notes/transitions. |
 | `API_REDACT_ACTOR_PROOF` | **deprecated, no-op** | `true` | Since migration V17, raw actor proofs are never persisted, so `actor.proof` is always `null` on the wire regardless of this variable — there is nothing left for it to redact. Setting it (to any value) logs one WARN at startup (see `AppConfig.deprecatedEnvWarnings()`). Retained only so existing deployments/tests that set it keep working unchanged. See "Proof handling" below for the evidence (hash + verified claims) that replaced it. |
 | `API_WARN_ON_CLAIMED_ADVANCE` | always | `true` | Log WARN when API caller advances a claimed item. |
-| `RESOURCE_LEASES_ENFORCED` | always | `true` | Deployment-wide kill switch for the resource-lease gate (see Resource Leasing below). Only the literal `false` (case-insensitive) disables it — any other value, including unset, leaves enforcement on. Disables **acquisition only**; releases always run regardless. Unlike every other flag in this table, this is read **per advance call**, not once at process start — `AdvanceService` is constructed fresh per `advance_item`/`POST .../advance` invocation, so flipping this var takes effect on the very next call, no restart required. |
+| `RESOURCE_LEASES_ENFORCED` | always (`EnvBoolean`) | `true` | Deployment-wide kill switch for the resource-lease gate (see Resource Leasing below). `false`/`0`/`no` disable it; `true`/`1`/`yes` or unset leave it on; matching is case-insensitive and trimmed; any other value logs a WARN and enforcement stays on. Disables **acquisition only**; releases always run regardless. `AdvanceService` is constructed fresh per `advance_item`/`POST .../advance` invocation and reads this var each time — but since a running process's environment cannot change mid-process, and a container's environment changes only when the container is recreated, flipping this var takes effect only after the process or container restarts. |
 
 ### Bearer token secret file
 
@@ -344,7 +344,7 @@ Fleet agent work loop:
 
 1. **No post-completion race.** Sub-items are never exposed to the claim-eligibility pool. The orchestrating agent transitions A→terminal then advances B immediately; no other agent ever sees B in a claimable state.
 2. **Full chain-context continuity.** One agent owns the entire feature sub-tree. Notes from A are in its context when it starts B. No inter-agent handoff required.
-3. **Sub-tree protection.** The ancestor-claim filter ensures other fleet agents (e.g., broad-selector drain workers) cannot accidentally claim sub-items of in-progress features. `claim_item(selector={role:"queue"})` on a competing agent will simply skip children whose ancestor is claimed.
+3. **Sub-tree protection (selector mode only).** The ancestor-claim filter runs on the read side, in selector mode and `get_next_item`, so a `claim_item(selector={role:"queue"})` call from a competing agent will skip children whose ancestor is claimed. It does not protect ID-mode claims: `claim_item` by explicit id only checks the target item's own claim state, so an agent holding a stale id from before the ancestor was claimed can still claim a child directly. Claims coordinate cooperating agents that go through the selector/recommender path — they do not authorize.
 4. **TTL-as-recovery-vector.** If the orchestrating agent crashes, the feature's claim TTL expires. Recovery agents can then claim the feature and read `session-tracking` notes to resume orchestration. No manual intervention needed.
 
 **Recommended TTL guidance for hybrid pattern:**
@@ -357,7 +357,7 @@ Fleet agent work loop:
 
 Heartbeat: re-call `claim_item(claims=[{itemId: featureId}])` at the recommended cadence while orchestration is in progress. Each heartbeat refreshes `claimExpiresAt` without changing `originalClaimedAt`.
 
-**Selector hygiene for hybrid pattern:** Use `parentId: null` or `tags: "feature"` in your selector to target top-level features. Avoid broad selectors like `role: queue` without a parent filter — these work correctly (the ancestor-claim filter protects sub-items), but they waste eligibility-query bandwidth evaluating candidates that will be filtered.
+**Selector hygiene for hybrid pattern:** Use `parentId: null` or `tags: "feature"` in your selector to target top-level features. Avoid broad selectors like `role: queue` without a parent filter — these work correctly (the ancestor-claim filter skips sub-items in selector mode), but they waste eligibility-query bandwidth evaluating candidates that will be filtered.
 
 ### Summary Table
 
@@ -366,7 +366,7 @@ Heartbeat: re-call `claim_item(claims=[{itemId: featureId}])` at the recommended
 | A — Pure orchestration | No | Not applicable | Implicit (single orchestrator) | Single-dev, sequential pipelines |
 | B — Pure claim, flat | Yes, all items | Inert (all root) | N/A (items independent) | Truly independent parallel work |
 | C — Pure claim, chains | Yes, all items | Protects during A's work, not after | Post-completion race (anti-pattern) | Simple chains with sufficient note handoff |
-| **D — Hybrid (RECOMMENDED)** | **Feature level only** | **Full protection** | **Full (single orchestrator per feature)** | **Feature-based development work** |
+| **D — Hybrid (RECOMMENDED)** | **Feature level only** | **Protected in selector mode** | **Full (single orchestrator per feature)** | **Feature-based development work** |
 
 ---
 
@@ -971,13 +971,14 @@ notification back to the holder.
 
 ### Enforcement kill switch
 
-`RESOURCE_LEASES_ENFORCED=false` (see the env var table above) disables **acquisition** fleet-wide
-without a restart — releases keep running regardless, so no lease is ever stranded by flipping the
-switch. Use this as an emergency valve if the gate itself is suspected of misbehaving (e.g.
-falsely rejecting every WORK entry) — it degrades the deployment to rung-1/rung-2 behavior
-(the audit field and the lease table both still exist and are still readable/force-releasable via
-REST) without requiring a config edit or redeploy. Re-enable by unsetting the var or setting it to
-anything other than the literal `false` — takes effect on the next `advance_item`/advance-route call.
+`RESOURCE_LEASES_ENFORCED=false` (see the env var table above) disables **acquisition** fleet-wide —
+releases keep running regardless, so no lease is ever stranded by flipping the switch. Use this as
+an emergency valve if the gate itself is suspected of misbehaving (e.g. falsely rejecting every WORK
+entry) — it degrades the deployment to rung-1/rung-2 behavior (the audit field and the lease table
+both still exist and are still readable/force-releasable via REST) without requiring a config edit.
+It does, however, need a process/container restart to take effect: the var is read fresh on every
+advance call, but the environment itself only changes when the process or container is recreated.
+Re-enable the same way, by unsetting the var (or setting it to `true`/`1`/`yes`) and restarting.
 
 ---
 
