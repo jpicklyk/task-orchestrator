@@ -1,14 +1,18 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeExecutor
+import io.github.jpicklyk.mcptask.current.application.service.WorkTreeInput
+import io.github.jpicklyk.mcptask.current.application.service.WorkTreeResult
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.domain.repository.ClaimResult
 import io.github.jpicklyk.mcptask.current.domain.repository.DependencyRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.PlanDocumentRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository
+import io.github.jpicklyk.mcptask.current.domain.repository.ReleaseResult
 import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
@@ -255,6 +259,77 @@ class EventPublishingRepositoryProvider(
             }
             return result
         }
+
+        override suspend fun deleteAll(ids: Set<UUID>): Result<Int> {
+            // Performance guard: only pre-read (to learn which ids actually exist, and their
+            // pre-delete roots) when an SSE client is connected — same guard pattern as delete()/
+            // the note and dependency single-delete overrides in this file. With no subscribers,
+            // this is skipped entirely; there is nothing to fan out to anyway.
+            val hasSubscribers = eventBus.subscriberCount() > 0
+            val preDeleteItems = if (hasSubscribers) (inner.findByIds(ids) as? Result.Success)?.data else null
+            val rootsByItemId =
+                if (preDeleteItems != null) {
+                    preDeleteItems.associate { it.id to resolveRoots(it.id) }
+                } else {
+                    emptyMap()
+                }
+            val result = inner.deleteAll(ids)
+            if (result is Result.Success && result.data > 0 && preDeleteItems != null) {
+                clearCache()
+                for (item in preDeleteItems) {
+                    publishScoped(
+                        ApiEventType.ITEM_DELETED,
+                        itemId = item.id,
+                        modifiedAt = Instant.now(),
+                        roots = rootsByItemId[item.id] ?: emptySet(),
+                    )
+                }
+            }
+            return result
+        }
+
+        override suspend fun claim(
+            itemId: UUID,
+            agentId: String,
+            ttlSeconds: Int,
+        ): ClaimResult {
+            val result = inner.claim(itemId, agentId, ttlSeconds)
+            if (result is ClaimResult.Success) {
+                publishScoped(
+                    ApiEventType.ITEM_UPDATED,
+                    itemId = result.item.id,
+                    modifiedAt = result.item.modifiedAt,
+                    roots = resolveRoots(result.item.id),
+                )
+                // Every OTHER item this agent held was auto-released as part of this claim
+                // (step 2 of the atomic claim SQL) — each one is a data change dashboards must see.
+                for (releasedId in result.releasedItemIds) {
+                    publishScoped(
+                        ApiEventType.ITEM_UPDATED,
+                        itemId = releasedId,
+                        modifiedAt = Instant.now(),
+                        roots = resolveRoots(releasedId),
+                    )
+                }
+            }
+            return result
+        }
+
+        override suspend fun release(
+            itemId: UUID,
+            agentId: String,
+        ): ReleaseResult {
+            val result = inner.release(itemId, agentId)
+            if (result is ReleaseResult.Success) {
+                publishScoped(
+                    ApiEventType.ITEM_UPDATED,
+                    itemId = result.item.id,
+                    modifiedAt = result.item.modifiedAt,
+                    roots = resolveRoots(result.item.id),
+                )
+            }
+            return result
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -290,6 +365,23 @@ class EventPublishingRepositoryProvider(
                     itemId = note.itemId,
                     modifiedAt = Instant.now(),
                     roots = roots,
+                )
+            }
+            return result
+        }
+
+        override suspend fun deleteByItemId(itemId: UUID): Result<Int> {
+            val result = inner.deleteByItemId(itemId)
+            // The itemId is already known from the parameter (unlike single-note delete(id), no
+            // pre-read is needed to learn it) — one note.deleted event when at least one note was
+            // removed. N identical events (one per deleted note) would add nothing since the
+            // payload carries no noteId.
+            if (result is Result.Success && result.data > 0) {
+                publishScoped(
+                    ApiEventType.NOTE_DELETED,
+                    itemId = itemId,
+                    modifiedAt = Instant.now(),
+                    roots = resolveRoots(itemId),
                 )
             }
             return result
@@ -337,6 +429,97 @@ class EventPublishingRepositoryProvider(
             }
             return result
         }
+
+        override suspend fun createBatch(dependencies: List<Dependency>): List<Dependency> {
+            val result = inner.createBatch(dependencies)
+            // Per RETURNED dep only — createBatch throws on an in-batch validation failure (e.g. a
+            // duplicate), so a thrown exception here means this loop never runs and zero events
+            // are published for the failed call.
+            for (dep in result) {
+                val roots = resolveRoots(dep.fromItemId)
+                publishScoped(
+                    ApiEventType.DEPENDENCY_ADDED,
+                    itemId = dep.fromItemId,
+                    modifiedAt = dep.createdAt,
+                    roots = roots,
+                )
+            }
+            return result
+        }
+
+        override suspend fun deleteByItemId(itemId: UUID): Int {
+            // Performance guard: only pre-read the edges (for their itemIds/fromItemId payload)
+            // when an SSE client is connected. With no subscribers, skip the extra findByItemId.
+            val existingEdges = if (eventBus.subscriberCount() > 0) inner.findByItemId(itemId) else emptyList()
+            val count = inner.deleteByItemId(itemId)
+            if (count > 0) {
+                // Per pre-read edge (both directions — findByItemId matches fromItemId OR
+                // toItemId), itemId = the edge's fromItemId, matching create()'s convention.
+                for (edge in existingEdges) {
+                    val roots = resolveRoots(edge.fromItemId)
+                    publishScoped(
+                        ApiEventType.DEPENDENCY_REMOVED,
+                        itemId = edge.fromItemId,
+                        modifiedAt = Instant.now(),
+                        roots = roots,
+                    )
+                }
+            }
+            return count
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // WorkTreeExecutor decorator
+    // -------------------------------------------------------------------------
+
+    /**
+     * Post-commit publish from the returned [WorkTreeResult] — see the class KDoc's
+     * "WorkTreeExecutor decision" note. [SQLiteWorkTreeService] takes concrete SQLite types and
+     * calls `internal` row-insert helpers directly, so decorating its constituent repositories is
+     * not possible; instead this wraps the executor itself and publishes from what it returns.
+     *
+     * `CreateWorkTreeTool` calls `execute` inside `context.inTransaction`, so this runs inside that
+     * same open transaction — every [publishScoped] call here is buffered by [deferredPublisher]
+     * until the OUTER transaction commits, and discarded if it rolls back (including a rollback
+     * triggered by [inner]'s own `execute` throwing, in which case this loop never runs at all).
+     */
+    private inner class EventPublishingWorkTreeExecutor(
+        private val inner: WorkTreeExecutor,
+    ) : WorkTreeExecutor {
+        override suspend fun execute(input: WorkTreeInput): WorkTreeResult {
+            val result = inner.execute(input)
+
+            // Items are root-first (WorkTreeInput's contract) and exclude the attach-mode
+            // pre-existing root (SQLiteWorkTreeService only appends newly-inserted items to
+            // createdItems) — so no spurious item.created for an item this call merely attached to.
+            for (item in result.items) {
+                publishScoped(
+                    ApiEventType.ITEM_CREATED,
+                    itemId = item.id,
+                    modifiedAt = item.createdAt,
+                    roots = resolveRoots(item.id),
+                )
+            }
+            for (dep in result.deps) {
+                publishScoped(
+                    ApiEventType.DEPENDENCY_ADDED,
+                    itemId = dep.fromItemId,
+                    modifiedAt = dep.createdAt,
+                    roots = resolveRoots(dep.fromItemId),
+                )
+            }
+            for (note in result.notes) {
+                publishScoped(
+                    ApiEventType.NOTE_UPSERTED,
+                    itemId = note.itemId,
+                    modifiedAt = note.modifiedAt,
+                    roots = resolveRoots(note.itemId),
+                )
+            }
+
+            return result
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -351,6 +534,9 @@ class EventPublishingRepositoryProvider(
     }
     private val wrappedDependencyRepo by lazy {
         EventPublishingDependencyRepository(delegate.dependencyRepository())
+    }
+    private val wrappedWorkTreeExecutor by lazy {
+        EventPublishingWorkTreeExecutor(delegate.workTreeExecutor())
     }
 
     override fun workItemRepository(): WorkItemRepository = wrappedWorkItemRepo
@@ -370,7 +556,7 @@ class EventPublishingRepositoryProvider(
 
     override fun database() = delegate.database()
 
-    override fun workTreeExecutor(): WorkTreeExecutor = delegate.workTreeExecutor()
+    override fun workTreeExecutor(): WorkTreeExecutor = wrappedWorkTreeExecutor
 
     // -------------------------------------------------------------------------
     // Role-transition hook (called by RoleTransitionHandler.applyTransition callers)

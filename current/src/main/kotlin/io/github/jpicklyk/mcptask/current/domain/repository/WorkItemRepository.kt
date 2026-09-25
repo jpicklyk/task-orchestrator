@@ -35,7 +35,17 @@ const val MAX_TRAVERSAL_DEPTH: Int = 1000
  */
 sealed class ClaimResult {
     data class Success(
-        val item: WorkItem
+        val item: WorkItem,
+        /**
+         * Ids of items the claiming agent held that were auto-released as part of this claim
+         * (step 2 of the atomic claim SQL — every OTHER item the agent held is released when
+         * a claim succeeds). Empty when the agent held no other claims. Populated by
+         * [io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository.claim]
+         * from a pre-release SELECT run inside the same transaction/step as the release UPDATE, so
+         * event-publishing callers can emit `item.updated` for each evicted item. Defaulted so the
+         * many existing call sites that construct [Success] without this field keep compiling.
+         */
+        val releasedItemIds: List<UUID> = emptyList()
     ) : ClaimResult()
 
     data class AlreadyClaimed(

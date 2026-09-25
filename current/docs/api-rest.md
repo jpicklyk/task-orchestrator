@@ -1768,6 +1768,8 @@ Both `sync.lost` and `auth.expired` are **control events** — they always bypas
 
 **`item.advanced` note:** This event is emitted on role change (via `POST /items/{id}/advance` or any write path that triggers `RoleTransitionHandler`). It carries the `newRole` field. This is distinct from `item.updated` — a role change emits `item.advanced` (not `item.updated`).
 
+**Claim/release note:** A successful MCP `claim_item` or `release_item` call emits `item.updated` for the claimed/released item — and, for a claim that auto-releases the agent's other held items, one additional `item.updated` per auto-released item.
+
 ---
 
 ## 22. Audit Model
