@@ -7,11 +7,11 @@
     "url": "https://github.com/jpicklyk/task-orchestrator.git",
     "source": "github"
   },
-  "version": "3.14.0",
+  "version": "3.15.0",
   "packages": [
     {
       "registryType": "oci",
-      "identifier": "ghcr.io/jpicklyk/task-orchestrator:3.14.0",
+      "identifier": "ghcr.io/jpicklyk/task-orchestrator:3.15.0",
       "transport": {
         "type": "stdio"
       },
