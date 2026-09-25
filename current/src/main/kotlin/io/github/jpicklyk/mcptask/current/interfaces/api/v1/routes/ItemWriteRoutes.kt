@@ -343,6 +343,10 @@ fun Route.itemWriteRoutes(
     suspend fun parseAdvanceRequest(call: ApplicationCall): ParsedAdvanceRequest? {
         if (respondIfNotJsonContentType(call)) return null
 
+        // Bounded (bug e941c2c7 — this route had no size limit at all before this fix; see
+        // receiveBounded's KDoc). Decoded with McpJson, the same instance ContentNegotiation
+        // is installed with, so this behaves exactly as `receive<AdvanceRequestDto>()` did,
+        // minus the unbounded buffering.
         val advanceBodyText = call.receiveBounded(MAX_JSON_WRITE_BODY_BYTES) ?: return null
 
         val advanceDto =
@@ -1076,9 +1080,10 @@ fun Route.itemWriteRoutes(
                     return@post
                 }
 
-            // Content-Type gate, bounded body read + decode, trigger parsing, credentialRefs
-            // validation, and the ADMIN-only overrideResourceLeases 403 check — extracted to the
-            // local `parseAdvanceRequest` helper above. On failure it has already responded.
+            // Content-Type gate, bounded body read + decode, trigger parsing and credentialRefs
+            // validation live in the local `parseAdvanceRequest` helper above; the ADMIN-only
+            // overrideResourceLeases 403 check follows in `checkLeaseOverrideAllowed`. On failure
+            // either one has already responded.
             val parsedRequest = parseAdvanceRequest(call) ?: return@post
             val advanceDto = parsedRequest.advanceDto
             val userTrigger = parsedRequest.userTrigger

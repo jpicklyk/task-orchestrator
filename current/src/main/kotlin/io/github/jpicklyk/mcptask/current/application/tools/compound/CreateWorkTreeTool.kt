@@ -816,9 +816,8 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
     )
 
     /**
-     * Bundles the per-tree-build values shared across [buildNotes] and [resolveAnchorNotes] (each
-     * of which previously took ~11 overlapping positional params), built once in
-     * [executeCreateWorkTree].
+     * Bundles the per-tree-build values shared across [buildNotes] and [resolveAnchorNotes], built
+     * once in [executeCreateWorkTree].
      */
     private data class TreeBuildContext(
         val rootObj: JsonObject,
