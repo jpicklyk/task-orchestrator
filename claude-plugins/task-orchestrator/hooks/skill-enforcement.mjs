@@ -171,8 +171,14 @@ const warnings = [];
 const newlyWarnedPairs = [];
 
 for (const note of toolInput.notes) {
-  const { key, body, itemId } = note;
+  const { key, body, bodyFromFile, itemId } = note;
   if (!key || !skillMap.has(key)) continue;
+
+  // bodyFromFile notes are resolved and size-checked server-side (manage_notes validates
+  // existence and the 65536-byte cap); the hook has no access to that file's content, so
+  // it cannot apply the length/placeholder heuristic. Skip it rather than misjudging a
+  // substantive file-backed note as length 0. A short literal `body` is unaffected.
+  if (typeof bodyFromFile === 'string' && bodyFromFile.length > 0) continue;
 
   const dedupKey = `${itemId}::${key}`;
   if (warnedPairs[dedupKey]) continue; // already suggested once this session for this item+key
