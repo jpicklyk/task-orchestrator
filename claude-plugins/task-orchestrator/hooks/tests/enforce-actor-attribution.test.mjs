@@ -143,6 +143,125 @@ test('actor_authentication enabled via inline {} form with a trailing comment st
   }
 });
 
+// ─────────────────────────────────────────────────────────────────────────
+// actor_attribution.required — local-only option, independent of actor_authentication
+// ─────────────────────────────────────────────────────────────────────────
+
+test('actor_attribution.required absent (only actor_authentication section, enabled false-ish) -> allowed, silent exit 0', () => {
+  const dir = tmpConfigDir();
+  try {
+    writeConfig(dir, 'actor_attribution:\n  required: false\n');
+    const res = runHook(dir, {
+      tool_name: 'mcp__mcp-task-orchestrator__advance_item',
+      tool_input: { transitions: [{ itemId: 'x', trigger: 'start' }] },
+    });
+    assert.equal(res.status, 0);
+    assert.equal(res.stdout, '');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('actor_attribution.required true, actor_authentication absent, missing actor on advance_item -> denies', () => {
+  const dir = tmpConfigDir();
+  try {
+    writeConfig(dir, 'actor_attribution:\n  required: true\n');
+    const res = runHook(dir, {
+      tool_name: 'mcp__mcp-task-orchestrator__advance_item',
+      tool_input: { transitions: [{ itemId: 'x', trigger: 'start' }] },
+    });
+    assert.equal(res.status, 0);
+    const out = JSON.parse(res.stdout);
+    assert.equal(out.hookSpecificOutput.permissionDecision, 'deny');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('actor_attribution.required true, missing actor on manage_notes upsert -> denies', () => {
+  const dir = tmpConfigDir();
+  try {
+    writeConfig(dir, 'actor_attribution:\n  required: true\n');
+    const res = runHook(dir, {
+      tool_name: 'mcp__mcp-task-orchestrator__manage_notes',
+      tool_input: { operation: 'upsert', notes: [{ itemId: 'x', key: 'session-tracking', body: 'hi' }] },
+    });
+    assert.equal(res.status, 0);
+    const out = JSON.parse(res.stdout);
+    assert.equal(out.hookSpecificOutput.permissionDecision, 'deny');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('actor_attribution.required true, actor present -> allowed, silent exit 0', () => {
+  const dir = tmpConfigDir();
+  try {
+    writeConfig(dir, 'actor_attribution:\n  required: true\n');
+    const res = runHook(dir, {
+      tool_name: 'mcp__mcp-task-orchestrator__advance_item',
+      tool_input: { transitions: [{ itemId: 'x', trigger: 'start', actor: { id: 'a', kind: 'orchestrator' } }] },
+    });
+    assert.equal(res.status, 0);
+    assert.equal(res.stdout, '');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('actor_attribution.required true via inline {} form -> denies', () => {
+  const dir = tmpConfigDir();
+  try {
+    writeConfig(dir, 'actor_attribution: { required: true }\n');
+    const res = runHook(dir, {
+      tool_name: 'mcp__mcp-task-orchestrator__advance_item',
+      tool_input: { transitions: [{ itemId: 'x', trigger: 'start' }] },
+    });
+    assert.equal(res.status, 0);
+    const out = JSON.parse(res.stdout);
+    assert.equal(out.hookSpecificOutput.permissionDecision, 'deny');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('actor_authentication.enabled false but actor_attribution.required true -> still denies (independent options)', () => {
+  const dir = tmpConfigDir();
+  try {
+    writeConfig(dir, [
+      'actor_authentication:',
+      '  enabled: false',
+      'actor_attribution:',
+      '  required: true',
+      '',
+    ].join('\n'));
+    const res = runHook(dir, {
+      tool_name: 'mcp__mcp-task-orchestrator__advance_item',
+      tool_input: { transitions: [{ itemId: 'x', trigger: 'start' }] },
+    });
+    assert.equal(res.status, 0);
+    const out = JSON.parse(res.stdout);
+    assert.equal(out.hookSpecificOutput.permissionDecision, 'deny');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('neither actor_authentication.enabled nor actor_attribution.required set -> allowed, silent exit 0', () => {
+  const dir = tmpConfigDir();
+  try {
+    writeConfig(dir, 'retrospective:\n  mode: nudge\n');
+    const res = runHook(dir, {
+      tool_name: 'mcp__mcp-task-orchestrator__manage_notes',
+      tool_input: { operation: 'upsert', notes: [{ itemId: 'x', key: 'session-tracking', body: 'hi' }] },
+    });
+    assert.equal(res.status, 0);
+    assert.equal(res.stdout, '');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('fail-open: malformed stdin -> silent exit 0', () => {
   const res = spawnSync(process.execPath, [HOOK], { input: '{not json', encoding: 'utf-8' });
   assert.equal(res.status, 0);

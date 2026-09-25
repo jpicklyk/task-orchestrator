@@ -330,3 +330,97 @@ test('O3: CLAUDE_CONFIG_DIR override reads .claude.json from that directory, not
     rmSync(configDir, { recursive: true, force: true });
   }
 });
+
+// ─────────────────────────────────────────────────────────────────────────
+// Plugin version freshness check
+// ─────────────────────────────────────────────────────────────────────────
+
+function writeDevCheckoutPluginJson(dir, version) {
+  const pluginDir = join(dir, 'claude-plugins', 'task-orchestrator', '.claude-plugin');
+  mkdirSync(pluginDir, { recursive: true });
+  writeFileSync(join(pluginDir, 'plugin.json'), JSON.stringify({ version }), 'utf-8');
+}
+
+function writeRunningPluginJson(rootDir, version) {
+  const pluginDir = join(rootDir, '.claude-plugin');
+  mkdirSync(pluginDir, { recursive: true });
+  writeFileSync(join(pluginDir, 'plugin.json'), JSON.stringify({ version }), 'utf-8');
+  return rootDir;
+}
+
+test('not a dev checkout (no claude-plugins/task-orchestrator/.claude-plugin/plugin.json) -> no Plugin Version Drift section', () => {
+  const dir = tmpConfigDir();
+  try {
+    const res = runHook(dir);
+    assert.equal(res.status, 0);
+    const out = JSON.parse(res.stdout);
+    assert.ok(!out.hookSpecificOutput.additionalContext.includes('Plugin Version Drift'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('dev checkout with matching versions -> no Plugin Version Drift section', () => {
+  const dir = tmpConfigDir();
+  const runningRoot = tmpConfigDir();
+  try {
+    writeDevCheckoutPluginJson(dir, '3.7.0');
+    writeRunningPluginJson(runningRoot, '3.7.0');
+    const res = runHook(dir, { env: { CLAUDE_PLUGIN_ROOT: runningRoot } });
+    assert.equal(res.status, 0);
+    const out = JSON.parse(res.stdout);
+    assert.ok(!out.hookSpecificOutput.additionalContext.includes('Plugin Version Drift'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(runningRoot, { recursive: true, force: true });
+  }
+});
+
+test('dev checkout with differing versions -> Plugin Version Drift warning fires, names both versions', () => {
+  const dir = tmpConfigDir();
+  const runningRoot = tmpConfigDir();
+  try {
+    writeDevCheckoutPluginJson(dir, '3.8.0');
+    writeRunningPluginJson(runningRoot, '3.7.0');
+    const res = runHook(dir, { env: { CLAUDE_PLUGIN_ROOT: runningRoot } });
+    assert.equal(res.status, 0);
+    const out = JSON.parse(res.stdout);
+    assert.ok(out.hookSpecificOutput.additionalContext.includes('Plugin Version Drift'));
+    assert.ok(out.hookSpecificOutput.additionalContext.includes('3.8.0'));
+    assert.ok(out.hookSpecificOutput.additionalContext.includes('3.7.0'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(runningRoot, { recursive: true, force: true });
+  }
+});
+
+test('dev checkout present but running plugin.json unreadable (CLAUDE_PLUGIN_ROOT points nowhere) -> fail-open, silent', () => {
+  const dir = tmpConfigDir();
+  try {
+    writeDevCheckoutPluginJson(dir, '3.8.0');
+    const res = runHook(dir, { env: { CLAUDE_PLUGIN_ROOT: join(dir, 'no-such-dir') } });
+    assert.equal(res.status, 0);
+    const out = JSON.parse(res.stdout);
+    assert.ok(!out.hookSpecificOutput.additionalContext.includes('Plugin Version Drift'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('dev checkout plugin.json malformed JSON -> fail-open, silent', () => {
+  const dir = tmpConfigDir();
+  const runningRoot = tmpConfigDir();
+  try {
+    const pluginDir = join(dir, 'claude-plugins', 'task-orchestrator', '.claude-plugin');
+    mkdirSync(pluginDir, { recursive: true });
+    writeFileSync(join(pluginDir, 'plugin.json'), '{ not valid json', 'utf-8');
+    writeRunningPluginJson(runningRoot, '3.7.0');
+    const res = runHook(dir, { env: { CLAUDE_PLUGIN_ROOT: runningRoot } });
+    assert.equal(res.status, 0);
+    const out = JSON.parse(res.stdout);
+    assert.ok(!out.hookSpecificOutput.additionalContext.includes('Plugin Version Drift'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(runningRoot, { recursive: true, force: true });
+  }
+});

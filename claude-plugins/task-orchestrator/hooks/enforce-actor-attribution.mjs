@@ -1,13 +1,21 @@
 #!/usr/bin/env node
-// PreToolUse hook — enforces actor attribution on MCP write operations when
-// actor_authentication is enabled in .taskorchestrator/config.yaml.
+// PreToolUse hook — enforces actor attribution on MCP write operations when either
+// actor_authentication is enabled, or the local-only actor_attribution.required option
+// is set, in .taskorchestrator/config.yaml.
 //
 // Config format:
 //   actor_authentication:
 //     enabled: true
+//   actor_attribution:
+//     required: true
 //
-// When enabled, blocks advance_item and manage_notes(upsert) calls that are
-// missing an actor object on any transition/note element.
+// actor_attribution.required (default false) mirrors actor_authentication.enabled's deny
+// behavior on this hook, but is independent of it — it can be turned on locally (e.g. as a
+// project's own dogfood setting) without also standing up full actor_authentication (JWKS
+// identity verification). Either option alone is sufficient to enforce.
+//
+// When enforced, blocks advance_item and manage_notes(upsert) calls that are missing an
+// actor object on any transition/note element.
 
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
@@ -73,8 +81,25 @@ function isActorAuthenticationEnabled(configContent) {
   return raw !== null && raw.toLowerCase() === 'true';
 }
 
+// Returns true only when actor_attribution.required is explicitly set to true. Independent
+// of actor_authentication — a project can require actor attribution locally without also
+// enabling actor_authentication's JWKS identity verification. Same block/inline handling as
+// isActorAuthenticationEnabled.
+function isActorAttributionRequired(configContent) {
+  if (!configContent) return false;
+
+  const section = readSection(configContent, 'actor_attribution');
+  if (!section) return false;
+
+  const raw = section.inline !== null
+    ? inlineScalar(section.inline, 'required')
+    : scalar(section.lines, 'required');
+
+  return raw !== null && raw.toLowerCase() === 'true';
+}
+
 const configContent = readConfigContent();
-if (!isActorAuthenticationEnabled(configContent)) {
+if (!isActorAuthenticationEnabled(configContent) && !isActorAttributionRequired(configContent)) {
   process.exit(0);
 }
 
@@ -96,7 +121,7 @@ process.stdout.write(JSON.stringify({
   hookSpecificOutput: {
     hookEventName: 'PreToolUse',
     permissionDecision: 'deny',
-    permissionDecisionReason: 'Actor authentication is enabled \u2014 actor attribution required. Include an "actor" object ' +
+    permissionDecisionReason: 'Actor attribution is required (actor_authentication.enabled or actor_attribution.required is set). Include an "actor" object ' +
       'with "id" (string) and "kind" (orchestrator|subagent|user|external) on every ' +
       'transition/note element. For subagents, include "parent" with the dispatching agent\'s id.'
   }
