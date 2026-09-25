@@ -14,6 +14,15 @@ sealed interface StartupOutcome
 /** The server started, served for its whole lifetime, and shut down cleanly. */
 data object Started : StartupOutcome
 
+/**
+ * `FLYWAY_REPAIR=true` ran successfully and the process exits 0 WITHOUT ever serving — a success
+ * outcome, not a [Failed] one, because a repair-then-exit run completing as intended is not a
+ * startup failure (see `CLAUDE.md`'s "run repair and exit" documentation of this env var).
+ * [CurrentMcpServer.run] returns this before [ServerComposition] is built and before the readiness
+ * marker is written, so the Docker `HEALTHCHECK` never reports healthy for a repair-only run.
+ */
+data object RepairCompleted : StartupOutcome
+
 /** A startup or shutdown-marker step failed; [reason] is the stable, testable failure category. */
 data class Failed(
     val reason: Reason,

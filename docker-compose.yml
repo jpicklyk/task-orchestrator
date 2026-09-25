@@ -4,6 +4,8 @@ services:
       context: .
       target: runtime-current
     container_name: mcp-task-orchestrator
+    profiles:
+      - stdio
     user: "1001:1001"
     labels:
       mcp.client: claude-desktop

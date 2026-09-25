@@ -77,7 +77,11 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=3 \
 
 # Run the MCP server
 # --enable-native-access=ALL-UNNAMED: Required for SQLite JDBC native library loading in Java 25+
-CMD ["java", "-Dfile.encoding=UTF-8", "-Djava.awt.headless=true", "--enable-native-access=ALL-UNNAMED", "-jar", "orchestrator.jar"]
+# -Duser.timezone=UTC: pins the JVM default timezone so claim TTL/expiry comparisons (Exposed
+#   `timestamp` columns vs SQLite datetime('now')) are computed against the same clock regardless of
+#   host/container timezone config. Non-Docker launches (`java -jar`) get the same guarantee via
+#   JvmTimezone.enforceUtc() in CurrentMain, which overrides a non-UTC default with a WARN.
+CMD ["java", "-Dfile.encoding=UTF-8", "-Djava.awt.headless=true", "-Duser.timezone=UTC", "--enable-native-access=ALL-UNNAMED", "-jar", "orchestrator.jar"]
 
 # --- runtime-current target (v3 Current — active) ---
 FROM runtime-base AS runtime-current
