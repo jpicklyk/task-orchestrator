@@ -5,6 +5,197 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Highlights
+
+- Added dispatch profiles — traits can now declare which agent, model and effort should pick up
+  each phase, surfaced on `advance_item`, `get_context` and `query_items(schema)`
+- Added a completion guard — a new `GET /items/{id}/gate` route and a SubagentStop hook that sends
+  a phase-owning subagent back while its required notes are still missing
+- Added DNS-rebinding protection — `/mcp`, `/api/v1` and `/.well-known` reject non-loopback `Host`
+  headers unless allowed via the new `MCP_ALLOWED_HOSTS`
+- Changed actor proofs to be stored as evidence (SHA-256 + verified claims) instead of raw JWTs; the
+  V17 migration scrubs existing rows, and MCP responses no longer echo `actor.proof`
+- Changed configuration handling to fail closed — an unparseable global config, invalid
+  `actor_authentication` values, malformed token scopes, and unreadable per-root config no longer
+  silently degrade to weaker enforcement
+- Changed logging to JSON on stderr with per-call correlation fields (tool, session, request id),
+  with opt-in file logging via `LOG_FILE`
+- Changed `claim_item`'s empty-selector outcome from `no_match` to `queue_empty` / `none_eligible`,
+  and every `advance_item` failure now carries an `errorCode`
+- Fixed inverted cycle detection and ordering for `IS_BLOCKED_BY` dependencies
+- Fixed several REST scope escapes, write races, missing SSE events, and lease leaks on failed
+  transitions and deletes
+- Release images are now published only after tests, an image smoke test, and a Trivy
+  CRITICAL-vulnerability gate all pass
+
+Full per-item detail follows.
+
+### Upgrade notes
+
+- **Non-loopback clients need `MCP_ALLOWED_HOSTS`.** Requests whose `Host` header is not
+  `localhost`, `127.0.0.1` or `[::1]` now get `403`. LAN, reverse-proxy and Docker-network
+  deployments must list their hostnames in `MCP_ALLOWED_HOSTS`. (#327)
+- **A broken global config now stops startup.** YAML syntax errors, a non-mapping root, unknown
+  `degraded_mode_policy` / `verifier.type` values, a `jwks` verifier with no key source, or a
+  wrong-typed verifier field previously fell back to schema-free / noop-verifier behaviour; they
+  now fail startup naming the config path. `status_labels` alone still falls back with a WARN.
+  (#331)
+- **Malformed token scopes are rejected.** A bearer token with a malformed `scope` block, or an
+  unrecognised token-entry key (e.g. `scopes:`), now fails startup; a JWKS token with a malformed
+  `to_scope` claim is rejected with `401 invalid_token`. Both previously granted unrestricted
+  access. (#332)
+- **Actor proofs need `exp`, and `actor_authentication` JWKS sources need `https`.** A JWKS actor
+  proof without an `exp` claim is now `REJECTED`. `jwks_uri` / `oidc_discovery` must be `https`;
+  set the new `allow_insecure_url: true` to permit `http` for a literal loopback host only. (#330,
+  #334)
+- **DID trust binds `sub` to `iss`.** Under `did_allowlist` / `did_pattern` trust, a token's `sub`
+  must equal its issuer DID; tokens asserting a different `sub` no longer verify. (#329)
+- **The V17 migration scrubs stored actor proofs.** Raw proofs are nulled and replaced by
+  `actor_proof_sha256` / `actor_proof_claims`. Free pages and backups taken before the upgrade may
+  still hold live tokens until they expire — rotate actor-signing keys and, optionally, run an
+  offline `VACUUM` plus FTS5 rebuild (see `fleet-deployment.md`). (#335)
+- **`claim_item` selector outcome renamed.** `no_match` is replaced by `queue_empty` (nothing
+  matches) and `none_eligible` (matches exist but are claimed or blocked — back off and retry).
+  Consumers branching on `no_match` must update. (#340)
+- **Logs are JSON on stderr.** Log scrapers expecting the old plain-text pattern must switch to
+  JSON parsing; the Docker image no longer creates `/app/logs`. Set `LOG_FILE` for file output.
+  (#350)
+- **`lifecycle: auto-reopen` is gone.** It never reopened anything; configs using it still load
+  as `auto` with a load warning. (#342)
+- **The MCP server no longer advertises `prompts` / `resources` capabilities.** Nothing was ever
+  registered under them. (#350)
+
+### Added
+
+- **Dispatch profiles as a fifth trait dimension.** A trait can declare
+  `dispatch.<queue|work|review>: {agent?, model?, effort?}`; resolution walks per-item traits
+  before `defaultTraits`, layers per-root over global config, and surfaces the resolved profile on
+  `advance_item`, `get_context`, `query_items(operation="schema")` and `GET /config/traits`. The
+  plugin ships `implementer` and `reviewer` agent definitions that consume it. (#325)
+- **`GET /items/{id}/gate` REST route.** Returns an item's canonical gate status (`canAdvance`,
+  missing notes) with the same trait merging and per-root layering as `get_context`, plus ETag
+  support. (#324)
+- **SubagentStop phase guard (plugin).** When a phase-owning subagent ends its turn while the item
+  still has missing required notes, the hook sends it back with a capped continuation naming what
+  is still open. It respects seats: an implementer is held only to `work`, a reviewer only to
+  `review`, and test-author notes (`test-manifest`) are never demanded of an implementer. (#324,
+  #353)
+- **Ralph resumes iterations that end without a `RALPH_OUTCOME` marker.** Instead of counting an
+  error, the loop resumes the same session in place up to `--max-continuations` times while budget
+  remains. (#324)
+- **`MCP_ALLOWED_HOSTS` environment variable** for the Host-header allowlist, documented in the
+  `configure-server` skill with LAN, reverse-proxy and compose examples. (#327, #353)
+- **`LOG_FILE` environment variable** for opt-in file logging, and MDC correlation fields on every
+  MCP tool call (`transport`, `tool`, `sessionId`, `requestId`, `actorId`) and REST request
+  (`requestId`, `httpMethod`, `httpPath`); self-reported values are length-capped. (#350, #355)
+- **`allow_insecure_url`** key for `actor_authentication.verifier`. (#334)
+- **Structured `error` field on cascade events** (`AdvanceCascadeEvent` / `CascadeEventDto`),
+  populated when a cascade's apply fails. (#341)
+- **Headless execution-mode signal (plugin).** Ralph iterations set
+  `TASK_ORCHESTRATOR_MODE=headless-iteration`, and retrospective and phase-guard hooks stay silent
+  under it; the SubagentStart hook injects the agent-owned-phase protocol only into implementer
+  and reviewer agents. (#346)
+- **SessionStart registration self-check (plugin).** Warns when an MCP registration key would not
+  match the plugin's hook matchers. (#346)
+- **Release gating.** Docker publishing now runs the test suite, a smoke test that boots the image
+  and completes an MCP stdio handshake (including a stdout-purity check), and a Trivy
+  CRITICAL/fixable scan before any image is pushed. `server.json` now mounts a data volume so
+  registry installs persist their database. (#348, #350)
+
+### Changed
+
+- **JVM pinned to UTC.** The Docker image sets `-Duser.timezone=UTC`, and non-Docker launches
+  override a non-UTC default with a WARN, keeping claim-freshness math consistent with SQLite
+  `datetime('now')`. (#348)
+- **`FLYWAY_REPAIR=true` exits cleanly** with status `0` after repair, without binding a transport
+  or writing the readiness marker, and warns when ignored under `USE_FLYWAY=false`. (#348)
+- **The stdio service in `docker-compose.yml` sits behind `profiles: [stdio]`**, so
+  `docker compose --profile http up` no longer starts it alongside the HTTP service. (#348)
+- **Every `advance_item` failure carries an `errorCode`.** Hooks and Ralph branch on the code
+  (e.g. `gate_blocked`) instead of inferring state from its absence; Ralph backs off on
+  `none_eligible` instead of exiting. (#340)
+- **MCP validation errors from a tool's execute phase** now return the same structured
+  `VALIDATION_ERROR` envelope as parameter validation, instead of an "Internal error". (#349)
+- **Plugin hook matchers accept any registration key containing `task-orchestrator`**, not only
+  the literal `mcp-task-orchestrator`, so hooks fire for HTTP and custom registrations. (#346)
+- **Config fingerprints ignore CRLF and BOM.** The server and the `config-sync` hook hash
+  normalised text, so Windows and Linux checkouts of the same config no longer defeat the
+  fast-forward guard. (#346)
+- **Response metadata reports the real server version** instead of a hard-coded `0.1.0`. (#346)
+- **`implementer` and `reviewer` agent definitions state which notes each seat owns.** (#353)
+
+### Deprecated
+
+- **`?include=proof` and `API_REDACT_ACTOR_PROOF`.** Both are now no-ops: the query parameter adds
+  a `Warning: 299` header, and the env var logs a startup WARN. Admins read proof evidence through
+  `verification.proof`. Both will be removed in a later release. (#335)
+
+### Removed
+
+- **`AUTO_REOPEN` lifecycle mode** (see Upgrade notes). (#342)
+- **Unused `prompts` / `resources` MCP capabilities and the dead `McpLoggingService`.** (#350)
+
+### Fixed
+
+- **`IS_BLOCKED_BY` dependencies were treated backwards.** Cycle detection, `complete_tree`
+  ordering, `create_work_tree`'s cycle check and the REST pre-check assumed every edge was stored
+  as (blocker, blocked); all now orient edges by type. (#326)
+- **Child placement could be stamped from a stale parent.** Every create/reparent path now reads
+  the parent's depth and root inside the same transaction as the write. (#339)
+- **Project-config push could race a concurrent writer.** The fingerprint compare-and-set now runs
+  inside the upsert transaction with bounded retry, and REST `If-Match` fails closed on a
+  fingerprint-read error. (#338)
+- **A per-root config read error fell back to the global config**, skipping per-project gates and
+  leases. It now serves the last-known-good config or returns a transient `config_unavailable`
+  error. (#333)
+- **Failed transitions and deletes could hold resource leases until TTL.** Leases acquired in the
+  same call are released when the apply or a cascade fails, and both delete paths release an
+  item's leases in the delete transaction, rolling back together if the delete fails. (#341, #342,
+  #343)
+- **REST parity gaps.** `DELETE /items/{id}` on a parent returns a structured `409 has_children`
+  (or deletes recursively with `recursive=true`) instead of `500`; a duplicate dependency returns
+  `409` instead of `500`; `create_work_tree` rejects an invalid priority instead of coercing it to
+  `MEDIUM`. (#343)
+- **`query_items` sorting.** `sortBy` values `title`, `complexity` and `modifiedAt` silently sorted
+  by `createdAt`, and `priority` sorted alphabetically; `sortBy`/`sortOrder` are now validated.
+  The global overview's `includeChildren` also keeps terminal children that still have open
+  descendants. (#337)
+- **Missing SSE events.** Bulk dependency/note/item deletes, claims and releases (including
+  auto-released claims), and the whole `create_work_tree` flow now publish events; deletes made
+  while no subscriber is connected are buffered for `Last-Event-ID` replay. (#345, #354)
+- **stdout pollution on the stdio transport.** A transitive logging library printed a startup
+  banner to stdout, corrupting the JSON-RPC stream; it is now suppressed. (#350)
+- **Log timestamps dropped fractional seconds on whole-second instants.** (#355)
+- **Bearer scheme parsing** is now case-insensitive with a single shared parser for REST and SSE.
+  (#334)
+
+### Security
+
+- **DNS-rebinding protection** via the Host-header allowlist, enforced before CORS,
+  authentication and routing. (#327)
+- **Raw actor proofs are no longer exposed or stored.** MCP tool responses stopped echoing
+  `actor.proof` (a replayable credential); non-admin REST callers never receive it; and proofs
+  are persisted only as a hash plus verified claims. (#330, #335)
+- **DID-trust impersonation closed.** `sub` is bound to `iss` under DID trust, and `did:web`
+  identifiers are validated before any trust check or fetch, blocking percent-encoded separators
+  that could redirect resolution to an attacker-controlled host. (#329)
+- **REST scope escapes closed.** Root creation and move-to-root are scope-checked, and
+  `GET /items/{id}/children` filters by tag scope before paging instead of leaking counts. (#328)
+- **Fail-closed configuration and scopes** — see Upgrade notes. (#331, #332, #333)
+- **`https` required for `actor_authentication` JWKS sources**, including OIDC-discovered URIs.
+  (#334)
+
+### Internal
+
+- Decomposed the highest-complexity methods (`claim_item`, `create_work_tree`, item write paths,
+  advance) behind characterization tests; no behaviour change. (#347)
+- Added a Konsist layering test with a two-way-ratcheted baseline of known violations; guard tests
+  now derive their tool list from the production registration. (#351)
+- Corrected architecture and behaviour drift in the docs, `CLAUDE.md`, `CONTRIBUTING.md` and
+  `README.md`. (#352)
+
 ## [3.14.0] - 2026-09-16
 
 ### Highlights
