@@ -42,6 +42,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.etag.etagFor
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.toDto
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.call
 import io.ktor.server.request.contentType
 import io.ktor.server.response.header
@@ -103,6 +104,28 @@ private val writeJson =
         encodeDefaults = true
     }
 
+/**
+ * Responds 415 `unsupported_media_type` when [call]'s Content-Type is not JSON (per
+ * [JSON_WRITE_CONTENT_TYPES]) and returns true; returns false (no response sent) otherwise. Shared
+ * by `POST /items` and the advance route's `parseAdvanceRequest` — both gates are byte-identical
+ * (status, error code, and message).
+ */
+private suspend fun respondIfNotJsonContentType(call: ApplicationCall): Boolean {
+    val contentType =
+        call.request
+            .contentType()
+            .withoutParameters()
+            .toString()
+    if (contentType !in JSON_WRITE_CONTENT_TYPES) {
+        call.respond(
+            HttpStatusCode.UnsupportedMediaType,
+            ErrorDto("unsupported_media_type", "Use Content-Type: application/json"),
+        )
+        return true
+    }
+    return false
+}
+
 /** Builds a [CachedHttpResponse] from an [ErrorDto] at [status]. */
 private fun errorCaptured(
     status: HttpStatusCode,
@@ -130,58 +153,25 @@ private fun errorCaptured(
  * - [AdvanceFailure.PolicyRejected] → **401** `verification_failed` (defensive — ownership is not
  *   enforced on the REST path, so this is not expected to occur here).
  * - [AdvanceFailure.OwnershipRejected] → **409** `not_claim_holder` (defensive — same caveat).
+ *
+ * See also [respondAdvanceConfigUnavailable], which handles the sibling 503 case raised by a
+ * [PerRootConfigUnavailableException] mid-pipeline rather than by an [AdvanceFailure] outcome.
  */
 private suspend fun respondAdvanceFailure(
-    call: io.ktor.server.application.ApplicationCall,
+    call: ApplicationCall,
     failure: AdvanceFailure,
 ) {
     when (failure) {
         is AdvanceFailure.GateBlocked -> {
-            val details =
-                buildJsonObject {
-                    put("targetRole", JsonPrimitive(failure.targetRole.name.lowercase()))
-                    put(
-                        "missingNotes",
-                        kotlinx.serialization.json.buildJsonArray {
-                            failure.missingNotes.forEach { entry ->
-                                add(
-                                    buildJsonObject {
-                                        put("key", JsonPrimitive(entry.key))
-                                        put("description", JsonPrimitive(entry.description))
-                                        entry.guidance?.let { put("guidance", JsonPrimitive(it)) }
-                                        entry.skill?.let { put("skill", JsonPrimitive(it)) }
-                                    },
-                                )
-                            }
-                        },
-                    )
-                }
             call.respond(
                 HttpStatusCode.UnprocessableEntity,
-                ErrorDto("gate_blocked", failure.message, details),
+                ErrorDto("gate_blocked", failure.message, buildGateBlockedDetails(failure)),
             )
         }
         is AdvanceFailure.ValidationFailed -> {
-            val details =
-                buildJsonObject {
-                    put(
-                        "blockers",
-                        kotlinx.serialization.json.buildJsonArray {
-                            failure.blockers.forEach { blocker ->
-                                add(
-                                    buildJsonObject {
-                                        put("fromItemId", JsonPrimitive(blocker.fromItemId.toString()))
-                                        put("currentRole", JsonPrimitive(blocker.currentRole.name.lowercase()))
-                                        put("requiredRole", JsonPrimitive(blocker.requiredRole))
-                                    },
-                                )
-                            }
-                        },
-                    )
-                }
             call.respond(
                 HttpStatusCode.UnprocessableEntity,
-                ErrorDto("transition_blocked", failure.message, details),
+                ErrorDto("transition_blocked", failure.message, buildValidationFailedDetails(failure)),
             )
         }
         is AdvanceFailure.ResourceLeaseUnavailable -> {
@@ -190,20 +180,9 @@ private suspend fun respondAdvanceFailure(
             failure.retryAfterMs?.let { ms ->
                 call.response.header(HttpHeaders.RetryAfter, ((ms + 999) / 1000).coerceAtLeast(1).toString())
             }
-            val details =
-                buildJsonObject {
-                    put("targetRole", JsonPrimitive(failure.targetRole.name.lowercase()))
-                    put(
-                        "contendedResources",
-                        kotlinx.serialization.json.buildJsonArray {
-                            failure.contendedResources.forEach { add(JsonPrimitive(it)) }
-                        },
-                    )
-                    failure.retryAfterMs?.let { put("retryAfterMs", JsonPrimitive(it)) }
-                }
             call.respond(
                 HttpStatusCode.Conflict,
-                ErrorDto("resource_unavailable", failure.message, details),
+                ErrorDto("resource_unavailable", failure.message, buildResourceLeaseUnavailableDetails(failure)),
             )
         }
         is AdvanceFailure.ResolutionFailed ->
@@ -216,6 +195,88 @@ private suspend fun respondAdvanceFailure(
             call.respond(HttpStatusCode.Conflict, ErrorDto("not_claim_holder", failure.message))
     }
 }
+
+/**
+ * Responds 503 `config_unavailable` for a [PerRootConfigUnavailableException] raised mid-advance-
+ * pipeline (status label resolution, gate check, review-phase detection — see the advance route's
+ * D6 note). Sibling to [respondAdvanceFailure]; the catch site still decides when to call this and
+ * still returns immediately afterward.
+ */
+private suspend fun respondAdvanceConfigUnavailable(
+    call: ApplicationCall,
+    itemId: UUID,
+    e: PerRootConfigUnavailableException,
+) {
+    writeLogger.warn("Per-root config unavailable advancing item {}: {}", itemId, e.message)
+    call.respond(
+        HttpStatusCode.ServiceUnavailable,
+        ErrorDto(PerRootConfigUnavailableException.CODE, e.message),
+    )
+}
+
+/** Builds the `details` object for a [AdvanceFailure.GateBlocked] 422 response. */
+private fun buildGateBlockedDetails(failure: AdvanceFailure.GateBlocked): JsonObject =
+    buildJsonObject {
+        put("targetRole", JsonPrimitive(failure.targetRole.name.lowercase()))
+        put(
+            "missingNotes",
+            kotlinx.serialization.json.buildJsonArray {
+                failure.missingNotes.forEach { entry ->
+                    add(
+                        buildJsonObject {
+                            put("key", JsonPrimitive(entry.key))
+                            put("description", JsonPrimitive(entry.description))
+                            entry.guidance?.let { put("guidance", JsonPrimitive(it)) }
+                            entry.skill?.let { put("skill", JsonPrimitive(it)) }
+                        },
+                    )
+                }
+            },
+        )
+    }
+
+/** Builds the `details` object for a [AdvanceFailure.ValidationFailed] 422 response. */
+private fun buildValidationFailedDetails(failure: AdvanceFailure.ValidationFailed): JsonObject =
+    buildJsonObject {
+        put(
+            "blockers",
+            kotlinx.serialization.json.buildJsonArray {
+                failure.blockers.forEach { blocker ->
+                    add(
+                        buildJsonObject {
+                            put("fromItemId", JsonPrimitive(blocker.fromItemId.toString()))
+                            put("currentRole", JsonPrimitive(blocker.currentRole.name.lowercase()))
+                            put("requiredRole", JsonPrimitive(blocker.requiredRole))
+                        },
+                    )
+                }
+            },
+        )
+    }
+
+/** Builds the `details` object for a [AdvanceFailure.ResourceLeaseUnavailable] 409 response. */
+private fun buildResourceLeaseUnavailableDetails(failure: AdvanceFailure.ResourceLeaseUnavailable): JsonObject =
+    buildJsonObject {
+        put("targetRole", JsonPrimitive(failure.targetRole.name.lowercase()))
+        put(
+            "contendedResources",
+            kotlinx.serialization.json.buildJsonArray {
+                failure.contendedResources.forEach { add(JsonPrimitive(it)) }
+            },
+        )
+        failure.retryAfterMs?.let { put("retryAfterMs", JsonPrimitive(it)) }
+    }
+
+/**
+ * Parsed and validated POST /items/{id}/advance request, as returned by the local
+ * `parseAdvanceRequest` helper inside [itemWriteRoutes].
+ */
+private data class ParsedAdvanceRequest(
+    val advanceDto: AdvanceRequestDto,
+    val userTrigger: UserTrigger,
+    val credentialRefs: List<String>,
+    val overrideResourceLeases: Boolean,
+)
 
 /**
  * Registers item-write and advance routes under the `/api/v1` route prefix.
@@ -272,6 +333,102 @@ fun Route.itemWriteRoutes(
             perRootConfigService = PerRootConfigService(repositoryProvider.projectConfigRepository()),
         )
 
+    // Parses and validates the POST /items/{id}/advance request body: the 415 Content-Type gate,
+    // the bounded body read + AdvanceRequestDto decode, trigger parsing, and credentialRefs
+    // validation. The ADMIN-only overrideResourceLeases 403 check is a separate step
+    // (checkLeaseOverrideAllowed below), called by the caller immediately after this returns — same
+    // overall precedence as before extraction. On any failure this already calls `call.respond(...)`
+    // and returns null — the caller does `?: return@post`. Mirrors the pre-refactor inline logic
+    // byte-for-byte, including error precedence.
+    suspend fun parseAdvanceRequest(call: ApplicationCall): ParsedAdvanceRequest? {
+        if (respondIfNotJsonContentType(call)) return null
+
+        // Bounded (bug e941c2c7 — this route had no size limit at all before this fix; see
+        // receiveBounded's KDoc). Decoded with McpJson, the same instance ContentNegotiation
+        // is installed with, so this behaves exactly as `receive<AdvanceRequestDto>()` did,
+        // minus the unbounded buffering.
+        val advanceBodyText = call.receiveBounded(MAX_JSON_WRITE_BODY_BYTES) ?: return null
+
+        val advanceDto =
+            try {
+                McpJson.decodeFromString(AdvanceRequestDto.serializer(), advanceBodyText)
+            } catch (e: SerializationException) {
+                call.respond(HttpStatusCode.BadRequest, ErrorDto("validation_error", e.message ?: "Invalid request body"))
+                return null
+            }
+
+        val userTrigger =
+            UserTrigger.fromString(advanceDto.trigger) ?: run {
+                val validTriggers = UserTrigger.entries.joinToString { it.triggerString }
+                call.respond(
+                    HttpStatusCode.BadRequest,
+                    ErrorDto("validation_error", "Invalid trigger '${advanceDto.trigger}'. Valid: $validTriggers"),
+                )
+                null
+            } ?: return null
+
+        // Optional credentialRefs: same shared rules as the MCP advance_item tool
+        // (CredentialRefValidation) — a violation fails the request before anything is persisted.
+        val credentialRefs = advanceDto.credentialRefs ?: emptyList()
+        when (val credentialRefsResult = CredentialRefValidation.validate(credentialRefs)) {
+            is CredentialRefValidation.Result.Invalid -> {
+                val suffix = if (credentialRefsResult.index >= 0) "[${credentialRefsResult.index}]" else ""
+                call.respond(
+                    HttpStatusCode.BadRequest,
+                    ErrorDto("validation_error", "credentialRefs$suffix ${credentialRefsResult.reason}"),
+                )
+                return null
+            }
+            is CredentialRefValidation.Result.Valid -> {} // ok
+        }
+
+        val overrideResourceLeases = advanceDto.overrideResourceLeases == true
+
+        return ParsedAdvanceRequest(advanceDto, userTrigger, credentialRefs, overrideResourceLeases)
+    }
+
+    // Optional ADMIN-only resource-lease override gate, called right after parseAdvanceRequest
+    // returns (same position in the overall check order as the inline check it replaces). Sent by
+    // a non-admin principal this is a hard 403, never a silent no-op: an operator who thinks they
+    // bypassed the lease and did not would go on to touch a resource another item is actively
+    // holding. On failure this already calls `call.respond(...)` and returns false — the caller
+    // does `if (!checkLeaseOverrideAllowed(...)) return@post`.
+    suspend fun checkLeaseOverrideAllowed(
+        call: ApplicationCall,
+        overrideResourceLeases: Boolean,
+    ): Boolean {
+        if (overrideResourceLeases && !hasCapability(call, ApiCapability.ADMIN)) {
+            call.respond(
+                HttpStatusCode.Forbidden,
+                ErrorDto(
+                    "insufficient_capability",
+                    "overrideResourceLeases requires the admin capability",
+                ),
+            )
+            return false
+        }
+        return true
+    }
+
+    // Builds the per-request AdvanceService, bound to `item`'s rootId (per-root status-label
+    // layering) — mirrors the pre-refactor inline construction byte-for-byte.
+    suspend fun buildAdvanceService(
+        item: WorkItem,
+        trigger: String,
+    ): AdvanceService =
+        AdvanceService(
+            workItemRepository = workItemRepo,
+            roleTransitionRepository = roleTransitionRepo,
+            dependencyRepository = depRepo,
+            noteRepository = repositoryProvider.noteRepository(),
+            statusLabelService = schemaResolutionContext.rootAwareStatusLabelService(item.rootId, trigger),
+            schemaResolver = { schemaResolutionContext.resolveSchema(it) },
+            resourceLeaseRepository = repositoryProvider.resourceLeaseRepository(),
+            resourceRequirementsResolver = { schemaResolutionContext.resolveResourceRequirements(it) },
+            resourceRegistryResolver = { schemaResolutionContext.resolveResourceRegistry(it) },
+            resourceLeasesEnforced = AdvanceService.resourceLeasesEnforcedFromEnv(),
+        )
+
     // ─── POST /items ─────────────────────────────────────────────────────────
     requireCapability(ApiCapability.WRITE_ITEMS) {
         post("/items") {
@@ -282,18 +439,7 @@ fun Route.itemWriteRoutes(
             // `receive<ItemCreateDto>()`, which let ContentNegotiation reject a non-JSON body with
             // 415. Same shape as the PATCH gate below, minus merge-patch. It runs before the body
             // read, so 415 still precedes anything that depends on the body.
-            val createContentType =
-                call.request
-                    .contentType()
-                    .withoutParameters()
-                    .toString()
-            if (createContentType !in JSON_WRITE_CONTENT_TYPES) {
-                call.respond(
-                    HttpStatusCode.UnsupportedMediaType,
-                    ErrorDto("unsupported_media_type", "Use Content-Type: application/json"),
-                )
-                return@post
-            }
+            if (respondIfNotJsonContentType(call)) return@post
 
             val idempotencyKeyResult = call.parseIdempotencyKey()
             if (idempotencyKeyResult is IdempotencyKeyResult.Invalid) return@post
@@ -934,76 +1080,16 @@ fun Route.itemWriteRoutes(
                     return@post
                 }
 
-            // Content-Type gate — explicit because the body is no longer read through
-            // `receive<AdvanceRequestDto>()`, which let ContentNegotiation reject a non-JSON body
-            // with 415. Same shape as the POST /items gate above. Runs before the bounded body
-            // read, so 415 still precedes anything that depends on the body.
-            val advanceContentType =
-                call.request
-                    .contentType()
-                    .withoutParameters()
-                    .toString()
-            if (advanceContentType !in JSON_WRITE_CONTENT_TYPES) {
-                call.respond(
-                    HttpStatusCode.UnsupportedMediaType,
-                    ErrorDto("unsupported_media_type", "Use Content-Type: application/json"),
-                )
-                return@post
-            }
-
-            // Bounded (bug e941c2c7 — this route had no size limit at all before this fix; see
-            // receiveBounded's KDoc). Decoded with McpJson, the same instance ContentNegotiation
-            // is installed with, so this behaves exactly as `receive<AdvanceRequestDto>()` did,
-            // minus the unbounded buffering.
-            val advanceBodyText = call.receiveBounded(MAX_JSON_WRITE_BODY_BYTES) ?: return@post
-
-            val advanceDto =
-                try {
-                    McpJson.decodeFromString(AdvanceRequestDto.serializer(), advanceBodyText)
-                } catch (e: SerializationException) {
-                    call.respond(HttpStatusCode.BadRequest, ErrorDto("validation_error", e.message ?: "Invalid request body"))
-                    return@post
-                }
-
-            val userTrigger =
-                UserTrigger.fromString(advanceDto.trigger) ?: run {
-                    val validTriggers = UserTrigger.entries.joinToString { it.triggerString }
-                    call.respond(
-                        HttpStatusCode.BadRequest,
-                        ErrorDto("validation_error", "Invalid trigger '${advanceDto.trigger}'. Valid: $validTriggers"),
-                    )
-                    return@post
-                }
-
-            // Optional credentialRefs: same shared rules as the MCP advance_item tool
-            // (CredentialRefValidation) — a violation fails the request before anything is persisted.
-            val credentialRefs = advanceDto.credentialRefs ?: emptyList()
-            when (val credentialRefsResult = CredentialRefValidation.validate(credentialRefs)) {
-                is CredentialRefValidation.Result.Invalid -> {
-                    val suffix = if (credentialRefsResult.index >= 0) "[${credentialRefsResult.index}]" else ""
-                    call.respond(
-                        HttpStatusCode.BadRequest,
-                        ErrorDto("validation_error", "credentialRefs$suffix ${credentialRefsResult.reason}"),
-                    )
-                    return@post
-                }
-                is CredentialRefValidation.Result.Valid -> {} // ok
-            }
-
-            // Optional ADMIN-only resource-lease override. Sent by a non-admin principal this is a
-            // hard 403, never a silent no-op: an operator who thinks they bypassed the lease and
-            // did not would go on to touch a resource another item is actively holding.
-            val overrideResourceLeases = advanceDto.overrideResourceLeases == true
-            if (overrideResourceLeases && !hasCapability(call, ApiCapability.ADMIN)) {
-                call.respond(
-                    HttpStatusCode.Forbidden,
-                    ErrorDto(
-                        "insufficient_capability",
-                        "overrideResourceLeases requires the admin capability",
-                    ),
-                )
-                return@post
-            }
+            // Content-Type gate, bounded body read + decode, trigger parsing and credentialRefs
+            // validation live in the local `parseAdvanceRequest` helper above; the ADMIN-only
+            // overrideResourceLeases 403 check follows in `checkLeaseOverrideAllowed`. On failure
+            // either one has already responded.
+            val parsedRequest = parseAdvanceRequest(call) ?: return@post
+            val advanceDto = parsedRequest.advanceDto
+            val userTrigger = parsedRequest.userTrigger
+            val credentialRefs = parsedRequest.credentialRefs
+            val overrideResourceLeases = parsedRequest.overrideResourceLeases
+            if (!checkLeaseOverrideAllowed(call, overrideResourceLeases)) return@post
 
             val itemResult = workItemRepo.getById(id)
             if (itemResult is Result.Error) {
@@ -1079,23 +1165,7 @@ fun Route.itemWriteRoutes(
             // inability, distinct from the 409 used for resource-state conflicts).
             val outcome =
                 try {
-                    val advanceService =
-                        AdvanceService(
-                            workItemRepository = workItemRepo,
-                            roleTransitionRepository = roleTransitionRepo,
-                            dependencyRepository = depRepo,
-                            noteRepository = repositoryProvider.noteRepository(),
-                            statusLabelService =
-                                schemaResolutionContext.rootAwareStatusLabelService(
-                                    item.rootId,
-                                    userTrigger.triggerString,
-                                ),
-                            schemaResolver = { schemaResolutionContext.resolveSchema(it) },
-                            resourceLeaseRepository = repositoryProvider.resourceLeaseRepository(),
-                            resourceRequirementsResolver = { schemaResolutionContext.resolveResourceRequirements(it) },
-                            resourceRegistryResolver = { schemaResolutionContext.resolveResourceRegistry(it) },
-                            resourceLeasesEnforced = AdvanceService.resourceLeasesEnforcedFromEnv(),
-                        )
+                    val advanceService = buildAdvanceService(item, userTrigger.triggerString)
 
                     advanceService.advance(
                         item = item,
@@ -1109,11 +1179,7 @@ fun Route.itemWriteRoutes(
                         enforceResourceLeases = !overrideResourceLeases,
                     )
                 } catch (e: PerRootConfigUnavailableException) {
-                    writeLogger.warn("Per-root config unavailable advancing item {}: {}", id, e.message)
-                    call.respond(
-                        HttpStatusCode.ServiceUnavailable,
-                        ErrorDto(PerRootConfigUnavailableException.CODE, e.message),
-                    )
+                    respondAdvanceConfigUnavailable(call, id, e)
                     return@post
                 }
 

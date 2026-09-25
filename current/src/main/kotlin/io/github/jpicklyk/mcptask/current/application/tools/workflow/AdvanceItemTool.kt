@@ -2,17 +2,21 @@ package io.github.jpicklyk.mcptask.current.application.tools.workflow
 
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceFailure
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
+import io.github.jpicklyk.mcptask.current.application.service.AdvanceResult
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceService
 import io.github.jpicklyk.mcptask.current.application.service.CredentialRefValidation
 import io.github.jpicklyk.mcptask.current.application.service.buildDispatchProfileJson
 import io.github.jpicklyk.mcptask.current.application.service.buildExpectedNotesJson
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
 import io.github.jpicklyk.mcptask.current.application.tools.*
+import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ErrorKind
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.ToolError
 import io.github.jpicklyk.mcptask.current.domain.model.UserTrigger
+import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
+import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
@@ -367,111 +371,16 @@ Call to move an item between phases once its work is done — never edit status 
 
         for (element in transitions) {
             val obj = element as JsonObject
-            val itemIdStr = (obj["itemId"] as JsonPrimitive).content
-            val (resolvedItemId, idError) = resolveIdString(itemIdStr, context)
-            if (idError != null) {
-                failCount++
-                resultsList.add(
-                    buildJsonObject {
-                        put("itemId", JsonPrimitive(itemIdStr))
-                        put("applied", JsonPrimitive(false))
-                        put("error", JsonPrimitive("Failed to resolve item ID: $itemIdStr"))
-                        put("errorCode", JsonPrimitive(ITEM_NOT_FOUND))
-                        put("errorKind", JsonPrimitive(ErrorKind.PERMANENT.toJsonString()))
-                    }
-                )
-                continue
-            }
-            val itemId = resolvedItemId!!
 
-            // Translate trigger string to UserTrigger enum at the JSON boundary.
-            // validateParams already rejected unknown values, so fromString should never
-            // return null here — but guard defensively.
-            val triggerStr = (obj["trigger"] as JsonPrimitive).content
-            val userTrigger = UserTrigger.fromString(triggerStr)
-            if (userTrigger == null) {
-                failCount++
-                val validTriggers = UserTrigger.entries.joinToString { it.triggerString }
-                resultsList.add(
-                    buildJsonObject {
-                        put("itemId", JsonPrimitive(itemId.toString()))
-                        put("trigger", JsonPrimitive(triggerStr))
-                        put("applied", JsonPrimitive(false))
-                        put(
-                            "error",
-                            JsonPrimitive(
-                                "Unknown trigger '$triggerStr'. Valid triggers: $validTriggers"
-                            )
-                        )
-                        put("errorCode", JsonPrimitive(INVALID_TRIGGER))
-                        put("errorKind", JsonPrimitive(ErrorKind.PERMANENT.toJsonString()))
-                    }
-                )
-                continue
-            }
-            // Use the canonical trigger string from the enum (already lowercased/normalized).
-            val trigger = userTrigger.triggerString
-
-            val summary =
-                (obj["summary"] as? JsonPrimitive)?.let {
-                    if (it.isString && it.content.isNotBlank()) it.content else null
-                }
-
-            // credentialRefs already validated (shape + rules) in validateParams; re-parse here to
-            // thread the resolved list into AdvanceService. Absent/null field -> empty list (no
-            // behavior change).
-            val credentialRefsElement = obj["credentialRefs"]
-            val credentialRefs =
-                if (credentialRefsElement != null && credentialRefsElement !is JsonNull) {
-                    parseCredentialRefsElement(credentialRefsElement) ?: emptyList()
-                } else {
-                    emptyList()
-                }
-
-            // Extract optional actor claim
-            val actorResult = parseActorClaim(obj["actor"] as? JsonObject, context)
-            val actorClaim =
-                when (actorResult) {
-                    is ActorParseResult.Success -> actorResult.claim
-                    is ActorParseResult.Absent -> null
-                    is ActorParseResult.Invalid -> {
+            val preCheck = performPreChecks(obj, context)
+            val ready =
+                when (preCheck) {
+                    is PreCheckResult.Failed -> {
                         failCount++
-                        resultsList.add(
-                            buildErrorResult(
-                                itemId,
-                                trigger,
-                                actorResult.error,
-                                errorCode = INVALID_ACTOR,
-                                errorKind = ErrorKind.PERMANENT
-                            )
-                        )
+                        resultsList.add(preCheck.resultJson)
                         continue
                     }
-                }
-            val verification =
-                when (actorResult) {
-                    is ActorParseResult.Success -> actorResult.verification
-                    else -> null
-                }
-
-            // Fetch the WorkItem
-            val itemResult = context.workItemRepository().getById(itemId)
-            val item =
-                when (itemResult) {
-                    is Result.Success -> itemResult.data
-                    is Result.Error -> {
-                        failCount++
-                        resultsList.add(
-                            buildErrorResult(
-                                itemId,
-                                trigger,
-                                "WorkItem not found: $itemId",
-                                errorCode = ITEM_NOT_FOUND,
-                                errorKind = ErrorKind.PERMANENT
-                            )
-                        )
-                        continue
-                    }
+                    is PreCheckResult.Ready -> preCheck
                 }
 
             // Shared advance pipeline (ownership → resolve → validate → gate → apply → cascade →
@@ -488,19 +397,7 @@ Call to move an item between phases once its work is done — never edit status 
             // decoration below, which is handled separately per D7).
             val outcome =
                 try {
-                    val advanceService =
-                        AdvanceService(
-                            workItemRepository = context.workItemRepository(),
-                            roleTransitionRepository = context.roleTransitionRepository(),
-                            dependencyRepository = context.dependencyRepository(),
-                            noteRepository = context.noteRepository(),
-                            statusLabelService = context.rootAwareStatusLabelService(item.rootId, trigger),
-                            schemaResolver = { context.resolveSchema(it) },
-                            resourceLeaseRepository = context.repositoryProvider.resourceLeaseRepository(),
-                            resourceRequirementsResolver = { context.resolveResourceRequirements(it) },
-                            resourceRegistryResolver = { context.resolveResourceRegistry(it) },
-                            resourceLeasesEnforced = AdvanceService.resourceLeasesEnforcedFromEnv()
-                        )
+                    val advanceService = buildAdvanceService(context, ready.item, ready.trigger)
 
                     // Delegate the full pipeline to the per-item AdvanceService above.
                     // MCP ALWAYS enforces resource leases — there is no tool-level override. An
@@ -508,22 +405,22 @@ Call to move an item between phases once its work is done — never edit status 
                     // `overrideResourceLeases` advance, or DELETE /api/v1/resources/leases/{key}),
                     // both of which are logged at WARN.
                     advanceService.advance(
-                        item = item,
-                        trigger = trigger,
-                        summary = summary,
-                        actorClaim = actorClaim,
-                        verification = verification,
+                        item = ready.item,
+                        trigger = ready.trigger,
+                        summary = ready.summary,
+                        actorClaim = ready.actorClaim,
+                        verification = ready.verification,
                         degradedModePolicy = context.degradedModePolicy,
                         enforceOwnership = true,
-                        credentialRefs = credentialRefs,
+                        credentialRefs = ready.credentialRefs,
                         enforceResourceLeases = true
                     )
                 } catch (e: PerRootConfigUnavailableException) {
                     failCount++
                     resultsList.add(
                         buildStructuredErrorResult(
-                            itemId,
-                            trigger,
+                            ready.item.id,
+                            ready.trigger,
                             ToolError(
                                 kind = ErrorKind.TRANSIENT,
                                 code = PerRootConfigUnavailableException.CODE,
@@ -539,129 +436,13 @@ Call to move an item between phases once its work is done — never edit status 
                     is AdvanceOutcome.Success -> outcome.result
                     is AdvanceOutcome.Failure -> {
                         failCount++
-                        resultsList.add(buildFailureResult(itemId, trigger, outcome.failure))
+                        resultsList.add(buildFailureResult(ready.item.id, ready.trigger, outcome.failure))
                         continue
                     }
                 }
 
             successCount++
-
-            val targetRole = advanceResult.newRole
-
-            // Map structured cascade events to the existing MCP JSON shape.
-            val cascadeJsonList =
-                advanceResult.cascadeEvents.map { event ->
-                    buildJsonObject {
-                        put("itemId", JsonPrimitive(event.itemId.toString()))
-                        put("title", JsonPrimitive(event.title))
-                        put("previousRole", JsonPrimitive(event.previousRole.toJsonString()))
-                        put("targetRole", JsonPrimitive(event.targetRole.toJsonString()))
-                        put("applied", JsonPrimitive(event.applied))
-                        if (event.gateBlocked) {
-                            put("gateBlocked", JsonPrimitive(true))
-                            put("missingNotes", NoteSchemaJsonHelpers.buildMissingNotesArray(event.gateMissingNotes))
-                        }
-                        if (event.resourceBlocked) {
-                            put("resourceBlocked", JsonPrimitive(true))
-                            put(
-                                "contendedResources",
-                                JsonArray(event.contendedResources.map { JsonPrimitive(it) })
-                            )
-                        }
-                        event.statusLabel?.let { put("statusLabel", JsonPrimitive(it)) }
-                        event.error?.let { put("error", JsonPrimitive(it)) }
-                    }
-                }
-
-            // Map unblocked items (per-transition only; the top-level aggregate was dropped as derivable).
-            val unblockedJsonList =
-                advanceResult.unblockedItems.map { unblocked ->
-                    buildJsonObject {
-                        put("itemId", JsonPrimitive(unblocked.itemId.toString()))
-                        put("title", JsonPrimitive(unblocked.title))
-                    }
-                }
-
-            // Schema-driven response fields: expectedNotes, guidanceKey, skillPointer, noteProgress
-            val resolvedSchema = advanceResult.resolvedSchema
-            val expectedNotesJson: JsonArray
-            val guidanceKey: String?
-            val skillPointer: String?
-            val noteProgress: JsonObject?
-
-            // Dispatch routing profile for the phase just entered — resolved via the
-            // already-resolved `resolvedSchema` overload (never re-resolves the schema; see
-            // ToolExecutionContext.resolveDispatchProfile's KDoc for why AdvanceItemToolTest.kt:2119
-            // needs this). Independent of the expectedNotes/gate machinery below, so it's computed
-            // whether resolvedSchema is null or not — a trait-less item simply resolves to null.
-            //
-            // This transition ALREADY COMMITTED above — per D7, a per-root config read failure here
-            // must never be reported as a failure of the (already-applied) transition. The dispatch
-            // hint is simply omitted (null) and a WARN is logged.
-            // resolveDispatchProfile is itself nullable in the ordinary (trait-less) case, which the
-            // shared helper's null-on-unavailable return is indistinguishable from — but both paths
-            // resolve to the same `null` dispatch hint here, so collapsing them is correct.
-            val dispatchProfile =
-                omitOnConfigUnavailable(logger, "dispatch profile", itemId) {
-                    context.resolveDispatchProfile(item, targetRole, resolvedSchema)
-                }
-
-            if (resolvedSchema == null) {
-                expectedNotesJson = JsonArray(emptyList())
-                guidanceKey = null
-                skillPointer = null
-                noteProgress = null
-            } else {
-                val existingNotes =
-                    when (val notesResult = context.noteRepository().findByItemId(item.id)) {
-                        is Result.Success -> notesResult.data
-                        is Result.Error -> emptyList()
-                    }
-                val notesByKey = existingNotes.associateBy { it.key }
-                val existingKeys = notesByKey.keys
-
-                // Build expectedNotes: schema entries matching the new role (tool-specific, includes "exists")
-                expectedNotesJson =
-                    buildExpectedNotesJson(
-                        schema = resolvedSchema,
-                        existingNoteKeys = existingKeys,
-                        filterRole = targetRole
-                    )
-
-                // Use shared PhaseNoteContext for guidanceKey, skillPointer, and noteProgress
-                val phaseContext = computePhaseNoteContext(targetRole, resolvedSchema, notesByKey)
-                guidanceKey = phaseContext?.guidanceKey
-                skillPointer = phaseContext?.skillPointer
-                noteProgress =
-                    phaseContext?.let {
-                        buildJsonObject {
-                            put("filled", JsonPrimitive(it.filled))
-                            put("remaining", JsonPrimitive(it.remaining))
-                            put("total", JsonPrimitive(it.total))
-                        }
-                    }
-            }
-
-            // Build success result. previousRole + trigger echoes dropped (caller supplied the trigger;
-            // newRole is the outcome). Empty cascadeEvents/unblockedItems are omitted.
-            resultsList.add(
-                buildJsonObject {
-                    put("itemId", JsonPrimitive(itemId.toString()))
-                    put("newRole", JsonPrimitive(targetRole.toJsonString()))
-                    advanceResult.statusLabel?.let { put("statusLabel", JsonPrimitive(it)) }
-                    put("applied", JsonPrimitive(true))
-                    if (summary != null) put("summary", JsonPrimitive(summary))
-                    actorClaim?.let { put("actor", it.toJson()) }
-                    verification?.toJsonOrOmit()?.let { put("verification", it) }
-                    if (cascadeJsonList.isNotEmpty()) put("cascadeEvents", JsonArray(cascadeJsonList))
-                    if (unblockedJsonList.isNotEmpty()) put("unblockedItems", JsonArray(unblockedJsonList))
-                    put("expectedNotes", expectedNotesJson)
-                    guidanceKey?.let { put("guidanceKey", JsonPrimitive(it)) }
-                    skillPointer?.let { put("skillPointer", JsonPrimitive(it)) }
-                    dispatchProfile?.let { put("dispatch", buildDispatchProfileJson(it)) }
-                    noteProgress?.let { put("noteProgress", it) }
-                }
-            )
+            resultsList.add(buildSuccessResult(ready, advanceResult, context))
         }
 
         val totalCount = successCount + failCount
@@ -679,6 +460,295 @@ Call to move an item between phases once its work is done — never edit status 
             }
 
         return successResponse(data)
+    }
+
+    /**
+     * Result of the per-transition pre-checks (id resolution, trigger parsing, actor parsing,
+     * and item lookup) run at the top of [executeTransitions] for each batch element.
+     *
+     * [Ready] carries everything [executeTransitions] needs to build and invoke the
+     * per-item [AdvanceService]; [Failed] carries an already-built `applied:false` result JSON
+     * so the caller can append it and move to the next transition without re-deriving the error
+     * shape.
+     */
+    private sealed class PreCheckResult {
+        data class Ready(
+            val trigger: String,
+            val summary: String?,
+            val credentialRefs: List<String>,
+            val actorClaim: ActorClaim?,
+            val verification: VerificationResult?,
+            val item: WorkItem
+        ) : PreCheckResult()
+
+        data class Failed(
+            val resultJson: JsonObject
+        ) : PreCheckResult()
+    }
+
+    /**
+     * Resolves and validates one `transitions[]` element: item id (full UUID or hex prefix),
+     * trigger string, optional summary/credentialRefs/actor, and the target [WorkItem] itself.
+     * Mirrors the pre-refactor inline logic byte-for-byte, including error codes/kinds.
+     */
+    private suspend fun performPreChecks(
+        obj: JsonObject,
+        context: ToolExecutionContext
+    ): PreCheckResult {
+        val itemIdStr = (obj["itemId"] as JsonPrimitive).content
+        val (resolvedItemId, idError) = resolveIdString(itemIdStr, context)
+        if (idError != null) {
+            return PreCheckResult.Failed(
+                buildJsonObject {
+                    put("itemId", JsonPrimitive(itemIdStr))
+                    put("applied", JsonPrimitive(false))
+                    put("error", JsonPrimitive("Failed to resolve item ID: $itemIdStr"))
+                    put("errorCode", JsonPrimitive(ITEM_NOT_FOUND))
+                    put("errorKind", JsonPrimitive(ErrorKind.PERMANENT.toJsonString()))
+                }
+            )
+        }
+        val itemId = resolvedItemId!!
+
+        // Translate trigger string to UserTrigger enum at the JSON boundary.
+        // validateParams already rejected unknown values, so fromString should never
+        // return null here — but guard defensively.
+        val triggerStr = (obj["trigger"] as JsonPrimitive).content
+        val userTrigger = UserTrigger.fromString(triggerStr)
+        if (userTrigger == null) {
+            val validTriggers = UserTrigger.entries.joinToString { it.triggerString }
+            return PreCheckResult.Failed(
+                buildJsonObject {
+                    put("itemId", JsonPrimitive(itemId.toString()))
+                    put("trigger", JsonPrimitive(triggerStr))
+                    put("applied", JsonPrimitive(false))
+                    put(
+                        "error",
+                        JsonPrimitive(
+                            "Unknown trigger '$triggerStr'. Valid triggers: $validTriggers"
+                        )
+                    )
+                    put("errorCode", JsonPrimitive(INVALID_TRIGGER))
+                    put("errorKind", JsonPrimitive(ErrorKind.PERMANENT.toJsonString()))
+                }
+            )
+        }
+        // Use the canonical trigger string from the enum (already lowercased/normalized).
+        val trigger = userTrigger.triggerString
+
+        val summary =
+            (obj["summary"] as? JsonPrimitive)?.let {
+                if (it.isString && it.content.isNotBlank()) it.content else null
+            }
+
+        // credentialRefs already validated (shape + rules) in validateParams; re-parse here to
+        // thread the resolved list into AdvanceService. Absent/null field -> empty list (no
+        // behavior change).
+        val credentialRefsElement = obj["credentialRefs"]
+        val credentialRefs =
+            if (credentialRefsElement != null && credentialRefsElement !is JsonNull) {
+                parseCredentialRefsElement(credentialRefsElement) ?: emptyList()
+            } else {
+                emptyList()
+            }
+
+        // Extract optional actor claim
+        val actorResult = parseActorClaim(obj["actor"] as? JsonObject, context)
+        val actorClaim =
+            when (actorResult) {
+                is ActorParseResult.Success -> actorResult.claim
+                is ActorParseResult.Absent -> null
+                is ActorParseResult.Invalid -> {
+                    return PreCheckResult.Failed(
+                        buildErrorResult(
+                            itemId,
+                            trigger,
+                            actorResult.error,
+                            errorCode = INVALID_ACTOR,
+                            errorKind = ErrorKind.PERMANENT
+                        )
+                    )
+                }
+            }
+        val verification =
+            when (actorResult) {
+                is ActorParseResult.Success -> actorResult.verification
+                else -> null
+            }
+
+        // Fetch the WorkItem
+        val itemResult = context.workItemRepository().getById(itemId)
+        val item =
+            when (itemResult) {
+                is Result.Success -> itemResult.data
+                is Result.Error -> {
+                    return PreCheckResult.Failed(
+                        buildErrorResult(
+                            itemId,
+                            trigger,
+                            "WorkItem not found: $itemId",
+                            errorCode = ITEM_NOT_FOUND,
+                            errorKind = ErrorKind.PERMANENT
+                        )
+                    )
+                }
+            }
+
+        return PreCheckResult.Ready(trigger, summary, credentialRefs, actorClaim, verification, item)
+    }
+
+    /**
+     * Builds the per-item [AdvanceService], bound to [item]'s rootId (per-root status-label
+     * layering) — mirrors the pre-refactor inline construction byte-for-byte.
+     */
+    private suspend fun buildAdvanceService(
+        context: ToolExecutionContext,
+        item: WorkItem,
+        trigger: String
+    ): AdvanceService =
+        AdvanceService(
+            workItemRepository = context.workItemRepository(),
+            roleTransitionRepository = context.roleTransitionRepository(),
+            dependencyRepository = context.dependencyRepository(),
+            noteRepository = context.noteRepository(),
+            statusLabelService = context.rootAwareStatusLabelService(item.rootId, trigger),
+            schemaResolver = { context.resolveSchema(it) },
+            resourceLeaseRepository = context.repositoryProvider.resourceLeaseRepository(),
+            resourceRequirementsResolver = { context.resolveResourceRequirements(it) },
+            resourceRegistryResolver = { context.resolveResourceRegistry(it) },
+            resourceLeasesEnforced = AdvanceService.resourceLeasesEnforcedFromEnv()
+        )
+
+    /**
+     * Builds the `applied:true` result JSON for a successful transition: cascade events,
+     * unblocked items, and the schema-driven expectedNotes/guidanceKey/skillPointer/noteProgress/
+     * dispatch fields. Mirrors the pre-refactor inline logic byte-for-byte, including JSON key
+     * order.
+     */
+    private suspend fun buildSuccessResult(
+        ready: PreCheckResult.Ready,
+        advanceResult: AdvanceResult,
+        context: ToolExecutionContext
+    ): JsonObject {
+        val item = ready.item
+        val itemId = item.id
+        val summary = ready.summary
+        val actorClaim = ready.actorClaim
+        val verification = ready.verification
+        val targetRole = advanceResult.newRole
+
+        // Map structured cascade events to the existing MCP JSON shape.
+        val cascadeJsonList =
+            advanceResult.cascadeEvents.map { event ->
+                buildJsonObject {
+                    put("itemId", JsonPrimitive(event.itemId.toString()))
+                    put("title", JsonPrimitive(event.title))
+                    put("previousRole", JsonPrimitive(event.previousRole.toJsonString()))
+                    put("targetRole", JsonPrimitive(event.targetRole.toJsonString()))
+                    put("applied", JsonPrimitive(event.applied))
+                    if (event.gateBlocked) {
+                        put("gateBlocked", JsonPrimitive(true))
+                        put("missingNotes", NoteSchemaJsonHelpers.buildMissingNotesArray(event.gateMissingNotes))
+                    }
+                    if (event.resourceBlocked) {
+                        put("resourceBlocked", JsonPrimitive(true))
+                        put(
+                            "contendedResources",
+                            JsonArray(event.contendedResources.map { JsonPrimitive(it) })
+                        )
+                    }
+                    event.statusLabel?.let { put("statusLabel", JsonPrimitive(it)) }
+                    event.error?.let { put("error", JsonPrimitive(it)) }
+                }
+            }
+
+        // Map unblocked items (per-transition only; the top-level aggregate was dropped as derivable).
+        val unblockedJsonList =
+            advanceResult.unblockedItems.map { unblocked ->
+                buildJsonObject {
+                    put("itemId", JsonPrimitive(unblocked.itemId.toString()))
+                    put("title", JsonPrimitive(unblocked.title))
+                }
+            }
+
+        // Schema-driven response fields: expectedNotes, guidanceKey, skillPointer, noteProgress
+        val resolvedSchema = advanceResult.resolvedSchema
+        val expectedNotesJson: JsonArray
+        val guidanceKey: String?
+        val skillPointer: String?
+        val noteProgress: JsonObject?
+
+        // Dispatch routing profile for the phase just entered — resolved via the
+        // already-resolved `resolvedSchema` overload (never re-resolves the schema; see
+        // ToolExecutionContext.resolveDispatchProfile's KDoc for why AdvanceItemToolTest.kt:2119
+        // needs this). Independent of the expectedNotes/gate machinery below, so it's computed
+        // whether resolvedSchema is null or not — a trait-less item simply resolves to null.
+        //
+        // This transition ALREADY COMMITTED above — per D7, a per-root config read failure here
+        // must never be reported as a failure of the (already-applied) transition. The dispatch
+        // hint is simply omitted (null) and a WARN is logged.
+        // resolveDispatchProfile is itself nullable in the ordinary (trait-less) case, which the
+        // shared helper's null-on-unavailable return is indistinguishable from — but both paths
+        // resolve to the same `null` dispatch hint here, so collapsing them is correct.
+        val dispatchProfile =
+            omitOnConfigUnavailable(logger, "dispatch profile", itemId) {
+                context.resolveDispatchProfile(item, targetRole, resolvedSchema)
+            }
+
+        if (resolvedSchema == null) {
+            expectedNotesJson = JsonArray(emptyList())
+            guidanceKey = null
+            skillPointer = null
+            noteProgress = null
+        } else {
+            val existingNotes =
+                when (val notesResult = context.noteRepository().findByItemId(item.id)) {
+                    is Result.Success -> notesResult.data
+                    is Result.Error -> emptyList()
+                }
+            val notesByKey = existingNotes.associateBy { it.key }
+            val existingKeys = notesByKey.keys
+
+            // Build expectedNotes: schema entries matching the new role (tool-specific, includes "exists")
+            expectedNotesJson =
+                buildExpectedNotesJson(
+                    schema = resolvedSchema,
+                    existingNoteKeys = existingKeys,
+                    filterRole = targetRole
+                )
+
+            // Use shared PhaseNoteContext for guidanceKey, skillPointer, and noteProgress
+            val phaseContext = computePhaseNoteContext(targetRole, resolvedSchema, notesByKey)
+            guidanceKey = phaseContext?.guidanceKey
+            skillPointer = phaseContext?.skillPointer
+            noteProgress =
+                phaseContext?.let {
+                    buildJsonObject {
+                        put("filled", JsonPrimitive(it.filled))
+                        put("remaining", JsonPrimitive(it.remaining))
+                        put("total", JsonPrimitive(it.total))
+                    }
+                }
+        }
+
+        // Build success result. previousRole + trigger echoes dropped (caller supplied the trigger;
+        // newRole is the outcome). Empty cascadeEvents/unblockedItems are omitted.
+        return buildJsonObject {
+            put("itemId", JsonPrimitive(itemId.toString()))
+            put("newRole", JsonPrimitive(targetRole.toJsonString()))
+            advanceResult.statusLabel?.let { put("statusLabel", JsonPrimitive(it)) }
+            put("applied", JsonPrimitive(true))
+            if (summary != null) put("summary", JsonPrimitive(summary))
+            actorClaim?.let { put("actor", it.toJson()) }
+            verification?.toJsonOrOmit()?.let { put("verification", it) }
+            if (cascadeJsonList.isNotEmpty()) put("cascadeEvents", JsonArray(cascadeJsonList))
+            if (unblockedJsonList.isNotEmpty()) put("unblockedItems", JsonArray(unblockedJsonList))
+            put("expectedNotes", expectedNotesJson)
+            guidanceKey?.let { put("guidanceKey", JsonPrimitive(it)) }
+            skillPointer?.let { put("skillPointer", JsonPrimitive(it)) }
+            dispatchProfile?.let { put("dispatch", buildDispatchProfileJson(it)) }
+            noteProgress?.let { put("noteProgress", it) }
+        }
     }
 
     override fun userSummary(
