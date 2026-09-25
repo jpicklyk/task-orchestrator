@@ -27,6 +27,7 @@ import {
   buildNudge,
   buildDispatch,
 } from './retro-lib.mjs';
+import { isHeadlessIteration, isSubagentInvocation } from './execution-mode.mjs';
 
 const MAX_ROOT_UUIDS = 50;
 
@@ -65,6 +66,11 @@ try {
   } catch {
     emitEmpty();
   }
+
+  // Headless ralph iteration: emit empty BEFORE any marker read/write, so a headless iteration's
+  // tool calls never pollute the per-rootId marker the interactive session's Stop backstop
+  // (retro-backstop.mjs) relies on.
+  if (isHeadlessIteration()) emitEmpty();
 
   const sessionId = hookInput.session_id;
   const toolName = hookInput.tool_name || '';
@@ -158,6 +164,23 @@ try {
   }
 
   if (!kind) emitEmpty();
+
+  // A subagent (agent_id present, non-headless) never fires the interactive-orchestrator
+  // directive itself: a would-be PARENT_COMPLETION is recorded exactly like a LONE_TERMINAL so
+  // the main session's Stop backstop (retro-backstop.mjs) is the one that surfaces it, once the
+  // subagent has actually returned control.
+  if (kind === 'PARENT_COMPLETION' && isSubagentInvocation(hookInput)) {
+    writeMarker(path, {
+      ...marker,
+      sawTerminal: true,
+      lastTerminalAt: now,
+      pendingRoots: [...new Set([...(marker.pendingRoots || []), ...roots])],
+      terminalCount: (marker.terminalCount || 0) + thisCallTerminalCount,
+      sessionId,
+      rootId,
+    });
+    emitEmpty();
+  }
 
   if (kind === 'PARENT_COMPLETION') {
     const existingRoots = marker.rootUuids || [];

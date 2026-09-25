@@ -31,10 +31,12 @@ function freshTempDir() {
   return mkdtempSync(join(tmpdir(), 'to-phase-guard-record-'));
 }
 
-function spawnHook(payload, tempDir, apiUrl) {
+function spawnHook(payload, tempDir, apiUrl, modeOverride) {
   const env = { ...process.env, TEMP: tempDir, TMP: tempDir, TMPDIR: tempDir };
   delete env.TASK_ORCHESTRATOR_API_URL;
+  delete env.TASK_ORCHESTRATOR_MODE;
   if (apiUrl) env.TASK_ORCHESTRATOR_API_URL = apiUrl;
+  if (modeOverride) env.TASK_ORCHESTRATOR_MODE = modeOverride;
   return spawnSync(process.execPath, [HOOK], { input: JSON.stringify(payload), env, encoding: 'utf-8' });
 }
 
@@ -268,6 +270,31 @@ test('S3: API URL unset records nothing even with agent_id present', () => {
       },
       tempDir,
       undefined, // no TASK_ORCHESTRATOR_API_URL
+    );
+    assert.equal(res.status, 0);
+    assert.equal(res.stdout.trim(), '{}');
+    assert.deepEqual(readMarker(tempDir, sessionId, agentId).items, []);
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+// ── 004d65fd: S11 — headless iteration records nothing, even with agent_id + API URL + applied ──
+
+test('S11: headless iteration records nothing even with agent_id, API URL, and an applied result', () => {
+  const tempDir = freshTempDir();
+  const sessionId = `s11-${randomUUID()}`;
+  const agentId = 'agent-1';
+  try {
+    const res = spawnHook(
+      {
+        session_id: sessionId,
+        agent_id: agentId,
+        tool_response: { results: [{ itemId: '22222222-0000-0000-0000-000000000008', newRole: 'work', applied: true }] },
+      },
+      tempDir,
+      UNREACHABLE_API_URL,
+      'headless-iteration',
     );
     assert.equal(res.status, 0);
     assert.equal(res.stdout.trim(), '{}');

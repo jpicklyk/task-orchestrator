@@ -297,3 +297,19 @@ export function decideIdleBackoff({ retryAfterMs, consecutiveIdle, idleBudget })
 
     return { exit: false, waitMs };
 }
+
+/**
+ * Sentinel env var recognized by hooks/execution-mode.mjs's `isHeadlessIteration` to distinguish
+ * a headless ralph iteration from an interactive session. No documented Claude Code hook-input
+ * field distinguishes `claude -p`, hence this explicit signal.
+ */
+export const HEADLESS_ITERATION_MODE = 'headless-iteration';
+
+/**
+ * Builds the env object passed to every `claude -p` iteration spawn (initial and resume) —
+ * `base` plus `TASK_ORCHESTRATOR_MODE=headless-iteration`. Never mutates `base`; returns a new
+ * object so the caller's own env reference (typically `process.env`) is left untouched.
+ */
+export function buildIterationEnv(base) {
+    return { ...base, TASK_ORCHESTRATOR_MODE: HEADLESS_ITERATION_MODE };
+}

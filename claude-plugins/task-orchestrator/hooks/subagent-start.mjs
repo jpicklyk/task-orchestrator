@@ -1,10 +1,17 @@
 #!/usr/bin/env node
 // SubagentStart — injects agent-owned-phase protocol.
-// Early exit: if no .taskorchestrator/ directory exists at or above cwd
-// (or AGENT_CONFIG_DIR), the project is not orchestrated — emit nothing
-// so non-orchestrated projects pay no context cost.
-import { statSync } from 'fs';
+// Early exits, checked in order (headless first, then the pre-existing guards):
+//   1. Headless ralph iteration (TASK_ORCHESTRATOR_MODE=headless-iteration) — ralph iterations
+//      never dispatch subagents, but exit silently anyway rather than assume that holds forever.
+//   2. No .taskorchestrator/ directory exists at or above cwd (or AGENT_CONFIG_DIR) — the
+//      project is not orchestrated, so non-orchestrated projects pay no context cost.
+//   3. The subagent's `agent_type` is not a phase-owner type (implementer/reviewer, bare or
+//      plugin-qualified) — the protocol only applies to an agent that owns a work/review phase;
+//      injecting it into Explore/Plan/general-purpose/etc. tells agents that own no phase to
+//      call advance_item and commit, which is wrong for them.
+import { readFileSync, statSync } from 'fs';
 import { resolve } from 'path';
+import { isHeadlessIteration, isPhaseOwnerAgentType } from './execution-mode.mjs';
 
 function isOrchestratedProject() {
   const candidates = [];
@@ -27,7 +34,22 @@ function isOrchestratedProject() {
   return false;
 }
 
+if (isHeadlessIteration()) {
+  process.exit(0);
+}
+
 if (!isOrchestratedProject()) {
+  process.exit(0);
+}
+
+let hookInput = {};
+try {
+  hookInput = JSON.parse(readFileSync(0, 'utf-8'));
+} catch {
+  hookInput = {};
+}
+
+if (!isPhaseOwnerAgentType(hookInput.agent_type)) {
   process.exit(0);
 }
 

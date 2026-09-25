@@ -89,11 +89,13 @@ function stopStub(server) {
 
 /** Spawns phase-guard.mjs asynchronously, feeds it `payload` on stdin, and resolves with its
  * exit status + stdout once it closes. */
-function runHook(payload, tempDir, apiUrl) {
+function runHook(payload, tempDir, apiUrl, modeOverride) {
   return new Promise((resolvePromise, rejectPromise) => {
     const env = { ...process.env, TEMP: tempDir, TMP: tempDir, TMPDIR: tempDir };
     delete env.TASK_ORCHESTRATOR_API_URL;
+    delete env.TASK_ORCHESTRATOR_MODE;
     if (apiUrl) env.TASK_ORCHESTRATOR_API_URL = apiUrl;
+    if (modeOverride) env.TASK_ORCHESTRATOR_MODE = modeOverride;
     const child = spawn(process.execPath, [HOOK], { env });
     let stdout = '';
     let stderr = '';
@@ -462,6 +464,39 @@ test('multiple recorded items — only the ones with missing work/review notes a
     assert.equal(out.decision, 'block');
     assert.ok(out.reason.includes(blockedItem.slice(0, 8)), out.reason);
     assert.ok(!out.reason.includes(cleanItem.slice(0, 8)), out.reason);
+  } finally {
+    await stopStub(server);
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+// ── 004d65fd: S12 — headless iteration never fetches the gate, even with a recorded marker ───
+
+test('S12: headless iteration with an existing marker and a missing-notes gate -> {} with zero fetches', async () => {
+  const tempDir = freshTempDir();
+  const sessionId = `s12-${randomUUID()}`;
+  const agentId = 'agent-1';
+  const itemId = '5c5c5c5c-0000-0000-0000-0000000000ab';
+  seedMarker(tempDir, sessionId, agentId, { items: [itemId], blocks: 0 });
+  let hitCount = 0;
+  const server = await startStub({
+    [itemId]: (req, res) => {
+      hitCount++;
+      const { status = 200, body = {} } = gateOk({ itemId, role: 'work', missing: ['implementation-notes'] });
+      res.writeHead(status, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(body));
+    },
+  });
+  try {
+    const res = await runHook(
+      { session_id: sessionId, agent_id: agentId },
+      tempDir,
+      `http://127.0.0.1:${server.address().port}`,
+      'headless-iteration'
+    );
+    assert.equal(res.status, 0);
+    assert.equal(res.stdout.trim(), '{}');
+    assert.equal(hitCount, 0, 'expected zero gate fetches in headless mode');
   } finally {
     await stopStub(server);
     rmSync(tempDir, { recursive: true, force: true });

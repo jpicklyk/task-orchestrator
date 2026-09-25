@@ -21,6 +21,7 @@ import {
     decideContinuation,
     buildResumeArgs,
     decideIdleBackoff,
+    buildIterationEnv,
 } from "./ralph-lib.mjs";
 
 const execAsync = promisify(exec);
@@ -417,6 +418,7 @@ function runIteration(args, { cwd } = {}) {
         const child = spawn("claude", args, {
             stdio: ["ignore", "pipe", "pipe"],
             shell: false,
+            env: buildIterationEnv(process.env),
             ...(cwd ? { cwd } : {}),
         });
         // Expose for SIGINT/SIGTERM forwarding from the loop driver.
