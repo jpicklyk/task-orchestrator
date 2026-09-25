@@ -29,11 +29,15 @@ READY_TIMEOUT_SECS="${READY_TIMEOUT_SECS:-60}"
 RUN_ID="$$-${RANDOM:-0}"
 VOLUME_NAME="smoke-test-data-${RUN_ID}"
 CONTAINER_NAME="smoke-test-${RUN_ID}"
+# Named so cleanup can remove it: if `timeout` kills the docker client, `--rm` never fires and
+# the container would otherwise keep running.
+STDIO_CONTAINER_NAME="smoke-test-stdio-${RUN_ID}"
 REQ_FILE=""
 OUTPUT_FILE=""
 
 cleanup() {
   docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
+  docker rm -f "$STDIO_CONTAINER_NAME" >/dev/null 2>&1 || true
   docker volume rm "$VOLUME_NAME" >/dev/null 2>&1 || true
   [ -n "$REQ_FILE" ] && rm -f "$REQ_FILE"
   [ -n "$OUTPUT_FILE" ] && rm -f "$OUTPUT_FILE"
@@ -78,9 +82,9 @@ EOF
 
 set +e
 if command -v timeout >/dev/null 2>&1; then
-  (cat "$REQ_FILE"; sleep 3) | timeout 30 docker run --rm -i -v "${VOLUME_NAME}:/app/data" "$IMAGE" >"$OUTPUT_FILE" 2>&1
+  (cat "$REQ_FILE"; sleep 3) | timeout 30 docker run --rm -i --name "$STDIO_CONTAINER_NAME" -v "${VOLUME_NAME}:/app/data" "$IMAGE" >"$OUTPUT_FILE" 2>&1
 else
-  (cat "$REQ_FILE"; sleep 3) | docker run --rm -i -v "${VOLUME_NAME}:/app/data" "$IMAGE" >"$OUTPUT_FILE" 2>&1
+  (cat "$REQ_FILE"; sleep 3) | docker run --rm -i --name "$STDIO_CONTAINER_NAME" -v "${VOLUME_NAME}:/app/data" "$IMAGE" >"$OUTPUT_FILE" 2>&1
 fi
 set -e
 
@@ -88,26 +92,24 @@ set -e
 # initialize response (id=1), and `tools` is only present on the tools/list response (id=2). Scan
 # every JSON-looking line in the transcript and take the best value seen for each, rather than
 # expecting a single line to carry both.
-HAS_SERVER_INFO=0
-TOOLS_COUNT=0
-while IFS= read -r line; do
-  case "$line" in
-    '{'*) ;;
-    *) continue ;;
-  esac
-  id=$(printf '%s' "$line" | jq -r '.id // empty' 2>/dev/null || true)
-  case "$id" in
-    1)
-      si=$(printf '%s' "$line" | jq -r 'if (.result.serverInfo // null) != null then "1" else "0" end' 2>/dev/null || echo 0)
-      [ "$si" = "1" ] && HAS_SERVER_INFO=1
-      ;;
-    2)
-      tc=$(printf '%s' "$line" | jq -r '(.result.tools | length) // 0' 2>/dev/null || echo 0)
-      case "$tc" in '' | *[!0-9]*) tc=0 ;; esac
-      TOOLS_COUNT="$tc"
-      ;;
-  esac
-done <"$OUTPUT_FILE"
+# Parse with node (present locally and on GitHub runners) rather than jq, and fail loudly if it is
+# missing — a silently absent parser would make every run report "handshake incomplete".
+if ! command -v node >/dev/null 2>&1; then
+  echo "ERROR: node is required to parse the MCP handshake transcript" >&2
+  exit 2
+fi
+read -r HAS_SERVER_INFO TOOLS_COUNT < <(node -e '
+  const lines = require("fs").readFileSync(0, "utf8").split(String.fromCharCode(10));
+  let si = 0, tc = 0;
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line.startsWith("{")) continue;
+    let msg; try { msg = JSON.parse(line); } catch { continue; }
+    if (msg.id === 1 && msg.result && msg.result.serverInfo) si = 1;
+    if (msg.id === 2 && msg.result && Array.isArray(msg.result.tools)) tc = msg.result.tools.length;
+  }
+  console.log(si + " " + tc);
+' <"$OUTPUT_FILE")
 
 if [ "$HAS_SERVER_INFO" -ne 1 ] || [ "$TOOLS_COUNT" -le 0 ]; then
   echo "ERROR: MCP handshake incomplete (serverInfo present=$HAS_SERVER_INFO, tools/list count=$TOOLS_COUNT)" >&2
