@@ -45,6 +45,11 @@ proposal item's own status says "terminal".
 | `fc55c183` (#306) | EXISTING-SURFACE/NEW-SURFACE labels + red-proof-shape | **Planning seat return template** (`red-proof-shape` field) and **Test author protocol** — rule 5, "Surface labels" |
 | `728a3e57` (#307) | deliver adopted rules through the dispatch contract, not skill prose | this document — the template's existence plus this Adoption reach table is the shipped fix |
 | `7e9b37bb` (#310) | test-author blindness as a structural, tool-barred boundary | **Test author protocol** — rules 1-4 (declarations block, hard `src/main` ban, mandatory `keys=`, stop-and-ask) |
+| `a85d2b5d` (#312) | re-read shared files before editing; exact-text anchors | **File ownership** — "Shared files: re-read immediately before editing" |
+| `82ca5395` | assertions that cannot fail given their fixture or harness | **Test author protocol** — rule 9, "Forbidden"; the vacuity, harness-transformation and rejection-reason checks live in `test-author/SKILL.md` §7 |
+| `d1484a3e` | worktree writes landing in the main checkout | **Header** — the "Write root" line and the two-checkout `git status --short` before the first commit |
+| `234b50a0` | declarations-extractor seat and its accuracy contract | **Test author protocol** — the declarations paragraph (extractor seat, accuracy contract, orchestrator scan) and rule 4's public-evidence self-resolution clause |
+| `bb191508` | sweep the whole defect class during planning | **Planning seat return template** (`defect-class-siblings` field); the `bug-fix` schema's `diagnosis` guidance carries the same requirement at note-fill time |
 
 ---
 
@@ -52,6 +57,10 @@ proposal item's own status says "terminal".
 
 Feature branch: `feat/<slug>`
 Feature worktree: `<absolute path, e.g. D:\Projects\task-orchestrator\.claude\worktrees\feat-<slug>>`
+Write root: `<the feature worktree path above>` — every Write/Edit path starts with it. Main-checkout
+paths are off-limits (this contract and `plans/` are read-only inputs). Before your first commit, run
+`git -C <write root> status --short` AND `git -C <main-checkout> status --short` and report both in
+`session-tracking`; the main checkout must show nothing you wrote.
 Contract path (this file): `<absolute path in the MAIN checkout, e.g. D:\Projects\task-orchestrator\plans\<slug>.md>`
 — every dispatch prompt names the contract by THIS path. `plans/` is gitignored and absent from
 the feature worktree, so a relative `plans/<slug>.md` does not resolve for an agent whose working
@@ -76,12 +85,14 @@ oracles, and the public signatures tests compile against>`.
 ## Planning seat return template
 
 One `opus` agent per stream returns this block verbatim (field names fixed; `none` is a valid
-value for any field except `main-files`/`test-files`). Field semantics: `/implement` SKILL.md
+value for any field except `main-files`/`test-files`, and `defect-class-siblings` may say `none`
+only with the sweep that found none). Field semantics: `/implement` SKILL.md
 Step 3, "Planning seat" subsection — prose describes, this states.
 
 ```
 <short-uuid>:
 diagnosis-corrections: <file:line corrections to diagnosis/task-scope, or none>
+defect-class-siblings: <each sibling site of the root-cause pattern → frozen as D# | deferred: <reason>; sweep: <command + scope + hit count> — or none (sweep: <command>)>
 cross-stream-file-overlaps: <files also owned by another stream in this wave, or none>
 missing-api-or-seam: <proposed NEW signature for a missing surface, or none>
 test-plan-status: <filled (<n> chars) | open — and why>
@@ -159,6 +170,12 @@ never discovered and performed mid-wave. An undeclared edit to an existing test 
 breach under Test author protocol rule 8, and its absence from this column is what makes that
 rule checkable. Anything listed here is also declared in the Review scoping commit map.
 
+**Shared files: re-read immediately before editing.** Before editing a file you share ownership
+of with another stream in this wave, re-read it immediately before the edit — a sibling's commit
+can shift line numbers or rename or remove a heading you cached from an earlier read. Anchor every
+edit on exact text (`old_string`), never on line numbers; an instruction that locates a change
+for an agent quotes the text, not a line range.
+
 Declared cross-stream overlaps: `<file → the streams that both write, and the serialization or
 arbitration rule that applies — or "none (explicitly verified by all planners)">`.
 Untouched by implementers: `<files no stream may write — wiring/entry points, shared harnesses,
@@ -172,8 +189,10 @@ One author per item, `src/test/**` only, dispatched after that item's implemente
 author's blindness is a CAPABILITY boundary, not a reading discipline: it holds only because the
 declarations below are supplied and the lookups are banned.
 
-**Declarations — the orchestrator fills one block per item before dispatch. The author looks up
-nothing.**
+**Declarations — a dedicated declarations-extractor seat (sonnet, read-only, never the item's
+author; dispatched after the item's implementer returns) fills one block per item from `src/main`
+and the frozen `test-plan`, written to a file. The orchestrator scans it before dispatching the
+author. The author looks up nothing.**
 
 ```
 DECLARATIONS for <short-uuid> — verbatim and complete
@@ -181,6 +200,24 @@ DECLARATIONS for <short-uuid> — verbatim and complete
 lists and defaults; function and method signatures; constants; enum values; and any KDoc carrying
 an oracle or stating an invariant — including the validate() the fixtures must satisfy>
 ```
+
+Extractor accuracy contract:
+
+- Copy signatures, constructors with defaults, constants, enum values and oracle-bearing KDoc
+  **verbatim** — and only KDoc that pre-dates this item. KDoc the implementation commit added is
+  implementation prose; leave it out.
+- No prose describing implementation behaviour: never paraphrase what the code does, and never
+  paste function bodies, catch blocks or call sites.
+- For every scenario input the plan names (route query params, env vars, config keys, tool
+  params), give the exact name or write `NOT DECLARED: <what>`.
+- A claim that a file or symbol does not exist names the check that produced it.
+
+Orchestrator scan, before handoff: grep the declarations file for behaviour words (`returns`,
+`throws`, `falls back`, `catches`, `calls`, `if`, `when`, `otherwise`, `instead`) and strip every
+hit that describes behaviour rather than declaring a signature or pre-existing KDoc; then delete
+any unredacted copy so only the scanned file reaches the author. The scan is not optional: on
+2026-09-25 the extractor leaked implementation prose in 2 of 2 runs despite an explicit
+prohibition, and the scan caught both.
 
 Rules for the author (a breach is a breach whether or not anything useful was seen):
 
@@ -194,7 +231,10 @@ Rules for the author (a breach is a breach whether or not anything useful was se
    `log -p` on this branch. Not the diff, not `implementation-notes`, not `session-tracking`.
 4. **Missing or non-compiling declaration → stop and ask** (`SendMessage` to the orchestrator),
    naming the exact declaration. Do not derive it from context, from a compiler error, or from the
-   diff. Asking costs a round-trip; the lookup costs the dispatch.
+   diff. Asking costs a round-trip; the lookup costs the dispatch. An ambiguity resolvable from
+   public non-`src/main` evidence (the tool's parameterSchema, `src/test` harnesses, docs) may be
+   self-resolved if the manifest's arbitration record states the evidence used; the reviewer
+   verifies it.
 5. **Surface labels.** `test-plan` labels every scenario `EXISTING-SURFACE` or `NEW-SURFACE`. Write
    each `NEW-SURFACE` test so the plan's narrowest-revert recipe (keep the new type/parameter,
    revert only its call sites) still exercises it; where the plan names a substitute verification
@@ -211,7 +251,9 @@ Rules for the author (a breach is a breach whether or not anything useful was se
    never a shared test harness. An existing test that looks wrong but is not declared is reported,
    not edited (rule 4's stop-and-ask path).
 9. **Forbidden:** `assumeTrue` on non-platform conditions, `@Disabled` / `@Ignore`, disjunctive
-   escapes (`|| isEmpty()`), assert-not-null-only, swallowed exceptions, sleep-until-green.
+   escapes (`|| isEmpty()`), assert-not-null-only, swallowed exceptions, sleep-until-green, and
+   assertions that cannot fail given their fixture or harness (`test-author` §7, "Can this
+   assertion fail?").
 10. **Compile self-check** ONCE, per the Compile self-check slot — including its "Who runs gradle"
     row for your seat. Foreign-file errors → record, commit, do not retry.
 11. **Commit** per the Commit discipline slot:

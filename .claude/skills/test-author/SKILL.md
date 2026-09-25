@@ -354,6 +354,25 @@ declarations supplied per §4.1, not by opening `src/main` — and satisfy it **
 If the invariant check is not among the supplied declarations, ask for it (§4.4) — it is exactly
 the kind of oracle-bearing declaration the dispatch is required to paste.
 
+### Can this assertion fail?
+
+The patterns above are phrased around assertion text. This class hides in the fixture or the
+harness instead, so a clean-looking assertion still passes whether or not the fix is present. The
+recorded instances, all blind-authored and caught only in review: a "no item created" assertion
+after POSTing a non-JSON body that could never create an item; a duplicate-Host case that never
+reached its branch because Ktor `testApplication` merges repeated headers into one comma-joined
+value; a cycle rejection that asserted `created=0` but not that the reason was "circular".
+
+- **Vacuity check.** For every negative or absence assertion, `test-plan` or `test-manifest` names
+  the fixture condition that would make it fail without the fix. If none exists — the fixture
+  could never produce the asserted outcome anyway — fix the fixture, not the assertion.
+- **Harness-transformation check.** When a scenario depends on raw protocol shape (repeated or
+  multi-valued headers, header casing, whitespace, encoding), prove the harness delivers that
+  shape unmodified, or drive a real engine over a raw socket. Known case: Ktor `testApplication`
+  merges duplicate headers and sends no `Host` by default.
+- **Rejection tests assert the reason** — the error code or message — not only that nothing
+  happened. "Nothing was created" is also what an unrelated early failure produces.
+
 ---
 
 ## 8. Ambiguity Arbitration
@@ -366,7 +385,10 @@ and §4 exist to close off.
 **Escalate instead.** Record the ambiguity in `test-manifest` under the arbitration record: what
 was ambiguous, what the plan said, what would need to be true for each candidate resolution.
 Escalation goes to the orchestrator (Parallel/Delegated tier) or the user (Direct tier) — never
-resolved unilaterally by the same agent that hit the ambiguity.
+resolved unilaterally by the same agent that hit the ambiguity. The one carve-out: an ambiguity
+resolvable from public non-`src/main` evidence (the tool's parameterSchema, `src/test` harnesses,
+docs) may be self-resolved when the arbitration record states the evidence used; the reviewer
+verifies it.
 
 **If an ambiguity must be resolved by consulting the implementation** (rare, and only when
 escalation is not available and the item cannot proceed otherwise), the resulting scenario is
