@@ -1,21 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.tools
 
-import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeTool
-import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
-import io.github.jpicklyk.mcptask.current.application.tools.config.ManagePlanDocumentsTool
-import io.github.jpicklyk.mcptask.current.application.tools.config.ManageProjectConfigTool
-import io.github.jpicklyk.mcptask.current.application.tools.dependency.ManageDependenciesTool
-import io.github.jpicklyk.mcptask.current.application.tools.dependency.QueryDependenciesTool
-import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
-import io.github.jpicklyk.mcptask.current.application.tools.items.QueryItemsTool
-import io.github.jpicklyk.mcptask.current.application.tools.notes.ManageNotesTool
-import io.github.jpicklyk.mcptask.current.application.tools.notes.QueryNotesTool
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTool
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetBlockedItemsTool
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetNextItemTool
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetNextStatusTool
+import io.github.jpicklyk.mcptask.current.interfaces.mcp.buildMcpTools
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
@@ -54,31 +39,18 @@ import kotlin.test.fail
  *   4. If a failure is a REGRESSION (an edit bloated a description or schema without adding
  *      capability — e.g. restored per-field prose duplicating the schema, verbose enum
  *      documentation, etc.), fix the tool instead of raising the ceiling.
- *   5. Adding a 15th tool requires adding both a row to [perToolCeilings] and folding its
- *      measured size into [totalCeiling] — the "every tool has a ceiling" check below fails
- *      loudly (naming the tool) if a row is missing, so this can't be skipped by accident.
+ *   5. Adding a new tool to [buildMcpTools] requires adding both a row to [perToolCeilings] and
+ *      folding its measured size into [totalCeiling] — the "every tool has a ceiling" check
+ *      below fails loudly (naming the tool) if a row is missing, so this can't be skipped by
+ *      accident. Because [allTools] is derived from [buildMcpTools] rather than a hard-coded
+ *      list, this check now covers every REGISTERED tool automatically — a newly-registered
+ *      tool cannot silently skip the budget guard.
  * ────────────────────────────────────────────────────────────────────────────────────────
  */
 class ToolTokenBudgetTest {
-    private val allTools: List<ToolDefinition> =
-        listOf(
-            ManageItemsTool(),
-            QueryItemsTool(),
-            ManageNotesTool(),
-            QueryNotesTool(),
-            ManageDependenciesTool(),
-            QueryDependenciesTool(),
-            AdvanceItemTool(),
-            ClaimItemTool(),
-            GetBlockedItemsTool(),
-            GetContextTool(),
-            GetNextItemTool(),
-            GetNextStatusTool(),
-            CompleteTreeTool(),
-            CreateWorkTreeTool(),
-            ManageProjectConfigTool(),
-            ManagePlanDocumentsTool(),
-        )
+    // Derived from buildMcpTools() (interfaces/mcp/CurrentMcpServer.kt) rather than a hard-coded
+    // list, so this test automatically covers every tool the production server registers.
+    private val allTools: List<ToolDefinition> = buildMcpTools()
 
     /**
      * See "BUDGET PHILOSOPHY" above for how these numbers were derived and how to update them.
@@ -147,7 +119,7 @@ class ToolTokenBudgetTest {
 
         val failures = mutableListOf<String>()
         missing.forEach { failures.add("$it: no ceiling registered in perToolCeilings — add one (see BUDGET PHILOSOPHY)") }
-        stale.forEach { failures.add("$it: ceiling registered but no such tool is instantiated in allTools — remove the stale row") }
+        stale.forEach { failures.add("$it: ceiling registered but no such tool is returned by buildMcpTools() — remove the stale row") }
 
         if (failures.isNotEmpty()) {
             fail("Tool <-> ceiling table is out of sync:\n" + failures.joinToString("\n") { "  - $it" })

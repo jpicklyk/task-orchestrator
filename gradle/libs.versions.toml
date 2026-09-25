@@ -32,6 +32,11 @@ kotlinLogging = "8.0.01"
 mockk = "1.14.3"
 junit = "5.12.2"
 
+# Konsist (architecture layering tests). Pin stays here rather than "latest" resolution --
+# 0.17.3 declares kotlin-compiler-embeddable 2.0.21 transitively; newer compiler-embeddable
+# versions (>= 2.4.20) are a known incompatibility (KoInternalException) -- see LayeringTest.kt.
+konsist = "0.17.3"
+
 # YAML
 snakeyaml = "2.6"
 
@@ -102,6 +107,7 @@ mockk = { module = "io.mockk:mockk", version.ref = "mockk" }
 junit-api = { module = "org.junit.jupiter:junit-jupiter-api", version.ref = "junit" }
 junit-engine = { module = "org.junit.jupiter:junit-jupiter-engine", version.ref = "junit" }
 junit-params = { module = "org.junit.jupiter:junit-jupiter-params", version.ref = "junit" }
+konsist = { module = "com.lemonappdev:konsist", version.ref = "konsist" }
 
 [plugins]
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }

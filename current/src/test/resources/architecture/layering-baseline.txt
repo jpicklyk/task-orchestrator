@@ -1,0 +1,26 @@
+# Layering baseline for LayeringTest.kt.
+#
+# Format: one entry per line, `<path relative to current/src/main/kotlin/.../current/> -> <imported FQN>`.
+# `#` starts a comment; blank lines are ignored. Sorted by path then FQN.
+#
+# This is a RATCHET, not an allowlist to grow: LayeringTest fails on any layering violation not
+# listed here (new violations must not be added -- fix the import instead), AND fails on any line
+# below that no longer matches a real violation (delete the line once the violation is fixed).
+#
+# application -> infrastructure (R2)
+application/service/AdvanceService.kt -> io.github.jpicklyk.mcptask.current.infrastructure.config.EnvBoolean
+application/service/PlanDocumentService.kt -> io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
+application/service/ProjectConfigPushService.kt -> io.github.jpicklyk.mcptask.current.infrastructure.config.YamlSchemaParser
+application/service/ProjectConfigPushService.kt -> io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
+application/tools/ActorParsing.kt -> io.github.jpicklyk.mcptask.current.infrastructure.security.sha256Hex
+application/tools/ToolExecutionContext.kt -> io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
+application/tools/ToolExecutionContext.kt -> io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
+application/tools/config/ManagePlanDocumentsTool.kt -> io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
+application/tools/config/ManagePlanDocumentsTool.kt -> io.github.jpicklyk.mcptask.current.infrastructure.security.PathContainment
+application/tools/items/WorkItemDeletion.kt -> io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
+application/tools/notes/ManageNotesTool.kt -> io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
+application/tools/notes/ManageNotesTool.kt -> io.github.jpicklyk.mcptask.current.infrastructure.security.PathContainment
+#
+# infrastructure -> interfaces (R3)
+infrastructure/config/ApiAuthConfigLoader.kt -> io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
+infrastructure/config/ApiAuthConfigLoader.kt -> io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
