@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.FingerprintRelation
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
+import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.ProjectConfigTable
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteProjectConfigRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.SQLiteWorkItemRepository
@@ -12,7 +13,10 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.jdbc.Database
+import org.jetbrains.exposed.v1.jdbc.transactions.suspendTransaction
+import org.jetbrains.exposed.v1.jdbc.update
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.util.UUID
@@ -128,26 +132,55 @@ class ConfigFingerprintTest {
         }
 
     @Test
-    fun `S13 guarded push of identical CRLF content succeeds unknown then a stale raw If-Match fails precondition`() =
+    fun `S13 guarded push of identical CRLF content succeeds unknown then a stale raw If-Match fails precondition`(): Unit =
         runBlocking {
             val crlfBody = "a: 1\r\nb: 2\r\n"
-
-            // Seed a row directly with the OLD raw (pre-normalization) fingerprint, simulating a
-            // row written before this change shipped.
+            val normalizedFingerprint = configFingerprint(crlfBody)
             val rawFingerprint = sha256Hex(crlfBody.toByteArray(Charsets.UTF_8))
+            assertTrue(
+                rawFingerprint != normalizedFingerprint,
+                "fixture body must actually exercise the CRLF normalization gap"
+            )
+
+            // Seed a row via the normal (already-covered) create path, then directly overwrite its
+            // fingerprint column to the OLD raw (pre-normalization) value, simulating a row written
+            // by a pre-change server -- the config body itself stays exactly what a pre-change
+            // server would have stored (raw CRLF bytes, never normalized).
             val seeded = projectConfigRepository.upsert(rootItemId, crlfBody)
             assertIs<Result.Success<*>>(seeded)
-            val seededFingerprint = (seeded as Result.Success).data.fingerprint
-            // Sanity: on this build, upsert already computes the NORMALIZED fingerprint, not the raw one.
-            assertTrue(seededFingerprint != rawFingerprint, "seed must reflect the normalized fingerprint, not the pre-change raw one")
+            suspendTransaction(db = database) {
+                ProjectConfigTable.update({ ProjectConfigTable.rootItemId eq rootItemId }) {
+                    it[ProjectConfigTable.fingerprint] = rawFingerprint
+                }
+            }
 
-            // Re-push the same CRLF content — relation is unknown relative to a hypothetical prior
-            // raw-fingerprint row, but here the fingerprint already matches (normalized), so re-push
-            // succeeds without disturbing the CAS guard.
-            val rePush = projectConfigRepository.upsertGuarded(rootItemId, crlfBody, expectedFingerprint = null, rejectSuperseded = true)
+            // Re-push the same CRLF content with no If-Match precondition. The observed fingerprint
+            // (raw) matches neither the pushed fingerprint (normalized) nor anything in history, so
+            // the relation is UNKNOWN, not SUPERSEDED -- the push is accepted per the run plan's
+            // rollout semantics (one unknown relation + re-push per affected root).
+            val rePush =
+                projectConfigRepository.upsertGuarded(rootItemId, crlfBody, expectedFingerprint = null, rejectSuperseded = true)
             assertIs<Result.Success<*>>(rePush)
+            val applied =
+                assertIs<io.github.jpicklyk.mcptask.current.domain.model.GuardedUpsertOutcome.Applied>(
+                    (rePush as Result.Success).data
+                )
+            assertEquals(normalizedFingerprint, applied.config.fingerprint, "fingerprint must become the normalized value")
 
-            // A guarded push using the stale RAW fingerprint as the If-Match precondition must fail —
+            val afterRePush = projectConfigRepository.get(rootItemId)
+            assertIs<Result.Success<*>>(afterRePush)
+            val storedFingerprintHistory = (afterRePush as Result.Success).data
+            assertEquals(crlfBody, storedFingerprintHistory?.configYaml, "stored body must remain byte-for-byte unchanged")
+
+            val relationAfterRePush = projectConfigRepository.classifyFingerprint(rootItemId, rawFingerprint)
+            assertIs<Result.Success<*>>(relationAfterRePush)
+            assertEquals(
+                FingerprintRelation.SUPERSEDED,
+                (relationAfterRePush as Result.Success).data,
+                "the pre-change raw fingerprint must now be in history"
+            )
+
+            // A guarded push using the stale RAW fingerprint as the If-Match precondition must fail --
             // the CAS `where fingerprint eq observedFingerprint` in #338's attemptGuardedUpsert is
             // unchanged; only the computed fingerprint value differs now.
             val staleIfMatch =
