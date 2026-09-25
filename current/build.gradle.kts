@@ -76,6 +76,10 @@ dependencies {
     // Logging
     implementation(libs.slf4j)
     implementation(libs.logback)
+    // compileOnly: kotlin-logging-jvm is already on the runtime classpath transitively via the
+    // MCP SDK. This adds no new runtime artifact -- it only lets CurrentMain.kt reference
+    // KotlinLoggingConfiguration at compile time to suppress its System.out startup banner.
+    compileOnly(libs.kotlin.logging.jvm)
 
     // JSON serialization/deserialization
     implementation(libs.kotlinx.serialization.json)
