@@ -105,7 +105,7 @@ The preferred format uses `work_item_schemas:`, which supports a `lifecycle:` fi
 # Preferred format
 work_item_schemas:
   <schema-key>:
-    lifecycle: <AUTO|MANUAL|AUTO_REOPEN|PERMANENT>   # optional, default: AUTO
+    lifecycle: <AUTO|MANUAL|PERMANENT>   # optional, default: AUTO
     notes:
       - key: <note-key>
         role: <queue|work|review>
@@ -151,7 +151,6 @@ The `lifecycle:` field on a schema controls how parent items cascade when all ch
 |----------------|-----------------------------------------------------------------------------------------------|
 | `AUTO`         | *(default)* Parent automatically advances to terminal when all children reach terminal.       |
 | `MANUAL`       | Suppress auto-cascade — parent must be completed explicitly via `advance_item` or `complete`. |
-| `AUTO_REOPEN`  | Auto-cascade to terminal, and reopen the parent to work when a new child is created under a terminal parent. |
 | `PERMANENT`    | Parent never auto-terminates, regardless of child state.                                      |
 
 Set `lifecycle` at the schema level in `work_item_schemas:`:
@@ -835,7 +834,7 @@ The full schema for `.taskorchestrator/config.yaml`:
 # Preferred — supports lifecycle, traits, default_traits
 work_item_schemas:
   <schema-key>:
-    lifecycle: <AUTO|MANUAL|AUTO_REOPEN|PERMANENT>   # optional
+    lifecycle: <AUTO|MANUAL|PERMANENT>   # optional
     notes:
       - <note-entry>
     traits:                    # optional list of trait keys to apply

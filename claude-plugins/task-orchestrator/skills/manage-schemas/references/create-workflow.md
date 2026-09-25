@@ -193,7 +193,7 @@ Ask the user the following questions (use `AskUserQuestion` for structured input
 - Otherwise, prompt with examples: `research-spike`, `infrastructure-change`, `plugin-update`
 - This becomes the schema key and the `type` value agents set on items
 
-**Question 2:** "What lifecycle mode? (auto = cascades to terminal when children complete, manual = no auto-cascade, auto-reopen = reopens when new children added, permanent = never auto-terminates)"
+**Question 2:** "What lifecycle mode? (auto = cascades to terminal when children complete, manual = no auto-cascade, permanent = never auto-terminates)"
 - Default to `auto` if the user is unsure
 
 **Question 3:** "Does this work type need a review/deploy phase after implementation, or does it go straight to done?"

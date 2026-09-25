@@ -223,8 +223,8 @@ class CascadeDetector {
      *
      * **Lifecycle-aware:** If [schemaResolver] is provided, the parent's [WorkItemSchema]
      * is checked before creating a reopen cascade event. Parents with [LifecycleMode.MANUAL]
-     * or [LifecycleMode.PERMANENT] will suppress reopen cascades. [LifecycleMode.AUTO_REOPEN]
-     * and [LifecycleMode.AUTO] allow the reopen cascade.
+     * or [LifecycleMode.PERMANENT] will suppress reopen cascades. [LifecycleMode.AUTO]
+     * allows the reopen cascade.
      *
      * @param schemaResolver optional function to resolve the [WorkItemSchema] for a parent item.
      *   Used to check [LifecycleMode] and suppress reopen cascades for MANUAL or PERMANENT schemas.

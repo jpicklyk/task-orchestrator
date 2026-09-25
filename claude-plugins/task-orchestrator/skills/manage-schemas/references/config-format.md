@@ -19,7 +19,7 @@ YAML format and field rules for `.taskorchestrator/config.yaml`.
 work_item_schemas:
 
   your-schema-type:            # Matches items whose type field equals "your-schema-type"
-    lifecycle: auto            # Optional: auto | manual | auto-reopen | permanent (default: auto)
+    lifecycle: auto            # Optional: auto | manual | permanent (default: auto)
     default_traits:            # Optional: traits applied to every item matching this schema
       - needs-security-review
     notes:
@@ -81,7 +81,7 @@ When using `note_schemas`, the `lifecycle` field is not available — all schema
 
 | Field | Required | Type | Notes |
 |-------|----------|------|-------|
-| `lifecycle` | no | string | `auto`, `manual`, `auto-reopen`, or `permanent`. Defaults to `auto` |
+| `lifecycle` | no | string | `auto`, `manual`, or `permanent`. Defaults to `auto` |
 | `default_traits` | no | list | Trait names applied to every item matching this schema |
 
 ### Note-level fields
@@ -139,8 +139,11 @@ The `lifecycle` field on a schema controls automatic cascade behavior when child
 |------|----------|
 | `auto` | Default — parent cascades to terminal when all children are terminal |
 | `manual` | Terminal cascade suppressed — parent must be explicitly completed. Reopen cascade also suppressed. |
-| `auto-reopen` | Terminal cascade allowed. Parent also auto-reopens when a new child is created under it. |
 | `permanent` | Parent never auto-terminates and never auto-reopens — always manual lifecycle. |
+
+An `auto-reopen` value is no longer a distinct mode: it is treated as `auto` (with a load warning),
+since it behaved exactly like `auto` for terminal cascade and there was no reopen-on-create-or-
+reparent path anywhere in the codebase to make it live up to its name.
 
 ---
 

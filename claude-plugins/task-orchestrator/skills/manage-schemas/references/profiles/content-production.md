@@ -7,7 +7,7 @@ concern.
 ```yaml
 work_item_schemas:
   content-piece:
-    lifecycle: auto-reopen      # a refresh child created later reopens the published piece
+    lifecycle: auto             # a refresh cycle explicitly `reopen`s the published piece first
     notes:
       - key: content-brief
         role: queue
@@ -44,6 +44,9 @@ traits:
         description: "Legal/compliance sign-off for regulated claims."
 ```
 
-**Rationale to present:** `auto-reopen` keeps an evergreen piece's history in one item across
-refresh cycles instead of fragmenting it. The per-item `needs-legal-review` trait shows dynamic
-routing: the briefing agent applies it only to pieces that make regulated claims.
+**Rationale to present:** creating a new `revision-task` under a terminal `content-piece` does
+NOT reopen it automatically — there is no lifecycle mode that does that. Explicitly
+`advance_item(trigger="reopen")` the piece before adding the refresh child; this keeps an
+evergreen piece's history in one item across refresh cycles instead of fragmenting it. The
+per-item `needs-legal-review` trait shows dynamic routing: the briefing agent applies it only to
+pieces that make regulated claims.

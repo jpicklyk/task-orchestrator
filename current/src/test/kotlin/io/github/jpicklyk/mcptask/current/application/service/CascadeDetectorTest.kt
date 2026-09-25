@@ -282,26 +282,6 @@ class CascadeDetectorTest {
             }
 
         @Test
-        fun `AUTO_REOPEN lifecycle parent proceeds with terminal cascade`() =
-            runBlocking {
-                val parentId = UUID.randomUUID()
-                val parent = workItem(id = parentId, role = Role.WORK)
-                val child = workItem(parentId = parentId, role = Role.TERMINAL)
-
-                coEvery { workItemRepository.countChildrenByRole(parentId) } returns
-                    Result.Success(mapOf(Role.TERMINAL to 2))
-                coEvery { workItemRepository.getById(parentId) } returns Result.Success(parent)
-
-                val schemaResolver: (WorkItem) -> WorkItemSchema? = { item ->
-                    if (item.id == parentId) schemaWithLifecycle(LifecycleMode.AUTO_REOPEN) else null
-                }
-
-                val result = detector.detectCascades(child, workItemRepository, schemaResolver)
-                assertEquals(1, result.size, "AUTO_REOPEN lifecycle parent should allow terminal cascade")
-                assertEquals(parentId, result[0].itemId)
-            }
-
-        @Test
         fun `null schemaResolver preserves existing cascade behavior`() =
             runBlocking {
                 val parentId = UUID.randomUUID()
@@ -531,24 +511,6 @@ class CascadeDetectorTest {
                 assertEquals(parentId, result[0].itemId)
                 assertEquals(Role.TERMINAL, result[0].currentRole)
                 assertEquals(Role.WORK, result[0].targetRole)
-            }
-
-        @Test
-        fun `AUTO_REOPEN lifecycle parent allows reopen cascade`() =
-            runBlocking {
-                val parentId = UUID.randomUUID()
-                val parent = workItem(id = parentId, role = Role.TERMINAL)
-                val child = workItem(parentId = parentId, role = Role.QUEUE)
-
-                coEvery { workItemRepository.getById(parentId) } returns Result.Success(parent)
-
-                val schemaResolver: (WorkItem) -> WorkItemSchema? = { item ->
-                    if (item.id == parentId) schemaWithLifecycle(LifecycleMode.AUTO_REOPEN) else null
-                }
-
-                val result = detector.detectReopenCascades(child, workItemRepository, schemaResolver)
-                assertEquals(1, result.size, "AUTO_REOPEN lifecycle parent should allow reopen cascade")
-                assertEquals(parentId, result[0].itemId)
             }
 
         @Test

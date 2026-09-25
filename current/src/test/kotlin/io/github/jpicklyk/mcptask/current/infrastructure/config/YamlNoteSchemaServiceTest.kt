@@ -1008,7 +1008,7 @@ work_item_schemas:
     }
 
     @Test
-    fun `work_item_schemas lifecycle auto-reopen parses correctly`() {
+    fun `work_item_schemas lifecycle auto-reopen resolves to AUTO with a removal warning`() {
         val tempDir = createTempConfigDir()
         writeConfig(
             tempDir,
@@ -1029,7 +1029,14 @@ work_item_schemas:
 
         val schema = service.getSchemaForType("epic")
         assertNotNull(schema)
-        assertEquals(LifecycleMode.AUTO_REOPEN, schema.lifecycleMode)
+        assertEquals(LifecycleMode.AUTO, schema.lifecycleMode)
+
+        val warnings = service.getLoadWarnings()
+        assertEquals(1, warnings.size)
+        assertEquals(
+            "Schema 'epic': lifecycle 'auto-reopen' was removed (it behaved exactly like 'auto'); treating as 'auto'",
+            warnings[0]
+        )
     }
 
     // ──────────────────────────────────────────────

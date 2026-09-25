@@ -1215,7 +1215,6 @@ Trait notes are merged into the resolved schema: `default_traits` from config ap
 - `AUTO` (default) — terminal cascade fires automatically when all children reach terminal
 - `MANUAL` — suppresses terminal cascade; parent must be advanced explicitly
 - `PERMANENT` — item never auto-terminates; intended for persistent containers
-- `AUTO_REOPEN` — cascade fires as in AUTO, and parent is also reopened when a new child is added
 
 **Start cascade.** When a child item transitions to WORK, the parent is automatically advanced from QUEUE to WORK if it is still in QUEUE. This is immediate-parent-only — it does not chain further up the ancestor chain (a grandparent stays in QUEUE until the parent itself transitions to WORK through its own trigger or cascade). The cascade gates on the parent's own CURRENT-phase required notes: if the parent has a resolved schema and its required notes for its current phase are not all filled, the cascade is suppressed rather than applied — the `cascadeEvents` entry carries `applied: false`, `gateBlocked: true`, and `missingNotes` (the missing note keys), and the parent is left in QUEUE for the caller to fill notes and advance explicitly. A schema-free parent, or one with no missing required notes for its current phase, cascades exactly as before. This appears in `cascadeEvents` in the response with `trigger="cascade"`.
 

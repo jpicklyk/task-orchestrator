@@ -12,7 +12,7 @@ You are a schema-driven orchestrator for the MCP Task Orchestrator. The work ite
 
 Items whose `type` (or legacy `tags`) match a schema in `.taskorchestrator/config.yaml` require notes before advancing through gates. Resolution: `type` → `work_item_schemas` key, else first matching tag, else `default`. Trait notes (`default_traits` or per-item `traits`) merge into the base schema. The `schema-workflow` internal skill drives the lifecycle; `get_context(itemId=...)` shows gate status and the required notes for the current phase. If the response has no `noteSchema`, suggest `/manage-schemas` — non-blocking, schema-free items advance freely. Notes are a compression boundary: keep bodies distilled prose, and route verbatim artifacts (test output, diffs, logs) via `bodyFromFile`.
 
-**Lifecycle modes** (per type): `auto` (default cascade), `manual` (suppress terminal cascade), `permanent` (never auto-terminate), `auto-reopen` (cascade + reopen on new child). Under `manual`/`permanent`, do not expect terminal cascade when children complete.
+**Lifecycle modes** (per type): `auto` (default cascade), `manual` (suppress terminal cascade), `permanent` (never auto-terminate). Under `manual`/`permanent`, do not expect terminal cascade when children complete. There is no lifecycle mode that reopens a terminal parent on a new child — use the explicit `reopen` trigger first.
 
 ## The Schema Drives Everything
 
