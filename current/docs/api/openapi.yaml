@@ -1494,10 +1494,9 @@ paths:
           in: query
           schema:
             type: string
-            enum: ["true", "false"]
           description: >
-            Case-insensitive. Absent or "false" means non-recursive (refuses a parent with 409).
-            Any other value is a 400 validation_error.
+            Case-insensitive "true" or "false"; absent means "false" (non-recursive, refuses a
+            parent with 409). Any other value (e.g. "1", "yes", "") is a 400 validation_error.
         - name: If-Match
           in: header
           schema:
@@ -1513,7 +1512,7 @@ paths:
         "204":
           description: Non-recursive delete of a leaf item succeeded
         "400":
-          description: Invalid `recursive` value
+          description: Missing/invalid item id (bad_request) or an invalid `recursive` value (validation_error)
           content:
             application/json:
               schema:

@@ -88,31 +88,36 @@ class WorkItemDeletion(
             return WorkItemDeleteOutcome.HasChildren(id, children.size)
         }
 
-        var leaseReleaseFailure: String? = null
-        var deleteResult: Result<Boolean>? = null
-        repo.inTransaction {
-            when (val release = leaseRepo.releaseAllForItem(id)) {
-                is LeaseReleaseResult.Success -> {
-                    deleteResult = repo.delete(id)
+        // Release and delete must commit (or roll back) together: repo.delete() reports failure
+        // via Result.Error rather than by throwing, and a returned Result.Error does not by itself
+        // abort or roll back a transaction. Both a delete Result.Error and a not-found
+        // Result.Success(false) are converted into a thrown DeleteFailureException inside the
+        // block, which is what actually forces the lease release to roll back together with the
+        // failed/no-op delete — without this, the block would COMMIT the release while the row
+        // (for Result.Error) survives, or leave the release orphaned for an item that was never
+        // there to delete.
+        var notFound = false
+        try {
+            repo.inTransaction {
+                releaseLeasesOrThrow(leaseRepo, id)
+                when (val result = repo.delete(id)) {
+                    is Result.Success ->
+                        if (!result.data) {
+                            notFound = true
+                            throw DeleteFailureException("Item '$id' not found")
+                        }
+                    is Result.Error -> throw DeleteFailureException(result.error.message)
                 }
-                is LeaseReleaseResult.DBError -> {
-                    leaseReleaseFailure = "Failed to release resource leases for '$id': ${release.cause.message}"
-                }
+            }
+        } catch (e: DeleteFailureException) {
+            return if (notFound) {
+                WorkItemDeleteOutcome.NotFound(id)
+            } else {
+                WorkItemDeleteOutcome.Failed(id, e.message ?: "Failed to delete item '$id'")
             }
         }
 
-        leaseReleaseFailure?.let { return WorkItemDeleteOutcome.Failed(id, it) }
-
-        return when (val result = deleteResult) {
-            is Result.Success ->
-                if (result.data) {
-                    WorkItemDeleteOutcome.Deleted(id, descendantsDeleted = 0)
-                } else {
-                    WorkItemDeleteOutcome.NotFound(id)
-                }
-            is Result.Error -> WorkItemDeleteOutcome.Failed(id, result.error.message)
-            null -> WorkItemDeleteOutcome.Failed(id, "Failed to delete item '$id'")
-        }
+        return WorkItemDeleteOutcome.Deleted(id, descendantsDeleted = 0)
     }
 
     private suspend fun deleteRecursive(
@@ -121,7 +126,7 @@ class WorkItemDeletion(
         id: UUID
     ): WorkItemDeleteOutcome {
         var localDescendantsDeleted = 0
-        var rootDeleted = false
+        var notFound = false
 
         try {
             repo.inTransaction {
@@ -149,20 +154,29 @@ class WorkItemDeletion(
                 }
 
                 releaseLeasesOrThrow(leaseRepo, id)
+                // Root not-found (Result.Success(false)) must ALSO throw, not just fall through:
+                // the descendant deletes and releases above are inside this SAME transaction block,
+                // so failing to throw here would let them all COMMIT even though the root itself was
+                // never there to delete — breaking the all-or-nothing guarantee this class's KDoc
+                // promises for a recursive delete.
                 when (val result = repo.delete(id)) {
-                    is Result.Success -> rootDeleted = result.data
+                    is Result.Success ->
+                        if (!result.data) {
+                            notFound = true
+                            throw DeleteFailureException("Item '$id' not found")
+                        }
                     is Result.Error -> throw DeleteFailureException(result.error.message)
                 }
             }
         } catch (e: DeleteFailureException) {
-            return WorkItemDeleteOutcome.Failed(id, e.message ?: "Failed to delete item '$id'")
+            return if (notFound) {
+                WorkItemDeleteOutcome.NotFound(id)
+            } else {
+                WorkItemDeleteOutcome.Failed(id, e.message ?: "Failed to delete item '$id'")
+            }
         }
 
-        return if (rootDeleted) {
-            WorkItemDeleteOutcome.Deleted(id, localDescendantsDeleted)
-        } else {
-            WorkItemDeleteOutcome.NotFound(id)
-        }
+        return WorkItemDeleteOutcome.Deleted(id, localDescendantsDeleted)
     }
 
     /**
