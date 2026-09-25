@@ -1,10 +1,12 @@
 package io.github.jpicklyk.mcptask.current
 
 import io.github.jpicklyk.mcptask.current.application.BuildInfo
+import io.github.jpicklyk.mcptask.current.infrastructure.config.JvmTimezone
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.SignalHandler
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.CurrentMcpServer
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.Failed
+import io.github.jpicklyk.mcptask.current.interfaces.mcp.RepairCompleted
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.StartupFailedException
 import org.slf4j.LoggerFactory
 
@@ -21,6 +23,11 @@ fun main() {
     logger.info("Java version: ${System.getProperty("java.version")}")
     logger.info("JVM name: ${System.getProperty("java.vm.name")}")
     logger.info("OS name: ${System.getProperty("os.name")}")
+
+    // Enforce a UTC JVM default timezone for non-Docker launches (the Docker image pins this via
+    // -Duser.timezone=UTC on the CMD). Must run before any Exposed/DB class caches the zone, so
+    // this is the first thing main() does after logging startup info.
+    JvmTimezone.enforceUtc(logger)
 
     try {
         // Create shutdown coordinator
@@ -44,6 +51,9 @@ fun main() {
             // Don't use exitProcess(1) here either — throw and let the catch below rethrow, so the
             // JVM's normal uncaught-exception exit (non-zero) applies without skipping shutdown hooks.
             throw StartupFailedException(outcome)
+        }
+        if (outcome is RepairCompleted) {
+            logger.info("FLYWAY_REPAIR completed successfully; exiting without serving (exit 0).")
         }
 
         logger.info("Main function exiting normally")

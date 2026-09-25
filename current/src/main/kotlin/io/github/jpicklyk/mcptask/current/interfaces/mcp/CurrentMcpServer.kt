@@ -129,6 +129,17 @@ class CurrentMcpServer(
             }
             logger.info("Database initialized at: $dbPath")
 
+            // FLYWAY_REPAIR=true: the schema manager already ran repair (not migrate) inside
+            // updateSchema() above and it succeeded. Exit here — before ServerComposition is built
+            // and before the readiness marker is written — so a repair-only run never serves and
+            // the Docker HEALTHCHECK never reports healthy for it. Gated on useFlyway too: when
+            // USE_FLYWAY=false, SchemaManagerFactory picks Direct mode and ignores flywayRepair
+            // entirely (logs its own WARN), so this process should keep going and serve normally.
+            if (appConfig.useFlyway && appConfig.flywayRepair) {
+                logger.info("FLYWAY_REPAIR=true: repair completed successfully; exiting without serving.")
+                return@runBlocking RepairCompleted
+            }
+
             // Surface deprecated-but-still-set env vars once at startup (e.g. API_REDACT_ACTOR_PROOF,
             // now a no-op since migration V17 stopped persisting raw actor proofs) so an operator
             // who kept an old override notices it does nothing rather than assuming it still applies.

@@ -40,7 +40,7 @@ LIMIT 10;
 
 **Step 2:** Run via Docker with mounted SQL file:
 ```bash
-powershell.exe -Command "docker run --rm -v {{VOLUME_NAME}}:/data -v '${PWD}:/work' alpine sh -c 'apk add --no-cache sqlite >/dev/null 2>&1 && sqlite3 /data/tasks.db < /work/.tmp_check_schema.sql'"
+powershell.exe -Command "docker run --rm -v {{VOLUME_NAME}}:/data -v '${PWD}:/work' alpine sh -c 'apk add --no-cache sqlite >/dev/null 2>&1 && sqlite3 /data/current-tasks.db < /work/.tmp_check_schema.sql'"
 ```
 
 **Step 3:** Clean up:

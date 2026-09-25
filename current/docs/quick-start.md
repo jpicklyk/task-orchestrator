@@ -401,6 +401,7 @@ After adding or editing this file, reconnect the MCP server:
 |----------|---------|-------------|
 | `DATABASE_PATH` | `data/current-tasks.db` | SQLite file path inside the container |
 | `USE_FLYWAY` | `true` | Apply database migrations on startup |
+| `FLYWAY_REPAIR` | `false` | Run Flyway repair (fix migration checksums) instead of migrate, then exit 0 without serving — the process never starts a transport or reports healthy. Ignored (with a WARN) if `USE_FLYWAY=false`. |
 | `AGENT_CONFIG_DIR` | _(unset)_ | Parent directory of `.taskorchestrator/`; set when mounting a config folder into the container |
 | `LOG_LEVEL` | `INFO` | Verbosity: `DEBUG`, `INFO`, `WARN`, `ERROR` |
 
