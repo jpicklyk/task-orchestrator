@@ -2454,6 +2454,13 @@ fails the whole call with this envelope. A read failure resolving a RESPONSE-ONL
 `availableTraits`, or `manage_notes`'s `itemContext` entry) on an already-committed write is never
 reported as a failure of that write — the decoration is simply omitted and a WARN is logged instead.
 
+**`VALIDATION_ERROR` (permanent, adapter-level).** Any `ToolValidationException` thrown by a tool's
+`validateParams()` or `execute()` — malformed/missing/mistyped parameters caught anywhere in that
+tool's request handling — is mapped by `McpToolAdapter` to this envelope: `text` is
+`"Validation error in '<tool>': <exception message>"` and `structuredContent.error` is
+`{code: "VALIDATION_ERROR", message: <same text>, kind: "permanent"}` (no `retryAfterMs`,
+`contendedItemId`, or `details`). This applies uniformly regardless of which phase threw.
+
 ### Retry Decision Guide
 
 ```
