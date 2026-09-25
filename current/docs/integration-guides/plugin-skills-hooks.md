@@ -5,7 +5,7 @@
 - Automatic hooks that fire on session start, plan mode entry, plan approval, subagent launch, and (when the REST API is configured) subagent phase-gate enforcement
 - 7 user-invocable skills as `/task-orchestrator:*` slash commands
 - 3 internal skills that power the plan-mode pipeline
-- The Agent-Owned-Phase Protocol injected into every subagent automatically
+- The Agent-Owned-Phase Protocol injected into every phase-owner subagent automatically (see "Execution modes" below for exactly which subagents that covers)
 
 ## Prerequisites
 
@@ -43,6 +43,8 @@ Hooks fire automatically — no invocation needed after installation.
 
 **Effect:** The agent knows the MCP tool names and workflow conventions from the first prompt, without any CLAUDE.md instructions.
 
+**Registration self-check:** The plugin's other PreToolUse/PostToolUse hooks — skill enforcement, actor attribution, the retro trigger, and Phase-Guard Record (below) — fire only when an MCP tool call's server segment — the middle part of `mcp__<server>__<tool>` — contains `task-orchestrator`. Session Start reads discoverable MCP registrations (project `.mcp.json`, and `~/.claude.json`'s top-level `mcpServers` plus its `projects[<cwd>].mcpServers`) and, for any orchestrator registration whose key omits that token, appends a `## Hook Registration Check` section naming the offending key and the fix (rename the key to include `task-orchestrator`, e.g. `mcp-task-orchestrator`). The check is purely diagnostic and fail-open: any read or parse error simply omits the section, and it never blocks session start. A registration is recognized as "the orchestrator" when its key, `url`, or `command` mentions `task-orchestrator`, or one of its args is an image-style reference such as `jpicklyk/task-orchestrator` (filesystem-path args are ignored); an HTTP registration whose key and URL both omit it is undetectable.
+
 ### Pre-Plan
 
 **Event:** `PreToolUse` on `EnterPlanMode` — when Claude enters plan mode.
@@ -63,9 +65,12 @@ Hooks fire automatically — no invocation needed after installation.
 
 **Event:** `SubagentStart` — any subagent launched via the `Agent` tool.
 
-**What it injects:** The full Agent-Owned-Phase Protocol (see below).
+**What it injects:** The full Agent-Owned-Phase Protocol (see below) — but only for a phase-owner
+subagent (`agent_type` resolving to `implementer` or `reviewer`, bare or plugin-qualified, e.g.
+`task-orchestrator:implementer`). Any other agent type (`general-purpose`, `Explore`, `Plan`, a
+project-local research agent, etc.) gets no output at all. See "Execution modes" below.
 
-**Effect:** Every subagent knows to call `advance_item(trigger="start")` to enter its phase, fill notes using the `guidanceKey` loop, commit changes, and return without calling `complete`. The orchestrator handles terminal transitions.
+**Effect:** A phase-owner subagent knows to call `advance_item(trigger="start")` to enter its phase, fill notes using the `guidanceKey` loop, commit changes, and return without calling `complete`. The orchestrator handles terminal transitions. A non-phase-owner subagent dispatched to work on an item still needs the protocol included in its dispatch prompt explicitly — it is not auto-injected.
 
 ### Phase-Guard Record
 
@@ -84,6 +89,32 @@ Hooks fire automatically — no invocation needed after installation.
 **Effect:** Sends the subagent back to fill required notes instead of letting it end its turn with an incomplete phase. Capped at **2 blocks per subagent** (`agent_id`) — beyond the cap the guard steps aside even with notes still missing, so a stuck subagent is never looped forever. Requires `TASK_ORCHESTRATOR_API_URL` and, in bearer mode, a `TASK_ORCHESTRATOR_API_TOKEN` with `read` capability (same REST dependency as `config-sync.mjs`, see [fleet-deployment.md](../fleet-deployment.md)); fails open — no block, silent `{}`, exit 0 — on a missing API URL, a missing/unreadable state file, a non-2xx or errored gate fetch for an item, or any other error.
 
 **Known limitation:** The guard only engages for subagents that enter their phase with `advance_item(trigger="start")` — the Agent-Owned-Phase Protocol below. A subagent dispatched under an orchestrator-owns-transitions dispatch contract, which never calls `advance_item` itself, has nothing recorded by the Phase-Guard Record hook, so the guard stays inert for it.
+
+### Execution modes
+
+No documented Claude Code hook-input field distinguishes an interactive session from a headless
+`claude -p` run, so the `ralph` skill's drain loop (`scripts/ralph-loop.mjs`) sets an explicit
+signal: it spawns every iteration (the initial spawn and every `--resume` continuation) with
+`TASK_ORCHESTRATOR_MODE=headless-iteration` in the child's environment. `hooks/execution-mode.mjs`
+exposes `isHeadlessIteration()` (reads that var) and `isPhaseOwnerAgentType(agentType)` (matches
+`implementer`/`reviewer`, bare or plugin-qualified) for the hooks below to branch on:
+
+| Hook | Headless ralph iteration | Interactive subagent (`agent_id` present) |
+|---|---|---|
+| Subagent Start | exits silently, no output | injects the protocol only for `implementer`/`reviewer` agent types; every other type gets no output |
+| Retro Trigger | emits `{}` before reading/writing the retrospective marker — a headless iteration's tool calls never pollute the interactive session's marker | never emits a nudge/dispatch directive itself; a would-be parent-completion is recorded like a lone-terminal signal so the interactive main session's Stop backstop surfaces it once control returns |
+| Retro Backstop | emits `{}` before reading the marker | unaffected — this hook only fires for the main session's own turn |
+| Phase-Guard Record | emits `{}` before recording anything | unaffected |
+| Phase Guard (SubagentStop) | emits `{}` before any gate fetch | unaffected |
+
+Ralph iterations never dispatch subagents in the first place (see the `ralph` skill and the
+`ralph-iteration` output style), so the SubagentStart/Phase-Guard rows are belt-and-suspenders —
+the headless gate exists so that invariant is not silently load-bearing.
+
+Hooks intentionally NOT gated by execution mode: Session Start (informational, including the
+registration self-check above), Config Sync (must still sync in every mode), and the actor
+attribution / skill enforcement hooks (correctness checks on the claimed item's own writes,
+independent of who or what is running).
 
 ---
 

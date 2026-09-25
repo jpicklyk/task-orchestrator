@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -21,10 +21,14 @@ function writeConfig(dir, content) {
   writeFileSync(join(cfgDir, 'config.yaml'), content, 'utf-8');
 }
 
-function spawnHook(agentConfigDir, payload) {
+function spawnHook(agentConfigDir, payload, envOverrides = {}) {
+  const env = { ...process.env, AGENT_CONFIG_DIR: agentConfigDir, ...envOverrides };
+  if (envOverrides.TASK_ORCHESTRATOR_MODE === undefined) {
+    delete env.TASK_ORCHESTRATOR_MODE;
+  }
   return spawnSync(process.execPath, [HOOK], {
     input: JSON.stringify(payload),
-    env: { ...process.env, AGENT_CONFIG_DIR: agentConfigDir },
+    env,
     encoding: 'utf-8',
   });
 }
@@ -123,4 +127,27 @@ test('fail-open: malformed stdin yields {} and exit 0', () => {
   const res = spawnSync(process.execPath, [HOOK], { input: '{not valid json', encoding: 'utf-8' });
   assert.equal(res.status, 0);
   assert.equal(res.stdout.trim(), '{}');
+});
+
+// ── 004d65fd: S10 — headless iteration never escalates, and never touches the marker ─────────
+
+test('S10: headless iteration with sawTerminal:true marker -> {} and marker left untouched', () => {
+  const dir = tmpConfigDir();
+  writeConfig(dir, 'retrospective:\n  mode: dispatch\n');
+  const sessionId = `test-backstop-headless-${randomUUID()}`;
+  const marker = markerPath(sessionId);
+  try {
+    writeMarker(marker, { sawTerminal: true, pendingRoots: ['root-1'] });
+    const res = spawnHook(dir, { session_id: sessionId }, { TASK_ORCHESTRATOR_MODE: 'headless-iteration' });
+    assert.equal(res.status, 0);
+    assert.equal(res.stdout.trim(), '{}');
+    // Marker read back unmodified — still sawTerminal:true, not cleared as the interactive path
+    // would clear it.
+    const readBack = JSON.parse(readFileSync(marker, 'utf-8'));
+    assert.equal(readBack.sawTerminal, true);
+    assert.deepEqual(readBack.pendingRoots, ['root-1']);
+  } finally {
+    rmSync(marker, { force: true });
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

@@ -151,7 +151,7 @@ For detailed workflow, see `references/validate-workflow.md` in this skill folde
   ```
   manage_project_config(operation="push", rootId="<project.rootId>", configYaml="<full current file text>")
   ```
-  - Success → report the returned `fingerprint`. Re-pushing identical content later returns the same fingerprint (idempotent) — safe to call after every write without pre-checking.
+  - Success → report the returned `fingerprint`. Re-pushing identical content later returns the same fingerprint (identical modulo BOM/CRLF) (idempotent) — safe to call after every write without pre-checking.
   - `VALIDATION_ERROR` → the server rejected the YAML (e.g. a construct its parser can't accept). The local file is already saved — tell the user the parse error from the response and to fix `.taskorchestrator/config.yaml`, then re-run VALIDATE and retry the push.
   - `CONFLICT_ERROR` (superseded) → the pushed content is provably older than the server's (its fingerprint is in the server's history but not current). Tell the user to pull/copy the server's config back before editing (`manage_project_config(operation="get", ...)` shows it), or pass `force: true` on the push if overwriting the server's newer config is intentional.
   - A `warning` field on a successful response → relay it to the user as-is (non-fatal — e.g. the root item's `type` isn't `"project"`).

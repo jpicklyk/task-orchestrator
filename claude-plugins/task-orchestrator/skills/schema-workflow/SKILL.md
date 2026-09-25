@@ -144,6 +144,19 @@ rather than assuming specific keys exist.
 
 ## Orchestrator vs Subagent Responsibility
 
+**Protocol auto-injection is agent-type gated.** The `subagent-start` hook injects the
+Agent-Owned-Phase Protocol only when the dispatched subagent's `agent_type` resolves to
+`implementer` or `reviewer` (bare, or plugin-qualified like `task-orchestrator:implementer`) — see
+`current/docs/integration-guides/plugin-skills-hooks.md` → "Execution modes". Dispatching any other
+agent type (`general-purpose`, `Explore`, `Plan`, a project-local research agent, etc.) for a
+work/review phase gets NO auto-injected protocol. When `dispatch.agent` is unset (see the
+dispatch-profile note below), prefer dispatching the phase owner explicitly as
+`task-orchestrator:implementer` (work) / `task-orchestrator:reviewer` (review) so the protocol is
+injected automatically; if a different agent type is genuinely required, include the
+Agent-Owned-Phase Protocol text directly in that dispatch's prompt instead of relying on injection.
+The hook is also silent for the entire duration of a headless ralph iteration
+(`TASK_ORCHESTRATOR_MODE=headless-iteration`), which never dispatches subagents in the first place.
+
 **Orchestrator** (this skill's primary user):
 - Fills queue-phase notes (requirements, design) during planning
 - Dispatches implementation agents with the item UUID

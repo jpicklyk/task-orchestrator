@@ -8,7 +8,7 @@ import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.ProjectConfigTable
-import io.github.jpicklyk.mcptask.current.infrastructure.security.sha256Hex
+import io.github.jpicklyk.mcptask.current.infrastructure.security.configFingerprint
 import kotlinx.serialization.json.*
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.and
@@ -251,7 +251,7 @@ class SQLiteProjectConfigRepository(
             Result.Success(deletedCount > 0)
         }
 
-    override fun computeFingerprint(configYaml: String): String = sha256Hex(configYaml.toByteArray(Charsets.UTF_8))
+    override fun computeFingerprint(configYaml: String): String = configFingerprint(configYaml)
 
     override suspend fun classifyFingerprint(
         rootItemId: UUID,

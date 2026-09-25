@@ -44,6 +44,25 @@ function findConfigBytes() {
   return null;
 }
 
+/**
+ * Normalizes `buf` for fingerprinting: strips exactly one leading UTF-8 BOM (U+FEFF) if present,
+ * then replaces every CRLF (`\r\n`) with LF (`\n`). Nothing else is touched — a lone `\r`,
+ * trailing-newline presence/count, trailing whitespace, a non-leading U+FEFF, and a second leading
+ * BOM are all left as-is. Mirrors the Kotlin server's `normalizeConfigForFingerprint`
+ * (`infrastructure/security/Sha256Hex.kt`) exactly; the two implementations must never diverge.
+ * Does not mutate `buf` — decodes to a string, transforms, and re-encodes.
+ */
+export function normalizeForFingerprint(buf) {
+  const text = buf.toString('utf8'); // Node keeps a leading U+FEFF as a real character on decode
+  const normalized = text.startsWith('﻿') ? text.slice(1) : text;
+  return Buffer.from(normalized.replace(/\r\n/g, '\n'), 'utf8');
+}
+
+/** Config-fingerprint hash: lowercase-hex SHA-256 of `normalizeForFingerprint(buf)`. */
+export function configFingerprint(buf) {
+  return createHash('sha256').update(normalizeForFingerprint(buf)).digest('hex');
+}
+
 /** Extract project.rootId from the config text (mirrors session-start.mjs's parser). */
 export function parseRootId(text) {
   const section = readSection(text, 'project', { blockOnly: true });
@@ -124,7 +143,7 @@ async function main() {
 
   // Token is optional — an unauthenticated server (API_AUTH_MODE=none +
   // API_ALLOW_UNAUTHENTICATED=true) needs no Authorization header at all.
-  const localFingerprint = createHash('sha256').update(bytes).digest('hex');
+  const localFingerprint = configFingerprint(bytes);
   const localEtag = `"cfg-${localFingerprint}"`;
   const endpoint = `${base}/api/v1/roots/${rootId}/config`;
   const auth = buildAuthHeader();

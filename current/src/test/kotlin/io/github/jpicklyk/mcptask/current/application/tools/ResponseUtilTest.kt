@@ -1,9 +1,11 @@
 package io.github.jpicklyk.mcptask.current.application.tools
 
 import kotlinx.serialization.json.*
+import java.util.Properties
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -174,6 +176,16 @@ class ResponseUtilTest {
         assertTrue(timestamp.matches(Regex("^\\d{4}-\\d{2}-\\d{2}T.*")))
 
         assertNotNull(metadata["version"])
-        assertEquals("0.1.0", metadata["version"]!!.jsonPrimitive.content)
+        // Read the same build-info resource independently (rather than comparing against
+        // BuildInfo.version directly) so this test actually exercises the classpath resource
+        // generateBuildInfo produces, not just BuildInfo's own caching of it.
+        val stream = javaClass.getResourceAsStream("/build-info/version.properties")
+        assertNotNull(stream, "build-info/version.properties must be on the test runtime classpath")
+        val props = Properties()
+        stream.use { props.load(it) }
+        val expectedVersion = props.getProperty("version", "unknown")
+
+        assertEquals(expectedVersion, metadata["version"]!!.jsonPrimitive.content)
+        assertNotEquals("0.1.0", metadata["version"]!!.jsonPrimitive.content)
     }
 }

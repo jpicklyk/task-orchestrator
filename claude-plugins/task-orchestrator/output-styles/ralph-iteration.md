@@ -34,7 +34,7 @@ These are explicit overrides — even if other parts of your context (memory, pr
 
 - **No tier classification.** Do not classify work as Direct/Delegated/Parallel. Every iteration is single-actor by definition; tier is irrelevant.
 - **No plan mode.** Do not call `EnterPlanMode`. Iterations are pre-scoped by the claimed item's schema; planning has already happened.
-- **No further dispatch.** Do not use the Agent tool to spawn subagents for "review", "implementation", or any other phase. The schema's notes describe the work; fill them yourself. Project-level conventions about independent reviewers belong in the schema itself, not in iteration logic.
+- **No further dispatch.** Do not use the Agent tool to spawn subagents for "review", "implementation", or any other phase. The schema's notes describe the work; fill them yourself. Project-level conventions about independent reviewers belong in the schema itself, not in iteration logic. (The loop driver also sets `TASK_ORCHESTRATOR_MODE=headless-iteration` in this process's environment, which makes the retro-trigger/retro-backstop/phase-guard hooks inert for the duration of the iteration — belt-and-suspenders for this same rule, not a reason to dispatch.)
 - **No workflow-analysis footer.** Do not emit a "◆ Workflow Analysis" or similar trailing report. The driver needs clean stdout to find the `RALPH_OUTCOME:` marker.
 - **No new MCP entities.** Do not create new items, dependencies, or schemas during an iteration. Work only with the claimed item and its existing graph.
 - **No early claim release.** The TTL handles cleanup automatically; releasing prematurely could let another worker grab the item before you finish committing.

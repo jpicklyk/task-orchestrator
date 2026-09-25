@@ -7,7 +7,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
-import io.github.jpicklyk.mcptask.current.infrastructure.security.sha256Hex
+import io.github.jpicklyk.mcptask.current.infrastructure.security.configFingerprint
 import org.slf4j.LoggerFactory
 import org.yaml.snakeyaml.LoaderOptions
 import org.yaml.snakeyaml.Yaml
@@ -157,7 +157,10 @@ class YamlWorkItemSchemaService(
                     e
                 )
             }
-        val fingerprint = sha256Hex(bytes)
+        // JVM String decoding of UTF-8 bytes keeps a leading U+FEFF as a real character, so
+        // configFingerprint's BOM-stripping normalization applies here exactly as it does for the
+        // raw byte path elsewhere — YAML parsing below still uses the raw bytes.
+        val fingerprint = configFingerprint(String(bytes, Charsets.UTF_8))
 
         val root =
             try {

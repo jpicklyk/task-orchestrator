@@ -14,9 +14,20 @@ function writeConfig(dir, content) {
   writeFileSync(join(cfgDir, 'config.yaml'), content, 'utf-8');
 }
 
-function runHook(agentConfigDir) {
+function runHook(agentConfigDir, extraEnv = {}) {
+  // Isolate HOME/USERPROFILE (os.homedir() honors both) so the registration self-check reads a
+  // controlled ~/.claude.json instead of the developer's real one — otherwise results become
+  // machine-dependent. Tests that want a specific ~/.claude.json pass homeDir via extraEnv.
+  const homeDir = extraEnv.homeDir || agentConfigDir;
   return spawnSync(process.execPath, [HOOK], {
-    env: { ...process.env, AGENT_CONFIG_DIR: agentConfigDir },
+    env: {
+      ...process.env,
+      AGENT_CONFIG_DIR: agentConfigDir,
+      HOME: homeDir,
+      USERPROFILE: homeDir,
+      CLAUDE_CONFIG_DIR: '',
+      ...extraEnv.env,
+    },
     encoding: 'utf-8',
     cwd: agentConfigDir, // avoid the cwd-walk fallback finding this repo's real config.yaml
   });
@@ -107,5 +118,215 @@ test('no config discoverable -> no watchPaths key at all', () => {
     assert.ok(!('watchPaths' in out.hookSpecificOutput));
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Registration self-check
+// ─────────────────────────────────────────────────────────────────────────
+
+function writeUserClaudeJson(homeDir, content) {
+  writeFileSync(join(homeDir, '.claude.json'), JSON.stringify(content), 'utf-8');
+}
+
+function writeProjectMcpJson(dir, content) {
+  writeFileSync(join(dir, '.mcp.json'), JSON.stringify(content), 'utf-8');
+}
+
+test('offending key in ~/.claude.json mcpServers -> Hook Registration Check warns', () => {
+  const dir = tmpConfigDir();
+  try {
+    writeUserClaudeJson(dir, {
+      mcpServers: {
+        tasks: { command: 'docker', args: ['run', 'ghcr.io/jpicklyk/task-orchestrator:latest'] },
+      },
+    });
+    const res = runHook(dir);
+    assert.equal(res.status, 0);
+    const out = JSON.parse(res.stdout);
+    assert.ok(out.hookSpecificOutput.additionalContext.includes('Hook Registration Check'));
+    assert.ok(out.hookSpecificOutput.additionalContext.includes('tasks'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('compliant key mcp-task-orchestrator -> no Hook Registration Check section', () => {
+  const dir = tmpConfigDir();
+  try {
+    writeUserClaudeJson(dir, {
+      mcpServers: {
+        'mcp-task-orchestrator': { command: 'docker', args: ['run', 'ghcr.io/jpicklyk/task-orchestrator:latest'] },
+      },
+    });
+    const res = runHook(dir);
+    assert.equal(res.status, 0);
+    const out = JSON.parse(res.stdout);
+    assert.ok(!out.hookSpecificOutput.additionalContext.includes('Hook Registration Check'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('offending HTTP entry in project .mcp.json -> warned', () => {
+  const dir = tmpConfigDir();
+  try {
+    writeProjectMcpJson(dir, {
+      mcpServers: {
+        tasks: { type: 'http', url: 'http://host/task-orchestrator/mcp' },
+      },
+    });
+    const res = runHook(dir);
+    assert.equal(res.status, 0);
+    const out = JSON.parse(res.stdout);
+    assert.ok(out.hookSpecificOutput.additionalContext.includes('Hook Registration Check'));
+    assert.ok(out.hookSpecificOutput.additionalContext.includes('tasks'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('offending entry under ~/.claude.json projects[cwd].mcpServers -> warned', () => {
+  const dir = tmpConfigDir();
+  try {
+    writeUserClaudeJson(dir, {
+      projects: {
+        [dir]: {
+          mcpServers: {
+            tasks: { command: 'docker', args: ['run', 'ghcr.io/jpicklyk/task-orchestrator:latest'] },
+          },
+        },
+      },
+    });
+    const res = runHook(dir);
+    assert.equal(res.status, 0);
+    const out = JSON.parse(res.stdout);
+    assert.ok(out.hookSpecificOutput.additionalContext.includes('Hook Registration Check'));
+    assert.ok(out.hookSpecificOutput.additionalContext.includes('tasks'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('malformed ~/.claude.json -> exit 0, base guidance, no Hook Registration Check', () => {
+  const dir = tmpConfigDir();
+  try {
+    writeFileSync(join(dir, '.claude.json'), '{ not valid json', 'utf-8');
+    const res = runHook(dir);
+    assert.equal(res.status, 0);
+    const out = JSON.parse(res.stdout);
+    assert.ok(out.hookSpecificOutput.additionalContext.includes('Task Orchestrator — Session Context'));
+    assert.ok(!out.hookSpecificOutput.additionalContext.includes('Hook Registration Check'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('unrelated server entry -> not flagged', () => {
+  const dir = tmpConfigDir();
+  try {
+    writeUserClaudeJson(dir, {
+      mcpServers: {
+        memory: { command: 'npx', args: ['@foo/memory'] },
+      },
+    });
+    const res = runHook(dir);
+    assert.equal(res.status, 0);
+    const out = JSON.parse(res.stdout);
+    assert.ok(!out.hookSpecificOutput.additionalContext.includes('Hook Registration Check'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// O1 regression: a filesystem MCP server whose path arg happens to mention the project folder
+// name must NOT be mistaken for an orchestrator registration. Reproduces the reviewer's case.
+test('O1: filesystem server arg pointing at a task-orchestrator checkout -> not flagged', () => {
+  const dir = tmpConfigDir();
+  try {
+    writeUserClaudeJson(dir, {
+      mcpServers: {
+        filesystem: {
+          command: 'npx',
+          args: ['-y', '@modelcontextprotocol/server-filesystem', 'D:/Projects/task-orchestrator'],
+        },
+      },
+    });
+    const res = runHook(dir);
+    assert.equal(res.status, 0);
+    const out = JSON.parse(res.stdout);
+    assert.ok(!out.hookSpecificOutput.additionalContext.includes('Hook Registration Check'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// O1 positive: a docker-args registration whose image ref mentions the token, under a
+// non-matching server name, must still warn (path-arg exclusion must not swallow real hits).
+test('O1: docker image-ref arg under a non-matching server name still warns', () => {
+  const dir = tmpConfigDir();
+  try {
+    writeUserClaudeJson(dir, {
+      mcpServers: {
+        'docker-mcp': { command: 'docker', args: ['run', 'jpicklyk/task-orchestrator'] },
+      },
+    });
+    const res = runHook(dir);
+    assert.equal(res.status, 0);
+    const out = JSON.parse(res.stdout);
+    assert.ok(out.hookSpecificOutput.additionalContext.includes('Hook Registration Check'));
+    assert.ok(out.hookSpecificOutput.additionalContext.includes('docker-mcp'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// O2 regression: ~/.claude.json `projects` keys have been observed in both the native
+// (backslash, on Windows) and forward-slash forms. Build the forward-slash key explicitly so the
+// test is meaningful on Windows and harmless (a no-op transform) on POSIX.
+test('O2: projects[cwd] lookup matches the forward-slash key form of cwd', () => {
+  const dir = tmpConfigDir();
+  try {
+    const forwardSlashKey = dir.replace(/\\/g, '/');
+    writeUserClaudeJson(dir, {
+      projects: {
+        [forwardSlashKey]: {
+          mcpServers: {
+            tasks: { command: 'docker', args: ['run', 'ghcr.io/jpicklyk/task-orchestrator:latest'] },
+          },
+        },
+      },
+    });
+    const res = runHook(dir);
+    assert.equal(res.status, 0);
+    const out = JSON.parse(res.stdout);
+    assert.ok(out.hookSpecificOutput.additionalContext.includes('Hook Registration Check'));
+    assert.ok(out.hookSpecificOutput.additionalContext.includes('tasks'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// O3: exercise the CLAUDE_CONFIG_DIR override branch — config is read from that directory
+// instead of homedir when set.
+test('O3: CLAUDE_CONFIG_DIR override reads .claude.json from that directory, not homedir', () => {
+  const dir = tmpConfigDir();
+  const configDir = tmpConfigDir();
+  try {
+    // homedir (dir) has no .claude.json at all; the offending registration lives only under
+    // the CLAUDE_CONFIG_DIR override, so a warning proves the override branch actually ran.
+    writeUserClaudeJson(configDir, {
+      mcpServers: {
+        tasks: { command: 'docker', args: ['run', 'ghcr.io/jpicklyk/task-orchestrator:latest'] },
+      },
+    });
+    const res = runHook(dir, { env: { CLAUDE_CONFIG_DIR: configDir } });
+    assert.equal(res.status, 0);
+    const out = JSON.parse(res.stdout);
+    assert.ok(out.hookSpecificOutput.additionalContext.includes('Hook Registration Check'));
+    assert.ok(out.hookSpecificOutput.additionalContext.includes('tasks'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(configDir, { recursive: true, force: true });
   }
 });

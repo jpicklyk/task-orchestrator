@@ -74,11 +74,14 @@ interface ProjectConfigRepository {
     suspend fun delete(rootItemId: UUID): Result<Boolean>
 
     /**
-     * Computes the SHA-256 fingerprint of [configYaml] — the exact algorithm [upsert] uses when
-     * persisting. Exposed as a pure, non-persisting method so callers (notably
+     * Computes the config fingerprint of [configYaml] — the exact algorithm [upsert] uses when
+     * persisting (SHA-256 over the BOM-stripped, CRLF-normalized text — see
+     * [io.github.jpicklyk.mcptask.current.infrastructure.security.configFingerprint]). Exposed as a
+     * pure, non-persisting method so callers (notably
      * [io.github.jpicklyk.mcptask.current.application.service.ProjectConfigPushService.push]'s
      * fast-forward guard) can classify an incoming payload's fingerprint against the stored state
-     * BEFORE deciding whether to write it, without duplicating the hash algorithm.
+     * BEFORE deciding whether to write it, without duplicating the hash algorithm. The stored
+     * [configYaml] body itself is never normalized — only the value fed into this hash.
      */
     fun computeFingerprint(configYaml: String): String
 

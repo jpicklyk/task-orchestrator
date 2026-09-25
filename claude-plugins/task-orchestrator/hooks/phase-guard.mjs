@@ -23,6 +23,7 @@ import { resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { apiBaseUrl, authHeader, fetchWithTimeout } from './api-client.mjs';
 import { phaseGuardMarkerPath, readPhaseGuardMarker, writePhaseGuardMarker } from './phase-guard-record.mjs';
+import { isHeadlessIteration } from './execution-mode.mjs';
 
 const MAX_BLOCKS_PER_AGENT = 2;
 const GATE_TIMEOUT_MS = 2000;
@@ -93,6 +94,11 @@ async function main() {
     } catch {
       emitEmpty();
     }
+
+    // Headless ralph iteration: emit empty before any fetch — a ralph iteration never dispatches
+    // subagents, so this hook would find no recorded items anyway, but skip the network round
+    // trip explicitly rather than relying on that always holding.
+    if (isHeadlessIteration()) emitEmpty();
 
     const base = apiBaseUrl();
     if (!base) emitEmpty();
