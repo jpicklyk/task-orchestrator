@@ -97,7 +97,7 @@ private fun Application.configureDeleteLeaseTestApp(provider: RepositoryProvider
 
 /**
  * Independent test authorship for item 2cef6ca4 (needs-test-author) — REST delete surface only
- * (S6, S8). The MCP surface (S4/S5/S7/S9/S10/S11 + probes) lives in
+ * (S6, S8, plus review fix-up B1). The MCP surface (S4/S5/S7/S9/S10/S11/B1a/B1b + probes) lives in
  * [io.github.jpicklyk.mcptask.current.application.tools.items.DeleteItemLeaseReleaseTest].
  *
  * Oracles (frozen in test-plan note b9109cc0 / diagnosis note ca116121, before implementation was
@@ -169,5 +169,55 @@ class ItemDeleteLeaseReleaseRouteTest : SQLiteRepositoryTestBase() {
 
             val interval = leaseRepo.findRecentIntervals("k-s8", 10).single()
             assertNull(interval.releasedAt, "the lease must remain open — the release failed before the delete")
+        }
+
+    /**
+     * Review fix-up B1 (O2): a successful release followed by a FAILING row delete must roll the
+     * release back too — otherwise history would say "released" while the row (and its
+     * now-orphaned lease) survives. Reproduction per the reviewer: DELETE a PARENT that holds a
+     * lease — this branch has no HasChildren pre-check on the REST route, so the delete reaches
+     * the DB and the child's `parent_id` FK aborts it (`foreign_keys=ON`, real SQLite via
+     * [SQLiteRepositoryTestBase]) — a 500 `db_error`, exactly like any other row-delete failure.
+     * Oracle: diagnosis "release and delete commit or roll back together" + V16 "an open interval
+     * is closed exactly once, only when its holder row is actually deleted".
+     */
+    @Test
+    fun `B1 REST DELETE of a leased parent whose row delete fails on the child FK rolls back the release too`(): Unit =
+        testApplication {
+            application { configureWriteTestApp(repositoryProvider) }
+            val parent =
+                runBlocking {
+                    repositoryProvider.workItemRepository().create(WorkItem(title = "Leased Parent", depth = 0)).getOrNull()!!
+                }
+            val child =
+                runBlocking {
+                    repositoryProvider
+                        .workItemRepository()
+                        .create(WorkItem(title = "Child", parentId = parent.id, depth = 1))
+                        .getOrNull()!!
+                }
+            val leaseRepo = repositoryProvider.resourceLeaseRepository()
+            assertIs<LeaseAcquireResult.Success>(
+                runBlocking { leaseRepo.acquireAll(parent.id, "agent-a", listOf("k-b1-rest" to 900)) },
+            )
+
+            val response =
+                client.delete("/api/v1/items/${parent.id}") {
+                    header("Authorization", "Bearer $WRITE_TOKEN")
+                }
+
+            assertEquals(HttpStatusCode.InternalServerError, response.status, "body: ${response.bodyAsText()}")
+            val json = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+            assertEquals("db_error", json["error"]?.jsonPrimitive?.content)
+
+            val persistedParent = runBlocking { repositoryProvider.workItemRepository().getById(parent.id) }
+            assertTrue(persistedParent is Result.Success, "the parent's row delete failed — it must remain")
+            val persistedChild = runBlocking { repositoryProvider.workItemRepository().getById(child.id) }
+            assertTrue(persistedChild is Result.Success, "the child must remain untouched")
+
+            val interval = leaseRepo.findRecentIntervals("k-b1-rest", 10).single()
+            assertNull(interval.releaseReason, "the release must be rolled back together with the failed delete")
+            assertNull(interval.releasedAt, "the release must be rolled back together with the failed delete")
+            assertEquals(1, leaseRepo.findActiveForItem(parent.id).size, "the parent's lease must still be ACTIVE")
         }
 }

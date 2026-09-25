@@ -4,8 +4,10 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.domain.repository.LeaseReleaseResult
+import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
+import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.test.SQLiteRepositoryTestBase
 import kotlinx.coroutines.runBlocking
@@ -56,8 +58,36 @@ private class LeaseFailOnIdRepositoryProvider(
 }
 
 /**
+ * Wraps a real [WorkItemRepository], failing [delete] for exactly one id — returning
+ * [Result.Error] rather than throwing, per O2/O1's review-directed fix-up scenarios (B1a/B1b).
+ * Mirrors [DeleteItemHandlerAtomicityTest]'s `FailOnIdWorkItemRepository` idiom exactly; renamed
+ * to avoid the same-package top-level name collision that pattern already forced on
+ * [LeaseFailOnIdResourceLeaseRepository]/[LeaseFailOnIdRepositoryProvider] above.
+ */
+private class DeleteFailOnIdWorkItemRepository(
+    private val delegate: WorkItemRepository,
+    private val failingId: UUID,
+) : WorkItemRepository by delegate {
+    override suspend fun delete(id: UUID): Result<Boolean> =
+        if (id == failingId) {
+            Result.Error(RepositoryError.DatabaseError("Simulated delete failure for $id"))
+        } else {
+            delegate.delete(id)
+        }
+}
+
+/** Wraps a real [RepositoryProvider], substituting [failingWorkItemRepo] for [workItemRepository]. */
+private class DeleteFailOnIdRepositoryProvider(
+    private val delegate: RepositoryProvider,
+    private val failingWorkItemRepo: WorkItemRepository,
+) : RepositoryProvider by delegate {
+    override fun workItemRepository(): WorkItemRepository = failingWorkItemRepo
+}
+
+/**
  * Independent test authorship for item 2cef6ca4 (needs-test-author) — MCP delete surface
- * (S4/S5/S7/S9/S10/S11 + probes). The REST surface (S6/S8) lives in
+ * (S4/S5/S7/S9/S10/S11 + probes, plus review fix-up B1a/B1b). The REST surface (S6/S8, plus
+ * fix-up B1) lives in
  * [io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.ItemDeleteLeaseReleaseRouteTest].
  * Parser-level lifecycle scenarios (S1-S3) live in
  * [io.github.jpicklyk.mcptask.current.infrastructure.config.LifecycleAutoReopenRemovalTest].
@@ -223,6 +253,80 @@ class DeleteItemLeaseReleaseTest : SQLiteRepositoryTestBase() {
                 assertNull(interval.releaseReason, "key $key must remain open — rollback")
                 assertNull(interval.releasedAt, "key $key must remain open — rollback")
             }
+        }
+
+    /**
+     * Review fix-up B1a (O2): a successful release followed by a FAILING row delete, on the
+     * NON-RECURSIVE path, must roll the release back along with the delete — otherwise history
+     * would say "released" while the row (and its now-orphaned lease) survives. Oracle: diagnosis
+     * "release and delete commit or roll back together" + V16 "an open interval is closed exactly
+     * once, only when its holder row is actually deleted".
+     */
+    @Test
+    fun `B1a non-recursive delete whose row delete fails after a successful release rolls the release back too`(): Unit =
+        runBlocking {
+            val item = createItem("Delete Will Fail")
+            val leaseRepo = repositoryProvider.resourceLeaseRepository()
+            assertIs<LeaseAcquireResult.Success>(leaseRepo.acquireAll(item.id, "agent-a", listOf("k-b1a" to 900)))
+
+            val failingWorkItemRepo = DeleteFailOnIdWorkItemRepository(repositoryProvider.workItemRepository(), item.id)
+            val failingContext = ToolExecutionContext(DeleteFailOnIdRepositoryProvider(repositoryProvider, failingWorkItemRepo))
+
+            val response = handler.execute(idsArray(item.id), false, failingContext) as JsonObject
+            val data = response["data"] as JsonObject
+            assertEquals(0, data["deleted"]!!.jsonPrimitive.int)
+            assertEquals(1, data["failed"]!!.jsonPrimitive.int)
+
+            assertTrue(exists(item.id), "the row delete failed — the item must remain")
+
+            val interval = leaseRepo.findRecentIntervals("k-b1a", 10).single()
+            assertNull(interval.releaseReason, "the release must be rolled back together with the failed delete")
+            assertNull(interval.releasedAt, "the release must be rolled back together with the failed delete")
+            assertEquals(1, leaseRepo.findActiveForItem(item.id).size, "the lease itself must still be ACTIVE, not just history-open")
+        }
+
+    /**
+     * Review fix-up B1b (O1): S7 fails on the grandchild — the first row this handler processes —
+     * so nothing had been released before the throw and that test cannot distinguish "rolled back"
+     * from "never ran". This scenario lets every descendant's release succeed and fails only the
+     * ROOT's row delete, so the whole subtree (root AND every descendant) must still exist, and
+     * every already-"succeeded" release must still be rolled back: every interval stays OPEN and
+     * every lease stays ACTIVE. Same oracle as B1a.
+     */
+    @Test
+    fun `B1b recursive delete whose root row delete fails after every release succeeded rolls back every release`(): Unit =
+        runBlocking {
+            val tree = threeLevelTree()
+            val leaseRepo = repositoryProvider.resourceLeaseRepository()
+            assertIs<LeaseAcquireResult.Success>(leaseRepo.acquireAll(tree.root.id, "agent-a", listOf("k-root-b1b" to 900)))
+            assertIs<LeaseAcquireResult.Success>(leaseRepo.acquireAll(tree.child.id, "agent-a", listOf("k-child-b1b" to 900)))
+            assertIs<LeaseAcquireResult.Success>(
+                leaseRepo.acquireAll(tree.grandchild.id, "agent-a", listOf("k-grandchild-b1b" to 900)),
+            )
+
+            val failingWorkItemRepo = DeleteFailOnIdWorkItemRepository(repositoryProvider.workItemRepository(), tree.root.id)
+            val failingContext = ToolExecutionContext(DeleteFailOnIdRepositoryProvider(repositoryProvider, failingWorkItemRepo))
+
+            val response = handler.execute(idsArray(tree.root.id), true, failingContext) as JsonObject
+            val data = response["data"] as JsonObject
+            assertEquals(0, data["deleted"]!!.jsonPrimitive.int)
+            assertEquals(1, data["failed"]!!.jsonPrimitive.int)
+
+            assertTrue(exists(tree.root.id), "root's own delete failed but must not be partially committed")
+            assertTrue(exists(tree.child.id), "child must remain — rolled back with the root's failed delete")
+            assertTrue(exists(tree.grandchild.id), "grandchild must remain — rolled back with the root's failed delete")
+
+            for (key in listOf("k-root-b1b", "k-child-b1b", "k-grandchild-b1b")) {
+                val interval = leaseRepo.findRecentIntervals(key, 10).single()
+                assertNull(
+                    interval.releaseReason,
+                    "key $key must remain open — the root's failed delete rolls back every release in this call"
+                )
+                assertNull(interval.releasedAt, "key $key must remain open")
+            }
+            assertEquals(1, leaseRepo.findActiveForItem(tree.root.id).size, "root's lease must still be ACTIVE")
+            assertEquals(1, leaseRepo.findActiveForItem(tree.child.id).size, "child's lease must still be ACTIVE")
+            assertEquals(1, leaseRepo.findActiveForItem(tree.grandchild.id).size, "grandchild's lease must still be ACTIVE")
         }
 
     // ──────────────────────────────────────────────
