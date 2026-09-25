@@ -15,6 +15,17 @@
       "transport": {
         "type": "stdio"
       },
+      "runtimeHint": "docker",
+      "runtimeArguments": [
+        {
+          "type": "named",
+          "name": "-v",
+          "description": "Docker named volume for persistent SQLite data storage, mounted at /app/data",
+          "value": "mcp-task-data:/app/data",
+          "isRequired": true,
+          "isRepeated": false
+        }
+      ],
       "environmentVariables": [
         {
           "name": "DATABASE_PATH",

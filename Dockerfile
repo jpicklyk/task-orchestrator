@@ -52,7 +52,6 @@ RUN dnf install -y shadow-utils \
 VOLUME /app/data
 
 # Environment variables (only those consumed by the application)
-ENV DATABASE_PATH=/app/data/tasks.db
 ENV MCP_TRANSPORT=stdio
 ENV LOG_LEVEL=INFO
 ENV USE_FLYWAY=true

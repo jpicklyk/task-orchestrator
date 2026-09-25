@@ -163,6 +163,19 @@ tasks.test {
             tierFragmentsDir.resolve("tier-classification.md"),
             *tierConsumerFiles.toTypedArray(),
         ).withPropertyName("docsConsistencyInputs")
+
+    // DistributionManifestConsistencyTest (and DockerHealthcheckTest) read these repo-root
+    // distribution manifests directly at runtime. None of them live under current/ (Gradle's
+    // default source-set inputs), so without this declaration a manifest-only edit (e.g. bumping
+    // server.json's version or adding a Dockerfile ENV) would leave :current:test UP-TO-DATE and
+    // silently skip re-verification.
+    inputs
+        .files(
+            rootProject.file("Dockerfile"),
+            rootProject.file("docker-compose.yml"),
+            rootProject.file("server.json"),
+            rootProject.file("smithery.yaml"),
+        ).withPropertyName("distributionManifestInputs")
 }
 
 kotlin {
