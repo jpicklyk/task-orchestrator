@@ -146,11 +146,36 @@ function findUserClaudeConfig() {
   return readJsonFile(resolve(base, '.claude.json'));
 }
 
-// True when the registration entry (command/args/url/env — whatever shape it has) mentions the
-// orchestrator by image, container name, or URL, independent of its own key.
+// True when a string looks like a container image / package reference containing the token in an
+// owner/name[:tag] shape (e.g. `ghcr.io/jpicklyk/task-orchestrator:latest`, `jpicklyk/task-orchestrator`)
+// rather than a filesystem path. Filesystem-path shapes (drive letters, leading `/` segments, `./`
+// or `../` prefixes, backslashes) are explicitly excluded so an unrelated server whose path happens
+// to mention the project folder name (e.g. a filesystem MCP server pointed at this repo's checkout)
+// is never mistaken for an orchestrator registration.
+function looksLikeImageRef(value) {
+  if (typeof value !== 'string' || !value.includes(SERVER_SEGMENT_TOKEN)) return false;
+  if (/^[A-Za-z]:[\\/]/.test(value)) return false; // drive letter, e.g. D:/ or D:\
+  if (value.startsWith('/')) return false; // absolute POSIX path
+  if (value.startsWith('./') || value.startsWith('../')) return false; // relative path
+  if (value.includes('\\')) return false; // any backslash path separator
+  return value.includes('/'); // owner/name[:tag] shape requires a slash
+}
+
+// True when the registration entry mentions the orchestrator by `url`, `command`, or an image-like
+// arg value — independent of its own key. Deliberately narrower than a blanket JSON.stringify scan:
+// a filesystem-path arg (e.g. a filesystem MCP server pointed at a checkout named `task-orchestrator`)
+// must NOT count, or every such unrelated registration gets falsely flagged every session.
 function entryMentionsOrchestrator(entry) {
+  if (!entry || typeof entry !== 'object') return false;
   try {
-    return JSON.stringify(entry).includes(SERVER_SEGMENT_TOKEN);
+    if (typeof entry.url === 'string' && entry.url.includes(SERVER_SEGMENT_TOKEN)) return true;
+    if (typeof entry.command === 'string' && entry.command.includes(SERVER_SEGMENT_TOKEN)) return true;
+    if (Array.isArray(entry.args)) {
+      for (const arg of entry.args) {
+        if (looksLikeImageRef(arg)) return true;
+      }
+    }
+    return false;
   } catch {
     return false;
   }
@@ -179,8 +204,15 @@ function collectOrchestratorRegistrations() {
       let dir = process.cwd();
       const root = resolve(dir, '/');
       while (dir !== root) {
-        const project = userConfig.projects[dir];
-        if (project) scan(project.mcpServers, `~/.claude.json (projects[${dir}])`);
+        // ~/.claude.json `projects` keys have been observed in BOTH the native form and a
+        // forward-slash form on Windows (e.g. `D:\Projects\task-orchestrator` and
+        // `D:/Projects/task-orchestrator`) — try both so the lookup doesn't silently miss one.
+        const altDir = dir.replace(/\\/g, '/');
+        const keysToTry = altDir === dir ? [dir] : [dir, altDir];
+        for (const key of keysToTry) {
+          const project = userConfig.projects[key];
+          if (project) scan(project.mcpServers, `~/.claude.json (projects[${key}])`);
+        }
         dir = resolve(dir, '..');
       }
     }
