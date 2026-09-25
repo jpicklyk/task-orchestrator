@@ -95,7 +95,7 @@ Each JSON line carries:
 | `timestamp` | ISO-8601, UTC, e.g. `2026-09-25T12:00:00.123Z` |
 | `level`, `loggerName`, `threadName`, `formattedMessage` | Standard SLF4J/Logback fields |
 | `mdc` | Correlation fields for the request/call in flight (see below) |
-| `throwable` | Present only on events logged with an exception |
+| `throwable` | Stack trace details when an exception was logged; `null` otherwise (the field is always present) |
 
 **MDC correlation fields**, propagated via `kotlinx-coroutines-slf4j`'s `MDCContext` so they
 survive coroutine dispatcher hops:

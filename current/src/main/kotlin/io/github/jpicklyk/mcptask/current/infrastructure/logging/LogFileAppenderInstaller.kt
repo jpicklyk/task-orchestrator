@@ -8,6 +8,7 @@ import ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy
 import ch.qos.logback.core.util.FileSize
 import org.slf4j.Logger.ROOT_LOGGER_NAME
 import org.slf4j.LoggerFactory
+import org.slf4j.Logger as Slf4jLogger
 
 /**
  * Attaches an opt-in [RollingFileAppender] to the root logger when the `LOG_FILE` env var is set —
@@ -24,12 +25,15 @@ import org.slf4j.LoggerFactory
  * and Joran's own STATUS log ("Appender named [FILE] could not be found"). Attaching the appender
  * in code sidesteps that Joran quirk entirely and is trivially testable.
  *
- * Called once, as the first statement in `CurrentMain.main()`, before any other logging occurs
- * (best-effort: SLF4J may already be bound by then, but nothing has logged yet).
+ * Called as the second statement in `CurrentMain.main()` (after the kotlin-logging banner switch),
+ * before any other logging occurs (best-effort: SLF4J may already be bound by then, but nothing has
+ * logged yet).
  */
 object LogFileAppenderInstaller {
     const val LOG_FILE_ENV = "LOG_FILE"
     const val APPENDER_NAME = "FILE"
+
+    private val logger: Slf4jLogger = LoggerFactory.getLogger(LogFileAppenderInstaller::class.java)
 
     /**
      * Reads [envLogFile] (defaults to the real `LOG_FILE` environment variable) and, when it is
@@ -67,6 +71,16 @@ object LogFileAppenderInstaller {
 
         rollingPolicy.start()
         appender.start()
+
+        if (!appender.isStarted) {
+            logger.warn(
+                "LOG_FILE is set to '{}' but the file appender failed to start (unwritable path, " +
+                    "missing parent directory, or another logback error) -- continuing with stderr-only logging. " +
+                    "Check the path and its permissions.",
+                path,
+            )
+            return
+        }
 
         root.addAppender(appender)
     }
