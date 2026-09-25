@@ -433,10 +433,10 @@ abstract class BaseToolDefinition : ToolDefinition {
      * disabling idempotency for that call instead of rejecting it — and where a non-string value
      * (number/null) escaped as an unrelated internal error thrown later from `execute()`.
      *
-     * MUST be called from [ToolDefinition.validateParams], not [ToolDefinition.execute]:
-     * `McpToolAdapter` only maps [ToolValidationException] to a validation-error response when it
-     * is thrown from `validateParams`; the same exception thrown from `execute()` is caught by the
-     * adapter's generic handler and surfaces as an internal error.
+     * Call from [ToolDefinition.validateParams] so a malformed value is rejected before any
+     * execution work begins. (`McpToolAdapter` maps a [ToolValidationException] from either
+     * `validateParams` or `execute()` to the same `VALIDATION_ERROR` response, so the placement is
+     * about failing early, not about how the error is reported.)
      *
      * @param params The input parameters (a no-op if not a JsonObject — nothing to check)
      * @param paramName The parameter name to validate (default "requestId")

@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
+import io.github.jpicklyk.mcptask.current.application.tools.ErrorCodes
 import io.github.jpicklyk.mcptask.current.application.tools.ResponseUtil
 import io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
@@ -64,29 +65,7 @@ class McpToolAdapter {
                         toolDefinition.parameterSchema
                     )
 
-                try {
-                    toolDefinition.validateParams(preprocessedParams)
-                } catch (e: ToolValidationException) {
-                    val message = "Validation error in '${toolDefinition.name}': ${e.message}"
-                    logger.warn(message)
-                    try {
-                        clientConnection.sendLoggingMessage(
-                            LoggingMessageNotification(
-                                LoggingMessageNotificationParams(
-                                    level = LoggingLevel.Warning,
-                                    data = JsonPrimitive(message),
-                                    logger = "mcp-task-orchestrator.tools"
-                                )
-                            )
-                        )
-                    } catch (_: Exception) {
-                    }
-                    logResponseSize(toolDefinition.name, success = false, responseChars = message.length)
-                    return@addTool CallToolResult(
-                        content = listOf(TextContent(text = message)),
-                        isError = true
-                    )
-                }
+                toolDefinition.validateParams(preprocessedParams)
 
                 // Execute the tool
                 val result = toolDefinition.execute(preprocessedParams, context)
@@ -121,6 +100,37 @@ class McpToolAdapter {
                     content = listOf(TextContent(text = summary)),
                     isError = isError,
                     structuredContent = structuredData
+                )
+            } catch (e: ToolValidationException) {
+                // Fix for 4e110d22: validateParams() and execute() both throw
+                // ToolValidationException, and both map to the same validation envelope. Message
+                // text is preserved exactly as validateParams-phase failures always returned it
+                // (back-compat for existing text-matching clients/tests); structuredContent is now
+                // populated via the same ToolError -> envelope -> structured-payload pipeline the
+                // other dedicated catches below use, rather than being left null.
+                val message = "Validation error in '${toolDefinition.name}': ${e.message}"
+                logger.warn(message)
+                try {
+                    clientConnection.sendLoggingMessage(
+                        LoggingMessageNotification(
+                            LoggingMessageNotificationParams(
+                                level = LoggingLevel.Warning,
+                                data = JsonPrimitive(message),
+                                logger = "mcp-task-orchestrator.tools"
+                            )
+                        )
+                    )
+                } catch (_: Exception) {
+                }
+                logResponseSize(toolDefinition.name, success = false, responseChars = message.length)
+                val errorEnvelope =
+                    ResponseUtil.createErrorResponse(
+                        ToolError.permanent(code = ErrorCodes.VALIDATION_ERROR, message = message)
+                    )
+                CallToolResult(
+                    content = listOf(TextContent(text = message)),
+                    isError = true,
+                    structuredContent = ResponseUtil.extractErrorPayload(errorEnvelope)
                 )
             } catch (e: PerRootConfigUnavailableException) {
                 // D5: every tool other than advance_item/complete_tree (which handle this
