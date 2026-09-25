@@ -349,7 +349,7 @@ Item IDs accept short hex prefixes: `itemId="a3f2"` works in place of a full UUI
 - **Ktor** for the REST API and SSE
 - **Docker** for one-command deployment
 
-Clean Architecture (Domain > Application > Infrastructure > Interface) with an extensive JUnit 5 test suite.
+A layered architecture (Domain → Application → Infrastructure → Interfaces, enforced by a Konsist test against a ratcheting baseline of pre-existing violations) with an extensive JUnit 5 test suite.
 
 ---
 

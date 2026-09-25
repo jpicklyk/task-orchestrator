@@ -75,27 +75,29 @@ Base schema note keys win on duplicates; first-trait-in-order wins for duplicate
 ## Tight Coupling Areas
 
 ### ToolExecutionContext
-Constructed in `CurrentMcpServer.kt` as `ToolExecutionContext(repositoryProvider, noteSchemaService)`. Adding a new service dependency requires updating **both** the context class and the server construction site.
+Most of its dependencies are defaulted (`ToolExecutionContext.kt`), but the class is still constructed by hand at three separate sites: `ServerComposition.kt` (MCP), and `ItemRoutes.kt` / `ItemWriteRoutes.kt` (REST). `AdvanceService` is likewise hand-wired at three call sites: `AdvanceItemTool.kt`, `ItemWriteRoutes.kt`, and `CompleteTreeTool.kt`. Adding a new constructor dependency to either class means updating every one of its construction sites, not just the class itself — the compiler will not catch a site you miss if the new parameter has a default.
 
 ### DirectDatabaseSchemaManager
-Maintains a manually-ordered table list in foreign-key dependency order. New tables must be inserted at the correct position — the compiler cannot detect wrong ordering.
+Table creation order is derived automatically (`SchemaUtils.create` orders by FK references), not manually maintained. The real hazard is keeping the Direct-mode table list and DDL in parity with the Flyway migrations: a new table or column must be added to both, and the two can drift silently since nothing enforces the parity at compile time.
 
 ## Configuration Directory (AGENT_CONFIG_DIR)
 
 **CRITICAL:** All services reading from `.taskorchestrator/` MUST support the `AGENT_CONFIG_DIR` environment variable.
 
 ```kotlin
-private fun getConfigPath(): Path {
-    val projectRoot = Paths.get(
-        System.getenv("AGENT_CONFIG_DIR") ?: System.getProperty("user.dir")
-    )
-    return projectRoot.resolve(".taskorchestrator/config.yaml")
-}
+// AppConfig.resolveConfigBaseDir(agentConfigDir): String =
+//     agentConfigDir ?: System.getProperty("user.dir")
+val globalConfigPath = Paths.get(AppConfig.resolveConfigBaseDir(appConfig.agentConfigDir))
+    .resolve(".taskorchestrator/config.yaml")
 ```
 
 - In Docker: `-e AGENT_CONFIG_DIR=/project` (where config is mounted)
 - In local dev: not needed (uses working directory)
-- Currently used by: `YamlWorkItemSchemaService`
+- Resolved once in `ServerComposition.kt` and shared by every service that reads the global config:
+  the schema service (`YamlWorkItemSchemaService`, exposed under the `YamlNoteSchemaService` type
+  alias), the status-label service, and the actor-authentication service. `ManageNotesTool`,
+  `ManagePlanDocumentsTool`, and `JwksKeySetProvider` also resolve it independently for their own
+  file access.
 - **This is the GLOBAL/fallback config.** `AGENT_CONFIG_DIR` locates the single, server-wide `.taskorchestrator/config.yaml`, read once at startup (restart to reload). Per-**project** config is stored per-root in the DB — pushed via `manage_project_config` or `PUT /api/v1/roots/{rootId}/config`, synced from the workspace file by the `config-sync` SessionStart hook — and hot-reloads without a restart, layering over this global file per item `rootId`. See `claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md` → "Global vs Per-Project Config".
 - This repo's own `.taskorchestrator/config.yaml` is git-tracked dogfood config and doubles as a living schema/trait example — it is delivered to the server per-root via the `config-sync` hook, not mounted as the global config. The actual global mount is the process-schema floor at `deploy/global-config/.taskorchestrator/` — agent-observation, session-retrospective, improvement-proposal, and container schemas only, shared across every project the server serves.
 
@@ -117,6 +119,7 @@ default, and an unrecognized non-empty value either falls back to the default wi
 - `AGENT_CONFIG_DIR` — directory containing `.taskorchestrator/` (default: working dir)
 - `MCP_TRANSPORT` — `stdio` (default) or `http`
 - `MCP_HTTP_PORT` — HTTP port (default: `3001`)
+- `MCP_SERVER_NAME` — service name reported in MCP identity and REST well-known/service metadata (default: `mcp-task-orchestrator-current`)
 - `LOG_LEVEL` — DEBUG / INFO / WARN / ERROR (default: `INFO`)
 - `LOG_FILE` — opt-in log file path (default: unset, no file logging). Logs are always JSON on stderr; see `current/docs/fleet-deployment.md` → "Logging".
 - `FLYWAY_REPAIR` — run repair and exit (default: `false`)
@@ -126,7 +129,7 @@ default, and an unrecognized non-empty value either falls back to the default wi
   Backs the Docker image's `HEALTHCHECK` (see `current/docs/fleet-deployment.md`) and covers both
   `stdio` and `http` transport — the marker is cleared on shutdown
 
-**REST API environment variables** (`API_*`, `CORS_*`, `RESOURCE_LEASES_ENFORCED`) are documented with defaults in `current/docs/fleet-deployment.md` and `current/docs/api-rest.md`. Gotchas: `API_ENABLED`/`API_ALLOW_UNAUTHENTICATED` use `EnvBoolean.require` (a bad value fails startup) while the other booleans fall back with a WARN; `RESOURCE_LEASES_ENFORCED` is read per `advance_item`/advance-route call, not at startup, so a change applies on the next call without a restart.
+**REST API environment variables** (`API_*`, `CORS_*`, `RESOURCE_LEASES_ENFORCED`) are documented with defaults in `current/docs/fleet-deployment.md` and `current/docs/api-rest.md`. Gotchas: `API_ENABLED`/`API_ALLOW_UNAUTHENTICATED` use `EnvBoolean.require` (a bad value fails startup) while the other booleans fall back with a WARN; `RESOURCE_LEASES_ENFORCED` is read fresh on every `advance_item`/advance-route call, but since a running process's environment cannot change and a container's environment changes only when the container is recreated, flipping this var takes effect only after the process or container restarts.
 
 **Migration files:** `current/src/main/resources/db/migration/`
 
