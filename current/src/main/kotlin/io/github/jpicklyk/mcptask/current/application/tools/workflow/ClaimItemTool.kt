@@ -426,420 +426,15 @@ Call only in claim-mode deployments, to take ownership before working an item.
         val releasesArray = paramsObj["releases"] as? JsonArray ?: JsonArray(emptyList())
 
         val claimResultsList = mutableListOf<JsonObject>()
-        val releaseResultsList = mutableListOf<JsonObject>()
-        var claimsSucceeded = 0
-        var claimsFailed = 0
-        var releasesSucceeded = 0
-        var releasesFailed = 0
-
-        // --- Process claims ---
         for (element in claimsArray) {
             val claimObj = element as? JsonObject ?: continue
-            val ttlSeconds = (claimObj["ttlSeconds"] as? JsonPrimitive)?.content?.toIntOrNull() ?: 900
-            val claimRef = (claimObj["claimRef"] as? JsonPrimitive)?.content
-
-            val hasSelector = claimObj.containsKey("selector")
-
-            if (hasSelector) {
-                // --- Selector path ---
-                val selectorObj = claimObj["selector"] as? JsonObject ?: continue
-
-                // Resolve parentId (may be a hex prefix) before building criteria. Format was
-                // already checked in validateParams; resolution here looks up the full UUID
-                // for prefixes via the repository. A failed lookup surfaces as not_found.
-                val selectorParentIdStr = (selectorObj["parentId"] as? JsonPrimitive)?.content
-                var resolvedSelectorParentId: UUID? = null
-                if (selectorParentIdStr != null) {
-                    val (resolvedUuid, idError) = resolveIdString(selectorParentIdStr, context)
-                    if (idError != null) {
-                        claimsFailed++
-                        claimResultsList.add(
-                            buildJsonObject {
-                                put("outcome", JsonPrimitive("not_found"))
-                                put(
-                                    "error",
-                                    JsonPrimitive(
-                                        "Failed to resolve selector.parentId: $selectorParentIdStr"
-                                    )
-                                )
-                                claimRef?.let { put("claimRef", JsonPrimitive(it)) }
-                            }
-                        )
-                        continue
-                    }
-                    resolvedSelectorParentId = resolvedUuid
-                }
-
-                val criteria =
-                    buildCriteria(selectorObj, resolvedSelectorParentId)
-                        .copy(requestingAgentId = trustedAgentId)
-
-                when (val recommendResult = context.nextItemRecommender.recommend(criteria, limit = 1)) {
-                    is Result.Success -> {
-                        val items = recommendResult.data
-                        if (items.isEmpty()) {
-                            claimsFailed++
-                            when (val explainResult = context.nextItemRecommender.explainEmpty(criteria)) {
-                                is Result.Success -> {
-                                    val excluded = explainResult.data
-                                    if (excluded.total == 0) {
-                                        // queue_empty: nothing matches the selector filters at all — permanent.
-                                        claimResultsList.add(
-                                            buildJsonObject {
-                                                put("outcome", JsonPrimitive("queue_empty"))
-                                                put("kind", JsonPrimitive(ErrorKind.PERMANENT.toJsonString()))
-                                                put("code", JsonPrimitive("queue_empty"))
-                                                claimRef?.let { put("claimRef", JsonPrimitive(it)) }
-                                            }
-                                        )
-                                    } else {
-                                        // none_eligible: matches exist but none is currently claimable — transient.
-                                        // Aggregate counts only, never item/agent identities.
-                                        claimResultsList.add(
-                                            buildJsonObject {
-                                                put("outcome", JsonPrimitive("none_eligible"))
-                                                put("kind", JsonPrimitive(ErrorKind.TRANSIENT.toJsonString()))
-                                                put("code", JsonPrimitive("none_eligible"))
-                                                put("retryAfterMs", JsonPrimitive(NONE_ELIGIBLE_RETRY_AFTER_MS))
-                                                put(
-                                                    "excluded",
-                                                    buildJsonObject {
-                                                        put("claimed", JsonPrimitive(excluded.claimed))
-                                                        put("ancestorClaimed", JsonPrimitive(excluded.ancestorClaimed))
-                                                        put("dependencyBlocked", JsonPrimitive(excluded.dependencyBlocked))
-                                                    }
-                                                )
-                                                claimRef?.let { put("claimRef", JsonPrimitive(it)) }
-                                            }
-                                        )
-                                    }
-                                }
-
-                                is Result.Error -> {
-                                    // Could not determine why the selector matched nothing — fall back to the
-                                    // existing db_error transient outcome rather than guessing.
-                                    claimResultsList.add(
-                                        buildJsonObject {
-                                            put("outcome", JsonPrimitive("db_error"))
-                                            put("kind", JsonPrimitive(ErrorKind.TRANSIENT.toJsonString()))
-                                            put("code", JsonPrimitive("db_error"))
-                                            put("message", JsonPrimitive("Database error while explaining empty selector result"))
-                                            claimRef?.let { put("claimRef", JsonPrimitive(it)) }
-                                        }
-                                    )
-                                }
-                            }
-                            continue
-                        }
-
-                        // Resolved: take the top item and claim it
-                        val resolvedItem = items.first()
-                        val resolvedItemId = resolvedItem.id
-
-                        // Log if caller-supplied agentId differs from verified id.
-                        val callerAgentId = (claimObj["agentId"] as? JsonPrimitive)?.content
-                        if (callerAgentId != null && callerAgentId != trustedAgentId) {
-                            logger.debug(
-                                "claim_item: caller-supplied agentId='{}' overridden by verified trustedAgentId='{}'",
-                                callerAgentId,
-                                trustedAgentId
-                            )
-                        }
-
-                        when (val claimResult = context.workItemRepository().claim(resolvedItemId, trustedAgentId, ttlSeconds)) {
-                            is ClaimResult.Success -> {
-                                claimsSucceeded++
-                                val item = claimResult.item
-                                claimResultsList.add(
-                                    buildJsonObject {
-                                        put("itemId", JsonPrimitive(item.id.toString()))
-                                        put("outcome", JsonPrimitive("success"))
-                                        put("selectorResolved", JsonPrimitive(true))
-                                        claimRef?.let { put("claimRef", JsonPrimitive(it)) }
-                                        put("claimedBy", JsonPrimitive(item.claimedBy ?: trustedAgentId))
-                                        item.claimedAt?.let { put("claimedAt", JsonPrimitive(it.toString())) }
-                                        item.claimExpiresAt?.let { put("claimExpiresAt", JsonPrimitive(it.toString())) }
-                                        // Omit originalClaimedAt when it equals claimedAt (fresh claim — no prior claim to preserve).
-                                        item.originalClaimedAt?.let {
-                                            if (it != item.claimedAt) put("originalClaimedAt", JsonPrimitive(it.toString()))
-                                        }
-                                    }
-                                )
-                            }
-
-                            is ClaimResult.AlreadyClaimed -> {
-                                // TOCTOU: item was claimed between recommend() and claim()
-                                claimsFailed++
-                                val alreadyClaimedError =
-                                    ToolError(
-                                        kind = ErrorKind.TRANSIENT,
-                                        code = "already_claimed",
-                                        message = "Item ${claimResult.itemId} is already claimed by another agent",
-                                        retryAfterMs = claimResult.retryAfterMs,
-                                        contendedItemId = claimResult.itemId
-                                    )
-                                claimResultsList.add(
-                                    buildJsonObject {
-                                        put("itemId", JsonPrimitive(claimResult.itemId.toString()))
-                                        put("outcome", JsonPrimitive("already_claimed"))
-                                        put("kind", JsonPrimitive(alreadyClaimedError.kind.toJsonString()))
-                                        put("contendedItemId", JsonPrimitive(alreadyClaimedError.contendedItemId!!.toString()))
-                                        alreadyClaimedError.retryAfterMs?.let { put("retryAfterMs", JsonPrimitive(it)) }
-                                        claimRef?.let { put("claimRef", JsonPrimitive(it)) }
-                                    }
-                                )
-                            }
-
-                            is ClaimResult.NotFound -> {
-                                claimsFailed++
-                                claimResultsList.add(
-                                    buildJsonObject {
-                                        put("itemId", JsonPrimitive(claimResult.itemId.toString()))
-                                        put("outcome", JsonPrimitive("not_found"))
-                                        claimRef?.let { put("claimRef", JsonPrimitive(it)) }
-                                    }
-                                )
-                            }
-
-                            is ClaimResult.TerminalItem -> {
-                                claimsFailed++
-                                claimResultsList.add(
-                                    buildJsonObject {
-                                        put("itemId", JsonPrimitive(claimResult.itemId.toString()))
-                                        put("outcome", JsonPrimitive("terminal_item"))
-                                        claimRef?.let { put("claimRef", JsonPrimitive(it)) }
-                                    }
-                                )
-                            }
-
-                            is ClaimResult.DBError -> {
-                                claimsFailed++
-                                val dbError =
-                                    ToolError(
-                                        kind = ErrorKind.TRANSIENT,
-                                        code = "db_error",
-                                        message = "Database error during claim operation",
-                                        contendedItemId = claimResult.itemId
-                                    )
-                                claimResultsList.add(
-                                    buildJsonObject {
-                                        put("itemId", JsonPrimitive(claimResult.itemId.toString()))
-                                        put("outcome", JsonPrimitive("db_error"))
-                                        put("kind", JsonPrimitive(dbError.kind.toJsonString()))
-                                        put("code", JsonPrimitive(dbError.code))
-                                        put("message", JsonPrimitive(dbError.message))
-                                        put("contendedItemId", JsonPrimitive(dbError.contendedItemId!!.toString()))
-                                        claimRef?.let { put("claimRef", JsonPrimitive(it)) }
-                                    }
-                                )
-                            }
-                        }
-                    }
-
-                    is Result.Error -> {
-                        claimsFailed++
-                        claimResultsList.add(
-                            buildJsonObject {
-                                put("outcome", JsonPrimitive("db_error"))
-                                put("kind", JsonPrimitive(ErrorKind.TRANSIENT.toJsonString()))
-                                put("code", JsonPrimitive("db_error"))
-                                put("message", JsonPrimitive("Database error during selector recommendation"))
-                                claimRef?.let { put("claimRef", JsonPrimitive(it)) }
-                            }
-                        )
-                    }
-                }
-            } else {
-                // --- ID-based path (existing logic) ---
-                val itemIdStr = (claimObj["itemId"] as? JsonPrimitive)?.content ?: continue
-
-                // Resolve ID (full UUID or prefix)
-                val (itemId, idError) = resolveIdString(itemIdStr, context)
-                if (idError != null) {
-                    claimsFailed++
-                    claimResultsList.add(
-                        buildJsonObject {
-                            put("itemId", JsonPrimitive(itemIdStr))
-                            put("outcome", JsonPrimitive("not_found"))
-                            put("error", JsonPrimitive("Failed to resolve item ID: $itemIdStr"))
-                            claimRef?.let { put("claimRef", JsonPrimitive(it)) }
-                        }
-                    )
-                    continue
-                }
-
-                // Log if caller-supplied agentId differs from verified id.
-                val callerAgentId = (claimObj["agentId"] as? JsonPrimitive)?.content
-                if (callerAgentId != null && callerAgentId != trustedAgentId) {
-                    logger.debug(
-                        "claim_item: caller-supplied agentId='{}' overridden by verified trustedAgentId='{}'",
-                        callerAgentId,
-                        trustedAgentId
-                    )
-                }
-
-                when (val result = context.workItemRepository().claim(itemId!!, trustedAgentId, ttlSeconds)) {
-                    is ClaimResult.Success -> {
-                        claimsSucceeded++
-                        val item = result.item
-                        claimResultsList.add(
-                            buildJsonObject {
-                                put("itemId", JsonPrimitive(item.id.toString()))
-                                put("outcome", JsonPrimitive("success"))
-                                claimRef?.let { put("claimRef", JsonPrimitive(it)) }
-                                put("claimedBy", JsonPrimitive(item.claimedBy ?: trustedAgentId))
-                                item.claimedAt?.let { put("claimedAt", JsonPrimitive(it.toString())) }
-                                item.claimExpiresAt?.let { put("claimExpiresAt", JsonPrimitive(it.toString())) }
-                                // Omit originalClaimedAt when it equals claimedAt (fresh claim — no prior claim to preserve).
-                                item.originalClaimedAt?.let {
-                                    if (it != item.claimedAt) put("originalClaimedAt", JsonPrimitive(it.toString()))
-                                }
-                            }
-                        )
-                    }
-
-                    is ClaimResult.AlreadyClaimed -> {
-                        claimsFailed++
-                        // Emit ToolError fields (kind, retryAfterMs, contendedItemId) so agents can make
-                        // retry decisions without string-parsing. Tiered disclosure: no competing agent identity.
-                        val alreadyClaimedError =
-                            ToolError(
-                                kind = ErrorKind.TRANSIENT,
-                                code = "already_claimed",
-                                message = "Item ${result.itemId} is already claimed by another agent",
-                                retryAfterMs = result.retryAfterMs,
-                                contendedItemId = result.itemId
-                            )
-                        claimResultsList.add(
-                            buildJsonObject {
-                                put("itemId", JsonPrimitive(result.itemId.toString()))
-                                put("outcome", JsonPrimitive("already_claimed"))
-                                put("kind", JsonPrimitive(alreadyClaimedError.kind.toJsonString()))
-                                put("contendedItemId", JsonPrimitive(alreadyClaimedError.contendedItemId!!.toString()))
-                                // Tiered disclosure: retryAfterMs only — no competing agent identity.
-                                alreadyClaimedError.retryAfterMs?.let { put("retryAfterMs", JsonPrimitive(it)) }
-                                claimRef?.let { put("claimRef", JsonPrimitive(it)) }
-                            }
-                        )
-                    }
-
-                    is ClaimResult.NotFound -> {
-                        claimsFailed++
-                        claimResultsList.add(
-                            buildJsonObject {
-                                put("itemId", JsonPrimitive(result.itemId.toString()))
-                                put("outcome", JsonPrimitive("not_found"))
-                                claimRef?.let { put("claimRef", JsonPrimitive(it)) }
-                            }
-                        )
-                    }
-
-                    is ClaimResult.TerminalItem -> {
-                        claimsFailed++
-                        claimResultsList.add(
-                            buildJsonObject {
-                                put("itemId", JsonPrimitive(result.itemId.toString()))
-                                put("outcome", JsonPrimitive("terminal_item"))
-                                claimRef?.let { put("claimRef", JsonPrimitive(it)) }
-                            }
-                        )
-                    }
-
-                    is ClaimResult.DBError -> {
-                        claimsFailed++
-                        val dbError =
-                            ToolError(
-                                kind = ErrorKind.TRANSIENT,
-                                code = "db_error",
-                                message = "Database error during claim operation",
-                                contendedItemId = result.itemId
-                            )
-                        claimResultsList.add(
-                            buildJsonObject {
-                                put("itemId", JsonPrimitive(result.itemId.toString()))
-                                put("outcome", JsonPrimitive("db_error"))
-                                put("kind", JsonPrimitive(dbError.kind.toJsonString()))
-                                put("code", JsonPrimitive(dbError.code))
-                                put("message", JsonPrimitive(dbError.message))
-                                put("contendedItemId", JsonPrimitive(dbError.contendedItemId!!.toString()))
-                                claimRef?.let { put("claimRef", JsonPrimitive(it)) }
-                            }
-                        )
-                    }
-                }
-            }
+            processClaim(claimObj, context, trustedAgentId)?.let { claimResultsList.add(it) }
         }
 
-        // --- Process releases ---
+        val releaseResultsList = mutableListOf<JsonObject>()
         for (element in releasesArray) {
             val releaseObj = element as? JsonObject ?: continue
-            val itemIdStr = (releaseObj["itemId"] as? JsonPrimitive)?.content ?: continue
-
-            val (itemId, idError) = resolveIdString(itemIdStr, context)
-            if (idError != null) {
-                releasesFailed++
-                releaseResultsList.add(
-                    buildJsonObject {
-                        put("itemId", JsonPrimitive(itemIdStr))
-                        put("outcome", JsonPrimitive("not_found"))
-                        put("error", JsonPrimitive("Failed to resolve item ID: $itemIdStr"))
-                    }
-                )
-                continue
-            }
-
-            when (val result = context.workItemRepository().release(itemId!!, trustedAgentId)) {
-                is ReleaseResult.Success -> {
-                    releasesSucceeded++
-                    releaseResultsList.add(
-                        buildJsonObject {
-                            put("itemId", JsonPrimitive(result.item.id.toString()))
-                            put("outcome", JsonPrimitive("success"))
-                        }
-                    )
-                }
-
-                is ReleaseResult.NotClaimedByYou -> {
-                    releasesFailed++
-                    releaseResultsList.add(
-                        buildJsonObject {
-                            put("itemId", JsonPrimitive(result.itemId.toString()))
-                            put("outcome", JsonPrimitive("not_claimed_by_you"))
-                        }
-                    )
-                }
-
-                is ReleaseResult.NotFound -> {
-                    releasesFailed++
-                    releaseResultsList.add(
-                        buildJsonObject {
-                            put("itemId", JsonPrimitive(result.itemId.toString()))
-                            put("outcome", JsonPrimitive("not_found"))
-                        }
-                    )
-                }
-
-                is ReleaseResult.DBError -> {
-                    releasesFailed++
-                    val dbError =
-                        ToolError(
-                            kind = ErrorKind.TRANSIENT,
-                            code = "db_error",
-                            message = "Database error during release operation",
-                            contendedItemId = result.itemId
-                        )
-                    releaseResultsList.add(
-                        buildJsonObject {
-                            put("itemId", JsonPrimitive(result.itemId.toString()))
-                            put("outcome", JsonPrimitive("db_error"))
-                            put("kind", JsonPrimitive(dbError.kind.toJsonString()))
-                            put("code", JsonPrimitive(dbError.code))
-                            put("message", JsonPrimitive(dbError.message))
-                            put("contendedItemId", JsonPrimitive(dbError.contendedItemId!!.toString()))
-                        }
-                    )
-                }
-            }
+            processRelease(releaseObj, context, trustedAgentId)?.let { releaseResultsList.add(it) }
         }
 
         // Summary counters dropped: every count is derivable from claimResults/releaseResults
@@ -851,6 +446,333 @@ Call only in claim-mode deployments, to take ownership before working an item.
             }
 
         return successResponse(data)
+    }
+
+    /**
+     * Processes one `claims[]` entry, dispatching to the selector or ID-based path.
+     * Returns `null` when the entry is malformed in a way the original inline loop
+     * silently skipped (missing `selector`/`itemId` object/value) — no result is
+     * emitted for those entries, matching prior behavior.
+     */
+    private suspend fun processClaim(
+        claimObj: JsonObject,
+        context: ToolExecutionContext,
+        trustedAgentId: String
+    ): JsonObject? {
+        val ttlSeconds = (claimObj["ttlSeconds"] as? JsonPrimitive)?.content?.toIntOrNull() ?: 900
+        val claimRef = (claimObj["claimRef"] as? JsonPrimitive)?.content
+
+        return if (claimObj.containsKey("selector")) {
+            val selectorObj = claimObj["selector"] as? JsonObject ?: return null
+            processSelectorClaim(claimObj, selectorObj, ttlSeconds, claimRef, context, trustedAgentId)
+        } else {
+            val itemIdStr = (claimObj["itemId"] as? JsonPrimitive)?.content ?: return null
+            processIdClaim(claimObj, itemIdStr, ttlSeconds, claimRef, context, trustedAgentId)
+        }
+    }
+
+    /**
+     * Selector (find-and-claim) path: resolves an optional `parentId` prefix, runs the
+     * recommender, and either claims the top match or reports why nothing was claimable.
+     */
+    private suspend fun processSelectorClaim(
+        claimObj: JsonObject,
+        selectorObj: JsonObject,
+        ttlSeconds: Int,
+        claimRef: String?,
+        context: ToolExecutionContext,
+        trustedAgentId: String
+    ): JsonObject {
+        // Resolve parentId (may be a hex prefix) before building criteria. Format was
+        // already checked in validateParams; resolution here looks up the full UUID
+        // for prefixes via the repository. A failed lookup surfaces as not_found.
+        val selectorParentIdStr = (selectorObj["parentId"] as? JsonPrimitive)?.content
+        var resolvedSelectorParentId: UUID? = null
+        if (selectorParentIdStr != null) {
+            val (resolvedUuid, idError) = resolveIdString(selectorParentIdStr, context)
+            if (idError != null) {
+                return buildJsonObject {
+                    put("outcome", JsonPrimitive("not_found"))
+                    put("error", JsonPrimitive("Failed to resolve selector.parentId: $selectorParentIdStr"))
+                    claimRef?.let { put("claimRef", JsonPrimitive(it)) }
+                }
+            }
+            resolvedSelectorParentId = resolvedUuid
+        }
+
+        val criteria =
+            buildCriteria(selectorObj, resolvedSelectorParentId)
+                .copy(requestingAgentId = trustedAgentId)
+
+        return when (val recommendResult = context.nextItemRecommender.recommend(criteria, limit = 1)) {
+            is Result.Success -> {
+                val items = recommendResult.data
+                if (items.isEmpty()) {
+                    buildEmptySelectorOutcome(criteria, claimRef, context)
+                } else {
+                    // Resolved: take the top item and claim it
+                    val resolvedItem = items.first()
+                    logAgentIdOverride(claimObj, trustedAgentId)
+                    val claimResult = context.workItemRepository().claim(resolvedItem.id, trustedAgentId, ttlSeconds)
+                    mapClaimResult(claimResult, claimRef, trustedAgentId, selectorResolved = true)
+                }
+            }
+
+            is Result.Error -> {
+                // Could not resolve criteria into candidates at all — fall back to the existing
+                // db_error transient outcome rather than guessing.
+                buildJsonObject {
+                    put("outcome", JsonPrimitive("db_error"))
+                    put("kind", JsonPrimitive(ErrorKind.TRANSIENT.toJsonString()))
+                    put("code", JsonPrimitive("db_error"))
+                    put("message", JsonPrimitive("Database error during selector recommendation"))
+                    claimRef?.let { put("claimRef", JsonPrimitive(it)) }
+                }
+            }
+        }
+    }
+
+    /**
+     * Builds the `queue_empty` / `none_eligible` / `db_error` outcome for a selector that
+     * matched zero recommender candidates, distinguishing "nothing matches the filters at
+     * all" from "matches exist but none is currently claimable" via [explainEmpty].
+     */
+    private suspend fun buildEmptySelectorOutcome(
+        criteria: NextItemRecommender.Criteria,
+        claimRef: String?,
+        context: ToolExecutionContext
+    ): JsonObject =
+        when (val explainResult = context.nextItemRecommender.explainEmpty(criteria)) {
+            is Result.Success -> {
+                val excluded = explainResult.data
+                if (excluded.total == 0) {
+                    // queue_empty: nothing matches the selector filters at all — permanent.
+                    buildJsonObject {
+                        put("outcome", JsonPrimitive("queue_empty"))
+                        put("kind", JsonPrimitive(ErrorKind.PERMANENT.toJsonString()))
+                        put("code", JsonPrimitive("queue_empty"))
+                        claimRef?.let { put("claimRef", JsonPrimitive(it)) }
+                    }
+                } else {
+                    // none_eligible: matches exist but none is currently claimable — transient.
+                    // Aggregate counts only, never item/agent identities.
+                    buildJsonObject {
+                        put("outcome", JsonPrimitive("none_eligible"))
+                        put("kind", JsonPrimitive(ErrorKind.TRANSIENT.toJsonString()))
+                        put("code", JsonPrimitive("none_eligible"))
+                        put("retryAfterMs", JsonPrimitive(NONE_ELIGIBLE_RETRY_AFTER_MS))
+                        put(
+                            "excluded",
+                            buildJsonObject {
+                                put("claimed", JsonPrimitive(excluded.claimed))
+                                put("ancestorClaimed", JsonPrimitive(excluded.ancestorClaimed))
+                                put("dependencyBlocked", JsonPrimitive(excluded.dependencyBlocked))
+                            }
+                        )
+                        claimRef?.let { put("claimRef", JsonPrimitive(it)) }
+                    }
+                }
+            }
+
+            is Result.Error -> {
+                // Could not determine why the selector matched nothing — fall back to the
+                // existing db_error transient outcome rather than guessing.
+                buildJsonObject {
+                    put("outcome", JsonPrimitive("db_error"))
+                    put("kind", JsonPrimitive(ErrorKind.TRANSIENT.toJsonString()))
+                    put("code", JsonPrimitive("db_error"))
+                    put("message", JsonPrimitive("Database error while explaining empty selector result"))
+                    claimRef?.let { put("claimRef", JsonPrimitive(it)) }
+                }
+            }
+        }
+
+    /** ID-based claim path: resolves `itemId` (full UUID or prefix) and claims it directly. */
+    private suspend fun processIdClaim(
+        claimObj: JsonObject,
+        itemIdStr: String,
+        ttlSeconds: Int,
+        claimRef: String?,
+        context: ToolExecutionContext,
+        trustedAgentId: String
+    ): JsonObject {
+        // Resolve ID (full UUID or prefix)
+        val (itemId, idError) = resolveIdString(itemIdStr, context)
+        if (idError != null) {
+            return buildJsonObject {
+                put("itemId", JsonPrimitive(itemIdStr))
+                put("outcome", JsonPrimitive("not_found"))
+                put("error", JsonPrimitive("Failed to resolve item ID: $itemIdStr"))
+                claimRef?.let { put("claimRef", JsonPrimitive(it)) }
+            }
+        }
+
+        logAgentIdOverride(claimObj, trustedAgentId)
+
+        val result = context.workItemRepository().claim(itemId!!, trustedAgentId, ttlSeconds)
+        return mapClaimResult(result, claimRef, trustedAgentId, selectorResolved = false)
+    }
+
+    /** Logs when a caller-supplied `agentId` differs from the verified trusted identity. */
+    private fun logAgentIdOverride(
+        claimObj: JsonObject,
+        trustedAgentId: String
+    ) {
+        val callerAgentId = (claimObj["agentId"] as? JsonPrimitive)?.content
+        if (callerAgentId != null && callerAgentId != trustedAgentId) {
+            logger.debug(
+                "claim_item: caller-supplied agentId='{}' overridden by verified trustedAgentId='{}'",
+                callerAgentId,
+                trustedAgentId
+            )
+        }
+    }
+
+    /**
+     * Maps a [ClaimResult] to its response JSON. Shared by the selector and ID-based paths,
+     * which differ in exactly one way: the selector path's `success` result inserts
+     * `selectorResolved:true` immediately after `outcome` (key order matters — [JsonObject]
+     * is order-preserving and callers rely on it).
+     */
+    private fun mapClaimResult(
+        claimResult: ClaimResult,
+        claimRef: String?,
+        trustedAgentId: String,
+        selectorResolved: Boolean
+    ): JsonObject =
+        when (claimResult) {
+            is ClaimResult.Success -> {
+                val item = claimResult.item
+                buildJsonObject {
+                    put("itemId", JsonPrimitive(item.id.toString()))
+                    put("outcome", JsonPrimitive("success"))
+                    if (selectorResolved) put("selectorResolved", JsonPrimitive(true))
+                    claimRef?.let { put("claimRef", JsonPrimitive(it)) }
+                    put("claimedBy", JsonPrimitive(item.claimedBy ?: trustedAgentId))
+                    item.claimedAt?.let { put("claimedAt", JsonPrimitive(it.toString())) }
+                    item.claimExpiresAt?.let { put("claimExpiresAt", JsonPrimitive(it.toString())) }
+                    // Omit originalClaimedAt when it equals claimedAt (fresh claim — no prior claim to preserve).
+                    item.originalClaimedAt?.let {
+                        if (it != item.claimedAt) put("originalClaimedAt", JsonPrimitive(it.toString()))
+                    }
+                }
+            }
+
+            is ClaimResult.AlreadyClaimed -> {
+                // TOCTOU: item was claimed between recommend() and claim() (selector path),
+                // or by another agent between resolution and claim (ID path). Emit ToolError
+                // fields (kind, retryAfterMs, contendedItemId) so agents can make retry
+                // decisions without string-parsing. Tiered disclosure: no competing agent identity.
+                val alreadyClaimedError =
+                    ToolError(
+                        kind = ErrorKind.TRANSIENT,
+                        code = "already_claimed",
+                        message = "Item ${claimResult.itemId} is already claimed by another agent",
+                        retryAfterMs = claimResult.retryAfterMs,
+                        contendedItemId = claimResult.itemId
+                    )
+                buildJsonObject {
+                    put("itemId", JsonPrimitive(claimResult.itemId.toString()))
+                    put("outcome", JsonPrimitive("already_claimed"))
+                    put("kind", JsonPrimitive(alreadyClaimedError.kind.toJsonString()))
+                    put("contendedItemId", JsonPrimitive(alreadyClaimedError.contendedItemId!!.toString()))
+                    // Tiered disclosure: retryAfterMs only — no competing agent identity.
+                    alreadyClaimedError.retryAfterMs?.let { put("retryAfterMs", JsonPrimitive(it)) }
+                    claimRef?.let { put("claimRef", JsonPrimitive(it)) }
+                }
+            }
+
+            is ClaimResult.NotFound ->
+                buildJsonObject {
+                    put("itemId", JsonPrimitive(claimResult.itemId.toString()))
+                    put("outcome", JsonPrimitive("not_found"))
+                    claimRef?.let { put("claimRef", JsonPrimitive(it)) }
+                }
+
+            is ClaimResult.TerminalItem ->
+                buildJsonObject {
+                    put("itemId", JsonPrimitive(claimResult.itemId.toString()))
+                    put("outcome", JsonPrimitive("terminal_item"))
+                    claimRef?.let { put("claimRef", JsonPrimitive(it)) }
+                }
+
+            is ClaimResult.DBError -> {
+                val dbError =
+                    ToolError(
+                        kind = ErrorKind.TRANSIENT,
+                        code = "db_error",
+                        message = "Database error during claim operation",
+                        contendedItemId = claimResult.itemId
+                    )
+                buildJsonObject {
+                    put("itemId", JsonPrimitive(claimResult.itemId.toString()))
+                    put("outcome", JsonPrimitive("db_error"))
+                    put("kind", JsonPrimitive(dbError.kind.toJsonString()))
+                    put("code", JsonPrimitive(dbError.code))
+                    put("message", JsonPrimitive(dbError.message))
+                    put("contendedItemId", JsonPrimitive(dbError.contendedItemId!!.toString()))
+                    claimRef?.let { put("claimRef", JsonPrimitive(it)) }
+                }
+            }
+        }
+
+    /**
+     * Processes one `releases[]` entry. Returns `null` when the entry is malformed in a way
+     * the original inline loop silently skipped (missing `itemId`) — matching prior behavior.
+     */
+    private suspend fun processRelease(
+        releaseObj: JsonObject,
+        context: ToolExecutionContext,
+        trustedAgentId: String
+    ): JsonObject? {
+        val itemIdStr = (releaseObj["itemId"] as? JsonPrimitive)?.content ?: return null
+
+        val (itemId, idError) = resolveIdString(itemIdStr, context)
+        if (idError != null) {
+            return buildJsonObject {
+                put("itemId", JsonPrimitive(itemIdStr))
+                put("outcome", JsonPrimitive("not_found"))
+                put("error", JsonPrimitive("Failed to resolve item ID: $itemIdStr"))
+            }
+        }
+
+        return when (val result = context.workItemRepository().release(itemId!!, trustedAgentId)) {
+            is ReleaseResult.Success ->
+                buildJsonObject {
+                    put("itemId", JsonPrimitive(result.item.id.toString()))
+                    put("outcome", JsonPrimitive("success"))
+                }
+
+            is ReleaseResult.NotClaimedByYou ->
+                buildJsonObject {
+                    put("itemId", JsonPrimitive(result.itemId.toString()))
+                    put("outcome", JsonPrimitive("not_claimed_by_you"))
+                }
+
+            is ReleaseResult.NotFound ->
+                buildJsonObject {
+                    put("itemId", JsonPrimitive(result.itemId.toString()))
+                    put("outcome", JsonPrimitive("not_found"))
+                }
+
+            is ReleaseResult.DBError -> {
+                val dbError =
+                    ToolError(
+                        kind = ErrorKind.TRANSIENT,
+                        code = "db_error",
+                        message = "Database error during release operation",
+                        contendedItemId = result.itemId
+                    )
+                buildJsonObject {
+                    put("itemId", JsonPrimitive(result.itemId.toString()))
+                    put("outcome", JsonPrimitive("db_error"))
+                    put("kind", JsonPrimitive(dbError.kind.toJsonString()))
+                    put("code", JsonPrimitive(dbError.code))
+                    put("message", JsonPrimitive(dbError.message))
+                    put("contendedItemId", JsonPrimitive(dbError.contendedItemId!!.toString()))
+                }
+            }
+        }
     }
 
     /**
