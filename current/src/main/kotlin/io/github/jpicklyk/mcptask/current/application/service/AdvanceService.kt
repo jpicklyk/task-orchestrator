@@ -20,6 +20,7 @@ import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseReposit
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.infrastructure.config.EnvBoolean
 import org.slf4j.LoggerFactory
 
 /**
@@ -285,7 +286,7 @@ class AdvanceService(
          * itself never touches the environment.
          */
         fun resourceLeasesEnforcedFromEnv(env: (String) -> String? = System::getenv): Boolean =
-            io.github.jpicklyk.mcptask.current.infrastructure.config.EnvBoolean.parse(
+            EnvBoolean.parse(
                 RESOURCE_LEASES_ENFORCED_ENV,
                 env(RESOURCE_LEASES_ENFORCED_ENV),
                 default = true,

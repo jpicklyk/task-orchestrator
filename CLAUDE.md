@@ -23,6 +23,20 @@ Source lives under `current/`.
 
 **Entry point:** `current/src/main/kotlin/io/github/jpicklyk/mcptask/current/CurrentMain.kt`
 
+**Layer rules (enforced by `LayeringTest`):** `domain` -> `application` -> `infrastructure` -> `interfaces`
+(an outer layer may depend on an inner one; the reverse is forbidden) — `domain` must not import from
+`application`/`infrastructure`/`interfaces`; `application` must not import from `infrastructure`/`interfaces`;
+`infrastructure` must not import from `interfaces`. `infrastructure -> application` IS allowed (infrastructure
+adapters implement application-layer ports); `interfaces -> anything` is unrestricted; the root package
+(`CurrentMain.kt`) is unscoped. Enforced by
+`current/src/test/kotlin/.../architecture/LayeringTest.kt` (Konsist), production source only, against a
+checked-in, two-way-ratcheted baseline of pre-existing violations at
+`current/src/test/resources/architecture/layering-baseline.txt` — a new violation fails the test, and so
+does a stale baseline line whose violation was already fixed. Guard tests
+(`ToolDocumentationConsistencyTest`, `ToolTokenBudgetTest`) derive their tool list from
+`buildMcpTools()` (`interfaces/mcp/CurrentMcpServer.kt`, `internal`) rather than a hard-coded list, so
+they automatically cover every tool the production server registers.
+
 ## Modes of Operation
 
 - **Orchestration** (default) — orchestrator pushes items through phases via `advance_item`

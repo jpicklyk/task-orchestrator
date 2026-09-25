@@ -140,6 +140,10 @@ Fixes #53
 - Domain layer must remain framework-agnostic
 - Use repository pattern for data access
 - Tools should extend `BaseToolDefinition` or `SimpleLockAwareToolDefinition`
+- Layering is enforced by `current/src/test/kotlin/.../architecture/LayeringTest.kt` (Konsist),
+  with known pre-existing violations tracked in the checked-in, two-way-ratcheted baseline
+  `current/src/test/resources/architecture/layering-baseline.txt` — new violations fail the test;
+  fixing a baselined violation requires deleting its line from the baseline file.
 
 ### Adding New Tools
 
@@ -151,7 +155,7 @@ See [CLAUDE.md - Adding a New MCP Tool](CLAUDE.md#adding-a-new-mcp-tool) for det
 - [ ] Implement `validateParams()` with proper validation
 - [ ] Implement `execute()` with business logic
 - [ ] Handle `Result<T>` from repositories properly
-- [ ] Add comprehensive tests (aim for 80%+ coverage)
+- [ ] Add comprehensive tests (happy path, failure/error cases, and edge cases)
 - [ ] Register in `McpServer.createTools()`
 - [ ] Document in `docs/api-reference.md`
 - [ ] Add AI usage patterns to `docs/ai-guidelines.md`
@@ -349,15 +353,13 @@ For schema changes, see [docs/developer-guides/database-migrations.md](docs/deve
 
 # Migration tests
 ./gradlew test --tests "*migration*"
-
-# With coverage report
-./gradlew test jacocoTestReport
 ```
 
 ### Test Guidelines
 
 - Write tests for all new functionality
-- Aim for 80%+ code coverage
+- Cover the happy path, failure/error cases, and edge cases — there is no coverage-percentage
+  target or coverage-reporting tool (JaCoCo/Kover) configured in this project
 - Use descriptive test names that explain what's being tested
 - Test both success and error cases
 - Mock external dependencies using MockK

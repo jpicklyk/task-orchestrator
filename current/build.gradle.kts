@@ -115,6 +115,9 @@ dependencies {
     testImplementation(libs.junit.params)
     testRuntimeOnly(libs.junit.engine)
 
+    // Konsist — architecture layering test (LayeringTest.kt)
+    testImplementation(libs.konsist)
+
     // Ktor mock engine for hermetic HTTP tests
     testImplementation(libs.ktor.client.mock)
 
