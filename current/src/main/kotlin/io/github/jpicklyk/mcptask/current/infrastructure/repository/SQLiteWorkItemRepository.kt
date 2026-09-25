@@ -1157,6 +1157,16 @@ class SQLiteWorkItemRepository(
                 // Releases all other items held by this agent EXCEPT the newly-acquired target.
                 // Skipped on any failure result to preserve the agent's existing claim.
                 if (result is ClaimResult.Success) {
+                    // Read the about-to-be-evicted ids BEFORE the release UPDATE, inside the same
+                    // transaction/step, so the SELECT sees exactly the rows the UPDATE below will
+                    // touch — the event-publishing decorator needs these ids to emit item.updated
+                    // for each auto-released item (see ClaimResult.Success.releasedItemIds).
+                    val releasedIds =
+                        WorkItemsTable
+                            .selectAll()
+                            .where { (WorkItemsTable.claimedBy eq agentId) and (WorkItemsTable.id neq itemId) }
+                            .map { it[WorkItemsTable.id].value }
+
                     exec(
                         """
                         UPDATE work_items
@@ -1174,9 +1184,11 @@ class SQLiteWorkItemRepository(
                                 uuidType to itemId,
                             )
                     )
-                }
 
-                result
+                    result.copy(releasedItemIds = releasedIds)
+                } else {
+                    result
+                }
             }
         } catch (e: Exception) {
             logger.error("Failed to claim WorkItem $itemId for agent $agentId: ${e.message}", e)
