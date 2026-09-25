@@ -42,7 +42,6 @@ class ServerCompositionTest {
         assertNotNull(composition.toolContext, "ToolExecutionContext must be wired")
         assertNotNull(composition.noteSchemaService)
         assertNotNull(composition.idempotencyCache)
-        assertNotNull(composition.mcpLoggingService)
         assertNotNull(composition.degradedModePolicy)
     }
 

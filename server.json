@@ -62,6 +62,12 @@
           "description": "Logging level: DEBUG, INFO, WARN, ERROR (default: INFO)",
           "isRequired": false,
           "isSecret": false
+        },
+        {
+          "name": "LOG_FILE",
+          "description": "Optional log file path. Unset (default) disables file logging; logs are always JSON on stderr.",
+          "isRequired": false,
+          "isSecret": false
         }
       ]
     }

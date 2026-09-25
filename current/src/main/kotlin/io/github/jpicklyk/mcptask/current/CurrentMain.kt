@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current
 
 import io.github.jpicklyk.mcptask.current.application.BuildInfo
 import io.github.jpicklyk.mcptask.current.infrastructure.config.JvmTimezone
+import io.github.jpicklyk.mcptask.current.infrastructure.logging.LogFileAppenderInstaller
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.SignalHandler
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.CurrentMcpServer
@@ -14,6 +15,11 @@ import org.slf4j.LoggerFactory
  * Entry point for the Current (v3) MCP Task Orchestrator application.
  */
 fun main() {
+    // Opt-in file logging (LOG_FILE): attach before anything else logs, so as few startup lines
+    // as possible are missed from the file. See LogFileAppenderInstaller's KDoc for why this is
+    // programmatic rather than a logback.xml <if> conditional. No-op when LOG_FILE is unset.
+    LogFileAppenderInstaller.installIfConfigured()
+
     val logger = LoggerFactory.getLogger("CurrentMain")
     val version = BuildInfo.version
 

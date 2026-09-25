@@ -404,6 +404,13 @@ After adding or editing this file, reconnect the MCP server:
 | `FLYWAY_REPAIR` | `false` | Run Flyway repair (fix migration checksums) instead of migrate, then exit 0 without serving — the process never starts a transport or reports healthy. Ignored (with a WARN) if `USE_FLYWAY=false`. |
 | `AGENT_CONFIG_DIR` | _(unset)_ | Parent directory of `.taskorchestrator/`; set when mounting a config folder into the container |
 | `LOG_LEVEL` | `INFO` | Verbosity: `DEBUG`, `INFO`, `WARN`, `ERROR` |
+| `LOG_FILE` | _(unset)_ | Opt-in log file path (e.g. `/app/data/logs/task-orchestrator.log`). Unset means no file logging. |
+
+Logs are JSON, one object per line, written to stderr — stdout is reserved exclusively for MCP
+JSON-RPC on the stdio transport. Each line carries `timestamp` (ISO-8601 UTC), `level`,
+`loggerName`, `threadName`, `formattedMessage`, and an `mdc` object with correlation fields
+(`transport`, `tool`/`httpPath`, `requestId`, `sessionId`, etc. — see
+[fleet-deployment.md](fleet-deployment.md) for the full field list).
 
 ---
 

@@ -48,6 +48,7 @@ TASK_ORCHESTRATOR_API_URL=http://localhost:3001
 | Config mount = global floor (recommended) | `-v "<pwd>/deploy/global-config/.taskorchestrator:/project/.taskorchestrator:ro" -e AGENT_CONFIG_DIR=/project` |
 | Config mount = none (multi-project via config-sync) | *(omit)* |
 | Debug on | `-e LOG_LEVEL=DEBUG -e DATABASE_SHOW_SQL=true` |
+| Log to file (opt-in) | `-e LOG_FILE=/app/data/logs/task-orchestrator.log` (JSON on stderr always; this also writes the same JSON lines to that file, on the existing `/app/data` volume) |
 | Port publish (loopback only) | `-p 127.0.0.1:3001:3001` |
 
 ## REST-mode env tuples (full, copy-paste)

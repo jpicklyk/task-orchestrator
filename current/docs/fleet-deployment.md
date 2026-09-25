@@ -82,6 +82,39 @@ docker inspect --format '{{.State.Health.Status}}' <container>
 
 ---
 
+## Logging
+
+Logs are structured JSON, one object per line, written to **stderr only** — stdout is reserved
+exclusively for MCP JSON-RPC messages on the stdio transport, so nothing may ever be pointed at it.
+Level is controlled by `LOG_LEVEL` (default `INFO`); there is no separate stderr threshold.
+
+Each JSON line carries:
+
+| Field | Description |
+|-------|--------------|
+| `timestamp` | ISO-8601, UTC, e.g. `2026-09-25T12:00:00.123Z` |
+| `level`, `loggerName`, `threadName`, `formattedMessage` | Standard SLF4J/Logback fields |
+| `mdc` | Correlation fields for the request/call in flight (see below) |
+| `throwable` | Present only on events logged with an exception |
+
+**MDC correlation fields**, propagated via `kotlinx-coroutines-slf4j`'s `MDCContext` so they
+survive coroutine dispatcher hops:
+
+- MCP tool calls (`McpToolAdapter`): `transport=mcp`, `tool` (the tool name), `sessionId`, a
+  server-generated `requestId` (UUID, per call — the MCP SDK handler has no JSON-RPC request id to
+  reuse), and `actorId` when the call's top-level `arguments.actor.id` is a JSON string (this is
+  self-reported and unverified — independent of `actor_authentication` verification).
+- REST requests under `/api/v1` (`RequestCorrelation`): `transport=rest`, `requestId` (the inbound
+  `X-Request-Id` header when it matches `^[A-Za-z0-9._-]{1,64}$`, else a generated UUID),
+  `httpMethod`, and `httpPath` (no query string, so `?token=` never lands in a log line).
+
+**File logging is opt-in** via `LOG_FILE` (unset by default — no file logging). Set it to a path,
+e.g. `-e LOG_FILE=/app/data/logs/task-orchestrator.log` (landing on the existing `/app/data`
+volume in Docker); the file uses the same JSON encoding, rolls at 10MB/day (`.gz`, 30-day/100MB
+retention), and its parent directories are created automatically.
+
+---
+
 ## REST API Authentication
 
 The REST API layer (`API_ENABLED=true`) is a **separate authentication layer** from the MCP actor identity system. They are independent:

@@ -58,6 +58,7 @@ dependencies {
     // Kotlin standard library and coroutines
     implementation(libs.kotlin.stdlib)
     implementation(libs.kotlinx.coroutines)
+    implementation(libs.kotlinx.coroutines.slf4j)
 
     // MCP SDK
     implementation(libs.mcp.sdk)

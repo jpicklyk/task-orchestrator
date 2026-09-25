@@ -34,6 +34,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.JwksApiVerifier
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.cors.configureCors
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventBus
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.logging.installRequestCorrelation
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.configRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.dependencyRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.dependencyWriteRoutes
@@ -156,7 +157,6 @@ class CurrentMcpServer(
             val statusLabelService = composition.statusLabelService
             val degradedModePolicy = composition.degradedModePolicy
             val idempotencyCache = composition.idempotencyCache
-            val mcpLoggingService = composition.mcpLoggingService
 
             // Build tool list (shared with tests via buildMcpTools())
             val tools = buildMcpTools()
@@ -167,19 +167,12 @@ class CurrentMcpServer(
             val server = configureServer(serverName, tools.size, toolNames)
             mcpSdkServer = server
 
-            // Bind MCP logging service to the server (must happen before clients connect)
-            mcpLoggingService.bindServer(server)
-
             // Register MCP tools
             val adapter = McpToolAdapter()
             adapter.registerToolsWithServer(server, tools, toolContext)
             logger.info("Registered ${tools.size} MCP tools")
 
             val toolCount = tools.size
-
-            // Lifecycle logging — these are no-ops until a client connects (sessions map is empty at this point)
-            mcpLoggingService.info("mcp-task-orchestrator.server", "Database initialized at: $dbPath")
-            mcpLoggingService.info("mcp-task-orchestrator.server", "Server ready with $toolCount tools")
 
             // Readiness marker: written only once the server is actually serving (inside the
             // transport runners below, after the transport confirms it started), and cleared on
@@ -439,7 +432,7 @@ class CurrentMcpServer(
     }
 
     /**
-     * Configures the MCP SDK server with capabilities for tools, prompts, and resources.
+     * Configures the MCP SDK server with capabilities for tools and logging.
      */
     private fun configureServer(
         serverName: String,
@@ -454,17 +447,30 @@ class CurrentMcpServer(
                 ),
             options =
                 ServerOptions(
-                    capabilities =
-                        ServerCapabilities(
-                            tools = ServerCapabilities.Tools(listChanged = true),
-                            prompts = ServerCapabilities.Prompts(listChanged = true),
-                            resources = ServerCapabilities.Resources(subscribe = null, listChanged = null),
-                            logging = JsonObject(emptyMap())
-                        )
+                    capabilities = productionServerCapabilities()
                 ),
             instructions = "Current (v3) MCP Task Orchestrator — $toolCount tools: $toolNames"
         )
 }
+
+/**
+ * The [ServerCapabilities] this server advertises in `initialize` results: `tools` (with
+ * `listChanged`) and `logging` — no `prompts` or `resources`. Extracted from [CurrentMcpServer]'s
+ * private `configureServer` so a test can assert on it directly.
+ *
+ * `logging` is kept even though the old MCP protocol-level logging service was removed (it never
+ * actually emitted anything — see AR-78/item b5081c9b): [McpToolAdapter] still emits
+ * `notifications/message` directly (via
+ * `clientConnection.sendLoggingMessage`) on validation errors, per-root-config-unavailable
+ * failures, and internal errors, and MCP requires servers that emit log notifications to declare
+ * the `logging` capability. `prompts`/`resources` are removed because no `addPrompt`/`addResource`
+ * exists anywhere in this server — they were advertised-but-empty surfaces.
+ */
+internal fun productionServerCapabilities(): ServerCapabilities =
+    ServerCapabilities(
+        tools = ServerCapabilities.Tools(listChanged = true),
+        logging = JsonObject(emptyMap())
+    )
 
 /**
  * Builds the canonical list of MCP tools registered with the server.
@@ -562,6 +568,8 @@ internal fun Application.installRestApiRoutes(
     appConfig: AppConfig = AppConfig.fromEnv(),
 ) {
     if (apiConfig is ApiAuthConfig.Disabled) return
+
+    installRequestCorrelation()
 
     routing {
         // Authenticated routes under /api/v1 — auth plugin enforces bearer/JWKS

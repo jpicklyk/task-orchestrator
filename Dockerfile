@@ -45,7 +45,7 @@ RUN dnf install -y shadow-utils \
     && dnf clean all \
     && groupadd -r -g 1001 appgroup \
     && useradd -r -u 1001 -g appgroup -d /app -s /sbin/nologin appuser \
-    && mkdir -p /app/data /app/logs \
+    && mkdir -p /app/data \
     && chown -R appuser:appgroup /app
 
 # Volume for SQLite database persistence
