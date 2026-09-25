@@ -10,7 +10,7 @@ forced cache refresh — see "Plugin Discovery and Cache Refresh" below. No vers
 
 | Plugin | Directory | Current Version |
 |--------|-----------|-----------------|
-| `task-orchestrator` | `claude-plugins/task-orchestrator/` | `3.6.1` |
+| `task-orchestrator` | `claude-plugins/task-orchestrator/` | `3.7.0` |
 
 > Updated automatically by `/prepare-release`. Do not bump manually.
 

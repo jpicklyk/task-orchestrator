@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.15.0] - 2026-09-25
 
 ### Highlights
 
@@ -106,6 +106,11 @@ Full per-item detail follows.
 
 ### Changed
 
+- **Bumped plugin version to 3.7.0.** Adds the SubagentStop phase guard, the `implementer` /
+  `reviewer` agent definitions, the headless execution-mode signal and the SessionStart
+  registration self-check; hook matchers now accept any `task-orchestrator` registration key.
+  Because the plugin cache is version-keyed, these hook changes reach sessions only after the
+  plugin refreshes.
 - **JVM pinned to UTC.** The Docker image sets `-Duser.timezone=UTC`, and non-Docker launches
   override a non-UTC default with a WARN, keeping claim-freshness math consistent with SQLite
   `datetime('now')`. (#348)
