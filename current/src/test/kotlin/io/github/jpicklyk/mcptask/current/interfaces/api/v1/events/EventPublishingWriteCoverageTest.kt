@@ -7,13 +7,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.buildH2RepositoryProvider
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Deferred
-import kotlinx.coroutines.async
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -28,28 +22,10 @@ import java.util.UUID
  * subscriber (`rootIds = emptySet()`, matches every event regardless of root resolution) connected
  * BEFORE the write under test, per the item's frozen `test-plan`.
  *
- * Every scenario collects on ONE continuous pass bounded by [COLLECT_WINDOW_MS] — a subscribed
- * [Flow] is channel-backed and single-consumption; a second `collect`/`take` on the same instance
- * observes an already-closed channel and returns immediately with an empty list rather than
- * waiting, so "exactly N events, then nothing more" must be one bounded window, not two takes.
+ * Every scenario subscribes, performs the write under test, then drains via [drainDelivered] —
+ * see that helper's KDoc for why no fixed wait is needed (O5, item 646b12a6).
  */
 class EventPublishingWriteCoverageTest {
-    companion object {
-        private const val COLLECT_WINDOW_MS = 1200L
-    }
-
-    /**
-     * Collects every event delivered on [flow] during a single [COLLECT_WINDOW_MS] window,
-     * started before the write under test. Returns whatever arrived when the window elapses —
-     * this is both the "exact events" oracle and the "nothing more" guarantee in one pass.
-     */
-    private fun CoroutineScope.collectEventsWithin(flow: Flow<ApiEvent>): Deferred<List<ApiEvent>> =
-        async {
-            val events = mutableListOf<ApiEvent>()
-            withTimeoutOrNull(COLLECT_WINDOW_MS) { flow.collect { events.add(it) } }
-            events
-        }
-
     // -------------------------------------------------------------------------
     // S1 — createBatch happy path
     // -------------------------------------------------------------------------
@@ -67,8 +43,6 @@ class EventPublishingWriteCoverageTest {
             val c = provider.workItemRepository().create(WorkItem(title = "C", depth = 0)).getOrNull()!!
 
             val flow = bus.subscribe("s1", emptySet(), lastEventId = null)
-            val collected = collectEventsWithin(flow)
-            delay(30)
 
             provider.dependencyRepository().createBatch(
                 listOf(
@@ -77,11 +51,10 @@ class EventPublishingWriteCoverageTest {
                 ),
             )
 
-            val events = collected.await()
+            val events = bus.drainDelivered("s1", flow)
             assertEquals(2, events.size, "expected exactly 2 events, got: $events")
             assertTrue(events.all { it.event == ApiEventType.DEPENDENCY_ADDED })
             assertEquals(setOf(a.id.toString()), events.map { it.itemId }.toSet())
-            bus.unsubscribe("s1")
         }
 
     // -------------------------------------------------------------------------
@@ -110,16 +83,13 @@ class EventPublishingWriteCoverageTest {
             )
 
             val flow = bus.subscribe("s2", emptySet(), lastEventId = null)
-            val collected = collectEventsWithin(flow)
-            delay(30)
 
             provider.dependencyRepository().deleteByItemId(b.id)
 
-            val events = collected.await()
+            val events = bus.drainDelivered("s2", flow)
             assertEquals(2, events.size, "expected exactly 2 events, got: $events")
             assertTrue(events.all { it.event == ApiEventType.DEPENDENCY_REMOVED })
             assertEquals(setOf(a.id.toString(), b.id.toString()), events.map { it.itemId }.toSet())
-            bus.unsubscribe("s2")
         }
 
     // -------------------------------------------------------------------------
@@ -139,16 +109,13 @@ class EventPublishingWriteCoverageTest {
             provider.noteRepository().upsert(Note(itemId = x.id, key = "note-b", role = "work", body = "b"))
 
             val flow = bus.subscribe("s3", emptySet(), lastEventId = null)
-            val collected = collectEventsWithin(flow)
-            delay(30)
 
             provider.noteRepository().deleteByItemId(x.id)
 
-            val events = collected.await()
+            val events = bus.drainDelivered("s3", flow)
             assertEquals(1, events.size, "expected exactly 1 event, got: $events")
             assertEquals(ApiEventType.NOTE_DELETED, events[0].event)
             assertEquals(x.id.toString(), events[0].itemId)
-            bus.unsubscribe("s3")
         }
 
     // -------------------------------------------------------------------------
@@ -168,16 +135,13 @@ class EventPublishingWriteCoverageTest {
             val missingId = UUID.randomUUID()
 
             val flow = bus.subscribe("s4", emptySet(), lastEventId = null)
-            val collected = collectEventsWithin(flow)
-            delay(30)
 
             provider.workItemRepository().deleteAll(setOf(a.id, b.id, missingId))
 
-            val events = collected.await()
+            val events = bus.drainDelivered("s4", flow)
             assertEquals(2, events.size, "expected exactly 2 events, got: $events")
             assertTrue(events.all { it.event == ApiEventType.ITEM_DELETED })
             assertEquals(setOf(a.id.toString(), b.id.toString()), events.map { it.itemId }.toSet())
-            bus.unsubscribe("s4")
         }
 
     // -------------------------------------------------------------------------
@@ -211,12 +175,10 @@ class EventPublishingWriteCoverageTest {
                 )
 
             val flow = bus.subscribe("s8", emptySet(), lastEventId = null)
-            val collected = collectEventsWithin(flow)
-            delay(30)
 
             provider.workTreeExecutor().execute(input)
 
-            val events = collected.await()
+            val events = bus.drainDelivered("s8", flow)
             assertEquals(5, events.size, "expected exactly 5 events, got: $events")
 
             val itemCreated = events.filter { it.event == ApiEventType.ITEM_CREATED }
@@ -235,8 +197,6 @@ class EventPublishingWriteCoverageTest {
             val noteUpserted = events.filter { it.event == ApiEventType.NOTE_UPSERTED }
             assertEquals(1, noteUpserted.size)
             assertEquals(c1Id.toString(), noteUpserted[0].itemId)
-
-            bus.unsubscribe("s8")
         }
 
     // -------------------------------------------------------------------------
@@ -255,8 +215,6 @@ class EventPublishingWriteCoverageTest {
             val b = provider.workItemRepository().create(WorkItem(title = "B9", depth = 0)).getOrNull()!!
 
             val flow = bus.subscribe("s9", emptySet(), lastEventId = null)
-            val collected = collectEventsWithin(flow)
-            delay(30)
 
             var threw = false
             try {
@@ -271,9 +229,8 @@ class EventPublishingWriteCoverageTest {
             }
 
             assertTrue(threw, "expected an exception for an in-batch duplicate dependency edge")
-            val events = collected.await()
+            val events = bus.drainDelivered("s9", flow)
             assertTrue(events.isEmpty(), "no dependency.added event may be published on a thrown createBatch, got: $events")
-            bus.unsubscribe("s9")
         }
 
     // -------------------------------------------------------------------------
@@ -307,8 +264,6 @@ class EventPublishingWriteCoverageTest {
                 )
 
             val flow = bus.subscribe("s11", emptySet(), lastEventId = null)
-            val collected = collectEventsWithin(flow)
-            delay(30)
 
             var threw = false
             try {
@@ -318,9 +273,8 @@ class EventPublishingWriteCoverageTest {
             }
 
             assertTrue(threw, "expected an exception for a cyclic in-tree dependency")
-            val events = collected.await()
+            val events = bus.drainDelivered("s11", flow)
             assertTrue(events.isEmpty(), "no events may be published when work-tree creation throws, got: $events")
-            bus.unsubscribe("s11")
         }
 
     // -------------------------------------------------------------------------
@@ -353,8 +307,6 @@ class EventPublishingWriteCoverageTest {
                 )
 
             val flow = bus.subscribe("s12", emptySet(), lastEventId = null)
-            val collected = collectEventsWithin(flow)
-            delay(30)
 
             var threw = false
             try {
@@ -367,12 +319,11 @@ class EventPublishingWriteCoverageTest {
             }
 
             assertTrue(threw, "the forced exception must propagate out of inTransaction")
-            val events = collected.await()
+            val events = bus.drainDelivered("s12", flow)
             assertTrue(events.isEmpty(), "no events may be published once the outer transaction rolls back, got: $events")
 
             val rows = provider.workItemRepository().findByIds(setOf(rootId, c1Id, c2Id)).getOrNull()
             assertTrue(rows.isNullOrEmpty(), "no rows may persist after the outer transaction rolls back, got: $rows")
-            bus.unsubscribe("s12")
         }
 
     // -------------------------------------------------------------------------
@@ -394,38 +345,26 @@ class EventPublishingWriteCoverageTest {
 
             run {
                 val flow = bus.subscribe("s14-a", emptySet(), lastEventId = null)
-                val collected = collectEventsWithin(flow)
-                delay(20)
                 provider.dependencyRepository().createBatch(emptyList())
-                assertTrue(collected.await().isEmpty(), "createBatch(emptyList()) must emit no events")
-                bus.unsubscribe("s14-a")
+                assertTrue(bus.drainDelivered("s14-a", flow).isEmpty(), "createBatch(emptyList()) must emit no events")
             }
             run {
                 val flow = bus.subscribe("s14-b", emptySet(), lastEventId = null)
-                val collected = collectEventsWithin(flow)
-                delay(20)
                 provider.workItemRepository().deleteAll(emptySet())
-                assertTrue(collected.await().isEmpty(), "deleteAll(emptySet()) must emit no events")
-                bus.unsubscribe("s14-b")
+                assertTrue(bus.drainDelivered("s14-b", flow).isEmpty(), "deleteAll(emptySet()) must emit no events")
             }
             run {
                 val flow = bus.subscribe("s14-c", emptySet(), lastEventId = null)
-                val collected = collectEventsWithin(flow)
-                delay(20)
                 provider.noteRepository().deleteByItemId(lonely.id)
-                assertTrue(collected.await().isEmpty(), "deleteByItemId on an item with no notes must emit no events")
-                bus.unsubscribe("s14-c")
+                assertTrue(bus.drainDelivered("s14-c", flow).isEmpty(), "deleteByItemId on an item with no notes must emit no events")
             }
             run {
                 val flow = bus.subscribe("s14-d", emptySet(), lastEventId = null)
-                val collected = collectEventsWithin(flow)
-                delay(20)
                 provider.dependencyRepository().deleteByItemId(lonely.id)
                 assertTrue(
-                    collected.await().isEmpty(),
+                    bus.drainDelivered("s14-d", flow).isEmpty(),
                     "deleteByItemId on an item with no dependencies must emit no events",
                 )
-                bus.unsubscribe("s14-d")
             }
         }
 
@@ -454,15 +393,12 @@ class EventPublishingWriteCoverageTest {
                 )
 
             val flow = bus.subscribe("s15", emptySet(), lastEventId = null)
-            val collected = collectEventsWithin(flow)
-            delay(30)
 
             provider.workTreeExecutor().execute(input)
 
-            val events = collected.await()
+            val events = bus.drainDelivered("s15", flow)
             assertEquals(1, events.size, "expected exactly 1 event, got: $events")
             assertEquals(ApiEventType.ITEM_CREATED, events[0].event)
             assertEquals(c1Id.toString(), events[0].itemId)
-            bus.unsubscribe("s15")
         }
 }

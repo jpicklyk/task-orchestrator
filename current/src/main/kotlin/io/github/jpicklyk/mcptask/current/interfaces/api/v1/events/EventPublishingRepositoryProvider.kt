@@ -261,12 +261,12 @@ class EventPublishingRepositoryProvider(
         }
 
         override suspend fun deleteAll(ids: Set<UUID>): Result<Int> {
-            // Performance guard: only pre-read (to learn which ids actually exist, and their
-            // pre-delete roots) when an SSE client is connected — same guard pattern as delete()/
-            // the note and dependency single-delete overrides in this file. With no subscribers,
-            // this is skipped entirely; there is nothing to fan out to anyway.
-            val hasSubscribers = eventBus.subscriberCount() > 0
-            val preDeleteItems = if (hasSubscribers) (inner.findByIds(ids) as? Result.Success)?.data else null
+            // Unconditional pre-read (to learn which ids actually exist, and their pre-delete
+            // roots) — replay needs the event even when no SSE client is connected right now: a
+            // later Last-Event-ID resume must still see these deletes (as UNRESOLVED entries, via
+            // resolveRoots' own no-subscriber guard), matching item delete()/note deleteByItemId's
+            // existing behaviour. The 4 guarded delete paths in this file are now uniform.
+            val preDeleteItems = (inner.findByIds(ids) as? Result.Success)?.data
             val rootsByItemId =
                 if (preDeleteItems != null) {
                     preDeleteItems.associate { it.id to resolveRoots(it.id) }
@@ -354,9 +354,9 @@ class EventPublishingRepositoryProvider(
         }
 
         override suspend fun delete(id: UUID): Result<Boolean> {
-            // Performance guard: only pre-read the note (to learn its itemId for the event payload)
-            // when an SSE client is connected. With no subscribers, skip the extra getById entirely.
-            val note = if (eventBus.subscriberCount() > 0) (inner.getById(id) as? Result.Success)?.data else null
+            // Unconditional pre-read of the note (to learn its itemId for the event payload) —
+            // replay needs the event even at 0 subscribers; see deleteAll()'s comment above.
+            val note = (inner.getById(id) as? Result.Success)?.data
             val result = inner.delete(id)
             if (result is Result.Success && result.data && note != null) {
                 val roots = resolveRoots(note.itemId)
@@ -412,9 +412,9 @@ class EventPublishingRepositoryProvider(
         }
 
         override suspend fun delete(id: UUID): Boolean {
-            // Performance guard: only pre-read the dependency (for the event payload) when an SSE
-            // client is connected. With no subscribers, skip the extra findById.
-            val dep = if (eventBus.subscriberCount() > 0) inner.findById(id) else null
+            // Unconditional pre-read of the dependency (for the event payload) — replay needs the
+            // event even at 0 subscribers; see WorkItemRepository.deleteAll()'s comment above.
+            val dep = inner.findById(id)
             val result = inner.delete(id)
             if (result && dep != null) {
                 // Same resolution as create(): DB-backed, so a cold cache no longer withholds
@@ -448,9 +448,10 @@ class EventPublishingRepositoryProvider(
         }
 
         override suspend fun deleteByItemId(itemId: UUID): Int {
-            // Performance guard: only pre-read the edges (for their itemIds/fromItemId payload)
-            // when an SSE client is connected. With no subscribers, skip the extra findByItemId.
-            val existingEdges = if (eventBus.subscriberCount() > 0) inner.findByItemId(itemId) else emptyList()
+            // Unconditional pre-read of the edges (for their itemIds/fromItemId payload) — replay
+            // needs the event even at 0 subscribers; see WorkItemRepository.deleteAll()'s comment
+            // above.
+            val existingEdges = inner.findByItemId(itemId)
             val count = inner.deleteByItemId(itemId)
             if (count > 0) {
                 // Per pre-read edge (both directions — findByItemId matches fromItemId OR
