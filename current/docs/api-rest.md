@@ -280,14 +280,21 @@ note is upserted or the config changes, without the item itself being touched.
 ### Config ETags
 
 Config/schema endpoints (`/config`, `/config/schemas`, etc.) use a fingerprint-based ETag:
-- Format: `"cfg-<fingerprint>"` where fingerprint is a SHA-256 hex digest computed once, at process startup, over the exact bytes parsed from the global config file — not a fresh re-read of the file on each request, so it is stable for the life of the process even if the file changes on disk (restart to pick up new bytes; there is no lastModified/size fallback)
+- Format: `"cfg-<fingerprint>"` where fingerprint is a SHA-256 hex digest computed once, at process startup, over the exact bytes parsed from the global config file (normalized first — see below) — not a fresh re-read of the file on each request, so it is stable for the life of the process even if the file changes on disk (restart to pick up new bytes; there is no lastModified/size fallback)
 - Stable across reads when the config has not changed
 - `If-None-Match` → `304` when fingerprint matches
 
 The per-root project config endpoints (§18, `/roots/{rootId}/config`) use the SAME `"cfg-<fingerprint>"`
-format, but the fingerprint is a SHA-256 over the stored `configYaml`'s raw UTF-8 bytes (see
+format, but the fingerprint is a SHA-256 over the stored `configYaml`'s UTF-8 bytes (see
 `SQLiteProjectConfigRepository.computeFingerprint`) rather than the global config file. `PUT` additionally
 accepts `If-Match` for optimistic-concurrency writes (see §18).
+
+**Normalization (both endpoints, identical rule):** before hashing, the config text has one leading
+UTF-8 BOM (U+FEFF) stripped if present, then every CRLF (`\r\n`) is replaced with LF (`\n`) — nothing
+else. The stored/served `configYaml` bytes are never rewritten; only the value fed into the SHA-256
+hash is normalized. This means a CRLF/BOM checkout (e.g. `core.autocrlf=true` on Windows) of
+byte-identical content produces the same fingerprint/ETag as an LF, BOM-less checkout. See
+`infrastructure/security/Sha256Hex.kt`'s `configFingerprint` for the canonical implementation.
 
 ---
 

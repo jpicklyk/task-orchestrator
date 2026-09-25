@@ -1,3 +1,8 @@
 # Force LF line endings for shell scripts (required for bash heredocs)
 *.sh text eol=lf
 *.mjs text eol=lf
+
+# Config fingerprints (server + config-sync hook) normalize CRLF/BOM before hashing, but keeping
+# these files LF in the repo avoids the one-time re-push every CRLF/BOM checkout would otherwise
+# trigger on first sync (see infrastructure/security/Sha256Hex.kt's configFingerprint KDoc).
+**/.taskorchestrator/*.yaml text eol=lf

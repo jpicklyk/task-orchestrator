@@ -15,7 +15,6 @@ import io.ktor.server.testing.testApplication
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -245,7 +244,7 @@ class ProjectConfigRoutesGuardOrderTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `probe a CRLF copy of the current content re-fingerprints and is accepted even with If-Match naming the LF fingerprint`(): Unit =
+    fun `probe a CRLF copy of the current content fingerprints identically and stores the raw CRLF bytes`(): Unit =
         testApplication {
             val repo = buildH2RepositoryProvider()
             val root = createGuardOrderRoot(repo)
@@ -272,14 +271,19 @@ class ProjectConfigRoutesGuardOrderTest {
             assertEquals(HttpStatusCode.OK, response.status)
             val newEtag = response.headers[HttpHeaders.ETag]
             assertNotNull(newEtag)
-            assertNotEquals(
+            assertEquals(
                 originalEtag,
                 newEtag,
-                "CRLF changes the byte sequence, so the fingerprint (SHA-256 of bytes) must change",
+                "config fingerprints normalize CRLF to LF before hashing (14067aab), so a CRLF copy of " +
+                    "byte-identical content must fingerprint the SAME as the LF original",
             )
 
             val persisted = runBlocking { repo.projectConfigRepository().get(root.id) }
-            assertEquals(crlfBody, (persisted as Result.Success).data?.configYaml)
+            assertEquals(
+                crlfBody,
+                (persisted as Result.Success).data?.configYaml,
+                "the STORED body is never normalized -- only the value fed into the fingerprint hash",
+            )
         }
 
     @Test

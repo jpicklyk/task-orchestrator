@@ -982,7 +982,9 @@ components:
           format: uuid
         fingerprint:
           type: string
-          description: SHA-256 hex digest of the stored configYaml's UTF-8 bytes
+          description: >-
+            SHA-256 hex digest of the stored configYaml's UTF-8 bytes, after stripping one
+            leading BOM and normalizing CRLF to LF (the stored configYaml itself is unchanged)
         updatedAt:
           type: string
           format: date-time
@@ -2511,7 +2513,8 @@ paths:
           schema:
             type: string
           description: >-
-            Optional SHA-256 hex digest; when supplied, adds a `relation` field
+            Optional SHA-256 hex digest (BOM-stripped, CRLF-normalized before hashing — see
+            ProjectConfigResponseDto.fingerprint); when supplied, adds a `relation` field
             ("current"/"superseded"/"unknown") to the response, classifying it against the
             root's stored fingerprint history.
       responses:
