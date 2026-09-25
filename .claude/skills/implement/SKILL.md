@@ -176,7 +176,7 @@ working directory and then names a relative `plans/<slug>.md` points at a path t
 
 | Slot | Why it exists |
 |---|---|
-| Header | One place agents read branch, worktree path, the contract's own absolute path, base SHA, PR boundary, scratchpad and the gradle lock helper, so no prompt repeats them. |
+| Header | One place agents read branch, worktree path, the write root every agent write must fall under, the contract's own absolute path, base SHA, PR boundary, scratchpad and the gradle lock helper, so no prompt repeats them (write root: proposal `d1484a3e`). |
 | Conflict rule | Makes the plan file authoritative over prompt text, and names the per-item note that outranks the plan for its own dimension. |
 | Items | Freezes each item's scope anchor so an agent cannot re-litigate scope mid-wave. |
 | Planning seat return template | Fixes the fields each planning seat returns, so streams compose without re-reading every plan. |
@@ -280,11 +280,12 @@ path (Step 2's Contract path line) — never a relative `plans/...`, which does 
 worktree — so it reads the Items and Conflict rule slots it is about to extend; its return is what
 fills the File ownership and Planning seat return template slots for the rest of the wave.
 
-**Structured return (seven fields, each required — `none` is a valid value):**
+**Structured return (eight fields, each required — `none` is a valid value):**
 
 | Field | Semantics |
 |---|---|
 | `diagnosis-corrections` | What the diagnosis/task-scope got wrong or missed, with current `file:line` — or `none`. |
+| `defect-class-siblings` | Every other site sharing the root-cause pattern (same cast/fallback idiom, same predicate, same wildcard or character class, same error-classification path, other readers or writers of the field), found by a named sweep (command + scope + hit count). Mark each one `frozen as D#` or `deferred: <reason>`, or return `none (sweep: <command>)` (proposal `bb191508`). |
 | `cross-stream-file-overlaps` | Files this stream must write that another stream in the same wave also touches — drives wave sequencing (serialize the overlap, parallelize the rest) — or `none`. |
 | `missing-api-or-seam` | A surface the fix needs that does not exist yet, with the exact proposed NEW signature — or `none`. |
 | `test-plan-status` | Whether `test-plan` is filled and frozen (`filled (<n> chars)`) or still open, and why. |
@@ -635,7 +636,10 @@ instantiated from
 [`references/dispatch-contract-template.md`](references/dispatch-contract-template.md) — it
 states the declarations block, the `src/main` tool ban, the `keys=` filter, stop-and-ask, fixture
 invariants, surface labels, commit form and manifest fields in full; on a Delegated-tier run with
-no contract file, paste that slot into the prompt instead of paraphrasing it.
+no contract file, paste that slot into the prompt instead of paraphrasing it. The declarations
+block is filled by a separate, non-author **declarations-extractor** seat, and the orchestrator
+scans and strips it of implementation prose before the author sees it — the slot states the
+seat's accuracy contract and the scan (proposal `234b50a0`).
 
 Capture the test author's pre/post commit SHAs the same way as implementation agents
 (`Test-Pre-SHA` / `Test-Post-SHA` in the tracking table above), then run the disjointness check.

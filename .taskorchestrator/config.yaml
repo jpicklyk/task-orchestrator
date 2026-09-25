@@ -62,7 +62,7 @@ work_item_schemas:
         description: "Reproduction, root cause, and fix approach."
         skill: "spec-quality"
         maxLength: 6000
-        guidance: "This note must cover: reproduction steps (exact inputs and expected vs actual output), root cause (specific file, function, and condition), fix approach with alternatives considered (min 2 options + 'do nothing'), blast radius of the fix, and test strategy (regression test for the bug, edge cases around the fix). Read references/project-concerns.md for codebase-specific constraints. Target ~2500-3500 characters; the 6000 maxLength is a backstop, not a goal - a shorter note that cites file:line and states the decision is better than a longer one that restates context."
+        guidance: "This note must cover: reproduction steps (exact inputs and expected vs actual output), root cause (specific file, function, and condition), the defect class (every other site that shares the root-cause pattern - same cast/fallback idiom, predicate, wildcard or error-classification path - found by a named sweep, each frozen as a decision or listed under Deferred with a reason), fix approach with alternatives considered (min 2 options + 'do nothing'), blast radius of the fix, and test strategy (regression test for the bug, edge cases around the fix). Read references/project-concerns.md for codebase-specific constraints. Target ~2500-3500 characters; the 6000 maxLength is a backstop, not a goal - a shorter note that cites file:line and states the decision is better than a longer one that restates context."
       - key: implementation-notes
         role: work
         required: true
