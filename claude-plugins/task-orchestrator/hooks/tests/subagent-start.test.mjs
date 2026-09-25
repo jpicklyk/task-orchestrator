@@ -32,14 +32,23 @@ import { fileURLToPath } from 'node:url';
 
 const HOOK = fileURLToPath(new URL('../subagent-start.mjs', import.meta.url));
 
-function runHook(payload = {}) {
+function runHook(payload = {}, envOverrides = {}) {
+  // Explicitly delete TASK_ORCHESTRATOR_MODE by default so a stray value in the developer's own
+  // shell can never flip a test that expects interactive behavior (see execution-mode.mjs's
+  // headless gate and the item's risk-flag note on spawn-based test env hygiene).
+  const env = { ...process.env, ...envOverrides };
+  delete env.TASK_ORCHESTRATOR_MODE;
+  if (envOverrides.TASK_ORCHESTRATOR_MODE !== undefined) {
+    env.TASK_ORCHESTRATOR_MODE = envOverrides.TASK_ORCHESTRATOR_MODE;
+  }
   return spawnSync(process.execPath, [HOOK], {
     input: JSON.stringify(payload),
+    env,
     encoding: 'utf-8',
   });
 }
 
-function protocolText(payload = { session_id: 'test-session', agent_id: 'test-agent' }) {
+function protocolText(payload = { session_id: 'test-session', agent_id: 'test-agent', agent_type: 'task-orchestrator:implementer' }) {
   const res = runHook(payload);
   assert.equal(res.status, 0, `hook exited non-zero: ${res.stderr}`);
   const out = JSON.parse(res.stdout);
@@ -102,4 +111,36 @@ test('S15: protocol text instructs the agent to stop and report for any other er
   const paragraph = text.slice(idx, idx + 800);
   assert.ok(/stop/i.test(paragraph), 'expected the paragraph to instruct stopping');
   assert.ok(/report/i.test(paragraph), 'expected the paragraph to instruct reporting');
+});
+
+// ── 004d65fd: headless-iteration and non-phase-owner agent-type gating ───────────────────────
+// Oracle: item 004d65fd's specification, "Hooks that must honor it" table — subagent-start.mjs
+// row: headless iteration exits silently before any output; interactive subagent injects the
+// protocol ONLY when isPhaseOwnerAgentType(agent_type) is true.
+
+test('S4: phase-owner agent_type (plugin-qualified implementer) gets the protocol', () => {
+  const text = protocolText({ session_id: 's', agent_id: 'a', agent_type: 'task-orchestrator:implementer' });
+  assert.ok(text.includes('Agent-Owned-Phase Protocol'));
+});
+
+test('S4: phase-owner agent_type (bare reviewer) gets the protocol', () => {
+  const text = protocolText({ session_id: 's', agent_id: 'a', agent_type: 'reviewer' });
+  assert.ok(text.includes('Agent-Owned-Phase Protocol'));
+});
+
+test('S5: non-phase-owner agent types get no output', () => {
+  for (const agentType of ['general-purpose', 'Explore', 'Plan', 'claude-code-guide', 'task-orchestrator:implementer-helper', undefined]) {
+    const res = runHook({ session_id: 's', agent_id: 'a', agent_type: agentType });
+    assert.equal(res.status, 0, `hook exited non-zero for ${agentType}: ${res.stderr}`);
+    assert.equal(res.stdout, '', `expected empty stdout for agent_type ${agentType}, got: ${res.stdout}`);
+  }
+});
+
+test('S6: headless iteration mode exits silently even for a phase-owner agent_type', () => {
+  const res = runHook(
+    { session_id: 's', agent_id: 'a', agent_type: 'task-orchestrator:implementer' },
+    { TASK_ORCHESTRATOR_MODE: 'headless-iteration' }
+  );
+  assert.equal(res.status, 0, `hook exited non-zero: ${res.stderr}`);
+  assert.equal(res.stdout, '');
 });

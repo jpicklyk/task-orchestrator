@@ -17,6 +17,7 @@ import { fileURLToPath } from 'url';
 import os from 'os';
 import { apiBaseUrl } from './api-client.mjs';
 import { extractResponseJson } from './retro-lib.mjs';
+import { isHeadlessIteration } from './execution-mode.mjs';
 
 const MAX_ITEMS_PER_AGENT = 50;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -102,6 +103,11 @@ function main() {
     } catch {
       emitEmpty();
     }
+
+    // Headless ralph iteration: emit empty before recording anything — a ralph iteration never
+    // dispatches subagents, so phase-guard.mjs (SubagentStop) would have nothing to check
+    // anyway, but recording is skipped explicitly rather than relying on that always holding.
+    if (isHeadlessIteration()) emitEmpty();
 
     // Only present inside a subagent call — nothing to guard for the main session.
     if (!hookInput.agent_id) emitEmpty();

@@ -41,7 +41,7 @@
         ]
       },
       {
-        "matcher": "mcp__mcp-task-orchestrator__manage_notes",
+        "matcher": "^mcp__.*task-orchestrator.*__manage_notes$",
         "hooks": [
           {
             "type": "command",
@@ -51,7 +51,7 @@
         ]
       },
       {
-        "matcher": "mcp__mcp-task-orchestrator__advance_item|mcp__mcp-task-orchestrator__manage_notes",
+        "matcher": "^mcp__.*task-orchestrator.*__(advance_item|manage_notes)$",
         "hooks": [
           {
             "type": "command",
@@ -78,7 +78,7 @@
         ]
       },
       {
-        "matcher": "mcp__mcp-task-orchestrator__advance_item|mcp__mcp-task-orchestrator__complete_tree",
+        "matcher": "^mcp__.*task-orchestrator.*__(advance_item|complete_tree)$",
         "hooks": [
           {
             "type": "command",
@@ -88,7 +88,7 @@
         ]
       },
       {
-        "matcher": "mcp__mcp-task-orchestrator__advance_item",
+        "matcher": "^mcp__.*task-orchestrator.*__advance_item$",
         "hooks": [
           {
             "type": "command",

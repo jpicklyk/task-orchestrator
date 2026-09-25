@@ -2111,7 +2111,10 @@ Validates, in order:
 
 On success, stores the document and returns its fingerprint. Pushing byte-identical content is
 naturally idempotent: the fingerprint returned is unchanged, so a caller can `get` first and skip
-the push when fingerprints already match — no separate idempotency-key machinery is needed.
+the push when fingerprints already match — no separate idempotency-key machinery is needed. The
+fingerprint is computed after stripping one leading UTF-8 BOM and normalizing CRLF to LF (nothing
+else) — content that differs only by line-ending style or a leading BOM fingerprints identically;
+the stored `configYaml` itself is never rewritten by this normalization.
 
 **Which sections are honored per-root.** Only a subset of top-level `configYaml` keys are resolved
 per-root; everything else stays global-only and is reported back via `ignoredSections` (see below)
@@ -2216,7 +2219,7 @@ Reads back the stored config for a root.
 |---|---|---|---|
 | `operation` | string (`"push"` \| `"get"`) | Yes | Selects the operation |
 | `rootId` | string (UUID or 4+ char hex prefix) | Yes | Project root WorkItem to read the config for |
-| `fingerprint` | string (hex SHA-256) | No (get only) | A local document fingerprint to classify against this root's stored config; adds `relation` to the response |
+| `fingerprint` | string (hex SHA-256) | No (get only) | A local document fingerprint (computed with the same BOM-stripped, CRLF-normalized rule the server uses) to classify against this root's stored config; adds `relation` to the response |
 
 **Response (success).**
 

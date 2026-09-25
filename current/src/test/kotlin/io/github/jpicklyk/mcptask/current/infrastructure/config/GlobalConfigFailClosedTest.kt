@@ -444,19 +444,23 @@ class GlobalConfigFailClosedTest {
     }
 
     @Test
-    fun `probe fingerprint hashes the exact file bytes including CRLF endings, and is idempotent across repeated calls`() {
+    fun `probe fingerprint normalizes CRLF to LF before hashing, and is idempotent across repeated calls`() {
         // Plain (non-triple-quoted) string literal so the \r\n escapes are real CR-LF bytes, not
-        // literal backslashes, confirming the fingerprint hashes raw bytes rather than a
-        // line-ending-normalized re-encoding of the content.
+        // literal backslashes. As of the config-fingerprint BOM/CRLF normalization (14067aab), the
+        // fingerprint is computed over the CRLF-normalized (-> LF) text, not the raw bytes, so this
+        // must equal the fingerprint of the LF-equivalent content, NOT a raw hash of the CRLF bytes.
         val content = "note_schemas:\r\n  default:\r\n    - key: x\r\n      role: queue\r\n      required: false\r\n"
         val file = writeConfig("probe-crlf", content)
-        val expected = sha256HexIndependent(Files.readAllBytes(file))
+        val lfEquivalent = content.replace("\r\n", "\n")
+        val expected = sha256HexIndependent(lfEquivalent.toByteArray(Charsets.UTF_8))
+        val rawHash = sha256HexIndependent(Files.readAllBytes(file))
 
         val service = YamlNoteSchemaService(file)
         val first = service.getConfigFingerprint()
         val second = service.getConfigFingerprint()
 
-        assertEquals(expected, first)
+        assertEquals(expected, first, "fingerprint must be computed over the CRLF-normalized text")
+        assertNotEquals(rawHash, first, "fingerprint must NOT be a raw hash of the CRLF bytes")
         assertEquals(first, second, "fingerprint must be idempotent across repeated calls on the same instance")
     }
 

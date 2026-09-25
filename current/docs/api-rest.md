@@ -280,14 +280,21 @@ note is upserted or the config changes, without the item itself being touched.
 ### Config ETags
 
 Config/schema endpoints (`/config`, `/config/schemas`, etc.) use a fingerprint-based ETag:
-- Format: `"cfg-<fingerprint>"` where fingerprint is a SHA-256 hex digest computed once, at process startup, over the exact bytes parsed from the global config file — not a fresh re-read of the file on each request, so it is stable for the life of the process even if the file changes on disk (restart to pick up new bytes; there is no lastModified/size fallback)
+- Format: `"cfg-<fingerprint>"` where fingerprint is a SHA-256 hex digest computed once, at process startup, over the exact bytes parsed from the global config file (normalized first — see below) — not a fresh re-read of the file on each request, so it is stable for the life of the process even if the file changes on disk (restart to pick up new bytes; there is no lastModified/size fallback)
 - Stable across reads when the config has not changed
 - `If-None-Match` → `304` when fingerprint matches
 
 The per-root project config endpoints (§18, `/roots/{rootId}/config`) use the SAME `"cfg-<fingerprint>"`
-format, but the fingerprint is a SHA-256 over the stored `configYaml`'s raw UTF-8 bytes (see
+format, but the fingerprint is a SHA-256 over the stored `configYaml`'s UTF-8 bytes (see
 `SQLiteProjectConfigRepository.computeFingerprint`) rather than the global config file. `PUT` additionally
 accepts `If-Match` for optimistic-concurrency writes (see §18).
+
+**Normalization (both endpoints, identical rule):** before hashing, the config text has one leading
+UTF-8 BOM (U+FEFF) stripped if present, then every CRLF (`\r\n`) is replaced with LF (`\n`) — nothing
+else. The stored/served `configYaml` bytes are never rewritten; only the value fed into the SHA-256
+hash is normalized. This means a CRLF/BOM checkout (e.g. `core.autocrlf=true` on Windows) of
+byte-identical content produces the same fingerprint/ETag as an LF, BOM-less checkout. See
+`infrastructure/security/Sha256Hex.kt`'s `configFingerprint` for the canonical implementation.
 
 ---
 
@@ -1767,6 +1774,10 @@ events on the same item. See §25 for the `item.deleted` fail-closed gap this sc
 Both `sync.lost` and `auth.expired` are **control events** — they always bypass the `?types=` filter (see Query parameters above). All other event types additionally carry a `reason` field of `null`, and (because the SSE payload is encoded with `explicitNulls = false`) it is absent from their JSON entirely rather than present as `null`.
 
 **`item.advanced` note:** This event is emitted on role change (via `POST /items/{id}/advance` or any write path that triggers `RoleTransitionHandler`). It carries the `newRole` field. This is distinct from `item.updated` — a role change emits `item.advanced` (not `item.updated`).
+
+**Claim/release note:** A successful claim or release through the MCP `claim_item` tool (its `claims` and `releases` arrays) emits `item.updated` for the claimed/released item — and, for a claim that auto-releases the agent's other held items, one additional `item.updated` per auto-released item.
+
+**Bulk-write note:** `create_work_tree` emits `item.created` for each newly created item (root first; an attach-mode pre-existing root emits nothing), then `dependency.added` per edge and `note.upserted` per note, all after the enclosing transaction commits — a rolled-back tree emits nothing. Deleting all of an item's notes at once emits a single `note.deleted` for that item, not one per note; removing all of an item's dependencies emits one `dependency.removed` per edge.
 
 ---
 

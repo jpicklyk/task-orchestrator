@@ -22,9 +22,16 @@ function writeConfig(dir, content) {
 }
 
 function spawnHook(agentConfigDir, payload, extra = {}) {
+  // Delete TASK_ORCHESTRATOR_MODE by default so a stray value in the developer's own shell can
+  // never flip a test that expects interactive behavior; extra.env can still set it explicitly
+  // for the headless-mode tests below.
+  const env = { ...process.env, AGENT_CONFIG_DIR: agentConfigDir, ...extra.env };
+  if (!extra.env || extra.env.TASK_ORCHESTRATOR_MODE === undefined) {
+    delete env.TASK_ORCHESTRATOR_MODE;
+  }
   return spawnSync(process.execPath, [HOOK], {
     input: JSON.stringify(payload),
-    env: { ...process.env, AGENT_CONFIG_DIR: agentConfigDir, ...extra.env },
+    env,
     encoding: 'utf-8',
     cwd: extra.cwd,
   });
@@ -307,5 +314,110 @@ test('fail-open: no discoverable config still exits 0 and defaults to nudge (nev
   } finally {
     rmSync(marker, { force: true });
     rmSync(emptyDir, { recursive: true, force: true });
+  }
+});
+
+// ── 004d65fd: headless-iteration and subagent gating ──────────────────────────────────────────
+// Oracle: item 004d65fd's specification, "Hooks that must honor it" table, retro-trigger.mjs row.
+
+test('S7: headless iteration never writes/reads the marker, even on a cascade-to-terminal', () => {
+  const dir = tmpConfigDir();
+  writeConfig(dir, 'retrospective:\n  mode: dispatch\n  dispatchThreshold: 1\n');
+  const sessionId = `test-trigger-headless-${randomUUID()}`;
+  const marker = markerPath(sessionId);
+  try {
+    const res = spawnHook(
+      dir,
+      {
+        session_id: sessionId,
+        tool_name: 'mcp__mcp-task-orchestrator__advance_item',
+        tool_input: {},
+        tool_response: {
+          results: [
+            {
+              itemId: 'child-1',
+              newRole: 'terminal',
+              unblockedItems: [],
+              cascadeEvents: [{ itemId: 'parent-1', targetRole: 'terminal', applied: true }],
+            },
+          ],
+        },
+      },
+      { env: { TASK_ORCHESTRATOR_MODE: 'headless-iteration' } }
+    );
+    assert.equal(res.status, 0);
+    assert.equal(res.stdout.trim(), '{}');
+    // Marker file must be untouched/absent — readMarker returns the empty default when the file
+    // was never written.
+    const m = readMarker(marker);
+    assert.equal(m.sawTerminal, undefined);
+    assert.equal(m.handledAt, undefined);
+  } finally {
+    rmSync(marker, { force: true });
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('S8: interactive subagent (agent_id present) demotes a cascade-to-terminal to a recorded LONE_TERMINAL, never a directive', () => {
+  const dir = tmpConfigDir();
+  writeConfig(dir, 'retrospective:\n  mode: dispatch\n  dispatchThreshold: 1\n');
+  const sessionId = `test-trigger-subagent-${randomUUID()}`;
+  const marker = markerPath(sessionId);
+  try {
+    const res = spawnHook(dir, {
+      session_id: sessionId,
+      agent_id: 'sub-1',
+      tool_name: 'mcp__mcp-task-orchestrator__advance_item',
+      tool_input: {},
+      tool_response: {
+        results: [
+          {
+            itemId: 'child-1',
+            newRole: 'terminal',
+            unblockedItems: [],
+            cascadeEvents: [{ itemId: 'parent-1', targetRole: 'terminal', applied: true }],
+          },
+        ],
+      },
+    });
+    assert.equal(res.status, 0);
+    assert.equal(res.stdout.trim(), '{}', 'a subagent call must never emit a directive');
+    const m = readMarker(marker);
+    assert.equal(m.sawTerminal, true);
+    assert.ok(m.pendingRoots.includes('parent-1'), JSON.stringify(m));
+    assert.ok(m.terminalCount >= 1, JSON.stringify(m));
+  } finally {
+    rmSync(marker, { force: true });
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('S9: interactive main session (no agent_id) keeps emitting a PARENT_COMPLETION directive', () => {
+  const dir = tmpConfigDir();
+  writeConfig(dir, 'retrospective:\n  mode: dispatch\n  dispatchThreshold: 1\n');
+  const sessionId = `test-trigger-mainsession-${randomUUID()}`;
+  const marker = markerPath(sessionId);
+  try {
+    const res = spawnHook(dir, {
+      session_id: sessionId,
+      tool_name: 'mcp__mcp-task-orchestrator__advance_item',
+      tool_input: {},
+      tool_response: {
+        results: [
+          {
+            itemId: 'child-1',
+            newRole: 'terminal',
+            unblockedItems: [],
+            cascadeEvents: [{ itemId: 'parent-1', targetRole: 'terminal', applied: true }],
+          },
+        ],
+      },
+    });
+    assert.equal(res.status, 0);
+    const out = JSON.parse(res.stdout);
+    assert.ok(out.hookSpecificOutput.additionalContext.includes('parent-1'));
+  } finally {
+    rmSync(marker, { force: true });
+    rmSync(dir, { recursive: true, force: true });
   }
 });

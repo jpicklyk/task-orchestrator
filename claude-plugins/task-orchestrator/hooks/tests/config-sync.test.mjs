@@ -8,12 +8,20 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { parseRootId, isTargetConfigPath } from '../config-sync.mjs';
+import { parseRootId, isTargetConfigPath, normalizeForFingerprint, configFingerprint } from '../config-sync.mjs';
 
 const HOOK = fileURLToPath(new URL('../config-sync.mjs', import.meta.url));
+
+// Shared with the Kotlin side (ConfigFingerprintTest) so both implementations are proven
+// byte-for-byte identical against the same vectors — see current/src/test/resources/fixtures/.
+const FIXTURE_URL = new URL(
+  '../../../../current/src/test/resources/fixtures/config-fingerprint-vectors.json',
+  import.meta.url,
+);
+const fingerprintVectors = JSON.parse(readFileSync(FIXTURE_URL, 'utf-8'));
 
 function writeConfig(dir, content) {
   const cfgDir = join(dir, '.taskorchestrator');
@@ -170,4 +178,22 @@ test('fail-open: empty stdin still behaves like today (proceeds through sync log
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('configFingerprint: matches the shared BOM/CRLF normalization vectors', () => {
+  for (const vector of fingerprintVectors) {
+    const buf = Buffer.from(vector.input, 'utf8');
+    assert.equal(
+      configFingerprint(buf),
+      vector.expectedSha256,
+      `vector "${vector.name}" mismatched`,
+    );
+  }
+});
+
+test('normalizeForFingerprint: does not mutate its input Buffer', () => {
+  const original = Buffer.from('\ufeffa: 1\r\nb: 2\r\n', 'utf8');
+  const copy = Buffer.from(original);
+  normalizeForFingerprint(original);
+  assert.deepEqual(original, copy);
 });

@@ -16,6 +16,8 @@ import {
     decideContinuation,
     buildResumeArgs,
     MIN_CONTINUATION_BUDGET_USD,
+    buildIterationEnv,
+    HEADLESS_ITERATION_MODE,
 } from "../ralph-lib.mjs";
 
 // ── parseOutcome / marker parsing ──────────────────────────────────────────
@@ -271,4 +273,28 @@ test("S8: buildResumeArgs shape — resume flag, no --worktree, same settings/mo
     assert.equal(args[modelIdx + 1], "sonnet");
 
     assert.equal(args[args.length - 1], "keep going");
+});
+
+// ── 004d65fd S3: buildIterationEnv ────────────────────────────────────────────────────────────
+// Oracle: item 004d65fd's specification, "Design" section 1 — `buildIterationEnv(base)` returns
+// `{...base, TASK_ORCHESTRATOR_MODE: 'headless-iteration'}`, never mutating `base`.
+
+test("S3: buildIterationEnv preserves existing keys and sets the headless-iteration sentinel", () => {
+    const input = { PATH: "x" };
+    const result = buildIterationEnv(input);
+    assert.equal(result.PATH, "x");
+    assert.equal(result.TASK_ORCHESTRATOR_MODE, HEADLESS_ITERATION_MODE);
+    assert.equal(HEADLESS_ITERATION_MODE, "headless-iteration");
+});
+
+test("S3: buildIterationEnv does not mutate the input object", () => {
+    const input = { PATH: "x" };
+    buildIterationEnv(input);
+    assert.deepEqual(input, { PATH: "x" });
+});
+
+test("S3: buildIterationEnv overrides a pre-existing TASK_ORCHESTRATOR_MODE on the base", () => {
+    const input = { TASK_ORCHESTRATOR_MODE: "something-else" };
+    const result = buildIterationEnv(input);
+    assert.equal(result.TASK_ORCHESTRATOR_MODE, HEADLESS_ITERATION_MODE);
 });

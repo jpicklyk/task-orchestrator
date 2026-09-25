@@ -1,0 +1,52 @@
+[
+  {
+    "name": "S1 LF canonical",
+    "input": "a: 1\nb: 2\n",
+    "expectedSha256": "d02b8bb58aa82e872f709035f39b734b9f28dde0c3d305698a95d04aec594cfa"
+  },
+  {
+    "name": "S2 CRLF equivalent to S1",
+    "input": "a: 1\r\nb: 2\r\n",
+    "expectedSha256": "d02b8bb58aa82e872f709035f39b734b9f28dde0c3d305698a95d04aec594cfa"
+  },
+  {
+    "name": "S3 BOM+LF equivalent to S1",
+    "input": "﻿a: 1\nb: 2\n",
+    "expectedSha256": "d02b8bb58aa82e872f709035f39b734b9f28dde0c3d305698a95d04aec594cfa"
+  },
+  {
+    "name": "S4 BOM+CRLF equivalent to S1 (must NOT equal its own raw hash)",
+    "input": "﻿a: 1\r\nb: 2\r\n",
+    "expectedSha256": "d02b8bb58aa82e872f709035f39b734b9f28dde0c3d305698a95d04aec594cfa"
+  },
+  {
+    "name": "S5 lone CR line endings are left as-is (must differ from S1)",
+    "input": "a: 1\rb: 2\r",
+    "expectedSha256": "50c222594c601342b624870094c105ee26cca5ea1baeaa747ba9a9e9604d9a17"
+  },
+  {
+    "name": "S6 missing trailing newline (must differ from S1)",
+    "input": "a: 1\nb: 2",
+    "expectedSha256": "9cb0e8763a801fa766f48b03c6ab7f104e9f529d1f99c1b644b9d67a460d8d90"
+  },
+  {
+    "name": "S7 non-leading BOM is kept as-is",
+    "input": "a: 1\n﻿b: 2\n",
+    "expectedSha256": "762a3e29bc3c5d430c5a45f67564c4c3a6dedbe2ed668dd96c0b8490448d51b0"
+  },
+  {
+    "name": "S8 double leading BOM: only one is stripped",
+    "input": "﻿﻿a: 1\n",
+    "expectedSha256": "a2251b91194014d42d50b16b68de4f25014caa6d9f3c6c3c5a0f3c240080cf6a"
+  },
+  {
+    "name": "S9 empty string",
+    "input": "",
+    "expectedSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "name": "S10 BOM-only string, equivalent to S9 after stripping",
+    "input": "﻿",
+    "expectedSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+]

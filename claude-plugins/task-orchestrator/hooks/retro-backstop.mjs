@@ -35,6 +35,7 @@ import {
   writeMarker,
   buildNudge,
 } from './retro-lib.mjs';
+import { isHeadlessIteration } from './execution-mode.mjs';
 
 function emitEmpty() {
   process.stdout.write('{}');
@@ -62,6 +63,11 @@ try {
   }
 
   if (hookInput.stop_hook_active === true) emitEmpty();
+
+  // Headless ralph iteration: emit empty before any marker read/write — Stop backstops fire for
+  // the main agent turn, but a headless iteration's main turn should never surface an
+  // interactive-orchestrator nudge either.
+  if (isHeadlessIteration()) emitEmpty();
 
   const sessionId = hookInput.session_id;
 
