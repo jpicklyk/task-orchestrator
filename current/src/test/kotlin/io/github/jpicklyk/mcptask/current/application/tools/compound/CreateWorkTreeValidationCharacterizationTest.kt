@@ -549,4 +549,121 @@ class CreateWorkTreeValidationCharacterizationTest {
             }
         )
     }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // F6 — review follow-up: additional validation-order pairs (check ORDER per task-scope
+    // correction #1: root checks -> docRef -> root.noteAnchors -> children -> parentRef/cycle ->
+    // deps -> notes -> anchors-require-docRef).
+    // ─────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `F6a docRef rootId invalid wins over root noteAnchors type error`() {
+        assertRejected("'docRef.rootId' must be a non-blank string when provided") {
+            tool.validateParams(
+                buildJsonObject {
+                    put(
+                        "root",
+                        buildJsonObject {
+                            put("title", JsonPrimitive("R"))
+                            put("noteAnchors", JsonPrimitive("x"))
+                        }
+                    )
+                    put(
+                        "docRef",
+                        buildJsonObject {
+                            put("slug", JsonPrimitive("s"))
+                            put("rootId", JsonPrimitive(5))
+                        }
+                    )
+                }
+            )
+        }
+    }
+
+    @Test
+    fun `F6b root noteAnchors type error wins over children type error`() {
+        assertRejected("root: 'noteAnchors' must be a JSON array") {
+            tool.validateParams(
+                buildJsonObject {
+                    put(
+                        "root",
+                        buildJsonObject {
+                            put("title", JsonPrimitive("R"))
+                            put("noteAnchors", JsonPrimitive("x"))
+                        }
+                    )
+                    put("children", JsonPrimitive("x"))
+                    put("docRef", buildJsonObject { put("slug", JsonPrimitive("s")) })
+                }
+            )
+        }
+    }
+
+    @Test
+    fun `F6c children cycle detection wins over deps type error`() {
+        assertRejected("children: cycle detected in parentRef chain involving 'a'") {
+            tool.validateParams(
+                buildJsonObject {
+                    put("root", validRoot("R"))
+                    put(
+                        "children",
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("ref", JsonPrimitive("a"))
+                                    put("title", JsonPrimitive("A"))
+                                    put("parentRef", JsonPrimitive("b"))
+                                }
+                            )
+                            add(
+                                buildJsonObject {
+                                    put("ref", JsonPrimitive("b"))
+                                    put("title", JsonPrimitive("B"))
+                                    put("parentRef", JsonPrimitive("a"))
+                                }
+                            )
+                        }
+                    )
+                    put("deps", JsonPrimitive("x"))
+                }
+            )
+        }
+    }
+
+    @Test
+    fun `F6d deps to required wins over notes type error`() {
+        assertRejected("deps[0]: 'to' is required") {
+            tool.validateParams(
+                buildJsonObject {
+                    put("root", validRoot("R"))
+                    put("deps", buildJsonArray { add(buildJsonObject { put("from", JsonPrimitive("root")) }) })
+                    put("notes", JsonPrimitive("x"))
+                }
+            )
+        }
+    }
+
+    @Test
+    fun `F6e children parentRef not defined wins over deps type error`() {
+        assertRejected("children[0]: 'parentRef' 'zz' is not defined. Valid refs: root, a") {
+            tool.validateParams(
+                buildJsonObject {
+                    put("root", validRoot("R"))
+                    put(
+                        "children",
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("ref", JsonPrimitive("a"))
+                                    put("title", JsonPrimitive("A"))
+                                    put("parentRef", JsonPrimitive("zz"))
+                                }
+                            )
+                        }
+                    )
+                    put("deps", JsonPrimitive("x"))
+                }
+            )
+        }
+    }
 }

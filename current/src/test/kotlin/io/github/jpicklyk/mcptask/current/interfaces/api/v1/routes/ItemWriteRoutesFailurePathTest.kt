@@ -417,7 +417,11 @@ class ItemWriteRoutesFailurePathTest {
             assertEquals(pStamped.id.toString(), cascade["itemId"]?.jsonPrimitive?.content, "actual: $cascade")
             assertEquals(false, cascade["applied"]?.jsonPrimitive?.boolean, "actual: $cascade")
             assertTrue(cascade["error"]?.jsonPrimitive?.content?.isNotBlank() == true, "actual: $cascade")
-            assertEquals(false, cascade["gateBlocked"]?.jsonPrimitive?.boolean ?: false, "actual: $cascade")
+            assertEquals(
+                false,
+                cascade["gateBlocked"]?.jsonPrimitive?.boolean,
+                "REST cascadeEvents must carry gateBlocked=false explicitly (not merely absent): $cascade"
+            )
 
             val persistedP = runBlocking { h2.workItemRepository().getById(pStamped.id) }
             assertIs<Result.Success<WorkItem>>(persistedP)
@@ -781,6 +785,241 @@ class ItemWriteRoutesFailurePathTest {
             assertIs<Result.Success<WorkItem>>(persistedD)
             assertEquals(2, persistedD.data.depth, "D must be left unchanged")
             assertEquals(r.id, persistedD.data.rootId, "D must be left unchanged")
+        }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // F7/F8/F9/F10/F11/F12/F14 — review follow-up: advance-route request-parse failure paths
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private suspend fun createQueueItem(
+        h2: DefaultRepositoryProvider,
+        title: String
+    ): WorkItem = (h2.workItemRepository().create(WorkItem(title = title, role = Role.QUEUE, depth = 0)) as Result.Success).data
+
+    @Test
+    fun `F7 advance with a non-JSON Content-Type returns 415 unsupported_media_type before the body is read`(): Unit =
+        testApplication {
+            val h2 = buildH2RepositoryProvider()
+            val item = runBlocking { createQueueItem(h2, "F7 Item") }
+            application { configureFailurePathTestApp(h2) }
+
+            val response =
+                client.post("/api/v1/items/${item.id}/advance") {
+                    header("Authorization", "Bearer $WRITE_TOKEN")
+                    contentType(ContentType.Text.Plain)
+                    setBody("""{"trigger":"start"}""")
+                }
+
+            assertEquals(HttpStatusCode.UnsupportedMediaType, response.status, "actual: ${response.bodyAsText()}")
+            val json = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+            assertEquals("unsupported_media_type", json["error"]?.jsonPrimitive?.content, "actual: $json")
+            assertEquals("Use Content-Type: application/json", json["message"]?.jsonPrimitive?.content, "actual: $json")
+        }
+
+    @Test
+    fun `F8 advance with malformed JSON returns 400 validation_error`(): Unit =
+        testApplication {
+            val h2 = buildH2RepositoryProvider()
+            val item = runBlocking { createQueueItem(h2, "F8 Item") }
+            application { configureFailurePathTestApp(h2) }
+
+            val response =
+                client.post("/api/v1/items/${item.id}/advance") {
+                    header("Authorization", "Bearer $WRITE_TOKEN")
+                    contentType(ContentType.Application.Json)
+                    setBody("""{not json""")
+                }
+
+            assertEquals(HttpStatusCode.BadRequest, response.status, "actual: ${response.bodyAsText()}")
+            val json = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+            assertEquals("validation_error", json["error"]?.jsonPrimitive?.content, "actual: $json")
+        }
+
+    @Test
+    fun `F9 advance with an unrecognized trigger returns 400 validation_error naming the trigger`(): Unit =
+        testApplication {
+            val h2 = buildH2RepositoryProvider()
+            val item = runBlocking { createQueueItem(h2, "F9 Item") }
+            application { configureFailurePathTestApp(h2) }
+
+            val response =
+                client.post("/api/v1/items/${item.id}/advance") {
+                    header("Authorization", "Bearer $WRITE_TOKEN")
+                    contentType(ContentType.Application.Json)
+                    setBody("""{"trigger":"bogus"}""")
+                }
+
+            assertEquals(HttpStatusCode.BadRequest, response.status, "actual: ${response.bodyAsText()}")
+            val json = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+            assertEquals("validation_error", json["error"]?.jsonPrimitive?.content, "actual: $json")
+            val message = json["message"]?.jsonPrimitive?.content ?: ""
+            assertTrue(message.startsWith("Invalid trigger 'bogus'. Valid: "), "actual: $message")
+        }
+
+    @Test
+    fun `F10 advance with more than 8 credentialRefs is rejected with the exact count message`(): Unit =
+        testApplication {
+            val h2 = buildH2RepositoryProvider()
+            val item = runBlocking { createQueueItem(h2, "F10 Item") }
+            application { configureFailurePathTestApp(h2) }
+
+            val refs = (1..9).joinToString(",") { "\"a$it\"" }
+            val response =
+                client.post("/api/v1/items/${item.id}/advance") {
+                    header("Authorization", "Bearer $WRITE_TOKEN")
+                    contentType(ContentType.Application.Json)
+                    setBody("""{"trigger":"start","credentialRefs":[$refs]}""")
+                }
+
+            assertEquals(HttpStatusCode.BadRequest, response.status, "actual: ${response.bodyAsText()}")
+            val json = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+            assertEquals("validation_error", json["error"]?.jsonPrimitive?.content, "actual: $json")
+            assertEquals(
+                "credentialRefs must not contain more than 8 entries (found 9)",
+                json["message"]?.jsonPrimitive?.content,
+                "actual: $json"
+            )
+        }
+
+    @Test
+    fun `F11 advance with a credentialRefs entry violating the pattern is rejected with the exact message`(): Unit =
+        testApplication {
+            val h2 = buildH2RepositoryProvider()
+            val item = runBlocking { createQueueItem(h2, "F11 Item") }
+            application { configureFailurePathTestApp(h2) }
+
+            val response =
+                client.post("/api/v1/items/${item.id}/advance") {
+                    header("Authorization", "Bearer $WRITE_TOKEN")
+                    contentType(ContentType.Application.Json)
+                    setBody("""{"trigger":"start","credentialRefs":["Bad!"]}""")
+                }
+
+            assertEquals(HttpStatusCode.BadRequest, response.status, "actual: ${response.bodyAsText()}")
+            val json = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+            assertEquals("validation_error", json["error"]?.jsonPrimitive?.content, "actual: $json")
+            assertEquals(
+                "credentialRefs[0] 'Bad!' does not match required pattern ^[a-z0-9][a-z0-9\\-_./]*$",
+                json["message"]?.jsonPrimitive?.content,
+                "actual: $json"
+            )
+        }
+
+    @Test
+    fun `F12 advance with an empty credentialRefs entry is rejected with the exact length message`(): Unit =
+        testApplication {
+            val h2 = buildH2RepositoryProvider()
+            val item = runBlocking { createQueueItem(h2, "F12 Item") }
+            application { configureFailurePathTestApp(h2) }
+
+            val response =
+                client.post("/api/v1/items/${item.id}/advance") {
+                    header("Authorization", "Bearer $WRITE_TOKEN")
+                    contentType(ContentType.Application.Json)
+                    setBody("""{"trigger":"start","credentialRefs":[""]}""")
+                }
+
+            assertEquals(HttpStatusCode.BadRequest, response.status, "actual: ${response.bodyAsText()}")
+            val json = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+            assertEquals("validation_error", json["error"]?.jsonPrimitive?.content, "actual: $json")
+            assertEquals(
+                "credentialRefs[0] must be 1-128 characters (found length 0)",
+                json["message"]?.jsonPrimitive?.content,
+                "actual: $json"
+            )
+        }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // F13 — review follow-up: create-route Content-Type guard
+    // ─────────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `F13 create with a non-JSON Content-Type returns 415 unsupported_media_type and nothing persists`(): Unit =
+        testApplication {
+            val h2 = buildH2RepositoryProvider()
+            application { configureFailurePathTestApp(h2) }
+
+            val response =
+                client.post("/api/v1/items") {
+                    header("Authorization", "Bearer $WRITE_TOKEN")
+                    contentType(ContentType.Text.Plain)
+                    setBody("""{"title":"F13 Should Not Persist"}""")
+                }
+
+            assertEquals(HttpStatusCode.UnsupportedMediaType, response.status, "actual: ${response.bodyAsText()}")
+            val json = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+            assertEquals("unsupported_media_type", json["error"]?.jsonPrimitive?.content, "actual: $json")
+            assertEquals("Use Content-Type: application/json", json["message"]?.jsonPrimitive?.content, "actual: $json")
+
+            val persisted = runBlocking { h2.workItemRepository().findByFilters(limit = 500) }
+            val titles = (persisted as Result.Success).data.items.map { it.title }
+            assertTrue("F13 Should Not Persist" !in titles, "nothing must persist: $titles")
+        }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // F14 — review follow-up: guard precedence on advance (Content-Type / trigger parse both run
+    // BEFORE the overrideResourceLeases capability check, even though the caller sets the flag)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `F14a wrong Content-Type with overrideResourceLeases set returns 415, not 403`(): Unit =
+        testApplication {
+            val h2 = buildH2RepositoryProvider()
+            val item = runBlocking { createQueueItem(h2, "F14a Item") }
+            application { configureFailurePathTestApp(h2) }
+
+            val response =
+                client.post("/api/v1/items/${item.id}/advance") {
+                    header("Authorization", "Bearer $WRITE_TOKEN")
+                    contentType(ContentType.Text.Plain)
+                    setBody("""{"trigger":"start","overrideResourceLeases":true}""")
+                }
+
+            assertEquals(HttpStatusCode.UnsupportedMediaType, response.status, "actual: ${response.bodyAsText()}")
+            val json = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+            assertEquals("unsupported_media_type", json["error"]?.jsonPrimitive?.content, "actual: $json")
+        }
+
+    @Test
+    fun `F14b an unrecognized trigger with overrideResourceLeases set returns 400, not 403`(): Unit =
+        testApplication {
+            val h2 = buildH2RepositoryProvider()
+            val item = runBlocking { createQueueItem(h2, "F14b Item") }
+            application { configureFailurePathTestApp(h2) }
+
+            val response =
+                client.post("/api/v1/items/${item.id}/advance") {
+                    header("Authorization", "Bearer $WRITE_TOKEN")
+                    contentType(ContentType.Application.Json)
+                    setBody("""{"trigger":"bogus","overrideResourceLeases":true}""")
+                }
+
+            assertEquals(HttpStatusCode.BadRequest, response.status, "actual: ${response.bodyAsText()}")
+            val json = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+            assertEquals("validation_error", json["error"]?.jsonPrimitive?.content, "actual: $json")
+        }
+
+    @Test
+    fun `F14c a valid trigger with overrideResourceLeases set from a non-admin returns 403 once parsing succeeds`(): Unit =
+        testApplication {
+            val h2 = buildH2RepositoryProvider()
+            val item = runBlocking { createQueueItem(h2, "F14c Item") }
+            application { configureFailurePathTestApp(h2) }
+
+            val response =
+                client.post("/api/v1/items/${item.id}/advance") {
+                    header("Authorization", "Bearer $WRITE_TOKEN")
+                    contentType(ContentType.Application.Json)
+                    setBody("""{"trigger":"start","overrideResourceLeases":true}""")
+                }
+
+            assertEquals(HttpStatusCode.Forbidden, response.status, "actual: ${response.bodyAsText()}")
+            val json = Json.parseToJsonElement(response.bodyAsText()).jsonObject
+            assertEquals("insufficient_capability", json["error"]?.jsonPrimitive?.content, "actual: $json")
+
+            val persisted = runBlocking { h2.workItemRepository().getById(item.id) }
+            assertIs<Result.Success<WorkItem>>(persisted)
+            assertEquals(Role.QUEUE, persisted.data.role, "the flag must never be silently ignored")
         }
 
     // Probe catalog, recorded per skill §6 (every probe attempted, including N/A ones):

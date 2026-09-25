@@ -298,7 +298,10 @@ class AdvanceItemToolApplyFailureLeaseTest {
             assertEquals(pStamped.id.toString(), cascade["itemId"]?.jsonPrimitive?.content, "actual: $cascade")
             assertEquals(false, cascade["applied"]?.jsonPrimitive?.boolean, "actual: $cascade")
             assertTrue(cascade["error"]?.jsonPrimitive?.content?.isNotBlank() == true, "actual: $cascade")
-            assertEquals(false, cascade["gateBlocked"]?.jsonPrimitive?.boolean ?: false, "actual: $cascade")
+            assertTrue(
+                "gateBlocked" !in cascade,
+                "an apply-failure cascade event (not a gate failure) must omit gateBlocked entirely: $cascade"
+            )
 
             val persistedP = (repositoryProvider.workItemRepository().getById(pStamped.id) as Result.Success).data
             assertEquals(Role.QUEUE, persistedP.role, "the failed parent cascade must not leave P in WORK")

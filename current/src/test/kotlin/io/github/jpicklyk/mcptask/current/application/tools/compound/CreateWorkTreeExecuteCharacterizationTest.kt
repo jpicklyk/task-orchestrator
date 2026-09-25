@@ -696,9 +696,11 @@ class CreateWorkTreeExecuteCharacterizationTest {
             val error = errorOf(result)
             assertEquals("VALIDATION_ERROR", error["code"]!!.jsonPrimitive.content)
             val msg = error["message"]!!.jsonPrimitive.content
-            assertTrue(msg.contains("task-scope"), "actual: $msg")
-            assertTrue(msg.contains("queue"), "actual: $msg")
-            assertTrue(msg.contains("work"), "actual: $msg")
+            assertEquals(
+                "noteAnchors: key 'task-scope' is declared in the schema for itemRef 'c1' with role 'queue', " +
+                    "but the anchor has role 'work'. Schema-declared keys must use the schema role.",
+                msg
+            )
 
             val doc = (repositoryProvider.planDocumentRepository().get(projectRootId, "my-plan") as Result.Success).data
             assertEquals(PlanDocumentStatus.PENDING, doc!!.status)
@@ -758,5 +760,45 @@ class CreateWorkTreeExecuteCharacterizationTest {
             assertEquals(Priority.HIGH, root.priority)
             assertEquals(Priority.MEDIUM, c1.priority, "blank priority defaults to MEDIUM")
             assertEquals(Priority.LOW, c2.priority)
+        }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // F4 — review follow-up: explicit top-level note schema-role mismatch (distinct from
+    // S13's noteAnchors-role mismatch — this exercises the top-level `notes[]` path).
+    // ─────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `F4 explicit note schema-role mismatch is rejected with exact message and nothing persists`() =
+        runBlocking {
+            val params =
+                buildJsonObject {
+                    put("root", buildJsonObject { put("title", JsonPrimitive("F4 Root")) })
+                    put("children", buildJsonArray { add(childSpec("c1", "F4 C1", tags = "task")) })
+                    put(
+                        "notes",
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("itemRef", JsonPrimitive("c1"))
+                                    put("key", JsonPrimitive("task-scope"))
+                                    put("role", JsonPrimitive("work"))
+                                    put("body", JsonPrimitive("x"))
+                                }
+                            )
+                        }
+                    )
+                }
+
+            val result = tool.execute(params, taskSchemaContext()) as JsonObject
+            assertFalse(result["success"]!!.jsonPrimitive.boolean, "actual: $result")
+            val error = errorOf(result)
+            assertEquals("VALIDATION_ERROR", error["code"]!!.jsonPrimitive.content)
+            assertEquals(
+                "notes[0]: key 'task-scope' is declared in the schema for itemRef 'c1' with role 'queue', " +
+                    "but the explicit note has role 'work'. Schema-declared keys must use the schema role; " +
+                    "off-schema keys may use any valid role.",
+                error["message"]!!.jsonPrimitive.content
+            )
+            assertFalse("F4 Root" in titlesInDb(), "nothing must persist: ${titlesInDb()}")
         }
 }

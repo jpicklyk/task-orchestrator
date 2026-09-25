@@ -407,7 +407,7 @@ class ClaimItemToolFailurePathTest {
             assertEquals("transient", first["kind"]!!.jsonPrimitive.content)
             assertEquals("none_eligible", first["code"]!!.jsonPrimitive.content)
             assertEquals(
-                ClaimItemTool.NONE_ELIGIBLE_RETRY_AFTER_MS,
+                30000L,
                 first["retryAfterMs"]!!.jsonPrimitive.long
             )
             val excluded = first["excluded"] as JsonObject
@@ -522,5 +522,126 @@ class ClaimItemToolFailurePathTest {
             assertEquals("success", (releaseResults[0] as JsonObject)["outcome"]!!.jsonPrimitive.content)
             assertEquals("not_claimed_by_you", (releaseResults[1] as JsonObject)["outcome"]!!.jsonPrimitive.content)
             assertEquals("db_error", (releaseResults[2] as JsonObject)["outcome"]!!.jsonPrimitive.content)
+        }
+
+    // -----------------------------------------------------------------------
+    // F1 — review follow-up: selector/ID success key ORDER (refactor guard).
+    // -----------------------------------------------------------------------
+
+    private fun freshClaimedItem(
+        id: UUID = itemId1,
+        claimedBy: String = agentId
+    ): WorkItem {
+        val now = Instant.now()
+        return WorkItem(
+            id = id,
+            title = "F1 Fresh Claim",
+            role = Role.QUEUE,
+            claimedBy = claimedBy,
+            claimedAt = now,
+            claimExpiresAt = now.plusSeconds(900),
+            // originalClaimedAt EQUALS claimedAt: this is a fresh (first) claim, so the response
+            // must omit originalClaimedAt entirely (test-plan S3 heartbeat is the only case it's present).
+            originalClaimedAt = now,
+        )
+    }
+
+    @Test
+    fun `F1 selector success key order places selectorResolved before claimRef and omits originalClaimedAt when equal`(): Unit =
+        runBlocking {
+            val matchedItem = WorkItem(id = itemId1, title = "Matched Item", role = Role.QUEUE)
+            val recommender = mockk<NextItemRecommender>()
+            coEvery { recommender.recommend(any(), any()) } returns Result.Success(listOf(matchedItem))
+            coEvery { workItemRepo.claim(itemId1, agentId, 900) } returns ClaimResult.Success(freshClaimedItem())
+
+            val result =
+                tool.execute(
+                    params(claims = listOf(selectorEntry(claimRef = "f1ref"))),
+                    context(recommender)
+                )
+
+            val first = firstResult(result, "claimResults")
+            assertEquals(
+                listOf("itemId", "outcome", "selectorResolved", "claimRef", "claimedBy", "claimedAt", "claimExpiresAt"),
+                first.keys.toList()
+            )
+            assertEquals("success", first["outcome"]!!.jsonPrimitive.content)
+            assertNull(first["originalClaimedAt"], "originalClaimedAt must be omitted when equal to claimedAt")
+        }
+
+    @Test
+    fun `F1 selector success without claimRef omits claimRef but keeps selectorResolved`(): Unit =
+        runBlocking {
+            val matchedItem = WorkItem(id = itemId1, title = "Matched Item", role = Role.QUEUE)
+            val recommender = mockk<NextItemRecommender>()
+            coEvery { recommender.recommend(any(), any()) } returns Result.Success(listOf(matchedItem))
+            coEvery { workItemRepo.claim(itemId1, agentId, 900) } returns ClaimResult.Success(freshClaimedItem())
+
+            val result =
+                tool.execute(
+                    params(claims = listOf(selectorEntry())),
+                    context(recommender)
+                )
+
+            val first = firstResult(result, "claimResults")
+            assertEquals(
+                listOf("itemId", "outcome", "selectorResolved", "claimedBy", "claimedAt", "claimExpiresAt"),
+                first.keys.toList()
+            )
+        }
+
+    @Test
+    fun `F1 ID-mode success key order lacks selectorResolved`(): Unit =
+        runBlocking {
+            coEvery { workItemRepo.claim(itemId1, agentId, 900) } returns ClaimResult.Success(freshClaimedItem())
+
+            val result =
+                tool.execute(
+                    params(claims = listOf(claimEntryWithRef(itemId1, claimRef = "f1cref"))),
+                    defaultContext()
+                )
+
+            val first = firstResult(result, "claimResults")
+            assertEquals(
+                listOf("itemId", "outcome", "claimRef", "claimedBy", "claimedAt", "claimExpiresAt"),
+                first.keys.toList()
+            )
+            assertNull(first["selectorResolved"], "ID-mode success must never carry selectorResolved")
+        }
+
+    // -----------------------------------------------------------------------
+    // F2 — review follow-up: selector-path AlreadyClaimed exact shape.
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun `F2 selector-path AlreadyClaimed exact shape lacks selectorResolved and claimedBy`(): Unit =
+        runBlocking {
+            val matchedItem = WorkItem(id = itemId1, title = "Matched Item", role = Role.QUEUE)
+            val recommender = mockk<NextItemRecommender>()
+            coEvery { recommender.recommend(any(), any()) } returns Result.Success(listOf(matchedItem))
+            coEvery { workItemRepo.claim(itemId1, agentId, 900) } returns
+                ClaimResult.AlreadyClaimed(itemId1, retryAfterMs = 12000L)
+
+            val result =
+                tool.execute(
+                    params(claims = listOf(selectorEntry(claimRef = "r1"))),
+                    context(recommender)
+                )
+
+            val first = firstResult(result, "claimResults")
+            assertEquals(
+                listOf("itemId", "outcome", "kind", "contendedItemId", "retryAfterMs", "claimRef"),
+                first.keys.toList()
+            )
+            assertEquals("already_claimed", first["outcome"]!!.jsonPrimitive.content)
+            assertEquals("transient", first["kind"]!!.jsonPrimitive.content)
+            assertEquals(itemId1.toString(), first["contendedItemId"]!!.jsonPrimitive.content)
+            assertEquals(12000L, first["retryAfterMs"]!!.jsonPrimitive.long)
+            assertEquals("r1", first["claimRef"]!!.jsonPrimitive.content)
+            assertNull(first["selectorResolved"], "an AlreadyClaimed outcome must never carry selectorResolved")
+            assertFalse(
+                result.toString().contains("claimedBy"),
+                "an AlreadyClaimed outcome must never leak claimedBy anywhere in the response"
+            )
         }
 }
