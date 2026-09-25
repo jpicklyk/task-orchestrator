@@ -181,6 +181,7 @@ The iteration agent emits `RALPH_OUTCOME: {...}` as its final message. The loop 
 | `gate-blocked` | Counter ⊘; increments consecutive gate-failure counter; loop continues unless budget hit |
 | `error` | Counter ✗; increments consecutive error counter; loop continues unless budget hit. A marker-less clean exit is resumed first (`claude -p --resume`, same worktree) — it only lands here once `--max-continuations` resumes are exhausted or the remaining per-iteration budget drops below $0.25, and the reason names how many continuations ran |
 | `skip` | Counter —; no counter changes; loop continues |
+| `idle` | Matches exist but none is currently claimable (transient — see `decideIdleBackoff`); loop sleeps `retryAfterMs` (clamped, defaulted if missing) and retries, up to `--idle-budget` consecutive idles, then exits |
 | `no-item` | Loop exits cleanly (queue empty) |
 
 **`skip` includes resource-lease contention.** When `advance_item` rejects a transition into WORK
@@ -295,11 +296,11 @@ Solution: Run with `--dry-run` and inspect the prompt that would be sent. If the
 
 ---
 
-**Problem: claim contention — every iteration gets `skip` or `no_match` because all candidates are already claimed**
+**Problem: claim contention — every iteration gets `skip` or `idle` because all candidates are already claimed**
 
 Cause: Stale claims from a crashed previous run, or another worker is already draining. TTL is the recovery mechanism.
 
-Note: With selector mode, `claim_item` returns `no_match` (kind=permanent) when all queue items matching the filter are already claimed, rather than returning an `already_claimed` error. The iteration treats this as a `no-item` exit.
+Note: With selector mode, `claim_item` returns `none_eligible` (kind=transient, with a `retryAfterMs` hint and an aggregate `excluded` breakdown) when queue items match the filter but are all currently claimed (or dependency-blocked, or under a claimed ancestor) — rather than the permanent `queue_empty` outcome, and rather than an `already_claimed` error. The iteration treats this as an `idle` exit, and the loop driver backs off and retries rather than exiting the drain.
 
 Solution: Check `query_items(operation="search", claimStatus="claimed")` to see who holds claims. If they're all from a crashed `ralph-<pid>-<ts>` actor, wait for TTL expiry (default 30 min per the loop's settings) or release them via `claim_item(releases=[...])` if you know they're stale.
 
@@ -307,7 +308,7 @@ Solution: Check `query_items(operation="search", claimStatus="claimed")` to see 
 
 **Note: Ralph workers skip sub-items of in-progress features (ancestor-claim filtering)**
 
-When a fleet agent claims a feature using the hybrid topology (Scenario D in the [Fleet Deployment Guide](../../../../../../current/docs/fleet-deployment.md)), the feature's child tasks are automatically protected from Ralph workers with broad selectors. A Ralph drain using `role=queue` will see `no_match` for any candidate whose ancestor is currently claimed by a different agent — this is the correct and desired behavior, not a bug. Ralph workers naturally focus on top-level claimable work; items inside an in-progress orchestration session are shielded. **There is no depth-0/no-parent filter today** — omitting `parentId` in a `claim_item` selector means unrestricted matching across all depths, it does not restrict to top-level items (same limitation as the `ancestorId` preview-only gap noted in Step 1). If precise top-level-only draining matters, use the workaround: tag or type top-level items distinctly (e.g., `tag=top-level` or a dedicated `type`) so the selector can discriminate them without a depth filter.
+When a fleet agent claims a feature using the hybrid topology (Scenario D in the [Fleet Deployment Guide](../../../../../../current/docs/fleet-deployment.md)), the feature's child tasks are automatically protected from Ralph workers with broad selectors. A Ralph drain using `role=queue` will see `none_eligible` (transient — reported under `excluded.ancestorClaimed`) for any candidate whose ancestor is currently claimed by a different agent — this is the correct and desired behavior, not a bug. Ralph workers naturally focus on top-level claimable work; items inside an in-progress orchestration session are shielded. **There is no depth-0/no-parent filter today** — omitting `parentId` in a `claim_item` selector means unrestricted matching across all depths, it does not restrict to top-level items (same limitation as the `ancestorId` preview-only gap noted in Step 1). If precise top-level-only draining matters, use the workaround: tag or type top-level items distinctly (e.g., `tag=top-level` or a dedicated `type`) so the selector can discriminate them without a depth filter.
 
 ---
 

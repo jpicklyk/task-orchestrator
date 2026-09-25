@@ -163,6 +163,7 @@ test('S1b: a gate-blocked failure with no errorCode ("already in phase") is stil
               trigger: 'start',
               applied: false,
               error: 'Item is already in work',
+              errorCode: 'gate_blocked',
               missingNotes: ['implementation-notes'],
               previousRole: 'work',
               targetRole: 'work',
@@ -343,7 +344,7 @@ test('accumulates itemIds across multiple advance_item calls for the same agent,
 
     // A gate-blocked re-entry of itemA (e.g. a bounced retry) must not duplicate it in the list.
     res = spawnHook(
-      { session_id: sessionId, agent_id: agentId, tool_response: { results: [{ itemId: itemA, applied: false, error: 'already in work' }] } },
+      { session_id: sessionId, agent_id: agentId, tool_response: { results: [{ itemId: itemA, applied: false, error: 'already in work', errorCode: 'gate_blocked' }] } },
       tempDir,
       UNREACHABLE_API_URL,
     );
@@ -398,7 +399,7 @@ test('extractRecordableItemIds: filters out errorCode results and non-UUID itemI
       { itemId: 'aaaaaaaa-0000-0000-0000-000000000001', newRole: 'work', applied: true },
       { itemId: 'ef07', applied: false, error: 'ambiguous prefix' },
       { itemId: 'bbbbbbbb-0000-0000-0000-000000000002', errorCode: 'resource_unavailable' },
-      { itemId: 'cccccccc-0000-0000-0000-000000000003', applied: false, error: 'already in phase' },
+      { itemId: 'cccccccc-0000-0000-0000-000000000003', applied: false, error: 'already in phase', errorCode: 'gate_blocked' },
     ],
   };
   assert.deepEqual(extractRecordableItemIds(payload), [

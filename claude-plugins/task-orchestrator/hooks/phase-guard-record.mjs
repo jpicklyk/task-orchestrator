@@ -64,16 +64,22 @@ export function isFullUuid(value) {
 }
 
 /**
- * From an advance_item response payload's `results[]`, the itemIds worth recording: no
- * `errorCode` (a structured failure — not_claim_holder / rejected_by_policy /
- * resource_unavailable — means the transition never touched the item) AND a full UUID (a
- * hex-prefix resolve failure echoes the raw, non-UUID input). `applied` is irrelevant — a
- * gate-blocked "already in phase" failure (applied:false, no errorCode) still means the item is
- * this agent's, so it is still recorded.
+ * From an advance_item response payload's `results[]`, the itemIds worth recording: a full UUID
+ * (a hex-prefix resolve failure echoes the raw, non-UUID input) AND either `applied===true`
+ * (the transition succeeded) OR `errorCode==="gate_blocked"` (the "already in phase" case — the
+ * item is still this agent's, it just didn't move). Every OTHER structured failure
+ * (`not_claim_holder`, `rejected_by_policy`, `resource_unavailable`, `dependency_blocked`,
+ * `validation_failed`, `invalid_transition`, `apply_failed`, `item_not_found`, `invalid_trigger`,
+ * `invalid_actor`) means the transition never touched the item, or the item isn't this agent's —
+ * branch on the presence of one of the two POSITIVE signals above, never on the absence of an
+ * `errorCode` (a codeless `applied:false` is not a valid outcome shape any more; every failure
+ * path in `advance_item` now carries one).
  */
 export function extractRecordableItemIds(payload) {
   const results = Array.isArray(payload?.results) ? payload.results : [];
-  return results.filter((r) => r && !r.errorCode && isFullUuid(r.itemId)).map((r) => r.itemId);
+  return results
+    .filter((r) => r && isFullUuid(r.itemId) && (r.applied === true || r.errorCode === 'gate_blocked'))
+    .map((r) => r.itemId);
 }
 
 function emitEmpty() {

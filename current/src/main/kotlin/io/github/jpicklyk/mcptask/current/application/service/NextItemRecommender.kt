@@ -114,6 +114,109 @@ class NextItemRecommender(
     }
 
     /**
+     * Breaks down why [recommend] returned an empty list for [criteria] into three
+     * non-overlapping-by-construction counts, for `ClaimItemTool`'s selector path to distinguish
+     * "queue empty" (nothing matches at all) from "matches exist but none are claimable right
+     * now" (transient — worth retrying).
+     *
+     * Call this ONLY after [recommend] has already returned an empty list for the same
+     * [criteria] — it re-queries rather than reusing [recommend]'s candidates, so calling it
+     * unconditionally would double the DB round-trips for the common non-empty case.
+     *
+     * Counts, over items matching [criteria]'s selector filters (via
+     * [WorkItemRepository.countSelectorMatches]):
+     * - [ExclusionCounts.claimed] — live item-level claim, any holder (incl. the caller).
+     * - [ExclusionCounts.dependencyBlocked] — unclaimed, ancestor-claim-passing candidates (the
+     *   same set [recommend] would have ranked) that [isBlocked] drops.
+     * - [ExclusionCounts.ancestorClaimed] — the remainder: `matched - claimed - dependencyBlocked`,
+     *   floored at 0. This also absorbs any matching rows beyond [OVER_FETCH_LIMIT] that neither
+     *   the claim count nor the dependency walk below ever sees.
+     *
+     * `matched == 0` iff the caller should report `queue_empty`; otherwise the three counts here
+     * are the transient `none_eligible` outcome's `excluded` breakdown.
+     */
+    suspend fun explainEmpty(criteria: Criteria): Result<ExclusionCounts> {
+        val countsResult =
+            workItemRepo.countSelectorMatches(
+                role = criteria.role,
+                parentId = criteria.parentId,
+                tags = criteria.tags,
+                priority = criteria.priority,
+                type = criteria.type,
+                complexityMax = criteria.complexityMax,
+                createdAfter = criteria.createdAfter,
+                createdBefore = criteria.createdBefore,
+                modifiedAfter = criteria.modifiedAfter,
+                modifiedBefore = criteria.modifiedBefore,
+                roleChangedAfter = criteria.roleChangedAfter,
+                roleChangedBefore = criteria.roleChangedBefore,
+                rootIds = criteria.ancestorIds,
+            )
+        if (countsResult is Result.Error) {
+            return countsResult
+        }
+        val counts = (countsResult as Result.Success).data
+
+        if (counts.matched == 0) {
+            return Result.Success(ExclusionCounts(claimed = 0, ancestorClaimed = 0, dependencyBlocked = 0))
+        }
+
+        // Re-derive the same claimable candidate set `recommend` ranked (unclaimed at the item
+        // level, ancestor-claim-passing) to count how many of THOSE are dependency-blocked.
+        val candidatesResult =
+            workItemRepo.findClaimable(
+                role = criteria.role,
+                parentId = criteria.parentId,
+                tags = criteria.tags,
+                priority = criteria.priority,
+                type = criteria.type,
+                complexityMax = criteria.complexityMax,
+                createdAfter = criteria.createdAfter,
+                createdBefore = criteria.createdBefore,
+                modifiedAfter = criteria.modifiedAfter,
+                modifiedBefore = criteria.modifiedBefore,
+                roleChangedAfter = criteria.roleChangedAfter,
+                roleChangedBefore = criteria.roleChangedBefore,
+                orderBy = criteria.orderBy,
+                limit = OVER_FETCH_LIMIT,
+                requestingAgentId = criteria.requestingAgentId,
+                rootIds = criteria.ancestorIds,
+            )
+        if (candidatesResult is Result.Error) {
+            return candidatesResult
+        }
+        val candidates = (candidatesResult as Result.Success).data
+
+        var dependencyBlocked = 0
+        for (item in candidates) {
+            if (isBlocked(item)) dependencyBlocked++
+        }
+
+        val ancestorClaimed = maxOf(0, counts.matched - counts.activelyClaimed - dependencyBlocked)
+
+        return Result.Success(
+            ExclusionCounts(
+                claimed = counts.activelyClaimed,
+                ancestorClaimed = ancestorClaimed,
+                dependencyBlocked = dependencyBlocked,
+            )
+        )
+    }
+
+    /**
+     * Breakdown of why a selector query matched no claimable item — see [explainEmpty]. Aggregate
+     * counts only; never item identities, so a caller reporting this to a remote agent cannot leak
+     * who holds a competing claim.
+     */
+    data class ExclusionCounts(
+        val claimed: Int,
+        val ancestorClaimed: Int,
+        val dependencyBlocked: Int,
+    ) {
+        val total: Int get() = claimed + ancestorClaimed + dependencyBlocked
+    }
+
+    /**
      * Returns true if [item] is dependency-blocked by any unsatisfied dependency.
      *
      * Checks two dependency directions:

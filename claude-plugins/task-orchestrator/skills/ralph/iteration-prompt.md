@@ -46,7 +46,8 @@ claim_item(
 | Result | Action |
 |---|---|
 | `success` with `selectorResolved: true` | Proceed to Step 2 with the resolved `itemId` |
-| `no_match` (kind=permanent) | No items match the filter — emit `RALPH_OUTCOME: {"status": "no-item"}` and exit |
+| `queue_empty` (kind=permanent) | Nothing matches the filter at all — emit `RALPH_OUTCOME: {"status": "no-item"}` and exit |
+| `none_eligible` (kind=transient) | Matches exist but none is currently claimable (all excluded by claim or dependency state) — this is transient, not a drained queue: emit `RALPH_OUTCOME: {"status": "idle", "retryAfterMs": <value from the result>}` and exit. The loop driver backs off and retries rather than treating this as `no-item`. |
 | `already_claimed` | TOCTOU race (rare) — emit `RALPH_OUTCOME: {"status": "skip", "reason": "TOCTOU race on selector resolve"}` and exit |
 | Other error | Emit `RALPH_OUTCOME: {"status": "error", "reason": "claim failed: <message>"}` and exit |
 

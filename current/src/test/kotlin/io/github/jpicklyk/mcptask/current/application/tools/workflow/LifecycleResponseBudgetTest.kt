@@ -212,7 +212,7 @@ class LifecycleResponseBudgetTest {
             "create_work_tree" to 2400,
             "get_context(health-check)" to 200,
             "get_context(item t1)" to 750,
-            "advance_item(start, gated FAILURE)" to 550,
+            "advance_item(start, gated FAILURE)" to 650,
             "manage_notes(fill queue note)" to 400,
             "advance_item(start -> work)" to 850,
             "manage_notes(fill work notes)" to 550,

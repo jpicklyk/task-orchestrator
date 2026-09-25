@@ -20,6 +20,7 @@ import io.github.jpicklyk.mcptask.current.domain.repository.SearchHit
 import io.github.jpicklyk.mcptask.current.domain.repository.SearchMatchMode
 import io.github.jpicklyk.mcptask.current.domain.repository.SearchResult
 import io.github.jpicklyk.mcptask.current.domain.repository.SearchScope
+import io.github.jpicklyk.mcptask.current.domain.repository.SelectorMatchCounts
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.WorkItemsTable
@@ -1534,6 +1535,74 @@ class SQLiteWorkItemRepository(
                     .toInt()
 
             Result.Success(ClaimStatusCounts(active = activeCount, expired = expiredCount, unclaimed = unclaimedCount))
+        }
+    }
+
+    override suspend fun countSelectorMatches(
+        role: Role,
+        parentId: UUID?,
+        tags: List<String>?,
+        priority: Priority?,
+        type: String?,
+        complexityMax: Int?,
+        createdAfter: Instant?,
+        createdBefore: Instant?,
+        modifiedAfter: Instant?,
+        modifiedBefore: Instant?,
+        roleChangedAfter: Instant?,
+        roleChangedBefore: Instant?,
+        rootIds: Set<UUID>?,
+    ): Result<SelectorMatchCounts> {
+        // Read DB-side clock ONCE before opening the transaction to avoid a nested
+        // transaction/savepoint (dbNow() opens its own suspendTransaction internally).
+        val dbNowInstant = dbNow()
+
+        return databaseManager.suspendedTransaction("Failed to count selector matches") {
+            // Same condition builder as findClaimable, minus orderBy/limit/requestingAgentId and
+            // minus the active-claim exclusion findClaimable always applies — this method counts
+            // matches WITH claim status broken out, not eligible-to-claim rows.
+            val conditions = mutableListOf<Op<Boolean>>()
+            conditions.add(WorkItemsTable.role eq role.name.lowercase())
+            parentId?.let { conditions.add(WorkItemsTable.parentId eq it) }
+
+            if (rootIds != null) {
+                val scope = resolveScope(rootIds)
+                if (scope == ResolvedScope.Empty) {
+                    return@suspendedTransaction Result.Success(SelectorMatchCounts(matched = 0, activelyClaimed = 0))
+                }
+                conditions.add(scope.toCondition())
+            }
+
+            tags?.takeIf { it.isNotEmpty() }?.let { conditions.add(buildTagFilter(it)) }
+            priority?.let { conditions.add(WorkItemsTable.priority eq it.name.lowercase()) }
+            type?.let { conditions.add(WorkItemsTable.type eq it) }
+            complexityMax?.let { conditions.add(WorkItemsTable.complexity lessEq it) }
+            createdAfter?.let { conditions.add(WorkItemsTable.createdAt greaterEq it) }
+            createdBefore?.let { conditions.add(WorkItemsTable.createdAt lessEq it) }
+            modifiedAfter?.let { conditions.add(WorkItemsTable.modifiedAt greaterEq it) }
+            modifiedBefore?.let { conditions.add(WorkItemsTable.modifiedAt lessEq it) }
+            roleChangedAfter?.let { conditions.add(WorkItemsTable.roleChangedAt greaterEq it) }
+            roleChangedBefore?.let { conditions.add(WorkItemsTable.roleChangedAt lessEq it) }
+
+            val combined = conditions.reduce { acc, op -> acc and op }
+
+            val matched =
+                WorkItemsTable
+                    .selectAll()
+                    .where { combined }
+                    .count()
+                    .toInt()
+
+            val activelyClaimedCondition =
+                combined and WorkItemsTable.claimedBy.isNotNull() and (WorkItemsTable.claimExpiresAt greater dbNowInstant)
+            val activelyClaimed =
+                WorkItemsTable
+                    .selectAll()
+                    .where { activelyClaimedCondition }
+                    .count()
+                    .toInt()
+
+            Result.Success(SelectorMatchCounts(matched = matched, activelyClaimed = activelyClaimed))
         }
     }
 

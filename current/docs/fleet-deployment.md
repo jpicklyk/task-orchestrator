@@ -1000,7 +1000,7 @@ Fleet agents can eliminate the **user-facing** race window inherent in the two-c
 }
 ```
 
-`orderBy: "oldest"` (createdAt ascending) provides **fair-share queue draining**: agents process items in FIFO order rather than competing for the same high-priority items simultaneously. When all eligible items are claimed, agents receive `outcome: "no_match"` with `kind: "permanent"` — signal to idle or poll after a delay.
+`orderBy: "oldest"` (createdAt ascending) provides **fair-share queue draining**: agents process items in FIFO order rather than competing for the same high-priority items simultaneously. When nothing matches the selector filters at all, agents receive `outcome: "queue_empty"` with `kind: "permanent"` — the queue is genuinely drained, no point retrying the same filters soon. When items match but every one is claimed, ancestor-claimed, or dependency-blocked, agents instead receive `outcome: "none_eligible"` with `kind: "transient"`, a `retryAfterMs` hint, and an aggregate `excluded` breakdown — signal to back off and retry rather than idle for good.
 
 The filter shape accepted by `claim_item.selector` is identical to the `get_next_item` filter parameters — both tools share the same underlying eligibility logic.
 
