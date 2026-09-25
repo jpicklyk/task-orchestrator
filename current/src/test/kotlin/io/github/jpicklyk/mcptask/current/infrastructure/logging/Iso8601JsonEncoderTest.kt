@@ -9,7 +9,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.jupiter.api.Test
 import org.slf4j.MDC
-import java.time.Instant
+import java.util.regex.Pattern
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
@@ -52,12 +52,14 @@ class Iso8601JsonEncoderTest {
         return Json.parseToJsonElement(text.trim()) as JsonObject
     }
 
+    private val timestampPattern = Pattern.compile("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$")
+
     @Test
     fun `S1 - encodes one JSON line with an ISO-8601 UTC timestamp and no epoch or extra fields`() {
         val json = encodeToJson(buildEvent(timestampMillis = 1_780_000_000_123L))
 
         val timestamp = json["timestamp"]!!.jsonPrimitive.content
-        assertEquals(Instant.ofEpochMilli(1_780_000_000_123L).toString(), timestamp)
+        assertEquals("2026-05-28T20:26:40.123Z", timestamp)
         assertTrue(timestamp.endsWith("Z"), "timestamp must be UTC (Z-suffixed): $timestamp")
 
         assertEquals("INFO", json["level"]!!.jsonPrimitive.content)
@@ -109,6 +111,43 @@ class Iso8601JsonEncoderTest {
     fun `throwable is included when present`() {
         val json = encodeToJson(buildEvent(throwable = IllegalStateException("boom")))
         assertTrue(json.containsKey("throwable"), "throwable field must be present when the event carries one")
+    }
+
+    /**
+     * L10 (O6): fixed-precision timestamp formatting. Each case's oracle is the pattern itself
+     * (`yyyy-MM-dd'T'HH:mm:ss.SSS'Z'`, UTC) — epoch 1000 is the exact case that used to drop the
+     * fractional part entirely under `Instant.toString()` (`...01Z` instead of `...01.000Z`).
+     */
+    @Test
+    fun `L10 - epoch 0 formats with three fractional digits`() {
+        val timestamp = encodeToJson(buildEvent(timestampMillis = 0L))["timestamp"]!!.jsonPrimitive.content
+        assertEquals("1970-01-01T00:00:00.000Z", timestamp)
+        assertTrue(timestampPattern.matcher(timestamp).matches(), "timestamp must match the fixed pattern: $timestamp")
+        assertEquals(24, timestamp.length)
+    }
+
+    @Test
+    fun `L10 - epoch 1000ms (a whole second) still carries three fractional digits`() {
+        val timestamp = encodeToJson(buildEvent(timestampMillis = 1000L))["timestamp"]!!.jsonPrimitive.content
+        assertEquals("1970-01-01T00:00:01.000Z", timestamp)
+        assertTrue(timestampPattern.matcher(timestamp).matches(), "timestamp must match the fixed pattern: $timestamp")
+        assertEquals(24, timestamp.length)
+    }
+
+    @Test
+    fun `L10 - epoch 5ms formats with three fractional digits`() {
+        val timestamp = encodeToJson(buildEvent(timestampMillis = 5L))["timestamp"]!!.jsonPrimitive.content
+        assertEquals("1970-01-01T00:00:00.005Z", timestamp)
+        assertTrue(timestampPattern.matcher(timestamp).matches(), "timestamp must match the fixed pattern: $timestamp")
+        assertEquals(24, timestamp.length)
+    }
+
+    @Test
+    fun `L10 - a negative epoch (pre-1970) formats correctly`() {
+        val timestamp = encodeToJson(buildEvent(timestampMillis = -1L))["timestamp"]!!.jsonPrimitive.content
+        assertEquals("1969-12-31T23:59:59.999Z", timestamp)
+        assertTrue(timestampPattern.matcher(timestamp).matches(), "timestamp must match the fixed pattern: $timestamp")
+        assertEquals(24, timestamp.length)
     }
 
     // Clear any MDC the JVM-wide test process might have left behind from another test class.

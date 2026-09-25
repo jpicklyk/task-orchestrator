@@ -92,7 +92,7 @@ Each JSON line carries:
 
 | Field | Description |
 |-------|--------------|
-| `timestamp` | ISO-8601, UTC, e.g. `2026-09-25T12:00:00.123Z` |
+| `timestamp` | ISO-8601, UTC, e.g. `2026-09-25T12:00:00.123Z` — always 3 fractional digits |
 | `level`, `loggerName`, `threadName`, `formattedMessage` | Standard SLF4J/Logback fields |
 | `mdc` | Correlation fields for the request/call in flight (see below) |
 | `throwable` | Stack trace details when an exception was logged; `null` otherwise (the field is always present) |
@@ -103,10 +103,16 @@ survive coroutine dispatcher hops:
 - MCP tool calls (`McpToolAdapter`): `transport=mcp`, `tool` (the tool name), `sessionId`, a
   server-generated `requestId` (UUID, per call — the MCP SDK handler has no JSON-RPC request id to
   reuse), and `actorId` when the call's top-level `arguments.actor.id` is a JSON string (this is
-  self-reported and unverified — independent of `actor_authentication` verification).
+  self-reported and unverified — independent of `actor_authentication` verification). `actorId` is
+  length-capped at 128 chars (`MdcValues.bounded`, truncated with a `...[truncated]` marker) — the
+  cap applies only to this MDC copy, never to what tools themselves receive.
 - REST requests under `/api/v1` (`RequestCorrelation`): `transport=rest`, `requestId` (the inbound
   `X-Request-Id` header when it matches `^[A-Za-z0-9._-]{1,64}$`, else a generated UUID),
-  `httpMethod`, and `httpPath` (no query string, so `?token=` never lands in a log line).
+  `httpMethod`, and `httpPath` (no query string, so `?token=` never lands in a log line). `httpPath`
+  is length-capped at 256 chars, same truncation rule as `actorId` above. `requestId` is NOT
+  length-capped: a malformed or over-long `X-Request-Id` is rejected and replaced with a fresh UUID
+  instead, since it is a correlation key and truncating it risks falsely correlating unrelated
+  requests.
 
 **File logging is opt-in** via `LOG_FILE` (unset by default — no file logging). Set it to a path,
 e.g. `-e LOG_FILE=/app/data/logs/task-orchestrator.log` (landing on the existing `/app/data`
