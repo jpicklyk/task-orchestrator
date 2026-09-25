@@ -1741,6 +1741,8 @@ connection-time check, distinct from the per-event filtering described below.
 
 **Replay resumes from the sentinel, not the client's cursor:** After either `sync.lost` reason, the same connection immediately replays the FULL retained ring buffer — not just events past the client's original `Last-Event-ID` — because the replay cursor becomes the sentinel's own `id` (always one below the oldest retained event, or the current high-water mark on an empty buffer) rather than the unusable client cursor. No second reconnect is needed to recover the buffered history. `API_SSE_BUFFER_SIZE=0` is a legal, explicit "retain nothing" setting: the buffer never accumulates entries, so every resume attempt that carries a `Last-Event-ID` yields `sync.lost` (`buffer_evicted`, sentinel id = the current high-water mark) with no events to replay after it.
 
+**Writes made while no subscriber was connected are still buffered, but UNRESOLVED:** every write (create/update/advance/delete, all types) is added to the ring buffer even when `subscriberCount() == 0` at write time, so a later `Last-Event-ID` resume can still recover it — but its `affectedRoots` could not be computed (the no-subscriber performance guard skips the ancestor-chain query), so it replays only to unrestricted subscribers (no `?root=` filter), never to root-scoped ones. This is the same fail-closed treatment §21's live root-intersection filter already gives an unresolved event; it applies identically on replay.
+
 **Tag scope (`tags_include`) filtering:** Root scope is applied at the bus level (above); tag scope
 is enforced per-event on top of it, identically for the live stream and for `Last-Event-ID` replay,
 via the same `allowsItemTags` predicate the REST collection endpoints use (§3). A connection whose
@@ -1866,7 +1868,8 @@ a dependency change with no preceding item write on that subtree during the conn
 root resolution now queries `findAncestorChains` directly instead of failing closed, so root-scoped
 subscribers correctly receive the event as long as at least one subscriber is connected at the
 moment of the dependency write (with zero subscribers connected, resolution is skipped entirely as
-a performance guard — moot, since there is no one to receive it). Bus-level control events
+a performance guard — the event is still buffered for `Last-Event-ID` replay, but as UNRESOLVED, so
+a later resume delivers it only to unrestricted subscribers, not root-scoped ones). Bus-level control events
 (`sync.lost`, `auth.expired`) always broadcast to every subscriber, root-scoped included, because
 they report the state of the stream itself.
 

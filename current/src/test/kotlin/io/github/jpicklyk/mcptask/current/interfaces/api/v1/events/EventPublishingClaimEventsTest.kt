@@ -4,13 +4,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.ClaimResult
 import io.github.jpicklyk.mcptask.current.domain.repository.ReleaseResult
 import io.github.jpicklyk.mcptask.current.test.SQLiteRepositoryTestBase
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Deferred
-import kotlinx.coroutines.async
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -23,23 +17,10 @@ import org.junit.jupiter.api.Test
  * support. Oracles: [R] = current/docs/api-rest.md §21 "Claim/release note"; [D] = the item's
  * `diagnosis` note's Fix mapping.
  *
- * Every scenario collects on ONE continuous pass bounded by [COLLECT_WINDOW_MS] — a subscribed
- * [Flow] is channel-backed and single-consumption; a second `collect`/`take` on the same instance
- * observes an already-closed channel and returns immediately with an empty list rather than
- * waiting, so "exactly N events, then nothing more" must be one bounded window, not two takes.
+ * Every scenario subscribes, performs the write under test, then drains via [drainDelivered] —
+ * see that helper's KDoc for why no fixed wait is needed (O5, item 646b12a6).
  */
 class EventPublishingClaimEventsTest : SQLiteRepositoryTestBase() {
-    companion object {
-        private const val COLLECT_WINDOW_MS = 1200L
-    }
-
-    private fun CoroutineScope.collectEventsWithin(flow: Flow<ApiEvent>): Deferred<List<ApiEvent>> =
-        async {
-            val events = mutableListOf<ApiEvent>()
-            withTimeoutOrNull(COLLECT_WINDOW_MS) { flow.collect { events.add(it) } }
-            events
-        }
-
     /** S5: claim(Y, agent) success → item.updated itemId=Y. [R "field updated"][D] */
     @Test
     fun `S5 successful claim emits item updated for the claimed item`(): Unit =
@@ -50,17 +31,14 @@ class EventPublishingClaimEventsTest : SQLiteRepositoryTestBase() {
             val y = provider.workItemRepository().create(WorkItem(title = "Y5", depth = 0)).getOrNull()!!
 
             val flow = bus.subscribe("s5", emptySet(), lastEventId = null)
-            val collected = collectEventsWithin(flow)
-            delay(30)
 
             val result = provider.workItemRepository().claim(y.id, "agent1", ttlSeconds = 900)
 
             assertTrue(result is ClaimResult.Success, "expected ClaimResult.Success, got: $result")
-            val events = collected.await()
+            val events = bus.drainDelivered("s5", flow)
             assertEquals(1, events.size, "expected exactly 1 event, got: $events")
             assertEquals(ApiEventType.ITEM_UPDATED, events[0].event)
             assertEquals(y.id.toString(), events[0].itemId)
-            bus.unsubscribe("s5")
         }
 
     /**
@@ -83,19 +61,16 @@ class EventPublishingClaimEventsTest : SQLiteRepositoryTestBase() {
             assertTrue(priorClaim is ClaimResult.Success, "setup: expected agent1 to hold X, got: $priorClaim")
 
             val flow = bus.subscribe("s6", emptySet(), lastEventId = null)
-            val collected = collectEventsWithin(flow)
-            delay(30)
 
             val result = provider.workItemRepository().claim(y.id, "agent1", ttlSeconds = 900)
 
             assertTrue(result is ClaimResult.Success, "expected ClaimResult.Success, got: $result")
             assertEquals(listOf(x.id), (result as ClaimResult.Success).releasedItemIds)
 
-            val events = collected.await()
+            val events = bus.drainDelivered("s6", flow)
             assertEquals(2, events.size, "expected exactly 2 events, got: $events")
             assertTrue(events.all { it.event == ApiEventType.ITEM_UPDATED })
             assertEquals(setOf(x.id.toString(), y.id.toString()), events.map { it.itemId }.toSet())
-            bus.unsubscribe("s6")
         }
 
     /** S7: release(Y, holder) success → 1 item.updated Y. [D] */
@@ -110,17 +85,14 @@ class EventPublishingClaimEventsTest : SQLiteRepositoryTestBase() {
             assertTrue(claim is ClaimResult.Success, "setup: expected agent1 to hold Y, got: $claim")
 
             val flow = bus.subscribe("s7", emptySet(), lastEventId = null)
-            val collected = collectEventsWithin(flow)
-            delay(30)
 
             val result = provider.workItemRepository().release(y.id, "agent1")
 
             assertTrue(result is ReleaseResult.Success, "expected ReleaseResult.Success, got: $result")
-            val events = collected.await()
+            val events = bus.drainDelivered("s7", flow)
             assertEquals(1, events.size, "expected exactly 1 event, got: $events")
             assertEquals(ApiEventType.ITEM_UPDATED, events[0].event)
             assertEquals(y.id.toString(), events[0].itemId)
-            bus.unsubscribe("s7")
         }
 
     /**
@@ -141,15 +113,12 @@ class EventPublishingClaimEventsTest : SQLiteRepositoryTestBase() {
             assertTrue(claimY is ClaimResult.Success, "setup: expected agent2 to hold Y, got: $claimY")
 
             val flow = bus.subscribe("s10", emptySet(), lastEventId = null)
-            val collected = collectEventsWithin(flow)
-            delay(30)
 
             val result = provider.workItemRepository().claim(y.id, "agent1", ttlSeconds = 900)
 
             assertTrue(result is ClaimResult.AlreadyClaimed, "expected AlreadyClaimed, got: $result")
-            val events = collected.await()
+            val events = bus.drainDelivered("s10", flow)
             assertTrue(events.isEmpty(), "no events may be published on a failed (AlreadyClaimed) claim attempt, got: $events")
-            bus.unsubscribe("s10")
         }
 
     /** S13: release by non-holder (NotClaimedByYou) → 0 events. [D] */
@@ -164,18 +133,15 @@ class EventPublishingClaimEventsTest : SQLiteRepositoryTestBase() {
             assertTrue(claim is ClaimResult.Success, "setup: expected holder to hold Y, got: $claim")
 
             val flow = bus.subscribe("s13", emptySet(), lastEventId = null)
-            val collected = collectEventsWithin(flow)
-            delay(30)
 
             val result = provider.workItemRepository().release(y.id, "impostor")
 
             assertTrue(result is ReleaseResult.NotClaimedByYou, "expected NotClaimedByYou, got: $result")
-            val events = collected.await()
+            val events = bus.drainDelivered("s13", flow)
             assertTrue(
                 events.isEmpty(),
                 "no events may be published on a failed (NotClaimedByYou) release attempt, got: $events",
             )
-            bus.unsubscribe("s13")
         }
 
     /**
@@ -194,18 +160,15 @@ class EventPublishingClaimEventsTest : SQLiteRepositoryTestBase() {
             assertTrue(firstClaim is ClaimResult.Success, "setup: expected agent1 to hold Y, got: $firstClaim")
 
             val flow = bus.subscribe("s16", emptySet(), lastEventId = null)
-            val collected = collectEventsWithin(flow)
-            delay(30)
 
             val result = provider.workItemRepository().claim(y.id, "agent1", ttlSeconds = 900)
 
             assertTrue(result is ClaimResult.Success, "expected ClaimResult.Success, got: $result")
             assertEquals(emptyList<java.util.UUID>(), (result as ClaimResult.Success).releasedItemIds)
 
-            val events = collected.await()
+            val events = bus.drainDelivered("s16", flow)
             assertEquals(1, events.size, "expected exactly 1 event, got: $events")
             assertEquals(ApiEventType.ITEM_UPDATED, events[0].event)
             assertEquals(y.id.toString(), events[0].itemId)
-            bus.unsubscribe("s16")
         }
 }
