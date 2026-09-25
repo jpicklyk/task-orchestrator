@@ -9,9 +9,13 @@ Moved from the root `CLAUDE.md` so it loads only when needed. The single-source 
 
 ### New MCP Tool
 1. Extend `BaseToolDefinition` in `current/src/main/kotlin/.../application/tools/`
-2. Register in `CurrentMcpServer.kt`
+2. Register in `buildMcpTools()` (`CurrentMcpServer.kt`) — `ToolDocumentationConsistencyTest` and
+   `ToolTokenBudgetTest` derive their tool list from this function, so registering here is
+   sufficient for both guard tests to pick up the new tool automatically
 3. Update all three documentation surfaces (see below)
-4. Add to `ToolDocumentationConsistencyTest` tool list
+4. Add a `ToolTokenBudgetTest` per-tool ceiling row for the new tool (see that test's "BUDGET
+   PHILOSOPHY" doc comment for how to measure and set it) — its sync check fails loudly if a row
+   is missing
 5. Add tests in `current/src/test/kotlin/application/tools/`
 
 ### Tool Documentation Surfaces — Single-Source Policy (post token-efficiency program)

@@ -1,21 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.tools
 
-import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeTool
-import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
-import io.github.jpicklyk.mcptask.current.application.tools.config.ManagePlanDocumentsTool
-import io.github.jpicklyk.mcptask.current.application.tools.config.ManageProjectConfigTool
-import io.github.jpicklyk.mcptask.current.application.tools.dependency.ManageDependenciesTool
-import io.github.jpicklyk.mcptask.current.application.tools.dependency.QueryDependenciesTool
-import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
-import io.github.jpicklyk.mcptask.current.application.tools.items.QueryItemsTool
-import io.github.jpicklyk.mcptask.current.application.tools.notes.ManageNotesTool
-import io.github.jpicklyk.mcptask.current.application.tools.notes.QueryNotesTool
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.ClaimItemTool
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetBlockedItemsTool
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetNextItemTool
-import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetNextStatusTool
+import io.github.jpicklyk.mcptask.current.interfaces.mcp.buildMcpTools
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
@@ -43,25 +28,9 @@ import kotlin.test.fail
  *      so a caller can discover what operations exist without parsing the full schema.
  */
 class ToolDocumentationConsistencyTest {
-    private val allTools: List<ToolDefinition> =
-        listOf(
-            ManageItemsTool(),
-            QueryItemsTool(),
-            ManageNotesTool(),
-            QueryNotesTool(),
-            ManageDependenciesTool(),
-            QueryDependenciesTool(),
-            AdvanceItemTool(),
-            ClaimItemTool(),
-            GetBlockedItemsTool(),
-            GetContextTool(),
-            GetNextItemTool(),
-            GetNextStatusTool(),
-            CompleteTreeTool(),
-            CreateWorkTreeTool(),
-            ManageProjectConfigTool(),
-            ManagePlanDocumentsTool(),
-        )
+    // Derived from buildMcpTools() (interfaces/mcp/CurrentMcpServer.kt) rather than a hard-coded
+    // list, so this test automatically covers every tool the production server registers.
+    private val allTools: List<ToolDefinition> = buildMcpTools()
 
     @Test
     fun `every schema parameter has a non-blank field-level description`() {
