@@ -136,10 +136,10 @@ Fixes #53
 - Use dependency injection via `ToolExecutionContext`
 
 **Architecture**:
-- Follow Clean Architecture layers (domain → application → infrastructure → interface)
+- Follow the layer model — domain → application → infrastructure → interfaces, outer layers may depend on inner ones, never the reverse (see below for enforcement)
 - Domain layer must remain framework-agnostic
 - Use repository pattern for data access
-- Tools should extend `BaseToolDefinition` or `SimpleLockAwareToolDefinition`
+- Tools should extend `BaseToolDefinition`
 - Layering is enforced by `current/src/test/kotlin/.../architecture/LayeringTest.kt` (Konsist),
   with known pre-existing violations tracked in the checked-in, two-way-ratcheted baseline
   `current/src/test/resources/architecture/layering-baseline.txt` — new violations fail the test;
@@ -147,18 +147,17 @@ Fixes #53
 
 ### Adding New Tools
 
-See [CLAUDE.md - Adding a New MCP Tool](CLAUDE.md#adding-a-new-mcp-tool) for detailed instructions.
+See the `add-component` skill (`.claude/skills/add-component/SKILL.md`) for the full step-by-step checklist, including the tool-documentation single-source policy.
 
-**Checklist**:
+**Summary**:
 - [ ] Extend `BaseToolDefinition`
 - [ ] Define clear parameter and output schemas
 - [ ] Implement `validateParams()` with proper validation
 - [ ] Implement `execute()` with business logic
 - [ ] Handle `Result<T>` from repositories properly
 - [ ] Add comprehensive tests (happy path, failure/error cases, and edge cases)
-- [ ] Register in `McpServer.createTools()`
-- [ ] Document in `docs/api-reference.md`
-- [ ] Add AI usage patterns to `docs/ai-guidelines.md`
+- [ ] Register in `buildMcpTools()` (`current/src/main/kotlin/io/github/jpicklyk/mcptask/current/interfaces/mcp/CurrentMcpServer.kt`)
+- [ ] Document in `current/docs/api-reference.md`
 
 ### Creating Custom Skills
 
@@ -346,13 +345,13 @@ For schema changes, see [docs/developer-guides/database-migrations.md](docs/deve
 
 ```bash
 # All tests
-./gradlew test
+./gradlew :current:test
 
 # Specific test class
-./gradlew test --tests "GetNextTaskToolTest"
+./gradlew :current:test --tests "GetNextItemToolTest"
 
 # Migration tests
-./gradlew test --tests "*migration*"
+./gradlew :current:test --tests "*migration*"
 ```
 
 ### Test Guidelines
@@ -388,13 +387,11 @@ class MyToolTest {
 ### Documentation Updates
 
 When adding features, update:
-- **`docs/api-reference.md`** - Tool usage examples and AI patterns
-- **`docs/ai-guidelines.md`** - AI workflow integration
+- **`current/docs/api-reference.md`** - Tool usage examples and AI patterns
 - **`CLAUDE.md`** - Developer guidance (if architectural changes)
 - **README.md** - Only for major feature additions
 - **`claude-plugins/task-orchestrator/skills/`** - If Skills change
 - **`claude-plugins/task-orchestrator/hooks/`** - If Hooks change
-- **`docs/hybrid-architecture.md`** - If 4-tier architecture changes
 
 ### Documentation Style
 

@@ -33,7 +33,7 @@ errors, per-root-config-unavailable failures, and internal errors.
 | `get_next_status` | Workflow | Read | Read-only transition recommendation for a single item |
 | `get_context` | Workflow | Read | Context snapshot: item mode, session resume, or health check |
 | `get_next_item` | Workflow | Read | Priority-ranked recommendation of next actionable item |
-| `get_blocked_items` | Workflow | Read | All items blocked by dependency or explicit block trigger |
+| `get_blocked_items` | Workflow | Read | Items blocked by dependency or explicit block trigger, capped at 500 per role |
 | `claim_item` | Workflow | Write | Atomically claim or release work items for exclusive ownership |
 | `manage_project_config` | System | Write/Read | Push or read back per-root config YAML for the layered schema resolver |
 | `manage_plan_documents` | System | Write/Read | Stash, read back, or list per-root plan documents |
@@ -1493,8 +1493,8 @@ supplied. Use for session startup, work-summary dashboards, and pre-advance gate
 
 **Modes:**
 - **Item mode** — pass `mode: "item"` (or provide `itemId`): note schema, existing notes with fill status, and gate status for a specific item.
-- **Session resume** — pass `mode: "session-resume"` (or provide `since`): active items, recent role transitions since the timestamp, and stalled items.
-- **Health check** — pass `mode: "health-check"` (or omit all mode-selecting params): all active items (work/review), blocked items, and stalled items.
+- **Session resume** — pass `mode: "session-resume"` (or provide `since`): active items, recent role transitions since the timestamp, and stalled items, each capped at 200 per role.
+- **Health check** — pass `mode: "health-check"` (or omit all mode-selecting params): active items (work/review), blocked items, and stalled items, each capped at 200 per role.
 
 When `mode` is omitted, the mode is inferred from which parameters are present (`itemId` → item, `since` → session-resume, neither → health-check).
 
@@ -2006,9 +2006,10 @@ On `already_claimed`, `retryAfterMs` approximates the remaining TTL of the exist
 
 ### get_blocked_items
 
-**Purpose.** Identifies all WorkItems that are blocked, either explicitly (role=blocked via a
+**Purpose.** Identifies WorkItems that are blocked, either explicitly (role=blocked via a
 block/hold trigger) or implicitly (items in queue/work/review with unsatisfied blocking
-dependency edges). Terminal items are never included.
+dependency edges), capped at 500 per role — the response's `total` field reflects the returned
+count, not a full count of matching items. Terminal items are never included.
 
 **When to call.** Call when work appears stalled or someone asks why an item cannot start.
 
@@ -2133,6 +2134,7 @@ so a push is never silently partial:
 | `project` | Yes | `ProjectConfigPushService` (embedded `project.rootId` guard only) |
 | `note_limits` | Yes | `ToolExecutionContext.resolveNoteLimitsMode()` |
 | `status_labels` | Yes | `ToolExecutionContext.resolveStatusLabel()` |
+| `resources` | Yes | `ToolExecutionContext.resolveResourceRegistry()` |
 | `actor_authentication` | No — global-only | n/a |
 | any other key | No | n/a |
 
@@ -2381,19 +2383,21 @@ parameter — plan documents have no per-note attribution model to stamp.
 
 ## Idempotency
 
-Seven mutating tools support `requestId: UUID` for idempotency: `manage_items`, `manage_notes`, `manage_dependencies`, `advance_item`, `create_work_tree`, `complete_tree`, and `claim_item`.
+The mutating tools `manage_items`, `manage_notes`, `manage_dependencies`, `advance_item`, `create_work_tree`, `complete_tree`, and `claim_item` support `requestId: UUID` for idempotency.
 
 **`claim_item` requires `requestId` (mandatory).** `claim_item` is a fleet-mode tool by definition — single-orchestrator deployments don't claim items. Fleet deployments using `claim_item` are by definition in a multi-agent context where network retries are a real concern, so `claim_item` enforces idempotency as a contract. Calls missing `requestId` are rejected at validation. For `claim_item`, the cache key uses the trusted agent identity (post-`DegradedModePolicy` resolution), matching the actor key used by the claim itself.
 
-**The other 6 mutating tools keep `requestId` optional.** `manage_items`, `manage_notes`, `manage_dependencies`, `advance_item`, `create_work_tree`, and `complete_tree` serve both orchestrator-mode (single dispatcher, no idempotency needed) and fleet-mode (idempotency desired) callers. Omitting `requestId` skips the cache entirely — execution is always fresh. When present, it must be a valid UUID — a malformed value is rejected at validation (see Constraints below), not silently ignored.
+**The rest keep `requestId` optional.** `manage_items`, `manage_notes`, `manage_dependencies`, `advance_item`, `create_work_tree`, and `complete_tree` serve both orchestrator-mode (single dispatcher, no idempotency needed) and fleet-mode (idempotency desired) callers. Omitting `requestId` skips the cache entirely — execution is always fresh. When present, it must be a valid UUID — a malformed value is rejected at validation (see Constraints below), not silently ignored.
 
 **How it works.** When `requestId` and `actor.id` are both present, the server checks an in-memory LRU cache keyed on `(actor.id, requestId)`. If a cached result exists, the original response is returned immediately without re-executing the operation. The cache window is approximately 10 minutes.
+
+**Replay includes returned failures.** Any response the server actually returned — including a returned transient failure such as `resource_unavailable` or `already_claimed` — is replayed verbatim for the full cache TTL on a repeated `(actor.id, requestId)`. Only a thrown exception is not cached. This means: retry a call whose response you already received with a **fresh** `requestId`; reuse the same `requestId` only when no response arrived at all (e.g. a network timeout).
 
 **Constraints:**
 - Cache is single-instance and in-memory. It is not persisted across server restarts and is not shared across multiple server processes.
 - For `advance_item`, the `actor.id` of the **first** transition in the batch is used as the cache key actor.
 - For `manage_items`, `manage_notes`, `manage_dependencies`, `create_work_tree`, and `complete_tree`, the top-level `actor.id` is used. (Implementation note: these tools extract actor from the request-level field, not per-item fields.)
-- A non-UUID `requestId` string is rejected at validation on **all seven** mutating tools — `claim_item` was already strict; the other six (`manage_items`, `manage_notes`, `manage_dependencies`, `advance_item`, `create_work_tree`, `complete_tree`) now match it. There is no silent-ignore path.
+- A non-UUID `requestId` string is rejected at validation on every one of these tools — `claim_item` was already strict; `manage_items`, `manage_notes`, `manage_dependencies`, `advance_item`, `create_work_tree`, and `complete_tree` match it. There is no silent-ignore path.
 
 **Usage.** Generate a fresh UUID per logical operation:
 
@@ -2404,7 +2408,7 @@ Seven mutating tools support `requestId: UUID` for idempotency: `manage_items`, 
 }
 ```
 
-Replay the same call if the network times out — the server either executes once or returns the cached result.
+Replay the same call if the network times out and no response arrived — the server either executes once or returns the cached result. If a response (including a transient-failure response) did arrive, retry with a fresh `requestId` instead.
 
 ---
 
@@ -2469,11 +2473,13 @@ tool's request handling — is mapped by `McpToolAdapter` to this envelope: `tex
 ### Retry Decision Guide
 
 ```
-kind=transient  → exponential backoff, retry same operation
+kind=transient  → exponential backoff, retry same operation with a fresh requestId
   contendedItemId present → option: skip this item, pick another from get_next_item
 kind=permanent  → do not retry; fix the request (validation, permissions, etc.)
 kind=shedding   → wait retryAfterMs, then retry; reduce polling rate if this persists
 ```
+
+See [Idempotency](#idempotency) for why a retried transient failure needs a fresh `requestId`.
 
 ---
 
@@ -2481,7 +2487,7 @@ kind=shedding   → wait retryAfterMs, then retry; reduce polling rate if this p
 
 ### Overview
 
-Actor attribution tracks *who* made changes to work items. Every `advance_item` transition and `manage_notes` upsert can include an optional `actor` claim. Stage 1 ships with a no-op verifier — all claims are persisted as `unchecked`.
+Actor attribution tracks *who* made changes to work items. Every `advance_item` transition and `manage_notes` upsert can include an optional `actor` claim. By default the server uses a no-op verifier, so claims are persisted as `unchecked`; configuring `actor_authentication.verifier: {type: jwks}` switches to cryptographic verification of the claim's proof. See [fleet-deployment.md](./fleet-deployment.md) → Actor authentication.
 
 ### Actor Claim Shape
 

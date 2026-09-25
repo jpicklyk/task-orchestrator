@@ -16,7 +16,7 @@ Moved from the root `CLAUDE.md` so it loads only when needed. The single-source 
 4. Add a `ToolTokenBudgetTest` per-tool ceiling row for the new tool (see that test's "BUDGET
    PHILOSOPHY" doc comment for how to measure and set it) — its sync check fails loudly if a row
    is missing
-5. Add tests in `current/src/test/kotlin/application/tools/`
+5. Add tests in `current/src/test/kotlin/io/github/jpicklyk/mcptask/current/application/tools/`
 
 ### Tool Documentation Surfaces — Single-Source Policy (post token-efficiency program)
 
@@ -33,8 +33,9 @@ Every tool has three documentation surfaces:
 The prose `description` is reserved for what a flat JSON Schema cannot express: operation/mode
 enum selection, mode-selection rules, trigger effects (e.g. the trigger table in `advance_item`),
 gate semantics, and mutual-exclusion/XOR constraints across fields. This keeps the `tools/list`
-payload lean (the MCP Token-Efficiency Program brought the 14-tool payload from 56,984 chars to
-under 30,000 by removing exactly this kind of prose/schema duplication).
+payload lean — the MCP Token-Efficiency Program cut the full tool payload substantially by removing
+exactly this kind of prose/schema duplication; `ToolTokenBudgetTest` guards the result going
+forward with per-tool ceilings rather than a single aggregate number.
 
 **CI guard:** `ToolDocumentationConsistencyTest` asserts (1) every `parameterSchema` property has
 a non-blank field-level `description`, and (2) every `operation`/`mode` enum value is still named

@@ -565,7 +565,7 @@ The optional `verifier` sub-key enables server-side JWT validation of actor clai
 | `jwks_path` | no | string | — | Local JWKS file path (relative to `AGENT_CONFIG_DIR`) |
 | `issuer` | no | string | — | Expected `iss` claim (overrides OIDC-discovered value) |
 | `audience` | no | string | — | Expected `aud` claim |
-| `algorithms` | no | list | `[]` | Allowed signing algorithms; empty = accept any |
+| `algorithms` | yes (under `type: jwks`) | list | n/a | Allowed signing algorithms; required and must be non-empty — an empty list fails startup |
 | `cache_ttl_seconds` | no | number | `300` | JWKS cache TTL in seconds |
 | `require_sub_match` | no | boolean | `true` | JWT `sub` must match `actor.id` |
 | `stale_on_error` | no | boolean | `true` | Serve stale cached key set if JWKS endpoint is unreachable during refresh. Set `false` to propagate the fetch exception |
@@ -662,10 +662,10 @@ Default: absent — a workspace with no `project:` block is unscoped.
 
 ### Behavior
 
-- **Client-side only.** The MCP server never reads this block from `config.yaml` — not in stdio mode, not in HTTP mode. It exists purely for Claude Code: the SessionStart hook and plugin skills read it to scope their output to `rootId`.
+- **Ignored by the global config loader, but honored per-root.** The global/fallback loader (the one that reads `AGENT_CONFIG_DIR`'s `config.yaml` at startup) ignores this block. But when the full config text is pushed per-root via `manage_project_config`, the `project:` block IS honored server-side: the embedded `project.rootId` is checked as a mismatch guard against the target `rootId` (bypass with `force`), and `project` is never listed in a push response's `ignoredSections`. Locally, it's also read by Claude Code: the SessionStart hook and plugin skills use it to scope their output to `rootId`.
 - **Created by** the `quick-start` bootstrap flow or `/adopt-project-scope` when the user opts into anchoring session context to a single project root item.
 - **Opt-in convention.** Scoping is not enforced — its absence just means skills operate without a default root anchor, falling back to unscoped behavior.
-- The same scoping can also be pushed server-side via `manage_project_config` so it's visible beyond this local config file; see the project-scoping integration docs for the full push mechanism. In practice this push is triggered automatically by `manage-schemas`' write-operation report step (Step 4) and by `quick-start`'s bootstrap step (Step 1.5) whenever a `project.rootId` is present — both push the full config file text, not just this block, since the server itself never reads `project:`.
+- The same scoping is pushed server-side via `manage_project_config` so it's visible beyond this local config file; see the project-scoping integration docs for the full push mechanism. In practice this push is triggered automatically by `manage-schemas`' write-operation report step (Step 4) and by `quick-start`'s bootstrap step (Step 1.5) whenever a `project.rootId` is present — both push the full config file text, not just this block.
 
 **Example:**
 
