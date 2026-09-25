@@ -773,37 +773,31 @@ fun Route.itemWriteRoutes(
             // Release this item's resource leases (closing their lease-history intervals) inside the
             // same transaction as the delete, before the row is deleted — see DeleteItemHandler for
             // the MCP-side equivalent and why this fails closed rather than logging and continuing.
-            var leaseReleaseFailure: String? = null
-            var deleteResult: Result<Boolean>? = null
-            workItemRepo.inTransaction {
-                when (val release = repositoryProvider.resourceLeaseRepository().releaseAllForItem(id)) {
-                    is LeaseReleaseResult.Success -> {
-                        deleteResult = workItemRepo.delete(id)
+            // Release and delete must commit (or roll back) together: workItemRepo.delete() reports
+            // failure via Result.Error rather than by throwing, and a returned Result.Error does not
+            // by itself abort the transaction — so a lease-release DBError or a delete Result.Error
+            // is converted into a thrown DeleteLeaseReleaseFailureException inside the block, which
+            // is what actually forces the rollback (matching the existing 500 db_error outcome).
+            // Result.Success (found-and-deleted or already-absent) commits normally, same as before.
+            try {
+                workItemRepo.inTransaction {
+                    when (val release = repositoryProvider.resourceLeaseRepository().releaseAllForItem(id)) {
+                        is LeaseReleaseResult.Success -> Unit
+                        is LeaseReleaseResult.DBError ->
+                            throw DeleteLeaseReleaseFailureException(release.cause.message)
                     }
-                    is LeaseReleaseResult.DBError -> {
-                        leaseReleaseFailure = release.cause.message
+                    when (val result = workItemRepo.delete(id)) {
+                        is Result.Success -> Unit
+                        is Result.Error -> throw DeleteLeaseReleaseFailureException(result.error.message)
                     }
                 }
-            }
-
-            if (leaseReleaseFailure != null) {
-                writeLogger.warn("DELETE /items/{} lease release DB error: {}", id, leaseReleaseFailure)
+            } catch (e: DeleteLeaseReleaseFailureException) {
+                writeLogger.warn("DELETE /items/{} DB error: {}", id, e.message)
                 call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Failed to delete item"))
                 return@delete
             }
 
-            when (val result = deleteResult) {
-                is Result.Error -> {
-                    writeLogger.warn("DELETE /items/{} DB error: {}", id, result.error.message)
-                    call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Failed to delete item"))
-                }
-                is Result.Success -> {
-                    call.respond(HttpStatusCode.NoContent)
-                }
-                null -> {
-                    call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Failed to delete item"))
-                }
-            }
+            call.respond(HttpStatusCode.NoContent)
         }
     }
 
@@ -1043,4 +1037,19 @@ fun Route.itemWriteRoutes(
  */
 private class DepthCascadeException(
     message: String
+) : Exception(message)
+
+/**
+ * Internal marker exception used to abort the shared `workItemRepo.inTransaction` block in the
+ * DELETE `/items/{id}` handler when the resource-lease release or the row delete itself fails.
+ * `workItemRepo.delete()` (and `ResourceLeaseRepository.releaseAllForItem()`) report failure via a
+ * `Result`/`LeaseReleaseResult` value rather than by throwing, and returning such a value does not
+ * by itself abort or roll back a transaction — so both failure paths are converted into a throw
+ * here, which is what actually forces the release and the delete to roll back together rather
+ * than the block committing with the lease released and the row still present. Caught immediately
+ * around the `inTransaction` call and converted into the existing 500 `db_error` response; never
+ * surfaced to the client as a raw exception.
+ */
+private class DeleteLeaseReleaseFailureException(
+    message: String?
 ) : Exception(message)

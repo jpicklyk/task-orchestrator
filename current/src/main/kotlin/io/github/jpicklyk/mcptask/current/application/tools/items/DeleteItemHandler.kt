@@ -16,6 +16,15 @@ import java.util.UUID
  * Supports both direct deletion and recursive deletion of item hierarchies.
  * When `recursive` is true, descendants are deleted leaves-first to satisfy
  * foreign key constraints.
+ *
+ * Every deleted row's resource leases are released (closing their lease-history intervals)
+ * immediately before that row is deleted, inside the same transaction — for both the recursive
+ * and the non-recursive path. Because `repo.delete()` reports failure via [Result.Error] rather
+ * than by throwing, and a returned [Result.Error] does not by itself abort or roll back a
+ * transaction, both paths convert a delete failure (`Result.Error`, or `Result.Success(false)` =
+ * not found) into a thrown [DeleteFailureException] inside the transaction block — this is what
+ * actually forces the release to roll back together with the failed delete, rather than the
+ * block committing with the lease released and the row still present.
  */
 class DeleteItemHandler {
     /**
@@ -151,52 +160,34 @@ class DeleteItemHandler {
                     continue
                 }
 
-                var leaseReleaseFailure: String? = null
-                var deleteResult: Result<Boolean>? = null
-                repo.inTransaction {
-                    when (val release = leaseRepo.releaseAllForItem(id)) {
-                        is LeaseReleaseResult.Success -> {
-                            deleteResult = repo.delete(id)
-                        }
-                        is LeaseReleaseResult.DBError -> {
-                            leaseReleaseFailure =
-                                "Failed to release resource leases for '$idStr': ${release.cause.message}"
+                // Same all-or-nothing discipline as the recursive path above: release and delete
+                // must commit (or roll back) together. repo.delete() returns Result.Error rather
+                // than throwing, so a plain Result-based branch inside the transaction block would
+                // let the block COMMIT the lease release while the row survives (Result.Error is
+                // not a thrown exception the transaction sees). Throwing DeleteFailureException on
+                // both Result.Error and "not found" forces the rollback; it is caught immediately
+                // outside the block and converted into the usual per-id outcome.
+                try {
+                    repo.inTransaction {
+                        releaseLeasesOrThrow(leaseRepo, id)
+                        when (val result = repo.delete(id)) {
+                            is Result.Success ->
+                                if (!result.data) {
+                                    throw DeleteFailureException("Item '$idStr' not found")
+                                }
+                            is Result.Error -> throw DeleteFailureException(result.error.message)
                         }
                     }
-                }
-
-                if (leaseReleaseFailure != null) {
+                } catch (e: DeleteFailureException) {
                     failures.add(
                         buildJsonObject {
                             put("id", JsonPrimitive(idStr))
-                            put("error", JsonPrimitive(leaseReleaseFailure))
+                            put("error", JsonPrimitive(e.message ?: "Failed to delete item '$idStr'"))
                         }
                     )
                     continue
                 }
-
-                when (val result = deleteResult) {
-                    is Result.Success ->
-                        if (result.data) {
-                            deletedIds.add(idStr)
-                        } else {
-                            failures.add(
-                                buildJsonObject {
-                                    put("id", JsonPrimitive(idStr))
-                                    put("error", JsonPrimitive("Item '$idStr' not found"))
-                                }
-                            )
-                        }
-                    is Result.Error -> {
-                        failures.add(
-                            buildJsonObject {
-                                put("id", JsonPrimitive(idStr))
-                                put("error", JsonPrimitive(result.error.message))
-                            }
-                        )
-                    }
-                    null -> Unit
-                }
+                deletedIds.add(idStr)
             }
         }
 

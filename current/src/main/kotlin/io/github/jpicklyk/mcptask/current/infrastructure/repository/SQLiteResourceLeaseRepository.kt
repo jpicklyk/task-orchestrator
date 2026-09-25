@@ -45,7 +45,9 @@ import java.util.UUID
  * interface KDoc). Mirrors [SQLiteWorkItemRepository.claim]'s transaction/DB-clock discipline:
  * every timestamp compared or written for lease-freshness decisions is DB-side (`datetime('now')`
  * in raw SQL, or an [Instant] read from the DB clock via [dbNow] for typed Exposed comparisons) —
- * never [Instant.now].
+ * never [Instant.now] — except the H2 test-harness fallback in `releaseAllForItem`/
+ * `forceReleaseByKey`, which uses the JVM clock because H2 cannot parse the SQLite-only
+ * `datetime()` statement those methods otherwise use.
  */
 class SQLiteResourceLeaseRepository(
     private val databaseManager: DatabaseManager
@@ -387,9 +389,10 @@ class SQLiteResourceLeaseRepository(
         try {
             suspendTransaction(db = databaseManager.getDatabase()) {
                 val uuidType = UUIDColumnType()
-                // Close every OPEN interval this holder has, across all its keys. releasedAt is
-                // stamped DB-side (datetime('now')) — never the JVM clock, matching every other
-                // write in this class.
+                // Close every OPEN interval this holder has, across all its keys. On SQLite,
+                // releasedAt is stamped DB-side (datetime('now')) — never the JVM clock — via the
+                // raw statement in the else branch below; see the H2 branch's own comment for why
+                // it differs.
                 //
                 // datetime(expires_at) wrapping is load-bearing, here and in forceReleaseByKey:
                 // Exposed timestamp columns store fractional seconds ('...:49.937') while
@@ -399,8 +402,8 @@ class SQLiteResourceLeaseRepository(
                 // datetime() canonicalizes both sides to second precision.
                 if (currentDialect is H2Dialect) {
                     // H2 (test harness only — production always runs SQLite): the raw
-                    // datetime()/CASE statement above is SQLite-only syntax H2 cannot parse.
-                    // Portable fallback via the Exposed DSL. Best-effort semantics: no
+                    // datetime()/CASE statement in the else branch below is SQLite-only syntax H2
+                    // cannot parse. Portable fallback via the Exposed DSL. Best-effort semantics: no
                     // expired-vs-released distinction (always "released") and the JVM clock
                     // instead of the DB clock — acceptable because this branch is only ever
                     // exercised by tests, never by production traffic.
