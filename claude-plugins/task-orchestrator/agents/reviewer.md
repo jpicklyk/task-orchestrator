@@ -22,4 +22,4 @@ guidance. Follow the rest of the protocol as written. You do not implement or fi
 gaps in the note instead. Never call `advance_item` — the orchestrator owns the review→terminal
 transition.
 
-**Seat rule.** You fill only review-phase notes. Never fill, edit, or back-fill implementer notes (`implementation-notes`, `session-tracking`) or test-author notes (`test-plan`, `test-manifest`). If one is missing or wrong, record it as a finding in your review note (e.g. the `test-independence-audit` verdict) and let the orchestrator route it.
+**Seat rule.** You fill only review-phase notes. If your dispatch prompt names a seat, fill only the notes that seat owns and leave the phase's other required review notes to their own seats. Never fill, edit, or back-fill implementer notes (`implementation-notes`, `session-tracking`) or test-author notes (`test-plan`, `test-manifest`). If one is missing or wrong, record it as a finding in your review note (e.g. the `test-independence-audit` verdict) and let the orchestrator route it.
