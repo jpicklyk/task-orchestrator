@@ -1,35 +1,20 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
-    <!-- Console appender for errors and warnings only — routed to stderr
-         to keep stdout exclusively for MCP JSON-RPC messages (stdio transport). -->
+    <!-- Console appender for ALL levels, routed to stderr as one JSON object per line —
+         keeps stdout exclusively for MCP JSON-RPC messages (stdio transport). Level is
+         controlled only by the root logger below (${LOG_LEVEL:-INFO}); no ThresholdFilter here. -->
     <appender name="STDERR" class="ch.qos.logback.core.ConsoleAppender">
         <target>System.err</target>
-        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
-            <level>WARN</level>
-        </filter>
-        <encoder>
-            <pattern>%d{yyyy-MM-dd'T'HH:mm:ss.SSS'Z'} [%thread] [%-5level] %logger{36} - %msg%n</pattern>
-        </encoder>
+        <encoder class="io.github.jpicklyk.mcptask.current.infrastructure.logging.Iso8601JsonEncoder"/>
     </appender>
 
-    <!-- File appender for all log levels -->
-    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
-        <file>logs/task-orchestrator.log</file>
-        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
-            <fileNamePattern>logs/task-orchestrator-%d{yyyy-MM-dd}.%i.log</fileNamePattern>
-            <maxFileSize>10MB</maxFileSize>
-            <maxHistory>30</maxHistory>
-            <totalSizeCap>100MB</totalSizeCap>
-        </rollingPolicy>
-        <encoder>
-            <pattern>%d{yyyy-MM-dd'T'HH:mm:ss.SSS'Z'} [task-orchestrator] [%p] %m%n</pattern>
-        </encoder>
-    </appender>
-
-    <!-- Root logger: stderr (WARN+) and file (all levels) — nothing to stdout -->
+    <!-- Root logger: stderr only. Opt-in file logging (LOG_FILE) is attached PROGRAMMATICALLY by
+         io.github.jpicklyk.mcptask.current.infrastructure.logging.LogFileAppenderInstaller, called
+         from CurrentMain — see that class's KDoc for why (a logback-core 1.5.32 Joran quirk makes
+         the Janino-free <if><condition class="..."> XML form silently never attach the appender
+         even with the property correctly set). Nothing here ever targets stdout. -->
     <root level="${LOG_LEVEL:-INFO}">
         <appender-ref ref="STDERR"/>
-        <appender-ref ref="FILE"/>
     </root>
 
     <!-- Suppress verbose MCP SDK internals -->

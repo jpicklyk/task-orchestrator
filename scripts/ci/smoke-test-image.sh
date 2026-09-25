@@ -13,7 +13,12 @@
 #      JSON-RPC sequence into a fresh `docker run --rm -i` of the same image and assert the
 #      tools/list response (id=2) carries a non-empty `result.tools` array and a `result.serverInfo`.
 #      This proves the actual runtime JVM (Corretto 25 in runtime-current) can load the jar, open
-#      SQLite via JNI, and answer the protocol — not just that the process started.
+#      SQLite via JNI, and answer the protocol — not just that the process started. stdout and
+#      stderr are captured SEPARATELY (never merged): every non-blank stdout line MUST be a JSON
+#      object with "jsonrpc":"2.0" — anything else (a stray banner some dependency prints straight
+#      to System.out, a stack trace, plain text) FAILS the check, since it would corrupt the
+#      stdio JSON-RPC stream for a real client. stderr is captured for diagnostics only and is
+#      never checked for purity (INFO/WARN/ERROR logs are expected there).
 #
 # Usage: scripts/ci/smoke-test-image.sh <image-tag>
 #
@@ -34,6 +39,7 @@ CONTAINER_NAME="smoke-test-${RUN_ID}"
 STDIO_CONTAINER_NAME="smoke-test-stdio-${RUN_ID}"
 REQ_FILE=""
 OUTPUT_FILE=""
+STDERR_FILE=""
 
 cleanup() {
   docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
@@ -41,6 +47,7 @@ cleanup() {
   docker volume rm "$VOLUME_NAME" >/dev/null 2>&1 || true
   [ -n "$REQ_FILE" ] && rm -f "$REQ_FILE"
   [ -n "$OUTPUT_FILE" ] && rm -f "$OUTPUT_FILE"
+  [ -n "$STDERR_FILE" ] && rm -f "$STDERR_FILE"
   return 0
 }
 trap cleanup EXIT
@@ -73,6 +80,7 @@ docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
 echo "-- Part 2: MCP stdio JSON-RPC handshake --"
 REQ_FILE="$(mktemp)"
 OUTPUT_FILE="$(mktemp)"
+STDERR_FILE="$(mktemp)"
 
 cat >"$REQ_FILE" <<'EOF'
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"smoke-test","version":"0.0.1"}}}
@@ -82,9 +90,9 @@ EOF
 
 set +e
 if command -v timeout >/dev/null 2>&1; then
-  (cat "$REQ_FILE"; sleep 3) | timeout 30 docker run --rm -i --name "$STDIO_CONTAINER_NAME" -v "${VOLUME_NAME}:/app/data" "$IMAGE" >"$OUTPUT_FILE" 2>&1
+  (cat "$REQ_FILE"; sleep 3) | timeout 30 docker run --rm -i --name "$STDIO_CONTAINER_NAME" -v "${VOLUME_NAME}:/app/data" "$IMAGE" >"$OUTPUT_FILE" 2>"$STDERR_FILE"
 else
-  (cat "$REQ_FILE"; sleep 3) | docker run --rm -i --name "$STDIO_CONTAINER_NAME" -v "${VOLUME_NAME}:/app/data" "$IMAGE" >"$OUTPUT_FILE" 2>&1
+  (cat "$REQ_FILE"; sleep 3) | docker run --rm -i --name "$STDIO_CONTAINER_NAME" -v "${VOLUME_NAME}:/app/data" "$IMAGE" >"$OUTPUT_FILE" 2>"$STDERR_FILE"
 fi
 set -e
 
@@ -92,31 +100,56 @@ set -e
 # initialize response (id=1), and `tools` is only present on the tools/list response (id=2). Scan
 # every JSON-looking line in the transcript and take the best value seen for each, rather than
 # expecting a single line to carry both.
+#
+# stdout purity: every non-blank line of $OUTPUT_FILE (stdout ONLY — stderr is a separate file and
+# never enters this check) must be a JSON object with "jsonrpc":"2.0". A stray banner, stack
+# trace, or any other non-JSON-RPC text on stdout corrupts the protocol stream for a real client
+# and fails the check even if the handshake itself otherwise looks complete.
+#
 # Parse with node (present locally and on GitHub runners) rather than jq, and fail loudly if it is
 # missing — a silently absent parser would make every run report "handshake incomplete".
 if ! command -v node >/dev/null 2>&1; then
   echo "ERROR: node is required to parse the MCP handshake transcript" >&2
   exit 2
 fi
-read -r HAS_SERVER_INFO TOOLS_COUNT < <(node -e '
+read -r HAS_SERVER_INFO TOOLS_COUNT IMPURE_LINE < <(node -e '
   const lines = require("fs").readFileSync(0, "utf8").split(String.fromCharCode(10));
-  let si = 0, tc = 0;
+  let si = 0, tc = 0, impure = "";
   for (const raw of lines) {
     const line = raw.trim();
-    if (!line.startsWith("{")) continue;
-    let msg; try { msg = JSON.parse(line); } catch { continue; }
+    if (line === "") continue;
+    let msg;
+    try { msg = JSON.parse(line); } catch { impure = impure || line; continue; }
+    if (typeof msg !== "object" || msg === null || Array.isArray(msg) || msg.jsonrpc !== "2.0") {
+      impure = impure || line;
+      continue;
+    }
     if (msg.id === 1 && msg.result && msg.result.serverInfo) si = 1;
     if (msg.id === 2 && msg.result && Array.isArray(msg.result.tools)) tc = msg.result.tools.length;
   }
-  console.log(si + " " + tc);
+  const encodedImpure = impure ? Buffer.from(impure, "utf8").toString("base64") : "-";
+  console.log(si + " " + tc + " " + encodedImpure);
 ' <"$OUTPUT_FILE")
 
+FAIL=0
+if [ "$IMPURE_LINE" != "-" ]; then
+  DECODED_IMPURE="$(printf '%s' "$IMPURE_LINE" | base64 -d 2>/dev/null || echo "$IMPURE_LINE")"
+  echo "ERROR: stdout is not pure JSON-RPC — found a non-JSON-RPC line: $DECODED_IMPURE" >&2
+  FAIL=1
+fi
 if [ "$HAS_SERVER_INFO" -ne 1 ] || [ "$TOOLS_COUNT" -le 0 ]; then
   echo "ERROR: MCP handshake incomplete (serverInfo present=$HAS_SERVER_INFO, tools/list count=$TOOLS_COUNT)" >&2
-  echo "---- raw container stdout/stderr ----" >&2
+  FAIL=1
+fi
+
+if [ "$FAIL" -ne 0 ]; then
+  echo "---- container stdout ----" >&2
   cat "$OUTPUT_FILE" >&2
+  echo "---- container stderr ----" >&2
+  cat "$STDERR_FILE" >&2
   exit 1
 fi
 
 echo "initialize returned serverInfo; tools/list returned $TOOLS_COUNT tools."
+echo "stdout is pure JSON-RPC (no stray banners/text)."
 echo "Smoke test passed."

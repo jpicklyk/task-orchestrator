@@ -18,7 +18,6 @@ import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlActorAuthent
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlNoteSchemaService
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlStatusLabelService
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
-import io.github.jpicklyk.mcptask.current.infrastructure.logging.DefaultMcpLoggingService
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
@@ -71,7 +70,6 @@ class CompositionResult(
     val statusLabelService: StatusLabelService,
     val degradedModePolicy: DegradedModePolicy,
     val idempotencyCache: IdempotencyCache,
-    val mcpLoggingService: DefaultMcpLoggingService,
     val actorAuthEnabled: Boolean,
 )
 
@@ -124,7 +122,6 @@ class ServerComposition(
         // readiness marker is ever written) rather than on first incidental use deep in a request.
         noteSchemaService.getLoadWarnings()
         val statusLabelService = YamlStatusLabelService(globalConfigPath)
-        val mcpLoggingService = DefaultMcpLoggingService()
         val (actorVerifier, degradedModePolicy) = createActorVerifierAndPolicy(globalConfigPath)
         val idempotencyCache = IdempotencyCache()
 
@@ -147,15 +144,14 @@ class ServerComposition(
         val perRootConfigService = PerRootConfigService(effectiveProvider.projectConfigRepository())
         val toolContext =
             ToolExecutionContext(
-                effectiveProvider,
-                noteSchemaService,
-                statusLabelService,
-                mcpLoggingService,
-                actorVerifier,
-                degradedModePolicy,
-                idempotencyCache,
-                nextItemRecommender,
-                perRootConfigService,
+                repositoryProvider = effectiveProvider,
+                noteSchemaService = noteSchemaService,
+                statusLabelService = statusLabelService,
+                actorVerifier = actorVerifier,
+                degradedModePolicy = degradedModePolicy,
+                idempotencyCache = idempotencyCache,
+                nextItemRecommender = nextItemRecommender,
+                perRootConfigService = perRootConfigService,
             )
         logger.info(
             "Repository provider and tool context initialized (API {})",
@@ -178,7 +174,6 @@ class ServerComposition(
             statusLabelService = statusLabelService,
             degradedModePolicy = degradedModePolicy,
             idempotencyCache = idempotencyCache,
-            mcpLoggingService = mcpLoggingService,
             actorAuthEnabled = actorAuthEnabled,
         )
     }

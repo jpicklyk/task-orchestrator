@@ -104,6 +104,7 @@ default, and an unrecognized non-empty value either falls back to the default wi
 - `MCP_TRANSPORT` — `stdio` (default) or `http`
 - `MCP_HTTP_PORT` — HTTP port (default: `3001`)
 - `LOG_LEVEL` — DEBUG / INFO / WARN / ERROR (default: `INFO`)
+- `LOG_FILE` — opt-in log file path (default: unset, no file logging). Logs are always JSON on stderr; see `current/docs/fleet-deployment.md` → "Logging".
 - `FLYWAY_REPAIR` — run repair and exit (default: `false`)
 - `DEGRADED_MODE_POLICY` — overrides `actor_authentication.degraded_mode_policy` in config; values: `accept-cached` (default) | `accept-self-reported` | `reject`; invalid value = startup failure
 - `READINESS_FILE` — path to the readiness marker file the server touches once startup (DB init,

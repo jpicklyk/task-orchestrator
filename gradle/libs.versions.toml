@@ -20,6 +20,14 @@ slf4j = "2.0.17"
 
 logback = "1.5.32"
 
+# kotlin-logging-jvm: transitive runtime dep of the MCP SDK (io.github.oshai:kotlin-logging-jvm),
+# NOT a direct dependency we choose to add — pinned here (compileOnly) only so
+# CurrentMain.kt can call KotlinLoggingConfiguration.setLogStartupMessage(false) at compile
+# time to suppress its System.out startup banner. Must track whatever version the MCP SDK
+# actually resolves (see `:current:dependencies --configuration runtimeClasspath`); does not
+# add a new runtime artifact since it's already on the runtime classpath transitively.
+kotlinLogging = "8.0.01"
+
 # Testing
 mockk = "1.14.3"
 junit = "5.12.2"
@@ -43,6 +51,7 @@ ktlint = "12.1.2"
 # Kotlin and Coroutines
 kotlin-stdlib = { module = "org.jetbrains.kotlin:kotlin-stdlib" }
 kotlinx-coroutines = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinCoroutines" }
+kotlinx-coroutines-slf4j = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-slf4j", version.ref = "kotlinCoroutines" }
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "kotlinCoroutines" }
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinSerialization" }
 
@@ -73,6 +82,7 @@ flyway-core = { module = "org.flywaydb:flyway-core", version.ref = "flyway" }
 # Logging
 slf4j = { module = "org.slf4j:slf4j-api", version.ref = "slf4j" }
 logback = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }
+kotlin-logging-jvm = { module = "io.github.oshai:kotlin-logging-jvm", version.ref = "kotlinLogging" }
 
 # YAML
 snakeyaml = { module = "org.yaml:snakeyaml", version.ref = "snakeyaml" }

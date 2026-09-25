@@ -12,6 +12,11 @@ link items with typed blocking or relational edges.
 **See also:** [`search-and-discovery.md`](./search-and-discovery.md) for the architecture behind
 FTS5 search (two-tokenizer design, RRF fusion, scope filtering, backlinks, score interpretation).
 
+**Server capabilities:** the `initialize` result advertises `tools` (`listChanged`) and `logging`
+only — there are no `prompts` or `resources` capabilities; the server registers neither. The
+`logging` capability backs `notifications/message` events the server sends on tool validation
+errors, per-root-config-unavailable failures, and internal errors.
+
 ## Tool Categories
 
 | Tool | Category | R/W | Description |
