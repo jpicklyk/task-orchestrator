@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.tools
 
+import io.github.jpicklyk.mcptask.current.application.BuildInfo
 import io.github.jpicklyk.mcptask.current.domain.model.ToolError
 import kotlinx.serialization.json.*
 import java.time.Instant
@@ -14,8 +15,6 @@ import java.time.Instant
  * This ensures AI agents can reliably parse tool responses regardless of which tool produced them.
  */
 object ResponseUtil {
-    private const val CURRENT_VERSION = "0.1.0"
-
     /**
      * Creates a success response envelope.
      *
@@ -158,6 +157,6 @@ object ResponseUtil {
     fun createMetadata(): JsonObject =
         buildJsonObject {
             put("timestamp", JsonPrimitive(Instant.now().toString()))
-            put("version", JsonPrimitive(CURRENT_VERSION))
+            put("version", JsonPrimitive(BuildInfo.version))
         }
 }

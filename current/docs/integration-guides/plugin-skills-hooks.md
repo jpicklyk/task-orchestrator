@@ -43,6 +43,8 @@ Hooks fire automatically — no invocation needed after installation.
 
 **Effect:** The agent knows the MCP tool names and workflow conventions from the first prompt, without any CLAUDE.md instructions.
 
+**Registration self-check:** The other hooks below (skill enforcement, actor attribution, retro trigger, phase-guard record) fire only when an MCP tool call's server segment — the middle part of `mcp__<server>__<tool>` — contains `task-orchestrator`. Session Start reads discoverable MCP registrations (project `.mcp.json`, and `~/.claude.json`'s top-level `mcpServers` plus its `projects[<cwd>].mcpServers`) and, for any orchestrator registration whose key omits that token, appends a `## Hook Registration Check` section naming the offending key and the fix (rename the key to include `task-orchestrator`, e.g. `mcp-task-orchestrator`). The check is purely diagnostic and fail-open: any read or parse error simply omits the section, and it never blocks session start. A registration is recognized as "the orchestrator" when its key or its entry body (command/args/url) mentions `task-orchestrator`; an HTTP registration whose key and URL both omit it is undetectable.
+
 ### Pre-Plan
 
 **Event:** `PreToolUse` on `EnterPlanMode` — when Claude enters plan mode.

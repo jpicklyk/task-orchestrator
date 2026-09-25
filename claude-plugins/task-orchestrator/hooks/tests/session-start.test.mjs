@@ -14,9 +14,20 @@ function writeConfig(dir, content) {
   writeFileSync(join(cfgDir, 'config.yaml'), content, 'utf-8');
 }
 
-function runHook(agentConfigDir) {
+function runHook(agentConfigDir, extraEnv = {}) {
+  // Isolate HOME/USERPROFILE (os.homedir() honors both) so the registration self-check reads a
+  // controlled ~/.claude.json instead of the developer's real one — otherwise results become
+  // machine-dependent. Tests that want a specific ~/.claude.json pass homeDir via extraEnv.
+  const homeDir = extraEnv.homeDir || agentConfigDir;
   return spawnSync(process.execPath, [HOOK], {
-    env: { ...process.env, AGENT_CONFIG_DIR: agentConfigDir },
+    env: {
+      ...process.env,
+      AGENT_CONFIG_DIR: agentConfigDir,
+      HOME: homeDir,
+      USERPROFILE: homeDir,
+      CLAUDE_CONFIG_DIR: '',
+      ...extraEnv.env,
+    },
     encoding: 'utf-8',
     cwd: agentConfigDir, // avoid the cwd-walk fallback finding this repo's real config.yaml
   });
@@ -105,6 +116,124 @@ test('no config discoverable -> no watchPaths key at all', () => {
     assert.equal(res.status, 0);
     const out = JSON.parse(res.stdout);
     assert.ok(!('watchPaths' in out.hookSpecificOutput));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Registration self-check
+// ─────────────────────────────────────────────────────────────────────────
+
+function writeUserClaudeJson(homeDir, content) {
+  writeFileSync(join(homeDir, '.claude.json'), JSON.stringify(content), 'utf-8');
+}
+
+function writeProjectMcpJson(dir, content) {
+  writeFileSync(join(dir, '.mcp.json'), JSON.stringify(content), 'utf-8');
+}
+
+test('offending key in ~/.claude.json mcpServers -> Hook Registration Check warns', () => {
+  const dir = tmpConfigDir();
+  try {
+    writeUserClaudeJson(dir, {
+      mcpServers: {
+        tasks: { command: 'docker', args: ['run', 'ghcr.io/jpicklyk/task-orchestrator:latest'] },
+      },
+    });
+    const res = runHook(dir);
+    assert.equal(res.status, 0);
+    const out = JSON.parse(res.stdout);
+    assert.ok(out.hookSpecificOutput.additionalContext.includes('Hook Registration Check'));
+    assert.ok(out.hookSpecificOutput.additionalContext.includes('tasks'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('compliant key mcp-task-orchestrator -> no Hook Registration Check section', () => {
+  const dir = tmpConfigDir();
+  try {
+    writeUserClaudeJson(dir, {
+      mcpServers: {
+        'mcp-task-orchestrator': { command: 'docker', args: ['run', 'ghcr.io/jpicklyk/task-orchestrator:latest'] },
+      },
+    });
+    const res = runHook(dir);
+    assert.equal(res.status, 0);
+    const out = JSON.parse(res.stdout);
+    assert.ok(!out.hookSpecificOutput.additionalContext.includes('Hook Registration Check'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('offending HTTP entry in project .mcp.json -> warned', () => {
+  const dir = tmpConfigDir();
+  try {
+    writeProjectMcpJson(dir, {
+      mcpServers: {
+        tasks: { type: 'http', url: 'http://host/task-orchestrator/mcp' },
+      },
+    });
+    const res = runHook(dir);
+    assert.equal(res.status, 0);
+    const out = JSON.parse(res.stdout);
+    assert.ok(out.hookSpecificOutput.additionalContext.includes('Hook Registration Check'));
+    assert.ok(out.hookSpecificOutput.additionalContext.includes('tasks'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('offending entry under ~/.claude.json projects[cwd].mcpServers -> warned', () => {
+  const dir = tmpConfigDir();
+  try {
+    writeUserClaudeJson(dir, {
+      projects: {
+        [dir]: {
+          mcpServers: {
+            tasks: { command: 'docker', args: ['run', 'ghcr.io/jpicklyk/task-orchestrator:latest'] },
+          },
+        },
+      },
+    });
+    const res = runHook(dir);
+    assert.equal(res.status, 0);
+    const out = JSON.parse(res.stdout);
+    assert.ok(out.hookSpecificOutput.additionalContext.includes('Hook Registration Check'));
+    assert.ok(out.hookSpecificOutput.additionalContext.includes('tasks'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('malformed ~/.claude.json -> exit 0, base guidance, no Hook Registration Check', () => {
+  const dir = tmpConfigDir();
+  try {
+    writeFileSync(join(dir, '.claude.json'), '{ not valid json', 'utf-8');
+    const res = runHook(dir);
+    assert.equal(res.status, 0);
+    const out = JSON.parse(res.stdout);
+    assert.ok(out.hookSpecificOutput.additionalContext.includes('Task Orchestrator — Session Context'));
+    assert.ok(!out.hookSpecificOutput.additionalContext.includes('Hook Registration Check'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('unrelated server entry -> not flagged', () => {
+  const dir = tmpConfigDir();
+  try {
+    writeUserClaudeJson(dir, {
+      mcpServers: {
+        memory: { command: 'npx', args: ['@foo/memory'] },
+      },
+    });
+    const res = runHook(dir);
+    assert.equal(res.status, 0);
+    const out = JSON.parse(res.stdout);
+    assert.ok(!out.hookSpecificOutput.additionalContext.includes('Hook Registration Check'));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

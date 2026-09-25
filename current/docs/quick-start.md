@@ -430,7 +430,7 @@ docker run --rm -p 127.0.0.1:3001:3001 \
 **Register the HTTP endpoint with Claude Code:**
 
 ```bash
-claude mcp add --transport http mcp-task-orchestrator-http http://localhost:3001/mcp
+claude mcp add --transport http mcp-task-orchestrator http://localhost:3001/mcp
 ```
 
 Or add it to a project `.mcp.json`:
@@ -438,7 +438,7 @@ Or add it to a project `.mcp.json`:
 ```json
 {
   "mcpServers": {
-    "mcp-task-orchestrator-http": {
+    "mcp-task-orchestrator": {
       "type": "http",
       "url": "http://localhost:3001/mcp"
     }
@@ -447,6 +447,8 @@ Or add it to a project `.mcp.json`:
 ```
 
 Restart Claude Code and run `/mcp` to confirm the connection and that the tools are listed. Other MCP clients should target the same `http://localhost:3001/mcp` URL using the Streamable HTTP transport.
+
+> **The registration key can be anything, as long as it contains `task-orchestrator`.** The bundled `task-orchestrator` plugin's hooks (actor attribution, retro trigger, phase guard, skill enforcement) match MCP tool calls by looking for `task-orchestrator` in the server segment of the tool name (`mcp__<server>__<tool>`) — a key like `mcp-task-orchestrator` or `mcp-task-orchestrator-http` works, but an unrelated key (e.g. `tasks`) silently disables those hooks for this server. The plugin's SessionStart hook runs a self-check and warns in-session if it finds a registration missing the token.
 
 **HTTP transport environment variables:**
 
