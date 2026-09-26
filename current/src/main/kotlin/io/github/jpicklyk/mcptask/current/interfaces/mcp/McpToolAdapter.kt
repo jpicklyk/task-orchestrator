@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
+import io.github.jpicklyk.mcptask.current.application.service.ActorVerificationScope
 import io.github.jpicklyk.mcptask.current.application.tools.ErrorCodes
 import io.github.jpicklyk.mcptask.current.application.tools.ResponseUtil
 import io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition
@@ -89,7 +90,12 @@ class McpToolAdapter {
                     put("requestId", UUID.randomUUID().toString())
                     actorIdFrom(request.arguments)?.let { put("actorId", MdcValues.bounded(it, max = ACTOR_ID_MDC_MAX_LENGTH)) }
                 }
-            withContext(MDCContext((MDC.getCopyOfContextMap() ?: emptyMap()) + correlationFields)) {
+            // ActorVerificationScope: a fresh per-call memo so a proof re-verified multiple times
+            // within this single MCP call (idempotency lookups, multi-transition batches) is only
+            // ever checked once against an opt-in jti replay cache — see that class's KDoc.
+            withContext(
+                MDCContext((MDC.getCopyOfContextMap() ?: emptyMap()) + correlationFields) + ActorVerificationScope()
+            ) {
                 try {
                     val preprocessedParams =
                         preprocessParameters(

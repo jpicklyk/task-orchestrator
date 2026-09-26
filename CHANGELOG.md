@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Added an opt-in `(iss, jti)` replay cache for actor-authentication JWTs
+  (`actor_authentication.verifier.jti_replay_protection`, default `false`). A per-MCP-call memo
+  keeps a proof that is legitimately re-verified multiple times within one call (idempotency-key
+  lookups, multi-transition batches) from tripping the cache as a false replay.
+
+### Changed
+
+- Actor-authentication and REST API JWTs are now capped at a maximum lifetime, default 24 hours
+  (`actor_authentication.verifier.max_token_lifetime_seconds` / `API_JWKS_MAX_TOKEN_LIFETIME_SECONDS`).
+  **Upgrade note:** a token whose `exp - iat` (or remaining `exp - now`) exceeds 24 hours is now
+  REJECTED where it previously verified; raise the new setting before or immediately after
+  upgrading if your issuer intentionally mints longer-lived tokens.
+
+### Fixed
+
+- Fixed a malformed JWT claims set (e.g. a non-numeric `exp`/`iat`) being misreported as
+  `UNAVAILABLE`/`failureKind: network` under DID trust, or `REJECTED`/`failureKind: internal` in
+  static-JWKS mode; both now report `REJECTED`/`failureKind: claims`.
+
 ## [3.15.0] - 2026-09-25
 
 ### Highlights

@@ -123,7 +123,7 @@ printf '%s' "$TOKEN" | openssl dgst -sha256 | awk '{print $NF}'
 
 ### JWKS Mode (`API_AUTH_MODE=jwks`)
 
-Present a JWT in the `Authorization: Bearer` header. The server validates the JWT against the JWKS endpoint configured by `API_JWKS_URL`. Claims extracted: `iss`, `aud`, `sub`, `exp`, `nbf`. `exp` is **required** — a JWT with no `exp` claim is rejected with `401 invalid_token`; there is no max-lifetime knob to accept exp-less tokens instead.
+Present a JWT in the `Authorization: Bearer` header. The server validates the JWT against the JWKS endpoint configured by `API_JWKS_URL`. Claims extracted: `iss`, `aud`, `sub`, `exp`, `nbf`, `iat` (when present). `exp` is **required** — a JWT with no `exp` claim is rejected with `401 invalid_token`. A token is also rejected once its remaining lifetime exceeds `API_JWKS_MAX_TOKEN_LIFETIME_SECONDS` (default `86400` = 24h, 60s clock-skew allowance): `exp - now` beyond the cap always rejects, and when `iat` is present a future-dated `iat` or an `exp - iat` spread beyond the cap also rejects. See [fleet-deployment.md § JWT Contract](fleet-deployment.md#jwt-contract) for the full rule.
 
 The principal's `tokenId` is the JWT's `sub` claim. Scope and capabilities are derived from two
 custom claims the issuer sets:

@@ -12,6 +12,7 @@ import com.nimbusds.jwt.SignedJWT
 import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksKeySetProvider
 import org.slf4j.LoggerFactory
 import java.time.Clock
+import java.time.Duration
 import java.time.Instant
 import java.util.Date
 
@@ -174,6 +175,29 @@ class JwksApiVerifier(
             val skewAdjustedNow = Date.from(now.plusSeconds(CLOCK_SKEW_SECONDS))
             if (notBefore.after(skewAdjustedNow)) {
                 logger.debug("JWT not yet valid (nbf={})", notBefore)
+                return null
+            }
+        }
+
+        // Lifetime cap (config.maxTokenLifetimeSeconds, default 86400 / API_JWKS_MAX_TOKEN_LIFETIME_SECONDS).
+        // Mirrors JwksActorVerifier's cap exactly: (a) always applies, bounding exp - now regardless
+        // of iat; (b) when iat is present, additionally reject a future-dated iat and an
+        // honestly-declared over-long token (exp - iat). iat is OPTIONAL per RFC 7519 s4.1.6, so its
+        // absence never fails the token on its own.
+        val expiryInstant = expiry.toInstant()
+        if (Duration.between(now, expiryInstant).seconds > config.maxTokenLifetimeSeconds + CLOCK_SKEW_SECONDS) {
+            logger.debug("JWT rejected: token lifetime exceeds maximum")
+            return null
+        }
+        val issueTime = claims.issueTime
+        if (issueTime != null) {
+            val issueInstant = issueTime.toInstant()
+            if (issueInstant.isAfter(now.plusSeconds(CLOCK_SKEW_SECONDS))) {
+                logger.debug("JWT rejected: iat is in the future")
+                return null
+            }
+            if (Duration.between(issueInstant, expiryInstant).seconds > config.maxTokenLifetimeSeconds + CLOCK_SKEW_SECONDS) {
+                logger.debug("JWT rejected: token lifetime exceeds maximum")
                 return null
             }
         }

@@ -9,6 +9,9 @@ import java.net.URL
 /** Confirm flag permitting plaintext http for [ApiAuthConfigLoader]'s `API_JWKS_URL`, restricted to a loopback host. */
 private const val ALLOW_INSECURE_JWKS_URL_ENV = "API_JWKS_ALLOW_INSECURE_URL"
 
+/** Default for `API_JWKS_MAX_TOKEN_LIFETIME_SECONDS` when unset: 24 hours. */
+private const val DEFAULT_MAX_TOKEN_LIFETIME_SECONDS = 86400L
+
 /**
  * Environment-variable-driven loader for [ApiAuthConfig].
  *
@@ -193,13 +196,37 @@ class ApiAuthConfigLoader(
             )
         }
 
+        // Unlike API_JWKS_CACHE_TTL_SECONDS above, a non-numeric or non-positive value here fails
+        // startup rather than silently falling back to the default -- this knob directly controls
+        // how long a stolen token stays usable, so a typo must not be allowed to silently widen it.
+        val maxTokenLifetimeSecondsRaw = envResolver("API_JWKS_MAX_TOKEN_LIFETIME_SECONDS")?.trim()
+        val maxTokenLifetimeSeconds =
+            if (maxTokenLifetimeSecondsRaw.isNullOrBlank()) {
+                DEFAULT_MAX_TOKEN_LIFETIME_SECONDS
+            } else {
+                val parsed =
+                    maxTokenLifetimeSecondsRaw.toLongOrNull()
+                        ?: throw IllegalArgumentException(
+                            "API_JWKS_MAX_TOKEN_LIFETIME_SECONDS must be a positive integer, " +
+                                "got '$maxTokenLifetimeSecondsRaw'.",
+                        )
+                if (parsed <= 0) {
+                    throw IllegalArgumentException(
+                        "API_JWKS_MAX_TOKEN_LIFETIME_SECONDS must be a positive integer, got '$parsed'.",
+                    )
+                }
+                parsed
+            }
+
         logger.info(
-            "JWKS auth configured: url={}, issuer={}, audience={}, algorithms={}, cacheTtlSeconds={}",
+            "JWKS auth configured: url={}, issuer={}, audience={}, algorithms={}, cacheTtlSeconds={}, " +
+                "maxTokenLifetimeSeconds={}",
             url,
             issuer,
             audience,
             algorithms,
             cacheTtlSeconds,
+            maxTokenLifetimeSeconds,
         )
 
         return ApiAuthConfig.Jwks(
@@ -208,6 +235,7 @@ class ApiAuthConfigLoader(
             audience = audience,
             algorithms = algorithms,
             cacheTtlSeconds = cacheTtlSeconds,
+            maxTokenLifetimeSeconds = maxTokenLifetimeSeconds,
         )
     }
 

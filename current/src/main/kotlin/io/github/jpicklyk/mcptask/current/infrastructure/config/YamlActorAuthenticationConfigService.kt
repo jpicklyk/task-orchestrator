@@ -366,6 +366,22 @@ class YamlActorAuthenticationConfigService(
 
                 val staleOnError = verifierMap.optBoolean("stale_on_error", default = true)
 
+                val maxTokenLifetimeSeconds =
+                    when (val raw = verifierMap["max_token_lifetime_seconds"]) {
+                        is Int -> raw.toLong()
+                        is Long -> raw
+                        null -> 86400L
+                        else -> throw wrongVerifierFieldType("max_token_lifetime_seconds", "a number", raw)
+                    }
+                if (maxTokenLifetimeSeconds <= 0) {
+                    throw IllegalArgumentException(
+                        "actor_authentication.verifier.max_token_lifetime_seconds in '$configPath' " +
+                            "must be a positive number; got '$maxTokenLifetimeSeconds'"
+                    )
+                }
+
+                val jtiReplayProtection = verifierMap.optBoolean("jti_replay_protection", default = false)
+
                 VerifierConfig.Jwks(
                     oidcDiscovery = oidcDiscovery,
                     jwksUri = jwksUri,
@@ -380,7 +396,9 @@ class YamlActorAuthenticationConfigService(
                     didPattern = didPattern,
                     didStrictRelationship = didStrictRelationship,
                     didLooseKidMatch = didLooseKidMatch,
-                    allowInsecureUrl = allowInsecureUrl
+                    allowInsecureUrl = allowInsecureUrl,
+                    maxTokenLifetimeSeconds = maxTokenLifetimeSeconds,
+                    jtiReplayProtection = jtiReplayProtection
                 )
             }
 

@@ -20,6 +20,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus.VERIFI
 import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
 import org.slf4j.LoggerFactory
 import java.time.Clock
+import java.time.Duration
 import java.util.Date
 
 /**
@@ -45,7 +46,8 @@ import java.util.Date
 class JwksActorVerifier(
     private val config: VerifierConfig.Jwks,
     private val keySetProvider: JwksKeySetProvider = DefaultJwksKeySetProvider(config),
-    private val clock: Clock = Clock.systemUTC()
+    private val clock: Clock = Clock.systemUTC(),
+    private val replayCache: JtiReplayCache = JtiReplayCache(clock = clock)
 ) : ActorVerifier {
     private val logger = LoggerFactory.getLogger(JwksActorVerifier::class.java)
 
@@ -93,11 +95,23 @@ class JwksActorVerifier(
         val isDidTrust = config.didAllowlist.isNotEmpty() || config.didPattern != null
 
         // Step 4 — fetch JWKS (branched on DID-trust mode).
+        //
+        // Under DID trust, the issuer must be read out of the (still cryptographically
+        // unverified) claims set before the fetch can even happen. Parsing that claims set is
+        // wrapped in its own try/catch so a malformed claims set (e.g. non-numeric exp/iat) is
+        // classified as REJECTED/failureKind=claims rather than falling into the generic
+        // "failed to fetch JWKS" catch below, which would misreport it as UNAVAILABLE/network.
         val jwksResult =
             try {
                 if (isDidTrust) {
+                    val issuerClaims =
+                        try {
+                            signedJWT.jwtClaimsSet
+                        } catch (e: Exception) {
+                            return rejected("malformed JWT claims: ${e.message}", "claims")
+                        }
                     val iss =
-                        signedJWT.jwtClaimsSet.issuer
+                        issuerClaims.issuer
                             ?: return rejected("missing iss claim under DID trust", "claims")
                     keySetProvider.getKeySetForIssuer(iss)
                 } else {
@@ -148,7 +162,19 @@ class JwksActorVerifier(
         }
 
         // Step 7 — validate standard claims.
-        val claims = signedJWT.jwtClaimsSet
+        //
+        // Parsing the claims set is wrapped in its own try/catch — even in static-JWKS mode a
+        // malformed claims set (e.g. non-numeric exp/iat) must classify as REJECTED/failureKind=
+        // claims. This runs AFTER signature verification (step 6) so a token that is both
+        // malformed AND has a bad signature still reports "crypto" first (ordering contract
+        // exercised by JwksActorVerifierExpRequiredTest); under DID trust the claims set was
+        // already parsed successfully above (step 4), so this re-parse cannot fail there.
+        val claims =
+            try {
+                signedJWT.jwtClaimsSet
+            } catch (e: Exception) {
+                return rejected("malformed JWT claims: ${e.message}", "claims")
+            }
 
         // exp — required. A missing exp claim is rejected (parity with JwksApiVerifier); a
         // present exp allows 60 s of clock skew.
@@ -166,6 +192,28 @@ class JwksActorVerifier(
             val skewAdjusted = Date.from(clock.instant().plusSeconds(CLOCK_SKEW_SECONDS))
             if (notBefore.after(skewAdjusted)) {
                 return rejected("token not yet valid", "claims")
+            }
+        }
+
+        // Lifetime cap (actor_authentication.verifier.max_token_lifetime_seconds, default 86400).
+        // (a) always applies, independent of iat: bound how long the token remains usable from now.
+        // (b) only when iat is present: reject a future-dated iat, and reject an honestly-declared
+        //     over-long token even if exp - now alone would still be within the cap window edge
+        //     case. iat is OPTIONAL per RFC 7519 4.1.6, so its absence never fails the token on its
+        //     own — only (a) applies then.
+        val nowInstant = clock.instant()
+        val expiryInstant = expiry.toInstant()
+        if (Duration.between(nowInstant, expiryInstant).seconds > config.maxTokenLifetimeSeconds + CLOCK_SKEW_SECONDS) {
+            return rejected("token lifetime exceeds maximum", "claims")
+        }
+        val issueTime = claims.issueTime
+        if (issueTime != null) {
+            val issueInstant = issueTime.toInstant()
+            if (issueInstant.isAfter(nowInstant.plusSeconds(CLOCK_SKEW_SECONDS))) {
+                return rejected("iat in the future", "claims")
+            }
+            if (Duration.between(issueInstant, expiryInstant).seconds > config.maxTokenLifetimeSeconds + CLOCK_SKEW_SECONDS) {
+                return rejected("token lifetime exceeds maximum", "claims")
             }
         }
 
@@ -203,6 +251,22 @@ class JwksActorVerifier(
             val sub = claims.subject
             if (sub != actor.id) {
                 return rejected("sub mismatch: expected=${actor.id}, got=$sub", "claims")
+            }
+        }
+
+        // jti replay protection (opt-in, default off — see VerifierConfig.Jwks.jtiReplayProtection
+        // KDoc). Runs after every other claim check has passed so a REJECTED/UNAVAILABLE token
+        // never poisons the cache with an attacker-controlled jti. When enabled, jti becomes
+        // required: a token without one cannot be tracked for replay, so it must be rejected
+        // rather than silently let through unprotected.
+        if (config.jtiReplayProtection) {
+            val jti = claims.getJWTID()
+            if (jti.isNullOrBlank()) {
+                return rejected("missing jti claim", "claims")
+            }
+            val firstSeen = replayCache.checkAndRecord(claims.issuer, jti, expiryInstant)
+            if (!firstSeen) {
+                return rejected("jti replay detected", "policy")
             }
         }
 
