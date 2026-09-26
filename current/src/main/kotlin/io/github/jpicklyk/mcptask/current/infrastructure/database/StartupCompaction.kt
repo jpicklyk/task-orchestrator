@@ -47,12 +47,17 @@ internal enum class CompactionOutcome {
  * 4. Precheck free disk space: VACUUM needs headroom for a full temporary copy of the database
  *    (up to ~2x its current size, matching `dbFile` + `-wal`); skip rather than risk running
  *    out of disk mid-VACUUM.
- * 5. Checkpoint the WAL (`TRUNCATE`), `VACUUM`, rebuild every FTS5 shadow table in
- *    [FTS_TABLES] (VACUUM may renumber the rowids of tables without an explicit
- *    `INTEGER PRIMARY KEY` - including these external-content FTS5 tables - so a rebuild is a
- *    correctness requirement, not just hygiene) and verify each with an `integrity-check`,
- *    write `PRAGMA user_version = [COMPACTED_USER_VERSION]` as the last step so the gate is set
- *    iff every prior step succeeded, then checkpoint the WAL again.
+ * 5. Checkpoint the WAL (`TRUNCATE`) and read the result row's busy column; if it is non-zero
+ *    (a concurrent reader is holding back full truncation), abort with [CompactionOutcome.FAILED]
+ *    before `VACUUM` runs. Otherwise `VACUUM`, rebuild every FTS5 shadow table in [FTS_TABLES]
+ *    (VACUUM may renumber the rowids of tables without an explicit `INTEGER PRIMARY KEY` -
+ *    including these external-content FTS5 tables - so a rebuild is a correctness requirement,
+ *    not just hygiene) and verify each with an `integrity-check`, then checkpoint the WAL again
+ *    and read its busy column the same way. `PRAGMA user_version = [COMPACTED_USER_VERSION]` is
+ *    written only when that final checkpoint reports `busy == 0`; a busy result on either
+ *    checkpoint leaves `user_version` at `0` and returns [CompactionOutcome.FAILED] so the next
+ *    boot retries, since `PRAGMA wal_checkpoint` does not throw on `SQLITE_BUSY` - it reports it
+ *    in the result row instead.
  *
  * [runOnce] never throws: any exception at any step is caught, logged (message only - never row
  * content), and reported as [CompactionOutcome.FAILED]. Because the `user_version` write only
@@ -96,13 +101,7 @@ internal object StartupCompaction {
         busyTimeoutMs: Long = 5000L,
         usableSpaceBytes: (File) -> Long = { it.usableSpace },
     ): CompactionOutcome {
-        val dbFile =
-            try {
-                resolveDbFile(jdbcUrl)
-            } catch (e: Exception) {
-                logger.warn("Startup compaction: failed to resolve database file from JDBC URL: ${e.message}")
-                return CompactionOutcome.FAILED
-            }
+        val dbFile = resolveDbFile(jdbcUrl)
 
         if (dbFile == null) {
             logger.debug("Startup compaction: JDBC URL is not a file-backed SQLite database; skipping")
@@ -110,7 +109,7 @@ internal object StartupCompaction {
         }
 
         return try {
-            runCompaction(dbFile, busyTimeoutMs, usableSpaceBytes)
+            runCompaction(jdbcUrl, dbFile, busyTimeoutMs, usableSpaceBytes)
         } catch (e: Exception) {
             logger.warn("Startup compaction failed: ${e.message}")
             CompactionOutcome.FAILED
@@ -118,14 +117,18 @@ internal object StartupCompaction {
     }
 
     private fun runCompaction(
+        jdbcUrl: String,
         dbFile: File,
         busyTimeoutMs: Long,
         usableSpaceBytes: (File) -> Long,
     ): CompactionOutcome {
         Class.forName("org.sqlite.JDBC")
-        // Open by the resolved file, not the caller's URL: a `?query` suffix is not part of the
-        // filename for a plain (non-`file:`) sqlite-jdbc URL and would fail with SQLITE_CANTOPEN.
-        DriverManager.getConnection("jdbc:sqlite:${dbFile.path}").use { connection: Connection ->
+        // Open with the caller's own jdbcUrl - the same URL DatabaseManager already opened
+        // successfully - so the compaction connection is guaranteed to target the identical file.
+        // The resolved File (dbFile) is used only for size measurements and the free-space check;
+        // re-deriving a path from a `file:` URI (percent-escapes, an authority, or a `?query`
+        // suffix on a plain URL) can diverge from what sqlite-jdbc actually opened.
+        DriverManager.getConnection(jdbcUrl).use { connection: Connection ->
             connection.autoCommit = true
 
             connection.createStatement().use { stmt -> stmt.execute("PRAGMA busy_timeout = $busyTimeoutMs") }
@@ -154,7 +157,15 @@ internal object StartupCompaction {
 
             val startNanos = System.nanoTime()
 
-            connection.createStatement().use { stmt -> stmt.execute("PRAGMA wal_checkpoint(TRUNCATE)") }
+            if (checkpointBusy(connection)) {
+                logger.warn(
+                    "Startup compaction: pre-VACUUM WAL checkpoint reported busy (a concurrent " +
+                        "reader holds un-checkpointed WAL frames); aborting before VACUUM",
+                )
+                return CompactionOutcome.FAILED
+            }
+
+            logger.info("Startup compaction: starting one-time compaction of $currentSizeBytes bytes")
             connection.createStatement().use { stmt -> stmt.execute("VACUUM") }
 
             for (table in FTS_TABLES) {
@@ -166,8 +177,14 @@ internal object StartupCompaction {
                 }
             }
 
+            if (checkpointBusy(connection)) {
+                logger.warn(
+                    "Startup compaction: final WAL checkpoint reported busy; leaving user_version " +
+                        "at 0 so the next boot retries",
+                )
+                return CompactionOutcome.FAILED
+            }
             connection.createStatement().use { stmt -> stmt.execute("PRAGMA user_version = $COMPACTED_USER_VERSION") }
-            connection.createStatement().use { stmt -> stmt.execute("PRAGMA wal_checkpoint(TRUNCATE)") }
 
             val elapsedMs = (System.nanoTime() - startNanos) / 1_000_000
             val afterSizeBytes = dbFile.length() + (if (walFile.exists()) walFile.length() else 0L)
@@ -176,6 +193,20 @@ internal object StartupCompaction {
             )
 
             return CompactionOutcome.COMPACTED
+        }
+    }
+
+    /**
+     * Runs `PRAGMA wal_checkpoint(TRUNCATE)` on [connection] and reports whether the checkpoint's
+     * result row marked itself busy (its first column, non-zero when a concurrent reader held
+     * back full truncation). The PRAGMA does not throw on `SQLITE_BUSY` - it reports busy in the
+     * result row instead - so callers must read the row rather than assume success.
+     */
+    private fun checkpointBusy(connection: Connection): Boolean {
+        connection.createStatement().use { stmt ->
+            stmt.executeQuery("PRAGMA wal_checkpoint(TRUNCATE)").use { rs ->
+                return if (rs.next()) rs.getInt(1) != 0 else false
+            }
         }
     }
 
