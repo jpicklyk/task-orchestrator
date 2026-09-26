@@ -5,12 +5,8 @@ import io.github.jpicklyk.mcptask.current.application.config.ConfigDocumentParse
 import io.github.jpicklyk.mcptask.current.application.config.ConfigLayer
 import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
 import io.github.jpicklyk.mcptask.current.application.config.PerRootConfigSource
-import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
-import io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition
-import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
-import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
@@ -25,9 +21,9 @@ import java.util.concurrent.ConcurrentHashMap
  * project root (a depth-0 WorkItem UUID) instead of the single global `.taskorchestrator/config.yaml`.
  *
  * This is the storage + service layer ONLY. Nothing here decides *when* a per-root config should
- * override the global one, or merges the two — that resolution logic belongs to
- * `ToolExecutionContext.resolveSchema()` (a follow-on task), which is deliberately not touched by
- * this class.
+ * override the global one, or merges the two: that resolution logic belongs to the
+ * application-layer `EffectiveConfigResolver`/`LayeredConfig`, which consume this class through
+ * [PerRootConfigSource.layer].
  *
  * ## Hot-reload contract
  *
@@ -70,9 +66,9 @@ import java.util.concurrent.ConcurrentHashMap
  *    exception unchanged; callers that need to translate it into a specific tool/HTTP outcome catch
  *    it at their own boundary.
  *
- * Implements [PerRootConfigSource] so it can be handed to a shared config-resolution layer (a
- * follow-on item) the same way [GlobalConfigFile] implements `GlobalConfigSource` for the global
- * file — [layer] wraps the same [resolve] pass every other accessor on this class already uses.
+ * Implements [PerRootConfigSource] so it can be handed to the shared config-resolution layer
+ * (`EffectiveConfigResolver`) the same way [GlobalConfigFile] implements `GlobalConfigSource` for
+ * the global file: [layer] wraps the same [resolve] pass every other accessor on this class uses.
  */
 class PerRootConfigService(
     private val repository: ProjectConfigRepository,
@@ -89,53 +85,15 @@ class PerRootConfigService(
     private val cache = ConcurrentHashMap<UUID, CacheEntry>()
 
     /**
-     * A single-pass, single-root view combining every per-root config facet a caller might need
-     * (schemas, traits, note-limits mode, status labels) plus the fingerprint it was resolved
-     * against — everything [resolve] already parses in one pass, bundled instead of split across
-     * the individual accessor methods below. Callers needing several of these facets for the same
-     * [rootItemId] (e.g. [io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext])
-     * should call [getSnapshot] once and read the fields locally, instead of calling the
-     * single-facet accessors once each — each of those independently re-invokes [resolve], which
-     * costs at least one fingerprint-only DB read apiece even when the cache is warm.
-     */
-    data class Snapshot(
-        val workItemSchemas: Map<String, WorkItemSchema>,
-        val traits: Map<String, List<NoteSchemaEntry>>,
-        val noteLimitsModeExplicit: String?,
-        val statusLabels: Map<String, String?>?,
-        val fingerprint: String,
-        val traitResources: Map<String, List<ResourceRequirement>> = emptyMap(),
-        val resourceRegistry: Map<String, ResourceDefinition> = emptyMap(),
-        val traitDispatch: Map<String, Map<Role, DispatchProfile>> = emptyMap()
-    )
-
-    /**
-     * Returns a [Snapshot] of every per-root config facet for [rootItemId] from a SINGLE [resolve]
-     * pass, or null under the same conditions as every other accessor on this class: no config row
-     * for [rootItemId], or the stored YAML fails to parse (both fall through to the global layer).
-     * A repository READ error is different: it serves the last-known-good entry, or throws
-     * [PerRootConfigUnavailableException] when none is cached — it never falls through.
-     */
-    suspend fun getSnapshot(rootItemId: UUID): Snapshot? {
-        val document = resolve(rootItemId) ?: return null
-        val fingerprint = cache[rootItemId]?.fingerprint ?: return null
-        return Snapshot(
-            workItemSchemas = document.workItemSchemas,
-            traits = document.traits,
-            noteLimitsModeExplicit = document.noteLimitsMode,
-            statusLabels = document.statusLabels,
-            fingerprint = fingerprint,
-            traitResources = document.traitResources,
-            resourceRegistry = document.resourceRegistry,
-            traitDispatch = document.traitDispatch
-        )
-    }
-
-    /**
-     * Returns [rootItemId]'s current [ConfigLayer] (document + fingerprint, tagged
-     * [ConfigSource.PER_ROOT]), or `null` under the same absence conditions as [getSnapshot]. Same
-     * last-known-good and [PerRootConfigUnavailableException] contract as every other accessor on
-     * this class — see the class kdoc's "Failure handling" section.
+     * Returns [rootId]'s current [ConfigLayer] (document + fingerprint, tagged
+     * [ConfigSource.PER_ROOT]) from a SINGLE [resolve] pass, or `null` when there is no config row
+     * for [rootId] or the stored YAML fails to parse (both fall through to the global layer). Callers
+     * needing several facets for the same root (e.g. the application-layer
+     * `EffectiveConfigResolver`) should call this once and read the document locally, instead of
+     * calling the single-facet accessors below once each: each of those independently re-invokes
+     * [resolve], costing at least one fingerprint-only DB read apiece even when the cache is warm.
+     * Same last-known-good and [PerRootConfigUnavailableException] contract as every other accessor
+     * on this class; see the class kdoc's "Failure handling" section.
      */
     override suspend fun layer(rootId: UUID): ConfigLayer? {
         val document = resolve(rootId) ?: return null
