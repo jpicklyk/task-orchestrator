@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `?include=proof` is now ignored like any unknown include value (no more `Warning: 299` header);
   `API_REDACT_ACTOR_PROOF` is no longer read (no startup WARN). `actor.proof` is removed from the
   `ActorClaimDto` schema (it was already never sent). Admins read proof evidence via
-  `verification.proof`. (#PR)
+  `verification.proof`. (#362)
 
 ## [3.15.0] - 2026-09-25
 
