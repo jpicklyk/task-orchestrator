@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaServ
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
+import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
@@ -14,6 +15,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
+import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
@@ -95,7 +97,17 @@ fun Application.configureWriteTestApp(
             noteRoutes(repo)
             dependencyRoutes(repo)
             // WRITE routes under test
-            itemWriteRoutes(repo, degradedModePolicy, idempotencyCache, schemaService, statusLabelService = statusLabelService)
+            itemWriteRoutes(
+                repo,
+                degradedModePolicy,
+                idempotencyCache,
+                ToolExecutionContext(
+                    repo,
+                    schemaService,
+                    statusLabelService = statusLabelService,
+                    perRootConfigService = PerRootConfigService(repo.projectConfigRepository()),
+                ).advanceServiceFactory(),
+            )
             noteWriteRoutes(repo, degradedModePolicy, idempotencyCache)
             dependencyWriteRoutes(repo, degradedModePolicy)
         }

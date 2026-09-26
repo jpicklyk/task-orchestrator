@@ -13,10 +13,13 @@ import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.SignedJWT
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
 import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
+import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.infrastructure.config.CacheState
 import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksKeySetProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksResult
+import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
+import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlStatusLabelService
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
@@ -374,16 +377,24 @@ class JwksScopeClaimFailClosedTest {
 
     private fun io.ktor.server.application.Application.installJwksScopeTestApp(verifier: JwksApiVerifier) {
         installMcpStreamableHttp(emptyMcpServer())
+        val repositoryProvider = inMemoryRepositoryProvider()
         installRestApiRoutes(
             apiConfig = defaultConfig,
             eventBus = null,
-            effectiveProvider = inMemoryRepositoryProvider(),
+            effectiveProvider = repositoryProvider,
             apiTokenEntries = emptyMap(),
             allowQueryToken = false,
             serverName = "jwks-scope-fail-closed-test",
             serverVersion = "1.0.0",
             actorAuthEnabled = false,
             noteSchemaService = NoOpNoteSchemaService,
+            toolContext =
+                ToolExecutionContext(
+                    repositoryProvider,
+                    NoOpNoteSchemaService,
+                    statusLabelService = YamlStatusLabelService(),
+                    perRootConfigService = PerRootConfigService(repositoryProvider.projectConfigRepository()),
+                ),
             degradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
             idempotencyCache = IdempotencyCache(),
             jwksVerifier = verifier,

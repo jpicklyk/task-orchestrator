@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
+import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
@@ -10,6 +11,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
+import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
@@ -115,7 +117,14 @@ class ConfigUnavailableRoutesTest {
             val provider = FailableRepositoryProvider(h2, failable)
             application {
                 configureTestApp(makeTestAuthConfig()) {
-                    itemGateRoutes(provider, NoSchemaWorkItemSchemaService)
+                    itemGateRoutes(
+                        provider,
+                        ToolExecutionContext(
+                            provider,
+                            NoSchemaWorkItemSchemaService,
+                            perRootConfigService = PerRootConfigService(provider.projectConfigRepository()),
+                        ).configResolver,
+                    )
                 }
             }
 
@@ -182,8 +191,12 @@ private fun Application.configureAdvanceApp(
                 provider,
                 DegradedModePolicy.ACCEPT_CACHED,
                 IdempotencyCache(),
-                schemaService,
-                statusLabelService = NoOpStatusLabelService
+                ToolExecutionContext(
+                    provider,
+                    schemaService,
+                    statusLabelService = NoOpStatusLabelService,
+                    perRootConfigService = PerRootConfigService(provider.projectConfigRepository()),
+                ).advanceServiceFactory(),
             )
         }
     }

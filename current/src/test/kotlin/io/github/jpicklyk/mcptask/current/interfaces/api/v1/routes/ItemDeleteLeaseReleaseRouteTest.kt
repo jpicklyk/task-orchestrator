@@ -3,12 +3,14 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
 import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
+import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.LeaseAcquireResult
 import io.github.jpicklyk.mcptask.current.domain.repository.LeaseReleaseResult
 import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
+import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
@@ -88,8 +90,12 @@ private fun Application.configureDeleteLeaseTestApp(provider: RepositoryProvider
                 provider,
                 DegradedModePolicy.ACCEPT_CACHED,
                 IdempotencyCache(),
-                NoOpNoteSchemaService,
-                statusLabelService = NoOpStatusLabelService,
+                ToolExecutionContext(
+                    provider,
+                    NoOpNoteSchemaService,
+                    statusLabelService = NoOpStatusLabelService,
+                    perRootConfigService = PerRootConfigService(provider.projectConfigRepository()),
+                ).advanceServiceFactory(),
             )
         }
     }

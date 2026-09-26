@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
 import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
+import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
@@ -23,6 +24,7 @@ import io.github.jpicklyk.mcptask.current.domain.repository.ResourceLeaseReposit
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
@@ -292,8 +294,12 @@ class ItemWriteRoutesFailurePathTest {
                     repositoryProvider,
                     DegradedModePolicy.ACCEPT_CACHED,
                     idempotencyCache,
-                    schemaService,
-                    statusLabelService = NoOpStatusLabelService
+                    ToolExecutionContext(
+                        repositoryProvider,
+                        schemaService,
+                        statusLabelService = NoOpStatusLabelService,
+                        perRootConfigService = PerRootConfigService(repositoryProvider.projectConfigRepository()),
+                    ).advanceServiceFactory(),
                 )
             }
         }
