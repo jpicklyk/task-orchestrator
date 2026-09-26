@@ -353,6 +353,10 @@ data class EffectiveSchemaDto(
  *
  * [globalFingerprint]/[perRootFingerprint] are omitted when null (no global config loaded /
  * no per-root config pushed for this root, respectively).
+ *
+ * [schemaResolution] (AR-39, C4) is [rootId]'s effective `schema_resolution` mode —
+ * `"legacy"`, `"layered"`, or `"isolated"` — always populated on a 200 response (`"legacy"` when
+ * absent everywhere); additive field, appended last.
  */
 @Serializable
 data class EffectiveConfigDto(
@@ -364,6 +368,7 @@ data class EffectiveConfigDto(
     val defaultSchema: EffectiveSchemaDto? = null,
     val globalFingerprint: String? = null,
     val perRootFingerprint: String? = null,
+    val schemaResolution: String? = null,
 )
 
 // ─── Phase 5: Write-API request DTOs ─────────────────────────────────────────

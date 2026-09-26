@@ -442,10 +442,13 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
                                 "description",
                                 JsonPrimitive(
                                     "schema operation with `type` only: project root WorkItem UUID or hex prefix " +
-                                        "(4+ chars). Resolves `type` against that root's per-root config first (per-root " +
-                                        "exact type -> per-root \"default\" -> global exact type -> global \"default\"), " +
-                                        "falling back to global-only behavior when the root has no pushed config. Ignored " +
-                                        "when `itemId` is used instead (the item's own rootId is applied automatically)."
+                                        "(4+ chars). Resolves `type` over that root's per-root config and the global " +
+                                        "config in the order its schema_resolution mode sets (absent/legacy: per-root " +
+                                        "type -> per-root \"default\" -> global type -> global \"default\"; layered: " +
+                                        "per-root type -> global type -> per-root \"default\" -> global \"default\"; " +
+                                        "isolated: per-root only). Global-only when the root has no pushed config. " +
+                                        "Ignored when `itemId` is used instead (the item's own rootId is applied " +
+                                        "automatically)."
                                 )
                             )
                         }
@@ -648,9 +651,9 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
      * `expectedNotes` and `guidanceKey` fields emitted elsewhere.
      *
      * - `type` (+ optional `rootId`): resolved via [ToolExecutionContext.resolveTypeSchema] — when
-     *   `rootId` is given, that root's per-root config is consulted first (same precedence as the
-     *   `itemId` path), falling back to the global lookup; without `rootId`, behavior is unchanged
-     *   (global-only, no per-item trait merging since there is no item).
+     *   `rootId` is given, that root's effective `schema_resolution` mode picks the per-root/global
+     *   lookup order (same precedence as the `itemId` path); without `rootId`, behavior is
+     *   unchanged (global-only, no per-item trait merging since there is no item).
      * - `itemId`: resolves the item, then uses the standard resolution logic
      *   ([ToolExecutionContext.resolveSchemaWithSource]: type-first, tag fallback, trait merging,
      *   layered per-root-then-global using the item's own `rootId`).

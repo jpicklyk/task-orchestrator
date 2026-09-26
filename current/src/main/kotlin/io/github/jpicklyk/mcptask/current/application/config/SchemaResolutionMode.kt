@@ -2,9 +2,9 @@ package io.github.jpicklyk.mcptask.current.application.config
 
 /**
  * AR-39 schema-resolution mode a config document may opt into via the top-level
- * `schema_resolution:` key. Parsed and stored on [ConfigDocument] by C1 but NOT read by anything
- * yet — the resolver that honors it (LAYERED precedence, ISOLATED fencing) lands in a later item.
- * Until then every effective resolution behaves as [LEGACY] regardless of what a document sets.
+ * `schema_resolution:` key. Parsed and stored on [ConfigDocument]; honored by
+ * [LayeredConfig] per its effective mode (see [LayeredConfig.effectiveMode] and its facet table).
+ * Opt-in only: absent everywhere still resolves as [LEGACY] (D1 — no default flip).
  */
 enum class SchemaResolutionMode {
     LEGACY,

@@ -55,6 +55,12 @@ class LayerBackedGlobalLookup(
         return if (labels.containsKey(trigger)) labels[trigger] else null
     }
 
+    override fun exactSchema(key: String): WorkItemSchema? = document.workItemSchemas[key]
+
+    override fun hasExactTagSchema(tag: String): Boolean = document.workItemSchemas.containsKey(tag)
+
+    override fun schemaResolution(): SchemaResolutionMode? = document.schemaResolution
+
     private companion object {
         const val DEFAULT_KEY = "default"
         const val DEFAULT_NOTE_LIMITS_MODE = "warn"

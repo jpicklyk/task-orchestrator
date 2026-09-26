@@ -65,18 +65,27 @@ class YamlWorkItemSchemaService(
     /** Lazily loaded trait definitions. */
     private val traitDefs: Map<String, List<NoteSchemaEntry>> get() = document.traits
 
+    /**
+     * EXACT match only — first tag in [tags] with a schema wins; no `"default"` fold. The
+     * `default` fallback step now belongs to [io.github.jpicklyk.mcptask.current.application.config.LayeredConfig],
+     * per the root's effective `schema_resolution` mode (AR-39, C4) — [ServiceBackedGlobalLookup]
+     * applies that fold on top of this exact lookup for its own callers.
+     */
     override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? {
-        // First matching tag wins; fall back to the "default" schema only after every tag misses.
         for (tag in tags) {
             val schema = workItemSchemas[tag]
             if (schema != null) return schema.notes
         }
-        return workItemSchemas["default"]?.notes
+        return null
     }
 
+    /**
+     * EXACT match only — no `"default"` fold. See [getSchemaForTags]'s kdoc for where the fold now
+     * lives.
+     */
     override fun getSchemaForType(type: String?): WorkItemSchema? {
         if (type == null) return null
-        return workItemSchemas[type] ?: workItemSchemas["default"]
+        return workItemSchemas[type]
     }
 
     override fun getLoadWarnings(): List<String> = document.warnings

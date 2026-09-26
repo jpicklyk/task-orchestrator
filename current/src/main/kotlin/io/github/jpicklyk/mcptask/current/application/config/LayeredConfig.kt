@@ -22,12 +22,19 @@ import java.util.UUID
  * [perRoot] is null when [rootId] is null, no per-root source is wired, or the root has no usable
  * per-root config (no row, or an unparseable row).
  *
- * ## FACET TABLE (LEGACY precedence, byte-identical to the pre-extraction `ToolExecutionContext`)
+ * ## FACET TABLE
+ *
+ * Every facet below except type/tag schema lookup is identical across all three
+ * [SchemaResolutionMode]s ([effectiveMode]). Type/tag lookup depends on the mode:
+ *
+ * | Mode | Type lookup | Tag lookup |
+ * |---|---|---|
+ * | LEGACY (default when [effectiveMode] is absent everywhere) | per-root exact type -> per-root `"default"` -> global exact type -> global `"default"` (the last step is the global lookup's own fold) | (only when a per-root layer exists) per-root first-matching-tag -> per-root `"default"`; then global: notes from the first tag with a global EXACT match (D2), else `"default"`'s notes |
+ * | LAYERED | per-root exact type -> global exact type -> per-root `"default"` -> global `"default"` | per-root first-EXACT-matching-tag -> global first-EXACT-matching-tag -> per-root `"default"` -> global `"default"` |
+ * | ISOLATED | per-root exact type -> per-root `"default"` (global NEVER consulted) | per-root first-EXACT-matching-tag -> per-root `"default"` (global NEVER consulted) |
  *
  * | Facet | Rule |
  * |---|---|
- * | Type lookup | per-root exact type -> per-root `"default"` -> global exact type -> global `"default"` (the last step is the global lookup's own fold) |
- * | Tag lookup | (only when a per-root layer exists) per-root first-matching-tag -> per-root `"default"`; then global first-matching-tag -> global `"default"` |
  * | Trait notes | per-root trait entry wins wholesale per trait name (an empty list shadows) |
  * | Trait resources | per-root trait entry wins wholesale per trait name |
  * | Trait dispatch | per-root trait role map wins wholesale per trait name (see [traitDispatchEntry]) |
@@ -38,7 +45,9 @@ import java.util.UUID
  *
  * Once a root has pushed its own config, a per-root `"default"` schema wins over a global EXACT
  * type match: that config is the root's complete self-description for gate purposes, not a patch
- * over the global floor.
+ * over the global floor. This shadowing is LEGACY-only — LAYERED and ISOLATED always try a global
+ * (LAYERED) or per-root (ISOLATED) EXACT type match before ever consulting either layer's
+ * `"default"`.
  */
 class LayeredConfig(
     val rootId: UUID?,
@@ -46,6 +55,19 @@ class LayeredConfig(
     val global: GlobalConfigLookup,
 ) {
     private val perRootDocument: ConfigDocument? get() = perRoot?.document
+
+    /**
+     * The schema-resolution mode in effect for [rootId]: the per-root document's own
+     * `schema_resolution` wins when set; otherwise the global file's key (an `ISOLATED` global
+     * value has no per-root layer above it to isolate from, so [GlobalConfigLookup.schemaResolution]
+     * treats it as [SchemaResolutionMode.LAYERED] already — see `GlobalConfigFile`); absent
+     * everywhere is [SchemaResolutionMode.LEGACY]. Computed from data already in hand — no I/O, no
+     * extra per-root read.
+     */
+    val effectiveMode: SchemaResolutionMode =
+        perRootDocument?.schemaResolution
+            ?: global.schemaResolution()?.let { if (it == SchemaResolutionMode.ISOLATED) SchemaResolutionMode.LAYERED else it }
+            ?: SchemaResolutionMode.LEGACY
 
     /**
      * Resolves the base schema (no trait merging) for an item of [type] carrying [tags], with the
@@ -61,11 +83,18 @@ class LayeredConfig(
     }
 
     /**
-     * Type-only lookup (no tag step): per-root exact type -> per-root `"default"` -> global type
-     * lookup. Returns null when neither layer defines [type].
+     * Type-only lookup (no tag step), per [effectiveMode]: LEGACY is per-root exact type -> per-root
+     * `"default"` -> global type lookup (unchanged); LAYERED is per-root exact -> global exact ->
+     * per-root `"default"` -> global `"default"`; ISOLATED is per-root exact -> per-root `"default"`
+     * only (global never consulted). Returns null when no layer defines [type] under that mode.
      */
     fun resolveTypeSchema(type: String): SchemaMatch? {
-        val (schema, source) = resolveTypeAgainstLayers(type) ?: return null
+        val (schema, source) =
+            when (effectiveMode) {
+                SchemaResolutionMode.LEGACY -> resolveTypeAgainstLayers(type)
+                SchemaResolutionMode.LAYERED -> layeredResolveType(type)
+                SchemaResolutionMode.ISOLATED -> isolatedResolveType(type)
+            } ?: return null
         return SchemaMatch(schema, source, fingerprintFor(source))
     }
 
@@ -142,6 +171,16 @@ class LayeredConfig(
     internal fun baseSchema(
         type: String?,
         tags: List<String>
+    ): Pair<WorkItemSchema, ConfigSource>? =
+        when (effectiveMode) {
+            SchemaResolutionMode.LEGACY -> legacyBaseSchema(type, tags)
+            SchemaResolutionMode.LAYERED -> layeredBaseSchema(type, tags)
+            SchemaResolutionMode.ISOLATED -> isolatedBaseSchema(type, tags)
+        }
+
+    private fun legacyBaseSchema(
+        type: String?,
+        tags: List<String>
     ): Pair<WorkItemSchema, ConfigSource>? {
         // Type-first lookup: whole-algorithm-first per layer. Run the ENTIRE per-root layer
         // (exact type match, then per-root "default") before ever consulting the global layer.
@@ -164,12 +203,58 @@ class LayeredConfig(
             if (tags.isEmpty()) {
                 "default"
             } else {
-                tags.firstOrNull { tag -> global.notesForTags(listOf(tag)) != null } ?: "default"
+                tags.firstOrNull { tag -> global.hasExactTagSchema(tag) } ?: "default"
             }
         // Retrieve the full WorkItemSchema (with lifecycle/defaultTraits) if available.
         // Re-use tagNotes from above to avoid a redundant notesForTags call in the fallback.
         val resolved = global.schemaForType(matchedType) ?: WorkItemSchema(type = matchedType, notes = tagNotes)
         return resolved to ConfigSource.GLOBAL
+    }
+
+    /**
+     * LAYERED: EXACT-only at every step, per-root layer entirely before global, type before tags,
+     * `"default"` (per-root then global) only as the very last resort.
+     */
+    private fun layeredBaseSchema(
+        type: String?,
+        tags: List<String>
+    ): Pair<WorkItemSchema, ConfigSource>? {
+        val snapshot = perRootDocument
+
+        type?.let { t ->
+            snapshot?.workItemSchemas?.get(t)?.let { return it to ConfigSource.PER_ROOT }
+            global.exactSchema(t)?.let { return it to ConfigSource.GLOBAL }
+        }
+
+        if (snapshot != null) {
+            for (tag in tags) {
+                snapshot.workItemSchemas[tag]?.let { return it to ConfigSource.PER_ROOT }
+            }
+        }
+        for (tag in tags) {
+            global.exactSchema(tag)?.let { return it to ConfigSource.GLOBAL }
+        }
+
+        snapshot?.workItemSchemas?.get(DEFAULT_TYPE)?.let { return it to ConfigSource.PER_ROOT }
+        global.exactSchema(DEFAULT_TYPE)?.let { return it to ConfigSource.GLOBAL }
+        return null
+    }
+
+    /** ISOLATED: per-root layer only, EXACT-only; the global layer is never consulted. */
+    private fun isolatedBaseSchema(
+        type: String?,
+        tags: List<String>
+    ): Pair<WorkItemSchema, ConfigSource>? {
+        val snapshot = perRootDocument ?: return null
+
+        type?.let { t ->
+            snapshot.workItemSchemas[t]?.let { return it to ConfigSource.PER_ROOT }
+        }
+        for (tag in tags) {
+            snapshot.workItemSchemas[tag]?.let { return it to ConfigSource.PER_ROOT }
+        }
+        snapshot.workItemSchemas[DEFAULT_TYPE]?.let { return it to ConfigSource.PER_ROOT }
+        return null
     }
 
     /** Fingerprint of the layer that supplied a base schema; the global one is fetched only for GLOBAL. */
@@ -274,10 +359,24 @@ class LayeredConfig(
     private fun resolveTypeAgainstLayers(type: String): Pair<WorkItemSchema, ConfigSource>? {
         val snapshot = perRootDocument
         if (snapshot != null) {
-            val perRootMatch = snapshot.workItemSchemas[type] ?: snapshot.workItemSchemas["default"]
+            val perRootMatch = snapshot.workItemSchemas[type] ?: snapshot.workItemSchemas[DEFAULT_TYPE]
             if (perRootMatch != null) return perRootMatch to ConfigSource.PER_ROOT
         }
         return global.schemaForType(type)?.let { it to ConfigSource.GLOBAL }
+    }
+
+    private fun layeredResolveType(type: String): Pair<WorkItemSchema, ConfigSource>? {
+        val snapshot = perRootDocument
+        snapshot?.workItemSchemas?.get(type)?.let { return it to ConfigSource.PER_ROOT }
+        global.exactSchema(type)?.let { return it to ConfigSource.GLOBAL }
+        snapshot?.workItemSchemas?.get(DEFAULT_TYPE)?.let { return it to ConfigSource.PER_ROOT }
+        return global.exactSchema(DEFAULT_TYPE)?.let { it to ConfigSource.GLOBAL }
+    }
+
+    private fun isolatedResolveType(type: String): Pair<WorkItemSchema, ConfigSource>? {
+        val snapshot = perRootDocument ?: return null
+        snapshot.workItemSchemas[type]?.let { return it to ConfigSource.PER_ROOT }
+        return snapshot.workItemSchemas[DEFAULT_TYPE]?.let { it to ConfigSource.PER_ROOT }
     }
 
     private fun resolvePerRootTagMatch(
@@ -297,5 +396,8 @@ class LayeredConfig(
          */
         val logger: Logger =
             LoggerFactory.getLogger("io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext")
+
+        /** The `"default"` schema key, tried last in every mode's type/tag lookup. */
+        const val DEFAULT_TYPE = "default"
     }
 }

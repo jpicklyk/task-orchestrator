@@ -14,8 +14,8 @@ import kotlin.coroutines.coroutineContext
 /**
  * The single entry point for effective (layered) config resolution: schema, traits, resources,
  * dispatch, resource registry, note-limits mode, status labels and trait-name hints, each resolved
- * against [rootId]'s per-root layer ([perRoot]) over the [global] fallback with LEGACY precedence
- * (see [LayeredConfig]'s facet table).
+ * against [rootId]'s per-root layer ([perRoot]) over the [global] fallback per the root's effective
+ * `schema_resolution` mode (see [LayeredConfig]'s facet table and [LayeredConfig.effectiveMode]).
  *
  * A null `rootId`, or no [perRoot] source wired, skips the per-root layer entirely: zero per-root
  * reads. Otherwise every public method reads the per-root layer independently (one read per call)

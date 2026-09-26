@@ -9,6 +9,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.Role
+import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.security.sha256Hex
@@ -28,7 +29,10 @@ import io.ktor.server.response.header
 import io.ktor.server.response.respond
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.get
+import org.slf4j.LoggerFactory
 import java.util.UUID
+
+private val effectiveConfigLogger = LoggerFactory.getLogger("EffectiveConfigRoutes")
 
 /**
  * Registers the additive per-root **effective** config view under
@@ -73,7 +77,12 @@ fun Route.effectiveConfigRoutes(
 
             val itemResult = workItemRepo.getById(rootId)
             if (itemResult is Result.Error) {
-                call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Root WorkItem not found: $rootId"))
+                if (itemResult.error is RepositoryError.NotFound) {
+                    call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Root WorkItem not found: $rootId"))
+                } else {
+                    effectiveConfigLogger.warn("GET /roots/{}/config/effective DB error: {}", rootId, itemResult.error.message)
+                    call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Failed to read root WorkItem"))
+                }
                 return@get
             }
             val item = (itemResult as Result.Success).data
@@ -126,7 +135,8 @@ fun Route.effectiveConfigRoutes(
                     buildTraitDto(name, notes, layered.traitDispatch(name), layered.traitResources(name))
                 }
 
-            val schemaDtos = entries.map { (key, match) -> match.toEffectiveSchemaDto(key) }.sortedBy { it.type }
+            // `entries` iterates `keys`, already a sorted set — no extra sort needed here.
+            val schemaDtos = entries.map { (key, match) -> match.toEffectiveSchemaDto(key) }
             val statusGraph =
                 graphBuilder.buildStatusGraph(
                     LinkedHashMap(entries.associate { (key, match) -> key to match.schema }),
@@ -145,6 +155,7 @@ fun Route.effectiveConfigRoutes(
                         entries.firstOrNull { (key, _) -> key == "default" }?.second?.toEffectiveSchemaDto("default"),
                     globalFingerprint = globalFingerprint,
                     perRootFingerprint = perRootFingerprint,
+                    schemaResolution = layered.effectiveMode.name.lowercase(),
                 ),
             )
         }

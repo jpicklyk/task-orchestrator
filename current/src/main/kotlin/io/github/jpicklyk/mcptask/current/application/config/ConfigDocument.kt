@@ -22,9 +22,8 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
  * only domain model types and Kotlin stdlib collections, so `application` -> `infrastructure`/
  * `interfaces` layering is never at risk from this file (enforced by `LayeringTest`).
  *
- * `schemaResolution` is parsed here but, in this item (C1), has no effect anywhere — every
- * consumer that will eventually honor [SchemaResolutionMode] is later work; C1 is pure
- * restructuring of the parse step only.
+ * `schemaResolution` is parsed here and honored by [LayeredConfig] (AR-39, C4): a per-root
+ * document's `schema_resolution` key is one of the [PER_ROOT_HONORED_SECTIONS].
  *
  * @property traitResources per-trait resource requirements; a trait with no `resources:` key is
  *   absent from the map entirely (not mapped to an empty list).
@@ -40,8 +39,8 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
  *   another layer.
  * @property schemaResolution this document's opted-in [SchemaResolutionMode], or `null` when the
  *   top-level `schema_resolution` key is absent, non-string, or does not match one of
- *   [SchemaResolutionMode.fromConfigString]'s recognized values. Parsed but inert in C1 — see
- *   class kdoc.
+ *   [SchemaResolutionMode.fromConfigString]'s recognized values (the latter case adds a warning).
+ *   Honored by [LayeredConfig] to select the effective resolution mode (AR-39, C4).
  * @property actorAuthenticationSection the raw YAML value of the top-level `actor_authentication`
  *   key (a map, a scalar, or `null` for an explicit `actor_authentication: null`), or `null` when
  *   the key is entirely absent. Carried as raw YAML rather than a typed shape so this document
@@ -75,10 +74,10 @@ data class ConfigDocument(
          * this is the single source of truth other top-level keys (e.g. `actor_authentication`,
          * which stays global-only) are checked against to compute `ignoredSections`.
          *
-         * Deliberately EXACTLY the 7 sections honored today: `schema_resolution` is parsed (see
-         * [ConfigDocument.schemaResolution]) but intentionally left OUT of this set in C1 — adding
-         * it here would change a per-root push's `ignoredSections` output, which is a later item's
-         * job (AR-39 rollout), not this pure-restructuring change's.
+         * The 8 sections honored as of AR-39 (C4): `schema_resolution` was parsed but excluded
+         * from this set in C1 (pure restructuring); it is now honored, so a per-root document that
+         * opts into `layered` or `isolated` resolution no longer shows up as an ignored section on
+         * push.
          */
         val PER_ROOT_HONORED_SECTIONS: Set<String> =
             setOf(
@@ -89,6 +88,7 @@ data class ConfigDocument(
                 "note_limits",
                 "status_labels",
                 "resources",
+                "schema_resolution",
             )
     }
 }

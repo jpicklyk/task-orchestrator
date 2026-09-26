@@ -114,8 +114,8 @@ internal object YamlSchemaParser {
      *
      * [ConfigDocument.schemaResolution] is parsed from the top-level `schema_resolution` key via
      * [SchemaResolutionMode.fromConfigString]; a non-string or unrecognized value becomes `null`
-     * and adds NO warning here (a later item adds that warning once something actually reads this
-     * field). [ConfigDocument.actorAuthenticationSection] is the raw `actor_authentication` value
+     * and, when the key is present at all, adds exactly one warning naming the raw value (AR-39,
+     * C4). [ConfigDocument.actorAuthenticationSection] is the raw `actor_authentication` value
      * (map, scalar, or explicit YAML `null`), or Kotlin `null` when the key is absent entirely.
      * [ConfigDocument.presentSections] is `root.keys` in document order (a `LinkedHashMap`'s
      * iteration order, since SnakeYAML deserializes mappings into `LinkedHashMap`).
@@ -134,6 +134,12 @@ internal object YamlSchemaParser {
         val traitResources = parseTraitResources(root, resourceRegistry, warnings)
         val traitDispatch = parseTraitDispatch(root, warnings)
         val schemaResolution = (root["schema_resolution"] as? String)?.let { SchemaResolutionMode.fromConfigString(it) }
+        if (root.containsKey("schema_resolution") && schemaResolution == null) {
+            warnings.add(
+                "Unrecognized schema_resolution value '${root["schema_resolution"]}' " +
+                    "(expected legacy, layered or isolated); treating as absent"
+            )
+        }
         val actorAuthenticationSection = root["actor_authentication"]
         val presentSections: Set<String> = LinkedHashSet(root.keys)
 

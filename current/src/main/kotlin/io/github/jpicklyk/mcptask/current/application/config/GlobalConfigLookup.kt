@@ -45,4 +45,13 @@ interface GlobalConfigLookup {
 
     /** The global status label for [trigger], or null for "no label". */
     fun statusLabel(trigger: String): String?
+
+    /** Exact schema for [key] (a type, tag, or "default"); never folds in "default". */
+    fun exactSchema(key: String): WorkItemSchema?
+
+    /** True when [tag] names an exact schema (no "default" fold). Drives the LEGACY tag probe (D2). */
+    fun hasExactTagSchema(tag: String): Boolean
+
+    /** The global document's `schema_resolution`, or null when absent/unrecognized. */
+    fun schemaResolution(): SchemaResolutionMode?
 }
