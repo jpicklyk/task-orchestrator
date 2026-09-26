@@ -156,7 +156,7 @@ class EffectiveConfigResolverTest {
         )
 
     @Test
-    fun `S6 - resolveSchemaWithSource picks the per-root exact type match over global (Q1)`(): Unit =
+    fun `S6 - resolveSchemaWithSource picks the per-root exact type match over global (Q1), notes trait-merged per resolveSchema`(): Unit =
         runBlocking {
             val rootId = UUID.randomUUID()
             val resolver = resolverWithRoot(rootId)
@@ -164,8 +164,14 @@ class EffectiveConfigResolverTest {
             val item = makeItem(type = "feature-task", tags = emptyList(), rootId = rootId)
             val result = resolver.resolveSchemaWithSource(item)!!
 
+            // Per the pre-existing resolveSchemaWithSource KDoc: "Same resolution as [resolveSchema]
+            // ... Trait notes are merged in identically to [resolveSchema] ... [ResolvedSchema.source]
+            // and [ResolvedSchema.fingerprint] describe the base schema's provenance only." The item's
+            // resolved type (feature-task) carries defaultTraits=[trait-a], so the per-root trait-a
+            // note is merged in (Q6) even though source/fingerprint stay base-only (PER_ROOT / the
+            // per-root row's fingerprint).
             assertEquals(ConfigSource.PER_ROOT, result.source)
-            assertEquals(listOf("base-note"), result.schema.notes.map { it.key })
+            assertEquals(listOf("base-note", "trait-a-per-root-note"), result.schema.notes.map { it.key })
             assertEquals("pr-fp", result.fingerprint)
         }
 
