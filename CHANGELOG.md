@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Plugin
+
+- SubagentStart now skips protocol injection entirely for `agent_type: "workflow-subagent"` —
+  Claude workflow agents follow their own script-driven transition logic — and reworded the
+  injected protocol to be seat-conditional: only an entry seat, or a single agent that owns the
+  whole phase with no seat named, is told to call `advance_item(trigger="start")`; a non-entry or
+  read-only seat is told not to call it at all.
+- Phase-Guard Record now skips recording any transition whose `actor.parent` starts with the
+  literal prefix `workflow:` (a Claude workflow-script seat), and records the role each item was
+  entered in (`newRole`, or `previousRole` for an already-in-phase `gate_blocked`) alongside its
+  itemId. Phase Guard (SubagentStop) uses that recorded role to block only while the item is
+  still in the role this agent entered — once a later seat has advanced the item further, it is
+  skipped rather than blocked on notes belonging to a phase it never owned. The recorded role is
+  kept across the guard's own blocks.
+- Skill enforcement now skips its length/placeholder heuristic for a note upserted via
+  `bodyFromFile` — that file's content isn't visible to the hook, so a short literal `body` is no
+  longer conflated with a substantive file-backed note.
+- SessionStart now warns when a dev checkout's `claude-plugins/task-orchestrator/.claude-plugin/plugin.json`
+  version differs from the version of the plugin actually running the hook, pointing to
+  `claude-plugins/CLAUDE.md` → "Plugin Discovery and Cache Refresh". Silent outside a dev checkout
+  or when either version can't be read.
+- Added a hook-local `actor_attribution.required: true` config option, independent of
+  `actor_authentication`, that makes `enforce-actor-attribution` deny actor-less `advance_item`/
+  `manage_notes(upsert)` writes without also requiring full `actor_authentication` (JWKS identity
+  verification) to be configured.
+- `enforce-actor-attribution` now also checks the singular-sugar `advance_item` form
+  (`itemId` + `trigger` with a top-level `actor`); previously an actor-less singular call passed
+  the hook even when enforcement was on.
+- Reworded the implementer and reviewer agent definitions' seat rules to defer to a named seat
+  assignment in the dispatch prompt, rather than assuming the agent owns every required note in
+  its phase.
+
 ## [3.15.0] - 2026-09-25
 
 ### Highlights

@@ -14,6 +14,7 @@ import { randomUUID } from 'node:crypto';
 import { markerPath, writeMarker, readMarker } from '../retro-lib.mjs';
 
 const HOOK = fileURLToPath(new URL('../retro-trigger.mjs', import.meta.url));
+const BACKSTOP_HOOK = fileURLToPath(new URL('../retro-backstop.mjs', import.meta.url));
 
 function writeConfig(dir, content) {
   const cfgDir = join(dir, '.taskorchestrator');
@@ -416,6 +417,53 @@ test('S9: interactive main session (no agent_id) keeps emitting a PARENT_COMPLET
     assert.equal(res.status, 0);
     const out = JSON.parse(res.stdout);
     assert.ok(out.hookSpecificOutput.additionalContext.includes('parent-1'));
+  } finally {
+    rmSync(marker, { force: true });
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('S10: a root recorded by a subagent-attributed trigger call is later surfaced by the Stop backstop', () => {
+  // Chains retro-trigger.mjs (subagent path, records only) into retro-backstop.mjs (main-session
+  // Stop event, same marker key) to verify end-to-end that the recorded pendingRoots/sawTerminal
+  // state is exactly what the backstop needs to emit — not just that retro-trigger.mjs wrote
+  // *some* state. retro-backstop.mjs itself is read-only for this item; this test only spawns it.
+  const dir = tmpConfigDir();
+  writeConfig(dir, 'retrospective:\n  mode: dispatch\n  dispatchThreshold: 1\n');
+  const sessionId = `test-trigger-then-backstop-${randomUUID()}`;
+  const marker = markerPath(sessionId);
+  try {
+    const triggerRes = spawnHook(dir, {
+      session_id: sessionId,
+      agent_id: 'sub-1',
+      tool_name: 'mcp__mcp-task-orchestrator__advance_item',
+      tool_input: {},
+      tool_response: {
+        results: [
+          {
+            itemId: 'child-1',
+            newRole: 'terminal',
+            unblockedItems: [],
+            cascadeEvents: [{ itemId: 'parent-1', targetRole: 'terminal', applied: true }],
+          },
+        ],
+      },
+    });
+    assert.equal(triggerRes.status, 0);
+    assert.equal(triggerRes.stdout.trim(), '{}', 'subagent-attributed call must not emit a directive');
+
+    const backstopEnv = { ...process.env, AGENT_CONFIG_DIR: dir };
+    delete backstopEnv.TASK_ORCHESTRATOR_MODE;
+    const backstopRes = spawnSync(process.execPath, [BACKSTOP_HOOK], {
+      input: JSON.stringify({ session_id: sessionId }),
+      env: backstopEnv,
+      encoding: 'utf-8',
+    });
+    assert.equal(backstopRes.status, 0);
+    const out = JSON.parse(backstopRes.stdout);
+    assert.equal(out.decision, 'block');
+    assert.ok(out.reason.includes('parent-1'), out.reason);
+    assert.ok(out.reason.includes('Retrospective suggested'));
   } finally {
     rmSync(marker, { force: true });
     rmSync(dir, { recursive: true, force: true });

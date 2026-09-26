@@ -229,6 +229,45 @@ test('placeholder body under the floor warns', () => {
   }
 });
 
+test('bodyFromFile set skips the length/placeholder heuristic (no warning)', () => {
+  const dir = tmpConfigDir();
+  writeConfig(dir, FIXTURE_CONFIG);
+  const sessionId = `test-bodyfromfile-${randomUUID()}`;
+  const marker = markerPath(sessionId);
+  try {
+    const res = spawnHook(dir, upsertPayload(sessionId, [
+      { itemId: 'item-1', key: 'security-assessment', role: 'review', bodyFromFile: 'notes/security-assessment.md' },
+    ]));
+    assert.equal(res.status, 0);
+    assert.equal(res.stdout.trim(), '');
+  } finally {
+    rmSync(marker, { force: true });
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('bodyFromFile set does not suppress a sibling short literal body on another note', () => {
+  const dir = tmpConfigDir();
+  writeConfig(dir, FIXTURE_CONFIG);
+  const sessionId = `test-bodyfromfile-sibling-${randomUUID()}`;
+  const marker = markerPath(sessionId);
+  try {
+    const res = spawnHook(dir, upsertPayload(sessionId, [
+      { itemId: 'item-1', key: 'security-assessment', role: 'review', bodyFromFile: 'notes/security-assessment.md' },
+      { itemId: 'item-1', key: 'quick-review', role: 'review', body: 'too short' },
+    ]));
+    assert.equal(res.status, 0);
+    const out = JSON.parse(res.stdout);
+    const text = out.hookSpecificOutput.additionalContext;
+    assert.ok(text.includes('SKILL SUGGESTED'), text);
+    assert.ok(text.includes('quick-review'), text);
+    assert.ok(!text.includes('"security-assessment"'), text);
+  } finally {
+    rmSync(marker, { force: true });
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('fail-open: operation != upsert is silent', () => {
   const dir = tmpConfigDir();
   writeConfig(dir, FIXTURE_CONFIG);

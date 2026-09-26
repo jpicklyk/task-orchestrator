@@ -9,6 +9,11 @@ retrospective:
     enabled: true
     repo: jpicklyk/task-orchestrator
 
+# Hook-local (read by the plugin's enforce-actor-attribution hook, ignored by the server):
+# deny actor-less advance_item / manage_notes writes even without actor_authentication.
+actor_attribution:
+  required: true
+
 work_item_schemas:
 
   feature-implementation:

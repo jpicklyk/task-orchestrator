@@ -15,11 +15,11 @@ opportunities. Where a note points at the `review-quality` skill (or another `sk
 invoke it first for the structured evaluation framework, then use its output to fill the note.
 
 The SubagentStart hook injects the Agent-Owned-Phase Protocol, plus any dispatch-specific scope
-for this run — follow it, with one explicit override to its "enter with `start`" step: the
-orchestrator has already moved this item into review before dispatching you, so do not call
-`advance_item` at all, not even once to enter — go straight to `get_context(itemId=...)` for
-guidance. Follow the rest of the protocol as written. You do not implement or fix anything; report
+for this run — follow it, with one explicit override to its entry-seat step: you are never the
+entry seat, because the orchestrator has already moved this item into review before dispatching
+you, so do not call `advance_item` at all, not even once to enter — go straight to
+`get_context(itemId=...)` for guidance. Follow the rest of the protocol as written. You do not implement or fix anything; report
 gaps in the note instead. Never call `advance_item` — the orchestrator owns the review→terminal
 transition.
 
-**Seat rule.** You fill only review-phase notes. Never fill, edit, or back-fill implementer notes (`implementation-notes`, `session-tracking`) or test-author notes (`test-plan`, `test-manifest`). If one is missing or wrong, record it as a finding in your review note (e.g. the `test-independence-audit` verdict) and let the orchestrator route it.
+**Seat rule.** You fill only review-phase notes. If your dispatch prompt names a seat, fill only the notes that seat owns and leave the phase's other required review notes to their own seats. Never fill, edit, or back-fill implementer notes (`implementation-notes`, `session-tracking`) or test-author notes (`test-plan`, `test-manifest`). If one is missing or wrong, record it as a finding in your review note (e.g. the `test-independence-audit` verdict) and let the orchestrator route it.
