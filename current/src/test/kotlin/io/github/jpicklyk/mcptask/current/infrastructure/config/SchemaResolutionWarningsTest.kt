@@ -82,7 +82,7 @@ class SchemaResolutionWarningsTest {
     }
 
     @Test
-    fun `S7 - schema_resolution isolated in the global file adds exactly one warning containing 'isolated', and the document keeps ISOLATED`() {
+    fun `S7 - global schema_resolution isolated adds exactly one 'isolated' warning and keeps ISOLATED`() {
         val layer = GlobalConfigFile(writeGlobalConfig("schema_resolution: isolated\n$noSchemaSection")).layer()!!
 
         assertEquals(SchemaResolutionMode.ISOLATED, layer.document.schemaResolution)

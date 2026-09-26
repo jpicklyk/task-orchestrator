@@ -66,7 +66,7 @@ class ProjectConfigPushSchemaResolutionTest {
         }
 
     @Test
-    fun `S10 - an invalid schema_resolution value is still honored but adds exactly one schemaWarning naming the key and the bad value`(): Unit =
+    fun `S10 - invalid schema_resolution is honored and adds one schemaWarning naming the key and value`(): Unit =
         runBlocking {
             val result = service.push(rootId, "schema_resolution: bogus\nwork_item_schemas:\n  default:\n    notes: []\n")
 

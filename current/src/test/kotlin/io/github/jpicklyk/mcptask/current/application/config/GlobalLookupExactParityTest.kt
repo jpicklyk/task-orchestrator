@@ -70,7 +70,7 @@ class GlobalLookupExactParityTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `S9 - exactSchema and hasExactTagSchema agree between ServiceBacked and LayerBacked over the same YAML, for every schema_resolution override`() {
+    fun `S9 - exactSchema and hasExactTagSchema agree across ServiceBacked and LayerBacked for every schema_resolution`() {
         val path = writeConfig(yamlWithDefault)
 
         for (mode in listOf(null, SchemaResolutionMode.LEGACY, SchemaResolutionMode.LAYERED, SchemaResolutionMode.ISOLATED)) {

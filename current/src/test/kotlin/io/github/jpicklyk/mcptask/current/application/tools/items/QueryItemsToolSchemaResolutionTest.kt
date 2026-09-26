@@ -73,7 +73,7 @@ class QueryItemsToolSchemaResolutionTest {
     }
 
     @Test
-    fun `S12 - schema operation with a layered per-root doc (P default, no container) resolves the type to the global exact schema`(): Unit =
+    fun `S12 - schema op on a layered root (P default, no container) resolves to the global exact schema`(): Unit =
         runBlocking {
             val rootId = UUID.randomUUID()
             val perRootDoc =
