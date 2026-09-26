@@ -141,11 +141,6 @@ class CurrentMcpServer(
                 return@runBlocking RepairCompleted
             }
 
-            // Surface deprecated-but-still-set env vars once at startup (e.g. API_REDACT_ACTOR_PROOF,
-            // now a no-op since migration V17 stopped persisting raw actor proofs) so an operator
-            // who kept an old override notices it does nothing rather than assuming it still applies.
-            appConfig.deprecatedEnvWarnings().forEach { logger.warn(it) }
-
             // Delegate the entire object-graph construction (repositories, config services, actor
             // verifier, REST/SSE wiring, tool context) to the manual composition root. This class
             // stays lifecycle-only.
@@ -613,7 +608,6 @@ internal fun Application.installRestApiRoutes(
             transitionRoutes(
                 effectiveProvider,
                 redactAttribution = appConfig.apiRedactNoteAttribution,
-                redactProof = appConfig.apiRedactActorProof,
             )
             searchRoutes(effectiveProvider)
             // Phase 4: config/schema-discovery + status-graph

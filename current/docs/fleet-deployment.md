@@ -200,7 +200,6 @@ API_ALLOW_UNAUTHENTICATED=true
 | `API_ALLOW_QUERY_TOKEN_FOR_SSE` | SSE + browser | `false` | Allow `?token=` auth for SSE (browser EventSource workaround). |
 | `API_SSE_AUTH_CHECK_INTERVAL_SECONDS` | SSE in use | `30` | Interval for token-expiry checks on open SSE connections. |
 | `API_REDACT_NOTE_ATTRIBUTION` | always | `true` | When `true`, non-admin callers see no `actor`/`verification` on notes/transitions. |
-| `API_REDACT_ACTOR_PROOF` | **deprecated, no-op** | `true` | Since migration V17, raw actor proofs are never persisted, so `actor.proof` is always `null` on the wire regardless of this variable — there is nothing left for it to redact. Setting it (to any value) logs one WARN at startup (see `AppConfig.deprecatedEnvWarnings()`). Retained only so existing deployments/tests that set it keep working unchanged. See "Proof handling" below for the evidence (hash + verified claims) that replaced it. |
 | `API_WARN_ON_CLAIMED_ADVANCE` | always | `true` | Log WARN when API caller advances a claimed item. |
 | `RESOURCE_LEASES_ENFORCED` | always (`EnvBoolean`) | `true` | Deployment-wide kill switch for the resource-lease gate (see Resource Leasing below). `false`/`0`/`no` disable it; `true`/`1`/`yes` or unset leave it on; matching is case-insensitive and trimmed; any other value logs a WARN and enforcement stays on. Disables **acquisition only**; releases always run regardless. `AdvanceService` is constructed fresh per `advance_item`/`POST .../advance` invocation and reads this var each time — but since a running process's environment cannot change mid-process, and a container's environment changes only when the container is recreated, flipping this var takes effect only after the process or container restarts. |
 
@@ -696,14 +695,10 @@ rows:
   `alg`) — only when the proof was `VERIFIED`.
 
 Over REST, this evidence is exposed as `verification.proof` and is visible only to a caller with
-the `ADMIN` capability — independent of `?include=proof` (which is now a deprecated no-op; see
-below) and independent of `API_REDACT_NOTE_ATTRIBUTION`. `actor.proof` itself stays in the DTO
-shape for backward compatibility but is always `null` on the wire.
-
-`?include=proof` is still accepted — it no longer has anything to include, but a request that
-passes it gets exactly one `Warning: 299 - "include=proof is deprecated and ignored; actor proofs
-are no longer stored"` response header instead of a silent no-op, so a caller relying on the old
-behavior notices. `API_REDACT_ACTOR_PROOF` is likewise a deprecated no-op (see the table above).
+the `ADMIN` capability — independent of `API_REDACT_NOTE_ATTRIBUTION`. `ActorClaimDto` carries no
+proof field at all; the historical opt-out mechanisms for this behavior were removed after their
+one-release deprecation window (see CHANGELOG.md) and are now ignored like any unrecognized
+include value or env variable.
 
 **Pre-upgrade backups and pre-upgrade free space may still hold live tokens.** A SQLite database
 file or backup (`docker cp`, volume snapshot) taken *before* upgrading to a build with V17 still

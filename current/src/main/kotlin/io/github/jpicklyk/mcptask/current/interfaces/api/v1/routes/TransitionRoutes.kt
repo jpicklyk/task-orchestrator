@@ -14,8 +14,6 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.RoleTransitionDt
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping.toDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.pagination.buildPageDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.pagination.pageParamsOrRespond
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.redaction.flagDeprecatedIncludeProof
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.redaction.redactActorProofIfNeeded
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.redaction.redactVerification
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.call
@@ -49,14 +47,11 @@ private const val TRANSITION_SCAN_LIMIT = 1000
  *
  * `actor` and `verification` on transitions use the same admin-only redaction as notes:
  * - Non-admin callers: `actor` is stripped to `null` and `verification` to `null`
- * - Admin callers: `actor` visible (`actor.proof` is always `null` since V17 — raw proofs are no
- *   longer persisted); `verification.proof` (hash + verified claims) visible without needing
- *   `?include=proof`, which is now a deprecated no-op that only adds a `Warning` header
+ * - Admin callers: `actor` visible; `verification.proof` (hash + verified claims) visible
  */
 fun Route.transitionRoutes(
     repositoryProvider: RepositoryProvider,
     redactAttribution: Boolean = AppConfig.fromEnv().apiRedactNoteAttribution,
-    redactProof: Boolean = AppConfig.fromEnv().apiRedactActorProof,
 ) {
     val workItemRepo = repositoryProvider.workItemRepository()
     val transitionRepo = repositoryProvider.roleTransitionRepository()
@@ -64,7 +59,6 @@ fun Route.transitionRoutes(
     requireCapability(ApiCapability.READ) {
         // ─── GET /items/{id}/transitions ────────────────────────────────────
         get("/items/{id}/transitions") {
-            call.flagDeprecatedIncludeProof()
             val rawId =
                 call.parameters["id"] ?: run {
                     call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing item id"))
@@ -101,7 +95,7 @@ fun Route.transitionRoutes(
                     val dtos =
                         page.map { t ->
                             val dto = t.toDto()
-                            applyTransitionRedaction(dto, call, redactAttribution, redactProof)
+                            applyTransitionRedaction(dto, call, redactAttribution)
                         }
                     call.respond(HttpStatusCode.OK, buildPageDto(dtos, pp, null).copy(hasMore = hasMore))
                 }
@@ -110,7 +104,6 @@ fun Route.transitionRoutes(
 
         // ─── GET /transitions ────────────────────────────────────────────────
         get("/transitions") {
-            call.flagDeprecatedIncludeProof()
             val principal = call.attributes.getOrNull(ApiPrincipalKey)
             val sinceRaw = call.request.queryParameters["since"]
             val since =
@@ -174,7 +167,7 @@ fun Route.transitionRoutes(
                     val dtos =
                         page.map { t ->
                             val dto = t.toDto()
-                            applyTransitionRedaction(dto, call, redactAttribution, redactProof)
+                            applyTransitionRedaction(dto, call, redactAttribution)
                         }
                     call.respond(HttpStatusCode.OK, buildPageDto(dtos, pp, null).copy(hasMore = hasMore))
                 }
@@ -188,7 +181,6 @@ private fun applyTransitionRedaction(
     dto: RoleTransitionDto,
     call: io.ktor.server.application.ApplicationCall,
     redactAttribution: Boolean,
-    redactProof: Boolean,
 ): RoleTransitionDto {
     val principal = call.attributes.getOrNull(ApiPrincipalKey)
     val isAdmin = principal?.capabilities?.contains(io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability.ADMIN) ?: false
@@ -196,8 +188,7 @@ private fun applyTransitionRedaction(
     return if (redactAttribution && !isAdmin) {
         dto.copy(actor = null, verification = null)
     } else {
-        val redactedActor = redactActorProofIfNeeded(dto.actor, call, redactProof)
         val redactedVerification = redactVerification(dto.verification, call, redactAttribution)
-        dto.copy(actor = redactedActor, verification = redactedVerification)
+        dto.copy(verification = redactedVerification)
     }
 }

@@ -66,18 +66,6 @@ components:
         minimum: 1
         maximum: 200
 
-  headers:
-    DeprecatedIncludeProofWarning:
-      description: >-
-        Present only when the request's `?include=` named `proof`. `proof` is a deprecated no-op —
-        since migration V17, raw actor proofs are never persisted, so there is nothing left to
-        include; `actor.proof` is always omitted from the wire (explicitNulls=false). Use
-        `verification.proof` (ADMIN-only) for forensic evidence instead. See api-rest.md §22.
-      schema:
-        type: string
-        example: >-
-          299 - "include=proof is deprecated and ignored; actor proofs are no longer stored"
-
   schemas:
     ItemDto:
       type: object
@@ -196,13 +184,6 @@ components:
         parent:
           type: string
           nullable: true
-        proof:
-          type: string
-          nullable: true
-          description: >-
-            Always null. Since migration V17, raw actor proofs (JWTs) are never persisted.
-            `?include=proof` is still accepted but is a deprecated no-op — it only adds a
-            `Warning` response header now. See VerificationDto.proof for forensic evidence.
 
     VerificationDto:
       type: object
@@ -224,9 +205,8 @@ components:
           nullable: true
           description: >-
             Forensic evidence about the proof (SHA-256 hash + verified JWT claims), in place of
-            the raw proof. Requires ADMIN capability; independent of API_REDACT_NOTE_ATTRIBUTION
-            and NOT gated behind ?include=proof. Null when no proof was supplied, or for a
-            non-admin caller.
+            the raw proof. Requires ADMIN capability; independent of API_REDACT_NOTE_ATTRIBUTION.
+            Null when no proof was supplied, or for a non-admin caller.
 
     ProofEvidenceDto:
       type: object
@@ -1340,9 +1320,7 @@ paths:
           schema:
             type: string
           description: >-
-            Comma-separated inclusions - notes, deps, children. `proof` is also accepted but
-            deprecated: it is a no-op (see the `Warning` response header) — actor proofs are no
-            longer stored since migration V17.
+            Comma-separated inclusions - notes, deps, children.
         - name: If-None-Match
           in: header
           schema:
@@ -1354,8 +1332,6 @@ paths:
             ETag:
               schema:
                 type: string
-            Warning:
-              $ref: "#/components/headers/DeprecatedIncludeProofWarning"
           content:
             application/json:
               schema:
@@ -1774,19 +1750,9 @@ paths:
           in: query
           schema:
             type: string
-        - name: include
-          in: query
-          schema:
-            type: string
-          description: >-
-            `proof` is accepted but deprecated: it is a no-op (see the `Warning` response header)
-            — actor proofs are no longer stored since migration V17.
       responses:
         "200":
           description: Notes list
-          headers:
-            Warning:
-              $ref: "#/components/headers/DeprecatedIncludeProofWarning"
           content:
             application/json:
               schema:
@@ -1808,13 +1774,6 @@ paths:
       parameters:
         - $ref: "#/components/parameters/itemId"
         - $ref: "#/components/parameters/noteKey"
-        - name: include
-          in: query
-          schema:
-            type: string
-          description: >-
-            `proof` is accepted but deprecated: it is a no-op (see the `Warning` response header)
-            — actor proofs are no longer stored since migration V17.
       responses:
         "200":
           description: Note
@@ -1822,8 +1781,6 @@ paths:
             ETag:
               schema:
                 type: string
-            Warning:
-              $ref: "#/components/headers/DeprecatedIncludeProofWarning"
           content:
             application/json:
               schema:
@@ -1985,19 +1942,9 @@ paths:
         - $ref: "#/components/parameters/itemId"
         - $ref: "#/components/parameters/page"
         - $ref: "#/components/parameters/pageSize"
-        - name: include
-          in: query
-          schema:
-            type: string
-          description: >-
-            `proof` is accepted but deprecated: it is a no-op (see the `Warning` response header)
-            — actor proofs are no longer stored since migration V17.
       responses:
         "200":
           description: Paginated transition history
-          headers:
-            Warning:
-              $ref: "#/components/headers/DeprecatedIncludeProofWarning"
           content:
             application/json:
               schema:
@@ -2208,19 +2155,9 @@ paths:
           description: Default 24 hours ago
         - $ref: "#/components/parameters/page"
         - $ref: "#/components/parameters/pageSize"
-        - name: include
-          in: query
-          schema:
-            type: string
-          description: >-
-            `proof` is accepted but deprecated: it is a no-op (see the `Warning` response header)
-            — actor proofs are no longer stored since migration V17.
       responses:
         "200":
           description: Scope-filtered transition history
-          headers:
-            Warning:
-              $ref: "#/components/headers/DeprecatedIncludeProofWarning"
           content:
             application/json:
               schema:
