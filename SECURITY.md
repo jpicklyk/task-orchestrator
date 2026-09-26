@@ -193,6 +193,12 @@ actor_authentication:
   `jwks_path` causes a startup error (`IllegalArgumentException`). This matches the existing
   mutual-exclusion rule for DID-trust + static-JWKS combinations.
 
+- **HTTPS is required for oidc_discovery/jwks_uri.** `http` is rejected unless `allow_insecure_url: true`
+  in the verifier config AND the URL's host is a literal loopback address (`localhost`, `127.x.x.x`,
+  `::1` — no DNS resolution is performed, so a hostname that merely resolves to loopback is still
+  rejected). This mirrors the REST API's `API_JWKS_URL`/`API_JWKS_ALLOW_INSECURE_URL` contract.
+  `jwks_path` and DID-trust mode are unaffected.
+
 - **Actor-proof lifetime is capped.** `verifier.max_token_lifetime_seconds` (default `86400`, 24h)
   rejects a JWKS actor proof once `exp - iat` exceeds the cap; `<= 0` or a non-integer value fails
   startup. The REST API enforces the same cap on bearer tokens via `API_JWKS_MAX_TOKEN_LIFETIME_SECONDS`

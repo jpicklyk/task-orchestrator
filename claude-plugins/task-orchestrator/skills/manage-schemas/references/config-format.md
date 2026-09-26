@@ -569,16 +569,19 @@ The optional `verifier` sub-key enables server-side JWT validation of actor clai
 | `cache_ttl_seconds` | no | number | `300` | JWKS cache TTL in seconds |
 | `require_sub_match` | no | boolean | `true` | JWT `sub` must match `actor.id` |
 | `stale_on_error` | no | boolean | `true` | Serve stale cached key set if JWKS endpoint is unreachable during refresh. Set `false` to propagate the fetch exception |
+| `allow_insecure_url` | no | boolean | `false` | Opt-in to allow `http` (instead of `https`) for `oidc_discovery`/`jwks_uri`, only when the host is a literal loopback address (`localhost`, `127.x.x.x`, `::1` — no DNS resolution). Does not affect `jwks_path` or DID-trust mode |
 | `max_token_lifetime_seconds` | no | integer | `86400` | Maximum accepted actor-proof lifetime in seconds (24h). A proof is rejected once `exp - iat` exceeds this value. Must be a positive integer — `<= 0` or a non-integer value fails startup. The REST API has the equivalent env var `API_JWKS_MAX_TOKEN_LIFETIME_SECONDS` (same default and validation) for bearer tokens |
 | `jti_replay_protection` | no | boolean | `false` | Opt-in. When `true`, actor proofs must carry a `jti` claim and each proof is single-use per MCP call (tracked in-memory, per server instance) — clients must mint a fresh proof for every call, including retries and heartbeats |
 | `did_allowlist` | no | list | `[]` | List of trusted DID strings (exact match against JWT `iss` claim). Non-empty activates DID-trust mode |
-| `did_pattern` | no | string | — | Glob or regex pattern matching trusted DIDs. Non-null activates DID-trust mode. Mutually exclusive with `did_allowlist` |
+| `did_pattern` | no | string | — | Glob pattern matching trusted DIDs (not regex). `*` matches only DID idchars `[A-Za-z0-9._-]` — never `%`, and never crosses a `:` segment boundary. Non-null activates DID-trust mode. May be combined with `did_allowlist` (either or both activate DID-trust); mutually exclusive only with the static-JWKS fields (oidc_discovery/jwks_uri/jwks_path) |
 | `did_strict_relationship` | no | boolean | `true` | When true, only verification methods referenced from the resolved DID document's `assertionMethod` array are eligible. Set false to allow any key in the document |
 | `did_loose_kid_match` | no | boolean | `true` | Allow single-key fallback when JWT `kid` not found in the resolved DID document AND the eligible-key set has exactly one entry. Multi-key documents always require exact `kid` match |
 
 When `type: jwks`, at least one of `oidc_discovery`, `jwks_uri`, or `jwks_path` is required for static-JWKS mode. Explicit `jwks_uri` and `issuer` values override OIDC-discovered values when both are present.
 
-> **DID trust fields** apply only to `type: jwks`. Either `did_allowlist` (non-empty) or `did_pattern` (non-null) activates DID-trust mode — they are mutually exclusive. In DID-trust mode, `oidc_discovery`, `jwks_uri`, and `jwks_path` must all be null. The two trust modes are validated at startup.
+**HTTPS rule.** Unless `allow_insecure_url: true`, `oidc_discovery` and `jwks_uri` (including a `jwks_uri` discovered via `oidc_discovery`) must use `https`; any other scheme, or `http` without `allow_insecure_url` AND a literal loopback host, fails startup. `jwks_path` (a local file) and DID-trust mode are exempt from this rule.
+
+> **DID trust fields** apply only to `type: jwks`. Either `did_allowlist` (non-empty) or `did_pattern` (non-null) activates DID-trust mode — either or both may be set (not mutually exclusive with each other). In DID-trust mode, `oidc_discovery`, `jwks_uri`, and `jwks_path` must all be null. The two trust modes are validated at startup.
 
 **Example — OIDC discovery (simplest):**
 
@@ -746,6 +749,8 @@ Config resolves in **two layers**, chosen per work item by its `rootId`:
 | **Global** | the `AGENT_CONFIG_DIR/.taskorchestrator/config.yaml` file | read once at server startup (restart to reload) | one per server — the **fallback/default** |
 | **Per-root** | pushed into the DB per project-root UUID (via `manage_project_config` or `PUT /api/v1/roots/{rootId}/config`) | **hot-reloaded** on every schema-resolving read — no restart | one per project root |
 
+**Startup failure.** A structurally broken/unparseable global config.yaml, or an invalid or wrong-typed `actor_authentication` field within it, fails server startup outright (the parse exception propagates uncaught). The one exception is `status_labels`: a malformed `status_labels` value is caught, logged as a WARN, and the server falls back to defaults instead of refusing to start.
+
 For an item with a `rootId`, every schema / tag / trait lookup is **whole-algorithm-first**: the
 entire per-root resolution runs to completion before the global layer is consulted at all. For the
 type lookup, that precedence is:
@@ -793,6 +798,8 @@ server's config back before editing, rather than pushing over it. `current` (alr
 `unknown` (brand-new content, or an older server that predates this guard — no `relation` field
 returned) both proceed as before. `force: true` (or `?force=true`) bypasses the guard when a
 deliberate revert or overwrite is intended.
+
+**Read-error handling.** If a per-root config read itself fails (the underlying repository call errors), the server serves the last-known-good cached parse for that root when one exists. Only when there is no cached parse yet (a cold root hitting a read error on its very first resolution) does the call fail, surfaced as errorCode `config_unavailable` / errorKind `transient` — callers should apply their own backoff and retry rather than treating it as "no per-root config, fall back to global".
 
 **Per-root honorable settings.** `note_limits`, `status_labels`, and `resources` are layered the
 same way as schemas/traits: a per-root document that **explicitly** sets `note_limits.mode`, a
