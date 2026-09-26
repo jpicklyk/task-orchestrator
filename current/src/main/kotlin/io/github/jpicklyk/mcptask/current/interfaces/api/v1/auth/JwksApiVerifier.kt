@@ -9,13 +9,12 @@ import com.nimbusds.jose.jwk.JWKSelector
 import com.nimbusds.jose.jwk.OctetKeyPair
 import com.nimbusds.jose.jwk.RSAKey
 import com.nimbusds.jwt.SignedJWT
-import io.github.jpicklyk.mcptask.current.infrastructure.config.AUTH_CLOCK_SKEW_SECONDS
+import io.github.jpicklyk.mcptask.current.infrastructure.config.ClaimTimeChecks
 import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksKeySetProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.config.TokenLifetimeCap
 import org.slf4j.LoggerFactory
 import java.time.Clock
 import java.time.Instant
-import java.util.Date
 
 /**
  * A successfully verified API JWT: the resolved [ApiPrincipal] plus the token's own expiry.
@@ -165,16 +164,18 @@ class JwksApiVerifier(
                     return null
                 }
 
-        val expirySkewCutoff = Date.from(now.minusSeconds(CLOCK_SKEW_SECONDS))
-        if (expiry.before(expirySkewCutoff)) {
+        // ClaimTimeChecks (Instant, nanosecond precision) rather than a Date-based cutoff — Date
+        // truncates to the millisecond, which would silently widen acceptance by up to ~1ms past
+        // exp+skew (see that object's KDoc).
+        val expiryInstant = expiry.toInstant()
+        if (ClaimTimeChecks.isExpired(now, expiryInstant)) {
             logger.debug("JWT expired at {}", expiry)
             return null
         }
 
         val notBefore = claims.notBeforeTime
         if (notBefore != null) {
-            val skewAdjustedNow = Date.from(now.plusSeconds(CLOCK_SKEW_SECONDS))
-            if (notBefore.after(skewAdjustedNow)) {
+            if (ClaimTimeChecks.isNotYetValid(now, notBefore.toInstant())) {
                 logger.debug("JWT not yet valid (nbf={})", notBefore)
                 return null
             }
@@ -182,7 +183,6 @@ class JwksApiVerifier(
 
         // Lifetime cap (config.maxTokenLifetimeSeconds, default 86400 / API_JWKS_MAX_TOKEN_LIFETIME_SECONDS).
         // Predicate shared with JwksActorVerifier via TokenLifetimeCap so the two cannot drift apart.
-        val expiryInstant = expiry.toInstant()
         val issueInstant = claims.issueTime?.toInstant()
         TokenLifetimeCap.violation(now, expiryInstant, issueInstant, config.maxTokenLifetimeSeconds)?.let { reason ->
             logger.debug("JWT rejected: {}", reason)
@@ -285,11 +285,5 @@ class JwksApiVerifier(
                 }
             }.toSet()
             .ifEmpty { setOf(ApiCapability.READ) }
-    }
-
-    companion object {
-        // Same leeway TokenLifetimeCap and JtiReplayCache use — one source of truth (see
-        // AUTH_CLOCK_SKEW_SECONDS KDoc).
-        private const val CLOCK_SKEW_SECONDS = AUTH_CLOCK_SKEW_SECONDS
     }
 }

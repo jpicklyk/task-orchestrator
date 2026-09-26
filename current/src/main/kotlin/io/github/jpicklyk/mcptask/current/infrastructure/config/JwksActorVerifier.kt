@@ -20,7 +20,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus.VERIFI
 import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
 import org.slf4j.LoggerFactory
 import java.time.Clock
-import java.util.Date
 
 /**
  * [ActorVerifier] implementation that validates JWT bearer tokens against a JWKS key set.
@@ -176,28 +175,28 @@ class JwksActorVerifier(
             }
 
         // exp — required. A missing exp claim is rejected (parity with JwksApiVerifier); a
-        // present exp allows 60 s of clock skew.
+        // present exp allows 60 s of clock skew. Uses ClaimTimeChecks (Instant, nanosecond
+        // precision) rather than a Date-based cutoff — Date truncates to the millisecond, which
+        // would silently widen acceptance by up to ~1ms past exp+skew (see that object's KDoc).
         val expiry =
             claims.expirationTime
                 ?: return rejected("missing exp claim", "claims")
-        val skewAdjusted = Date.from(clock.instant().minusSeconds(CLOCK_SKEW_SECONDS))
-        if (expiry.before(skewAdjusted)) {
+        val nowInstant = clock.instant()
+        val expiryInstant = expiry.toInstant()
+        if (ClaimTimeChecks.isExpired(nowInstant, expiryInstant)) {
             return rejected("token expired", "claims")
         }
 
         // nbf — reject tokens not yet valid (allow 60 s of clock skew).
         val notBefore = claims.notBeforeTime
         if (notBefore != null) {
-            val skewAdjusted = Date.from(clock.instant().plusSeconds(CLOCK_SKEW_SECONDS))
-            if (notBefore.after(skewAdjusted)) {
+            if (ClaimTimeChecks.isNotYetValid(nowInstant, notBefore.toInstant())) {
                 return rejected("token not yet valid", "claims")
             }
         }
 
         // Lifetime cap (actor_authentication.verifier.max_token_lifetime_seconds, default 86400).
         // Predicate shared with JwksApiVerifier via TokenLifetimeCap so the two cannot drift apart.
-        val nowInstant = clock.instant()
-        val expiryInstant = expiry.toInstant()
         val issueInstant = claims.issueTime?.toInstant()
         val lifetimeViolation =
             TokenLifetimeCap.violation(nowInstant, expiryInstant, issueInstant, config.maxTokenLifetimeSeconds)
@@ -322,9 +321,5 @@ class JwksActorVerifier(
 
     companion object {
         private const val VERIFIER_NAME = "jwks"
-
-        // Same leeway TokenLifetimeCap and JtiReplayCache use — one source of truth (see
-        // AUTH_CLOCK_SKEW_SECONDS KDoc).
-        private const val CLOCK_SKEW_SECONDS = AUTH_CLOCK_SKEW_SECONDS
     }
 }

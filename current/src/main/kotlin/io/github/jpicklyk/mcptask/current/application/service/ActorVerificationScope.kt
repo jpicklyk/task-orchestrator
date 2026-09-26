@@ -18,8 +18,14 @@ import kotlin.coroutines.CoroutineContext
  * yield a verification result for a different `(id, kind, parent)` than the one that was actually
  * verified.** [memo]'s key type stays the plain `String` it always was (declared public surface
  * unchanged) — callers build the composite key via [key], which folds the proof hash and the full
- * claim identity together using a NUL (`\u0000`) delimiter (the same collision-avoidance approach
- * `JtiReplayCache.key` uses) so the components cannot be confused with one another.
+ * claim identity together with each field **length-prefixed** (`"<len>:<value>|..."`) rather than
+ * delimiter-joined. A plain delimiter (even an unusual one like NUL) is not safe here because
+ * `actorId`/`actorParent` are attacker-controlled: a claim whose `id` or `parent` itself contains
+ * the delimiter could be crafted so two different `(id, kind, parent)` tuples serialize to the same
+ * joined string, colliding in the map. Length-prefixing each field makes the encoding injective —
+ * the field boundaries are unambiguous regardless of what characters (including NUL) the fields
+ * contain — so no two distinct `(proofSha256, id, kind, parent)` tuples can ever produce the same
+ * key.
  *
  * The same proof is legitimately verified more than once within a single MCP tool call — e.g.
  * `AdvanceItemTool` verifies once for an idempotency-cache lookup and again per transition,
@@ -48,14 +54,20 @@ class ActorVerificationScope : AbstractCoroutineContextElement(Key) {
         /**
          * Builds the composite memo key for a (proof, claim) pair: the proof's SHA-256 hash plus
          * the full claim identity (`id`, `kind`, `parent`) that verification outcome depends on
-         * (see class KDoc for why proof hash alone is unsound). `\u0000` is used as an internal
-         * field delimiter, mirroring `JtiReplayCache.key`'s collision-avoidance approach.
+         * (see class KDoc for why proof hash alone is unsound, and why each field is
+         * length-prefixed rather than delimiter-joined — `actorId`/`actorParent` are
+         * attacker-controlled and must not be able to force a collision).
          */
         fun key(
             proofSha256: String,
             actorId: String,
             actorKind: ActorKind,
             actorParent: String?
-        ): String = "$proofSha256\u0000$actorId\u0000${actorKind.name}\u0000${actorParent ?: ""}"
+        ): String {
+            val parent = actorParent ?: ""
+            val kind = actorKind.name
+            return "${proofSha256.length}:$proofSha256|${actorId.length}:$actorId|" +
+                "${kind.length}:$kind|${parent.length}:$parent"
+        }
     }
 }
