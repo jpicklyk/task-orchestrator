@@ -12,6 +12,7 @@ import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigReposit
 import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
+import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlStatusLabelService
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlWorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
@@ -25,6 +26,7 @@ import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.nio.file.Files
+import java.nio.file.Path
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -114,11 +116,13 @@ class LegacyPrecedenceCharacterizationTest {
             }
         }
 
-    private fun writeGlobalYaml(content: String): NoteSchemaService {
+    private fun writeGlobalYamlFile(content: String): Path {
         val path = Files.createTempFile("legacy-precedence-global", ".yaml")
         Files.writeString(path, content)
-        return YamlWorkItemSchemaService(path)
+        return path
     }
+
+    private fun writeGlobalYaml(content: String): NoteSchemaService = YamlWorkItemSchemaService(writeGlobalYamlFile(content))
 
     @BeforeEach
     fun setUp(): Unit =
@@ -405,8 +409,19 @@ class LegacyPrecedenceCharacterizationTest {
             workItemRepository.create(root)
             s3Root = root.id
             projectConfigRepository.upsert(s3Root, s3PerRootYaml)
-            s3Global = writeGlobalYaml(s3GlobalYaml)
-            s3Context = contextFor(s3Global, perRootConfigService)
+            val s3GlobalPath = writeGlobalYamlFile(s3GlobalYaml)
+            s3Global = YamlWorkItemSchemaService(s3GlobalPath)
+            // The S3 fixture asserts fall-through to an EXPLICIT global status label (Q11), so TEC
+            // must be wired with a statusLabelService built from the SAME global file — otherwise it
+            // stays at its declared default NoOpStatusLabelService and never sees this file's
+            // status_labels section at all.
+            s3Context =
+                ToolExecutionContext(
+                    mockk(relaxed = true),
+                    s3Global,
+                    statusLabelService = YamlStatusLabelService(s3GlobalPath),
+                    perRootConfigService = perRootConfigService
+                )
         }
 
     @Test
