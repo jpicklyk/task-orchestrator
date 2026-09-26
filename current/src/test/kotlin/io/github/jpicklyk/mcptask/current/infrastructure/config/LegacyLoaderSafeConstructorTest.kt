@@ -60,4 +60,57 @@ class LegacyLoaderSafeConstructorTest {
         val ex = assertFailsWith<IllegalArgumentException> { service.getConfig() }
         assertTrue(ex.message?.contains(path.toString()) == true, "expected the config path in: ${ex.message}")
     }
+
+    // ──────────────────────────────────────────────
+    // Strengthening: a disallowed tag elsewhere in the document must reject the WHOLE document,
+    // even when it also carries an otherwise-valid, distinctive setting the service would
+    // otherwise honor. Under the reverted plain Yaml(), a `!!java.lang.StringBuilder` tag is
+    // constructed successfully rather than failing to parse, so only the tagged key itself would
+    // be unusable and the rest of the document — including the distinctive setting asserted below
+    // — would silently load. These two tests can only pass when the whole document is rejected.
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `S12 - YamlStatusLabelService legacy path constructor rejects the whole document, not just the disallowed key`() {
+        val path =
+            writeConfig(
+                "status_labels:\n  start: !!java.lang.StringBuilder \"x\"\n  complete: \"custom-done\"\n",
+            )
+        val service = YamlStatusLabelService(path)
+
+        assertEquals(
+            NoOpStatusLabelService.resolveLabel("complete"),
+            service.resolveLabel("complete"),
+            "a disallowed tag anywhere in the document must reject the whole document; the valid " +
+                "'complete: custom-done' entry must not silently take effect",
+        )
+    }
+
+    @Test
+    fun `S12 - YamlActorAuthenticationConfigService legacy path constructor rejects the doc even when actor_authentication is valid`() {
+        // work_item_schemas is a top-level key the legacy actor-auth loader tolerates when
+        // actor_authentication is absent (see GlobalConfigFileTest "absent actor_authentication
+        // section", which uses the same key with the same legacy path constructor and asserts no
+        // exception is thrown), so the disallowed tag placed under it — not under
+        // actor_authentication — is what must reject the whole document.
+        val path =
+            writeConfig(
+                """
+                actor_authentication:
+                  enabled: true
+                  verifier:
+                    type: noop
+                work_item_schemas:
+                  default: !!java.lang.StringBuilder "z"
+                """.trimIndent(),
+            )
+        val service = YamlActorAuthenticationConfigService(path)
+
+        val ex = assertFailsWith<IllegalArgumentException> { service.getConfig() }
+        assertTrue(
+            ex.message?.contains(path.toString()) == true,
+            "expected the config path in: ${ex.message}; a disallowed tag anywhere in the document " +
+                "must reject the whole document, not just leave the valid actor_authentication section to load",
+        )
+    }
 }
