@@ -36,7 +36,7 @@ class ServerCompositionResolverWiringTest {
     private fun disabledApiConfig(): AppConfig = AppConfig.fromEnv { null }
 
     @Test
-    fun `S3 - toolContext, configResolver and advanceServiceFactory all share one EffectiveConfigResolver backed by LayerBackedGlobalLookup`() {
+    fun `S3 - toolContext, configResolver and advanceServiceFactory share one LayerBacked EffectiveConfigResolver`() {
         val composition =
             ServerComposition(
                 appConfig = disabledApiConfig(),
