@@ -108,6 +108,15 @@ When `actor_authentication.enabled: true` is set in `.taskorchestrator/config.ya
 
 **Important:** This enforcement only applies to Claude Code clients with the task-orchestrator plugin installed. Raw MCP clients connecting directly to the HTTP endpoint bypass the hook entirely. The server itself does not enforce actor presence — tools accept calls without `actor` claims and proceed with `actorClaim = null`.
 
+**Hook-local `actor_attribution.required` option.** Independent of `actor_authentication`, the same hook also recognizes a local-only `actor_attribution.required: true` key in `.taskorchestrator/config.yaml`:
+
+```yaml
+actor_attribution:
+  required: true
+```
+
+Either `actor_authentication.enabled: true` or `actor_attribution.required: true` alone is sufficient to make the hook deny actor-less `advance_item`/`manage_notes(upsert)` writes — the two options are independent, so a project can require actor attribution locally (e.g. as its own dogfood setting) without also standing up full `actor_authentication` (JWKS identity verification). This is early client-side feedback only, not server enforcement: the key is hook-local and the server ignores it (it is not part of the per-root config the server accepts on push).
+
 #### Layer 2: Authenticity verification (server-side JWKS)
 
 When `actor_authentication.verifier.type: jwks` is configured, the server validates the `actor.proof` JWT against the configured JWKS endpoint:
