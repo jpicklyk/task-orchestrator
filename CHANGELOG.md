@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **BREAKING (REST): `?include=proof` and `API_REDACT_ACTOR_PROOF`**, deprecated in 3.15.0.
+  `?include=proof` is now ignored like any unknown include value (no more `Warning: 299` header);
+  `API_REDACT_ACTOR_PROOF` is no longer read (no startup WARN). `actor.proof` is removed from the
+  `ActorClaimDto` schema (it was already never sent). Admins read proof evidence via
+  `verification.proof`. (#362)
+
 ### Plugin
 
 - SubagentStart now skips protocol injection entirely for `agent_type: "workflow-subagent"` —

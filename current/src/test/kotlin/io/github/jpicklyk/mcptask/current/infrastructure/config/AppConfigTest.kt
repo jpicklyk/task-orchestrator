@@ -52,7 +52,6 @@ class AppConfigTest {
 
         // Redaction defaults to true (redact).
         assertTrue(c.apiRedactNoteAttribution)
-        assertTrue(c.apiRedactActorProof)
 
         // Warn defaults to true.
         assertTrue(c.apiWarnOnClaimedAdvance)
@@ -168,7 +167,6 @@ class AppConfigTest {
         // Any non-"false" value keeps redaction on.
         assertTrue(AppConfig.fromEnv(env("API_REDACT_NOTE_ATTRIBUTION" to "true")).apiRedactNoteAttribution)
         assertFalse(AppConfig.fromEnv(env("API_REDACT_NOTE_ATTRIBUTION" to "0")).apiRedactNoteAttribution)
-        assertFalse(AppConfig.fromEnv(env("API_REDACT_ACTOR_PROOF" to "false")).apiRedactActorProof)
     }
 
     @Test
