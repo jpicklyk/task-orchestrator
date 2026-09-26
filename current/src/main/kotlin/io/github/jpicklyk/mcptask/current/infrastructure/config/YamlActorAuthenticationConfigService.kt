@@ -15,7 +15,7 @@ import java.nio.file.Path
  *
  * Two constructors:
  *  - `YamlActorAuthenticationConfigService(configPath, envResolver)` (or its default): reads and
- *    parses the file independently via its own `Yaml()`/`FileReader`. Kept unchanged for backward
+ *    parses the file independently via its own SafeConstructor-based `Yaml`/`FileReader`. Kept unchanged for backward
  *    compatibility.
  *  - `YamlActorAuthenticationConfigService(globalConfig: GlobalConfigFile, envResolver)`: reads
  *    the `actor_authentication` section from the ONE shared, already-parsed [GlobalConfigFile]

@@ -64,10 +64,10 @@ class LegacyLoaderSafeConstructorTest {
     // ──────────────────────────────────────────────
     // Strengthening: a disallowed tag elsewhere in the document must reject the WHOLE document,
     // even when it also carries an otherwise-valid, distinctive setting the service would
-    // otherwise honor. Under the reverted plain Yaml(), a `!!java.lang.StringBuilder` tag is
-    // constructed successfully rather than failing to parse, so only the tagged key itself would
-    // be unusable and the rest of the document — including the distinctive setting asserted below
-    // — would silently load. These two tests can only pass when the whole document is rejected.
+    // otherwise honor. These tests pin whole-document rejection. Note: with SnakeYAML 2.x a plain
+    // Yaml() ALSO rejects `!!` global tags by default ("Global tag is not allowed"), so these tests
+    // guard the fail-closed outcome rather than distinguishing SafeConstructor from plain Yaml()
+    // (orchestrator red-proof, f2c50e6d: no behavioural red possible for that revert).
     // ──────────────────────────────────────────────
 
     @Test

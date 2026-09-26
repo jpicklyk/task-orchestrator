@@ -14,8 +14,10 @@ import kotlin.coroutines.coroutineContext
  *
  * **Scope: one tool call.** Installed into the coroutine context by [withConfigSession] at the
  * call boundary ([io.github.jpicklyk.mcptask.current.interfaces.mcp.McpToolAdapter] and the
- * `advance_item`/`get_context`/`complete_tree`/`create_work_tree` tool `execute` bodies) and torn
- * down when that call returns. It is NOT shared across separate calls, and NOT shared with
+ * `advance_item`/`get_context`/`complete_tree`/`create_work_tree` tool `execute` bodies, plus the
+ * REST gate and advance route handlers — one session per request) and torn down when that call
+ * returns. A `CancellationException` from a read is never memoised: it is rethrown and the next
+ * lookup for the same key reads fresh. It is NOT shared across separate calls, and NOT shared with
  * coroutines started outside this element's structured-concurrency subtree — notably, a plain
  * `kotlinx.coroutines.runBlocking { ... }` invoked from inside a session-wrapped `execute` does
  * NOT inherit the ambient [ConfigSession] (it defaults to `EmptyCoroutineContext`), so per-root
