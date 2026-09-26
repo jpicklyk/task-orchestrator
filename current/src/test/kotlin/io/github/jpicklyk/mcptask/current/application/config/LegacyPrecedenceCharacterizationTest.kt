@@ -196,7 +196,7 @@ class LegacyPrecedenceCharacterizationTest {
             if (prMatch != null) {
                 return Triple(prMatch, SchemaSource.PER_ROOT, perRoot.getFingerprint(rootId!!))
             }
-            val gMatch = global.getSchemaForType(type)
+            val gMatch = global.getAllSchemas()[type] ?: global.getAllSchemas()["default"]
             if (gMatch != null) {
                 return Triple(gMatch, SchemaSource.GLOBAL, global.getConfigFingerprint())
             }
@@ -220,15 +220,17 @@ class LegacyPrecedenceCharacterizationTest {
         }
 
         // Step 3 (Q4): global tag probe. tagNotes folds default; matchedType is "default" for an
-        // empty tag list, else the first tag whose single-tag lookup is non-null, else "default".
-        val tagNotes = global.getSchemaForTags(tags)
+        // empty tag list, else the first tag with an EXACT global schema (D2, C4), else "default".
+        val tagNotes = tags.firstNotNullOfOrNull { global.getAllSchemas()[it]?.notes } ?: global.getAllSchemas()["default"]?.notes
         val matchedType =
             if (tags.isEmpty()) {
                 "default"
             } else {
-                tags.firstOrNull { global.getSchemaForTags(listOf(it)) != null } ?: "default"
+                tags.firstOrNull { global.getAllSchemas().containsKey(it) } ?: "default"
             }
-        val synthesized = global.getSchemaForType(matchedType) ?: tagNotes?.let { WorkItemSchema(type = matchedType, notes = it) }
+        val synthesized =
+            (global.getAllSchemas()[matchedType] ?: global.getAllSchemas()["default"])
+                ?: tagNotes?.let { WorkItemSchema(type = matchedType, notes = it) }
         return synthesized?.let { Triple(it, SchemaSource.GLOBAL, global.getConfigFingerprint()) }
     }
 

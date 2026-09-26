@@ -108,24 +108,24 @@ class ConfigDocumentParseTest {
     }
 
     @Test
-    fun `S7 schema_resolution invalid values yield null and add no warnings, matching the doc without the key`() {
+    fun `S7 schema_resolution invalid values yield null and add exactly one warning`() {
         val baseline = parse(noSchemaSection)
 
         val wrongCase = parse("schema_resolution: LAYERED\n$noSchemaSection")
         assertNull(wrongCase.schemaResolution, "SchemaResolutionMode.fromConfigString is exact-lowercase only")
-        assertEquals(baseline.warnings, wrongCase.warnings)
+        assertEquals(baseline.warnings.size + 1, wrongCase.warnings.size, "warnings: ${wrongCase.warnings}")
 
         val bogus = parse("schema_resolution: bogus\n$noSchemaSection")
         assertNull(bogus.schemaResolution)
-        assertEquals(baseline.warnings, bogus.warnings)
+        assertEquals(baseline.warnings.size + 1, bogus.warnings.size, "warnings: ${bogus.warnings}")
 
         val numeric = parse("schema_resolution: 5\n$noSchemaSection")
         assertNull(numeric.schemaResolution)
-        assertEquals(baseline.warnings, numeric.warnings)
+        assertEquals(baseline.warnings.size + 1, numeric.warnings.size, "warnings: ${numeric.warnings}")
 
         val mapValue = parse("schema_resolution:\n  nested: true\n$noSchemaSection")
         assertNull(mapValue.schemaResolution)
-        assertEquals(baseline.warnings, mapValue.warnings)
+        assertEquals(baseline.warnings.size + 1, mapValue.warnings.size, "warnings: ${mapValue.warnings}")
     }
 
     // ──────────────────────────────────────────────
@@ -235,9 +235,18 @@ class ConfigDocumentParseTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `S14 PER_ROOT_HONORED_SECTIONS is exactly the seven documented sections`() {
+    fun `S14 PER_ROOT_HONORED_SECTIONS is exactly the eight documented sections`() {
         assertEquals(
-            setOf("work_item_schemas", "note_schemas", "traits", "project", "note_limits", "status_labels", "resources"),
+            setOf(
+                "work_item_schemas",
+                "note_schemas",
+                "traits",
+                "project",
+                "note_limits",
+                "status_labels",
+                "resources",
+                "schema_resolution",
+            ),
             ConfigDocument.PER_ROOT_HONORED_SECTIONS,
         )
     }
