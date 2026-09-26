@@ -791,12 +791,12 @@ class StartupCompactionTest {
     }
 
     // ────────────────────────────────────────────────────────────────────────
-    // S13 — a >=100 MB database compacts within the acceptance bound of 10 seconds. [A];
-    // Dockerfile HEALTHCHECK start-period=20s.
+    // S13 — a >=100 MB database compacts within the acceptance bound of 30 seconds. [A, amended
+    // by user 2026-09-25: 10s->30s after 12.5s measured]; Dockerfile HEALTHCHECK start-period=20s.
     // ────────────────────────────────────────────────────────────────────────
 
     @Test
-    fun `S13 runOnce compacts a 100MB-plus database in under 10 seconds`(
+    fun `S13 runOnce compacts a 100MB-plus database in under 30 seconds`(
         @TempDir tempDir: Path
     ) {
         val dbFile = tempDir.resolve("s13.db").toFile()
@@ -834,7 +834,7 @@ class StartupCompactionTest {
                 assertEquals(CompactionOutcome.COMPACTED, outcome)
             }
 
-        assertTrue(elapsedMs < 10_000L, "expected a >=100 MB compaction to complete in under 10s; took ${elapsedMs}ms")
+        assertTrue(elapsedMs < 30_000L, "expected a >=100 MB compaction to complete in under 30s; took ${elapsedMs}ms")
     }
 
     // ────────────────────────────────────────────────────────────────────────
