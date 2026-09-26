@@ -58,4 +58,33 @@ class ActorClaimToStringTest {
 
         assertTrue(rendered.endsWith("proof=<redacted>)"), "a non-null (even blank) proof must redact, not render null: $rendered")
     }
+
+    /**
+     * Independent test-author addition for item 3dcfcbab, test-plan scenario S21: a real
+     * JWT-shaped proof (three base64url segments, header.payload.signature) must never appear -
+     * whole or by any segment - in [ActorClaim.toString]. Regression lock: expected green both
+     * before and after 3dcfcbab, since this fix does not touch [ActorClaim.toString] itself.
+     */
+    @Test
+    fun `S21 toString with a real JWT-shaped proof leaks no segment of the token`() {
+        // header.payload.signature - three distinct, non-trivial base64url segments, matching the
+        // real shape a bearer JWT proof takes on the wire.
+        val header = "eyJhbGciOiJSUzI1NiIsImtpZCI6InMyMS10ZXN0LWtleSJ9"
+        val payload = "eyJzdWIiOiJhZ2VudC1zMjEiLCJpc3MiOiJodHRwczovL3Rlc3QtaXNzdWVyLmV4YW1wbGUifQ"
+        val signature = "S21FAKESIGNATUREsegmentThatMustNeverAppearInToString"
+        val realJwt = "$header.$payload.$signature"
+
+        val claim = ActorClaim(id = "agent-s21", kind = ActorKind.SUBAGENT, proof = realJwt)
+
+        val rendered = claim.toString()
+
+        assertFalse(rendered.contains(realJwt), "toString() must never contain the full JWT verbatim: $rendered")
+        assertFalse(rendered.contains(header), "toString() must never leak the JWT header segment: $rendered")
+        assertFalse(rendered.contains(payload), "toString() must never leak the JWT payload segment: $rendered")
+        assertFalse(rendered.contains(signature), "toString() must never leak the JWT signature segment: $rendered")
+        assertEquals(
+            "ActorClaim(id=agent-s21, kind=SUBAGENT, parent=null, proof=<redacted>)",
+            rendered
+        )
+    }
 }
