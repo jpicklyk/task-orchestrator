@@ -7,7 +7,8 @@ import java.util.UUID
  * `.taskorchestrator/config.yaml` (or an equivalent process-scoped floor config) exactly ONCE at
  * startup and cache the result for the life of the process — restart to reload. Returns `null`
  * when no global config file is present (schema-free mode), never on a parse error: a malformed
- * file fails closed at construction time (see `GlobalConfigFile`), not by returning `null` here.
+ * file fails closed with an exception from the first [layer] call (see `GlobalConfigFile`; startup
+ * forces that call), not by returning `null` here.
  */
 fun interface GlobalConfigSource {
     fun layer(): ConfigLayer?
@@ -26,9 +27,9 @@ interface PerRootConfigSource {
 }
 
 /**
- * Shared YAML -> [ConfigDocument] parse, used by every per-root config reader (`PerRootConfigService`,
- * `ProjectConfigPushService`) so there is exactly one SafeConstructor-parsing implementation for
- * attacker-reachable (pushed) config YAML, instead of one per caller.
+ * Shared YAML -> [ConfigDocument] parse for per-root config readers (currently `PerRootConfigService`),
+ * so there is exactly one SafeConstructor-parsing implementation for attacker-reachable (pushed)
+ * config YAML, instead of one per caller.
  */
 interface ConfigDocumentParser {
     /** Outcome of a single [parse] call. */

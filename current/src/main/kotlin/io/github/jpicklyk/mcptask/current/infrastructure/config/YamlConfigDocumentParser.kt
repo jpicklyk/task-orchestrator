@@ -8,8 +8,7 @@ import org.yaml.snakeyaml.constructor.SafeConstructor
 
 /**
  * Shared [ConfigDocumentParser] implementation for attacker-reachable (pushed) per-root config
- * YAML — used by both [PerRootConfigService] and
- * [io.github.jpicklyk.mcptask.current.application.service.ProjectConfigPushService].
+ * YAML — used by [PerRootConfigService].
  *
  * Uses [SafeConstructor] rather than SnakeYAML's default `Constructor`: the input originates from
  * a pushed document (via `manage_project_config` / `PUT /api/v1/roots/{rootId}/config`), not a
