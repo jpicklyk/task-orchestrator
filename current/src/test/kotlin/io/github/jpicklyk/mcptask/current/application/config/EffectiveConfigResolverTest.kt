@@ -56,6 +56,12 @@ class EffectiveConfigResolverTest {
                 role: queue
                 required: false
                 description: "c"
+          bug-fix:
+            notes:
+              - key: bug-fix-note-global
+                role: queue
+                required: false
+                description: "bug-fix-global"
         traits:
           trait-a:
             resources: [global-resource]
@@ -300,5 +306,106 @@ class EffectiveConfigResolverTest {
             val traits = resolver.availableTraits(listOf(rootId))
 
             assertEquals(setOf("trait-a", "trait-b"), traits.toSet())
+        }
+
+    // Discriminates the Q1 order (PR[type] ?: PR["default"], and only then global): the per-root
+    // layer here defines BOTH the item's exact type AND a "default" schema with a distinct note
+    // key, and the global layer also defines that same type with a third, distinct note key. Only
+    // the correctly-ordered lookup returns the per-root EXACT type's notes; a swap that checks the
+    // per-root default first, or falls to global before the per-root default, would return a
+    // different key set here.
+    @Test
+    fun `S6 - resolveSchemaWithSource and resolveTypeSchema pick the per-root EXACT type over the per-root default (Q1 order)`(): Unit =
+        runBlocking {
+            val rootId = UUID.randomUUID()
+            val perRootWithDefault =
+                ConfigDocument(
+                    workItemSchemas =
+                        mapOf(
+                            "bug-fix" to
+                                WorkItemSchema(
+                                    type = "bug-fix",
+                                    notes = listOf(NoteSchemaEntry(key = "per-root-exact-note", role = Role.QUEUE))
+                                ),
+                            "default" to
+                                WorkItemSchema(
+                                    type = "default",
+                                    notes = listOf(NoteSchemaEntry(key = "per-root-default-note", role = Role.QUEUE))
+                                )
+                        ),
+                    traits = emptyMap()
+                )
+            val resolver =
+                EffectiveConfigResolver(
+                    globalLookup,
+                    FakePerRootConfigSource(mapOf(rootId to ConfigLayer(perRootWithDefault, "pr-default-fp", ConfigSource.PER_ROOT)))
+                )
+
+            val item = makeItem(type = "bug-fix", tags = emptyList(), rootId = rootId)
+            val viaFull = resolver.resolveSchemaWithSource(item)!!
+            assertEquals(ConfigSource.PER_ROOT, viaFull.source)
+            assertEquals(listOf("per-root-exact-note"), viaFull.schema.notes.map { it.key })
+            assertEquals("pr-default-fp", viaFull.fingerprint)
+
+            val viaTypeOnly = resolver.resolveTypeSchema("bug-fix", rootId)!!
+            assertEquals(ConfigSource.PER_ROOT, viaTypeOnly.source)
+            assertEquals(listOf("per-root-exact-note"), viaTypeOnly.schema.notes.map { it.key })
+        }
+
+    // Discriminates the Q8 early return ("with an empty trait list it returns BEFORE any per-root
+    // read"): a counting fake PerRootConfigSource proves zero layer() calls for an empty trait
+    // list, with a one-trait call as the control showing the counter does register a real read.
+    @Test
+    fun `S6 - resolveDispatchProfilesForType returns before any per-root read when traits are empty (Q8 early return)`(): Unit =
+        runBlocking {
+            val rootId = UUID.randomUUID()
+            var callCount = 0
+            val countingSource =
+                object : PerRootConfigSource {
+                    override suspend fun layer(rootId: UUID): ConfigLayer? {
+                        callCount++
+                        return ConfigLayer(perRootDoc, "pr-fp", ConfigSource.PER_ROOT)
+                    }
+                }
+            val resolver = EffectiveConfigResolver(globalLookup, countingSource)
+
+            val emptyResult = resolver.resolveDispatchProfilesForType(emptyList(), rootId)
+            assertEquals(0, callCount, "an empty trait list must return before any per-root read (Q8)")
+            assertEquals(emptyMap(), emptyResult)
+
+            val withTrait = resolver.resolveDispatchProfilesForType(listOf("trait-a"), rootId)
+            assertEquals(1, callCount, "control: a non-empty trait list performs exactly one per-root read")
+            assertEquals(mapOf(Role.WORK to DispatchProfile(agent = "per-root-agent")), withTrait)
+        }
+
+    // Same Q8 early return via the 3-arg resolveDispatchProfile(item, role, resolvedSchema)
+    // overload: a trait-less item combined with a resolvedSchema carrying no defaultTraits must
+    // never touch the per-root source.
+    @Test
+    fun `S6 - resolveDispatchProfile 3-arg overload returns before any per-root read for a trait-less item (Q8 early return)`(): Unit =
+        runBlocking {
+            val rootId = UUID.randomUUID()
+            var callCount = 0
+            val countingSource =
+                object : PerRootConfigSource {
+                    override suspend fun layer(rootId: UUID): ConfigLayer? {
+                        callCount++
+                        return ConfigLayer(perRootDoc, "pr-fp", ConfigSource.PER_ROOT)
+                    }
+                }
+            val resolver = EffectiveConfigResolver(globalLookup, countingSource)
+
+            val item = makeItem(type = "bug-fix", tags = emptyList(), rootId = rootId)
+            val schemaWithNoDefaultTraits =
+                WorkItemSchema(type = "bug-fix", notes = listOf(NoteSchemaEntry(key = "bug-fix-note", role = Role.QUEUE)))
+
+            val profile = resolver.resolveDispatchProfile(item, Role.WORK, schemaWithNoDefaultTraits)
+
+            assertEquals(
+                0,
+                callCount,
+                "a trait-less item and a defaultTraits-free schema must return before any per-root read (Q8)"
+            )
+            assertNull(profile)
         }
 }
