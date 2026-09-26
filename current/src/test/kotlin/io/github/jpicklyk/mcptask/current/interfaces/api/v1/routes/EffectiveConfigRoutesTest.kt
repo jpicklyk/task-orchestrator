@@ -7,10 +7,11 @@ import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigReso
 import io.github.jpicklyk.mcptask.current.application.config.GlobalConfigLookup
 import io.github.jpicklyk.mcptask.current.application.config.PerRootConfigSource
 import io.github.jpicklyk.mcptask.current.application.config.ServiceBackedGlobalLookup
-import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
+import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
+import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.Role
@@ -19,25 +20,18 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlWorkItemSchemaService
-import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
-import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.EffectiveConfigDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.StatusGraphDto
+import io.github.jpicklyk.mcptask.current.interfaces.mcp.installRestApiRoutes
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
-import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
-import io.ktor.server.application.install
-import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
-import io.ktor.server.routing.route
-import io.ktor.server.routing.routing
-import io.ktor.server.sse.SSE
 import io.ktor.server.testing.testApplication
 import io.modelcontextprotocol.kotlin.sdk.types.McpJson
 import kotlinx.coroutines.runBlocking
@@ -899,45 +893,57 @@ class EffectiveConfigRoutesEdgeTest {
         }
 
     /**
-     * Registers [effectiveConfigRoutes] alongside a representative slice of the production
-     * `/api/v1` surface the way [io.github.jpicklyk.mcptask.current.interfaces.mcp.CurrentMcpServer]
-     * wires it (mirroring [FullApiWiringSmokeTest]'s pattern, in this file since that file is not
-     * owned by this item), proving the route is reachable through the real wiring path rather than
-     * only this file's minimal single-route harness.
+     * S22 goes through the REAL production entry point,
+     * [io.github.jpicklyk.mcptask.current.interfaces.mcp.installRestApiRoutes] — the exact function
+     * [io.github.jpicklyk.mcptask.current.interfaces.mcp.CurrentMcpServer] calls in HTTP mode —
+     * mirroring [McpRestAuthBypassTest]'s call-shape. A hand-built routing block (this file's
+     * previous approach) registers [effectiveConfigRoutes] itself, so it cannot detect the route
+     * missing from production wiring; only exercising `installRestApiRoutes` itself can.
      */
-    private fun Application.configureProductionStyleApi(repo: DefaultRepositoryProvider) {
-        install(ContentNegotiation) { json(McpJson) }
-        install(SSE)
-        val authConfig = makeTestAuthConfig()
-        val tokenEntries = authConfig.tokens.mapValues { (_, p) -> BearerTokenStore.TokenEntry(p, expiresAt = null) }
-        val ctx =
-            ToolExecutionContext(repo, NoOpNoteSchemaService, perRootConfigService = PerRootConfigService(repo.projectConfigRepository()))
-        routing {
-            route("/api/v1") {
-                install(ApiBearerAuth) {
-                    this.authConfig = authConfig
-                    this.tokenEntries = tokenEntries
-                }
-                itemRoutes(repo)
-                configRoutes(NoOpNoteSchemaService)
-                projectConfigRoutes(repo)
-                effectiveConfigRoutes(repo, ctx.configResolver, NoOpNoteSchemaService)
-            }
-        }
-    }
-
     @Test
-    fun `S22 - the route is reachable through a production-style installRestApiRoutes-shaped wiring`() =
+    fun `S22 - the route is reachable through the real installRestApiRoutes production wiring`() =
         testApplication {
             val repo = buildH2RepositoryProvider()
             val root = createRootItem(repo)
-            application { configureProductionStyleApi(repo) }
+            val (schemaService, _) = globalFixture("work_item_schemas:\n  bug:\n    notes: []\n")
+            runBlocking {
+                repo.projectConfigRepository().upsert(root.id, "work_item_schemas:\n  bug:\n    notes: []\n")
+            }
+            val authConfig = makeTestAuthConfig()
+            val tokenEntries = authConfig.tokens.mapValues { (_, p) -> BearerTokenStore.TokenEntry(p, expiresAt = null) }
+
+            application {
+                installRestApiRoutes(
+                    apiConfig = authConfig,
+                    eventBus = null,
+                    effectiveProvider = repo,
+                    apiTokenEntries = tokenEntries,
+                    allowQueryToken = false,
+                    serverName = "s22-test",
+                    serverVersion = "1.0.0",
+                    actorAuthEnabled = false,
+                    noteSchemaService = schemaService,
+                    toolContext =
+                        ToolExecutionContext(
+                            repo,
+                            schemaService,
+                            statusLabelService = NoOpStatusLabelService,
+                            perRootConfigService = PerRootConfigService(repo.projectConfigRepository()),
+                        ),
+                    degradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
+                    idempotencyCache = IdempotencyCache(),
+                )
+            }
 
             val response =
                 client.get("/api/v1/roots/${root.id}/config/effective") {
                     header("Authorization", "Bearer $TEST_TOKEN")
                 }
             assertEquals(HttpStatusCode.OK, response.status)
+            val dto = decodeEffective(response.bodyAsText())
+            assertEquals(root.id.toString(), dto.rootId)
+            assertEquals(listOf("bug"), dto.types)
+            assertEquals("per-root", dto.schemas.first { it.type == "bug" }.configSource)
         }
 }
 
