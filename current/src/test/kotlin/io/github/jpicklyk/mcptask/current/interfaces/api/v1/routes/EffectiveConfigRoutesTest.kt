@@ -18,7 +18,9 @@ import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableE
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
+import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
+import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.config.GlobalConfigFile
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlWorkItemSchemaService
@@ -1366,5 +1368,72 @@ class EffectiveConfigRoutesEntryFieldsTest {
                 t2.resources,
                 "a trait with no resources: declared must omit the field, not emit an empty list [api-rest.md TraitDto]"
             )
+        }
+}
+
+/**
+ * Wraps a real [WorkItemRepository], failing [getById] for exactly one id with a non-not-found
+ * repository error — S19's "root-lookup DB failure" fixture. Mirrors
+ * [ItemDeleteRecursiveSqliteRouteTest]'s `DeleteRouteFailOnIdWorkItemRepository` idiom; renamed
+ * (own copy) since same-package top-level class names collide even when both are file-private.
+ */
+private class EffectiveConfigFailingWorkItemRepository(
+    private val delegate: WorkItemRepository,
+    private val failingId: UUID,
+) : WorkItemRepository by delegate {
+    override suspend fun getById(id: UUID): Result<WorkItem> =
+        if (id == failingId) {
+            Result.Error(RepositoryError.DatabaseError("Simulated getById failure for $id"))
+        } else {
+            delegate.getById(id)
+        }
+}
+
+/** Wraps a real [RepositoryProvider], substituting [failingWorkItemRepo] for [workItemRepository]. */
+private class EffectiveConfigFailingRepositoryProvider(
+    private val delegate: RepositoryProvider,
+    private val failingWorkItemRepo: WorkItemRepository,
+) : RepositoryProvider by delegate {
+    override fun workItemRepository(): WorkItemRepository = failingWorkItemRepo
+}
+
+class EffectiveConfigRoutesRootLookupFailureTest {
+    @Test
+    fun `S19 - a non-not-found root-lookup repository error yields 500 db_error, an unknown root still 404s`() =
+        testApplication {
+            val repo = buildH2RepositoryProvider()
+            val root = createRootItem(repo)
+            val unknownId = UUID.randomUUID()
+            val failingProvider =
+                EffectiveConfigFailingRepositoryProvider(
+                    repo,
+                    EffectiveConfigFailingWorkItemRepository(repo.workItemRepository(), root.id),
+                )
+            val (schemaService, global) = globalFixture("work_item_schemas: {}")
+            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.projectConfigRepository()))
+            application { configureEffectiveConfigTestApp(failingProvider, resolver, schemaService) }
+
+            val failing =
+                client.get("/api/v1/roots/${root.id}/config/effective") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                }
+            assertEquals(
+                HttpStatusCode.InternalServerError,
+                failing.status,
+                "a non-not-found root-lookup repository error must map to 500, mirroring GET /config [A2]"
+            )
+            assertTrue(
+                failing.bodyAsText().contains("\"error\":\"db_error\""),
+                "must mirror GET /config's db_error envelope (orchestrator-supplied oracle, A2): ${failing.bodyAsText()}"
+            )
+
+            // Control: a genuinely unknown root (no wrapper failure involved, unrestricted token)
+            // must still 404 not_found — proves the 500 above is NOT just "any repository error".
+            val notFound =
+                client.get("/api/v1/roots/$unknownId/config/effective") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                }
+            assertEquals(HttpStatusCode.NotFound, notFound.status, "an unrestricted unknown root must still 404 not_found")
+            assertTrue(notFound.bodyAsText().contains("not_found"))
         }
 }
