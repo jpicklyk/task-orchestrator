@@ -636,6 +636,25 @@ When `did_allowlist` or `did_pattern` is set, the verifier resolves the JWT's `i
 
 > **Note:** `enabled` (client-side enforcement) and `verifier` (server-side validation) are independent concerns. A call can pass enforcement (actor present) but have verification fail (bad JWT).
 
+### `actor_attribution` (hook-local, independent of `actor_authentication`)
+
+```yaml
+actor_attribution:
+  required: true
+```
+
+`actor_attribution.required` is a separate, hook-local key read only by the plugin's
+`enforce-actor-attribution` hook — the server does not read it and ignores it on a per-root config
+push (it falls under the server's `ignoredSections`/unknown-key handling, alongside any other key
+the server doesn't recognize). Setting it to `true` makes the hook deny actor-less `advance_item`
+and `manage_notes(upsert)` calls exactly like `actor_authentication.enabled: true` would, but without
+requiring `actor_authentication`'s JWKS identity verification to be configured — useful for a single
+project that wants local, client-side actor-presence feedback (e.g. as its own dogfood setting)
+without standing up a full identity-verification pipeline. Either option alone is sufficient to
+enforce; the two are independent and can be set together.
+
+Default: `false`/absent — actor attribution is not required by this option.
+
 ---
 
 ## Project Scoping
@@ -819,6 +838,11 @@ in an additive `ignoredSections` field.
 **Global-only settings.** `actor_authentication` is **not** part of the per-root layer — the
 resolver reads it only from the global file. A per-root document may carry it, but it is ignored
 (and reported in `ignoredSections`); keep it in the global config.
+
+`actor_attribution` is not a server concept at all — it is read only by the plugin's
+`enforce-actor-attribution` hook directly from the workspace's `.taskorchestrator/config.yaml`. If
+it's present in a document pushed to the server (e.g. via `config-sync`), the server ignores it the
+same way it ignores any other unrecognized top-level key.
 
 ### Schema-free / non-dev / business-workflow projects
 

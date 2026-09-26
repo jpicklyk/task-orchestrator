@@ -784,6 +784,151 @@ test('S13: raw missing [test-manifest, session-tracking] with skillPointer test-
   }
 });
 
+// ── Entered-role gating (036420aa): block only on the role actually entered ────────────────────
+
+test('entered-role: item moved past the entered role (gate.role differs) -> {} even with missing notes on the new role', async () => {
+  const tempDir = freshTempDir();
+  const sessionId = `role1-${randomUUID()}`;
+  const agentId = 'agent-1';
+  const itemId = 'e1e1e1e1-0000-0000-0000-000000000001';
+  // The implementer entered "work"; a second seat has since advanced the item to "review", which
+  // now has its own missing notes. The implementer must not be blocked on those review notes.
+  seedMarker(tempDir, sessionId, agentId, { items: [itemId], blocks: 0, enteredRoles: { [itemId]: 'work' } });
+  const server = await startStub({
+    [itemId]: gateOk({ itemId, role: 'review', missing: ['review-checklist'] }),
+  });
+  try {
+    const res = await runHook({ session_id: sessionId, agent_id: agentId }, tempDir, `http://127.0.0.1:${server.address().port}`);
+    assert.equal(res.status, 0);
+    assert.equal(res.stdout.trim(), '{}');
+  } finally {
+    await stopStub(server);
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('entered-role: item still in the entered role with missing notes -> blocks as before', async () => {
+  const tempDir = freshTempDir();
+  const sessionId = `role2-${randomUUID()}`;
+  const agentId = 'agent-1';
+  const itemId = 'e1e1e1e1-0000-0000-0000-000000000002';
+  seedMarker(tempDir, sessionId, agentId, { items: [itemId], blocks: 0, enteredRoles: { [itemId]: 'work' } });
+  const server = await startStub({
+    [itemId]: gateOk({ itemId, role: 'work', missing: ['implementation-notes'] }),
+  });
+  try {
+    const res = await runHook({ session_id: sessionId, agent_id: agentId }, tempDir, `http://127.0.0.1:${server.address().port}`);
+    const out = JSON.parse(res.stdout);
+    assert.equal(out.decision, 'block');
+    assert.ok(out.reason.includes('implementation-notes'), out.reason);
+  } finally {
+    await stopStub(server);
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('entered-role: no recorded role for the item (older marker) falls back to current-role behavior and blocks', async () => {
+  const tempDir = freshTempDir();
+  const sessionId = `role3-${randomUUID()}`;
+  const agentId = 'agent-1';
+  const itemId = 'e1e1e1e1-0000-0000-0000-000000000003';
+  // No enteredRoles field at all — mirrors a marker written before this feature existed.
+  seedMarker(tempDir, sessionId, agentId, { items: [itemId], blocks: 0 });
+  const server = await startStub({
+    [itemId]: gateOk({ itemId, role: 'work', missing: ['implementation-notes'] }),
+  });
+  try {
+    const res = await runHook({ session_id: sessionId, agent_id: agentId }, tempDir, `http://127.0.0.1:${server.address().port}`);
+    const out = JSON.parse(res.stdout);
+    assert.equal(out.decision, 'block');
+    assert.ok(out.reason.includes('implementation-notes'), out.reason);
+  } finally {
+    await stopStub(server);
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('entered-role: two items, one moved past its entered role and one still in it -> reason names only the latter', async () => {
+  const tempDir = freshTempDir();
+  const sessionId = `role4-${randomUUID()}`;
+  const agentId = 'agent-1';
+  const movedItem = 'e1e10004-0000-0000-0000-000000000004';
+  const stillItem = 'e1e10005-0000-0000-0000-000000000005';
+  seedMarker(tempDir, sessionId, agentId, {
+    items: [movedItem, stillItem],
+    blocks: 0,
+    enteredRoles: { [movedItem]: 'work', [stillItem]: 'work' },
+  });
+  const server = await startStub({
+    [movedItem]: gateOk({ itemId: movedItem, role: 'review', missing: ['review-checklist'], title: 'Moved on' }),
+    [stillItem]: gateOk({ itemId: stillItem, role: 'work', missing: ['implementation-notes'], title: 'Still here' }),
+  });
+  try {
+    const res = await runHook({ session_id: sessionId, agent_id: agentId }, tempDir, `http://127.0.0.1:${server.address().port}`);
+    const out = JSON.parse(res.stdout);
+    assert.equal(out.decision, 'block');
+    assert.ok(!out.reason.includes(movedItem.slice(0, 8)), out.reason);
+    assert.ok(out.reason.includes(stillItem.slice(0, 8)), out.reason);
+  } finally {
+    await stopStub(server);
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('B2: two Stops — first blocks on work notes and preserves enteredRoles, second (after the item moves to review) does not block', async () => {
+  const tempDir = freshTempDir();
+  const sessionId = `b2-${randomUUID()}`;
+  const agentId = 'agent-1';
+  const itemId = 'b2b2b2b2-0000-0000-0000-000000000001';
+  seedMarker(tempDir, sessionId, agentId, { items: [itemId], blocks: 0, enteredRoles: { [itemId]: 'work' } });
+  // The gate route is mutable so the second Stop observes the item having since moved to review —
+  // this is what a real run looks like: the agent enters work, gets blocked, the item is later
+  // advanced to review by another seat, and the SAME agent's Stop fires again.
+  let role = 'work';
+  const server = await startStub({
+    [itemId]: (req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          itemId,
+          title: 'Widget frobnicator',
+          role,
+          gateStatus: { canAdvance: false, phase: role, missing: role === 'work' ? ['implementation-notes'] : ['review-checklist'] },
+        }),
+      );
+    },
+  });
+  try {
+    const apiUrl = `http://127.0.0.1:${server.address().port}`;
+
+    // First Stop: item still in work, missing notes -> blocks.
+    const first = await runHook({ session_id: sessionId, agent_id: agentId }, tempDir, apiUrl);
+    const firstOut = JSON.parse(first.stdout);
+    assert.equal(firstOut.decision, 'block');
+    assert.ok(firstOut.reason.includes('implementation-notes'), firstOut.reason);
+
+    // B2 regression: the block path must carry enteredRoles through into the rewritten marker,
+    // not drop it — otherwise the second Stop below would fall back to role-agnostic behavior
+    // and block again on the review-phase notes it never owned.
+    const afterFirst = readMarker(tempDir, sessionId, agentId);
+    assert.deepEqual(afterFirst.enteredRoles, { [itemId]: 'work' });
+    assert.equal(afterFirst.blocks, 1);
+
+    // Item now moves to review (simulating another seat advancing it).
+    role = 'review';
+
+    // Second Stop: same agent, same marker. gate.role ("review") now differs from the recorded
+    // enteredRole ("work"), so this item must be skipped entirely rather than blocking on
+    // review-checklist.
+    const second = await runHook({ session_id: sessionId, agent_id: agentId }, tempDir, apiUrl);
+    assert.equal(second.status, 0);
+    assert.equal(second.stdout.trim(), '{}');
+  } finally {
+    await stopStub(server);
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 test('S12: headless iteration with an existing marker and a missing-notes gate -> {} with zero fetches', async () => {
   const tempDir = freshTempDir();
   const sessionId = `s12-${randomUUID()}`;

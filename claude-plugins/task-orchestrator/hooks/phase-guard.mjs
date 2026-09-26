@@ -6,6 +6,17 @@
 // progress report instead of finished work: treat the early stop as a report, check the external
 // checklist (the item's gate status), and send a capped continuation naming what's still open.
 //
+// Entered-role gating: phase-guard-record.mjs now also records, per item, the ROLE this agent
+// entered (`marker.enteredRoles[itemId]` — `newRole` on success, or `previousRole` on the
+// already-in-phase gate_blocked case, which is the item's CURRENT role at the time of the blocked
+// transition — see phase-guard-record.mjs's extractEnteredRoles). When a role was recorded for an
+// item, this hook blocks on
+// it ONLY if the item's CURRENT gate role still equals that entered role — if a later seat has
+// since advanced the item further, gate.role differs from the recorded entered role and the item
+// is skipped entirely, so an earlier seat is never blocked on notes belonging to a phase it never
+// owned. A marker with no recorded role for an item (e.g. one written before this field existed)
+// falls back to the prior role-agnostic behavior (BLOCKING_ROLES + seat filtering only).
+//
 // Seat awareness: the hook-input `agent_type` (documented SubagentStop field, same as
 // SubagentStart) identifies which seat is stopping. `phaseOwnerSeat()` maps it to `'implementer'`
 // (owns `work`), `'reviewer'` (owns `review`), or `null` (unrecognised/pre-field build — keeps the
@@ -131,10 +142,17 @@ async function main() {
 
     const seat = phaseOwnerSeat(hookInput.agent_type);
     const isTestAuthor = isTestAuthorAgentType(hookInput.agent_type);
+    const enteredRoles = marker.enteredRoles || {};
 
     const blockers = [];
     for (const gate of gates) {
       if (!gate) continue; // non-2xx / fetch error / timeout for this item — does not block
+      const enteredRole = enteredRoles[gate.itemId];
+      // A recorded entered role takes precedence over the item's current role: only block when
+      // the item is STILL in the role this agent entered. A later seat advancing the item past it
+      // makes gate.role diverge from enteredRole, so this item is skipped rather than blocking on
+      // a phase this agent never owned.
+      if (enteredRole && gate.role !== enteredRole) continue;
       if (!BLOCKING_ROLES.has(gate.role)) continue; // queue/blocked/terminal — never blocks
       // A recognised seat only ever answers for the phase it owns — still fetched above, but
       // never named as a blocker outside that role (e.g. a reviewer stopping on a work-phase item).
@@ -156,7 +174,7 @@ async function main() {
       emitEmpty();
     }
 
-    writePhaseGuardMarker(path, { items: marker.items, blocks: marker.blocks + 1 });
+    writePhaseGuardMarker(path, { items: marker.items, blocks: marker.blocks + 1, enteredRoles: marker.enteredRoles || {} });
     emitBlock(buildReason(blockers));
   } catch {
     emitEmpty();

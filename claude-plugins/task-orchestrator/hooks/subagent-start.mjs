@@ -5,10 +5,21 @@
 //      never dispatch subagents, but exit silently anyway rather than assume that holds forever.
 //   2. No .taskorchestrator/ directory exists at or above cwd (or AGENT_CONFIG_DIR) — the
 //      project is not orchestrated, so non-orchestrated projects pay no context cost.
-//   3. The subagent's `agent_type` is not a phase-owner type (implementer/reviewer, bare or
+//   3. Stdin is parsed as JSON; empty or invalid stdin fails open (proceeds as today) rather than
+//      blocking the agent.
+//   4. The subagent's `agent_type` is exactly `workflow-subagent` — Claude workflow agents follow
+//      their own script-driven transition logic (see workflow-authoring), so no protocol text is
+//      injected for them at all, even if their dispatch happens to name an `implementer`/
+//      `reviewer` seat internally.
+//   5. The subagent's `agent_type` is not a phase-owner type (implementer/reviewer, bare or
 //      plugin-qualified) — the protocol only applies to an agent that owns a work/review phase;
 //      injecting it into Explore/Plan/general-purpose/etc. tells agents that own no phase to
 //      call advance_item and commit, which is wrong for them.
+//
+// The injected wording itself is conditional rather than a blanket "call advance_item(start)":
+// it tells the agent to defer to whatever seat its OWN dispatch prompt assigned it (only an
+// entry seat, or a single-phase owner with no seat named, advances the item; a non-entry or
+// read-only seat never does), since this hook cannot see the dispatch prompt's seat assignment.
 import { readFileSync, statSync } from 'fs';
 import { resolve } from 'path';
 import { isHeadlessIteration, isPhaseOwnerAgentType } from './execution-mode.mjs';
@@ -49,6 +60,10 @@ try {
   hookInput = {};
 }
 
+if (hookInput.agent_type === 'workflow-subagent') {
+  process.exit(0);
+}
+
 if (!isPhaseOwnerAgentType(hookInput.agent_type)) {
   process.exit(0);
 }
@@ -58,7 +73,7 @@ const output = {
     hookEventName: "SubagentStart",
     additionalContext: `## Agent-Owned-Phase Protocol
 
-**You own exactly ONE phase.** Enter it with \`advance_item(transitions=[{itemId: "<your-item-UUID>", trigger: "start"}])\`, do the work, and fill the phase's required notes via \`manage_notes(operation="upsert", ...)\` — each upsert response returns the next note's guidance. If the item is already in your phase, \`advance_item\` fails with \`errorCode: "gate_blocked"\` and \`previousRole\` equal to your phase — call \`get_context(itemId=...)\` once for guidance instead. Every \`advance_item\` failure now carries an \`errorCode\`; branch on which POSITIVE code you got, never on the absence of one.
+**Follow your dispatch prompt's seat assignment.** If your dispatch prompt names a seat for you (e.g. \`implementer\`, \`reviewer\`, or another named seat), that seat's own transition rule governs — follow it exactly. Only an **entry seat** (the seat that starts the item's current phase), or a single agent that owns the whole phase with no seat named, calls \`advance_item(transitions=[{itemId: "<your-item-UUID>", trigger: "start"}])\`. A non-entry seat or a **read-only** agent never calls \`advance_item\` — it does its assigned work and fills its own notes without transitioning the item. When you do own the transition: enter your phase, do the work, and fill the phase's required notes via \`manage_notes(operation="upsert", ...)\` — each upsert response returns the next note's guidance. If the item is already in your phase, \`advance_item\` fails with \`errorCode: "gate_blocked"\` and \`previousRole\` equal to your phase — call \`get_context(itemId=...)\` once for guidance instead. Every \`advance_item\` failure now carries an \`errorCode\`; branch on which POSITIVE code you got, never on the absence of one.
 
 **If \`advance_item\` instead fails with \`errorCode: "resource_unavailable"\` (\`errorKind: "transient"\`), do NOT treat it as already-in-phase and do NOT retry.** A shared resource this item declares is currently held by another item. Stop immediately and report the contended resource key(s) (\`contendedResources\`) back to the orchestrator — do not proceed as if you had entered work phase, and do not spin-retry the same call.
 
