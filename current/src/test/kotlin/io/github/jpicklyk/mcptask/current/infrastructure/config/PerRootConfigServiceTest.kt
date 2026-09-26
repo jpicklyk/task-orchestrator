@@ -312,16 +312,16 @@ note_limits:
             )
         }
 
-    // --- getSnapshot: single-pass combined view ---
+    // --- layer: single-pass combined view ---
 
     @Test
-    fun `getSnapshot returns null when no config row exists`() =
+    fun `layer returns null when no config row exists`() =
         runBlocking {
-            assertNull(service.getSnapshot(rootItemId))
+            assertNull(service.layer(rootItemId))
         }
 
     @Test
-    fun `getSnapshot combines schemas, traits, note_limits, status_labels, and fingerprint from one parse`() =
+    fun `layer combines schemas, traits, note_limits, status_labels, and fingerprint from one parse`() =
         runBlocking {
             repository.upsert(
                 rootItemId,
@@ -347,19 +347,24 @@ status_labels:
                 """.trimIndent()
             )
 
-            val snapshot = service.getSnapshot(rootItemId)
-            assertNotNull(snapshot)
+            val layer = service.layer(rootItemId)
+            assertNotNull(layer)
             assertEquals(
                 "repro-steps",
-                snapshot.workItemSchemas["bug-fix"]
+                layer.document.workItemSchemas["bug-fix"]
                     ?.notes
                     ?.get(0)
                     ?.key
             )
-            assertEquals("migration-assessment", snapshot.traits["needs-migration-review"]?.get(0)?.key)
-            assertEquals("reject", snapshot.noteLimitsModeExplicit)
-            assertEquals("root-started", snapshot.statusLabels?.get("start"))
-            assertEquals(service.getFingerprint(rootItemId), snapshot.fingerprint)
+            assertEquals(
+                "migration-assessment",
+                layer.document.traits["needs-migration-review"]
+                    ?.get(0)
+                    ?.key
+            )
+            assertEquals("reject", layer.document.noteLimitsMode)
+            assertEquals("root-started", layer.document.statusLabels?.get("start"))
+            assertEquals(service.getFingerprint(rootItemId), layer.fingerprint)
         }
 
     // --- getStatusLabels: absent-vs-explicit, partial map ---

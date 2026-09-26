@@ -1,5 +1,8 @@
 package io.github.jpicklyk.mcptask.current.application.tools.workflow
 
+import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
+import io.github.jpicklyk.mcptask.current.application.config.ConfigLayer
+import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
 import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
 import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
@@ -2083,13 +2086,17 @@ class AdvanceItemToolTest {
             // per-root mock's snapshot — only status_labels behavior is under test here, so
             // workItemSchemas/traits are empty, giving that path a harmless miss.
             val perRoot = mockk<PerRootConfigService>()
-            coEvery { perRoot.getSnapshot(rootId) } returns
-                PerRootConfigService.Snapshot(
-                    workItemSchemas = emptyMap(),
-                    traits = emptyMap(),
-                    noteLimitsModeExplicit = null,
-                    statusLabels = mapOf("start" to "root-started"),
-                    fingerprint = "fp"
+            coEvery { perRoot.layer(rootId) } returns
+                ConfigLayer(
+                    document =
+                        ConfigDocument(
+                            workItemSchemas = emptyMap(),
+                            traits = emptyMap(),
+                            noteLimitsMode = null,
+                            statusLabels = mapOf("start" to "root-started"),
+                        ),
+                    fingerprint = "fp",
+                    source = ConfigSource.PER_ROOT,
                 )
             val globalLabels = TestStatusLabelService(mapOf("start" to "in-progress"))
             val customContext = contextWithPerRootLabels(globalLabels, perRoot)
@@ -2116,7 +2123,7 @@ class AdvanceItemToolTest {
             // one fetch per trigger and NOT the old 8-wide (every UserTrigger + "cascade") fan-out.
             // The status-label fetch alone resolves both consulted triggers ("start" + "cascade")
             // from a SINGLE snapshot.
-            coVerify(exactly = 3) { perRoot.getSnapshot(rootId) }
+            coVerify(exactly = 3) { perRoot.layer(rootId) }
         }
 
     @Test
@@ -2125,13 +2132,17 @@ class AdvanceItemToolTest {
             val rootId = UUID.randomUUID()
             val perRoot = mockk<PerRootConfigService>()
             // Only "start" is overridden for this root — "complete" must fall through to global.
-            coEvery { perRoot.getSnapshot(rootId) } returns
-                PerRootConfigService.Snapshot(
-                    workItemSchemas = emptyMap(),
-                    traits = emptyMap(),
-                    noteLimitsModeExplicit = null,
-                    statusLabels = mapOf("start" to "root-started"),
-                    fingerprint = "fp"
+            coEvery { perRoot.layer(rootId) } returns
+                ConfigLayer(
+                    document =
+                        ConfigDocument(
+                            workItemSchemas = emptyMap(),
+                            traits = emptyMap(),
+                            noteLimitsMode = null,
+                            statusLabels = mapOf("start" to "root-started"),
+                        ),
+                    fingerprint = "fp",
+                    source = ConfigSource.PER_ROOT,
                 )
             val globalLabels = TestStatusLabelService(mapOf("start" to "in-progress", "complete" to "finished"))
             val customContext = contextWithPerRootLabels(globalLabels, perRoot)
@@ -2179,7 +2190,7 @@ class AdvanceItemToolTest {
             val r = extractResults(result)[0].jsonObject
             assertTrue(r["applied"]!!.jsonPrimitive.boolean)
             assertEquals("in-progress", r["statusLabel"]!!.jsonPrimitive.content)
-            coVerify(exactly = 0) { perRoot.getSnapshot(any()) }
+            coVerify(exactly = 0) { perRoot.layer(any()) }
         }
 
     @Test

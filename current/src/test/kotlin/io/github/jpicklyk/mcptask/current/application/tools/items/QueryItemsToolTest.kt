@@ -1,5 +1,8 @@
 package io.github.jpicklyk.mcptask.current.application.tools.items
 
+import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
+import io.github.jpicklyk.mcptask.current.application.config.ConfigLayer
+import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
 import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
@@ -2175,13 +2178,17 @@ class QueryItemsToolTest {
                             NoteSchemaEntry(key = "per-root-note", role = Role.QUEUE, required = true, description = "Per-root note")
                         )
                 )
-            coEvery { perRoot.getSnapshot(rootId) } returns
-                PerRootConfigService.Snapshot(
-                    workItemSchemas = mapOf("feature-task" to perRootSchema),
-                    traits = emptyMap(),
-                    noteLimitsModeExplicit = null,
-                    statusLabels = null,
-                    fingerprint = "per-root-fp-1"
+            coEvery { perRoot.layer(rootId) } returns
+                ConfigLayer(
+                    document =
+                        ConfigDocument(
+                            workItemSchemas = mapOf("feature-task" to perRootSchema),
+                            traits = emptyMap(),
+                            noteLimitsMode = null,
+                            statusLabels = null,
+                        ),
+                    fingerprint = "per-root-fp-1",
+                    source = ConfigSource.PER_ROOT,
                 )
 
             val schemaContext = ToolExecutionContext(repositoryProvider, schemaServiceForSchemaOp(), perRootConfigService = perRoot)
@@ -2216,13 +2223,17 @@ class QueryItemsToolTest {
                     type = "default",
                     notes = listOf(NoteSchemaEntry(key = "default-note", role = Role.WORK, required = false, description = "Default note"))
                 )
-            coEvery { perRoot.getSnapshot(rootId) } returns
-                PerRootConfigService.Snapshot(
-                    workItemSchemas = mapOf("default" to perRootDefault),
-                    traits = emptyMap(),
-                    noteLimitsModeExplicit = null,
-                    statusLabels = null,
-                    fingerprint = "per-root-fp-2"
+            coEvery { perRoot.layer(rootId) } returns
+                ConfigLayer(
+                    document =
+                        ConfigDocument(
+                            workItemSchemas = mapOf("default" to perRootDefault),
+                            traits = emptyMap(),
+                            noteLimitsMode = null,
+                            statusLabels = null,
+                        ),
+                    fingerprint = "per-root-fp-2",
+                    source = ConfigSource.PER_ROOT,
                 )
 
             val schemaContext = ToolExecutionContext(repositoryProvider, schemaServiceForSchemaOp(), perRootConfigService = perRoot)
@@ -2249,7 +2260,7 @@ class QueryItemsToolTest {
         runBlocking {
             val rootId = UUID.fromString(createItem("Project Root"))
             val perRoot = mockk<PerRootConfigService>()
-            coEvery { perRoot.getSnapshot(rootId) } returns null
+            coEvery { perRoot.layer(rootId) } returns null
 
             val schemaContext = ToolExecutionContext(repositoryProvider, schemaServiceForSchemaOp(), perRootConfigService = perRoot)
 
@@ -2306,13 +2317,17 @@ class QueryItemsToolTest {
                             NoteSchemaEntry(key = "per-root-note", role = Role.QUEUE, required = true, description = "Per-root note")
                         )
                 )
-            coEvery { perRoot.getSnapshot(rootId) } returns
-                PerRootConfigService.Snapshot(
-                    workItemSchemas = mapOf("feature-task" to perRootSchema),
-                    traits = emptyMap(),
-                    noteLimitsModeExplicit = null,
-                    statusLabels = null,
-                    fingerprint = "per-root-fp-3"
+            coEvery { perRoot.layer(rootId) } returns
+                ConfigLayer(
+                    document =
+                        ConfigDocument(
+                            workItemSchemas = mapOf("feature-task" to perRootSchema),
+                            traits = emptyMap(),
+                            noteLimitsMode = null,
+                            statusLabels = null,
+                        ),
+                    fingerprint = "per-root-fp-3",
+                    source = ConfigSource.PER_ROOT,
                 )
 
             val schemaContext = ToolExecutionContext(repositoryProvider, schemaServiceForSchemaOp(), perRootConfigService = perRoot)
