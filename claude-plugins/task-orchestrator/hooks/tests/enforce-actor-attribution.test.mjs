@@ -267,3 +267,92 @@ test('fail-open: malformed stdin -> silent exit 0', () => {
   assert.equal(res.status, 0);
   assert.equal(res.stdout, '');
 });
+
+// ─────────────────────────────────────────────────────────────────────────
+// O1 — singular-sugar advance_item (`{itemId, trigger}`, no `transitions`) must be enforced too
+// ─────────────────────────────────────────────────────────────────────────
+
+test('O1: actor_authentication enabled, actor-less singular-sugar advance_item (no transitions) -> denies', () => {
+  const dir = tmpConfigDir();
+  try {
+    writeConfig(dir, 'actor_authentication:\n  enabled: true\n');
+    const res = runHook(dir, {
+      tool_name: 'mcp__mcp-task-orchestrator__advance_item',
+      tool_input: { itemId: 'x', trigger: 'start' },
+    });
+    assert.equal(res.status, 0);
+    const out = JSON.parse(res.stdout);
+    assert.equal(out.hookSpecificOutput.permissionDecision, 'deny');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('O1: actor_attribution.required true, actor-less singular-sugar advance_item -> denies', () => {
+  const dir = tmpConfigDir();
+  try {
+    writeConfig(dir, 'actor_attribution:\n  required: true\n');
+    const res = runHook(dir, {
+      tool_name: 'mcp__mcp-task-orchestrator__advance_item',
+      tool_input: { itemId: 'x', trigger: 'start' },
+    });
+    assert.equal(res.status, 0);
+    const out = JSON.parse(res.stdout);
+    assert.equal(out.hookSpecificOutput.permissionDecision, 'deny');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('O1: singular-sugar advance_item WITH a top-level actor -> allowed, silent exit 0', () => {
+  const dir = tmpConfigDir();
+  try {
+    writeConfig(dir, 'actor_authentication:\n  enabled: true\n');
+    const res = runHook(dir, {
+      tool_name: 'mcp__mcp-task-orchestrator__advance_item',
+      tool_input: { itemId: 'x', trigger: 'start', actor: { id: 'a', kind: 'orchestrator' } },
+    });
+    assert.equal(res.status, 0);
+    assert.equal(res.stdout, '');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('O1: transitions[] present -> singular top-level fields are ignored (server rule); actor-less element still denies', () => {
+  const dir = tmpConfigDir();
+  try {
+    writeConfig(dir, 'actor_authentication:\n  enabled: true\n');
+    // A top-level actor alongside transitions[] must NOT rescue a missing per-element actor —
+    // the server ignores singular fields whenever transitions[] is present.
+    const res = runHook(dir, {
+      tool_name: 'mcp__mcp-task-orchestrator__advance_item',
+      tool_input: {
+        itemId: 'ignored',
+        trigger: 'ignored',
+        actor: { id: 'ignored-top-level', kind: 'orchestrator' },
+        transitions: [{ itemId: 'x', trigger: 'start' }],
+      },
+    });
+    assert.equal(res.status, 0);
+    const out = JSON.parse(res.stdout);
+    assert.equal(out.hookSpecificOutput.permissionDecision, 'deny');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('O1: transitions[] present with a valid per-element actor -> allowed, even with no top-level actor', () => {
+  const dir = tmpConfigDir();
+  try {
+    writeConfig(dir, 'actor_authentication:\n  enabled: true\n');
+    const res = runHook(dir, {
+      tool_name: 'mcp__mcp-task-orchestrator__advance_item',
+      tool_input: { transitions: [{ itemId: 'x', trigger: 'start', actor: { id: 'a', kind: 'orchestrator' } }] },
+    });
+    assert.equal(res.status, 0);
+    assert.equal(res.stdout, '');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

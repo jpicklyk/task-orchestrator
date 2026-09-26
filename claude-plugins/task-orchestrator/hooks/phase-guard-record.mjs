@@ -18,13 +18,20 @@
 // each transition from tool_input, tolerating both advance_item call shapes: the batch
 // `transitions[]` array (each element carries its own `actor`) and the top-level singular-sugar
 // shape (`{itemId, trigger, actor}`, normalized server-side but NOT in the raw tool_input this
-// hook observes). Results are matched back to their transition by itemId before recording.
+// hook observes). Results are matched back to their transition via `actorForResult()` — a
+// hex-prefix input itemId (4+ hex chars) won't equal the full UUID the server echoes back in
+// `results[]`, so matching falls back to a prefix comparison (either direction) and then array
+// position before giving up, rather than a plain exact-key lookup that would miss a prefix-keyed
+// entry and let a workflow-seat transition slip through unfiltered.
 //
 // Entered-role tracking: alongside the recorded itemIds, this hook now also records the ROLE the
-// agent entered for each item (`newRole` on an applied:true result, `targetRole` on the
-// already-in-phase gate_blocked case) in the marker's `enteredRoles` map. phase-guard.mjs uses
-// this so a SubagentStop check blocks only on the role this agent actually entered, never on
-// whatever role the item has since moved to under a later seat.
+// agent entered for each item (`newRole` on an applied:true result, `previousRole` on the
+// already-in-phase gate_blocked case — the server's AdvanceService.checkGate sets `previousRole`
+// to the item's CURRENT role, i.e. the phase the agent is already sitting in, and `targetRole` to
+// the phase it tried to move to next; the phase this agent entered is `previousRole`, not
+// `targetRole`) in the marker's `enteredRoles` map. phase-guard.mjs uses this so a SubagentStop
+// check blocks only on the role this agent actually entered, never on whatever role the item has
+// since moved to under a later seat.
 
 import { readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { resolve, join, dirname } from 'path';
@@ -113,6 +120,12 @@ export function extractRecordableItemIds(payload) {
  *  - batch: `{transitions: [{itemId, trigger, actor?}, ...]}` — each element's own actor.
  *  - singular sugar: `{itemId, trigger, actor?}` — one actor applies to that one itemId.
  * Malformed/missing input yields an empty map (nothing is treated as a workflow actor).
+ *
+ * The itemId keyed here is the caller's RAW input id, which may be a hex prefix (4+ hex chars)
+ * rather than the full UUID the server resolves and echoes back in `results[]` — see
+ * `actorForResult()`, which matches a result back to this map by prefix (or position) rather than
+ * an exact key lookup, since an exact `map.get(fullUuid)` would silently miss a prefix-keyed entry
+ * and let a workflow-seat transition slip through unfiltered.
  */
 export function buildActorMap(toolInput) {
   const map = new Map();
@@ -129,6 +142,43 @@ export function buildActorMap(toolInput) {
   return map;
 }
 
+/**
+ * Resolves the actor for one `results[]` entry from an actor map keyed by the (possibly
+ * hex-prefix) input itemId, in an order that tolerates either being longer than the other:
+ *  1. Exact match — the common case, and the only one possible for the batch `transitions[]`
+ *     shape (whose keys are never truncated).
+ *  2. Case-insensitive prefix match — the singular-sugar shape's key can be a hex prefix (4+
+ *     hex chars) of the full UUID the server resolves and echoes back in `result.itemId`, or, in
+ *     principle, the reverse; matching in either direction covers both.
+ *  3. Positional fallback — when the map has exactly as many entries as the results array (the
+ *     normal 1:1 batch case) and neither of the above matched, fall back to matching by array
+ *     position so a key that isn't textually related to the resolved id (defensive; not expected
+ *     in practice) still resolves rather than silently passing the actor-less filter.
+ * Returns `undefined` when nothing matches, same as a plain `Map.get` miss.
+ */
+export function actorForResult(actorMap, resultItemId, resultIndex, totalResults) {
+  if (!(actorMap instanceof Map) || typeof resultItemId !== 'string') return undefined;
+  if (actorMap.has(resultItemId)) return actorMap.get(resultItemId);
+
+  const lowerResult = resultItemId.toLowerCase();
+  for (const [key, actor] of actorMap) {
+    if (typeof key !== 'string' || key.length === 0) continue;
+    const lowerKey = key.toLowerCase();
+    if (lowerResult.startsWith(lowerKey) || lowerKey.startsWith(lowerResult)) {
+      return actor;
+    }
+  }
+
+  if (actorMap.size === totalResults) {
+    const keys = [...actorMap.keys()];
+    if (resultIndex >= 0 && resultIndex < keys.length) {
+      return actorMap.get(keys[resultIndex]);
+    }
+  }
+
+  return undefined;
+}
+
 /** True only when `actor.parent` is a string starting with the literal prefix "workflow:". */
 export function isWorkflowSeatActor(actor) {
   return !!actor && typeof actor === 'object' && typeof actor.parent === 'string' && actor.parent.startsWith('workflow:');
@@ -136,10 +186,14 @@ export function isWorkflowSeatActor(actor) {
 
 /**
  * From a (workflow-actor-filtered) advance_item response payload's `results[]`, the role each
- * recordable item actually ENTERED: `newRole` on an `applied:true` result, or `targetRole` on the
- * already-in-phase `errorCode:"gate_blocked"` case (the item is already sitting in that role).
- * Mirrors extractRecordableItemIds's inclusion rule so every id it returns has a chance at a role
- * here too; an item with no recognizable role string is simply omitted from the map.
+ * recordable item actually ENTERED: `newRole` on an `applied:true` result, or `previousRole` on
+ * the already-in-phase `errorCode:"gate_blocked"` case. The server (AdvanceService.checkGate)
+ * constructs `GateBlocked(message, item.role, targetRole, ...)` — `previousRole` is bound to
+ * `item.role`, the item's CURRENT role (the phase the agent is already sitting in), while
+ * `targetRole` is the phase the blocked transition tried to reach. The role this agent entered is
+ * therefore `previousRole`, not `targetRole`. Mirrors extractRecordableItemIds's inclusion rule so
+ * every id it returns has a chance at a role here too; an item with no recognizable role string is
+ * simply omitted from the map.
  */
 export function extractEnteredRoles(payload) {
   const results = Array.isArray(payload?.results) ? payload.results : [];
@@ -148,8 +202,8 @@ export function extractEnteredRoles(payload) {
     if (!r || !isFullUuid(r.itemId)) continue;
     if (r.applied === true && typeof r.newRole === 'string' && r.newRole) {
       roles[r.itemId] = r.newRole;
-    } else if (r.errorCode === 'gate_blocked' && typeof r.targetRole === 'string' && r.targetRole) {
-      roles[r.itemId] = r.targetRole;
+    } else if (r.errorCode === 'gate_blocked' && typeof r.previousRole === 'string' && r.previousRole) {
+      roles[r.itemId] = r.previousRole;
     }
   }
   return roles;
@@ -201,7 +255,9 @@ function main() {
     // SubagentStop check the way an ordinary subagent dispatch does.
     const actorMap = buildActorMap(hookInput.tool_input);
     const rawResults = Array.isArray(payload?.results) ? payload.results : [];
-    const nonWorkflowResults = rawResults.filter((r) => !isWorkflowSeatActor(actorMap.get(r?.itemId)));
+    const nonWorkflowResults = rawResults.filter(
+      (r, i) => !isWorkflowSeatActor(actorForResult(actorMap, r?.itemId, i, rawResults.length)),
+    );
     const filteredPayload = { ...payload, results: nonWorkflowResults };
 
     const newItems = extractRecordableItemIds(filteredPayload);

@@ -106,8 +106,17 @@ if (!isActorAuthenticationEnabled(configContent) && !isActorAttributionRequired(
 let missing = false;
 
 if (isAdvance) {
-  const transitions = toolInput.transitions || [];
-  missing = transitions.some(t => !t.actor);
+  // The server treats `transitions[]` and the singular-sugar shape (`{itemId, trigger, actor?}`)
+  // as mutually exclusive: when `transitions` is present, the singular top-level fields are
+  // ignored, so only the batch shape's per-element actors matter. When `transitions` is absent,
+  // an actor-less singular call (`{itemId, trigger}` with no top-level `actor`) must be denied
+  // the same as a transitions-array element missing its actor — otherwise the singular-sugar
+  // path is a silent bypass of actor attribution enforcement.
+  if (Array.isArray(toolInput.transitions)) {
+    missing = toolInput.transitions.some(t => !t.actor);
+  } else if (typeof toolInput.itemId === 'string') {
+    missing = !toolInput.actor;
+  }
 } else if (isNoteUpsert) {
   const notes = toolInput.notes || [];
   missing = notes.some(n => !n.actor);

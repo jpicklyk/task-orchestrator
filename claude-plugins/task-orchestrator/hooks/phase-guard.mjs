@@ -7,8 +7,10 @@
 // checklist (the item's gate status), and send a capped continuation naming what's still open.
 //
 // Entered-role gating: phase-guard-record.mjs now also records, per item, the ROLE this agent
-// entered (`marker.enteredRoles[itemId]` — `newRole` on success, or `targetRole` on the
-// already-in-phase gate_blocked case). When a role was recorded for an item, this hook blocks on
+// entered (`marker.enteredRoles[itemId]` — `newRole` on success, or `previousRole` on the
+// already-in-phase gate_blocked case, which is the item's CURRENT role at the time of the blocked
+// transition — see phase-guard-record.mjs's extractEnteredRoles). When a role was recorded for an
+// item, this hook blocks on
 // it ONLY if the item's CURRENT gate role still equals that entered role — if a later seat has
 // since advanced the item further, gate.role differs from the recorded entered role and the item
 // is skipped entirely, so an earlier seat is never blocked on notes belonging to a phase it never
@@ -172,7 +174,7 @@ async function main() {
       emitEmpty();
     }
 
-    writePhaseGuardMarker(path, { items: marker.items, blocks: marker.blocks + 1 });
+    writePhaseGuardMarker(path, { items: marker.items, blocks: marker.blocks + 1, enteredRoles: marker.enteredRoles || {} });
     emitBlock(buildReason(blockers));
   } catch {
     emitEmpty();

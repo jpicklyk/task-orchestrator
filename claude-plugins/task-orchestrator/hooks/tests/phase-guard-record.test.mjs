@@ -23,6 +23,7 @@ import {
   extractRecordableItemIds,
   extractEnteredRoles,
   buildActorMap,
+  actorForResult,
   isWorkflowSeatActor,
   isFullUuid,
 } from '../phase-guard-record.mjs';
@@ -569,7 +570,7 @@ test('entered role: an applied:true result records newRole into marker.enteredRo
   }
 });
 
-test('entered role: a gate_blocked ("already in phase") result records targetRole into marker.enteredRoles', () => {
+test('entered role: a gate_blocked ("already in phase") result records previousRole (the item\'s current role) into marker.enteredRoles, not targetRole', () => {
   const tempDir = freshTempDir();
   const sessionId = `role2-${randomUUID()}`;
   const agentId = 'agent-1';
@@ -586,8 +587,11 @@ test('entered role: a gate_blocked ("already in phase") result records targetRol
               applied: false,
               error: 'Item is already in work',
               errorCode: 'gate_blocked',
+              // Realistic server shape: previousRole is the item's CURRENT role (the phase the
+              // agent is already sitting in); targetRole is the phase the blocked transition
+              // tried to reach. This agent entered `work`, not `review`.
               previousRole: 'work',
-              targetRole: 'work',
+              targetRole: 'review',
             },
           ],
         },
@@ -695,19 +699,86 @@ test('buildActorMap: malformed/missing tool_input yields an empty map', () => {
   assert.equal(buildActorMap({ transitions: 'not-an-array' }).size, 0);
 });
 
-test('extractEnteredRoles: newRole on applied:true, targetRole on gate_blocked, omitted otherwise', () => {
+test('extractEnteredRoles: newRole on applied:true, previousRole on gate_blocked (not targetRole), omitted otherwise', () => {
   const payload = {
     results: [
       { itemId: 'aaaaaaaa-0000-0000-0000-000000000001', applied: true, newRole: 'work' },
-      { itemId: 'bbbbbbbb-0000-0000-0000-000000000002', applied: false, errorCode: 'gate_blocked', targetRole: 'review' },
+      // Realistic server shape: previousRole = item's current role (work), targetRole = the
+      // phase the blocked transition tried to reach (review). Entered role is `work`.
+      { itemId: 'bbbbbbbb-0000-0000-0000-000000000002', applied: false, errorCode: 'gate_blocked', previousRole: 'work', targetRole: 'review' },
       { itemId: 'cccccccc-0000-0000-0000-000000000003', applied: false, errorCode: 'dependency_blocked' },
       { itemId: 'ef07', applied: true, newRole: 'work' }, // non-UUID — omitted regardless of role
     ],
   };
   assert.deepEqual(extractEnteredRoles(payload), {
     'aaaaaaaa-0000-0000-0000-000000000001': 'work',
-    'bbbbbbbb-0000-0000-0000-000000000002': 'review',
+    'bbbbbbbb-0000-0000-0000-000000000002': 'work',
   });
+});
+
+// ── O2: actorForResult prefix/positional matching (036420aa) ────────────────────────────────────
+
+test('actorForResult: exact match wins over prefix match', () => {
+  const map = buildActorMap({ itemId: 'aaaaaaaa-0000-0000-0000-000000000001', actor: { id: 'exact' } });
+  const actor = actorForResult(map, 'aaaaaaaa-0000-0000-0000-000000000001', 0, 1);
+  assert.deepEqual(actor, { id: 'exact' });
+});
+
+test('actorForResult: a hex-prefix input itemId matches the full-UUID result via prefix comparison', () => {
+  // Mirrors the real singular-sugar shape: the caller's raw tool_input.itemId can be a short hex
+  // prefix (4+ hex chars), but the server resolves it and echoes the FULL UUID back in results[].
+  // A plain exact-key Map.get would miss this and let the workflow-seat filter fail open.
+  const map = buildActorMap({ itemId: 'bb00', trigger: 'start', actor: { id: 'wf', parent: 'workflow:x' } });
+  const actor = actorForResult(map, 'bb000000-0000-0000-0000-000000000009', 0, 1);
+  assert.deepEqual(actor, { id: 'wf', parent: 'workflow:x' });
+});
+
+test('actorForResult: positional fallback when sizes match and no textual relation exists', () => {
+  const map = buildActorMap({
+    transitions: [
+      { itemId: 'unrelated-key-1', actor: { id: 'first' } },
+      { itemId: 'unrelated-key-2', actor: { id: 'second' } },
+    ],
+  });
+  assert.deepEqual(actorForResult(map, 'cccccccc-0000-0000-0000-000000000001', 0, 2), { id: 'first' });
+  assert.deepEqual(actorForResult(map, 'dddddddd-0000-0000-0000-000000000002', 1, 2), { id: 'second' });
+});
+
+test('actorForResult: no match when sizes differ and nothing textually relates', () => {
+  const map = buildActorMap({ itemId: 'unrelated', actor: { id: 'x' } });
+  assert.equal(actorForResult(map, 'aaaaaaaa-0000-0000-0000-000000000001', 0, 2), undefined);
+});
+
+test('actorForResult: malformed inputs yield undefined', () => {
+  assert.equal(actorForResult(undefined, 'a', 0, 1), undefined);
+  assert.equal(actorForResult(new Map(), null, 0, 1), undefined);
+});
+
+test('O2 end-to-end: a hex-prefix singular-sugar workflow-seat transition is still excluded from recording', () => {
+  const tempDir = freshTempDir();
+  const sessionId = `o2-${randomUUID()}`;
+  const agentId = 'agent-1';
+  const fullItemId = 'bb000000-0000-0000-0000-000000000099';
+  try {
+    const res = spawnHook(
+      {
+        session_id: sessionId,
+        agent_id: agentId,
+        // Raw tool_input carries a hex-prefix itemId (as a caller might type), while the
+        // response echoes the resolved full UUID — the mismatch this fix addresses.
+        tool_input: { itemId: 'bb00', trigger: 'start', actor: { id: 'wf-runner', kind: 'orchestrator', parent: 'workflow:release' } },
+        tool_response: { results: [{ itemId: fullItemId, newRole: 'work', applied: true }] },
+      },
+      tempDir,
+      UNREACHABLE_API_URL,
+    );
+    assert.equal(res.status, 0);
+    const marker = readMarker(tempDir, sessionId, agentId);
+    assert.deepEqual(marker.items, []);
+    assert.deepEqual(marker.enteredRoles, {});
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
 });
 
 test('extractEnteredRoles: empty/missing results yields an empty object', () => {

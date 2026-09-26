@@ -875,6 +875,60 @@ test('entered-role: two items, one moved past its entered role and one still in 
   }
 });
 
+test('B2: two Stops — first blocks on work notes and preserves enteredRoles, second (after the item moves to review) does not block', async () => {
+  const tempDir = freshTempDir();
+  const sessionId = `b2-${randomUUID()}`;
+  const agentId = 'agent-1';
+  const itemId = 'b2b2b2b2-0000-0000-0000-000000000001';
+  seedMarker(tempDir, sessionId, agentId, { items: [itemId], blocks: 0, enteredRoles: { [itemId]: 'work' } });
+  // The gate route is mutable so the second Stop observes the item having since moved to review —
+  // this is what a real run looks like: the agent enters work, gets blocked, the item is later
+  // advanced to review by another seat, and the SAME agent's Stop fires again.
+  let role = 'work';
+  const server = await startStub({
+    [itemId]: (req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          itemId,
+          title: 'Widget frobnicator',
+          role,
+          gateStatus: { canAdvance: false, phase: role, missing: role === 'work' ? ['implementation-notes'] : ['review-checklist'] },
+        }),
+      );
+    },
+  });
+  try {
+    const apiUrl = `http://127.0.0.1:${server.address().port}`;
+
+    // First Stop: item still in work, missing notes -> blocks.
+    const first = await runHook({ session_id: sessionId, agent_id: agentId }, tempDir, apiUrl);
+    const firstOut = JSON.parse(first.stdout);
+    assert.equal(firstOut.decision, 'block');
+    assert.ok(firstOut.reason.includes('implementation-notes'), firstOut.reason);
+
+    // B2 regression: the block path must carry enteredRoles through into the rewritten marker,
+    // not drop it — otherwise the second Stop below would fall back to role-agnostic behavior
+    // and block again on the review-phase notes it never owned.
+    const afterFirst = readMarker(tempDir, sessionId, agentId);
+    assert.deepEqual(afterFirst.enteredRoles, { [itemId]: 'work' });
+    assert.equal(afterFirst.blocks, 1);
+
+    // Item now moves to review (simulating another seat advancing it).
+    role = 'review';
+
+    // Second Stop: same agent, same marker. gate.role ("review") now differs from the recorded
+    // enteredRole ("work"), so this item must be skipped entirely rather than blocking on
+    // review-checklist.
+    const second = await runHook({ session_id: sessionId, agent_id: agentId }, tempDir, apiUrl);
+    assert.equal(second.status, 0);
+    assert.equal(second.stdout.trim(), '{}');
+  } finally {
+    await stopStub(server);
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 test('S12: headless iteration with an existing marker and a missing-notes gate -> {} with zero fetches', async () => {
   const tempDir = freshTempDir();
   const sessionId = `s12-${randomUUID()}`;
