@@ -388,6 +388,7 @@ class LegacyPrecedenceCharacterizationTest {
         status_labels:
           start: "global-started"
           complete: "global-done"
+          cascade: "global-cascaded"
         resources:
           shared-key:
             description: "global version"
@@ -467,7 +468,7 @@ class LegacyPrecedenceCharacterizationTest {
                 "an explicit null per-root value must win over the global label, not fall through"
             )
             assertEquals(
-                "global-done",
+                "global-cascaded",
                 s3Context.resolveStatusLabel("cascade", s3Root),
                 "a trigger absent from the per-root map must fall through to global"
             )
