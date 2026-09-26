@@ -23,11 +23,10 @@ import kotlin.test.assertNull
  * Test coverage:
  * - Default behaviour (redact=true): non-admin callers see null actor/verification
  * - Admin callers see actor/verification
- * - Proof redacted unless admin AND ?include=proof
  * - When redactNoteAttribution=false: all callers see actor/verification
  */
 class AttributionRedactorTest {
-    private fun makeNoteWithActor(proof: String? = null): NoteDto =
+    private fun makeNoteWithActor(): NoteDto =
         NoteDto(
             key = "spec",
             role = "queue",
@@ -40,7 +39,6 @@ class AttributionRedactorTest {
                     id = "agent-1",
                     kind = "orchestrator",
                     parent = "parent-1",
-                    proof = proof,
                 ),
             verification =
                 VerificationDto(
@@ -50,10 +48,7 @@ class AttributionRedactorTest {
                 ),
         )
 
-    private fun makeReadCall(
-        isAdmin: Boolean,
-        includeProof: Boolean = false
-    ): ApplicationCall {
+    private fun makeReadCall(isAdmin: Boolean): ApplicationCall {
         val capabilities = if (isAdmin) setOf(ApiCapability.READ, ApiCapability.ADMIN) else setOf(ApiCapability.READ)
         val principal =
             ApiPrincipal(
@@ -67,7 +62,7 @@ class AttributionRedactorTest {
         attrs.put(ApiPrincipalKey, principal)
 
         val request = mockk<ApplicationRequest>(relaxed = true)
-        every { request.queryParameters["include"] } returns if (includeProof) "proof" else null
+        every { request.queryParameters["include"] } returns null
 
         val call = mockk<ApplicationCall>(relaxed = true)
         every { call.attributes } returns attrs
@@ -76,21 +71,21 @@ class AttributionRedactorTest {
         return call
     }
 
-    // ─── Default redaction (redactNoteAttribution=true) ──────────────────────
+    // ─── Default redaction (redactNoteAttribution=true) ────────────────────────
 
     @Test
     fun `non-admin caller receives null actor when redaction enabled`() {
-        val redactor = AttributionRedactor.of(redactNoteAttribution = true, redactActorProof = true)
-        val note = makeNoteWithActor(proof = "jwt-abc")
+        val redactor = AttributionRedactor.of(redactNoteAttribution = true)
+        val note = makeNoteWithActor()
         val call = makeReadCall(isAdmin = false)
         val result = redactor.redact(note, call)
-        assertNull(result.actor, "Expected actor to be null for non-admin: ${result.actor}")
-        assertNull(result.verification, "Expected verification to be null for non-admin: ${result.verification}")
+        assertNull(result.actor, "Expected actor to be null for non-admin: ${'$'}{result.actor}")
+        assertNull(result.verification, "Expected verification to be null for non-admin: ${'$'}{result.verification}")
     }
 
     @Test
     fun `admin caller sees actor when redaction enabled`() {
-        val redactor = AttributionRedactor.of(redactNoteAttribution = true, redactActorProof = false)
+        val redactor = AttributionRedactor.of(redactNoteAttribution = true)
         val note = makeNoteWithActor()
         val call = makeReadCall(isAdmin = true)
         val result = redactor.redact(note, call)
@@ -98,42 +93,22 @@ class AttributionRedactorTest {
         assertEquals("agent-1", result.actor!!.id)
     }
 
-    @Test
-    fun `proof is redacted for admin without include=proof`() {
-        val redactor = AttributionRedactor.of(redactNoteAttribution = true, redactActorProof = true)
-        val note = makeNoteWithActor(proof = "super-secret-jwt")
-        val call = makeReadCall(isAdmin = true, includeProof = false)
-        val result = redactor.redact(note, call)
-        assertNotNull(result.actor, "Expected actor for admin")
-        assertNull(result.actor!!.proof, "Expected proof to be null without ?include=proof: ${result.actor!!.proof}")
-    }
-
-    @Test
-    fun `proof stays null for admin even with include=proof`() {
-        val redactor = AttributionRedactor.of(redactNoteAttribution = true, redactActorProof = true)
-        val note = makeNoteWithActor(proof = "super-secret-jwt")
-        val call = makeReadCall(isAdmin = true, includeProof = true)
-        val result = redactor.redact(note, call)
-        assertNotNull(result.actor, "Expected actor for admin")
-        assertNull(result.actor!!.proof, "Expected proof to remain null even with ?include=proof per item 983615e7 D6")
-    }
-
-    // ─── Redaction disabled ──────────────────────────────────────────────────
+    // ─── Redaction disabled ───────────────────────────
 
     @Test
     fun `non-admin sees actor when redaction disabled globally`() {
-        val redactor = AttributionRedactor.of(redactNoteAttribution = false, redactActorProof = false)
+        val redactor = AttributionRedactor.of(redactNoteAttribution = false)
         val note = makeNoteWithActor()
         val call = makeReadCall(isAdmin = false)
         val result = redactor.redact(note, call)
         assertNotNull(result.actor, "Expected actor when attribution redaction disabled")
     }
 
-    // ─── redactAll ───────────────────────────────────────────────────────────
+    // ─── redactAll ─────────────────────────────
 
     @Test
     fun `redactAll applies redaction to all notes`() {
-        val redactor = AttributionRedactor.of(redactNoteAttribution = true, redactActorProof = true)
+        val redactor = AttributionRedactor.of(redactNoteAttribution = true)
         val notes = listOf(makeNoteWithActor(), makeNoteWithActor())
         val call = makeReadCall(isAdmin = false)
         val results = redactor.redactAll(notes, call)
@@ -141,11 +116,11 @@ class AttributionRedactorTest {
         results.forEach { assertNull(it.actor, "Expected null actor for non-admin") }
     }
 
-    // ─── Note without actor ──────────────────────────────────────────────────
+    // ─── Note without actor ──────────────────────────
 
     @Test
     fun `note without actor is unchanged by redactor`() {
-        val redactor = AttributionRedactor.of(redactNoteAttribution = true, redactActorProof = true)
+        val redactor = AttributionRedactor.of(redactNoteAttribution = true)
         val note =
             NoteDto(
                 key = "spec",

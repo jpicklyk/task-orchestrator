@@ -40,15 +40,18 @@ import kotlin.test.assertTrue
 
 /**
  * Independent test-author suite for item 983615e7 -- "Stop persisting raw actor proof JWTs; scrub
- * existing rows". Covers test-plan scenarios S5-S9 and S17 (the REST-layer surface of the fix: the
- * new admin-only `verification.proof` evidence object, the always-null `actor.proof`, and the
- * `?include=proof` deprecation Warning header) plus S6 as a declared regression guard.
+ * existing rows" -- and updated by item b81d5849 to reflect the removal of the deprecated include
+ * parameter and env var scaffolding after their one-release window (see CHANGELOG.md). Covers
+ * test-plan scenarios S5-S9 (the REST-layer surface of the fix: the admin-only
+ * `verification.proof` evidence object and the always-absent `actor.proof`) plus S6 as a declared
+ * regression guard, plus the oracle that the deprecated include token is now a silent no-op (no
+ * `Warning` header, no error).
  *
- * Uses [transitionRoutes]'s explicit `redactAttribution`/`redactProof` parameters where the
- * scenario needs to control redaction independent of the process environment (S7, S9); uses
- * [noteRoutes] / [itemRoutes] (env-driven, real `AppConfig.fromEnv()`) where the scenario only
- * needs an admin vs. non-admin distinction or the deprecation header (S5, S6, S8, S17), matching
- * [NoteRoutesTest]'s existing convention for those routes.
+ * Uses [transitionRoutes]'s explicit `redactAttribution` parameter where the scenario needs to
+ * control redaction independent of the process environment (S7, S9); uses [noteRoutes] /
+ * [itemRoutes] (env-driven, real `AppConfig.fromEnv()`) where the scenario only needs an admin vs.
+ * non-admin distinction (S5, S6, S8), matching [NoteRoutesTest]'s existing convention for those
+ * routes.
  *
  * `src/main` was not opened while writing this file. Evidence rows are built directly via the
  * repository (`Note`/`RoleTransition` domain constructors with an explicit `VerificationResult`
@@ -86,7 +89,7 @@ class ProofEvidenceRestTest {
 
     // ===========================================================================================
     // S5 -- admin GET notes + transitions on a VERIFIED row -> verification.proof fields match,
-    // actor.proof absent/null. D§6
+    // actor.proof absent/null. D6
     // ===========================================================================================
 
     @Test
@@ -197,7 +200,7 @@ class ProofEvidenceRestTest {
 
     // ===========================================================================================
     // S7 -- non-admin, NOTE_ATTRIBUTION=false -> verification shown, verification.proof null,
-    // actor.proof null. D§6
+    // actor.proof absent. D6
     // ===========================================================================================
 
     @Test
@@ -224,7 +227,7 @@ class ProofEvidenceRestTest {
                     )
                 )
             }
-            application { configureTestApp { transitionRoutes(repo, redactAttribution = false, redactProof = true) } }
+            application { configureTestApp { transitionRoutes(repo, redactAttribution = false) } }
 
             val response =
                 client.get("/api/v1/items/${item.id}/transitions") {
@@ -240,22 +243,21 @@ class ProofEvidenceRestTest {
 
     // ===========================================================================================
     // O1 (reviewer-flagged gap) -- the NOTE path's non-admin proof strip was untested (S7 above
-    // only exercises the TRANSITION path, via transitionRoutes' explicit redactAttribution/
-    // redactProof overrides). noteRoutes takes no such override -- it always reads
-    // AttributionRedactor.fromEnv() -- so there is no way to force redactNoteAttribution=false for
-    // it through a full HTTP round trip without mutating the real process environment. Instead,
-    // this calls AttributionRedactor.of(...).redact() directly on a NoteDto: the exact function
-    // noteRoutes' GET /api/v1/items/{id}/notes handler itself calls per note (diagnosis Fix step 6:
-    // "Wired into: ... GET /api/v1/items/{id}/notes ..."), so this exercises real production
-    // redaction logic for the note path, just without the HTTP/Ktor-routing layer around it -- the
-    // same style [AttributionRedactorTest] / [AttributionRedactorProofTest] already use for this
-    // exact function. Oracle: diagnosis Fix step 6 / test-plan S7 applied to notes.
+    // only exercises the TRANSITION path, via transitionRoutes' explicit redactAttribution
+    // override). noteRoutes takes no such override -- it always reads AttributionRedactor.fromEnv()
+    // -- so there is no way to force redactNoteAttribution=false for it through a full HTTP round
+    // trip without mutating the real process environment. Instead, this calls
+    // AttributionRedactor.of(...).redact() directly on a NoteDto: the exact function noteRoutes'
+    // GET /api/v1/items/{id}/notes handler itself calls per note (diagnosis Fix step 6: "Wired
+    // into: ... GET /api/v1/items/{id}/notes ..."), so this exercises real production redaction
+    // logic for the note path, just without the HTTP/Ktor-routing layer around it -- the same style
+    // [AttributionRedactorTest] already uses for this exact function. Oracle: diagnosis Fix step 6
+    // / test-plan S7 applied to notes.
     // ===========================================================================================
 
     private fun makeEvidenceNoteDto(
         sha256: String,
-        claims: ProofClaims?,
-        actorProof: String? = null
+        claims: ProofClaims?
     ): NoteDto =
         NoteDto(
             key = "o1-note",
@@ -264,7 +266,7 @@ class ProofEvidenceRestTest {
             createdAt = "2026-01-01T00:00:00Z",
             modifiedAt = "2026-01-01T00:00:00Z",
             etag = "\"v1-1000\"",
-            actor = ActorClaimDto(id = "agent-o1", kind = "orchestrator", parent = null, proof = actorProof),
+            actor = ActorClaimDto(id = "agent-o1", kind = "orchestrator", parent = null),
             verification =
                 VerificationDto(
                     status = "verified",
@@ -285,9 +287,9 @@ class ProofEvidenceRestTest {
                 )
         )
 
-    /** Mocked non-admin [ApplicationCall] with a given `include` query value, matching the
-     * [AttributionRedactorProofTest] convention for exercising [AttributionRedactor] directly. */
-    private fun makeNonAdminCall(includeValue: String? = null): ApplicationCall {
+    /** Mocked non-admin [ApplicationCall], matching the [AttributionRedactorTest] convention for
+     * exercising [AttributionRedactor] directly. */
+    private fun makeNonAdminCall(): ApplicationCall {
         val principal =
             ApiPrincipal(
                 tokenId = "reader",
@@ -299,7 +301,7 @@ class ProofEvidenceRestTest {
         attrs.put(ApiPrincipalKey, principal)
 
         val request = mockk<ApplicationRequest>(relaxed = true)
-        every { request.queryParameters["include"] } returns includeValue
+        every { request.queryParameters["include"] } returns null
 
         val call = mockk<ApplicationCall>(relaxed = true)
         every { call.attributes } returns attrs
@@ -314,23 +316,22 @@ class ProofEvidenceRestTest {
         val note = makeEvidenceNoteDto(sha256 = sha, claims = claims)
         val call = makeNonAdminCall()
 
-        val redactor = AttributionRedactor.of(redactNoteAttribution = false, redactActorProof = true)
+        val redactor = AttributionRedactor.of(redactNoteAttribution = false)
         val result = redactor.redact(note, call)
 
         assertNotNull(result.actor, "actor attribution must be shown when attribution redaction is disabled")
-        assertNull(result.actor!!.proof, "actor.proof must remain null")
         assertNotNull(result.verification, "verification must be shown when attribution redaction is disabled")
         assertEquals("verified", result.verification!!.status)
         assertNull(result.verification!!.proof, "non-admin must never receive the note's proof evidence object")
     }
 
     // ===========================================================================================
-    // S8 -- admin ?include=proof -> 200, exactly one Warning header (exact text), actor.proof null.
-    // D§7
+    // S8 (rewritten for b81d5849) -- admin passing the deprecated include token is now a silent
+    // no-op: 200, no Warning header, actor carries no proof.
     // ===========================================================================================
 
     @Test
-    fun `S8 admin GET with include=proof returns 200, exactly one deprecation Warning header, and actor proof stays null`() =
+    fun `admin GET notes with include=proof returns 200, no Warning header, and no actor proof value`() =
         testApplication {
             val repo = buildH2RepositoryProvider()
             val (item, _) = makeItemAndEvidenceNote(repo, proofSha256 = "22".repeat(32), claims = null)
@@ -342,19 +343,14 @@ class ProofEvidenceRestTest {
                 }
             assertEquals(HttpStatusCode.OK, response.status)
             val warnings = response.headers.getAll("Warning") ?: emptyList()
-            assertEquals(1, warnings.size, "expected exactly one Warning header; got $warnings")
-            assertEquals(
-                "299 - \"include=proof is deprecated and ignored; actor proofs are no longer stored\"",
-                warnings.single()
-            )
+            assertTrue(warnings.isEmpty(), "?include=proof must no longer add a Warning header; got $warnings")
             val body = response.bodyAsText()
             assertFalse(body.contains("\"proof\":\""), "actor.proof must never carry a value: $body")
         }
 
     // ===========================================================================================
-    // S9 (EXISTING-SURFACE) -- redactAttribution/redactProof=false + a row whose actor_proof was
-    // set by raw SQL -> REST actor.proof still null (defense in depth: mapRow never reads
-    // actor_proof). D§5-6
+    // S9 (EXISTING-SURFACE) -- redactAttribution=false + a row whose actor_proof was set by raw
+    // SQL -> REST actor.proof still absent (defense in depth: mapRow never reads actor_proof). D5-6
     // ===========================================================================================
 
     @Test
@@ -382,7 +378,7 @@ class ProofEvidenceRestTest {
                 exec("UPDATE role_transitions SET actor_proof = 'raw-sql-secret-proof'")
             }
 
-            application { configureTestApp { transitionRoutes(repo, redactAttribution = false, redactProof = false) } }
+            application { configureTestApp { transitionRoutes(repo, redactAttribution = false) } }
 
             val response =
                 client.get("/api/v1/items/${item.id}/transitions") {
@@ -395,28 +391,13 @@ class ProofEvidenceRestTest {
         }
 
     // ===========================================================================================
-    // S17 -- duplicated ?include=proof, and GET /items/{id}?include=notes,proof -> exactly one
-    // Warning; ?include=notes alone -> none. D§7
+    // S17 (rewritten for b81d5849) -- GET /items/{id} with the deprecated token alongside a valid
+    // one still returns notes populated, with no Warning header: the deprecated token is silently
+    // ignored alongside a still-honored include value.
     // ===========================================================================================
 
     @Test
-    fun `S17 duplicated include=proof still yields exactly one Warning header`() =
-        testApplication {
-            val repo = buildH2RepositoryProvider()
-            val (item, _) = makeItemAndEvidenceNote(repo, proofSha256 = "33".repeat(32), claims = null)
-            application { configureTestApp { noteRoutes(repo) } }
-
-            val response =
-                client.get("/api/v1/items/${item.id}/notes?include=proof&include=proof") {
-                    header("Authorization", "Bearer $ADMIN_TOKEN")
-                }
-            assertEquals(HttpStatusCode.OK, response.status)
-            val warnings = response.headers.getAll("Warning") ?: emptyList()
-            assertEquals(1, warnings.size, "a duplicated include=proof must still yield exactly one Warning header; got $warnings")
-        }
-
-    @Test
-    fun `S17 GET items id with include=notes,proof yields exactly one Warning header`() =
+    fun `GET items id with include=notes,proof returns notes populated and no Warning header`() =
         testApplication {
             val repo = buildH2RepositoryProvider()
             val (item, _) = makeItemAndEvidenceNote(repo, proofSha256 = "44".repeat(32), claims = null)
@@ -428,22 +409,8 @@ class ProofEvidenceRestTest {
                 }
             assertEquals(HttpStatusCode.OK, response.status)
             val warnings = response.headers.getAll("Warning") ?: emptyList()
-            assertEquals(1, warnings.size, "expected exactly one Warning header for include=notes,proof; got $warnings")
-        }
-
-    @Test
-    fun `S17 GET items id with include=notes alone yields no Warning header`() =
-        testApplication {
-            val repo = buildH2RepositoryProvider()
-            val (item, _) = makeItemAndEvidenceNote(repo, proofSha256 = "55".repeat(32), claims = null)
-            application { configureTestApp { itemRoutes(repo) } }
-
-            val response =
-                client.get("/api/v1/items/${item.id}?include=notes") {
-                    header("Authorization", "Bearer $ADMIN_TOKEN")
-                }
-            assertEquals(HttpStatusCode.OK, response.status)
-            val warnings = response.headers.getAll("Warning") ?: emptyList()
-            assertTrue(warnings.isEmpty(), "include=notes alone must not trigger the deprecation warning; got $warnings")
+            assertTrue(warnings.isEmpty(), "?include=proof must no longer add a Warning header; got $warnings")
+            val body = response.bodyAsText()
+            assertTrue(body.contains("\"notes\":"), "expected notes to be populated for include=notes: $body")
         }
 }

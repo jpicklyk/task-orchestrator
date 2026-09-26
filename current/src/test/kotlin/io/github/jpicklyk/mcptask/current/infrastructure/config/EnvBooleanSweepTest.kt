@@ -25,12 +25,14 @@ import kotlin.test.assertTrue
  * read off the call sites' implementations to decide correctness.
  *
  * Covers test-plan scenarios S1 (happy: the USE_FLYWAY=1 diagnosis repro), S4 (failure:
- * API_ENABLED fail-fast), S6 (failure: API_REDACT_ACTOR_PROOF fails safe toward redaction), S7
- * (edge: all 9 vars default correctly, silently, when unset), S9 (RESOURCE_LEASES_ENFORCED's
- * widened 0/no contract), S10 (RESOURCE_LEASES_ENFORCED stays per-call, never hoisted into
- * AppConfig), and S11 (the single-parser invariant, to the extent testable from this item's owned
- * files -- see that test's own scope note). S2/S3/S5/S8 and the adversarial probes live in
- * EnvBooleanTest.kt per the test-plan's file split.
+ * API_ENABLED fail-fast), S7 (edge: all 8 vars default correctly, silently, when unset), S9
+ * (RESOURCE_LEASES_ENFORCED's widened 0/no contract), S10 (RESOURCE_LEASES_ENFORCED stays
+ * per-call, never hoisted into AppConfig), and S11 (the single-parser invariant, to the extent
+ * testable from this item's owned files -- see that test's own scope note). S2/S3/S5/S8 and the
+ * adversarial probes live in EnvBooleanTest.kt per the test-plan's file split.
+ *
+ * The formerly-swept deprecated redaction env var (item b81d5849) is no longer read by
+ * [AppConfig], so there is nothing left to sweep for it.
  */
 class EnvBooleanSweepTest {
     /** Builds a resolver over a fixed map; unset keys (or keys explicitly mapped to null) return null. */
@@ -86,40 +88,20 @@ class EnvBooleanSweepTest {
     }
 
     // ------------------------------------------------------------------
-    // S6 -- failure: API_REDACT_ACTOR_PROOF fails safe toward redaction
+    // S7 -- edge: all 8 boolean vars default correctly and silently when unset
     // ------------------------------------------------------------------
 
     @Test
-    fun `S6 API_REDACT_ACTOR_PROOF=maybe stays redacted (true) and warns, never silently un-redacts`() {
-        var redacted: Boolean? = null
-        val warnings =
-            captureWarnLogs {
-                redacted = AppConfig.fromEnv(env("API_REDACT_ACTOR_PROOF" to "maybe")).apiRedactActorProof
-            }
-
-        // Oracle: CLAUDE.md -- "API_REDACT_ACTOR_PROOF -- default true". An unrecognized value must
-        // fail toward the safe (redacting) side, never silently disable redaction.
-        assertEquals(true, redacted)
-        assertEquals(1, warnings.size)
-        assertTrue(warnings.single().contains("API_REDACT_ACTOR_PROOF"), "WARN must name the variable")
-    }
-
-    // ------------------------------------------------------------------
-    // S7 -- edge: all 9 boolean vars default correctly and silently when unset
-    // ------------------------------------------------------------------
-
-    @Test
-    fun `S7 unset yields the documented default for all 9 boolean env vars, with no WARN`() {
+    fun `S7 unset yields the documented default for all 8 boolean env vars, with no WARN`() {
         val warnings =
             captureWarnLogs {
                 val c = AppConfig.fromEnv { null }
-                // The 7 AppConfig-resident vars.
+                // The 6 AppConfig-resident vars.
                 assertTrue(c.useFlyway, "USE_FLYWAY default is true")
                 assertFalse(c.databaseShowSql, "DATABASE_SHOW_SQL default is false")
                 assertFalse(c.flywayRepair, "FLYWAY_REPAIR default is false")
                 assertFalse(c.apiAllowQueryTokenForSse, "API_ALLOW_QUERY_TOKEN_FOR_SSE default is false")
                 assertTrue(c.apiRedactNoteAttribution, "API_REDACT_NOTE_ATTRIBUTION default is true")
-                assertTrue(c.apiRedactActorProof, "API_REDACT_ACTOR_PROOF default is true")
                 assertTrue(c.apiWarnOnClaimedAdvance, "API_WARN_ON_CLAIMED_ADVANCE default is true")
 
                 // API_ENABLED default is false: an unset loader must resolve to Disabled.
@@ -136,7 +118,7 @@ class EnvBooleanSweepTest {
                 assertTrue(ex.message!!.contains("API_ALLOW_UNAUTHENTICATED"), "message: ${ex.message}")
             }
 
-        assertEquals(0, warnings.size, "an unset variable must never warn, across all 9 vars")
+        assertEquals(0, warnings.size, "an unset variable must never warn, across all 8 vars")
     }
 
     // ------------------------------------------------------------------
