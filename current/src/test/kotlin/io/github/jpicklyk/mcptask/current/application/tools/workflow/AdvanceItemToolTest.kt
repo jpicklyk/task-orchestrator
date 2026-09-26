@@ -2116,14 +2116,12 @@ class AdvanceItemToolTest {
             val r = extractResults(result)[0].jsonObject
             assertTrue(r["applied"]!!.jsonPrimitive.boolean)
             assertEquals("root-started", r["statusLabel"]!!.jsonPrimitive.content)
-            // A single advance resolves the per-root layer from exactly two snapshot fetches — one
-            // for schema resolution (AdvanceService's schemaResolver), one for status-label
-            // resolution (resolveRootAwareStatusLabelService), and one for resource-requirement
-            // resolution (resolveResourceRequirements' per-root trait lookup on WORK entry) — NOT
-            // one fetch per trigger and NOT the old 8-wide (every UserTrigger + "cascade") fan-out.
-            // The status-label fetch alone resolves both consulted triggers ("start" + "cascade")
-            // from a SINGLE snapshot.
-            coVerify(exactly = 3) { perRoot.layer(rootId) }
+            // Declared edit (C2 Part B, test-plan S9): AdvanceItemTool.execute now installs a
+            // per-call ConfigSession (withConfigSession), so the schema-resolution,
+            // status-label-resolution, and resource-requirement-resolution per-root reads that
+            // previously hit the repository independently now collapse to a single memoized read
+            // for this root within the one advance call.
+            coVerify(exactly = 1) { perRoot.layer(rootId) }
         }
 
     @Test
