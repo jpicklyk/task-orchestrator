@@ -707,6 +707,72 @@ class StartupCompactionTest {
     }
 
     // ────────────────────────────────────────────────────────────────────────
+    // S14 (amended 2026-09-25, user-approved) — a concurrent open READ transaction prevents the
+    // pre-VACUUM `wal_checkpoint(TRUNCATE)` from completing (reported busy per its [W] result row);
+    // runOnce reports FAILED without throwing and leaves user_version at 0. Once the reader
+    // releases, a subsequent call succeeds. [W][A]
+    // ────────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `S14 runOnce returns FAILED when a concurrent reader blocks the pre-VACUUM checkpoint, then succeeds after release`(
+        @TempDir tempDir: Path
+    ) {
+        val dbFile = tempDir.resolve("s14.db").toFile()
+        val jdbcUrl = "jdbc:sqlite:${dbFile.absolutePath}"
+        val setupConnection = DriverManager.getConnection(jdbcUrl)
+        setupConnection.createStatement().use { it.execute("PRAGMA journal_mode=WAL") }
+        createFullSchema(setupConnection)
+        insertWorkItem(setupConnection, UUID.randomUUID(), "s14-item")
+
+        // Open the reader and start its read transaction (SQLite acquires the read lock lazily, on
+        // the first actual read) BEFORE closing the setup connection. A passive checkpoint can run
+        // whenever nothing blocks it — not only when the closing connection is the last one open —
+        // so closing setupConnection while the reader is merely open but still idle already let a
+        // checkpoint fully truncate the WAL in an earlier run of this test. Holding the reader's
+        // transaction open first guarantees a blocker is in place before setupConnection closes.
+        val reader = DriverManager.getConnection(jdbcUrl)
+        reader.autoCommit = false
+        reader.createStatement().executeQuery("SELECT COUNT(*) FROM work_items").use { rs -> assertTrue(rs.next()) }
+
+        setupConnection.close()
+
+        // Precondition: the fixture's writes must actually be sitting in the WAL, un-checkpointed —
+        // otherwise a "checkpoint reports busy" scenario would not apply, since there would be
+        // nothing left to checkpoint.
+        val wal = walFile(dbFile)
+        assertTrue(
+            wal.exists() && wal.length() > 0L,
+            "expected un-checkpointed WAL frames while the reader's transaction is open; -wal size=${wal.length()}"
+        )
+
+        try {
+            val outcome = StartupCompaction.runOnce(jdbcUrl)
+            assertEquals(
+                CompactionOutcome.FAILED,
+                outcome,
+                "an open reader blocking the pre-VACUUM checkpoint must produce FAILED, not a thrown exception"
+            )
+
+            val checkConn = DriverManager.getConnection(jdbcUrl)
+            try {
+                assertEquals(
+                    0,
+                    readUserVersion(checkConn),
+                    "user_version must remain at the un-compacted default after a failed checkpoint"
+                )
+            } finally {
+                checkConn.close()
+            }
+        } finally {
+            reader.rollback()
+            reader.close()
+        }
+
+        val retryOutcome = StartupCompaction.runOnce(jdbcUrl)
+        assertEquals(CompactionOutcome.COMPACTED, retryOutcome, "once the reader releases, a subsequent call must succeed")
+    }
+
+    // ────────────────────────────────────────────────────────────────────────
     // S9 — idempotency / replay: once compacted, a second call is a no-op that performs no VACUUM
     // (proved by a token planted afterward still being present). [A]
     // ────────────────────────────────────────────────────────────────────────
@@ -760,8 +826,11 @@ class StartupCompactionTest {
     }
 
     // ────────────────────────────────────────────────────────────────────────
-    // S10 — non-file / in-memory JDBC URL forms are skipped without opening a connection; a file
-    // URL carrying a query string still resolves and compacts. [A]
+    // S10 (amended 2026-09-25, user-approved: the earlier `<path>?foo=bar` case is unopenable by
+    // sqlite-jdbc at all and therefore unreachable in production; replaced with a `file:` prefix
+    // plus `?cache=shared`, a form sqlite-jdbc does accept for a real file) — non-file / in-memory
+    // JDBC URL forms are skipped without opening a connection; a `file:`-prefixed URL carrying a
+    // query string still resolves to the real file and compacts. [A]
     // ────────────────────────────────────────────────────────────────────────
 
     @Test
@@ -775,7 +844,7 @@ class StartupCompactionTest {
     }
 
     @Test
-    fun `S10 runOnce resolves a sqlite file URL carrying a query string and compacts it`(
+    fun `S10 runOnce resolves a sqlite file URL using the file colon prefix with a query string and compacts it`(
         @TempDir tempDir: Path
     ) {
         val dbFile = tempDir.resolve("s10.db").toFile()
@@ -786,8 +855,8 @@ class StartupCompactionTest {
             connection.close()
         }
 
-        val outcome = StartupCompaction.runOnce("jdbc:sqlite:${dbFile.absolutePath}?foo=bar")
-        assertEquals(CompactionOutcome.COMPACTED, outcome, "a query string must not prevent the JDBC URL from resolving to the real file")
+        val outcome = StartupCompaction.runOnce("jdbc:sqlite:file:${dbFile.absolutePath}?cache=shared")
+        assertEquals(CompactionOutcome.COMPACTED, outcome, "a file: prefix with a query string must still resolve to the real file")
     }
 
     // ────────────────────────────────────────────────────────────────────────
