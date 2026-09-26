@@ -82,6 +82,19 @@ private fun globalFixture(yaml: String): Pair<WorkItemSchemaService, GlobalConfi
     return service to ServiceBackedGlobalLookup(service, NoOpStatusLabelService)
 }
 
+/**
+ * A truly ABSENT global config file — the path is never written. Per the frozen C1 test-plan
+ * S1 contract ("`GlobalConfigFile.layer()`: absent file -> null"), an absent file yields a null
+ * fingerprint, unlike a present-but-empty file (which still hashes its zero bytes to a real
+ * fingerprint). "No global" means this, not an empty document — mirrors
+ * `GlobalConfigFileTest`'s `absentConfigPath()` pattern.
+ */
+private fun absentGlobalFixture(): Pair<WorkItemSchemaService, GlobalConfigLookup> {
+    val absentPath = Files.createTempDirectory("effective-config-routes-absent").resolve("config.yaml")
+    val service = YamlWorkItemSchemaService(absentPath)
+    return service to ServiceBackedGlobalLookup(service, NoOpStatusLabelService)
+}
+
 private fun Application.configureEffectiveConfigTestApp(
     repositoryProvider: RepositoryProvider,
     configResolver: EffectiveConfigResolver,
@@ -863,7 +876,7 @@ class EffectiveConfigRoutesEdgeTest {
     @Test
     fun `S21 - with neither layer configured, the response is 200 with empty collections, no fingerprints, and a stable ETag`() =
         testApplication {
-            val (schemaService, global) = globalFixture("work_item_schemas: {}\ntraits: {}\n")
+            val (schemaService, global) = absentGlobalFixture()
             val repo = buildH2RepositoryProvider()
             val root = createRootItem(repo)
             val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.projectConfigRepository()))
