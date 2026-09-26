@@ -215,4 +215,54 @@ class ActorAuthTokenLifetimeConfigTest {
 
         assertThrows(IllegalArgumentException::class.java) { service.getConfig() }
     }
+
+    // -------------------------------------------------------------------------
+    // Overflow ceiling (ADDENDUM, fix cycle 4fe7bd3d): MAX_TOKEN_LIFETIME_SECONDS_CEILING caps
+    // max_token_lifetime_seconds from above. Oracle: the ADDENDUM declares
+    // MAX_TOKEN_LIFETIME_SECONDS_CEILING = 3_153_600_000L (100 years, in seconds) as the upper
+    // bound for this config input, and task-scope states a wrong/invalid value fails startup.
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun `max_token_lifetime_seconds one above the ceiling throws naming the key`() {
+        val configFile =
+            createConfigFile(
+                """
+                actor_authentication:
+                  verifier:
+                    type: jwks
+                    jwks_path: "/etc/keys/jwks.json"
+                    algorithms:
+                      - EdDSA
+                    max_token_lifetime_seconds: ${MAX_TOKEN_LIFETIME_SECONDS_CEILING + 1}
+                """.trimIndent()
+            )
+        val service = YamlActorAuthenticationConfigService(configFile)
+
+        val ex = assertThrows(IllegalArgumentException::class.java) { service.getConfig() }
+        assertTrue(
+            ex.message?.contains("max_token_lifetime_seconds") == true,
+            "Expected the error to name the offending key, got: ${ex.message}"
+        )
+    }
+
+    @Test
+    fun `max_token_lifetime_seconds exactly at the ceiling is accepted`() {
+        val configFile =
+            createConfigFile(
+                """
+                actor_authentication:
+                  verifier:
+                    type: jwks
+                    jwks_path: "/etc/keys/jwks.json"
+                    algorithms:
+                      - EdDSA
+                    max_token_lifetime_seconds: $MAX_TOKEN_LIFETIME_SECONDS_CEILING
+                """.trimIndent()
+            )
+        val service = YamlActorAuthenticationConfigService(configFile)
+
+        val verifier = service.getConfig().verifier as VerifierConfig.Jwks
+        assertEquals(MAX_TOKEN_LIFETIME_SECONDS_CEILING, verifier.maxTokenLifetimeSeconds)
+    }
 }

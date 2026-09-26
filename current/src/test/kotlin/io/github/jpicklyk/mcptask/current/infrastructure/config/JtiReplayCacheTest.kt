@@ -9,20 +9,20 @@ import java.time.ZoneId
 import java.time.ZoneOffset
 
 /**
- * Independent unit coverage for item 3dcfcbab, Part 2's [JtiReplayCache] primitive - declared
+ * Independent unit coverage for item 3dcfcbab, Part 2 JtiReplayCache primitive - declared
  * (entirely new in 8534e8da) with these oracle-bearing facts read directly off the supplied
  * declarations (constants and key construction, not implementation prose):
- *  - Retention window: an admitted entry's key `(issuer, jti)` lives until `expiresAt + 60s`
- *    (`CLOCK_SKEW_SECONDS = 60L`) - i.e. exactly `exp + 60s`, matching the same skew constant used
- *    elsewhere in this codebase's JWT handling.
- *  - `maxEntries` default: `10_000`; at capacity, expired entries are purged first, and if still
+ *  - Retention window: the key (issuer, jti) of an admitted entry lives until expiresAt + 60s
+ *    (CLOCK_SKEW_SECONDS = 60L) - matching the same skew constant used elsewhere in this
+ *    codebase JWT handling.
+ *  - maxEntries default: 10_000; at capacity, expired entries are purged first, and if still
  *    full the oldest-inserted entry is evicted.
- *  - Key composition: `"${issuer ?: ""}\u0000$jti"` - a null issuer and an empty-string issuer
- *    produce the SAME key.
- *  - `checkAndRecord` returns `true` on first sighting of a key, `false` on a replay.
+ *  - Key composition: string(issuer or empty) + NUL + jti - a null issuer and an empty-string
+ *    issuer produce the SAME key.
+ *  - checkAndRecord returns true on first sighting of a key, false on a replay.
  *
- * Uses an advancing [Clock] (mutable current instant, following this codebase's own
- * `JwksKeyCacheTest` pattern) rather than sleeps, per the test-author skill's fixed-Clock
+ * Uses an advancing Clock (mutable current instant, following the pattern used by this
+ * codebase JwksKeyCacheTest) rather than sleeps, per the test-author skill fixed-Clock
  * requirement.
  */
 class JtiReplayCacheTest {
@@ -37,10 +37,6 @@ class JtiReplayCacheTest {
 
         override fun instant(): Instant = current
     }
-
-    // -------------------------------------------------------------------------
-    // Basic first-sighting / replay behavior
-    // -------------------------------------------------------------------------
 
     @Test
     fun `first sighting of a key returns true, immediate replay returns false`() {
@@ -60,71 +56,83 @@ class JtiReplayCacheTest {
         assertTrue(cache.checkAndRecord("https://issuer.example", "jti-b", expiresAt))
     }
 
-    // -------------------------------------------------------------------------
-    // S19 - retention window: live until exp+60s, treated as fresh only after exp+61s
-    // -------------------------------------------------------------------------
-
     @Test
-    fun `S19a a replay attempt one second before exp plus 60s is still blocked`() {
-        // The exact exp+60s instant itself is not pinned by the declarations (only the retention
-        // formula expiresAt.plusSeconds(60) is declared, not whether the comparison at that exact
-        // instant is inclusive or exclusive) -- probed one second inside the window instead, which
-        // is unambiguous under either reading.
+    fun `S19 a replay attempt at exactly exp plus 60s is still blocked`() {
         val clock = AdvancingClock(baseInstant)
         val cache = JtiReplayCache(clock = clock)
         val expiresAt = baseInstant.plusSeconds(100)
 
-        assertTrue(cache.checkAndRecord("iss", "jti-window", expiresAt))
+        assertTrue(cache.checkAndRecord("iss", "jti-boundary-60s", expiresAt))
 
-        clock.current = expiresAt.plusSeconds(59)
+        clock.current = expiresAt.plusSeconds(60)
         assertFalse(
-            cache.checkAndRecord("iss", "jti-window", expiresAt),
-            "an entry must still be live at exp+59s, one second inside the retention window"
+            cache.checkAndRecord("iss", "jti-boundary-60s", expiresAt),
+            "an entry must still be live at exactly exp+60s, the same instant through which the " +
+                "verifier itself still accepts the token"
         )
     }
 
     @Test
-    fun `S19b once past exp plus 61s the entry is treated as expired and a new sighting is true`() {
+    fun `S19 a replay attempt one millisecond past exp plus 60s is a fresh sighting`() {
         val clock = AdvancingClock(baseInstant)
         val cache = JtiReplayCache(clock = clock)
         val expiresAt = baseInstant.plusSeconds(100)
 
-        assertTrue(cache.checkAndRecord("iss", "jti-window", expiresAt))
+        assertTrue(cache.checkAndRecord("iss", "jti-boundary-60s-1ms", expiresAt))
+
+        clock.current = expiresAt.plusSeconds(60).plusMillis(1)
+        assertTrue(
+            cache.checkAndRecord("iss", "jti-boundary-60s-1ms", expiresAt),
+            "one millisecond past exp+60s the verifier would no longer accept the token, so the " +
+                "entry must already read as expired"
+        )
+    }
+
+    @Test
+    fun `S19 a replay attempt 999 milliseconds past exp plus 60s is a fresh sighting`() {
+        val clock = AdvancingClock(baseInstant)
+        val cache = JtiReplayCache(clock = clock)
+        val expiresAt = baseInstant.plusSeconds(100)
+
+        assertTrue(cache.checkAndRecord("iss", "jti-boundary-60s-999ms", expiresAt))
+
+        clock.current = expiresAt.plusSeconds(60).plusMillis(999)
+        assertTrue(
+            cache.checkAndRecord("iss", "jti-boundary-60s-999ms", expiresAt),
+            "999ms past exp+60s the entry must already read as expired, not only once a full " +
+                "additional second (exp+61s) has elapsed"
+        )
+    }
+
+    @Test
+    fun `S19 a replay attempt at exp plus 61s is a fresh sighting`() {
+        val clock = AdvancingClock(baseInstant)
+        val cache = JtiReplayCache(clock = clock)
+        val expiresAt = baseInstant.plusSeconds(100)
+
+        assertTrue(cache.checkAndRecord("iss", "jti-boundary-61s", expiresAt))
 
         clock.current = expiresAt.plusSeconds(61)
         assertTrue(
-            cache.checkAndRecord("iss", "jti-window", expiresAt),
-            "an entry past its exp+60s retention window must be treated as a fresh sighting"
+            cache.checkAndRecord("iss", "jti-boundary-61s", expiresAt),
+            "well past the exp+60s retention window, a new presentation of the jti must be " +
+                "treated as a fresh sighting"
         )
     }
-
-    // -------------------------------------------------------------------------
-    // Capacity eviction: maxEntries reached, no expired entries to purge -> oldest-inserted evicted
-    // -------------------------------------------------------------------------
 
     @Test
     fun `at capacity with nothing expired the oldest-inserted entry is evicted to make room`() {
         val clock = AdvancingClock(baseInstant)
         val cache = JtiReplayCache(maxEntries = 2, clock = clock)
-        val farExpiry = baseInstant.plusSeconds(10_000) // far enough that nothing purges on TTL
+        val farExpiry = baseInstant.plusSeconds(10000)
 
         assertTrue(cache.checkAndRecord("iss", "a", farExpiry), "a: first sighting")
         assertTrue(cache.checkAndRecord("iss", "b", farExpiry), "b: first sighting")
-        // Cache is now at capacity (2). Recording "c" must evict the oldest entry ("a").
         assertTrue(cache.checkAndRecord("iss", "c", farExpiry), "c: first sighting, triggers eviction")
 
-        // "b" was never evicted - it must still read as a replay. Checked BEFORE re-probing "a":
-        // re-recording "a" is itself an insert that would put the cache back over capacity and
-        // trigger a SECOND eviction (of "b", the new oldest), which would contaminate this
-        // assertion if checked afterward.
         assertFalse(cache.checkAndRecord("iss", "b", farExpiry), "b: must still be recognized as a replay")
-        // "a" was evicted - a fresh presentation is a new sighting (true), not a replay.
         assertTrue(cache.checkAndRecord("iss", "a", farExpiry), "a: evicted, must read as a fresh sighting")
     }
-
-    // -------------------------------------------------------------------------
-    // Key composition: null issuer and empty-string issuer collide (declared key construction)
-    // -------------------------------------------------------------------------
 
     @Test
     fun `a null issuer and an empty-string issuer compose to the same cache key`() {

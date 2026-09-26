@@ -111,4 +111,46 @@ class ApiAuthConfigLoaderMaxLifetimeTest {
             "Expected the error to name the offending env var, got: ${ex.message}"
         )
     }
+
+    // -------------------------------------------------------------------------
+    // Overflow ceiling (ADDENDUM, fix cycle 4fe7bd3d): MAX_TOKEN_LIFETIME_SECONDS_CEILING caps
+    // API_JWKS_MAX_TOKEN_LIFETIME_SECONDS from above. Oracle: the ADDENDUM declares
+    // MAX_TOKEN_LIFETIME_SECONDS_CEILING = 3_153_600_000L (100 years, in seconds), and task-scope
+    // states a wrong/invalid value fails startup.
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun `API_JWKS_MAX_TOKEN_LIFETIME_SECONDS one above the ceiling throws`() {
+        val loader =
+            ApiAuthConfigLoader(
+                envResolver =
+                    env(
+                        *baseJwksEnv(
+                            "API_JWKS_MAX_TOKEN_LIFETIME_SECONDS" to (MAX_TOKEN_LIFETIME_SECONDS_CEILING + 1).toString()
+                        ).toList().toTypedArray()
+                    ),
+            )
+
+        val ex = assertThrows<IllegalArgumentException> { loader.load() }
+        assertTrue(
+            ex.message!!.contains("API_JWKS_MAX_TOKEN_LIFETIME_SECONDS"),
+            "Expected the error to name the offending env var, got: ${ex.message}"
+        )
+    }
+
+    @Test
+    fun `API_JWKS_MAX_TOKEN_LIFETIME_SECONDS exactly at the ceiling is accepted`() {
+        val loader =
+            ApiAuthConfigLoader(
+                envResolver =
+                    env(
+                        *baseJwksEnv(
+                            "API_JWKS_MAX_TOKEN_LIFETIME_SECONDS" to MAX_TOKEN_LIFETIME_SECONDS_CEILING.toString()
+                        ).toList().toTypedArray()
+                    ),
+            )
+        val config = loader.load() as ApiAuthConfig.Jwks
+
+        assertEquals(MAX_TOKEN_LIFETIME_SECONDS_CEILING, config.maxTokenLifetimeSeconds)
+    }
 }
