@@ -163,9 +163,10 @@ API_JWKS_ISSUER=https://auth.example.com
 API_JWKS_AUDIENCE=task-orchestrator
 API_JWKS_ALGORITHMS=RS256,EdDSA
 API_JWKS_CACHE_TTL_SECONDS=300   # optional, default 300
+API_JWKS_MAX_TOKEN_LIFETIME_SECONDS=86400   # optional, default 86400 (24h)
 ```
 
-JWTs presented in this mode must carry an `exp` claim — a token with no `exp` is rejected (`401 invalid_token`, no max-lifetime opt-in) — and the SSE `auth.expired` watchdog (`API_SSE_AUTH_CHECK_INTERVAL_SECONDS`) runs for every JWKS-authenticated SSE session as a result.
+JWTs presented in this mode must carry an `exp` claim — a token with no `exp` is rejected (`401 invalid_token`) — and the SSE `auth.expired` watchdog (`API_SSE_AUTH_CHECK_INTERVAL_SECONDS`) runs for every JWKS-authenticated SSE session as a result. A token is also rejected once its remaining lifetime (`exp - now`, 60s clock-skew allowance) exceeds `API_JWKS_MAX_TOKEN_LIFETIME_SECONDS` (default 86400 = 24h); when the token carries an `iat`, a future-dated `iat` or an `exp - iat` spread beyond the same cap is rejected too. **Upgrading to a version with this cap can newly reject tokens your issuer already mints with a longer lifetime** — raise `API_JWKS_MAX_TOKEN_LIFETIME_SECONDS` if that is intentional.
 
 ```bash
 # Unauthenticated mode — opt-in, loopback-only (see "Unauthenticated mode" below)
@@ -191,6 +192,7 @@ API_ALLOW_UNAUTHENTICATED=true
 | `API_JWKS_AUDIENCE` | jwks mode | — | Expected `aud` claim value in JWTs. |
 | `API_JWKS_ALGORITHMS` | jwks mode | — | Comma-separated algorithm allowlist (e.g., `RS256,EdDSA`). |
 | `API_JWKS_CACHE_TTL_SECONDS` | jwks mode | `300` | JWKS key cache TTL in seconds. |
+| `API_JWKS_MAX_TOKEN_LIFETIME_SECONDS` | jwks mode | `86400` | Maximum accepted token lifetime in seconds (24h default). A token is rejected once `exp - now` exceeds this value plus the 60s clock-skew allowance, regardless of `iat`; when `iat` is present, a future-dated `iat` or an `exp - iat` spread beyond the same cap is also rejected. Non-numeric or `<= 0` fails startup. |
 | `CORS_ALLOWED_ORIGINS` | browser clients | _(none)_ | Comma-separated allowed origins. Empty = no cross-origin access. |
 | `CORS_ALLOWED_METHODS` | CORS enabled | `GET,POST,PATCH,PUT,DELETE,OPTIONS` | Comma-separated methods. |
 | `CORS_ALLOWED_HEADERS` | CORS enabled | `Authorization,Content-Type,If-Match` | Comma-separated request headers. |
@@ -620,10 +622,33 @@ When `verifier.type: jwks` is configured, TO reads a narrow subset of claims fro
 | `iss` | Only if `issuer` is configured (explicitly or via OIDC discovery); **always read under DID trust** (`did_allowlist`/`did_pattern`) to resolve the DID and to bind against `sub` | Must match the configured/discovered issuer; mismatch → rejected with `failureKind: claims`. Under DID trust, also see the `sub`/`iss` binding below. |
 | `aud` | Only if `audience` is configured | Must contain the configured audience; mismatch → rejected with `failureKind: claims` |
 | `sub` | Only when `require_sub_match: true`; **always read under DID trust**, regardless of `require_sub_match` | Verified against the caller's self-reported `actor.id`; mismatch → rejected with `failureKind: claims`. When `require_sub_match: false` and DID trust is not configured, `sub` is not read. Under DID trust, `sub` must equal `iss` exactly (see below) even when `require_sub_match: false`. |
-| `exp` | Required | Enforced with a **60-second clock-skew allowance**; past-expiry → rejected with `failureKind: claims`. A missing `exp` claim is rejected with `reason: "missing exp claim"`, `failureKind: claims` (parity with `JwksApiVerifier`, which has no max-lifetime knob either). |
+| `exp` | Required | Enforced with a **60-second clock-skew allowance**; past-expiry → rejected with `failureKind: claims`. A missing `exp` claim is rejected with `reason: "missing exp claim"`, `failureKind: claims`. Also bounds the lifetime cap below (both TO's actor verifier and `JwksApiVerifier` now enforce the same cap; see `max_token_lifetime_seconds` / `API_JWKS_MAX_TOKEN_LIFETIME_SECONDS`). |
 | `nbf` | Optional | If present, enforced with a **60-second clock-skew allowance**; not-yet-valid → rejected with `failureKind: claims` |
+| `iat` | Optional — RFC 7519 §4.1.6 makes it optional, so its absence never fails a token on its own | When present: a token dated more than 60s in the future is rejected (`reason: "iat in the future"`, `failureKind: claims`); an `exp - iat` spread beyond `max_token_lifetime_seconds` (+60s skew) is rejected (`reason: "token lifetime exceeds maximum"`, `failureKind: claims`). Independent of `iat`, `exp - now` beyond the same cap is always rejected. |
+| `jti` | Only when `jti_replay_protection: true` (opt-in, default `false`) | Required when the flag is on — a token without one is rejected (`reason: "missing jti claim"`, `failureKind: claims`); the `(iss, jti)` pair may then be presented only once (see "Opt-in `jti` Replay Protection" below). |
 
-TO does not read `iat`, `jti`, or any custom claims. Those are deployment concerns outside the TO contract.
+TO does not read any other custom claims — those are deployment concerns outside the TO contract.
+
+### Token Lifetime Cap
+
+Config key `actor_authentication.verifier.max_token_lifetime_seconds` (default `86400` = 24h; must be a positive integer or startup fails). Applies to both the MCP actor verifier and the REST API's `JwksApiVerifier` (env `API_JWKS_MAX_TOKEN_LIFETIME_SECONDS`, same default). A token is rejected once:
+
+- `exp - now > max_token_lifetime_seconds + 60s` — always checked, independent of `iat` (bounds how long a stolen token stays usable from the moment it is presented, and cannot be defeated by a forged or absent `iat`), or
+- `iat` is present and `iat > now + 60s` (a future-dated `iat`), or
+- `iat` is present and `exp - iat > max_token_lifetime_seconds + 60s` (an honestly-declared over-long token).
+
+**Upgrade note:** deployments that mint tokens with a lifetime longer than 24 hours will see those tokens newly rejected after upgrading past this change. Raise `max_token_lifetime_seconds` (and `API_JWKS_MAX_TOKEN_LIFETIME_SECONDS` for the REST API) before or immediately after upgrading if longer-lived tokens are intentional.
+
+### Opt-in `jti` Replay Protection
+
+Config key `actor_authentication.verifier.jti_replay_protection` (default `false` — off). When enabled:
+
+- Every presented JWT must carry a non-blank `jti` claim; a token without one is rejected.
+- The `(iss, jti)` pair is tracked in an in-memory, single-instance cache (retained through `exp + 60s`, inclusive — the same instant through which the verifier still accepts the token); a second presentation of the same pair within that window is rejected with `reason: "jti replay detected"`, `failureKind: policy`.
+- **Off by default** because the same proof is legitimately re-verified more than once inside a single MCP call (e.g. `advance_item`'s idempotency-key lookup plus its per-transition verification, or `complete_tree`'s per-item verification) and reused across heartbeats/retries by design (see `claim_item` heartbeats above). TO installs a per-call memo so repeated verification of the *same* (proof, claim) pair within one call is never treated as a replay — but **a client that enables this flag must mint a fresh `proof` for every distinct call, including retries and heartbeats**, or those calls will be rejected as replays. This is separate from the idempotency cache: a fresh proof presented with the *same* `requestId` still hits the `IdempotencyCache` and is re-verified — the idempotency key, not the proof, is what makes that retry idempotent — so an idempotent retry with a fresh proof is not rejected as a jti replay.
+- This protection only has an observable effect under `degraded_mode_policy: reject` — `accept-cached` and `accept-self-reported` fall back to the self-reported `actor.id` on a REJECTED verification (see [Identity Configuration — `auth.degradedModePolicy`](#identity-configuration--authdegradedmodepolicy) above), so a replay rejection is silently absorbed under those policies.
+- Not persisted or shared across instances: a restart, or a second server instance behind a load balancer, reopens the replay window for tokens still inside their `max_token_lifetime_seconds` cap. This is a single-instance mitigation, not a distributed one.
+- **Bounded capacity, best-effort:** the cache holds at most 10,000 `(iss, jti)` entries. When a new entry must be admitted at capacity, expired entries are purged first; if that still isn't enough, the oldest-inserted entry is evicted (rate-limited WARN logged) — regardless of which issuer it belongs to. Under a flood of distinct valid proofs large enough to evict a still-live entry before its retention window elapses, that entry's token can be replayed. Treat this as a best-effort, per-instance control, not a hard guarantee — raise the cache's capacity or lower `max_token_lifetime_seconds` if this is a concern for your issuer mix.
 
 ### `require_sub_match`
 

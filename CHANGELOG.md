@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Added an opt-in `(iss, jti)` replay cache for actor-authentication JWTs
+  (`actor_authentication.verifier.jti_replay_protection`, default `false`). A per-MCP-call memo
+  keeps a proof that is legitimately re-verified multiple times within one call (idempotency-key
+  lookups, multi-transition batches) from tripping the cache as a false replay. (#366)
+
 - **One-time startup compaction after the V17 actor-proof scrub.** On the first Flyway-mode start
   after upgrading, the server now runs a one-time `VACUUM` + FTS5 shadow-table rebuild (with
   integrity checks) + WAL checkpoint, gated on `PRAGMA user_version` so it runs exactly once per
@@ -16,6 +21,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   migration could not reach. Runs before the readiness marker is written; failures are WARN-logged
   and retried on the next boot, never fail startup. Opt out with `DB_COMPACT_ON_UPGRADE=false` to
   keep using the offline compaction runbook instead. (#365)
+
+### Changed
+
+- Actor-authentication and REST API JWTs are now capped at a maximum lifetime, default 24 hours
+  (`actor_authentication.verifier.max_token_lifetime_seconds` / `API_JWKS_MAX_TOKEN_LIFETIME_SECONDS`).
+  **Upgrade note:** a token whose `exp - iat` (or remaining `exp - now`) exceeds 24 hours is now
+  REJECTED where it previously verified; raise the new setting before or immediately after
+  upgrading if your issuer intentionally mints longer-lived tokens. (#366)
+
+### Fixed
+
+- Fixed a malformed JWT claims set (e.g. a non-numeric `exp`/`iat`) being misreported as
+  `UNAVAILABLE`/`failureKind: network` under DID trust, or `REJECTED`/`failureKind: internal` in
+  static-JWKS mode; both now report `REJECTED`/`failureKind: claims`. (#366)
 
 ### Removed
 
