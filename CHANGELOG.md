@@ -7,6 +7,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `schema_resolution: legacy | layered | isolated` — an opt-in, per-document top-level config key
+  (AR-39) controlling how a root's per-root and global config layers combine for schema/tag
+  lookup. Settable in the global config, in a per-root pushed document, or both; the effective mode
+  per root is the per-root document's own key, else the global file's key (`isolated` in the
+  *global* file is treated as `layered`, with a load warning), else `legacy`. Absent everywhere is
+  `legacy` — no default flip, no behavior change for existing deployments beyond the tag-matching
+  fix below. See [`config-format.md`](claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md)
+  → "Global vs Per-Project Config".
+- `GET /api/v1/roots/{rootId}/config/effective` — a new, purely additive REST route returning every
+  registered type's RESOLVED base schema against `rootId`'s layered (per-root-over-global) config
+  in one response, plus resolved traits, the status graph, and the effective `schemaResolution`
+  mode. Uses a new `"eff-<fingerprint>"` ETag prefix, distinct from `/config*`'s and
+  `/roots/{rootId}/config`'s `"cfg-"` prefix.
+
+### Changed
+
+- REST and the MCP tools now read per-root config through the SAME `EffectiveConfigResolver`
+  instance (one per-root last-known-good cache, built once in `ServerComposition`) instead of each
+  maintaining its own — REST previously built a separate `PerRootConfigService`/cache. This makes a
+  transient per-root DB read failure less likely to surface as `503 config_unavailable`, since a
+  cache warmed by one surface now serves the other.
+- Each MCP tool invocation and REST config-resolving request now reads per-root config against one
+  per-request/per-call config snapshot (`ConfigSession`) instead of re-reading it on every
+  individual resolution step within that call.
+- The global `.taskorchestrator/config.yaml` file is now parsed exactly ONCE per process, into a
+  single shared `GlobalConfigFile` — the schema service, the status-label service, and the
+  actor-authentication service all read from this one parsed document instead of each
+  independently re-reading and re-parsing the file.
+- The legacy per-root and global-file YAML loaders (`YamlStatusLabelService`,
+  `YamlActorAuthenticationConfigService`) now construct SnakeYAML's `Yaml` with an explicit
+  `SafeConstructor`, matching the parser already used for `manage_project_config`/`PUT
+  /roots/{rootId}/config` pushes. Defense in depth, not a vulnerability fix: SnakeYAML 2.x's
+  default `TagInspector` already rejects arbitrary `!!`-tagged global tags, so this closes no
+  exploitable gap in the shipped version — it removes reliance on that default holding across a
+  future SnakeYAML upgrade.
+- `YamlWorkItemSchemaService.getSchemaForType`/`getSchemaForTags` (the library-level schema-service
+  API) are now EXACT — they no longer fold an unmatched lookup onto a `default` schema themselves.
+  The `default` fallback moved to `LayeredConfig`, which now applies it per the root's effective
+  `schema_resolution` mode instead of unconditionally. Direct callers of this service (outside the
+  config-resolution path) that relied on the implicit `default` fold must call `getSchemaForType`/
+  `getSchemaForTags` on `"default"` themselves.
+
+### Fixed
+
+- The LEGACY global tag-matching step could report the first tag in an item's tag list as the
+  "matched" tag whenever the global config defined a `default` schema — even when that tag had no
+  schema of its own — because the probe folded a `default`-schema hit into "this tag matched". The
+  probe now requires an EXACT tag match before reporting a match; this fix applies in every
+  `schema_resolution` mode, not just `legacy`. Narrow, gate-relevant behavior change: an untyped or
+  unmatched-type item with two or more tags, whose first tag has no schema of its own but whose
+  config defines a global `default`, now resolves the first tag that DOES have an exact schema
+  (previously it resolved `default`).
+- `GET /api/v1/roots/{rootId}/config/effective`'s root lookup now returns `500 db_error` for a
+  repository failure other than not-found, instead of folding every lookup error into `404
+  not_found`.
+
 ### Plugin
 
 - SubagentStart now skips protocol injection entirely for `agent_type: "workflow-subagent"` —

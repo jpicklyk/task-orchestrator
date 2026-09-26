@@ -254,7 +254,7 @@ entirely, unchanged.
 | `operation` | string | Yes | `"schema"` |
 | `type` | string | Exactly one of `type`/`itemId` | Schema type identifier — direct lookup in `work_item_schemas` |
 | `itemId` | string (UUID or 4+ char prefix) | Exactly one of `type`/`itemId` | Resolves the item's schema via the standard type-first/tag-fallback/trait-merge logic, layered per-root-then-global using the item's own `rootId` |
-| `rootId` | string (UUID or 4+ char prefix) | No | Only used with `type`. Resolves `type` against this root's per-root pushed config first (per-root exact type -> per-root `"default"` -> global exact type -> global `"default"`), falling back to global-only behavior when the root has no pushed config. Ignored when `itemId` is used instead — the item's own `rootId` is applied automatically. |
+| `rootId` | string (UUID or 4+ char prefix) | No | schema operation with `type` only: project root WorkItem UUID or hex prefix (4+ chars). Resolves `type` over that root's per-root config and the global config in the order its schema_resolution mode sets (absent/legacy: per-root type -> per-root "default" -> global type -> global "default"; layered: per-root type -> global type -> per-root "default" -> global "default"; isolated: per-root only). Global-only when the root has no pushed config. Ignored when `itemId` is used instead (the item's own rootId is applied automatically). |
 
 **Response (schema).**
 
@@ -2135,6 +2135,7 @@ so a push is never silently partial:
 | `note_limits` | Yes | `ToolExecutionContext.resolveNoteLimitsMode()` |
 | `status_labels` | Yes | `ToolExecutionContext.resolveStatusLabel()` |
 | `resources` | Yes | `ToolExecutionContext.resolveResourceRegistry()` |
+| `schema_resolution` | Yes | `LayeredConfig.effectiveMode` (AR-39) — see [config-format.md](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md) → "Global vs Per-Project Config" |
 | `actor_authentication` | No — global-only | n/a |
 | any other key | No | n/a |
 
@@ -2189,7 +2190,10 @@ config bytes are parsed (`PerRootConfigService`, on every schema-resolving read)
 present (and non-empty) when the pushed document contains top-level keys outside the honored
 allowlist above — e.g. `actor_authentication`. `schemaWarnings` is only present (and non-empty)
 when `YamlSchemaParser` emitted per-entry warnings while parsing the pushed document — e.g. a note
-schema entry with an invalid `role` value, which is skipped rather than rejecting the whole push.
+schema entry with an invalid `role` value, which is skipped rather than rejecting the whole push,
+or a top-level `schema_resolution` value that isn't one of `legacy`/`layered`/`isolated` (case-
+sensitive), which is treated as absent (falls through to the global mode for that root) and adds
+one `schemaWarnings` entry naming the raw value.
 The push still succeeds and the document is still stored regardless of `schemaWarnings` — these are
 advisory, not validation failures (contrast with the `VALIDATION_ERROR` cases below, which reject
 the push outright).

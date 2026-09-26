@@ -906,6 +906,86 @@ components:
         defaultSchema:
           $ref: "#/components/schemas/SchemaDto"
 
+    EffectiveSchemaDto:
+      type: object
+      required: [type, matchedType, configSource, lifecycleMode, hasReviewPhase, notes, defaultTraits]
+      description: >-
+        A single type's RESOLVED base schema (no trait merging), one entry of
+        EffectiveConfigDto.schemas / EffectiveConfigDto.defaultSchema.
+      properties:
+        type:
+          type: string
+          description: The queried type key.
+        matchedType:
+          type: string
+          description: >-
+            The schema that actually answered the lookup — "default" when a default schema
+            answered a miss on the queried type.
+        configSource:
+          type: string
+          enum: [per-root, global]
+          description: Which layer supplied the schema — same literal MCP query_items(schema) uses.
+        configFingerprint:
+          type: string
+          nullable: true
+          description: The supplying layer's fingerprint, omitted when that layer has none.
+        lifecycleMode:
+          type: string
+        hasReviewPhase:
+          type: boolean
+        notes:
+          type: array
+          items:
+            $ref: "#/components/schemas/NoteSchemaEntryDto"
+        defaultTraits:
+          type: array
+          items:
+            type: string
+
+    EffectiveConfigDto:
+      type: object
+      required: [rootId, schemas, traits, types, statusGraph]
+      description: >-
+        Full per-root EFFECTIVE (layered) config view returned by
+        GET /roots/{rootId}/config/effective — every registered type resolved against rootId's
+        per-root config over the global fallback, in one response. Additive: distinct from
+        ConfigSnapshotDto (GLOBAL-only) and the raw stored YAML /roots/{rootId}/config returns.
+      properties:
+        rootId:
+          type: string
+          format: uuid
+        schemas:
+          type: array
+          items:
+            $ref: "#/components/schemas/EffectiveSchemaDto"
+        traits:
+          type: array
+          items:
+            $ref: "#/components/schemas/TraitDto"
+        types:
+          type: array
+          items:
+            type: string
+          description: Sorted union (ascending natural String order) of per-root and global schema keys.
+        statusGraph:
+          $ref: "#/components/schemas/StatusGraphDto"
+        defaultSchema:
+          $ref: "#/components/schemas/EffectiveSchemaDto"
+        globalFingerprint:
+          type: string
+          nullable: true
+          description: Omitted when no global config is loaded.
+        perRootFingerprint:
+          type: string
+          nullable: true
+          description: Omitted when no per-root config is pushed for this root.
+        schemaResolution:
+          type: string
+          enum: [legacy, layered, isolated]
+          description: >-
+            AR-39: this root's effective schema_resolution mode. Always populated on a 200
+            response ("legacy" when the key is absent everywhere).
+
     StatusGraphTypeDto:
       type: object
       required: [type, lifecycleMode, hasReviewPhase, transitions]
@@ -1128,6 +1208,16 @@ components:
             $ref: "#/components/schemas/ErrorDto"
     InternalServerError:
       description: Database or server error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorDto"
+    ConfigUnavailable:
+      description: >-
+        error="config_unavailable" — the item's (or root's) per-root config could not be read and
+        there was no last-known-good cached config to serve; transient, retryable, no Retry-After
+        header. REST and the MCP tools share one per-root config cache, so this is rarer than a
+        per-surface cache would produce.
       content:
         application/json:
           schema:
@@ -1632,6 +1722,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorDto"
+        "503":
+          $ref: "#/components/responses/ConfigUnavailable"
 
   /items/{id}/tree:
     get:
@@ -1757,6 +1849,8 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
+        "503":
+          $ref: "#/components/responses/ConfigUnavailable"
 
   /items/{id}/notes:
     get:
@@ -2664,6 +2758,81 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorDto"
+
+  /roots/{rootId}/config/effective:
+    parameters:
+      - name: rootId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      summary: Effective (layered, per-root-over-global) config view for a root
+      operationId: getEffectiveConfig
+      tags: [project-config]
+      description: |
+        Additive route (AR-39/C5): every registered type (the union of this root's per-root
+        work_item_schemas keys and the global schema service's keys) resolved against rootId's
+        LAYERED config in one response — the same view EffectiveConfigResolver and MCP
+        query_items(schema, type=K, rootId=R) already compute. Distinct from GET /config
+        (GLOBAL-only) and GET /roots/{rootId}/config (the RAW stored YAML): reports each type's
+        RESOLVED base schema only, with no trait merging. Purely additive — no existing /config*
+        or /roots/{rootId}/config route, body, or ETag changes.
+
+        Authorization/validation order: READ capability -> parse {rootId} as a UUID (400) ->
+        ApiScope.rootIds scope check (403) -> root WorkItem exists (404) -> root is depth-0 (422)
+        -> exactly one per-root config read, wrapped in the same config_unavailable 503 envelope
+        POST /items/{id}/advance and GET /items/{id}/gate use.
+      parameters:
+        - name: If-None-Match
+          in: header
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Effective config for this root
+          headers:
+            ETag:
+              schema:
+                type: string
+                description: >-
+                  '"eff-<fingerprint>"' — a composite SHA-256 over both layers' fingerprints;
+                  distinct from the "cfg-" prefix /config* and /roots/{rootId}/config use.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EffectiveConfigDto"
+        "304":
+          description: Not modified
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: rootId does not resolve to an existing WorkItem
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDto"
+        "422":
+          description: rootId resolves to a WorkItem that is not depth-0
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDto"
+        "500":
+          description: >-
+            The root-lookup read itself failed with a repository error other than not-found (a
+            transient DB failure), distinct from the 404 case above.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDto"
+        "503":
+          $ref: "#/components/responses/ConfigUnavailable"
 
   /roots/{rootId}/plans:
     parameters:
