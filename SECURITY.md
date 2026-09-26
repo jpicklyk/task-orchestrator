@@ -193,6 +193,16 @@ actor_authentication:
   `jwks_path` causes a startup error (`IllegalArgumentException`). This matches the existing
   mutual-exclusion rule for DID-trust + static-JWKS combinations.
 
+- **Actor-proof lifetime is capped.** `verifier.max_token_lifetime_seconds` (default `86400`, 24h)
+  rejects a JWKS actor proof once `exp - iat` exceeds the cap; `<= 0` or a non-integer value fails
+  startup. The REST API enforces the same cap on bearer tokens via `API_JWKS_MAX_TOKEN_LIFETIME_SECONDS`
+  (same default and validation).
+
+- **Optional `jti` replay protection.** `verifier.jti_replay_protection` (default `false`, opt-in) —
+  when enabled, actor proofs must carry a `jti` claim and each proof may be used only once per MCP
+  call, tracked in-memory per server instance. Clients must mint a fresh proof for every call,
+  including retries and heartbeats.
+
 For deeper configuration detail see [Fleet Deployment — Cross-Org did:web Deployments](current/docs/fleet-deployment.md#cross-org-didweb-deployments).
 
 **Trust model:** Under DID trust, the JWT's `iss` claim is the resolution key. Only DIDs matching

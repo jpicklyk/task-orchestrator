@@ -569,6 +569,8 @@ The optional `verifier` sub-key enables server-side JWT validation of actor clai
 | `cache_ttl_seconds` | no | number | `300` | JWKS cache TTL in seconds |
 | `require_sub_match` | no | boolean | `true` | JWT `sub` must match `actor.id` |
 | `stale_on_error` | no | boolean | `true` | Serve stale cached key set if JWKS endpoint is unreachable during refresh. Set `false` to propagate the fetch exception |
+| `max_token_lifetime_seconds` | no | integer | `86400` | Maximum accepted actor-proof lifetime in seconds (24h). A proof is rejected once `exp - iat` exceeds this value. Must be a positive integer — `<= 0` or a non-integer value fails startup. The REST API has the equivalent env var `API_JWKS_MAX_TOKEN_LIFETIME_SECONDS` (same default and validation) for bearer tokens |
+| `jti_replay_protection` | no | boolean | `false` | Opt-in. When `true`, actor proofs must carry a `jti` claim and each proof is single-use per MCP call (tracked in-memory, per server instance) — clients must mint a fresh proof for every call, including retries and heartbeats |
 | `did_allowlist` | no | list | `[]` | List of trusted DID strings (exact match against JWT `iss` claim). Non-empty activates DID-trust mode |
 | `did_pattern` | no | string | — | Glob or regex pattern matching trusted DIDs. Non-null activates DID-trust mode. Mutually exclusive with `did_allowlist` |
 | `did_strict_relationship` | no | boolean | `true` | When true, only verification methods referenced from the resolved DID document's `assertionMethod` array are eligible. Set false to allow any key in the document |
