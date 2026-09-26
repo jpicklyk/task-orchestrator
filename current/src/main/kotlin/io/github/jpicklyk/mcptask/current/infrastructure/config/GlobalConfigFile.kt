@@ -102,12 +102,10 @@ class GlobalConfigFile(
         // layer above it to isolate from, so treat it as layered (AR-39, C4) and warn once.
         val document =
             if (parsedDocument.schemaResolution == SchemaResolutionMode.ISOLATED) {
-                parsedDocument.copy(
-                    warnings =
-                        parsedDocument.warnings +
-                            "schema_resolution: isolated has no effect in the global config " +
-                            "(nothing to isolate from); treating as layered"
-                )
+                val isolatedAtGlobalWarning =
+                    "schema_resolution: isolated has no effect in the global config " +
+                        "(nothing to isolate from); treating as layered"
+                parsedDocument.copy(warnings = parsedDocument.warnings + isolatedAtGlobalWarning)
             } else {
                 parsedDocument
             }
