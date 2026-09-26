@@ -38,6 +38,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.logging.installReque
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.configRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.dependencyRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.dependencyWriteRoutes
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.effectiveConfigRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.eventRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.itemGateRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.itemRoutes
@@ -630,6 +631,9 @@ internal fun Application.installRestApiRoutes(
             // Phase 1 (project-config-rest-endpoint): per-root config read/write/delete —
             // converges on the same ProjectConfigPushService the manage_project_config MCP tool uses.
             projectConfigRoutes(effectiveProvider)
+            // Additive per-root effective (layered) config view — same LayeredConfig the MCP
+            // configResolver already computes, surfaced as one REST resource (AR-42).
+            effectiveConfigRoutes(effectiveProvider, toolContext.configResolver, noteSchemaService)
             // plan_documents store: per-root plan document read/write —
             // converges on the same PlanDocumentService the manage_plan_documents MCP tool uses.
             planDocumentRoutes(effectiveProvider)
