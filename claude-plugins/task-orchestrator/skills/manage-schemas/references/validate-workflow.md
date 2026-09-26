@@ -25,6 +25,8 @@ Parse the file. If YAML is invalid, report the parse error with line number (if 
 - `require_sub_match` (if present) must be a boolean
 - `stale_on_error` (if present) must be a boolean
 - `allow_insecure_url` (if present) must be a boolean
+- `max_token_lifetime_seconds` (if present) must be a positive integer — `<= 0` or a non-integer fails startup
+- `jti_replay_protection` (if present) must be a boolean
 - `did_allowlist` (if present) must be a list of strings
 - `did_pattern` (if present) must be a string
 - `did_strict_relationship` (if present) must be a boolean
