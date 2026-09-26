@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   database file. This reclaims free-page copies of pre-upgrade `actor_proof` values that V17's
   migration could not reach. Runs before the readiness marker is written; failures are WARN-logged
   and retried on the next boot, never fail startup. Opt out with `DB_COMPACT_ON_UPGRADE=false` to
-  keep using the offline compaction runbook instead. (#f8a592df)
+  keep using the offline compaction runbook instead. (#365)
 
 ### Plugin
 
