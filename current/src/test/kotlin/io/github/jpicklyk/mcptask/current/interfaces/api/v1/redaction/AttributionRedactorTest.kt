@@ -62,7 +62,6 @@ class AttributionRedactorTest {
         attrs.put(ApiPrincipalKey, principal)
 
         val request = mockk<ApplicationRequest>(relaxed = true)
-        every { request.queryParameters["include"] } returns null
 
         val call = mockk<ApplicationCall>(relaxed = true)
         every { call.attributes } returns attrs
@@ -79,8 +78,8 @@ class AttributionRedactorTest {
         val note = makeNoteWithActor()
         val call = makeReadCall(isAdmin = false)
         val result = redactor.redact(note, call)
-        assertNull(result.actor, "Expected actor to be null for non-admin: ${'$'}{result.actor}")
-        assertNull(result.verification, "Expected verification to be null for non-admin: ${'$'}{result.verification}")
+        assertNull(result.actor, "Expected actor to be null for non-admin: ${result.actor}")
+        assertNull(result.verification, "Expected verification to be null for non-admin: ${result.verification}")
     }
 
     @Test

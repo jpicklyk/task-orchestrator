@@ -189,6 +189,6 @@ private fun applyTransitionRedaction(
         dto.copy(actor = null, verification = null)
     } else {
         val redactedVerification = redactVerification(dto.verification, call, redactAttribution)
-        dto.copy(actor = dto.actor, verification = redactedVerification)
+        dto.copy(verification = redactedVerification)
     }
 }

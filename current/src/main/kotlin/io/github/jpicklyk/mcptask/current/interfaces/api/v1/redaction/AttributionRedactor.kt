@@ -11,7 +11,7 @@ import io.ktor.server.application.ApplicationCall
  * Applies environment-driven attribution redaction to [NoteDto] instances.
  *
  * | Variable | Default | Effect |
- * |—————|————-|————|
+ * |----------|---------|--------|
  * | `API_REDACT_NOTE_ATTRIBUTION` | `true` | When `true` AND the caller lacks [ApiCapability.ADMIN], sets `actor` and `verification` to `null` on every [NoteDto]. |
  *
  * `API_REDACT_NOTE_ATTRIBUTION` defaults to `true` (redact). Set to `"false"` to disable.
@@ -36,7 +36,7 @@ class AttributionRedactor(
      * Applies redaction rules to a single [NoteDto].
      *
      * @param note The DTO to potentially redact.
-     * @param call The current HTTP request (used to read the authenticated principal and query params).
+     * @param call The current HTTP request (used to read the authenticated principal).
      * @return A (possibly modified) copy of [note] with sensitive fields nulled out.
      */
     fun redact(

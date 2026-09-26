@@ -301,7 +301,6 @@ class ProofEvidenceRestTest {
         attrs.put(ApiPrincipalKey, principal)
 
         val request = mockk<ApplicationRequest>(relaxed = true)
-        every { request.queryParameters["include"] } returns null
 
         val call = mockk<ApplicationCall>(relaxed = true)
         every { call.attributes } returns attrs
