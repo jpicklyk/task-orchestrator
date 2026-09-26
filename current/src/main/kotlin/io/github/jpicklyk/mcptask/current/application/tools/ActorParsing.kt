@@ -101,16 +101,30 @@ interface ActorAware {
         // any future one — gets identical, evidence-preserving behavior for free. Only set when a
         // non-blank proof was supplied; independent of verification outcome (REJECTED proofs are
         // still worth hashing — the hash is what lets an operator later confirm "was THIS specific
-        // token ever presented", regardless of whether it validated). This same hash also keys the
-        // per-call memo in ActorVerificationScope, so a repeated proof within one MCP call reuses
-        // the first verification result instead of re-invoking the verifier (see that class's KDoc
-        // for why: an opt-in one-use replay cache would otherwise reject the second in-call use of
-        // the very same proof).
+        // token ever presented", regardless of whether it validated). This same hash is also part
+        // of the per-call memo key in ActorVerificationScope, so a repeated (proof, claim) pair
+        // within one MCP call reuses the first verification result instead of re-invoking the
+        // verifier (see that class's KDoc for why: an opt-in one-use replay cache would otherwise
+        // reject the second in-call use of the very same proof). The key MUST include the full
+        // claim identity (id/kind/parent), not just the proof hash — verification depends on the
+        // claim too (e.g. require_sub_match checks claim.id against the JWT's sub), so a proof-only
+        // key would let a second, differently-id'd claim presenting the same proof reuse the first
+        // claim's VERIFIED result (forged identity). A memo hit must never yield a verification
+        // result for a different (id, kind, parent) than the one that was actually verified.
         val proofSha256 = claim.proof?.takeIf { it.isNotBlank() }?.let { sha256Hex(it.toByteArray(Charsets.UTF_8)) }
         val scope = coroutineContext[ActorVerificationScope]
+        val memoKey =
+            proofSha256?.let {
+                ActorVerificationScope.key(
+                    proofSha256 = it,
+                    actorId = claim.id,
+                    actorKind = claim.kind,
+                    actorParent = claim.parent
+                )
+            }
         val verification =
-            if (scope != null && proofSha256 != null) {
-                scope.memo[proofSha256] ?: context.actorVerifier().verify(claim).also { scope.memo[proofSha256] = it }
+            if (scope != null && memoKey != null) {
+                scope.memo[memoKey] ?: context.actorVerifier().verify(claim).also { scope.memo[memoKey] = it }
             } else {
                 context.actorVerifier().verify(claim)
             }

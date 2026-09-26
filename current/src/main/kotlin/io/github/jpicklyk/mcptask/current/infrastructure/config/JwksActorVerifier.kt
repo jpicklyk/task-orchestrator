@@ -20,7 +20,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus.VERIFI
 import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
 import org.slf4j.LoggerFactory
 import java.time.Clock
-import java.time.Duration
 import java.util.Date
 
 /**
@@ -196,25 +195,14 @@ class JwksActorVerifier(
         }
 
         // Lifetime cap (actor_authentication.verifier.max_token_lifetime_seconds, default 86400).
-        // (a) always applies, independent of iat: bound how long the token remains usable from now.
-        // (b) only when iat is present: reject a future-dated iat, and reject an honestly-declared
-        //     over-long token even if exp - now alone would still be within the cap window edge
-        //     case. iat is OPTIONAL per RFC 7519 4.1.6, so its absence never fails the token on its
-        //     own — only (a) applies then.
+        // Predicate shared with JwksApiVerifier via TokenLifetimeCap so the two cannot drift apart.
         val nowInstant = clock.instant()
         val expiryInstant = expiry.toInstant()
-        if (Duration.between(nowInstant, expiryInstant).seconds > config.maxTokenLifetimeSeconds + CLOCK_SKEW_SECONDS) {
-            return rejected("token lifetime exceeds maximum", "claims")
-        }
-        val issueTime = claims.issueTime
-        if (issueTime != null) {
-            val issueInstant = issueTime.toInstant()
-            if (issueInstant.isAfter(nowInstant.plusSeconds(CLOCK_SKEW_SECONDS))) {
-                return rejected("iat in the future", "claims")
-            }
-            if (Duration.between(issueInstant, expiryInstant).seconds > config.maxTokenLifetimeSeconds + CLOCK_SKEW_SECONDS) {
-                return rejected("token lifetime exceeds maximum", "claims")
-            }
+        val issueInstant = claims.issueTime?.toInstant()
+        val lifetimeViolation =
+            TokenLifetimeCap.violation(nowInstant, expiryInstant, issueInstant, config.maxTokenLifetimeSeconds)
+        if (lifetimeViolation != null) {
+            return rejected(lifetimeViolation, "claims")
         }
 
         // iss — explicit config overrides OIDC-discovered issuer
@@ -334,6 +322,9 @@ class JwksActorVerifier(
 
     companion object {
         private const val VERIFIER_NAME = "jwks"
-        private const val CLOCK_SKEW_SECONDS = 60L
+
+        // Same leeway TokenLifetimeCap and JtiReplayCache use — one source of truth (see
+        // AUTH_CLOCK_SKEW_SECONDS KDoc).
+        private const val CLOCK_SKEW_SECONDS = AUTH_CLOCK_SKEW_SECONDS
     }
 }

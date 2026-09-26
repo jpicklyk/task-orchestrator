@@ -9,8 +9,14 @@ import java.time.Instant
  *
  * Used by [JwksActorVerifier] when `actor_authentication.verifier.jti_replay_protection` is
  * enabled: each presented `(iss, jti)` pair may be accepted at most once. An entry is retained
- * until `exp + 60s` (the same clock-skew window the verifiers use elsewhere for `exp`/`nbf`) so a
- * token cannot be replayed for as long as it would otherwise still pass expiry validation.
+ * through `exp + [AUTH_CLOCK_SKEW_SECONDS]` **inclusive** — the same clock-skew leeway the
+ * verifiers use elsewhere for `exp`/`nbf`/the lifetime cap (see [AUTH_CLOCK_SKEW_SECONDS] KDoc for
+ * why this is a single shared constant, not a second hard-coded `60`) — because the verifier
+ * itself still accepts the token at that exact instant (`expiry.before(now - skew)` is the
+ * rejection test, so acceptance holds for `now <= exp + skew`). **Invariant: an entry must stay
+ * live for every instant the verifier could still accept the token, and is purged only once `now`
+ * is strictly after `exp + skew`** — purging at `now == exp + skew` (as an earlier version of this
+ * class did) would let a replay through in a >=1ms window at exactly that boundary.
  *
  * Not persisted or shared across instances/restarts (see the item's task-scope "Non-goals") — a
  * restart or a second server instance reopens the replay window. Callers that need the memoized,
@@ -22,7 +28,10 @@ import java.time.Instant
  *
  * @param maxEntries Soft capacity. When a new key must be admitted and the cache is already at
  *   capacity, expired entries are purged first; if that is not enough, the oldest-inserted entry
- *   is evicted and a rate-limited WARN is logged.
+ *   is evicted and a rate-limited WARN is logged. This is a best-effort, per-instance control: under
+ *   a flood of distinct valid proofs that admits more than [maxEntries] fresh `(iss, jti)` pairs
+ *   before a live entry's retention window elapses, that live entry can be evicted early and its
+ *   token replayed. Eviction is global, not scoped per issuer.
  * @param clock Injectable clock for deterministic tests.
  */
 class JtiReplayCache(
@@ -37,7 +46,8 @@ class JtiReplayCache(
 
     /**
      * Checks whether `(issuer, jti)` has already been recorded and is still within its retention
-     * window (`exp + 60s` from when it was first recorded); if not, records it.
+     * window (`exp + [AUTH_CLOCK_SKEW_SECONDS]`, inclusive, from when it was first recorded); if
+     * not, records it.
      *
      * @return `true` on first sighting (the caller should accept the token and treat this as the
      *   authoritative record), `false` when the pair was already recorded and has not yet expired
@@ -52,9 +62,13 @@ class JtiReplayCache(
         val now = clock.instant()
         purgeExpired(now)
 
+        // purgeExpired(now) has already removed every entry whose retention deadline is strictly
+        // before `now`, so any entry still present here is by definition still live (deadline >=
+        // now) — no separate "is it still live" re-check is needed (nor correct: re-checking with a
+        // strict `isAfter` would reintroduce the exact off-by-one this class fixes at the deadline
+        // instant itself).
         val key = key(issuer, jti)
-        val existing = entries[key]
-        if (existing != null && existing.isAfter(now)) {
+        if (entries.containsKey(key)) {
             return false
         }
 
@@ -62,15 +76,16 @@ class JtiReplayCache(
             evictOldest(now)
         }
 
-        entries[key] = expiresAt.plusSeconds(CLOCK_SKEW_SECONDS)
+        entries[key] = expiresAt.plusSeconds(AUTH_CLOCK_SKEW_SECONDS)
         return true
     }
 
+    /** Removes entries whose retention deadline is strictly before [now]; a deadline == now is kept. */
     private fun purgeExpired(now: Instant) {
         val iterator = entries.entries.iterator()
         while (iterator.hasNext()) {
             val entry = iterator.next()
-            if (!entry.value.isAfter(now)) {
+            if (entry.value.isBefore(now)) {
                 iterator.remove()
             }
         }
@@ -96,7 +111,6 @@ class JtiReplayCache(
     ): String = "${issuer ?: ""}\u0000$jti"
 
     companion object {
-        private const val CLOCK_SKEW_SECONDS = 60L
         private const val EVICTION_WARN_RATE_LIMIT_SECONDS = 60L
     }
 }

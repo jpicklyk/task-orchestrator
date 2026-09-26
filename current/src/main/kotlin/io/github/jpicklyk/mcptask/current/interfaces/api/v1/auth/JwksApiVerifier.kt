@@ -9,10 +9,11 @@ import com.nimbusds.jose.jwk.JWKSelector
 import com.nimbusds.jose.jwk.OctetKeyPair
 import com.nimbusds.jose.jwk.RSAKey
 import com.nimbusds.jwt.SignedJWT
+import io.github.jpicklyk.mcptask.current.infrastructure.config.AUTH_CLOCK_SKEW_SECONDS
 import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksKeySetProvider
+import io.github.jpicklyk.mcptask.current.infrastructure.config.TokenLifetimeCap
 import org.slf4j.LoggerFactory
 import java.time.Clock
-import java.time.Duration
 import java.time.Instant
 import java.util.Date
 
@@ -180,26 +181,12 @@ class JwksApiVerifier(
         }
 
         // Lifetime cap (config.maxTokenLifetimeSeconds, default 86400 / API_JWKS_MAX_TOKEN_LIFETIME_SECONDS).
-        // Mirrors JwksActorVerifier's cap exactly: (a) always applies, bounding exp - now regardless
-        // of iat; (b) when iat is present, additionally reject a future-dated iat and an
-        // honestly-declared over-long token (exp - iat). iat is OPTIONAL per RFC 7519 s4.1.6, so its
-        // absence never fails the token on its own.
+        // Predicate shared with JwksActorVerifier via TokenLifetimeCap so the two cannot drift apart.
         val expiryInstant = expiry.toInstant()
-        if (Duration.between(now, expiryInstant).seconds > config.maxTokenLifetimeSeconds + CLOCK_SKEW_SECONDS) {
-            logger.debug("JWT rejected: token lifetime exceeds maximum")
+        val issueInstant = claims.issueTime?.toInstant()
+        TokenLifetimeCap.violation(now, expiryInstant, issueInstant, config.maxTokenLifetimeSeconds)?.let { reason ->
+            logger.debug("JWT rejected: {}", reason)
             return null
-        }
-        val issueTime = claims.issueTime
-        if (issueTime != null) {
-            val issueInstant = issueTime.toInstant()
-            if (issueInstant.isAfter(now.plusSeconds(CLOCK_SKEW_SECONDS))) {
-                logger.debug("JWT rejected: iat is in the future")
-                return null
-            }
-            if (Duration.between(issueInstant, expiryInstant).seconds > config.maxTokenLifetimeSeconds + CLOCK_SKEW_SECONDS) {
-                logger.debug("JWT rejected: token lifetime exceeds maximum")
-                return null
-            }
         }
 
         // Step 7 — validate iss
@@ -301,6 +288,8 @@ class JwksApiVerifier(
     }
 
     companion object {
-        private const val CLOCK_SKEW_SECONDS = 60L
+        // Same leeway TokenLifetimeCap and JtiReplayCache use — one source of truth (see
+        // AUTH_CLOCK_SKEW_SECONDS KDoc).
+        private const val CLOCK_SKEW_SECONDS = AUTH_CLOCK_SKEW_SECONDS
     }
 }

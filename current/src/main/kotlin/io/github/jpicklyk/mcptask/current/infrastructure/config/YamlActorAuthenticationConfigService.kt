@@ -379,6 +379,13 @@ class YamlActorAuthenticationConfigService(
                             "must be a positive number; got '$maxTokenLifetimeSeconds'"
                     )
                 }
+                if (maxTokenLifetimeSeconds > MAX_TOKEN_LIFETIME_SECONDS_CEILING) {
+                    throw IllegalArgumentException(
+                        "actor_authentication.verifier.max_token_lifetime_seconds in '$configPath' " +
+                            "must not exceed $MAX_TOKEN_LIFETIME_SECONDS_CEILING (~100 years); " +
+                            "got '$maxTokenLifetimeSeconds'"
+                    )
+                }
 
                 val jtiReplayProtection = verifierMap.optBoolean("jti_replay_protection", default = false)
 

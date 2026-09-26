@@ -215,6 +215,12 @@ class ApiAuthConfigLoader(
                         "API_JWKS_MAX_TOKEN_LIFETIME_SECONDS must be a positive integer, got '$parsed'.",
                     )
                 }
+                if (parsed > MAX_TOKEN_LIFETIME_SECONDS_CEILING) {
+                    throw IllegalArgumentException(
+                        "API_JWKS_MAX_TOKEN_LIFETIME_SECONDS must not exceed " +
+                            "$MAX_TOKEN_LIFETIME_SECONDS_CEILING (~100 years), got '$parsed'.",
+                    )
+                }
                 parsed
             }
 
