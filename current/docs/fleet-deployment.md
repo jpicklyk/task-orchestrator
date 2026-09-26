@@ -712,7 +712,16 @@ out of scope; this is a known, accepted forensic gap for anything written before
 
 1. **Rotate first.** Rotate actor signing keys and reissue long-lived tokens. The only remedy
    reaching every copy; then purge pre-upgrade backups.
-2. **Optional offline compaction.** Live file only; needs free disk ≥2× DB size.
+2. **Compaction now runs automatically.** The first Flyway-mode start after upgrading to a build
+   with this remediation runs a one-time startup compaction — `VACUUM`, a rebuild + integrity
+   check of all four FTS5 shadow tables, and a WAL checkpoint — gated on `PRAGMA user_version` so
+   it runs exactly once per database file (a repeat boot is a no-op; a failed attempt is WARN-logged
+   and retried on the next boot). It completes before the readiness marker is written and before
+   the server starts serving. Set `DB_COMPACT_ON_UPGRADE=false` to opt out (e.g. to run the offline
+   runbook manually on your own schedule instead); see the environment variable table below. Verify
+   it ran with `PRAGMA user_version` — `1` means compacted.
+3. **Offline compaction runbook (opt-out fallback, or Direct mode).** Live file only; needs free
+   disk ≥2× DB size.
    1. Stop the server.
    2. Run
       `docker run --rm -v mcp-task-data:/data alpine:3.20 sh -c "apk add sqlite && sqlite3 /data/current-tasks.db"`.
@@ -728,6 +737,10 @@ out of scope; this is a known, accepted forensic gap for anything written before
 
    Warn: skipping the rebuilds silently desyncs search; compaction misses backups and filesystem
    slack.
+
+| Variable | Required when | Default | Description |
+|----------|--------------|---------|-------------|
+| `DB_COMPACT_ON_UPGRADE` | Flyway mode, opting out | `true` | Set `false` to skip the automatic one-time startup compaction described above (e.g. to run the offline runbook manually instead, or to avoid the extra startup time on a very large database). Ignored in Direct mode and during a `FLYWAY_REPAIR` run — neither ever runs the automatic compaction regardless of this variable. |
 
 Direct mode (`USE_FLYWAY=false`) does not apply V17 to an existing database; migrate it via
 Flyway.

@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.infrastructure.database
 
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DatabaseSchemaManager
+import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.FlywayDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.SchemaManagerFactory
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
@@ -124,6 +125,7 @@ class DatabaseManager(
             if (result) {
                 logger.info("Database schema updated successfully")
                 checkParentCycleIntegrity()
+                runStartupCompactionIfEligible()
             } else {
                 logger.error("Failed to update database schema")
             }
@@ -179,6 +181,33 @@ class DatabaseManager(
             }
         } catch (e: Exception) {
             logger.warn("Could not run parent-cycle integrity check: ${e.message}")
+        }
+    }
+
+    /**
+     * Runs the one-time post-V17 [StartupCompaction] when eligible: Flyway-mode schema
+     * management, not a `FLYWAY_REPAIR` run (which exits before serving), and
+     * [AppConfig.dbCompactOnUpgrade] not disabled. Wrapped in [runCatching] as an extra safety
+     * net on top of [StartupCompaction.runOnce] never throwing on its own — compaction must
+     * never fail startup or change [updateSchema]'s return value.
+     */
+    private fun runStartupCompactionIfEligible() {
+        if (schemaManager !is FlywayDatabaseSchemaManager) return
+        if (appConfig.flywayRepair) return
+        if (!appConfig.dbCompactOnUpgrade) return
+
+        val jdbcUrl = database?.url ?: return
+        runCatching {
+            StartupCompaction.runOnce(jdbcUrl, appConfig.databaseBusyTimeoutMs)
+        }.onSuccess { outcome ->
+            when (outcome) {
+                CompactionOutcome.COMPACTED -> logger.info("Startup compaction outcome: $outcome")
+                CompactionOutcome.FAILED, CompactionOutcome.SKIPPED_INSUFFICIENT_DISK ->
+                    logger.warn("Startup compaction outcome: $outcome")
+                else -> logger.debug("Startup compaction outcome: $outcome")
+            }
+        }.onFailure { e ->
+            logger.warn("Startup compaction threw unexpectedly: ${e.message}")
         }
     }
 
