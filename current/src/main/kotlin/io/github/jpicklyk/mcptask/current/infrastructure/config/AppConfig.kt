@@ -48,6 +48,11 @@ data class AppConfig(
     val databaseBusyTimeoutRaw: String?,
     // ---- Flyway (FlywayDatabaseSchemaManager) ----
     val flywayRepair: Boolean,
+    /** `DB_COMPACT_ON_UPGRADE` -- when true (default), [io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager.updateSchema]
+     *  runs the one-time post-V17 startup compaction ([io.github.jpicklyk.mcptask.current.infrastructure.database.StartupCompaction])
+     *  after a successful Flyway-mode schema update. Set to `false` to opt out (e.g. to run the
+     *  offline compaction runbook manually instead). */
+    val dbCompactOnUpgrade: Boolean = true,
     // ---- REST API: SSE / events ----
     val apiAllowQueryTokenForSse: Boolean,
     val apiSseAuthCheckIntervalSeconds: Int,
@@ -106,6 +111,7 @@ data class AppConfig(
                 databaseBusyTimeoutRaw = env("DATABASE_BUSY_TIMEOUT_MS"),
                 // Flyway.
                 flywayRepair = EnvBoolean.parse("FLYWAY_REPAIR", env("FLYWAY_REPAIR"), false),
+                dbCompactOnUpgrade = EnvBoolean.parse("DB_COMPACT_ON_UPGRADE", env("DB_COMPACT_ON_UPGRADE"), true),
                 // REST API SSE / events.
                 apiAllowQueryTokenForSse =
                     EnvBoolean.parse("API_ALLOW_QUERY_TOKEN_FOR_SSE", env("API_ALLOW_QUERY_TOKEN_FOR_SSE"), false),

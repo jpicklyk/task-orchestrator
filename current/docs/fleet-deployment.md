@@ -80,6 +80,17 @@ status with:
 docker inspect --format '{{.State.Health.Status}}' <container>
 ```
 
+**First boot after upgrading is slower — startup compaction.** The first Flyway-mode start after
+upgrading to a build carrying the V17 actor-proof scrub runs a one-time startup compaction
+(`VACUUM` + FTS5 rebuild — see "Proof handling" → Remediation below) before the readiness marker
+is written. Measured throughput is roughly ~2 minutes per GB of database file. On a multi-GB
+database this can exceed the default `--start-period=20s` and the `--retries=3` liveness window,
+so an orchestrator may kill the container mid-compaction (safe — `VACUUM` is atomic and the run
+retries on the next boot, but it becomes a crash loop until someone intervenes). Before upgrading a
+deployment with a multi-GB database, either raise `--start-period`/the liveness grace period to
+comfortably exceed the estimated compaction time, or set `DB_COMPACT_ON_UPGRADE=false` to defer to
+the offline runbook on your own schedule instead.
+
 ---
 
 ## Logging
@@ -707,7 +718,26 @@ out of scope; this is a known, accepted forensic gap for anything written before
 
 1. **Rotate first.** Rotate actor signing keys and reissue long-lived tokens. The only remedy
    reaching every copy; then purge pre-upgrade backups.
-2. **Optional offline compaction.** Live file only; needs free disk ≥2× DB size.
+2. **Compaction now runs automatically.** The first Flyway-mode start after upgrading to a build
+   with this remediation runs a one-time startup compaction — `VACUUM`, a rebuild + `integrity-check`
+   of all four FTS5 shadow tables, and a WAL checkpoint — gated on `PRAGMA user_version` so
+   it runs exactly once per database file (a repeat boot is a no-op; a failed attempt is WARN-logged
+   and retried on the next boot). It completes before the readiness marker is written and before
+   the server starts serving. Set `DB_COMPACT_ON_UPGRADE=false` to opt out (e.g. to run the offline
+   runbook manually on your own schedule instead); see the environment variable table below. **This
+   is not the same check as step 3's `PRAGMA integrity_check`** — the automatic path runs only the
+   FTS5 `integrity-check` special command against each of the four shadow tables in [FTS_TABLES],
+   not a whole-database `PRAGMA integrity_check`; it is not a full substitute for step 3's offline
+   check. The image ships no `sqlite3` binary (see step 2 below), so verify the automatic run with
+   the server's own INFO log lines instead of trying to inspect `PRAGMA user_version` directly:
+   `Startup compaction: starting one-time compaction of N bytes` followed by `Startup compaction
+   complete: X bytes -> Y bytes in Zms` (or the DatabaseManager-level `Startup compaction outcome:
+   COMPACTED` line) confirms it ran and finished.
+3. **Offline compaction runbook (opt-out fallback, or Direct mode).** Live file only; needs free
+   disk ≥2× DB size. Note that `VACUUM`'s temporary copy is written to SQLite's own temp directory
+   (`SQLITE_TMPDIR`/`TMPDIR`, typically `/var/tmp` or `/tmp` — the container's overlay filesystem
+   in Docker, not the `mcp-task-data` volume), so the ≥2× headroom must exist there, not only on the
+   data volume.
    1. Stop the server.
    2. Run
       `docker run --rm -v mcp-task-data:/data alpine:3.20 sh -c "apk add sqlite && sqlite3 /data/current-tasks.db"`.
@@ -723,6 +753,10 @@ out of scope; this is a known, accepted forensic gap for anything written before
 
    Warn: skipping the rebuilds silently desyncs search; compaction misses backups and filesystem
    slack.
+
+| Variable | Required when | Default | Description |
+|----------|--------------|---------|-------------|
+| `DB_COMPACT_ON_UPGRADE` | Flyway mode, opting out | `true` | Set `false` to skip the automatic one-time startup compaction described above (e.g. to run the offline runbook manually instead, or to avoid the extra startup time on a very large database). Ignored in Direct mode and during a `FLYWAY_REPAIR` run — neither ever runs the automatic compaction regardless of this variable. |
 
 Direct mode (`USE_FLYWAY=false`) does not apply V17 to an existing database; migrate it via
 Flyway.

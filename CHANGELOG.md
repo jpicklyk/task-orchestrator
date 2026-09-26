@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **One-time startup compaction after the V17 actor-proof scrub.** On the first Flyway-mode start
+  after upgrading, the server now runs a one-time `VACUUM` + FTS5 shadow-table rebuild (with
+  integrity checks) + WAL checkpoint, gated on `PRAGMA user_version` so it runs exactly once per
+  database file. This reclaims free-page copies of pre-upgrade `actor_proof` values that V17's
+  migration could not reach. Runs before the readiness marker is written; failures are WARN-logged
+  and retried on the next boot, never fail startup. Opt out with `DB_COMPACT_ON_UPGRADE=false` to
+  keep using the offline compaction runbook instead. (#365)
+
 ### Removed
 
 - **BREAKING (REST): `?include=proof` and `API_REDACT_ACTOR_PROOF`**, deprecated in 3.15.0.
