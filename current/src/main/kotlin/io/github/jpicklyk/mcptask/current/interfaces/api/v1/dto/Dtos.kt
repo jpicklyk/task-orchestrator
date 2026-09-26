@@ -57,17 +57,12 @@ data class NoteDto(
     val verification: VerificationDto?,
 )
 
-/**
- * DTO for actor attribution on a note or role-transition.
- *
- * `proof` is additionally redacted unless the caller has `admin` AND `?include=proof`.
- */
+/** DTO for actor attribution on a note or role-transition. */
 @Serializable
 data class ActorClaimDto(
     val id: String,
     val kind: String,
     val parent: String?,
-    val proof: String? = null,
 )
 
 /** DTO for a verification result attached to a note or role-transition. */
@@ -78,11 +73,10 @@ data class VerificationDto(
     val reason: String?,
     /**
      * Forensic evidence about the proof (hash + verified claims), in place of the raw proof
-     * (which is never stored since migration V17 — see [ActorClaimDto.proof]). Populated only for
-     * callers with [io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability.ADMIN]
-     * — its own admin check, independent of `API_REDACT_NOTE_ATTRIBUTION` and NOT gated behind
-     * `?include=proof` (unlike the deprecated, always-null [ActorClaimDto.proof]). Null when no
-     * proof was ever supplied, or for a non-admin caller.
+     * (which is never stored since migration V17). Populated only for callers with
+     * [io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability.ADMIN] — its own
+     * admin check, independent of `API_REDACT_NOTE_ATTRIBUTION`. Null when no proof was ever
+     * supplied, or for a non-admin caller.
      */
     val proof: ProofEvidenceDto? = null,
 )

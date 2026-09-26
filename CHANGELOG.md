@@ -14,6 +14,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   keeps a proof that is legitimately re-verified multiple times within one call (idempotency-key
   lookups, multi-transition batches) from tripping the cache as a false replay. (#366)
 
+- **One-time startup compaction after the V17 actor-proof scrub.** On the first Flyway-mode start
+  after upgrading, the server now runs a one-time `VACUUM` + FTS5 shadow-table rebuild (with
+  integrity checks) + WAL checkpoint, gated on `PRAGMA user_version` so it runs exactly once per
+  database file. This reclaims free-page copies of pre-upgrade `actor_proof` values that V17's
+  migration could not reach. Runs before the readiness marker is written; failures are WARN-logged
+  and retried on the next boot, never fail startup. Opt out with `DB_COMPACT_ON_UPGRADE=false` to
+  keep using the offline compaction runbook instead. (#365)
+
 ### Changed
 
 - Actor-authentication and REST API JWTs are now capped at a maximum lifetime, default 24 hours
@@ -27,6 +35,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed a malformed JWT claims set (e.g. a non-numeric `exp`/`iat`) being misreported as
   `UNAVAILABLE`/`failureKind: network` under DID trust, or `REJECTED`/`failureKind: internal` in
   static-JWKS mode; both now report `REJECTED`/`failureKind: claims`. (#366)
+
+### Removed
+
+- **BREAKING (REST): `?include=proof` and `API_REDACT_ACTOR_PROOF`**, deprecated in 3.15.0.
+  `?include=proof` is now ignored like any unknown include value (no more `Warning: 299` header);
+  `API_REDACT_ACTOR_PROOF` is no longer read (no startup WARN). `actor.proof` is removed from the
+  `ActorClaimDto` schema (it was already never sent). Admins read proof evidence via
+  `verification.proof`. (#362)
 
 ### Plugin
 

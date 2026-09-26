@@ -48,6 +48,11 @@ data class AppConfig(
     val databaseBusyTimeoutRaw: String?,
     // ---- Flyway (FlywayDatabaseSchemaManager) ----
     val flywayRepair: Boolean,
+    /** `DB_COMPACT_ON_UPGRADE` -- when true (default), [io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager.updateSchema]
+     *  runs the one-time post-V17 startup compaction ([io.github.jpicklyk.mcptask.current.infrastructure.database.StartupCompaction])
+     *  after a successful Flyway-mode schema update. Set to `false` to opt out (e.g. to run the
+     *  offline compaction runbook manually instead). */
+    val dbCompactOnUpgrade: Boolean = true,
     // ---- REST API: SSE / events ----
     val apiAllowQueryTokenForSse: Boolean,
     val apiSseAuthCheckIntervalSeconds: Int,
@@ -56,7 +61,6 @@ data class AppConfig(
     val apiTokensPath: String,
     // ---- REST API: redaction (AttributionRedactor / TransitionRoutes) ----
     val apiRedactNoteAttribution: Boolean,
-    val apiRedactActorProof: Boolean,
     // ---- REST API: advance warning (ItemWriteRoutes) ----
     val apiWarnOnClaimedAdvance: Boolean,
     // ---- CORS (CorsConfig) ----
@@ -70,29 +74,6 @@ data class AppConfig(
     // ---- Raw env resolver (for validated loaders that parse env themselves) ----
     val envResolver: (String) -> String?,
 ) {
-    /**
-     * Deployment-set environment variables that are now ignored, each with a human-readable
-     * WARN-level explanation. Logged once at startup by [io.github.jpicklyk.mcptask.current.interfaces.mcp.CurrentMcpServer.run]
-     * so an operator who kept an old override notices it does nothing rather than silently
-     * assuming it still applies.
-     *
-     * Currently: `API_REDACT_ACTOR_PROOF` — since migration V17, raw actor proofs are never
-     * persisted, so there is nothing left for this flag to redact or expose; [apiRedactActorProof]
-     * is retained as a no-op field (see [io.github.jpicklyk.mcptask.current.interfaces.api.v1.redaction.redactActorProofIfNeeded])
-     * purely to avoid churn at call sites and tests.
-     */
-    fun deprecatedEnvWarnings(): List<String> {
-        val warnings = mutableListOf<String>()
-        if (envResolver("API_REDACT_ACTOR_PROOF") != null) {
-            warnings.add(
-                "API_REDACT_ACTOR_PROOF is set but is deprecated and ignored: actor proofs " +
-                    "(raw JWTs) are no longer persisted since migration V17, so there is nothing " +
-                    "left for this flag to redact."
-            )
-        }
-        return warnings
-    }
-
     companion object {
         // Bearer token store default — mirrors CurrentMcpServer.resolveApiWiring.
         internal const val DEFAULT_API_TOKENS_PATH = "/run/secrets/api-tokens.yaml"
@@ -130,6 +111,7 @@ data class AppConfig(
                 databaseBusyTimeoutRaw = env("DATABASE_BUSY_TIMEOUT_MS"),
                 // Flyway.
                 flywayRepair = EnvBoolean.parse("FLYWAY_REPAIR", env("FLYWAY_REPAIR"), false),
+                dbCompactOnUpgrade = EnvBoolean.parse("DB_COMPACT_ON_UPGRADE", env("DB_COMPACT_ON_UPGRADE"), true),
                 // REST API SSE / events.
                 apiAllowQueryTokenForSse =
                     EnvBoolean.parse("API_ALLOW_QUERY_TOKEN_FOR_SSE", env("API_ALLOW_QUERY_TOKEN_FOR_SSE"), false),
@@ -142,7 +124,6 @@ data class AppConfig(
                 // (true/1/yes vs false/0/no) now disables via "0"/"no" too, not only "false".
                 apiRedactNoteAttribution =
                     EnvBoolean.parse("API_REDACT_NOTE_ATTRIBUTION", env("API_REDACT_NOTE_ATTRIBUTION"), true),
-                apiRedactActorProof = EnvBoolean.parse("API_REDACT_ACTOR_PROOF", env("API_REDACT_ACTOR_PROOF"), true),
                 // REST API advance warning — default true; unified vocabulary as above.
                 apiWarnOnClaimedAdvance =
                     EnvBoolean.parse("API_WARN_ON_CLAIMED_ADVANCE", env("API_WARN_ON_CLAIMED_ADVANCE"), true),
