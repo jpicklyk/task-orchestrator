@@ -2,7 +2,10 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
 import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
+import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
+import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
+import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlStatusLabelService
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
@@ -78,7 +81,17 @@ class FullApiWiringSmokeTest {
                 // Phase 4 config
                 configRoutes(NoOpNoteSchemaService)
                 // Phase 5 write
-                itemWriteRoutes(decorated, DegradedModePolicy.ACCEPT_CACHED, IdempotencyCache(), NoOpNoteSchemaService)
+                itemWriteRoutes(
+                    decorated,
+                    DegradedModePolicy.ACCEPT_CACHED,
+                    IdempotencyCache(),
+                    ToolExecutionContext(
+                        decorated,
+                        NoOpNoteSchemaService,
+                        statusLabelService = YamlStatusLabelService(),
+                        perRootConfigService = PerRootConfigService(decorated.projectConfigRepository()),
+                    ).advanceServiceFactory(),
+                )
                 noteWriteRoutes(decorated, DegradedModePolicy.ACCEPT_CACHED, IdempotencyCache())
                 dependencyWriteRoutes(decorated, DegradedModePolicy.ACCEPT_CACHED)
                 // Phase 1 (project-config-rest-endpoint): per-root config read/write/delete

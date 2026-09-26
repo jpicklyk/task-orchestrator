@@ -19,7 +19,9 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 interface WorkItemSchemaService {
     /**
      * Returns the schema entries for the first tag in [tags] that matches a
-     * declared schema, or null if no schema matches (schema-free mode).
+     * declared schema, or null if no schema matches (schema-free mode). EXACT match
+     * only — no `default` fallback; that step belongs to the caller's chosen
+     * resolution layer (e.g. `LayeredConfig`), per its effective `schema_resolution` mode.
      */
     fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>?
 
@@ -39,7 +41,8 @@ interface WorkItemSchemaService {
 
     /**
      * Returns the [WorkItemSchema] for the given [type], or null if no schema is configured
-     * for that type (schema-free mode for type-based lookup).
+     * for that type (schema-free mode for type-based lookup). EXACT match only — no
+     * `default` fallback; that step belongs to the caller's chosen resolution layer.
      *
      * Default implementation returns null (schema-free mode). Override in concrete implementations
      * that support type-based schema lookup (e.g., Task 3: YamlNoteSchemaService).

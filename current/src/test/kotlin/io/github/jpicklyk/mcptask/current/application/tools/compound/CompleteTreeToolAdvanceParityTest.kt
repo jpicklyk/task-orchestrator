@@ -1,5 +1,8 @@
 package io.github.jpicklyk.mcptask.current.application.tools.compound
 
+import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
+import io.github.jpicklyk.mcptask.current.application.config.ConfigLayer
+import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
 import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
@@ -204,13 +207,17 @@ class CompleteTreeToolAdvanceParityTest {
         runBlocking {
             val rootId = UUID.randomUUID()
             val perRoot = mockk<PerRootConfigService>()
-            coEvery { perRoot.getSnapshot(rootId) } returns
-                PerRootConfigService.Snapshot(
-                    workItemSchemas = emptyMap(),
-                    traits = emptyMap(),
-                    noteLimitsModeExplicit = null,
-                    statusLabels = mapOf("complete" to "shipped"),
-                    fingerprint = "fp"
+            coEvery { perRoot.layer(rootId) } returns
+                ConfigLayer(
+                    document =
+                        ConfigDocument(
+                            workItemSchemas = emptyMap(),
+                            traits = emptyMap(),
+                            noteLimitsMode = null,
+                            statusLabels = mapOf("complete" to "shipped"),
+                        ),
+                    fingerprint = "fp",
+                    source = ConfigSource.PER_ROOT,
                 )
             val globalLabels = TestStatusLabelService(mapOf("complete" to "done"))
             val customContext = contextWithPerRootLabels(globalLabels, perRoot)

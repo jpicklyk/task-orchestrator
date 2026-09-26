@@ -530,6 +530,12 @@ class ItemGateRouteTest {
                     serverVersion = "1.0.0",
                     actorAuthEnabled = false,
                     noteSchemaService = svc,
+                    toolContext =
+                        ToolExecutionContext(
+                            repo,
+                            svc,
+                            perRootConfigService = PerRootConfigService(repo.projectConfigRepository()),
+                        ),
                     degradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
                     idempotencyCache = IdempotencyCache(),
                 )
@@ -792,7 +798,14 @@ private fun Application.configureGateApp(
 ) {
     configureTestApp(authConfig) {
         if (includeItemRoute) itemRoutes(repo)
-        itemGateRoutes(repo, schemaService)
+        itemGateRoutes(
+            repo,
+            ToolExecutionContext(
+                repo,
+                schemaService,
+                perRootConfigService = PerRootConfigService(repo.projectConfigRepository()),
+            ).configResolver,
+        )
     }
 }
 

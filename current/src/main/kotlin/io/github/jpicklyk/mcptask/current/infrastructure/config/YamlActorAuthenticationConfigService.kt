@@ -4,15 +4,27 @@ import io.github.jpicklyk.mcptask.current.domain.model.ActorAuthenticationConfig
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
 import org.slf4j.LoggerFactory
+import org.yaml.snakeyaml.LoaderOptions
 import org.yaml.snakeyaml.Yaml
+import org.yaml.snakeyaml.constructor.SafeConstructor
 import java.io.FileReader
 import java.nio.file.Path
 
 /**
  * YAML-backed loader for the `actor_authentication:` section of `.taskorchestrator/config.yaml`.
  *
- * The config path is resolved using the same `AGENT_CONFIG_DIR` environment-variable
- * pattern as [YamlNoteSchemaService].
+ * Two constructors:
+ *  - `YamlActorAuthenticationConfigService(configPath, envResolver)` (or its default): reads and
+ *    parses the file independently via its own SafeConstructor-based `Yaml`/`FileReader`. Kept unchanged for backward
+ *    compatibility.
+ *  - `YamlActorAuthenticationConfigService(globalConfig: GlobalConfigFile, envResolver)`: reads
+ *    the `actor_authentication` section from the ONE shared, already-parsed [GlobalConfigFile]
+ *    document ([io.github.jpicklyk.mcptask.current.application.config.ConfigDocument.actorAuthenticationSection])
+ *    instead of re-parsing the file. Section validation and error messages are shared with the
+ *    path-based constructor (`configPath` in every message is [globalConfig]'s
+ *    [GlobalConfigFile.configPath] in this mode). A parse failure at the [GlobalConfigFile] level
+ *    (YAML syntax error, non-mapping root) propagates as the same [IllegalArgumentException]
+ *    [GlobalConfigFile] itself throws — this class adds no separate parse step in document mode.
  *
  * Expected YAML structure:
  * ```yaml
@@ -57,14 +69,29 @@ import java.nio.file.Path
  *   misconfiguration is surfaced immediately rather than silently falling back to a default.
  * - If unset, the YAML value is used (then the coded default [DegradedModePolicy.ACCEPT_CACHED]).
  *
- * @param configPath Path to the `.taskorchestrator/config.yaml` file.
+ * @param configPath Path to the `.taskorchestrator/config.yaml` file (path-based constructor only).
+ * @param globalConfig Shared, already-parsed global config document (document-based constructor).
  * @param envResolver Injectable resolver for environment variables; defaults to [System::getenv].
  *   Tests inject a fake to avoid mutating the JVM environment.
  */
-class YamlActorAuthenticationConfigService(
-    private val configPath: Path = YamlNoteSchemaService.resolveDefaultConfigPath(),
+class YamlActorAuthenticationConfigService private constructor(
+    private val configPathParam: Path?,
+    private val globalConfig: GlobalConfigFile?,
     private val envResolver: (String) -> String? = System::getenv
 ) {
+    constructor(
+        configPath: Path = YamlNoteSchemaService.resolveDefaultConfigPath(),
+        envResolver: (String) -> String? = System::getenv
+    ) : this(configPath, null, envResolver)
+
+    constructor(
+        globalConfig: GlobalConfigFile,
+        envResolver: (String) -> String? = System::getenv
+    ) : this(null, globalConfig, envResolver)
+
+    /** The config path every error message names, regardless of which constructor was used. */
+    private val configPath: Path get() = configPathParam ?: globalConfig!!.configPath
+
     private val logger = LoggerFactory.getLogger(YamlActorAuthenticationConfigService::class.java)
 
     private data class LoadResult(
@@ -113,6 +140,36 @@ class YamlActorAuthenticationConfigService(
             )
     }
 
+    /** Dispatches to the path-based or document-based load, depending on which was constructed. */
+    private fun loadYamlConfig(): LoadResult {
+        val sharedGlobalConfig = globalConfig
+        return if (sharedGlobalConfig != null) {
+            loadYamlConfigFromDocument(sharedGlobalConfig)
+        } else {
+            loadYamlConfigFromPath()
+        }
+    }
+
+    /**
+     * Reads `actor_authentication` from [sharedGlobalConfig]'s already-parsed document. A `null`
+     * layer (no global config file) means the coded defaults, exactly like an absent file in the
+     * path-based flow. The legacy `auditing:` hard-cut is detected via the document's
+     * `presentSections` instead of re-inspecting a raw root map. A parse failure at the
+     * [GlobalConfigFile] level (accessed via [GlobalConfigFile.layer]) propagates unchanged — this
+     * method adds no separate try/catch around it.
+     */
+    private fun loadYamlConfigFromDocument(sharedGlobalConfig: GlobalConfigFile): LoadResult {
+        val warnings = mutableListOf<String>()
+        val document = sharedGlobalConfig.layer()?.document
+
+        if (document?.presentSections?.contains("auditing") == true) {
+            throwLegacyAuditingKeyError()
+        }
+
+        val config = buildConfigFromActorAuthSection(document?.actorAuthenticationSection)
+        return LoadResult(config, warnings)
+    }
+
     /**
      * Loads the `actor_authentication:` section, failing closed on any parse problem.
      *
@@ -125,22 +182,23 @@ class YamlActorAuthenticationConfigService(
      * [configPath] rather than silently substituting a default (see the class kdoc for why).
      */
     @Suppress("UNCHECKED_CAST")
-    private fun loadYamlConfig(): LoadResult {
+    private fun loadYamlConfigFromPath(): LoadResult {
         val warnings = mutableListOf<String>()
-        if (!configPath.toFile().exists()) {
-            logger.debug("No config file found at {}; using default actor_authentication config", configPath)
+        val path = configPathParam!!
+        if (!path.toFile().exists()) {
+            logger.debug("No config file found at {}; using default actor_authentication config", path)
             return LoadResult(ActorAuthenticationConfig(), warnings)
         }
 
         val loaded =
             try {
-                val yaml = Yaml()
-                FileReader(configPath.toFile()).use { reader -> yaml.load<Any?>(reader) }
+                val yaml = Yaml(SafeConstructor(LoaderOptions()))
+                FileReader(path.toFile()).use { reader -> yaml.load<Any?>(reader) }
             } catch (e: IllegalArgumentException) {
                 throw e
             } catch (e: Exception) {
                 throw IllegalArgumentException(
-                    "Failed to parse actor_authentication config from '$configPath': ${e.message}",
+                    "Failed to parse actor_authentication config from '$path': ${e.message}",
                     e
                 )
             }
@@ -151,23 +209,36 @@ class YamlActorAuthenticationConfigService(
         val root =
             loaded as? Map<String, Any>
                 ?: throw IllegalArgumentException(
-                    "Config file '$configPath' root must be a mapping; got '$loaded'"
+                    "Config file '$path' root must be a mapping; got '$loaded'"
                 )
 
         // Hard cut: legacy auditing: key produces a clear migration error
         if (root.containsKey("auditing")) {
-            throw IllegalArgumentException(
-                "Unknown top-level config key 'auditing:'. " +
-                    "Did you mean 'actor_authentication:'? See CHANGELOG for migration."
-            )
+            throwLegacyAuditingKeyError()
         }
 
-        val actorAuthRaw = root["actor_authentication"]
+        val config = buildConfigFromActorAuthSection(root["actor_authentication"])
+        return LoadResult(config, warnings)
+    }
+
+    private fun throwLegacyAuditingKeyError(): Nothing =
+        throw IllegalArgumentException(
+            "Unknown top-level config key 'auditing:'. " +
+                "Did you mean 'actor_authentication:'? See CHANGELOG for migration."
+        )
+
+    /**
+     * Builds an [ActorAuthenticationConfig] from the raw `actor_authentication` value — shared by
+     * both the path-based and document-based load flows so section validation and error messages
+     * (naming [configPath]) are identical regardless of which constructor was used.
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun buildConfigFromActorAuthSection(actorAuthRaw: Any?): ActorAuthenticationConfig {
         val actorAuthSection: Map<String, Any> =
             when (actorAuthRaw) {
                 null -> {
                     logger.debug("No 'actor_authentication' section in config; using defaults")
-                    return LoadResult(ActorAuthenticationConfig(), warnings)
+                    return ActorAuthenticationConfig()
                 }
                 is Map<*, *> -> actorAuthRaw as Map<String, Any>
                 else ->
@@ -191,13 +262,10 @@ class YamlActorAuthenticationConfigService(
 
         val degradedModePolicy = parseDegradedModePolicy(actorAuthSection)
 
-        return LoadResult(
-            ActorAuthenticationConfig(
-                enabled = enabled,
-                verifier = verifier,
-                degradedModePolicy = degradedModePolicy
-            ),
-            warnings
+        return ActorAuthenticationConfig(
+            enabled = enabled,
+            verifier = verifier,
+            degradedModePolicy = degradedModePolicy
         )
     }
 

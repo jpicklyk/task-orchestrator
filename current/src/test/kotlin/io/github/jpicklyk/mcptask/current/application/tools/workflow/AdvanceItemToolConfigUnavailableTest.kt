@@ -199,7 +199,7 @@ class AdvanceItemToolConfigUnavailableTest {
     @Test
     fun `S2 - a cached schema survives a read failure and still gates start on the missing note`(): Unit =
         runBlocking {
-            assertNotNull(perRootConfigService.getSnapshot(rootItemId), "sanity: warm read must succeed before injecting failures")
+            assertNotNull(perRootConfigService.layer(rootItemId), "sanity: warm read must succeed before injecting failures")
             wrapperRepo.failFingerprint = true
 
             val itemId = UUID.randomUUID()
@@ -228,7 +228,7 @@ class AdvanceItemToolConfigUnavailableTest {
     @Test
     fun `S3 - after reads recover a freshly pushed config replaces the previously served LKG`(): Unit =
         runBlocking {
-            assertNotNull(perRootConfigService.getSnapshot(rootItemId), "sanity: warm read with q1 required")
+            assertNotNull(perRootConfigService.layer(rootItemId), "sanity: warm read with q1 required")
             wrapperRepo.failFingerprint = true
 
             val itemId = UUID.randomUUID()
@@ -450,7 +450,7 @@ class AdvanceItemToolConfigUnavailableTest {
     @Test
     fun `S15 - a config row deleted after being cached falls through to the global schema not the stale LKG`(): Unit =
         runBlocking {
-            assertNotNull(perRootConfigService.getSnapshot(rootItemId), "sanity: warm read before delete")
+            assertNotNull(perRootConfigService.layer(rootItemId), "sanity: warm read before delete")
             val deleteResult = wrapperRepo.delete(rootItemId)
             assertEquals(true, deleteResult is Result.Success, "setup precondition: delete must succeed, got $deleteResult")
 

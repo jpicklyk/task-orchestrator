@@ -1,10 +1,12 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
+import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
+import io.github.jpicklyk.mcptask.current.application.config.LayerBackedGlobalLookup
 import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
+import io.github.jpicklyk.mcptask.current.application.service.AdvanceServiceFactory
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
 import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommender
 import io.github.jpicklyk.mcptask.current.application.service.NoOpActorVerifier
-import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
@@ -12,6 +14,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.config.ApiAuthConfigLoader
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.config.DefaultJwksKeySetProvider
+import io.github.jpicklyk.mcptask.current.infrastructure.config.GlobalConfigFile
 import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksActorVerifier
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlActorAuthenticationConfigService
@@ -29,7 +32,6 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.ApiEventBus
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.events.EventPublishingRepositoryProvider
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
-import java.nio.file.Path
 import java.nio.file.Paths
 
 /**
@@ -67,10 +69,11 @@ class CompositionResult(
     val toolContext: ToolExecutionContext,
     val apiWiring: ApiWiring,
     val noteSchemaService: WorkItemSchemaService,
-    val statusLabelService: StatusLabelService,
     val degradedModePolicy: DegradedModePolicy,
     val idempotencyCache: IdempotencyCache,
     val actorAuthEnabled: Boolean,
+    val configResolver: EffectiveConfigResolver,
+    val advanceServiceFactory: AdvanceServiceFactory,
 )
 
 /**
@@ -116,13 +119,18 @@ class ServerComposition(
                 .get(AppConfig.resolveConfigBaseDir(appConfig.agentConfigDir))
                 .resolve(".taskorchestrator/config.yaml")
 
-        val noteSchemaService = YamlNoteSchemaService(globalConfigPath)
-        // Force the lazy schema load NOW, before anything else is wired, so a broken global config
-        // file fails startup here (surfaced to CurrentMcpServer.run() -> CurrentMain, before the
+        // ONE GlobalConfigFile instance reads and parses the file once; the schema service, the
+        // status-label service, and the actor-auth service below all read from this SAME parsed
+        // document instead of each independently re-reading and re-parsing it (AR-41 step 2/3).
+        val globalConfigFile = GlobalConfigFile(globalConfigPath)
+        // Force the lazy load NOW, before anything else is wired, so a broken global config file
+        // fails startup here (surfaced to CurrentMcpServer.run() -> CurrentMain, before the
         // readiness marker is ever written) rather than on first incidental use deep in a request.
-        noteSchemaService.getLoadWarnings()
-        val statusLabelService = YamlStatusLabelService(globalConfigPath)
-        val (actorVerifier, degradedModePolicy) = createActorVerifierAndPolicy(globalConfigPath)
+        globalConfigFile.layer()
+        val noteSchemaService = YamlNoteSchemaService(globalConfigFile)
+        val statusLabelService = YamlStatusLabelService(globalConfigFile)
+        val actorAuthConfigService = YamlActorAuthenticationConfigService(globalConfigFile, envResolver = appConfig.envResolver)
+        val (actorVerifier, degradedModePolicy) = createActorVerifierAndPolicy(actorAuthConfigService)
         val idempotencyCache = IdempotencyCache()
 
         // Resolve the REST/SSE API wiring ONCE, EARLY — before the tool context is built — so the
@@ -142,6 +150,10 @@ class ServerComposition(
         // falling back to the global noteSchemaService above. Shares effectiveProvider so MCP tools
         // and REST routes see the same (possibly event-publishing-decorated) project_config access.
         val perRootConfigService = PerRootConfigService(effectiveProvider.projectConfigRepository())
+        // Both MCP and REST resolve config through this ONE resolver — see O1 (task-scope f2c50e6d):
+        // REST previously built its own PerRootConfigService (a separate last-known-good cache);
+        // sharing this instance is the only intended observable behavior change in this item.
+        val configResolver = EffectiveConfigResolver(LayerBackedGlobalLookup(globalConfigFile.layer()), perRootConfigService)
         val toolContext =
             ToolExecutionContext(
                 repositoryProvider = effectiveProvider,
@@ -152,18 +164,17 @@ class ServerComposition(
                 idempotencyCache = idempotencyCache,
                 nextItemRecommender = nextItemRecommender,
                 perRootConfigService = perRootConfigService,
+                configResolver = configResolver,
             )
         logger.info(
             "Repository provider and tool context initialized (API {})",
             if (apiWiring.eventBus != null) "enabled — writes publish to SSE bus" else "disabled — raw provider",
         )
 
-        // actor_authentication status surfaced via /info (HTTP transport) — derived from the same
-        // config the verifier was built from. (This re-parses the same file a second time — see
-        // createActorVerifierAndPolicy above; de-duplicating the two parses is deferred, tracked
-        // separately, and not part of this fail-closed fix.)
+        // actor_authentication status surfaced via /info (HTTP transport) — derived from the SAME
+        // actorAuthConfigService instance createActorVerifierAndPolicy used above (no second parse).
         val actorAuthEnabled =
-            YamlActorAuthenticationConfigService(globalConfigPath, envResolver = appConfig.envResolver)
+            actorAuthConfigService
                 .getConfig()
                 .let { it.verifier !is VerifierConfig.Noop }
 
@@ -171,10 +182,11 @@ class ServerComposition(
             toolContext = toolContext,
             apiWiring = apiWiring,
             noteSchemaService = noteSchemaService,
-            statusLabelService = statusLabelService,
             degradedModePolicy = degradedModePolicy,
             idempotencyCache = idempotencyCache,
             actorAuthEnabled = actorAuthEnabled,
+            configResolver = configResolver,
+            advanceServiceFactory = toolContext.advanceServiceFactory(),
         )
     }
 
@@ -272,8 +284,9 @@ class ServerComposition(
      * [YamlActorAuthenticationConfigService.getWarnings] — that list is asserted empty by a large
      * number of existing jwks-config tests, and is reserved for actual parse warnings.
      */
-    private fun createActorVerifierAndPolicy(configPath: Path): Pair<ActorVerifier, DegradedModePolicy> {
-        val configService = YamlActorAuthenticationConfigService(configPath, envResolver = appConfig.envResolver)
+    private fun createActorVerifierAndPolicy(
+        configService: YamlActorAuthenticationConfigService,
+    ): Pair<ActorVerifier, DegradedModePolicy> {
         configService.getWarnings().forEach { logger.warn("Actor authentication config: {}", it) }
         val config = configService.getConfig()
         logger.info("Degraded mode policy: {}", config.degradedModePolicy.toConfigString())

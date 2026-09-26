@@ -1,8 +1,8 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
-import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
+import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
+import io.github.jpicklyk.mcptask.current.application.config.withConfigSession
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
-import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.toJsonString
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
@@ -10,7 +10,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.ItemSortFields
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
-import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
@@ -600,7 +599,7 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
  *
  * - `GET /items/{id}/gate` — the item's title, current role, and canonical gate status for that
  *   role: field-for-field identical to `get_context` item mode's `gateStatus` /
- *   `guidanceKey` / `skillPointer`, computed via the SAME [ToolExecutionContext.resolveSchema] +
+ *   `guidanceKey` / `skillPointer`, computed via the SAME [EffectiveConfigResolver.resolveSchema] +
  *   [computePhaseNoteContext] path get_context uses — no gate logic is reimplemented here.
  *
  * Id handling mirrors `GET /items/{id}`: full UUID only (a hex prefix is rejected), malformed →
@@ -609,23 +608,17 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
  * task-scope). No ETag / `If-None-Match` handling: the gate depends on notes and config, neither
  * of which `item.modifiedAt` versions, so a `respondWithEtagCheck` here could serve a stale 304
  * after a note fill.
+ *
+ * [configResolver] is the SAME [EffectiveConfigResolver] instance the MCP tool context and the
+ * REST advance route share (via [io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext.configResolver]),
+ * so this route shares MCP's last-known-good per-root config cache instead of maintaining its own.
  */
 fun Route.itemGateRoutes(
     repositoryProvider: RepositoryProvider,
-    schemaService: NoteSchemaService,
+    configResolver: EffectiveConfigResolver,
 ) {
     val workItemRepo = repositoryProvider.workItemRepository()
     val noteRepo = repositoryProvider.noteRepository()
-
-    // Same construction ItemWriteRoutes.kt's schemaResolutionContext uses: honors per-root config
-    // layering via PerRootConfigService, so trait merging and per-root schema overrides behave
-    // identically to the MCP get_context tool for the same item.
-    val context =
-        ToolExecutionContext(
-            repositoryProvider,
-            schemaService,
-            perRootConfigService = PerRootConfigService(repositoryProvider.projectConfigRepository()),
-        )
 
     requireCapability(ApiCapability.READ) {
         // ─── GET /items/{id}/gate ──────────────────────────────────────────────
@@ -658,7 +651,7 @@ fun Route.itemGateRoutes(
             // route (RFC 9110 §15.6.4: 503 describes a temporary server-side inability).
             val resolvedSchema =
                 try {
-                    context.resolveSchema(item)
+                    withConfigSession { configResolver.resolveSchema(item) }
                 } catch (e: PerRootConfigUnavailableException) {
                     call.respond(
                         HttpStatusCode.ServiceUnavailable,

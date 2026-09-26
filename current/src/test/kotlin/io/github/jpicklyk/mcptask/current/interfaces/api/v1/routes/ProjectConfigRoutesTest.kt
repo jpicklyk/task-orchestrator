@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.config.ManageProjectConfigTool
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
+import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiBearerAuth
@@ -747,7 +748,7 @@ class ProjectConfigConvergenceTest {
             val rootViaRest = createRoot(repo, title = "Root Via REST")
 
             // Push via the MCP tool.
-            val tool = ManageProjectConfigTool()
+            val tool = ManageProjectConfigTool(YamlConfigDocumentParser)
             val context = ToolExecutionContext(repo)
             runBlocking {
                 tool.execute(

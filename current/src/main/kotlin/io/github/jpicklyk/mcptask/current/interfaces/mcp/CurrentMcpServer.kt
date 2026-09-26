@@ -1,9 +1,9 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
-import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition
+import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.config.ManagePlanDocumentsTool
@@ -22,7 +22,7 @@ import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetNextItem
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetNextStatusTool
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
-import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlStatusLabelService
+import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.health.ReadinessMarker
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
@@ -38,6 +38,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.logging.installReque
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.configRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.dependencyRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.dependencyWriteRoutes
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.effectiveConfigRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.eventRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.itemGateRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.itemRoutes
@@ -149,7 +150,6 @@ class CurrentMcpServer(
             val toolContext = composition.toolContext
             val apiWiring = composition.apiWiring
             val noteSchemaService = composition.noteSchemaService
-            val statusLabelService = composition.statusLabelService
             val degradedModePolicy = composition.degradedModePolicy
             val idempotencyCache = composition.idempotencyCache
 
@@ -200,7 +200,7 @@ class CurrentMcpServer(
                             toolCount,
                             apiWiring,
                             noteSchemaService,
-                            statusLabelService,
+                            toolContext,
                             degradedModePolicy,
                             idempotencyCache,
                             composition.actorAuthEnabled,
@@ -291,7 +291,7 @@ class CurrentMcpServer(
         toolCount: Int,
         apiWiring: ApiWiring,
         noteSchemaService: WorkItemSchemaService,
-        statusLabelService: StatusLabelService,
+        toolContext: ToolExecutionContext,
         degradedModePolicy: DegradedModePolicy,
         idempotencyCache: IdempotencyCache,
         actorAuthEnabled: Boolean,
@@ -370,7 +370,7 @@ class CurrentMcpServer(
                     serverVersion = version,
                     actorAuthEnabled = actorAuthEnabled,
                     noteSchemaService = noteSchemaService,
-                    statusLabelService = statusLabelService,
+                    toolContext = toolContext,
                     degradedModePolicy = degradedModePolicy,
                     idempotencyCache = idempotencyCache,
                     jwksVerifier = jwksVerifier,
@@ -496,7 +496,7 @@ internal fun buildMcpTools(): List<ToolDefinition> =
         // Phase 3: Context
         GetContextTool(),
         // Per-root schema layering: transport-agnostic config sync
-        ManageProjectConfigTool(),
+        ManageProjectConfigTool(YamlConfigDocumentParser),
         // Per-root plan document store: dual ingestion (REST PUT + MCP stash)
         ManagePlanDocumentsTool(),
     )
@@ -556,7 +556,7 @@ internal fun Application.installRestApiRoutes(
     serverVersion: String,
     actorAuthEnabled: Boolean,
     noteSchemaService: WorkItemSchemaService,
-    statusLabelService: StatusLabelService = YamlStatusLabelService(),
+    toolContext: ToolExecutionContext,
     degradedModePolicy: DegradedModePolicy,
     idempotencyCache: IdempotencyCache,
     jwksVerifier: JwksApiVerifier? = null,
@@ -602,7 +602,7 @@ internal fun Application.installRestApiRoutes(
             )
             // Phase 3: read API — items, notes, dependencies, transitions, search
             itemRoutes(effectiveProvider)
-            itemGateRoutes(effectiveProvider, noteSchemaService)
+            itemGateRoutes(effectiveProvider, toolContext.configResolver)
             noteRoutes(effectiveProvider)
             dependencyRoutes(effectiveProvider)
             transitionRoutes(
@@ -617,15 +617,17 @@ internal fun Application.installRestApiRoutes(
                 effectiveProvider,
                 degradedModePolicy,
                 idempotencyCache,
-                noteSchemaService,
+                toolContext.advanceServiceFactory(),
                 warnOnClaimedAdvance = appConfig.apiWarnOnClaimedAdvance,
-                statusLabelService = statusLabelService,
             )
             noteWriteRoutes(effectiveProvider, degradedModePolicy, idempotencyCache)
             dependencyWriteRoutes(effectiveProvider, degradedModePolicy)
             // Phase 1 (project-config-rest-endpoint): per-root config read/write/delete —
             // converges on the same ProjectConfigPushService the manage_project_config MCP tool uses.
             projectConfigRoutes(effectiveProvider)
+            // Additive per-root effective (layered) config view — same LayeredConfig the MCP
+            // configResolver already computes, surfaced as one REST resource (AR-42).
+            effectiveConfigRoutes(effectiveProvider, toolContext.configResolver, noteSchemaService)
             // plan_documents store: per-root plan document read/write —
             // converges on the same PlanDocumentService the manage_plan_documents MCP tool uses.
             planDocumentRoutes(effectiveProvider)

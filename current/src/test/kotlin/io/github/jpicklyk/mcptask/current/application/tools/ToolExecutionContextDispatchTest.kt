@@ -1,5 +1,8 @@
 package io.github.jpicklyk.mcptask.current.application.tools
 
+import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
+import io.github.jpicklyk.mcptask.current.application.config.ConfigLayer
+import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
 import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
 import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
@@ -194,14 +197,18 @@ class ToolExecutionContextDispatchTest {
                 mapOf(Role.WORK to DispatchProfile(agent = "task-orchestrator:implementer"))
 
             val perRootProfile = DispatchProfile(agent = "p")
-            coEvery { perRoot.getSnapshot(rootId) } returns
-                PerRootConfigService.Snapshot(
-                    workItemSchemas = emptyMap(),
-                    traits = emptyMap(),
-                    noteLimitsModeExplicit = null,
-                    statusLabels = null,
+            coEvery { perRoot.layer(rootId) } returns
+                ConfigLayer(
+                    document =
+                        ConfigDocument(
+                            workItemSchemas = emptyMap(),
+                            traits = emptyMap(),
+                            noteLimitsMode = null,
+                            statusLabels = null,
+                            traitDispatch = mapOf("delegated" to mapOf(Role.WORK to perRootProfile)),
+                        ),
                     fingerprint = "fp",
-                    traitDispatch = mapOf("delegated" to mapOf(Role.WORK to perRootProfile))
+                    source = ConfigSource.PER_ROOT,
                 )
 
             val repoProvider = mockk<RepositoryProvider>(relaxed = true)
@@ -223,14 +230,18 @@ class ToolExecutionContextDispatchTest {
             every { noteSchemaService.getTraitDispatch("delegated") } returns
                 mapOf(Role.WORK to DispatchProfile(agent = "task-orchestrator:implementer"))
 
-            coEvery { perRoot.getSnapshot(rootId) } returns
-                PerRootConfigService.Snapshot(
-                    workItemSchemas = emptyMap(),
-                    traits = emptyMap(),
-                    noteLimitsModeExplicit = null,
-                    statusLabels = null,
+            coEvery { perRoot.layer(rootId) } returns
+                ConfigLayer(
+                    document =
+                        ConfigDocument(
+                            workItemSchemas = emptyMap(),
+                            traits = emptyMap(),
+                            noteLimitsMode = null,
+                            statusLabels = null,
+                            traitDispatch = emptyMap(),
+                        ),
                     fingerprint = "fp",
-                    traitDispatch = emptyMap()
+                    source = ConfigSource.PER_ROOT,
                 )
 
             val repoProvider = mockk<RepositoryProvider>(relaxed = true)
@@ -252,14 +263,18 @@ class ToolExecutionContextDispatchTest {
             every { noteSchemaService.getTraitDispatch("delegated") } returns
                 mapOf(Role.WORK to DispatchProfile(agent = "task-orchestrator:implementer"))
 
-            coEvery { perRoot.getSnapshot(rootId) } returns
-                PerRootConfigService.Snapshot(
-                    workItemSchemas = emptyMap(),
-                    traits = emptyMap(),
-                    noteLimitsModeExplicit = null,
-                    statusLabels = null,
+            coEvery { perRoot.layer(rootId) } returns
+                ConfigLayer(
+                    document =
+                        ConfigDocument(
+                            workItemSchemas = emptyMap(),
+                            traits = emptyMap(),
+                            noteLimitsMode = null,
+                            statusLabels = null,
+                            traitDispatch = mapOf("delegated" to mapOf(Role.REVIEW to DispatchProfile(agent = "reviewer-only"))),
+                        ),
                     fingerprint = "fp",
-                    traitDispatch = mapOf("delegated" to mapOf(Role.REVIEW to DispatchProfile(agent = "reviewer-only")))
+                    source = ConfigSource.PER_ROOT,
                 )
 
             val repoProvider = mockk<RepositoryProvider>(relaxed = true)
@@ -291,7 +306,7 @@ class ToolExecutionContextDispatchTest {
             val profile = ctx.resolveDispatchProfile(item, Role.WORK, schema(emptyList()))
 
             assertNull(profile)
-            coVerify(exactly = 0) { perRoot.getSnapshot(any()) }
+            coVerify(exactly = 0) { perRoot.layer(any()) }
         }
 
     @Test

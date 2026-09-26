@@ -1,6 +1,13 @@
 package io.github.jpicklyk.mcptask.current.application.tools
 
+import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
+import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
+import io.github.jpicklyk.mcptask.current.application.config.LayeredConfig
+import io.github.jpicklyk.mcptask.current.application.config.PerRootConfigSource
+import io.github.jpicklyk.mcptask.current.application.config.SchemaMatch
+import io.github.jpicklyk.mcptask.current.application.config.ServiceBackedGlobalLookup
 import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
+import io.github.jpicklyk.mcptask.current.application.service.AdvanceServiceFactory
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
 import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommender
 import io.github.jpicklyk.mcptask.current.application.service.NoOpActorVerifier
@@ -11,10 +18,8 @@ import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeExecutor
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
-import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition
-import io.github.jpicklyk.mcptask.current.domain.model.ResourceMode
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
@@ -24,9 +29,7 @@ import io.github.jpicklyk.mcptask.current.domain.repository.NoteRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.RoleTransitionRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
-import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
-import org.slf4j.LoggerFactory
 import java.util.UUID
 
 /**
@@ -49,8 +52,33 @@ class ToolExecutionContext(
             repositoryProvider.workItemRepository(),
             repositoryProvider.dependencyRepository()
         ),
-    private val perRootConfigService: PerRootConfigService? = null,
+    perRootConfigService: PerRootConfigSource? = null,
+    /**
+     * The single resolution entry point every resolver method below delegates to. Defaults to a
+     * resolver over the legacy global services and `perRootConfigService`, so existing
+     * constructions compile and behave unchanged.
+     */
+    val configResolver: EffectiveConfigResolver =
+        EffectiveConfigResolver(
+            ServiceBackedGlobalLookup(noteSchemaService, statusLabelService),
+            perRootConfigService
+        ),
 ) {
+    /**
+     * Lazy so 17+ test files that strict-mock [RepositoryProvider] are unaffected by an eager
+     * accessor call at construction time; built once per [ToolExecutionContext] instance.
+     */
+    private val advanceServiceFactoryLazy by lazy {
+        AdvanceServiceFactory(
+            workItemRepository(),
+            roleTransitionRepository(),
+            dependencyRepository(),
+            noteRepository(),
+            repositoryProvider.resourceLeaseRepository(),
+            configResolver
+        )
+    }
+
     /** Access to WorkItem CRUD and query operations. */
     fun workItemRepository(): WorkItemRepository = repositoryProvider.workItemRepository()
 
@@ -80,193 +108,55 @@ class ToolExecutionContext(
 
     /**
      * Resolves the effective [WorkItemSchema] for a [WorkItem], including trait note merging.
-     *
-     * ## Root layering
-     *
-     * When [item] has a non-null `rootId` and this context was constructed with a
-     * [perRootConfigService], every lookup below first consults that root's pushed config
-     * (via [PerRootConfigService]) before falling back to the global `.taskorchestrator/config.yaml`
-     * loader ([noteSchemaService]). A null `rootId` (legacy pre-backfill rows, or no
-     * [perRootConfigService] wired) skips the per-root layer entirely — zero extra calls, behavior
-     * byte-identical to before this layering was added.
-     *
-     * Per-key fallback table — both the type step and the tag step are **whole-algorithm-first**:
-     * the entire per-root resolution (exact match, then per-root `"default"`) runs to completion
-     * before the global layer is consulted at all:
-     *
-     * | Resolution step | Precedence |
-     * |---|---|
-     * | Type lookup | per-root exact type -> per-root `"default"` -> global exact type -> global `"default"` (the last step is [NoteSchemaService.getSchemaForType]'s own internal fallback) |
-     * | Tag lookup | per-root first-matching-tag -> per-root `"default"` -> global first-matching-tag -> global `"default"` (see [resolvePerRootTagMatch]) |
-     * | Trait notes | `perRoot.getTraitNotes(rootId, name) ?: global.getTraitNotes(name)`, per trait name |
-     *
-     * This intentionally means a per-root `"default"` schema wins over a global *exact* type match:
-     * once a root has pushed its own config, that config is treated as the root's complete
-     * self-description for gate purposes, not a patch over the global floor. A project that wants
-     * zero required notes for every item type can push a per-root config with an empty default
-     * schema (`work_item_schemas: { default: { notes: [] } } }`) to fence off the global config
-     * entirely — see `config-format.md` for the schema-free / non-dev project pattern.
-     *
-     * Note length limits ([NoteSchemaService.getNoteLimitsMode]) and anything else not exposed by
-     * [PerRootConfigService] stay global-only — [PerRootConfigService] does not expose them.
-     *
-     * Resolution order (unchanged from before layering, now with the per-root prefix above):
-     * 1. If the item has a `type`, look up the schema by type (per-root layer first, see table above).
-     * 2. If no type or no type-based schema found, look up by tags (per-root layer first, see table above)
-     *    (first matching tag wins; falls back to default schema if no tag matches).
-     * 3. Returns null if no schema matches (schema-free mode).
-     *
-     * After base schema resolution, trait notes are merged in:
-     * - Default traits from the matched schema's [WorkItemSchema.defaultTraits]
-     * - Per-item traits from the item's `properties` JSON (`traits` array via [PropertiesHelper])
-     * - Base schema note keys always win; first-trait-in-order wins for duplicate trait keys
+     * Delegates to [EffectiveConfigResolver.resolveSchema]; see [LayeredConfig] for the LEGACY
+     * per-root-over-global precedence table (type step, tag step, trait notes).
      */
-    suspend fun resolveSchema(item: WorkItem): WorkItemSchema? {
-        val service = noteSchemaService()
-        val snapshot = snapshotFor(item.rootId)
-        val baseSchema = resolveBaseSchemaWithSource(item, snapshot, service)?.first ?: return null
-        return mergeTraits(item, baseSchema, snapshot, service)
-    }
+    suspend fun resolveSchema(item: WorkItem): WorkItemSchema? = configResolver.resolveSchema(item)
 
     /**
      * Same resolution as [resolveSchema], but also reports which config layer supplied the BASE
-     * schema (the type/tag lookup step — see [resolveBaseSchemaWithSource]) and that layer's
-     * config fingerprint. Trait notes are merged in identically to [resolveSchema] and may
-     * originate from a different layer than the base schema (see [mergeTraits]); [ResolvedSchema.source]
-     * and [ResolvedSchema.fingerprint] describe the base schema's provenance only — this is what
-     * `query_items`'s `schema` operation needs for its `configSource`/`configFingerprint` fields.
+     * schema and that layer's config fingerprint, which is what `query_items`'s `schema` operation
+     * needs for its `configSource`/`configFingerprint` fields. Delegates to
+     * [EffectiveConfigResolver.resolveSchemaWithSource].
      */
-    suspend fun resolveSchemaWithSource(item: WorkItem): ResolvedSchema? {
-        val service = noteSchemaService()
-        val snapshot = snapshotFor(item.rootId)
-        val (baseSchema, source) = resolveBaseSchemaWithSource(item, snapshot, service) ?: return null
-        val merged = mergeTraits(item, baseSchema, snapshot, service)
-        return ResolvedSchema(merged, source, fingerprintFor(source, snapshot, service))
-    }
+    suspend fun resolveSchemaWithSource(item: WorkItem): ResolvedSchema? = configResolver.resolveSchemaWithSource(item)
 
     /**
      * Type-only counterpart to [resolveSchemaWithSource] for callers that have a type name but no
-     * [WorkItem] (e.g. `query_items(operation="schema", type=...)`). Mirrors [resolveTypeAgainstLayers]
-     * only — no tag fallback (there's no item to carry tags) and no trait merging (there's no item
-     * to carry `properties`). Returns null when neither layer defines [type].
+     * [WorkItem]: no tag fallback and no trait merging. Returns null when neither layer defines [type].
      */
     suspend fun resolveTypeSchema(
         type: String,
         rootId: UUID?
-    ): ResolvedSchema? {
-        val service = noteSchemaService()
-        val snapshot = snapshotFor(rootId)
-        val (schema, source) = resolveTypeAgainstLayers(type, snapshot, service) ?: return null
-        return ResolvedSchema(schema, source, fingerprintFor(source, snapshot, service))
-    }
+    ): ResolvedSchema? = configResolver.resolveTypeSchema(type, rootId)
 
     /**
-     * Returns true if the resolved (trait-merged) schema for [item] has a REVIEW phase.
-     * Convenience wrapper around [resolveSchema] + [WorkItemSchema.hasReviewPhase].
-     * Returns false when no schema matches (schema-free mode — skip REVIEW).
+     * Returns true if the resolved (trait-merged) schema for [item] has a REVIEW phase; false when
+     * no schema matches (schema-free mode, skip REVIEW).
      */
-    suspend fun resolveHasReviewPhase(item: WorkItem): Boolean = resolveSchema(item)?.hasReviewPhase() ?: false
+    suspend fun resolveHasReviewPhase(item: WorkItem): Boolean = configResolver.resolveHasReviewPhase(item)
 
     /**
-     * Resolves the effective [ResourceRequirement] list for [item]'s traits — the config/domain
-     * layer only; nothing here acquires or enforces a lease (a follow-on task consumes this list to
-     * do that).
-     *
-     * Trait list = `(base schema's defaultTraits, if a schema resolves) + PropertiesHelper.extractTraits(item.properties)`,
-     * deduplicated preserving order — the exact same trait set [mergeTraits] uses for note merging.
-     * Deliberately reuses [resolveBaseSchemaWithSource] ONLY for its `defaultTraits`, tolerating a
-     * null base schema: an item with no resolvable schema (schema-free type/tags) is NOT exempt from
-     * resource resolution — its `properties`-carried traits are still honored, so a schema-free item
-     * can still declare (and later have leased) a resource.
-     *
-     * Per trait, resource requirements are layered exactly like trait notes ([mergeTraits]): the
-     * ALREADY-fetched per-root [snapshotFor] snapshot's `traitResources[name]` wins over the global
-     * [NoteSchemaService.getTraitResources]; a trait absent from both layers contributes nothing (no
-     * warning — an unknown trait is already warned about by [mergeTraits] when notes are resolved).
-     *
-     * Merge across traits is a UNION of keys (a requirement is never dropped for being a duplicate):
-     * on a duplicate key, [ResourceMode.EXCLUSIVE] wins over [ResourceMode.ADVISORY] regardless of
-     * which trait declared which mode, and `ttlSeconds` keeps the FIRST-seen (in trait-iteration
-     * order) non-null value — a later trait's ttl override for the same key is ignored once one is
-     * already recorded.
+     * Resolves the effective [ResourceRequirement] list for [item]'s traits (config layer only;
+     * nothing here acquires or enforces a lease). Delegates to
+     * [EffectiveConfigResolver.resolveResourceRequirements].
      */
-    suspend fun resolveResourceRequirements(item: WorkItem): List<ResourceRequirement> {
-        val service = noteSchemaService()
-        val snapshot = snapshotFor(item.rootId)
-        val baseSchema = resolveBaseSchemaWithSource(item, snapshot, service)?.first
-        val defaultTraits = baseSchema?.defaultTraits ?: emptyList()
-        val itemTraits = PropertiesHelper.extractTraits(item.properties)
-        val allTraits = (defaultTraits + itemTraits).distinct()
-        return mergeResourceRequirements(allTraits, snapshot, service)
-    }
+    suspend fun resolveResourceRequirements(item: WorkItem): List<ResourceRequirement> = configResolver.resolveResourceRequirements(item)
 
     /**
-     * Type-only counterpart to [resolveResourceRequirements] for callers that have a resolved
-     * type schema's `defaultTraits` but no [WorkItem] (e.g. `query_items(operation="schema",
-     * type=...)`'s type path) — there is no item to contribute `properties`-carried traits, so
-     * [defaultTraits] is the complete trait set. Layering (per-root snapshot for [rootId] wins per
-     * trait) and the cross-trait merge (union of keys, EXCLUSIVE wins on a duplicate key,
-     * first-seen wins for `ttlSeconds`) are identical to [resolveResourceRequirements] — both
-     * funnel through [mergeResourceRequirements].
+     * Type-only counterpart to [resolveResourceRequirements]: [defaultTraits] is the complete trait
+     * set. Delegates to [EffectiveConfigResolver.resolveResourceRequirementsForType].
      */
     suspend fun resolveResourceRequirementsForType(
         defaultTraits: List<String>,
         rootId: UUID?
-    ): List<ResourceRequirement> {
-        val service = noteSchemaService()
-        val snapshot = snapshotFor(rootId)
-        return mergeResourceRequirements(defaultTraits.distinct(), snapshot, service)
-    }
+    ): List<ResourceRequirement> = configResolver.resolveResourceRequirementsForType(defaultTraits, rootId)
 
     /**
-     * Shared cross-trait resource-requirement merge, extracted from [resolveResourceRequirements]
-     * so [resolveResourceRequirementsForType] (no [WorkItem] in hand) can reuse the exact same
-     * layering and merge semantics against an already-computed trait list — behavior-preserving
-     * for the item path, which passes the identical `(defaultTraits + itemTraits).distinct()` list
-     * it always has.
-     *
-     * Per trait, the ALREADY-fetched [snapshot]'s `traitResources[name]` wins over the global
-     * [NoteSchemaService.getTraitResources]. Merge across traits is a UNION of keys: on a
-     * duplicate key, [ResourceMode.EXCLUSIVE] wins over [ResourceMode.ADVISORY] regardless of
-     * which trait declared which mode, and `ttlSeconds` keeps the FIRST-seen (in [traits]
-     * iteration order) non-null value.
-     */
-    private fun mergeResourceRequirements(
-        traits: List<String>,
-        snapshot: PerRootConfigService.Snapshot?,
-        service: NoteSchemaService
-    ): List<ResourceRequirement> {
-        if (traits.isEmpty()) return emptyList()
-
-        val merged = LinkedHashMap<String, ResourceRequirement>()
-        for (traitName in traits) {
-            val perRootRequirements = snapshot?.traitResources?.get(traitName)
-            val requirements = perRootRequirements ?: service.getTraitResources(traitName)
-            for (requirement in requirements) {
-                val existing = merged[requirement.key]
-                if (existing == null) {
-                    merged[requirement.key] = requirement
-                } else if (existing.mode != ResourceMode.EXCLUSIVE && requirement.mode == ResourceMode.EXCLUSIVE) {
-                    merged[requirement.key] = existing.copy(mode = ResourceMode.EXCLUSIVE)
-                }
-                // else: keep the first-seen entry as-is — first-seen wins for ttlSeconds, and the
-                // mode is already EXCLUSIVE (nothing beats it) or unchanged ADVISORY-vs-ADVISORY.
-            }
-        }
-        return merged.values.toList()
-    }
-
-    /**
-     * Resolves the dispatch routing profile for [item] at [role] — who/what should pick up that
-     * phase, per the `dispatch` trait dimension (`traits.<name>.dispatch.<phase>:`). Convenience
-     * overload for callers with no already-resolved schema in hand: resolves it internally via
-     * [resolveSchema], then delegates to the 3-arg overload below.
-     *
-     * Callers that already have a resolved [WorkItemSchema] for [item] — [resolveSchema]'s own
-     * result, or [AdvanceOutcome][io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome.Success.resolvedSchema]
-     * on an advance — MUST use the 3-arg overload instead: this one costs a second, redundant
-     * schema resolution (and its own per-root snapshot fetch) on top of whatever the caller already
-     * did.
+     * Resolves the dispatch routing profile for [item] at [role]. Convenience overload for callers
+     * with no already-resolved schema in hand: resolves it via [resolveSchema] first, then delegates
+     * to the 3-arg overload. Callers that already have a resolved schema MUST use the 3-arg overload
+     * instead: this one costs a second, redundant schema resolution (and its own per-root read).
      */
     suspend fun resolveDispatchProfile(
         item: WorkItem,
@@ -277,161 +167,51 @@ class ToolExecutionContext(
     }
 
     /**
-     * Resolves the dispatch routing profile for [item] at [role], using [resolvedSchema] (already
-     * resolved via [resolveSchema]/[resolveSchemaWithSource], or carried on an advance outcome) for
-     * its `defaultTraits` instead of re-resolving the schema. This is the overload
-     * [io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool],
-     * [io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool] and
-     * `QueryItemsTool`'s `itemId` path use, since all three already have a resolved schema in hand
-     * — reusing it here means a trait-less item costs zero EXTRA per-root snapshot fetches beyond
-     * whatever schema resolution already made (`AdvanceItemToolTest.kt:2119` pins the snapshot-fetch
-     * count for a rooted, trait-less advance at exactly 3; a 4th fetch from this method would break
-     * it — see the empty-trait-list early return below).
-     *
-     * ## Trait order is the REVERSE of [mergeTraits]
-     *
-     * Trait order here is per-item traits ([PropertiesHelper.extractTraits]) FIRST, then
-     * [resolvedSchema]'s `defaultTraits` — the mirror image of [mergeTraits]'s note-merging order
-     * (defaultTraits first, base schema keys win). An item-level trait is treated as an explicit,
-     * one-off escalation that should win dispatch ROUTING (who picks this item up), whereas note
-     * MERGING wants the type's own base notes to take precedence over trait-contributed ones on a
-     * key collision — the two dimensions optimize for different things, so they intentionally
-     * disagree on order.
-     *
-     * ## Resolution
-     *
-     * Per trait (in the order above), the ALREADY-fetched per-root [snapshotFor] snapshot's
-     * `traitDispatch[name]` wins over the global [NoteSchemaService.getTraitDispatch] — layered
-     * exactly like [resolveResourceRequirements]. A per-root trait entry with no profile for
-     * [role] does NOT fall through to the global entry for that role: a per-root map is treated as
-     * that trait's complete dispatch definition for the root, not a patch. The FIRST trait (in
-     * order) with a profile for [role] wins OUTRIGHT — the whole [DispatchProfile], never merged
-     * field-by-field across traits.
+     * Resolves the dispatch routing profile for [item] at [role], using [resolvedSchema]'s
+     * `defaultTraits` instead of re-resolving the schema. A trait-less item costs zero per-root
+     * reads (`AdvanceItemToolTest.kt:2119` pins the rooted, trait-less advance's read count). Trait
+     * order is item traits first, then defaultTraits (the reverse of note merging). Delegates to
+     * [EffectiveConfigResolver.resolveDispatchProfile].
      */
     suspend fun resolveDispatchProfile(
         item: WorkItem,
         role: Role,
         resolvedSchema: WorkItemSchema?
-    ): DispatchProfile? = resolveDispatchProfilesForTraits(dispatchTraitsFor(item, resolvedSchema), item.rootId)[role]
+    ): DispatchProfile? = configResolver.resolveDispatchProfile(item, role, resolvedSchema)
 
     /**
-     * Per-phase counterpart to the 3-arg [resolveDispatchProfile]: resolves a profile for EVERY
-     * phase (QUEUE/WORK/REVIEW) that [item]'s traits declare, instead of a single [role]. Used by
-     * `QueryItemsTool`'s `itemId` path for the `schema` operation, which reports the full per-phase
-     * dispatch map (not just the item's current-role profile) — same trait order, same layering,
-     * same first-trait-wins-per-role semantics as the 3-arg overload; see its KDoc.
+     * Per-phase counterpart to the 3-arg [resolveDispatchProfile]: a profile for EVERY phase
+     * [item]'s traits declare. Delegates to [EffectiveConfigResolver.resolveDispatchProfiles].
      */
     suspend fun resolveDispatchProfiles(
         item: WorkItem,
         resolvedSchema: WorkItemSchema?
-    ): Map<Role, DispatchProfile> = resolveDispatchProfilesForTraits(dispatchTraitsFor(item, resolvedSchema), item.rootId)
+    ): Map<Role, DispatchProfile> = configResolver.resolveDispatchProfiles(item, resolvedSchema)
 
     /**
-     * Type-only counterpart to [resolveDispatchProfiles] for callers that have a resolved type
-     * schema's `defaultTraits` but no [WorkItem] (e.g. `query_items(operation="schema", type=...)`'s
-     * type path) — there is no item to contribute `properties`-carried traits, so [defaultTraits]
-     * is the complete trait set, order unchanged. Layering and first-trait-wins-per-role semantics
-     * are identical to [resolveDispatchProfiles].
+     * Type-only counterpart to [resolveDispatchProfiles]: [defaultTraits] is the complete trait set.
+     * Delegates to [EffectiveConfigResolver.resolveDispatchProfilesForType].
      */
     suspend fun resolveDispatchProfilesForType(
         defaultTraits: List<String>,
         rootId: UUID?
-    ): Map<Role, DispatchProfile> = resolveDispatchProfilesForTraits(defaultTraits.distinct(), rootId)
-
-    /** Trait list for dispatch resolution: item traits first, then [resolvedSchema]'s defaultTraits — see [resolveDispatchProfile]'s KDoc for why this order is reversed from [mergeTraits]. */
-    private fun dispatchTraitsFor(
-        item: WorkItem,
-        resolvedSchema: WorkItemSchema?
-    ): List<String> {
-        val itemTraits = PropertiesHelper.extractTraits(item.properties)
-        val defaultTraits = resolvedSchema?.defaultTraits ?: emptyList()
-        return (itemTraits + defaultTraits).distinct()
-    }
+    ): Map<Role, DispatchProfile> = configResolver.resolveDispatchProfilesForType(defaultTraits, rootId)
 
     /**
-     * Shared per-trait dispatch resolution: for each trait in [traits] (in order), the
-     * ALREADY-fetched per-root snapshot for [rootId] wins over the global
-     * [NoteSchemaService.getTraitDispatch]; the first trait to define a profile for a given [Role]
-     * claims that role in the result, later traits cannot override it. Returns null BEFORE
-     * fetching a per-root snapshot when [traits] is empty — the common case (an item/type with no
-     * dispatch-bearing trait) costs zero extra snapshot fetches.
+     * Resolves the effective resource registry (top-level `resources:`) visible to [rootId]. GLOBAL
+     * WINS on a key collision (logged). Delegates to [EffectiveConfigResolver.resolveResourceRegistry].
      */
-    private suspend fun resolveDispatchProfilesForTraits(
-        traits: List<String>,
-        rootId: UUID?
-    ): Map<Role, DispatchProfile> {
-        if (traits.isEmpty()) return emptyMap()
-
-        val service = noteSchemaService()
-        val snapshot = snapshotFor(rootId)
-        val result = LinkedHashMap<Role, DispatchProfile>()
-        for (traitName in traits) {
-            val perRootDispatch = snapshot?.traitDispatch?.get(traitName)
-            val dispatch = perRootDispatch ?: service.getTraitDispatch(traitName)
-            for ((role, profile) in dispatch) {
-                if (role !in result) {
-                    result[role] = profile
-                }
-            }
-        }
-        return result
-    }
+    suspend fun resolveResourceRegistry(rootId: UUID?): Map<String, ResourceDefinition> = configResolver.resolveResourceRegistry(rootId)
 
     /**
-     * Resolves the effective resource registry (top-level `resources:`) visible to [rootId].
-     *
-     * ## GLOBAL WINS on collision — the inverse of trait/note layering
-     *
-     * Every other per-root resolver in this class has the per-root layer win over the global layer
-     * (a project's own config is treated as more specific). This resolver inverts that: it starts
-     * from [rootId]'s per-root registry, then OVERWRITES any colliding key with the GLOBAL entry.
-     * Rationale: a resource key is a lock/lease NAMESPACE that is server-global by construction (the
-     * whole point of `exclusive` mode is coordinating holders across possibly-different projects
-     * sharing the same server) — a per-root redefinition of a globally-known key would otherwise
-     * silently fork the namespace two ways depending on which config layer a caller consulted. A
-     * collision (the same key present in both layers) is logged as a warning; the global definition
-     * is used either way. A null [rootId] or no wired [perRootConfigService] simply yields the global
-     * registry unchanged (no per-root entries to start from).
+     * Layered `note_limits.mode` resolution: [rootId]'s per-root explicit value wins, else the
+     * global mode. Delegates to [EffectiveConfigResolver.resolveNoteLimitsMode].
      */
-    suspend fun resolveResourceRegistry(rootId: UUID?): Map<String, ResourceDefinition> {
-        val perRootRegistry = snapshotFor(rootId)?.resourceRegistry ?: emptyMap()
-        val globalRegistry = noteSchemaService().getResourceRegistry()
-
-        val merged = LinkedHashMap<String, ResourceDefinition>(perRootRegistry)
-        for ((key, definition) in globalRegistry) {
-            if (merged.containsKey(key)) {
-                logger.warn(
-                    "Resource registry key '{}' is defined in both per-root and global config for root '{}'; " +
-                        "global definition wins",
-                    key,
-                    rootId
-                )
-            }
-            merged[key] = definition
-        }
-        return merged
-    }
+    suspend fun resolveNoteLimitsMode(rootId: UUID?): String = configResolver.resolveNoteLimitsMode(rootId)
 
     /**
-     * Layered `note_limits.mode` resolution: [rootId]'s per-root config wins when it explicitly
-     * configures `note_limits` (see [PerRootConfigService.getNoteLimitsMode] for the absent-vs-explicit
-     * distinction); otherwise falls back to the global [noteSchemaService]'s mode. A null [rootId] or
-     * no wired [perRootConfigService] skips the per-root layer entirely — byte-identical to the
-     * pre-layering global-only behavior.
-     */
-    suspend fun resolveNoteLimitsMode(rootId: UUID?): String {
-        val perRootMode = snapshotFor(rootId)?.noteLimitsModeExplicit
-        return perRootMode ?: noteSchemaService().getNoteLimitsMode()
-    }
-
-    /**
-     * Layered status-label resolution for a single [trigger]: [rootId]'s per-root `status_labels`
-     * map wins ONLY when it explicitly contains [trigger] as a key (its value may itself be null,
-     * meaning "this root explicitly clears the label for this trigger" — see
-     * [PerRootConfigService.getStatusLabels]); a trigger key absent from the per-root map (including
-     * when there is no per-root `status_labels` section at all) falls through to the global
-     * [statusLabelService]. A null [rootId] or no wired [perRootConfigService] skips the per-root
-     * layer entirely.
+     * Layered status-label resolution for a single [trigger]: an explicit per-root key for
+     * [trigger] wins (including an explicit `null` value); otherwise the global label.
      */
     suspend fun resolveStatusLabel(
         trigger: String,
@@ -439,273 +219,49 @@ class ToolExecutionContext(
     ): String? = resolveStatusLabels(listOf(trigger), rootId)[trigger]
 
     /**
-     * Batched counterpart to [resolveStatusLabel]: resolves every trigger in [triggers] against
-     * [rootId]'s layered status-label config from a SINGLE per-root snapshot fetch instead of one
-     * fetch per trigger — callers resolving more than one trigger for the same item (e.g.
-     * `AdvanceItemTool`'s root-aware [StatusLabelService], which needs the primary trigger plus the
-     * system-internal "cascade" trigger) should call this once rather than [resolveStatusLabel] in
-     * a loop. Per-trigger precedence is identical to [resolveStatusLabel]: an explicit per-root key
-     * for that trigger wins (including an explicit `null` value — see
-     * [PerRootConfigService.getStatusLabels]); a trigger absent from the per-root map falls through
-     * to the global [statusLabelService].
+     * Batched counterpart to [resolveStatusLabel]: every trigger in [triggers] from a SINGLE
+     * per-root read. Delegates to [EffectiveConfigResolver.resolveStatusLabels].
      */
     suspend fun resolveStatusLabels(
         triggers: Collection<String>,
         rootId: UUID?
-    ): Map<String, String?> {
-        val perRootLabels = snapshotFor(rootId)?.statusLabels
-        val global = statusLabelService()
-        return triggers.associateWith { trigger ->
-            if (perRootLabels != null && perRootLabels.containsKey(trigger)) {
-                perRootLabels[trigger]
-            } else {
-                global.resolveLabel(trigger)
-            }
-        }
-    }
+    ): Map<String, String?> = configResolver.resolveStatusLabels(triggers, rootId)
 
     /**
-     * Builds a [StatusLabelService] bound to a single item's [rootId] and pre-resolved for
-     * [trigger], for handing to [io.github.jpicklyk.mcptask.current.application.service.AdvanceService]
-     * (whose constructor takes a plain, non-suspending [StatusLabelService] and has no rootId
-     * awareness of its own). Since [StatusLabelService.resolveLabel] is synchronous, the per-root
-     * layering ([resolveStatusLabels]) must run to completion BEFORE this method returns; the
-     * resulting map is then served from a trivial synchronous lookup.
-     *
-     * Resolves every trigger key a single `advance()` call can ever consult: the primary [trigger]
-     * itself, `"complete"` (consulted instead of `"start"` when a start resolves to TERMINAL — see
-     * bug 100da214 / [io.github.jpicklyk.mcptask.current.application.service.AdvanceService.advance]),
-     * and the system-internal `"cascade"` trigger (consulted only when a cascade is detected and
-     * applied). [resolveStatusLabels] collapses this 3-key resolution into a SINGLE per-root
-     * snapshot fetch rather than one per trigger, so widening the set costs nothing extra.
-     *
-     * Shared by [io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool]
-     * (MCP) and the REST `POST /items/{id}/advance` route so both paths resolve config-driven,
-     * per-root status labels identically (bug 80e48e55 — REST previously constructed its
-     * [io.github.jpicklyk.mcptask.current.application.service.AdvanceService] with
-     * [io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService] and never
-     * applied labels at all).
+     * Builds a synchronous [StatusLabelService] bound to [rootId] and pre-resolved for [trigger],
+     * `"complete"` and `"cascade"`, for handing to
+     * [io.github.jpicklyk.mcptask.current.application.service.AdvanceService]. Shared by the MCP
+     * advance tool and the REST advance route (bug 80e48e55). Delegates to
+     * [EffectiveConfigResolver.rootBoundStatusLabels].
      */
     suspend fun rootAwareStatusLabelService(
         rootId: UUID?,
         trigger: String
-    ): StatusLabelService {
-        val consultedTriggers = setOf(trigger, "complete", "cascade")
-        val resolved = resolveStatusLabels(consultedTriggers, rootId)
-        return object : StatusLabelService {
-            override fun resolveLabel(trigger: String): String? = resolved[trigger]
-        }
-    }
+    ): StatusLabelService = configResolver.rootBoundStatusLabels(rootId, trigger)
 
     /**
-     * Returns the union of trait names available for the given [rootIds], per-root traits first
-     * (in [rootIds] iteration order), followed by the global trait list — deduplicated, preserving
-     * first-seen order. Used by response hints (e.g. `availableTraits` on item creation) so callers
-     * discover per-root traits alongside the global ones without a separate lookup.
-     *
-     * Roots with no pushed config (or no [perRootConfigService] wired at all) contribute nothing —
-     * this degrades to the plain global trait list, unchanged from before this method existed.
+     * Returns the union of trait names available for the given [rootIds], per-root traits first,
+     * followed by the global trait list, distinct. Delegates to
+     * [EffectiveConfigResolver.availableTraits].
      */
-    suspend fun availableTraits(rootIds: Collection<UUID>): List<String> {
-        val perRoot = perRootConfigService
-        val perRootTraits =
-            if (perRoot != null) {
-                rootIds.flatMap { rootId ->
-                    perRoot
-                        .getSnapshot(rootId)
-                        ?.traits
-                        ?.keys
-                        .orEmpty()
-                }
-            } else {
-                emptyList()
-            }
-        return (perRootTraits + noteSchemaService().getAvailableTraits()).distinct()
-    }
+    suspend fun availableTraits(rootIds: Collection<UUID>): List<String> = configResolver.availableTraits(rootIds)
 
     /**
-     * Fetches [rootId]'s [PerRootConfigService.Snapshot] in ONE call, or null when [rootId] is
-     * null, no [perRootConfigService] is wired, or the root has no per-root config (no row, or a
-     * row that fails to parse). Every per-root-aware resolver below (schema/tag/trait lookup,
-     * note-limits mode, status labels, fingerprint) takes this ALREADY-fetched snapshot as a
-     * parameter instead of independently calling the single-facet accessors on
-     * [PerRootConfigService] — each of those would otherwise re-invoke [PerRootConfigService.resolve]
-     * on its own, costing a redundant fingerprint-read per facet even when the cache is warm.
-     *
-     * Propagates [io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException]
-     * unchanged when [PerRootConfigService.getSnapshot] throws it (a per-root config read failed and
-     * there is no last-known-good entry for [rootId]) — this method, and every resolver in this class
-     * that calls it (including [resolveSchema] and [availableTraits]), does NOT catch it: a config
-     * read failure must surface as a failure, never as "no per-root config, use the global layer".
-     * Callers at an operation boundary (`AdvanceItemTool`, `CompleteTreeTool`, `McpToolAdapter`, the
-     * REST advance/gate routes, etc.) are responsible for catching it and reporting the transient
-     * `config_unavailable` outcome.
+     * The shared [AdvanceServiceFactory] for this context, backing every `advance_item` /
+     * `complete_tree` construction of [io.github.jpicklyk.mcptask.current.application.service.AdvanceService].
      */
-    private suspend fun snapshotFor(rootId: UUID?): PerRootConfigService.Snapshot? = rootId?.let { perRootConfigService?.getSnapshot(it) }
-
-    /**
-     * Returns the fingerprint associated with a resolved schema's [source], from the SAME
-     * [snapshot] used to resolve it (PER_ROOT) or from the global loader (GLOBAL) — the tiny shared
-     * helper behind [resolveSchemaWithSource] and [resolveTypeSchema], replacing what used to be a
-     * duplicated 4-line `when (source)` expression in each.
-     */
-    private fun fingerprintFor(
-        source: SchemaSource,
-        snapshot: PerRootConfigService.Snapshot?,
-        service: NoteSchemaService
-    ): String? =
-        when (source) {
-            SchemaSource.PER_ROOT -> snapshot?.fingerprint
-            SchemaSource.GLOBAL -> service.getConfigFingerprint()
-        }
-
-    /**
-     * Resolves the base schema (no trait merging), returning which layer ([SchemaSource]) supplied
-     * it alongside the schema itself. Type-first lookup with tag fallback, each layered
-     * per-root-then-global against the ALREADY-fetched [snapshot] — see [resolveSchema]'s KDoc for
-     * the full fallback table.
-     */
-    private fun resolveBaseSchemaWithSource(
-        item: WorkItem,
-        snapshot: PerRootConfigService.Snapshot?,
-        service: NoteSchemaService
-    ): Pair<WorkItemSchema, SchemaSource>? {
-        // Type-first lookup: whole-algorithm-first per layer. Run the ENTIRE per-root layer
-        // (exact type match, then per-root "default") before ever consulting the global layer.
-        // Only when neither per-root key matches (no config row for this root, or a row with
-        // neither the exact type nor "default" defined) do we fall through to the global lookup
-        // (which has its own type -> "default" fallback — see class KDoc above).
-        item.type?.let { type ->
-            resolveTypeAgainstLayers(type, snapshot, service)?.let { return it }
-        }
-
-        // Tag fallback: run the per-root schema map through the SAME first-tag-match/"default"
-        // algorithm first; only fall through to the global tag algorithm when the per-root layer
-        // has no config row for this root, or no tag (nor "default") matches within it.
-        val tags = item.tagList()
-        if (snapshot != null) {
-            resolvePerRootTagMatch(tags, snapshot)?.let { return it to SchemaSource.PER_ROOT }
-        }
-
-        // Tag fallback: find the matched tag, then look up the full WorkItemSchema
-        // to preserve lifecycleMode and defaultTraits from config
-        val tagNotes = service.getSchemaForTags(tags) ?: return null
-        val matchedType =
-            if (tags.isEmpty()) {
-                "default"
-            } else {
-                tags.firstOrNull { tag -> service.getSchemaForTags(listOf(tag)) != null } ?: "default"
-            }
-        // Retrieve the full WorkItemSchema (with lifecycle/defaultTraits) if available.
-        // Re-use tagNotes from above to avoid a redundant getSchemaForTags call in the fallback.
-        val resolved = service.getSchemaForType(matchedType) ?: WorkItemSchema(type = matchedType, notes = tagNotes)
-        return resolved to SchemaSource.GLOBAL
-    }
-
-    /**
-     * Runs the type-lookup step shared by [resolveBaseSchemaWithSource] and [resolveTypeSchema]:
-     * per-root exact type -> per-root `"default"` -> global exact type (which has its own internal
-     * `-> global "default"` fallback — see [resolveSchema]'s KDoc table), against the
-     * ALREADY-fetched [snapshot]. Whole-algorithm-first: the entire per-root probe runs to
-     * completion before the global layer is consulted at all. Returns null when neither layer
-     * defines [type].
-     */
-    private fun resolveTypeAgainstLayers(
-        type: String,
-        snapshot: PerRootConfigService.Snapshot?,
-        service: NoteSchemaService
-    ): Pair<WorkItemSchema, SchemaSource>? {
-        if (snapshot != null) {
-            val perRootMatch = snapshot.workItemSchemas[type] ?: snapshot.workItemSchemas["default"]
-            if (perRootMatch != null) return perRootMatch to SchemaSource.PER_ROOT
-        }
-        return service.getSchemaForType(type)?.let { it to SchemaSource.GLOBAL }
-    }
-
-    /**
-     * Runs the same "first matching tag wins, else `default`" algorithm [resolveBaseSchemaWithSource]
-     * uses against the global service, but against the ALREADY-fetched [snapshot]'s per-root schema
-     * map instead. Per-root schema map keys (type/tag names) and their [WorkItemSchema] values come
-     * straight from [PerRootConfigService.Snapshot.workItemSchemas], which already carries
-     * lifecycle/defaultTraits — no separate "fetch notes, then re-fetch the full schema" step is
-     * needed here (unlike the global path, which has two parallel maps for historical reasons).
-     *
-     * Returns null when no tag (nor `"default"`) matches within [snapshot] — meaning "defer to the
-     * global tag algorithm".
-     */
-    private fun resolvePerRootTagMatch(
-        tags: List<String>,
-        snapshot: PerRootConfigService.Snapshot
-    ): WorkItemSchema? {
-        for (tag in tags) {
-            snapshot.workItemSchemas[tag]?.let { return it }
-        }
-        return snapshot.workItemSchemas["default"]
-    }
-
-    /**
-     * Merges trait notes into the base schema. Collects default_traits from config +
-     * per-item traits from properties JSON, looks up notes for each (the ALREADY-fetched [snapshot]
-     * for [item]'s root taking precedence over the global trait definition — see [resolveSchema]'s
-     * KDoc), and appends to the base schema notes (base key wins on duplicates).
-     */
-    private fun mergeTraits(
-        item: WorkItem,
-        baseSchema: WorkItemSchema,
-        snapshot: PerRootConfigService.Snapshot?,
-        service: NoteSchemaService
-    ): WorkItemSchema {
-        val defaultTraits = baseSchema.defaultTraits
-        val itemTraits = PropertiesHelper.extractTraits(item.properties)
-        val allTraits = (defaultTraits + itemTraits).distinct()
-
-        if (allTraits.isEmpty()) return baseSchema
-
-        val traitNotes = mutableListOf<NoteSchemaEntry>()
-        for (traitName in allTraits) {
-            val perRootNotes = snapshot?.traits?.get(traitName)
-            val notes = perRootNotes ?: service.getTraitNotes(traitName)
-            if (notes == null) {
-                logger.warn("Unknown trait '{}' on item '{}'; skipping", traitName, item.id)
-                continue
-            }
-            traitNotes.addAll(notes)
-        }
-
-        if (traitNotes.isEmpty()) return baseSchema
-
-        // Base note keys win; first-trait-in-order wins for duplicate trait keys
-        val existingKeys = baseSchema.notes.map { it.key }.toMutableSet()
-        val mergedNotes = baseSchema.notes.toMutableList()
-        for (note in traitNotes) {
-            if (note.key !in existingKeys) {
-                mergedNotes.add(note)
-                existingKeys.add(note.key)
-            }
-        }
-
-        return baseSchema.copy(notes = mergedNotes)
-    }
-
-    companion object {
-        private val logger = LoggerFactory.getLogger(ToolExecutionContext::class.java)
-    }
+    fun advanceServiceFactory(): AdvanceServiceFactory = advanceServiceFactoryLazy
 }
 
-/** Which config layer supplied a resolved schema — see [ToolExecutionContext.resolveSchemaWithSource]. */
-enum class SchemaSource { PER_ROOT, GLOBAL }
+/** Which config layer supplied a resolved schema; see [ToolExecutionContext.resolveSchemaWithSource]. */
+typealias SchemaSource = ConfigSource
 
 /**
  * A resolved [WorkItemSchema] together with which layer supplied its base schema and that layer's
- * config fingerprint (null when the supplying layer has no fingerprint available, e.g. no global
- * config loaded). Returned by [ToolExecutionContext.resolveSchemaWithSource] and
+ * config fingerprint. Returned by [ToolExecutionContext.resolveSchemaWithSource] and
  * [ToolExecutionContext.resolveTypeSchema].
  */
-data class ResolvedSchema(
-    val schema: WorkItemSchema,
-    val source: SchemaSource,
-    val fingerprint: String?
-)
+typealias ResolvedSchema = SchemaMatch
 
 /**
  * Runs [block] and, on [PerRootConfigUnavailableException], logs one WARN naming [what] and [id]
