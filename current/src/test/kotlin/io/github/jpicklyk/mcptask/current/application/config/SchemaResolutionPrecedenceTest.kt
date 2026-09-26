@@ -334,6 +334,31 @@ class SchemaResolutionPrecedenceTest {
     }
 
     // ──────────────────────────────────────────────
+    // S7 — global isolated has no meaning without a per-root row to isolate from: it is
+    // downgraded to LAYERED (task-scope effective-mode rule: "`isolated` in the global file =
+    // load warning + treated as LAYERED"). This is the resolver half of test-plan S7 — the DTO
+    // half is covered separately by the effective-config route's S15 (per the orchestrator's gap
+    // note on this item: "test-plan S7's resolver half ... not authored; caught only by route
+    // S15").
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `S7 - a global isolated schema_resolution is treated as layered, so a rootless tagged item still resolves through global`() {
+        val config = LayeredConfig(rootId = null, perRoot = null, global = globalLookup(SchemaResolutionMode.ISOLATED))
+
+        assertEquals(
+            SchemaResolutionMode.LAYERED,
+            config.effectiveMode,
+            "global isolated has no per-root row to isolate from, so it must downgrade to LAYERED [task-scope effective-mode rule]"
+        )
+
+        val result = config.resolveBaseSchema("task", listOf("bug"))!!
+
+        assertEquals(ConfigSource.GLOBAL, result.source)
+        assertEquals("bug", result.schema.type)
+    }
+
+    // ──────────────────────────────────────────────
     // S8 — D2 tag-probe fix, legacy mode, exercised through ToolExecutionContext's default
     // (ServiceBacked) construction path
     // ──────────────────────────────────────────────

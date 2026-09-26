@@ -1437,3 +1437,98 @@ class EffectiveConfigRoutesRootLookupFailureTest {
             assertTrue(notFound.bodyAsText().contains("not_found"))
         }
 }
+
+// ───────── Feature-review follow-up: types == schemas types, filtered by resolution mode ─────────
+//
+// Oracle: current/docs/api-rest.md, GET /roots/{rootId}/config/effective — "`types` lists every
+// schema key (per-root and global, ascending natural String order) that resolves to a schema for
+// this root, and `schemas` follows that same order -- `types` always equals the `type` values of
+// `schemas`. A key that does not resolve under the root's mode is omitted from both (e.g. under
+// `schema_resolution: isolated`, a global-only type with no per-root `default`)." Independently
+// authored against that doc section; not derived from route source.
+
+class EffectiveConfigRoutesTypesMatchSchemasTest {
+    private val globalYaml =
+        """
+        work_item_schemas:
+          bug:
+            notes: []
+          feature-task:
+            notes: []
+        """.trimIndent()
+
+    @Test
+    fun `types equals the type values of schemas, and isolated omits a global-only type with no per-root default`() =
+        testApplication {
+            val (schemaService, global) = globalFixture(globalYaml)
+            val repo = buildH2RepositoryProvider()
+            val root = createRootItem(repo)
+            runBlocking {
+                repo.projectConfigRepository().upsert(
+                    root.id,
+                    """
+                    schema_resolution: isolated
+                    work_item_schemas:
+                      feature-task:
+                        notes: []
+                    """.trimIndent(),
+                )
+            }
+            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.projectConfigRepository()))
+            application { configureEffectiveConfigTestApp(repo, resolver, schemaService) }
+
+            val response =
+                client.get("/api/v1/roots/${root.id}/config/effective") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                }
+            assertEquals(HttpStatusCode.OK, response.status)
+            val dto = decodeEffective(response.bodyAsText())
+
+            assertEquals(
+                listOf("feature-task"),
+                dto.types,
+                "under isolated, a global-only type with no per-root default must be omitted [api-rest.md GET .../config/effective]",
+            )
+            assertEquals(dto.types, dto.schemas.map { it.type }, "types must always equal the type values of schemas [api-rest.md]")
+            assertTrue(dto.schemas.none { it.type == "bug" }, "bug must be absent from schemas under isolated: ${dto.schemas}")
+            assertTrue(
+                dto.statusGraph.types.none { it.type == "bug" },
+                "bug must be absent from the status graph under isolated: ${dto.statusGraph.types}",
+            )
+        }
+
+    @Test
+    fun `LAYERED control - the identical fixture under schema_resolution layered lists both types, in order`() =
+        testApplication {
+            val (schemaService, global) = globalFixture(globalYaml)
+            val repo = buildH2RepositoryProvider()
+            val root = createRootItem(repo)
+            runBlocking {
+                repo.projectConfigRepository().upsert(
+                    root.id,
+                    """
+                    schema_resolution: layered
+                    work_item_schemas:
+                      feature-task:
+                        notes: []
+                    """.trimIndent(),
+                )
+            }
+            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.projectConfigRepository()))
+            application { configureEffectiveConfigTestApp(repo, resolver, schemaService) }
+
+            val response =
+                client.get("/api/v1/roots/${root.id}/config/effective") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                }
+            assertEquals(HttpStatusCode.OK, response.status)
+            val dto = decodeEffective(response.bodyAsText())
+
+            assertEquals(
+                listOf("bug", "feature-task"),
+                dto.types,
+                "under layered, a global-only type must still resolve and be listed alongside the per-root type",
+            )
+            assertEquals(dto.types, dto.schemas.map { it.type }, "types must always equal the type values of schemas [api-rest.md]")
+        }
+}
