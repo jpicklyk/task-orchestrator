@@ -11,7 +11,17 @@ import java.nio.file.Path
  * YAML-backed implementation of [StatusLabelService].
  *
  * Reads status label mappings from `.taskorchestrator/config.yaml` under the `status_labels` section.
- * The config path is resolved using the same `AGENT_CONFIG_DIR` pattern as [YamlNoteSchemaService].
+ *
+ * Two constructors:
+ *  - `YamlStatusLabelService(configPath)` (or its default): the ORIGINAL lenient, independent
+ *    loader — its own `Yaml()`/`FileReader` read, swallowing any error into NoOp defaults. Kept
+ *    unchanged for backward compatibility (existing tests, and the `ItemWriteRoutes.kt` default
+ *    parameter) — a typealias could not preserve this constructor, which is why this class was NOT
+ *    folded into a shared-document-only shape (see the C1 task-scope note's "Alternatives
+ *    rejected").
+ *  - `YamlStatusLabelService(globalConfig: GlobalConfigFile)`: reads `status_labels` from the ONE
+ *    shared, already-parsed [GlobalConfigFile] document instead of re-reading and re-parsing the
+ *    file independently. This is the constructor `ServerComposition` uses.
  *
  * Expected YAML structure:
  * ```yaml
@@ -28,9 +38,14 @@ import java.nio.file.Path
  * If no `status_labels` section is present (or the config file is missing),
  * falls back to [NoOpStatusLabelService] defaults.
  */
-class YamlStatusLabelService(
-    private val configPath: Path = YamlNoteSchemaService.resolveDefaultConfigPath()
+class YamlStatusLabelService private constructor(
+    private val configPath: Path?,
+    private val globalConfig: GlobalConfigFile?,
 ) : StatusLabelService {
+    constructor(configPath: Path = YamlNoteSchemaService.resolveDefaultConfigPath()) : this(configPath, null)
+
+    constructor(globalConfig: GlobalConfigFile) : this(null, globalConfig)
+
     private val logger = LoggerFactory.getLogger(YamlStatusLabelService::class.java)
 
     /** Lazily loaded label mappings. Falls back to NoOp defaults if config missing. */
@@ -56,17 +71,45 @@ class YamlStatusLabelService(
             NoOpStatusLabelService.resolveLabel(trigger)
         }
 
-    @Suppress("UNCHECKED_CAST")
     private fun loadLabels(): Map<String, String?> {
-        if (!configPath.toFile().exists()) {
-            logger.debug("No config file found at {}; using default status labels", configPath)
+        val sharedGlobalConfig = globalConfig
+        return if (sharedGlobalConfig != null) {
+            loadLabelsFromDocument(sharedGlobalConfig)
+        } else {
+            loadLabelsFromPath()
+        }
+    }
+
+    /**
+     * Reads `status_labels` from [sharedGlobalConfig]'s already-parsed document. A `null` layer
+     * (no global config file) or a `null` `statusLabels` (document has no top-level
+     * `status_labels` key) both mean "use [NoOpStatusLabelService] defaults" — same semantics as
+     * the path-based [loadLabelsFromPath], just reading from the shared document instead of
+     * re-parsing the file.
+     */
+    private fun loadLabelsFromDocument(sharedGlobalConfig: GlobalConfigFile): Map<String, String?> {
+        val statusLabels = sharedGlobalConfig.layer()?.document?.statusLabels
+        if (statusLabels == null) {
+            _hasCustomConfig = false
+            return emptyMap()
+        }
+        _hasCustomConfig = true
+        logger.info("Loaded custom status labels from config: {}", statusLabels.keys)
+        return statusLabels
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun loadLabelsFromPath(): Map<String, String?> {
+        val path = configPath ?: return emptyMap()
+        if (!path.toFile().exists()) {
+            logger.debug("No config file found at {}; using default status labels", path)
             _hasCustomConfig = false
             return emptyMap()
         }
 
         return try {
             val yaml = Yaml()
-            FileReader(configPath.toFile()).use { reader ->
+            FileReader(path.toFile()).use { reader ->
                 val root =
                     yaml.load<Map<String, Any>>(reader) ?: run {
                         _hasCustomConfig = false

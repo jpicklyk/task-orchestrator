@@ -1,5 +1,7 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.config
 
+import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
+import io.github.jpicklyk.mcptask.current.application.config.SchemaResolutionMode
 import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
 import io.github.jpicklyk.mcptask.current.domain.model.LifecycleMode
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
@@ -79,59 +81,22 @@ internal object YamlSchemaParser {
     private val RESERVED_BUDGET_KEYS = setOf("budgetLimit", "budgetWindowSeconds")
 
     /**
-     * Result of parsing a config root map: schemas (keyed by type/tag), traits, warnings, and the
-     * note-limits mode. Per-tag note lists are read via `workItemSchemas[tag]?.notes` — there is no
-     * separate tag→entries map, since it would be a redundant view of the same `NoteSchemaEntry`
-     * lists already held inside each [WorkItemSchema].
+     * Backward-compatibility alias: everything that used to name `YamlSchemaParser.ParsedConfig`
+     * (the parse result of a config root map: schemas keyed by type/tag, traits, warnings, and
+     * every other document-level facet) now names [ConfigDocument] — the same shape, moved to
+     * `application.config` so both the global file loader and the per-root loader share one
+     * layer-agnostic type. Per-tag note lists are read via `workItemSchemas[tag]?.notes` — there
+     * is no separate tag→entries map, since it would be a redundant view of the same
+     * [NoteSchemaEntry] lists already held inside each [WorkItemSchema].
      *
-     * @property noteLimitsMode always resolves to a mode ("warn" default) — unchanged behavior for
-     *   the global file-backed loader, which has no fallback layer beneath it.
-     * @property noteLimitsModeExplicit null when the document has no top-level `note_limits` key at
-     *   all; otherwise the resolved mode (same value as [noteLimitsMode]). Callers that layer this
-     *   config over another (e.g. [PerRootConfigService]) use this field to distinguish "this
-     *   document doesn't opine on note limits, fall through" from "this document explicitly
-     *   configures note limits" — a plain [noteLimitsMode] read can't make that distinction because
-     *   it always defaults to "warn" when the key is absent.
-     * @property statusLabels null when the document has no top-level `status_labels` key at all;
-     *   otherwise the parsed trigger→label map (values may themselves be null, mirroring
-     *   [io.github.jpicklyk.mcptask.current.infrastructure.config.YamlStatusLabelService]'s
-     *   "explicit null clears the label" semantics — only an ABSENT key in this map falls through to
-     *   another layer).
-     * @property traitResources per-trait resource requirements, parsed from `traits.<name>.resources:`
-     *   (short form: a list of bare key strings; long form: a list of maps with `key`, optional
-     *   `mode`, optional `ttlSeconds`). A trait with no `resources:` key is absent from this map
-     *   entirely (not mapped to an empty list).
-     * @property resourceRegistry the top-level `resources:` registry, keyed by resource key. Empty
-     *   when the document has no top-level `resources:` section.
-     * @property traitDispatch per-trait, per-phase dispatch routing profiles, parsed from
-     *   `traits.<name>.dispatch.<phase>:` (phase one of `queue`/`work`/`review`, matched via
-     *   [VALID_SCHEMA_ROLES]). A trait with no `dispatch:` key, or none of whose phase entries
-     *   parsed to a non-empty [DispatchProfile], is absent from this map entirely (not mapped to an
-     *   empty map) — parity with [traitResources]. Appended LAST with a default so this field is
-     *   additive to every existing [ParsedConfig] construction site.
-     * @property fingerprint a SHA-256 hex digest computed by the file-backed caller
-     *   ([YamlWorkItemSchemaService.loadSchemas]) over the exact bytes that were parsed into this
-     *   result, or `null` when no config file was present. [parseRoot] never sets this itself — it
-     *   only sees an already-deserialized root map, not the source bytes — so every call site
-     *   constructing a [ParsedConfig] via [parseRoot] (including [PerRootConfigService], which has
-     *   no file-fingerprint concept) leaves it at the default `null` and the file-backed loader
-     *   attaches it afterward via `.copy(fingerprint = ...)`.
+     * Kept for this PR only (see the C1 task-scope note's "Blast radius" for the conditional
+     * fallback if the compiler rejects a nested typealias); a later item may delete it once every
+     * caller has migrated to naming [ConfigDocument] directly.
      */
-    data class ParsedConfig(
-        val workItemSchemas: Map<String, WorkItemSchema>,
-        val traits: Map<String, List<NoteSchemaEntry>>,
-        val warnings: List<String>,
-        val noteLimitsMode: String = DEFAULT_NOTE_LIMITS_MODE,
-        val noteLimitsModeExplicit: String? = null,
-        val statusLabels: Map<String, String?>? = null,
-        val traitResources: Map<String, List<ResourceRequirement>> = emptyMap(),
-        val resourceRegistry: Map<String, ResourceDefinition> = emptyMap(),
-        val traitDispatch: Map<String, Map<Role, DispatchProfile>> = emptyMap(),
-        val fingerprint: String? = null
-    )
+    typealias ParsedConfig = ConfigDocument
 
     /**
-     * Parses [root] into a [ParsedConfig].
+     * Parses [root] into a [ConfigDocument].
      *
      * Precedence: `work_item_schemas:` wins entirely over `note_schemas:` when both are present;
      * `note_schemas:` is the legacy format (wrapped into [WorkItemSchema] with AUTO lifecycle for
@@ -140,20 +105,37 @@ internal object YamlSchemaParser {
      * this warning (a `.taskorchestrator/config.yaml` with no schema section is almost always a
      * mistake), but a per-root config document legitimately may carry only other settings with no
      * schema section at all, so callers with looser expectations pass `false`.
+     *
+     * [ConfigDocument.noteLimitsMode] is `null` only when the document has no top-level
+     * `note_limits` key at all; otherwise it holds the resolved mode (defaulting to `"warn"` even
+     * when the key's own `mode` sub-key was absent, empty, or invalid). Callers layering this
+     * document over another use that `null` to distinguish "this document doesn't opine, fall
+     * through" from "this document explicitly configures note limits".
+     *
+     * [ConfigDocument.schemaResolution] is parsed from the top-level `schema_resolution` key via
+     * [SchemaResolutionMode.fromConfigString]; a non-string or unrecognized value becomes `null`
+     * and adds NO warning here (a later item adds that warning once something actually reads this
+     * field). [ConfigDocument.actorAuthenticationSection] is the raw `actor_authentication` value
+     * (map, scalar, or explicit YAML `null`), or Kotlin `null` when the key is absent entirely.
+     * [ConfigDocument.presentSections] is `root.keys` in document order (a `LinkedHashMap`'s
+     * iteration order, since SnakeYAML deserializes mappings into `LinkedHashMap`).
      */
     @Suppress("UNCHECKED_CAST")
     fun parseRoot(
         root: Map<String, Any>,
         warnOnMissingSchemas: Boolean = true
-    ): ParsedConfig {
+    ): ConfigDocument {
         val warnings = mutableListOf<String>()
         val parsedTraits = parseTraits(root, warnings)
         val parsedNoteLimitsMode = parseNoteLimitsMode(root, warnings)
-        val noteLimitsModeExplicit = if (root.containsKey("note_limits")) parsedNoteLimitsMode else null
+        val noteLimitsMode = if (root.containsKey("note_limits")) parsedNoteLimitsMode else null
         val parsedStatusLabels = parseStatusLabels(root, warnings)
         val resourceRegistry = parseResourceRegistry(root, warnings)
         val traitResources = parseTraitResources(root, resourceRegistry, warnings)
         val traitDispatch = parseTraitDispatch(root, warnings)
+        val schemaResolution = (root["schema_resolution"] as? String)?.let { SchemaResolutionMode.fromConfigString(it) }
+        val actorAuthenticationSection = root["actor_authentication"]
+        val presentSections: Set<String> = LinkedHashSet(root.keys)
 
         val base =
             when {
@@ -163,19 +145,21 @@ internal object YamlSchemaParser {
                     if (warnOnMissingSchemas) {
                         warnings.add("Config file is missing 'note_schemas' key; no schemas loaded")
                     }
-                    ParsedConfig(emptyMap(), emptyMap(), warnings)
+                    ConfigDocument(workItemSchemas = emptyMap(), traits = emptyMap())
                 }
             }
 
         return base.copy(
             traits = parsedTraits,
             warnings = warnings,
-            noteLimitsMode = parsedNoteLimitsMode,
-            noteLimitsModeExplicit = noteLimitsModeExplicit,
+            noteLimitsMode = noteLimitsMode,
             statusLabels = parsedStatusLabels,
             traitResources = traitResources,
             resourceRegistry = resourceRegistry,
-            traitDispatch = traitDispatch
+            traitDispatch = traitDispatch,
+            schemaResolution = schemaResolution,
+            actorAuthenticationSection = actorAuthenticationSection,
+            presentSections = presentSections,
         )
     }
 
@@ -183,10 +167,10 @@ internal object YamlSchemaParser {
     private fun parseWorkItemSchemas(
         root: Map<String, Any>,
         warnings: MutableList<String>
-    ): ParsedConfig {
+    ): ConfigDocument {
         val rawSchemas =
             root["work_item_schemas"] as? Map<String, Any>
-                ?: return ParsedConfig(emptyMap(), emptyMap(), warnings)
+                ?: return ConfigDocument(workItemSchemas = emptyMap(), traits = emptyMap())
 
         val workItemSchemasMap = mutableMapOf<String, WorkItemSchema>()
 
@@ -236,17 +220,17 @@ internal object YamlSchemaParser {
                 )
         }
 
-        return ParsedConfig(workItemSchemasMap, emptyMap(), warnings)
+        return ConfigDocument(workItemSchemas = workItemSchemasMap, traits = emptyMap(), warnings = warnings)
     }
 
     @Suppress("UNCHECKED_CAST")
     private fun parseLegacyNoteSchemas(
         root: Map<String, Any>,
         warnings: MutableList<String>
-    ): ParsedConfig {
+    ): ConfigDocument {
         val noteSchemas =
             root["note_schemas"] as? Map<String, Any>
-                ?: return ParsedConfig(emptyMap(), emptyMap(), warnings)
+                ?: return ConfigDocument(workItemSchemas = emptyMap(), traits = emptyMap(), warnings = warnings)
 
         val workItemSchemasMap = mutableMapOf<String, WorkItemSchema>()
 
@@ -265,7 +249,7 @@ internal object YamlSchemaParser {
                 )
         }
 
-        return ParsedConfig(workItemSchemasMap, emptyMap(), warnings)
+        return ConfigDocument(workItemSchemas = workItemSchemasMap, traits = emptyMap(), warnings = warnings)
     }
 
     @Suppress("UNCHECKED_CAST")

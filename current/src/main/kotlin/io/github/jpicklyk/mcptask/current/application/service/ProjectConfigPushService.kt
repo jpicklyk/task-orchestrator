@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
+import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
 import io.github.jpicklyk.mcptask.current.domain.model.FingerprintRelation
 import io.github.jpicklyk.mcptask.current.domain.model.GuardedUpsertOutcome
 import io.github.jpicklyk.mcptask.current.domain.model.ProjectConfig
@@ -139,11 +140,12 @@ class ProjectConfigPushService(
      * layer ([PerRootConfigService][io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService]
      * and [io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext]'s layered
      * resolvers) — e.g. `actor_authentication`, which stays global-only (see `config-format.md`).
-     * A pushed document that only contains keys from [HONORED_TOP_LEVEL_SECTIONS] returns an empty
-     * list, which callers omit from their response entirely rather than surfacing an empty array.
+     * A pushed document that only contains keys from [ConfigDocument.PER_ROOT_HONORED_SECTIONS]
+     * returns an empty list, which callers omit from their response entirely rather than surfacing
+     * an empty array.
      */
     private fun computeIgnoredSections(parsedRoot: Map<String, Any>?): List<String> =
-        parsedRoot?.keys?.filterNot { it in HONORED_TOP_LEVEL_SECTIONS } ?: emptyList()
+        parsedRoot?.keys?.filterNot { it in ConfigDocument.PER_ROOT_HONORED_SECTIONS } ?: emptyList()
 
     /** Reads back the stored config for [rootItemId], or a null payload when no row exists. */
     suspend fun get(rootItemId: UUID): Result<ProjectConfig?> = repositoryProvider.projectConfigRepository().get(rootItemId)
@@ -254,18 +256,6 @@ class ProjectConfigPushService(
          * config document, and small enough to bound parse cost against a hostile payload.
          */
         const val MAX_CONFIG_YAML_BYTES = MAX_CONFIG_YAML_KIB * 1024
-
-        /**
-         * Top-level `configYaml` keys honored by the per-root resolution layer (schema/trait
-         * lookup via [io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService],
-         * note-limits/status-label layering via
-         * [io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext]). Any other
-         * top-level key in a pushed document (e.g. `actor_authentication`, which is intentionally
-         * global-only — see `config-format.md`) is reported via [ProjectConfigPushResult.Success.ignoredSections]
-         * so a push is never silently partial.
-         */
-        private val HONORED_TOP_LEVEL_SECTIONS =
-            setOf("work_item_schemas", "note_schemas", "traits", "project", "note_limits", "status_labels", "resources")
     }
 }
 

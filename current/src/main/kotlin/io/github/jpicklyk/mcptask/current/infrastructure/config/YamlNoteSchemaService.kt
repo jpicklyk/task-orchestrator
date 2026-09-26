@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.config
 
+import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
@@ -7,19 +8,16 @@ import io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
-import io.github.jpicklyk.mcptask.current.infrastructure.security.configFingerprint
-import org.slf4j.LoggerFactory
-import org.yaml.snakeyaml.LoaderOptions
-import org.yaml.snakeyaml.Yaml
-import org.yaml.snakeyaml.constructor.SafeConstructor
+import java.nio.file.Path
 import java.nio.file.Paths
 
 /**
  * YAML-backed implementation of [WorkItemSchemaService].
  *
- * Reads note schemas from `.taskorchestrator/config.yaml` in the project root.
- * The project root is resolved from the `AGENT_CONFIG_DIR` environment variable,
- * falling back to `user.dir` if not set.
+ * Reads note schemas from `.taskorchestrator/config.yaml` in the project root, via a single
+ * [GlobalConfigFile] instance ([globalConfig]) shared with [YamlStatusLabelService] and
+ * [YamlActorAuthenticationConfigService] — the file is read and parsed once, by
+ * [GlobalConfigFile], not independently by each of these three services.
  *
  * Supports two YAML formats:
  *
@@ -54,18 +52,18 @@ import java.nio.file.Paths
  * If no config file is present, or no tags match, returns null (schema-free mode).
  */
 class YamlWorkItemSchemaService(
-    private val configPath: java.nio.file.Path = resolveDefaultConfigPath()
+    private val globalConfig: GlobalConfigFile
 ) : WorkItemSchemaService {
-    private val logger = LoggerFactory.getLogger(YamlWorkItemSchemaService::class.java)
+    constructor(configPath: Path = resolveDefaultConfigPath()) : this(GlobalConfigFile(configPath))
 
-    /** Lazily loaded schema cache and warnings. Initialized once on first access. */
-    private val loadResult: YamlSchemaParser.ParsedConfig by lazy { loadSchemas() }
+    /** The current document, or [ConfigDocument.EMPTY] when no global config file is present. */
+    private val document: ConfigDocument get() = globalConfig.layer()?.document ?: ConfigDocument.EMPTY
 
     /** Lazily loaded type→WorkItemSchema cache. Note lists per tag are read via `[tag]?.notes`. */
-    private val workItemSchemas: Map<String, WorkItemSchema> get() = loadResult.workItemSchemas
+    private val workItemSchemas: Map<String, WorkItemSchema> get() = document.workItemSchemas
 
     /** Lazily loaded trait definitions. */
-    private val traitDefs: Map<String, List<NoteSchemaEntry>> get() = loadResult.traits
+    private val traitDefs: Map<String, List<NoteSchemaEntry>> get() = document.traits
 
     override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? {
         // First matching tag wins; fall back to the "default" schema only after every tag misses.
@@ -81,7 +79,7 @@ class YamlWorkItemSchemaService(
         return workItemSchemas[type] ?: workItemSchemas["default"]
     }
 
-    override fun getLoadWarnings(): List<String> = loadResult.warnings
+    override fun getLoadWarnings(): List<String> = document.warnings
 
     override fun getTraitNotes(traitName: String): List<NoteSchemaEntry>? = traitDefs[traitName]
 
@@ -98,116 +96,32 @@ class YamlWorkItemSchemaService(
 
     override fun getAllTraits(): Map<String, List<NoteSchemaEntry>> = traitDefs
 
-    override fun getTraitResources(traitName: String): List<ResourceRequirement> = loadResult.traitResources[traitName] ?: emptyList()
+    override fun getTraitResources(traitName: String): List<ResourceRequirement> = document.traitResources[traitName] ?: emptyList()
 
-    override fun getResourceRegistry(): Map<String, ResourceDefinition> = loadResult.resourceRegistry
+    override fun getResourceRegistry(): Map<String, ResourceDefinition> = document.resourceRegistry
 
-    override fun getTraitDispatch(traitName: String): Map<Role, DispatchProfile> = loadResult.traitDispatch[traitName] ?: emptyMap()
+    override fun getTraitDispatch(traitName: String): Map<Role, DispatchProfile> = document.traitDispatch[traitName] ?: emptyMap()
 
     /**
      * Returns the configured `note_limits.mode` ("warn" or "reject"), defaulting to "warn"
      * when the config file is absent, the `note_limits` block is absent, or the value is
      * invalid (a load warning is recorded in the latter case — see [YamlSchemaParser]).
      */
-    override fun getNoteLimitsMode(): String = loadResult.noteLimitsMode
+    override fun getNoteLimitsMode(): String = document.noteLimitsMode ?: YamlSchemaParser.DEFAULT_NOTE_LIMITS_MODE
 
     /**
-     * Returns the SHA-256 fingerprint computed once, at parse time, over the exact bytes
-     * [loadSchemas] parsed (see [YamlSchemaParser.ParsedConfig.fingerprint]) — not a fresh re-read
-     * of the file. Because [loadResult] is cached (`by lazy`), the fingerprint a running process
+     * Returns the SHA-256 fingerprint computed once, at parse time, by [GlobalConfigFile] over the
+     * exact bytes it read (see [GlobalConfigFile]'s class kdoc) — not a fresh re-read of the file.
+     * Because [GlobalConfigFile]'s layer is cached (`by lazy`), the fingerprint a running process
      * reports is stable for that process's lifetime even if the file on disk changes underneath it;
      * restart to pick up new bytes (consistent with every other global-config value, which is also
      * read once at startup — see the class kdoc). Returns `null` when no config file was present at
      * load time.
      */
-    override fun getConfigFingerprint(): String? = loadResult.fingerprint
-
-    /**
-     * Reads and parses the config file, delegating the "root map -> schemas/traits/warnings"
-     * step to [YamlSchemaParser.parseRoot] (shared with [PerRootConfigService]). This method
-     * retains only the file-specific concerns: existence check, IO, YAML syntax-error handling,
-     * fingerprinting, and the summary log line.
-     *
-     * Parses via [SafeConstructor] rather than SnakeYAML's default `Constructor` — matching
-     * [PerRootConfigService]'s parse of the same shared format, so a `!!`-tagged arbitrary-Java-type
-     * payload (CWE-502) is rejected the same way regardless of whether it arrived via a locally
-     * edited `.taskorchestrator/config.yaml` or a pushed per-root document.
-     *
-     * **Fails closed**: a file that exists but cannot be read, is not valid YAML, or whose parsed
-     * root is not a mapping throws [IllegalArgumentException] naming [configPath] rather than
-     * silently falling back to an empty (schema-free) [YamlSchemaParser.ParsedConfig] — see
-     * [ServerComposition.build], which forces this lazy load at startup so the failure surfaces
-     * before the readiness marker is written. An absent, empty, or comment-only file is not an
-     * error: it keeps the coded "schema-free mode" defaults.
-     */
-    private fun loadSchemas(): YamlSchemaParser.ParsedConfig {
-        if (!configPath.toFile().exists()) {
-            logger.debug("No config file found at {}; running in schema-free mode", configPath)
-            return YamlSchemaParser.ParsedConfig(emptyMap(), emptyMap(), emptyList())
-        }
-
-        // Read the bytes once: the fingerprint is computed over, and the YAML is parsed from,
-        // this exact same byte array (D4) — no separate re-read of a possibly-changed file.
-        val bytes =
-            try {
-                configPath.toFile().readBytes()
-            } catch (e: Exception) {
-                throw IllegalArgumentException(
-                    "Failed to read note schemas config from '$configPath': ${e.message}",
-                    e
-                )
-            }
-        // JVM String decoding of UTF-8 bytes keeps a leading U+FEFF as a real character, so
-        // configFingerprint's BOM-stripping normalization applies here exactly as it does for the
-        // raw byte path elsewhere — YAML parsing below still uses the raw bytes.
-        val fingerprint = configFingerprint(String(bytes, Charsets.UTF_8))
-
-        val root =
-            try {
-                val yaml = Yaml(SafeConstructor(LoaderOptions()))
-                yaml.load<Any?>(String(bytes, Charsets.UTF_8))
-            } catch (e: Exception) {
-                throw IllegalArgumentException(
-                    "Failed to load note schemas from '$configPath': ${e.message}",
-                    e
-                )
-            }
-
-        val parsed =
-            if (root == null) {
-                YamlSchemaParser.ParsedConfig(emptyMap(), emptyMap(), emptyList())
-            } else {
-                @Suppress("UNCHECKED_CAST")
-                val rootMap =
-                    root as? Map<String, Any>
-                        ?: throw IllegalArgumentException(
-                            "Config file '$configPath' root must be a mapping; got '$root'"
-                        )
-                try {
-                    YamlSchemaParser.parseRoot(rootMap)
-                } catch (e: IllegalArgumentException) {
-                    throw e
-                } catch (e: Exception) {
-                    // An unexpected section shape (e.g. a ClassCastException from an unchecked cast)
-                    // must still fail startup naming the file, like every other global-config error.
-                    throw IllegalArgumentException("Failed to parse note schemas in '$configPath': ${e.message}", e)
-                }
-            }
-
-        return parsed.copy(fingerprint = fingerprint).also { result ->
-            result.warnings.forEach { w -> logger.warn(w) }
-            val totalEntries = result.workItemSchemas.values.sumOf { it.notes.size }
-            logger.info(
-                "Loaded {} schemas ({} entries, {} warnings)",
-                result.workItemSchemas.size,
-                totalEntries,
-                result.warnings.size
-            )
-        }
-    }
+    override fun getConfigFingerprint(): String? = globalConfig.layer()?.fingerprint
 
     companion object {
-        fun resolveDefaultConfigPath(): java.nio.file.Path {
+        fun resolveDefaultConfigPath(): Path {
             val projectRoot =
                 Paths.get(
                     AppConfig.resolveConfigBaseDir(System.getenv("AGENT_CONFIG_DIR"))

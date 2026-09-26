@@ -1,5 +1,10 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.config
 
+import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
+import io.github.jpicklyk.mcptask.current.application.config.ConfigDocumentParser
+import io.github.jpicklyk.mcptask.current.application.config.ConfigLayer
+import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
+import io.github.jpicklyk.mcptask.current.application.config.PerRootConfigSource
 import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
@@ -11,9 +16,6 @@ import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigReposit
 import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import org.slf4j.LoggerFactory
-import org.yaml.snakeyaml.LoaderOptions
-import org.yaml.snakeyaml.Yaml
-import org.yaml.snakeyaml.constructor.SafeConstructor
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
@@ -67,15 +69,20 @@ import java.util.concurrent.ConcurrentHashMap
  *    to the global layer on a read failure. Every public accessor on this class propagates that
  *    exception unchanged; callers that need to translate it into a specific tool/HTTP outcome catch
  *    it at their own boundary.
+ *
+ * Implements [PerRootConfigSource] so it can be handed to a shared config-resolution layer (a
+ * follow-on item) the same way [GlobalConfigFile] implements `GlobalConfigSource` for the global
+ * file — [layer] wraps the same [resolve] pass every other accessor on this class already uses.
  */
 class PerRootConfigService(
-    private val repository: ProjectConfigRepository
-) {
+    private val repository: ProjectConfigRepository,
+    private val parser: ConfigDocumentParser = YamlConfigDocumentParser,
+) : PerRootConfigSource {
     private val logger = LoggerFactory.getLogger(PerRootConfigService::class.java)
 
     private data class CacheEntry(
         val fingerprint: String,
-        val parsed: YamlSchemaParser.ParsedConfig
+        val parsed: ConfigDocument
     )
 
     /** In-memory cache keyed by root item UUID. Populated lazily on first [resolve] per root. */
@@ -110,18 +117,30 @@ class PerRootConfigService(
      * [PerRootConfigUnavailableException] when none is cached — it never falls through.
      */
     suspend fun getSnapshot(rootItemId: UUID): Snapshot? {
-        val parsed = resolve(rootItemId) ?: return null
+        val document = resolve(rootItemId) ?: return null
         val fingerprint = cache[rootItemId]?.fingerprint ?: return null
         return Snapshot(
-            workItemSchemas = parsed.workItemSchemas,
-            traits = parsed.traits,
-            noteLimitsModeExplicit = parsed.noteLimitsModeExplicit,
-            statusLabels = parsed.statusLabels,
+            workItemSchemas = document.workItemSchemas,
+            traits = document.traits,
+            noteLimitsModeExplicit = document.noteLimitsMode,
+            statusLabels = document.statusLabels,
             fingerprint = fingerprint,
-            traitResources = parsed.traitResources,
-            resourceRegistry = parsed.resourceRegistry,
-            traitDispatch = parsed.traitDispatch
+            traitResources = document.traitResources,
+            resourceRegistry = document.resourceRegistry,
+            traitDispatch = document.traitDispatch
         )
+    }
+
+    /**
+     * Returns [rootItemId]'s current [ConfigLayer] (document + fingerprint, tagged
+     * [ConfigSource.PER_ROOT]), or `null` under the same absence conditions as [getSnapshot]. Same
+     * last-known-good and [PerRootConfigUnavailableException] contract as every other accessor on
+     * this class — see the class kdoc's "Failure handling" section.
+     */
+    override suspend fun layer(rootId: UUID): ConfigLayer? {
+        val document = resolve(rootId) ?: return null
+        val fingerprint = cache[rootId]?.fingerprint ?: return null
+        return ConfigLayer(document = document, fingerprint = fingerprint, source = ConfigSource.PER_ROOT)
     }
 
     /** Returns the resolved `work_item_schemas` map for [rootItemId], or null when no config row exists or it fails to parse. */
@@ -159,18 +178,18 @@ class PerRootConfigService(
     /**
      * Returns [rootItemId]'s explicitly-configured `note_limits.mode`, or null when there is no
      * config row for this root, the row fails to parse, or the row's document has no top-level
-     * `note_limits` key at all — see [YamlSchemaParser.ParsedConfig.noteLimitsModeExplicit] for the
+     * `note_limits` key at all — see [ConfigDocument.noteLimitsMode] for the
      * absent-vs-explicit distinction this preserves. Callers (see
      * [io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext.resolveNoteLimitsMode])
      * treat a null return as "fall through to the global note-limits mode", not as "warn".
      */
-    suspend fun getNoteLimitsMode(rootItemId: UUID): String? = resolve(rootItemId)?.noteLimitsModeExplicit
+    suspend fun getNoteLimitsMode(rootItemId: UUID): String? = resolve(rootItemId)?.noteLimitsMode
 
     /**
      * Returns [rootItemId]'s explicitly-configured `status_labels` trigger→label map, or null when
      * there is no config row for this root, the row fails to parse, or the row's document has no
      * top-level `status_labels` key at all. A non-null return may still be a PARTIAL map — see
-     * [YamlSchemaParser.ParsedConfig.statusLabels] — callers fall through to the global status label
+     * [ConfigDocument.statusLabels] — callers fall through to the global status label
      * service on a per-trigger basis when a trigger key is absent from this map (see
      * [io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext.resolveStatusLabel]).
      */
@@ -184,7 +203,7 @@ class PerRootConfigService(
      * when the repository read itself fails — and throws [PerRootConfigUnavailableException] if
      * there is no cached parse to serve in that case (see class doc "Failure handling").
      */
-    private suspend fun resolve(rootItemId: UUID): YamlSchemaParser.ParsedConfig? {
+    private suspend fun resolve(rootItemId: UUID): ConfigDocument? {
         val fingerprintResult = repository.getFingerprint(rootItemId)
         val currentFingerprint =
             when (fingerprintResult) {
@@ -234,7 +253,7 @@ class PerRootConfigService(
     private fun lastKnownGoodOrThrow(
         rootItemId: UUID,
         error: RepositoryError
-    ): YamlSchemaParser.ParsedConfig? {
+    ): ConfigDocument? {
         logger.warn("Per-root config read failed for root {}: {}", rootItemId, error)
         cache[rootItemId]?.let { return it.parsed }
         // The full repository error (which may carry SQL/driver text) stays in the server log above;
@@ -247,37 +266,30 @@ class PerRootConfigService(
     }
 
     /**
-     * Parses [configYaml] via the shared [YamlSchemaParser] (same schema/trait structures as
+     * Parses [configYaml] via the shared [parser] (same [ConfigDocument] shape as
      * [YamlWorkItemSchemaService]). Unknown top-level keys (e.g. a `project:` block used by other
-     * per-root settings) are ignored silently — [YamlSchemaParser] only reads the keys it knows
-     * about. Passes `warnOnMissingSchemas = false`: unlike the global config file, a per-root
-     * document legitimately may carry no `work_item_schemas:`/`note_schemas:` section at all (it
-     * might exist purely for other per-root settings), so this must NOT emit the global loader's
-     * "no schemas loaded" warning.
+     * per-root settings) are ignored silently. Passes `warnOnMissingSchemas = false`: unlike the
+     * global config file, a per-root document legitimately may carry no
+     * `work_item_schemas:`/`note_schemas:` section at all (it might exist purely for other
+     * per-root settings), so this must NOT emit the global loader's "no schemas loaded" warning.
      *
-     * Parses via [SafeConstructor] rather than SnakeYAML's default `Constructor`: [configYaml]
-     * originates from [ProjectConfigRepository], which stores whatever a caller pushed over the
-     * MCP protocol (see `ManageProjectConfigTool`) — attacker-reachable input, not a trusted local
-     * file. The default `Constructor` will instantiate an arbitrary Java type named by a `!!`-tag
-     * (CWE-502); `SafeConstructor` only ever builds plain maps/lists/scalars, which is all this
-     * document format needs, and rejects anything else as a parse failure (caught below).
+     * A [ConfigDocumentParser.Outcome.Failed] outcome logs a WARN naming [rootItemId] and the
+     * failure detail, and this returns `null` (absence — same "fall through to global" contract as
+     * every other malformed-document case; see class kdoc "Failure handling"). Parsing itself uses
+     * [SafeConstructor][org.yaml.snakeyaml.constructor.SafeConstructor]-based parsing (see
+     * [YamlConfigDocumentParser]): [configYaml] originates from [ProjectConfigRepository], which
+     * stores whatever a caller pushed over the MCP protocol (see `ManageProjectConfigTool`) —
+     * attacker-reachable input, not a trusted local file.
      */
     private fun parseYaml(
         rootItemId: UUID,
         configYaml: String
-    ): YamlSchemaParser.ParsedConfig? =
-        try {
-            @Suppress("UNCHECKED_CAST")
-            val root = Yaml(SafeConstructor(LoaderOptions())).load<Map<String, Any>>(configYaml)
-            if (root == null) {
-                YamlSchemaParser.ParsedConfig(emptyMap(), emptyMap(), emptyList())
-            } else {
-                YamlSchemaParser.parseRoot(root, warnOnMissingSchemas = false)
+    ): ConfigDocument? =
+        when (val outcome = parser.parse(configYaml, warnOnMissingSchemas = false)) {
+            is ConfigDocumentParser.Outcome.Parsed -> outcome.document
+            is ConfigDocumentParser.Outcome.Failed -> {
+                logger.warn("Failed to parse per-root config for root {}: {}", rootItemId, outcome.detail)
+                null
             }
-        } catch (
-            @Suppress("TooGenericExceptionCaught") e: Exception
-        ) {
-            logger.warn("Failed to parse per-root config for root {}: {}", rootItemId, e.message)
-            null
         }
 }
