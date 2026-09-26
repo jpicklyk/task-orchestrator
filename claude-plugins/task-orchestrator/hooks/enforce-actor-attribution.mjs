@@ -15,7 +15,8 @@
 // identity verification). Either option alone is sufficient to enforce.
 //
 // When enforced, blocks advance_item and manage_notes(upsert) calls that are missing an
-// actor object on any transition/note element.
+// actor object on any transition/note element — or, for the singular-sugar advance_item form
+// ({itemId, trigger}, no transitions array), missing the top-level actor.
 
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
@@ -132,6 +133,7 @@ process.stdout.write(JSON.stringify({
     permissionDecision: 'deny',
     permissionDecisionReason: 'Actor attribution is required (actor_authentication.enabled or actor_attribution.required is set). Include an "actor" object ' +
       'with "id" (string) and "kind" (orchestrator|subagent|user|external) on every ' +
-      'transition/note element. For subagents, include "parent" with the dispatching agent\'s id.'
+      'transition/note element (for a singular advance_item call with itemId+trigger, put it at the ' +
+      'top level). For subagents, include "parent" with the dispatching agent\'s id.'
   }
 }));
