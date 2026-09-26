@@ -108,6 +108,15 @@ When `actor_authentication.enabled: true` is set in `.taskorchestrator/config.ya
 
 **Important:** This enforcement only applies to Claude Code clients with the task-orchestrator plugin installed. Raw MCP clients connecting directly to the HTTP endpoint bypass the hook entirely. The server itself does not enforce actor presence — tools accept calls without `actor` claims and proceed with `actorClaim = null`.
 
+**Hook-local `actor_attribution.required` option.** Independent of `actor_authentication`, the same hook also recognizes a local-only `actor_attribution.required: true` key in `.taskorchestrator/config.yaml`:
+
+```yaml
+actor_attribution:
+  required: true
+```
+
+Either `actor_authentication.enabled: true` or `actor_attribution.required: true` alone is sufficient to make the hook deny actor-less `advance_item`/`manage_notes(upsert)` writes — the two options are independent, so a project can require actor attribution locally (e.g. as its own dogfood setting) without also standing up full `actor_authentication` (JWKS identity verification). This is early client-side feedback only, not server enforcement: the key is hook-local and the server ignores it (it is not part of the per-root config the server accepts on push).
+
 #### Layer 2: Authenticity verification (server-side JWKS)
 
 When `actor_authentication.verifier.type: jwks` is configured, the server validates the `actor.proof` JWT against the configured JWKS endpoint:
@@ -200,14 +209,15 @@ actor_authentication:
   `jwks_path` and DID-trust mode are unaffected.
 
 - **Actor-proof lifetime is capped.** `verifier.max_token_lifetime_seconds` (default `86400`, 24h)
-  rejects a JWKS actor proof once `exp - iat` exceeds the cap; `<= 0` or a non-integer value fails
-  startup. The REST API enforces the same cap on bearer tokens via `API_JWKS_MAX_TOKEN_LIFETIME_SECONDS`
+  rejects a JWKS actor proof once `exp - iat` exceeds the cap; `<= 0`, a non-integer value, or a value above
+  `3153600000` (100 years) fails startup. The REST API enforces the same cap on bearer tokens via `API_JWKS_MAX_TOKEN_LIFETIME_SECONDS`
   (same default and validation).
 
 - **Optional `jti` replay protection.** `verifier.jti_replay_protection` (default `false`, opt-in) —
   when enabled, actor proofs must carry a `jti` claim and each proof may be used only once per MCP
   call, tracked in-memory per server instance. Clients must mint a fresh proof for every call,
-  including retries and heartbeats.
+  including retries and heartbeats. The cache is bounded (10,000 entries, oldest evicted first), so it
+  is a best-effort per-instance control: a flood of distinct valid proofs can evict a live entry.
 
 For deeper configuration detail see [Fleet Deployment — Cross-Org did:web Deployments](current/docs/fleet-deployment.md#cross-org-didweb-deployments).
 
@@ -259,7 +269,7 @@ This means that in deployments where non-Claude-Code clients connect to the serv
 - **SQLite database**: Stored on a Docker volume (`mcp-task-data`) or a local file path. Ensure appropriate file permissions on the host mount. The database is not encrypted at rest — use disk-level encryption if required.
 - **Config files**: `.taskorchestrator/config.yaml` is mounted read-only (`:ro`) in Docker. It contains workflow rules and optional JWKS endpoints, not credentials. JWKS URIs point to public key endpoints — no secrets are stored in config.
 - **No secrets in actor claims**: The `actor.proof` field should contain a JWT token, not raw credentials. The `claimedBy` field on a `WorkItem` should contain an identifier (session ID, container name, JWT `jti`, or `did:web` identifier), not secrets. These values appear in audit trails and diagnostic tool responses.
-- **Actor proofs are not stored verbatim**: since the `V17__Store_Actor_Proof_Evidence.sql` migration, `notes`/`role_transitions` rows never persist the raw `actor.proof` JWT — only a SHA-256 hash and (when VERIFIED) the verified claims are kept. Pre-upgrade backups, and free space in the live file left from before that migration, may still hold live tokens until each token's own `exp` — rotate long-lived actor keys/tokens (the only remedy reaching every copy), optionally compact offline (fleet-deployment.md, "Proof handling"), and purge old backups. The REST admin `verification.proof` view (hash + claims) requires `ApiCapability.ADMIN`; `?include=proof` is a deprecated no-op retained only for backward compatibility (it now only adds a `Warning` response header, since `actor.proof` on the wire is always `null`).
+- **Actor proofs are not stored verbatim**: since the `V17__Store_Actor_Proof_Evidence.sql` migration, `notes`/`role_transitions` rows never persist the raw `actor.proof` JWT — only a SHA-256 hash and (when VERIFIED) the verified claims are kept. Pre-upgrade backups, and free space in the live file left from before that migration, may still hold live tokens until each token's own `exp`. Rotate long-lived actor keys/tokens (the only remedy reaching every copy), then purge old backups — compaction of the live file (VACUUM + FTS5 rebuild) now runs automatically once on the first Flyway-mode start after upgrading (`DB_COMPACT_ON_UPGRADE=false` to opt out; offline runbook in fleet-deployment.md, "Proof handling", as a fallback). The REST admin `verification.proof` view (hash + claims) requires `ApiCapability.ADMIN`;
 
 ### Threat Model Summary
 

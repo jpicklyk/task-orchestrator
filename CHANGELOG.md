@@ -5,6 +5,77 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Added an opt-in `(iss, jti)` replay cache for actor-authentication JWTs
+  (`actor_authentication.verifier.jti_replay_protection`, default `false`). A per-MCP-call memo
+  keeps a proof that is legitimately re-verified multiple times within one call (idempotency-key
+  lookups, multi-transition batches) from tripping the cache as a false replay. (#366)
+
+- **One-time startup compaction after the V17 actor-proof scrub.** On the first Flyway-mode start
+  after upgrading, the server now runs a one-time `VACUUM` + FTS5 shadow-table rebuild (with
+  integrity checks) + WAL checkpoint, gated on `PRAGMA user_version` so it runs exactly once per
+  database file. This reclaims free-page copies of pre-upgrade `actor_proof` values that V17's
+  migration could not reach. Runs before the readiness marker is written; failures are WARN-logged
+  and retried on the next boot, never fail startup. Opt out with `DB_COMPACT_ON_UPGRADE=false` to
+  keep using the offline compaction runbook instead. (#365)
+
+### Changed
+
+- Actor-authentication and REST API JWTs are now capped at a maximum lifetime, default 24 hours
+  (`actor_authentication.verifier.max_token_lifetime_seconds` / `API_JWKS_MAX_TOKEN_LIFETIME_SECONDS`).
+  **Upgrade note:** a token whose `exp - iat` (or remaining `exp - now`) exceeds 24 hours is now
+  REJECTED where it previously verified; raise the new setting before or immediately after
+  upgrading if your issuer intentionally mints longer-lived tokens. (#366)
+
+### Fixed
+
+- Fixed a malformed JWT claims set (e.g. a non-numeric `exp`/`iat`) being misreported as
+  `UNAVAILABLE`/`failureKind: network` under DID trust, or `REJECTED`/`failureKind: internal` in
+  static-JWKS mode; both now report `REJECTED`/`failureKind: claims`. (#366)
+
+### Removed
+
+- **BREAKING (REST): `?include=proof` and `API_REDACT_ACTOR_PROOF`**, deprecated in 3.15.0.
+  `?include=proof` is now ignored like any unknown include value (no more `Warning: 299` header);
+  `API_REDACT_ACTOR_PROOF` is no longer read (no startup WARN). `actor.proof` is removed from the
+  `ActorClaimDto` schema (it was already never sent). Admins read proof evidence via
+  `verification.proof`. (#362)
+
+### Plugin
+
+- SubagentStart now skips protocol injection entirely for `agent_type: "workflow-subagent"` —
+  Claude workflow agents follow their own script-driven transition logic — and reworded the
+  injected protocol to be seat-conditional: only an entry seat, or a single agent that owns the
+  whole phase with no seat named, is told to call `advance_item(trigger="start")`; a non-entry or
+  read-only seat is told not to call it at all.
+- Phase-Guard Record now skips recording any transition whose `actor.parent` starts with the
+  literal prefix `workflow:` (a Claude workflow-script seat), and records the role each item was
+  entered in (`newRole`, or `previousRole` for an already-in-phase `gate_blocked`) alongside its
+  itemId. Phase Guard (SubagentStop) uses that recorded role to block only while the item is
+  still in the role this agent entered — once a later seat has advanced the item further, it is
+  skipped rather than blocked on notes belonging to a phase it never owned. The recorded role is
+  kept across the guard's own blocks.
+- Skill enforcement now skips its length/placeholder heuristic for a note upserted via
+  `bodyFromFile` — that file's content isn't visible to the hook, so a short literal `body` is no
+  longer conflated with a substantive file-backed note.
+- SessionStart now warns when a dev checkout's `claude-plugins/task-orchestrator/.claude-plugin/plugin.json`
+  version differs from the version of the plugin actually running the hook, pointing to
+  `claude-plugins/CLAUDE.md` → "Plugin Discovery and Cache Refresh". Silent outside a dev checkout
+  or when either version can't be read.
+- Added a hook-local `actor_attribution.required: true` config option, independent of
+  `actor_authentication`, that makes `enforce-actor-attribution` deny actor-less `advance_item`/
+  `manage_notes(upsert)` writes without also requiring full `actor_authentication` (JWKS identity
+  verification) to be configured.
+- `enforce-actor-attribution` now also checks the singular-sugar `advance_item` form
+  (`itemId` + `trigger` with a top-level `actor`); previously an actor-less singular call passed
+  the hook even when enforcement was on.
+- Reworded the implementer and reviewer agent definitions' seat rules to defer to a named seat
+  assignment in the dispatch prompt, rather than assuming the agent owns every required note in
+  its phase.
+
 ## [3.15.0] - 2026-09-25
 
 ### Highlights

@@ -570,8 +570,8 @@ The optional `verifier` sub-key enables server-side JWT validation of actor clai
 | `require_sub_match` | no | boolean | `true` | JWT `sub` must match `actor.id` |
 | `stale_on_error` | no | boolean | `true` | Serve stale cached key set if JWKS endpoint is unreachable during refresh. Set `false` to propagate the fetch exception |
 | `allow_insecure_url` | no | boolean | `false` | Opt-in to allow `http` (instead of `https`) for `oidc_discovery`/`jwks_uri`, only when the host is a literal loopback address (`localhost`, `127.x.x.x`, `::1` — no DNS resolution). Does not affect `jwks_path` or DID-trust mode |
-| `max_token_lifetime_seconds` | no | integer | `86400` | Maximum accepted actor-proof lifetime in seconds (24h). A proof is rejected once `exp - iat` exceeds this value. Must be a positive integer — `<= 0` or a non-integer value fails startup. The REST API has the equivalent env var `API_JWKS_MAX_TOKEN_LIFETIME_SECONDS` (same default and validation) for bearer tokens |
-| `jti_replay_protection` | no | boolean | `false` | Opt-in. When `true`, actor proofs must carry a `jti` claim and each proof is single-use per MCP call (tracked in-memory, per server instance) — clients must mint a fresh proof for every call, including retries and heartbeats |
+| `max_token_lifetime_seconds` | no | integer | `86400` | Maximum accepted actor-proof lifetime in seconds (24h). A proof is rejected once `exp - iat` exceeds this value. Must be a positive integer no greater than `3153600000` (100 years) — `<= 0`, a non-integer, or a larger value fails startup. The REST API has the equivalent env var `API_JWKS_MAX_TOKEN_LIFETIME_SECONDS` (same default and validation) for bearer tokens |
+| `jti_replay_protection` | no | boolean | `false` | Opt-in. When `true`, actor proofs must carry a `jti` claim and each proof is single-use per MCP call (tracked in-memory, per server instance) — clients must mint a fresh proof for every call, including retries and heartbeats. Best-effort: the cache is bounded (10,000 entries, oldest evicted first) |
 | `did_allowlist` | no | list | `[]` | List of trusted DID strings (exact match against JWT `iss` claim). Non-empty activates DID-trust mode |
 | `did_pattern` | no | string | — | Glob pattern matching trusted DIDs (not regex). `*` matches only DID idchars `[A-Za-z0-9._-]` — never `%`, and never crosses a `:` segment boundary. Non-null activates DID-trust mode. May be combined with `did_allowlist` (either or both activate DID-trust); mutually exclusive only with the static-JWKS fields (oidc_discovery/jwks_uri/jwks_path) |
 | `did_strict_relationship` | no | boolean | `true` | When true, only verification methods referenced from the resolved DID document's `assertionMethod` array are eligible. Set false to allow any key in the document |
@@ -640,6 +640,25 @@ actor_authentication:
 When `did_allowlist` or `did_pattern` is set, the verifier resolves the JWT's `iss` claim as a DID and validates the signing key against the resolved DID document's `verificationMethod` entries (subject to `did_strict_relationship`). See `current/docs/fleet-deployment.md` for the full deployment guide.
 
 > **Note:** `enabled` (client-side enforcement) and `verifier` (server-side validation) are independent concerns. A call can pass enforcement (actor present) but have verification fail (bad JWT).
+
+### `actor_attribution` (hook-local, independent of `actor_authentication`)
+
+```yaml
+actor_attribution:
+  required: true
+```
+
+`actor_attribution.required` is a separate, hook-local key read only by the plugin's
+`enforce-actor-attribution` hook — the server does not read it and ignores it on a per-root config
+push (it falls under the server's `ignoredSections`/unknown-key handling, alongside any other key
+the server doesn't recognize). Setting it to `true` makes the hook deny actor-less `advance_item`
+and `manage_notes(upsert)` calls exactly like `actor_authentication.enabled: true` would, but without
+requiring `actor_authentication`'s JWKS identity verification to be configured — useful for a single
+project that wants local, client-side actor-presence feedback (e.g. as its own dogfood setting)
+without standing up a full identity-verification pipeline. Either option alone is sufficient to
+enforce; the two are independent and can be set together.
+
+Default: `false`/absent — actor attribution is not required by this option.
 
 ---
 
@@ -828,6 +847,11 @@ in an additive `ignoredSections` field.
 **Global-only settings.** `actor_authentication` is **not** part of the per-root layer — the
 resolver reads it only from the global file. A per-root document may carry it, but it is ignored
 (and reported in `ignoredSections`); keep it in the global config.
+
+`actor_attribution` is not a server concept at all — it is read only by the plugin's
+`enforce-actor-attribution` hook directly from the workspace's `.taskorchestrator/config.yaml`. If
+it's present in a document pushed to the server (e.g. via `config-sync`), the server ignores it the
+same way it ignores any other unrecognized top-level key.
 
 ### Schema-free / non-dev / business-workflow projects
 

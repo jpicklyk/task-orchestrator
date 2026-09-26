@@ -3,7 +3,8 @@
 // scope (rootId/name) when .taskorchestrator/config.yaml declares a `project:` block.
 
 import { readFileSync } from 'fs';
-import { resolve } from 'path';
+import { resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import { homedir } from 'os';
 import { readSection, scalar } from './yaml-lite.mjs';
 import { isOrchestratorServerKey, SERVER_SEGMENT_TOKEN } from './registration.mjs';
@@ -236,6 +237,78 @@ function buildRegistrationCheckSection() {
 ${lines.join('\n')}`;
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// Plugin version freshness check — dev-checkout only. Warns when the plugin
+// version checked out on disk (claude-plugins/task-orchestrator/.claude-plugin/plugin.json,
+// found by the same AGENT_CONFIG_DIR-then-cwd walk-up used elsewhere in this file)
+// differs from the version of the plugin actually running this hook. Silent
+// when not a dev checkout (no such file found), when either version can't be
+// read, or when the versions match — never blocks session start.
+//
+// Paths are resolved from AGENT_CONFIG_DIR/cwd/CLAUDE_PLUGIN_ROOT/import.meta.url
+// rather than hard-coded, so tests can fully control both sides.
+// ─────────────────────────────────────────────────────────────────────────
+
+function readPluginVersion(pluginJsonPath) {
+  try {
+    const parsed = JSON.parse(readFileSync(pluginJsonPath, 'utf-8'));
+    return typeof parsed.version === 'string' ? parsed.version : null;
+  } catch {
+    return null;
+  }
+}
+
+// Walk up from AGENT_CONFIG_DIR (if set) then cwd looking for the dev-checkout's
+// own plugin.json. Mirrors findConfigPath()'s walk pattern so worktrees (cwd
+// nested under .claude/worktrees/<name>/) still find the checkout root.
+function findDevCheckoutPluginJson() {
+  const startDirs = [];
+  if (process.env.AGENT_CONFIG_DIR) startDirs.push(process.env.AGENT_CONFIG_DIR);
+  startDirs.push(process.cwd());
+
+  for (const start of startDirs) {
+    let dir = resolve(start);
+    const root = resolve(dir, '/');
+    for (;;) {
+      const candidate = resolve(dir, 'claude-plugins', 'task-orchestrator', '.claude-plugin', 'plugin.json');
+      try {
+        readFileSync(candidate, 'utf-8');
+        return candidate;
+      } catch {
+        // keep walking
+      }
+      if (dir === root) break;
+      dir = resolve(dir, '..');
+    }
+  }
+  return null;
+}
+
+// Locates the plugin.json of the plugin actually running this hook: CLAUDE_PLUGIN_ROOT
+// when the harness sets it, else resolved relative to this hook script's own file
+// location (hooks/session-start.mjs -> ../.claude-plugin/plugin.json).
+function findRunningPluginJson() {
+  if (process.env.CLAUDE_PLUGIN_ROOT) {
+    return resolve(process.env.CLAUDE_PLUGIN_ROOT, '.claude-plugin', 'plugin.json');
+  }
+  const hookDir = dirname(fileURLToPath(import.meta.url));
+  return resolve(hookDir, '..', '.claude-plugin', 'plugin.json');
+}
+
+function buildFreshnessWarning() {
+  const devPluginJsonPath = findDevCheckoutPluginJson();
+  if (!devPluginJsonPath) return null; // not a dev checkout — silent
+
+  const devVersion = readPluginVersion(devPluginJsonPath);
+  const runningVersion = readPluginVersion(findRunningPluginJson());
+  if (!devVersion || !runningVersion) return null; // read error — fail open, silent
+  if (devVersion === runningVersion) return null; // up to date — silent
+
+  return `## Plugin Version Drift
+
+The checked-out plugin version (\`${devVersion}\`) differs from the currently loaded plugin cache (\`${runningVersion}\`). Refresh the plugin cache — see \`claude-plugins/CLAUDE.md\` → "Plugin Discovery and Cache Refresh".`;
+}
+
 let additionalContext;
 try {
   additionalContext = buildContext();
@@ -252,6 +325,15 @@ try {
   }
 } catch {
   // Fail-open: the self-check is purely diagnostic — never let it affect session start.
+}
+
+try {
+  const freshnessWarning = buildFreshnessWarning();
+  if (freshnessWarning) {
+    additionalContext = `${additionalContext}\n\n${freshnessWarning}`;
+  }
+} catch {
+  // Fail-open: the freshness check is purely diagnostic — never let it affect session start.
 }
 
 const output = {

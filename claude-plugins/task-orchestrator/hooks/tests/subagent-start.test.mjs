@@ -144,3 +144,70 @@ test('S6: headless iteration mode exits silently even for a phase-owner agent_ty
   assert.equal(res.status, 0, `hook exited non-zero: ${res.stderr}`);
   assert.equal(res.stdout, '');
 });
+
+// ── 60e01b3a: workflow-subagent skip + conditional seat wording ──────────────────────────────
+// Oracle: item 60e01b3a's specification -- skip injection entirely when agent_type is exactly
+// "workflow-subagent" (Claude workflow agents follow their own script-driven transition logic),
+// even if that dispatch happens to name an implementer/reviewer seat internally; and reword the
+// protocol so only an entry seat (or a single phase owner with no seat named) is told to call
+// advance_item(start) -- a non-entry or read-only seat should see no such instruction.
+
+test('workflow-subagent agent_type gets no injected output at all', () => {
+  const res = runHook({ session_id: 's', agent_id: 'a', agent_type: 'workflow-subagent' });
+  assert.equal(res.status, 0, `hook exited non-zero: ${res.stderr}`);
+  assert.equal(res.stdout, '', 'expected empty stdout for agent_type workflow-subagent');
+});
+
+test('workflow-subagent skip is unconditional on any other field in the payload', () => {
+  // agent_type is always exactly "workflow-subagent" per the hooks reference for workflow-
+  // dispatched subagents; this confirms the exact-match skip doesn't get overridden by other
+  // fields (e.g. a workflow script happening to also pass a seat-like field).
+  const res = runHook({ session_id: 's', agent_id: 'a', agent_type: 'workflow-subagent', seat: 'implementer' });
+  assert.equal(res.status, 0, `hook exited non-zero: ${res.stderr}`);
+  assert.equal(res.stdout, '');
+});
+
+test('invalid JSON on stdin fails open: proceeds as if no agent_type were given (no crash, exit 0, no output)', () => {
+  const malformed = spawnSync(process.execPath, [HOOK], {
+    input: '{not valid json',
+    env: (() => {
+      const env = { ...process.env };
+      delete env.TASK_ORCHESTRATOR_MODE;
+      return env;
+    })(),
+    encoding: 'utf-8',
+  });
+  assert.equal(malformed.status, 0, `hook exited non-zero on invalid stdin: ${malformed.stderr}`);
+  assert.equal(malformed.stdout, '', 'invalid stdin has no agent_type, so no phase-owner match, so no output');
+});
+
+test('empty stdin fails open the same way: exit 0, no output', () => {
+  const res = spawnSync(process.execPath, [HOOK], {
+    input: '',
+    env: (() => {
+      const env = { ...process.env };
+      delete env.TASK_ORCHESTRATOR_MODE;
+      return env;
+    })(),
+    encoding: 'utf-8',
+  });
+  assert.equal(res.status, 0, `hook exited non-zero on empty stdin: ${res.stderr}`);
+  assert.equal(res.stdout, '');
+});
+
+test('protocol text conditions advance_item(start) on being the entry seat, not a blanket instruction', () => {
+  const text = protocolText();
+  assert.ok(
+    text.includes("Follow your dispatch prompt's seat assignment"),
+    'expected the seat-deferral framing to open the protocol'
+  );
+  assert.ok(
+    /entry seat/i.test(text),
+    'expected the text to name the entry-seat concept as the one that advances the item'
+  );
+  assert.ok(
+    /read-only.*never calls `advance_item`|never calls `advance_item`.*read-only/is.test(text) ||
+      (/read-only/i.test(text) && /never calls `advance_item`/.test(text)),
+    'expected the text to say a read-only agent never calls advance_item'
+  );
+});

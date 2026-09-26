@@ -108,15 +108,14 @@ fun ActorClaim.toDto(): ActorClaimDto =
         id = id,
         kind = kind.toJsonString(),
         parent = parent,
-        proof = proof,
     )
 
 /**
  * Maps a [VerificationResult] domain object to a [VerificationDto].
  *
- * `proof` is always populated here when [VerificationResult.proofSha256] is present — like
- * [ActorClaim.toDto]'s raw `proof` field, redaction for non-admin callers is applied downstream
- * by [io.github.jpicklyk.mcptask.current.interfaces.api.v1.redaction.AttributionRedactor] /
+ * `proof` is always populated here when [VerificationResult.proofSha256] is present; redaction
+ * for non-admin callers is applied downstream by
+ * [io.github.jpicklyk.mcptask.current.interfaces.api.v1.redaction.AttributionRedactor] /
  * `redactVerification`, not by this call-context-free mapper.
  */
 fun VerificationResult.toDto(): VerificationDto =
@@ -221,7 +220,7 @@ fun buildDependenciesDto(
  * Maps a [RoleTransition] domain entity to a [RoleTransitionDto].
  *
  * `actor` and `verification` are included; callers that expose the transition to the API
- * should call [redactActorProofIfNeeded] / [redactVerification] from
+ * should call [redactVerification] from
  * [io.github.jpicklyk.mcptask.current.interfaces.api.v1.redaction.AttributionRedactor]
  * as needed.
  */
