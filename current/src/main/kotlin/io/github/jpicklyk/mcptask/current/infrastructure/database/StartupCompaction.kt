@@ -110,7 +110,7 @@ internal object StartupCompaction {
         }
 
         return try {
-            runCompaction(dbFile, jdbcUrl, busyTimeoutMs, usableSpaceBytes)
+            runCompaction(dbFile, busyTimeoutMs, usableSpaceBytes)
         } catch (e: Exception) {
             logger.warn("Startup compaction failed: ${e.message}")
             CompactionOutcome.FAILED
@@ -119,12 +119,13 @@ internal object StartupCompaction {
 
     private fun runCompaction(
         dbFile: File,
-        jdbcUrl: String,
         busyTimeoutMs: Long,
         usableSpaceBytes: (File) -> Long,
     ): CompactionOutcome {
         Class.forName("org.sqlite.JDBC")
-        DriverManager.getConnection(jdbcUrl).use { connection: Connection ->
+        // Open by the resolved file, not the caller's URL: a `?query` suffix is not part of the
+        // filename for a plain (non-`file:`) sqlite-jdbc URL and would fail with SQLITE_CANTOPEN.
+        DriverManager.getConnection("jdbc:sqlite:${dbFile.path}").use { connection: Connection ->
             connection.autoCommit = true
 
             connection.createStatement().use { stmt -> stmt.execute("PRAGMA busy_timeout = $busyTimeoutMs") }
