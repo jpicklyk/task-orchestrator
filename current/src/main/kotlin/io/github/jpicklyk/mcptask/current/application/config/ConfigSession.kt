@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.config
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -41,6 +42,11 @@ class ConfigSession : AbstractCoroutineContextElement(ConfigSession) {
      * Returns the memoised [ConfigLayer] for `(source, rootId)`, invoking [fetch] and storing its
      * outcome (success, null, or failure) on the first call for that key within this session, and
      * replaying the same outcome (rethrowing on failure) on every subsequent call.
+     *
+     * D7: a [CancellationException] from [fetch] is NEVER memoised — it is rethrown as-is, and the
+     * next call for the same key re-invokes [fetch] fresh. A coroutine cancellation is not a
+     * property of the underlying config read; caching it would incorrectly poison every later
+     * lookup of the same key for the rest of the session with an unrelated cancellation.
      */
     internal suspend fun memoized(
         source: Any,
@@ -49,11 +55,14 @@ class ConfigSession : AbstractCoroutineContextElement(ConfigSession) {
     ): ConfigLayer? {
         val key = source to rootId
         val cached = mutex.withLock { memo[key] }
-        val result =
-            cached ?: runCatching { fetch() }.also { outcome ->
-                mutex.withLock { memo[key] = outcome }
-            }
-        return result.getOrThrow()
+        if (cached != null) return cached.getOrThrow()
+
+        val outcome = runCatching { fetch() }
+        val cancellation = outcome.exceptionOrNull() as? CancellationException
+        if (cancellation != null) throw cancellation
+
+        mutex.withLock { memo[key] = outcome }
+        return outcome.getOrThrow()
     }
 }
 

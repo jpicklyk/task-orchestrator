@@ -406,7 +406,7 @@ Call to move an item between phases once its work is done — never edit status 
             // decoration below, which is handled separately per D7).
             val outcome =
                 try {
-                    val advanceService = buildAdvanceService(context, ready.item, ready.trigger)
+                    val advanceService = context.advanceServiceFactory().forItem(ready.item, ready.trigger)
 
                     // Delegate the full pipeline to the per-item AdvanceService above.
                     // MCP ALWAYS enforces resource leases — there is no tool-level override. An
@@ -605,28 +605,6 @@ Call to move an item between phases once its work is done — never edit status 
 
         return PreCheckResult.Ready(trigger, summary, credentialRefs, actorClaim, verification, item)
     }
-
-    /**
-     * Builds the per-item [AdvanceService], bound to [item]'s rootId (per-root status-label
-     * layering) — mirrors the pre-refactor inline construction byte-for-byte.
-     */
-    private suspend fun buildAdvanceService(
-        context: ToolExecutionContext,
-        item: WorkItem,
-        trigger: String
-    ): AdvanceService =
-        AdvanceService(
-            workItemRepository = context.workItemRepository(),
-            roleTransitionRepository = context.roleTransitionRepository(),
-            dependencyRepository = context.dependencyRepository(),
-            noteRepository = context.noteRepository(),
-            statusLabelService = context.rootAwareStatusLabelService(item.rootId, trigger),
-            schemaResolver = { context.resolveSchema(it) },
-            resourceLeaseRepository = context.repositoryProvider.resourceLeaseRepository(),
-            resourceRequirementsResolver = { context.resolveResourceRequirements(it) },
-            resourceRegistryResolver = { context.resolveResourceRegistry(it) },
-            resourceLeasesEnforced = AdvanceService.resourceLeasesEnforcedFromEnv()
-        )
 
     /**
      * Builds the `applied:true` result JSON for a successful transition: cascade events,

@@ -7,6 +7,7 @@ import io.github.jpicklyk.mcptask.current.application.config.PerRootConfigSource
 import io.github.jpicklyk.mcptask.current.application.config.SchemaMatch
 import io.github.jpicklyk.mcptask.current.application.config.ServiceBackedGlobalLookup
 import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
+import io.github.jpicklyk.mcptask.current.application.service.AdvanceServiceFactory
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
 import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommender
 import io.github.jpicklyk.mcptask.current.application.service.NoOpActorVerifier
@@ -63,6 +64,21 @@ class ToolExecutionContext(
             perRootConfigService
         ),
 ) {
+    /**
+     * Lazy so 17+ test files that strict-mock [RepositoryProvider] are unaffected by an eager
+     * accessor call at construction time; built once per [ToolExecutionContext] instance.
+     */
+    private val advanceServiceFactoryLazy by lazy {
+        AdvanceServiceFactory(
+            workItemRepository(),
+            roleTransitionRepository(),
+            dependencyRepository(),
+            noteRepository(),
+            repositoryProvider.resourceLeaseRepository(),
+            configResolver
+        )
+    }
+
     /** Access to WorkItem CRUD and query operations. */
     fun workItemRepository(): WorkItemRepository = repositoryProvider.workItemRepository()
 
@@ -229,6 +245,12 @@ class ToolExecutionContext(
      * [EffectiveConfigResolver.availableTraits].
      */
     suspend fun availableTraits(rootIds: Collection<UUID>): List<String> = configResolver.availableTraits(rootIds)
+
+    /**
+     * The shared [AdvanceServiceFactory] for this context, backing every `advance_item` /
+     * `complete_tree` construction of [io.github.jpicklyk.mcptask.current.application.service.AdvanceService].
+     */
+    fun advanceServiceFactory(): AdvanceServiceFactory = advanceServiceFactoryLazy
 }
 
 /** Which config layer supplied a resolved schema; see [ToolExecutionContext.resolveSchemaWithSource]. */

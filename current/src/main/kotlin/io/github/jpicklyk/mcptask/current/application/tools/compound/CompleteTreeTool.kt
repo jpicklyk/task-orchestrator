@@ -554,19 +554,7 @@ Call when closing out a finished hierarchy — one atomic call instead of per-it
         // dependents are skipped exactly like any other rejection; the rest of the tree continues.
         val outcome =
             try {
-                val advanceService =
-                    AdvanceService(
-                        workItemRepository = context.workItemRepository(),
-                        roleTransitionRepository = context.roleTransitionRepository(),
-                        dependencyRepository = context.dependencyRepository(),
-                        noteRepository = context.noteRepository(),
-                        statusLabelService = context.rootAwareStatusLabelService(item.rootId, trigger),
-                        schemaResolver = { context.resolveSchema(it) },
-                        resourceLeaseRepository = context.repositoryProvider.resourceLeaseRepository(),
-                        resourceRequirementsResolver = { context.resolveResourceRequirements(it) },
-                        resourceRegistryResolver = { context.resolveResourceRegistry(it) },
-                        resourceLeasesEnforced = AdvanceService.resourceLeasesEnforcedFromEnv()
-                    )
+                val advanceService = context.advanceServiceFactory().forItem(item, trigger)
 
                 advanceService.advance(
                     item = item,

@@ -1,10 +1,12 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
+import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
+import io.github.jpicklyk.mcptask.current.application.config.LayerBackedGlobalLookup
 import io.github.jpicklyk.mcptask.current.application.service.ActorVerifier
+import io.github.jpicklyk.mcptask.current.application.service.AdvanceServiceFactory
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
 import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommender
 import io.github.jpicklyk.mcptask.current.application.service.NoOpActorVerifier
-import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
@@ -67,10 +69,11 @@ class CompositionResult(
     val toolContext: ToolExecutionContext,
     val apiWiring: ApiWiring,
     val noteSchemaService: WorkItemSchemaService,
-    val statusLabelService: StatusLabelService,
     val degradedModePolicy: DegradedModePolicy,
     val idempotencyCache: IdempotencyCache,
     val actorAuthEnabled: Boolean,
+    val configResolver: EffectiveConfigResolver,
+    val advanceServiceFactory: AdvanceServiceFactory,
 )
 
 /**
@@ -147,6 +150,10 @@ class ServerComposition(
         // falling back to the global noteSchemaService above. Shares effectiveProvider so MCP tools
         // and REST routes see the same (possibly event-publishing-decorated) project_config access.
         val perRootConfigService = PerRootConfigService(effectiveProvider.projectConfigRepository())
+        // Both MCP and REST resolve config through this ONE resolver — see O1 (task-scope f2c50e6d):
+        // REST previously built its own PerRootConfigService (a separate last-known-good cache);
+        // sharing this instance is the only intended observable behavior change in this item.
+        val configResolver = EffectiveConfigResolver(LayerBackedGlobalLookup(globalConfigFile.layer()), perRootConfigService)
         val toolContext =
             ToolExecutionContext(
                 repositoryProvider = effectiveProvider,
@@ -157,6 +164,7 @@ class ServerComposition(
                 idempotencyCache = idempotencyCache,
                 nextItemRecommender = nextItemRecommender,
                 perRootConfigService = perRootConfigService,
+                configResolver = configResolver,
             )
         logger.info(
             "Repository provider and tool context initialized (API {})",
@@ -174,10 +182,11 @@ class ServerComposition(
             toolContext = toolContext,
             apiWiring = apiWiring,
             noteSchemaService = noteSchemaService,
-            statusLabelService = statusLabelService,
             degradedModePolicy = degradedModePolicy,
             idempotencyCache = idempotencyCache,
             actorAuthEnabled = actorAuthEnabled,
+            configResolver = configResolver,
+            advanceServiceFactory = toolContext.advanceServiceFactory(),
         )
     }
 

@@ -1,16 +1,14 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
+import io.github.jpicklyk.mcptask.current.application.config.withConfigSession
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceFailure
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
-import io.github.jpicklyk.mcptask.current.application.service.AdvanceService
+import io.github.jpicklyk.mcptask.current.application.service.AdvanceServiceFactory
 import io.github.jpicklyk.mcptask.current.application.service.CredentialRefValidation
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
 import io.github.jpicklyk.mcptask.current.application.service.ItemHierarchyValidator
-import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
-import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.application.service.rest.MergePatchApplier
 import io.github.jpicklyk.mcptask.current.application.service.rest.WorkItemPatchProjection
-import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.items.WorkItemDeleteOutcome
 import io.github.jpicklyk.mcptask.current.application.tools.items.WorkItemDeletion
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
@@ -21,8 +19,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
-import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
-import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlStatusLabelService
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.audit.ApiAuditBridge
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
@@ -297,41 +293,21 @@ private data class ParsedAdvanceRequest(
  * **ETag concurrency:** PATCH requires `If-Match`; DELETE accepts optional `If-Match`.
  * **degradedModePolicy:** `reject` policy + verification failure → 401.
  *
- * @param schemaService used to resolve the item's actual `hasReviewPhase` on advance, mirroring
- *   [io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool] (trait-merged).
- * @param statusLabelService config-driven, root-layerable status label resolution — the SAME
- *   [StatusLabelService] instance the MCP `advance_item` tool uses, so REST-driven advances stamp
- *   identical labels (bug 80e48e55 — REST previously hardcoded [NoOpStatusLabelService] and never
- *   applied labels at all). Defaults to a fresh [YamlStatusLabelService] for callers (tests) that
- *   don't need to share the production instance.
+ * @param advanceServiceFactory builds the per-item [io.github.jpicklyk.mcptask.current.application.service.AdvanceService]
+ *   for the advance route below — the SAME factory (and therefore the SAME [io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver]
+ *   / per-root config cache) the MCP `advance_item` tool uses, so REST-driven advances stamp
+ *   identical status labels (bug 80e48e55 — REST previously hardcoded [NoOpStatusLabelService] and
+ *   never applied labels at all) and share MCP's last-known-good per-root cache.
  */
 fun Route.itemWriteRoutes(
     repositoryProvider: RepositoryProvider,
     degradedModePolicy: DegradedModePolicy,
     idempotencyCache: IdempotencyCache,
-    schemaService: WorkItemSchemaService,
+    advanceServiceFactory: AdvanceServiceFactory,
     warnOnClaimedAdvance: Boolean = defaultWarnOnClaimedAdvance,
-    statusLabelService: StatusLabelService = YamlStatusLabelService(),
 ) {
     val workItemRepo = repositoryProvider.workItemRepository()
-    val roleTransitionRepo = repositoryProvider.roleTransitionRepository()
-    val depRepo = repositoryProvider.dependencyRepository()
     val hierarchyValidator = ItemHierarchyValidator()
-
-    // Schema-resolution context — reuses the EXACT trait-merging + review-phase logic from
-    // AdvanceItemTool (via ToolExecutionContext.resolveHasReviewPhase). Repository access is shared;
-    // no MCP behavior is affected since this context is read-only for schema resolution here.
-    // statusLabelService and perRootConfigService are passed by name (all other trailing
-    // ToolExecutionContext params keep their defaults) so REST advances get the SAME per-root
-    // schema layering AND the SAME config-driven status labels as MCP tool calls — otherwise this
-    // independently-constructed context would silently resolve global-only / labels at all.
-    val schemaResolutionContext =
-        ToolExecutionContext(
-            repositoryProvider,
-            schemaService,
-            statusLabelService = statusLabelService,
-            perRootConfigService = PerRootConfigService(repositoryProvider.projectConfigRepository()),
-        )
 
     // Parses and validates the POST /items/{id}/advance request body: the 415 Content-Type gate,
     // the bounded body read + AdvanceRequestDto decode, trigger parsing, and credentialRefs
@@ -409,25 +385,6 @@ fun Route.itemWriteRoutes(
         }
         return true
     }
-
-    // Builds the per-request AdvanceService, bound to `item`'s rootId (per-root status-label
-    // layering) — mirrors the pre-refactor inline construction byte-for-byte.
-    suspend fun buildAdvanceService(
-        item: WorkItem,
-        trigger: String,
-    ): AdvanceService =
-        AdvanceService(
-            workItemRepository = workItemRepo,
-            roleTransitionRepository = roleTransitionRepo,
-            dependencyRepository = depRepo,
-            noteRepository = repositoryProvider.noteRepository(),
-            statusLabelService = schemaResolutionContext.rootAwareStatusLabelService(item.rootId, trigger),
-            schemaResolver = { schemaResolutionContext.resolveSchema(it) },
-            resourceLeaseRepository = repositoryProvider.resourceLeaseRepository(),
-            resourceRequirementsResolver = { schemaResolutionContext.resolveResourceRequirements(it) },
-            resourceRegistryResolver = { schemaResolutionContext.resolveResourceRegistry(it) },
-            resourceLeasesEnforced = AdvanceService.resourceLeasesEnforcedFromEnv(),
-        )
 
     // ─── POST /items ─────────────────────────────────────────────────────────
     requireCapability(ApiCapability.WRITE_ITEMS) {
@@ -1165,19 +1122,21 @@ fun Route.itemWriteRoutes(
             // inability, distinct from the 409 used for resource-state conflicts).
             val outcome =
                 try {
-                    val advanceService = buildAdvanceService(item, userTrigger.triggerString)
+                    withConfigSession {
+                        val advanceService = advanceServiceFactory.forItem(item, userTrigger.triggerString)
 
-                    advanceService.advance(
-                        item = item,
-                        trigger = userTrigger.triggerString,
-                        summary = transitionSummary,
-                        actorClaim = actorClaim,
-                        verification = verification,
-                        degradedModePolicy = degradedModePolicy,
-                        enforceOwnership = false,
-                        credentialRefs = credentialRefs,
-                        enforceResourceLeases = !overrideResourceLeases,
-                    )
+                        advanceService.advance(
+                            item = item,
+                            trigger = userTrigger.triggerString,
+                            summary = transitionSummary,
+                            actorClaim = actorClaim,
+                            verification = verification,
+                            degradedModePolicy = degradedModePolicy,
+                            enforceOwnership = false,
+                            credentialRefs = credentialRefs,
+                            enforceResourceLeases = !overrideResourceLeases,
+                        )
+                    }
                 } catch (e: PerRootConfigUnavailableException) {
                     respondAdvanceConfigUnavailable(call, id, e)
                     return@post

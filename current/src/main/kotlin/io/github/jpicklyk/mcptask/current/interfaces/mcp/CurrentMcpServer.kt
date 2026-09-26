@@ -1,9 +1,9 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
-import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition
+import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.config.ManagePlanDocumentsTool
@@ -22,7 +22,6 @@ import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetNextItem
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetNextStatusTool
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
-import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlStatusLabelService
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.health.ReadinessMarker
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
@@ -154,7 +153,6 @@ class CurrentMcpServer(
             val toolContext = composition.toolContext
             val apiWiring = composition.apiWiring
             val noteSchemaService = composition.noteSchemaService
-            val statusLabelService = composition.statusLabelService
             val degradedModePolicy = composition.degradedModePolicy
             val idempotencyCache = composition.idempotencyCache
 
@@ -205,7 +203,7 @@ class CurrentMcpServer(
                             toolCount,
                             apiWiring,
                             noteSchemaService,
-                            statusLabelService,
+                            toolContext,
                             degradedModePolicy,
                             idempotencyCache,
                             composition.actorAuthEnabled,
@@ -296,7 +294,7 @@ class CurrentMcpServer(
         toolCount: Int,
         apiWiring: ApiWiring,
         noteSchemaService: WorkItemSchemaService,
-        statusLabelService: StatusLabelService,
+        toolContext: ToolExecutionContext,
         degradedModePolicy: DegradedModePolicy,
         idempotencyCache: IdempotencyCache,
         actorAuthEnabled: Boolean,
@@ -375,7 +373,7 @@ class CurrentMcpServer(
                     serverVersion = version,
                     actorAuthEnabled = actorAuthEnabled,
                     noteSchemaService = noteSchemaService,
-                    statusLabelService = statusLabelService,
+                    toolContext = toolContext,
                     degradedModePolicy = degradedModePolicy,
                     idempotencyCache = idempotencyCache,
                     jwksVerifier = jwksVerifier,
@@ -561,7 +559,7 @@ internal fun Application.installRestApiRoutes(
     serverVersion: String,
     actorAuthEnabled: Boolean,
     noteSchemaService: WorkItemSchemaService,
-    statusLabelService: StatusLabelService = YamlStatusLabelService(),
+    toolContext: ToolExecutionContext,
     degradedModePolicy: DegradedModePolicy,
     idempotencyCache: IdempotencyCache,
     jwksVerifier: JwksApiVerifier? = null,
@@ -607,7 +605,7 @@ internal fun Application.installRestApiRoutes(
             )
             // Phase 3: read API — items, notes, dependencies, transitions, search
             itemRoutes(effectiveProvider)
-            itemGateRoutes(effectiveProvider, noteSchemaService)
+            itemGateRoutes(effectiveProvider, toolContext.configResolver)
             noteRoutes(effectiveProvider)
             dependencyRoutes(effectiveProvider)
             transitionRoutes(
@@ -623,9 +621,8 @@ internal fun Application.installRestApiRoutes(
                 effectiveProvider,
                 degradedModePolicy,
                 idempotencyCache,
-                noteSchemaService,
+                toolContext.advanceServiceFactory(),
                 warnOnClaimedAdvance = appConfig.apiWarnOnClaimedAdvance,
-                statusLabelService = statusLabelService,
             )
             noteWriteRoutes(effectiveProvider, degradedModePolicy, idempotencyCache)
             dependencyWriteRoutes(effectiveProvider, degradedModePolicy)
