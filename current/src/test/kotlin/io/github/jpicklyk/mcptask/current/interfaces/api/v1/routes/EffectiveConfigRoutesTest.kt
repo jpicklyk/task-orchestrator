@@ -5,6 +5,7 @@ import io.github.jpicklyk.mcptask.current.application.config.ConfigLayer
 import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.config.GlobalConfigLookup
+import io.github.jpicklyk.mcptask.current.application.config.LayerBackedGlobalLookup
 import io.github.jpicklyk.mcptask.current.application.config.PerRootConfigSource
 import io.github.jpicklyk.mcptask.current.application.config.ServiceBackedGlobalLookup
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
@@ -18,6 +19,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
+import io.github.jpicklyk.mcptask.current.infrastructure.config.GlobalConfigFile
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlWorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
@@ -171,6 +173,21 @@ private class CountingPerRootConfigSource(
 }
 
 private fun decodeEffective(body: String): EffectiveConfigDto = McpJson.decodeFromString<EffectiveConfigDto>(body)
+
+/**
+ * Builds the global layer via [GlobalConfigFile]/[LayerBackedGlobalLookup] — the PRODUCTION path
+ * (C3 task-scope: `LayerBackedGlobalLookup(globalConfigFile.layer())`) — rather than [globalFixture]'s
+ * [ServiceBackedGlobalLookup], whose `schemaResolution` is a constructor default (`null`) and is
+ * never derived from the YAML file. Only this path actually parses a top-level `schema_resolution:`
+ * key out of the global document, which S15's global-level cases need.
+ * The [WorkItemSchemaService] returned reads the SAME file, so the two params stay in parity.
+ */
+private fun globalLayerFixture(yaml: String): Pair<WorkItemSchemaService, GlobalConfigLookup> {
+    val path = writeYamlFile(yaml)
+    val schemaService = YamlWorkItemSchemaService(path)
+    val lookup = LayerBackedGlobalLookup(GlobalConfigFile(path).layer())
+    return schemaService to lookup
+}
 
 // ───────────────────────────── Happy path: S1-S6 ─────────────────────────────
 
@@ -1086,4 +1103,268 @@ class EffectiveConfigRoutesProbeTest {
             assertEquals(listOf("only-global"), namesWithAbsentKey)
         }
     }
+}
+
+// ───────────────────── C4 task-scope-addendum: S15-S19 ─────────────────────
+//
+// Independently authored against the frozen `task-scope`/`test-plan`/`task-scope-addendum` notes
+// on item `8879f554` (C4 — AR-39 `schema_resolution` opt-in + D2 tag-probe fix), whose addendum
+// extends C4 to also own the `schemaResolution` field on `EffectiveConfigDto` and two behavioural
+// carry-overs on this route (A2 the DB-failure 500 mapping, A3 the ordering/ctor cleanups). All
+// fixtures below are additional to S1-S22 above; no existing test in this file is modified.
+//
+// Surface labels (task-scope-addendum "Build additions" + Dtos.kt declarations):
+//  - S15 (schemaResolution): the DTO field is additive-NEW in this item (A1). A narrowest revert
+//    that keeps the field but hard-codes its population to "legacy" still compiles and reddens.
+//  - S16 (ordering), S17 (defaultSchema), S18 (entry fields): all touch DTO fields that already
+//    existed before this item (EffectiveSchemaDto.lifecycleMode/defaultTraits, TraitDto.resources,
+//    EffectiveConfigDto.defaultSchema/types — see decl-ec445109.md) — EXISTING-SURFACE; these add
+//    coverage for values the earlier S1-S22 suite never populated (S1/S6 exercised `.sorted()`
+//    types and an always-null defaultSchema only).
+//  - S19 (root-lookup DB failure -> 500): EXISTING-SURFACE (A2 changes existing route behaviour,
+//    introduces no new type). NOT authored here — see the arbitration note below.
+//
+// S19 status: the addendum requires the 500 envelope to mirror GET /api/v1/roots/{rootId}/config's
+// own internal-error response, "read that route's existing tests (ProjectConfigRoutesTest.kt) for
+// the status/code/message it asserts; if none asserts it, stop and ask." ProjectConfigRoutesTest.kt
+// asserts OK/Forbidden/UnprocessableEntity/PayloadTooLarge/PreconditionFailed/NotFound/Conflict/
+// NotModified/NoContent only (grepped: no InternalServerError, no internal_error, no 500 assertion
+// anywhere in that file, nor in FullApiWiringSmokeTest.kt). Per rule 4, this is a missing
+// declaration, not a gap to fill from the route's general error-mapping conventions — escalated
+// rather than derived. See the return line's `missing-declaration` field and `test-manifest`'s
+// arbitration record.
+
+class EffectiveConfigRoutesSchemaResolutionTest {
+    @Test
+    fun `S15 - schemaResolution reflects per-root, falls back to global, defaults legacy, downgrades isolated`() {
+        // Case 1: a per-root schema_resolution wins outright, regardless of the (absent) global value.
+        testApplication {
+            val (schemaService, global) = globalFixture("work_item_schemas: {}")
+            val repo = buildH2RepositoryProvider()
+            val root = createRootItem(repo, title = "S15 per-root layered")
+            runBlocking {
+                repo.projectConfigRepository().upsert(root.id, "schema_resolution: layered\nwork_item_schemas: {}\n")
+            }
+            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.projectConfigRepository()))
+            application { configureEffectiveConfigTestApp(repo, resolver, schemaService) }
+
+            val response = client.get("/api/v1/roots/${root.id}/config/effective") { header("Authorization", "Bearer $TEST_TOKEN") }
+            assertEquals(HttpStatusCode.OK, response.status)
+            assertEquals(
+                "layered",
+                decodeEffective(response.bodyAsText()).schemaResolution,
+                "a per-root schema_resolution must win outright [task-scope effective-mode rule]"
+            )
+        }
+
+        // Case 2: no schema_resolution key anywhere (no per-root row, global YAML omits it) -> legacy.
+        testApplication {
+            val (schemaService, global) = globalFixture("work_item_schemas: {}")
+            val repo = buildH2RepositoryProvider()
+            val root = createRootItem(repo, title = "S15 absent everywhere")
+            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.projectConfigRepository()))
+            application { configureEffectiveConfigTestApp(repo, resolver, schemaService) }
+
+            val response = client.get("/api/v1/roots/${root.id}/config/effective") { header("Authorization", "Bearer $TEST_TOKEN") }
+            assertEquals(HttpStatusCode.OK, response.status)
+            assertEquals(
+                "legacy",
+                decodeEffective(response.bodyAsText()).schemaResolution,
+                "absent everywhere must default to legacy [D1: absent = legacy, no default flip]"
+            )
+        }
+
+        // Case 3: global layered, per-root document present but WITHOUT the key -> inherits layered.
+        testApplication {
+            val (schemaService, global) = globalLayerFixture("schema_resolution: layered\nwork_item_schemas: {}\n")
+            val repo = buildH2RepositoryProvider()
+            val root = createRootItem(repo, title = "S15 global layered, per-root silent")
+            runBlocking { repo.projectConfigRepository().upsert(root.id, "work_item_schemas: {}\n") }
+            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.projectConfigRepository()))
+            application { configureEffectiveConfigTestApp(repo, resolver, schemaService) }
+
+            val response = client.get("/api/v1/roots/${root.id}/config/effective") { header("Authorization", "Bearer $TEST_TOKEN") }
+            assertEquals(HttpStatusCode.OK, response.status)
+            assertEquals(
+                "layered",
+                decodeEffective(response.bodyAsText()).schemaResolution,
+                "a per-root doc without the key must fall back to the global value [effective-mode rule]"
+            )
+        }
+
+        // Case 4: global isolated, no per-root row at all -> downgraded to layered (isolated has no
+        // meaning at the global level: nothing to isolate FROM).
+        testApplication {
+            val (schemaService, global) = globalLayerFixture("schema_resolution: isolated\nwork_item_schemas: {}\n")
+            val repo = buildH2RepositoryProvider()
+            val root = createRootItem(repo, title = "S15 global isolated")
+            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.projectConfigRepository()))
+            application { configureEffectiveConfigTestApp(repo, resolver, schemaService) }
+
+            val response = client.get("/api/v1/roots/${root.id}/config/effective") { header("Authorization", "Bearer $TEST_TOKEN") }
+            assertEquals(HttpStatusCode.OK, response.status)
+            assertEquals(
+                "layered",
+                decodeEffective(response.bodyAsText()).schemaResolution,
+                "global isolated must be treated as layered [task-scope effective-mode rule]"
+            )
+        }
+    }
+}
+
+class EffectiveConfigRoutesOrderingTest {
+    @Test
+    fun `S16 - types and schemas are listed in ascending natural key order regardless of insertion order`() =
+        testApplication {
+            // Global keys inserted in descending order; per-root contributes a key that sorts first.
+            // If the route enumerated by insertion order (per-root-first, then global) this would
+            // read ["apple", "zebra", "mango"] — not the sorted union.
+            val globalYaml =
+                """
+                work_item_schemas:
+                  zebra:
+                    notes: []
+                  mango:
+                    notes: []
+                """.trimIndent()
+            val perRootYaml =
+                """
+                work_item_schemas:
+                  apple:
+                    notes: []
+                """.trimIndent()
+            val (schemaService, global) = globalFixture(globalYaml)
+            val repo = buildH2RepositoryProvider()
+            val root = createRootItem(repo)
+            runBlocking { repo.projectConfigRepository().upsert(root.id, perRootYaml) }
+            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.projectConfigRepository()))
+            application { configureEffectiveConfigTestApp(repo, resolver, schemaService) }
+
+            val response = client.get("/api/v1/roots/${root.id}/config/effective") { header("Authorization", "Bearer $TEST_TOKEN") }
+            assertEquals(HttpStatusCode.OK, response.status)
+            val dto = decodeEffective(response.bodyAsText())
+
+            val expectedOrder = listOf("apple", "mango", "zebra")
+            assertEquals(
+                expectedOrder,
+                dto.types,
+                "types must be the sorted union in ascending natural order, unsorted by this assertion [C5 task-scope: keys.toSortedSet()]"
+            )
+            assertEquals(expectedOrder, dto.schemas.map { it.type }, "schemas[] must be listed in the same ascending order")
+        }
+}
+
+class EffectiveConfigRoutesDefaultSchemaTest {
+    @Test
+    fun `S17 - a per-root default type populates defaultSchema sourced per-root`() =
+        testApplication {
+            val globalYaml = "work_item_schemas:\n  bug:\n    notes: []\n"
+            val perRootYaml =
+                """
+                work_item_schemas:
+                  default:
+                    notes:
+                      - key: default-note
+                        role: queue
+                        required: false
+                """.trimIndent()
+            val (schemaService, global) = globalFixture(globalYaml)
+            val repo = buildH2RepositoryProvider()
+            val root = createRootItem(repo)
+            runBlocking { repo.projectConfigRepository().upsert(root.id, perRootYaml) }
+            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.projectConfigRepository()))
+            application { configureEffectiveConfigTestApp(repo, resolver, schemaService) }
+
+            val response = client.get("/api/v1/roots/${root.id}/config/effective") { header("Authorization", "Bearer $TEST_TOKEN") }
+            val dto = decodeEffective(response.bodyAsText())
+
+            val defaultSchema = dto.defaultSchema
+            assertNotNull(defaultSchema, "a per-root default type must populate defaultSchema")
+            assertEquals("default", defaultSchema.type)
+            assertEquals("per-root", defaultSchema.configSource)
+            assertEquals(listOf("default-note"), defaultSchema.notes.map { it.key })
+        }
+
+    @Test
+    fun `S17b - a global-only default type populates defaultSchema sourced global`() =
+        testApplication {
+            val globalYaml =
+                """
+                work_item_schemas:
+                  default:
+                    notes: []
+                  bug:
+                    notes: []
+                """.trimIndent()
+            val (schemaService, global) = globalFixture(globalYaml)
+            val repo = buildH2RepositoryProvider()
+            val root = createRootItem(repo)
+            // Deliberately no upsert() — no per-root row, so the default must come from global.
+            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.projectConfigRepository()))
+            application { configureEffectiveConfigTestApp(repo, resolver, schemaService) }
+
+            val response = client.get("/api/v1/roots/${root.id}/config/effective") { header("Authorization", "Bearer $TEST_TOKEN") }
+            val dto = decodeEffective(response.bodyAsText())
+
+            val defaultSchema = dto.defaultSchema
+            assertNotNull(defaultSchema, "a global-only default type must still populate defaultSchema")
+            assertEquals("default", defaultSchema.type)
+            assertEquals("global", defaultSchema.configSource)
+        }
+}
+
+class EffectiveConfigRoutesEntryFieldsTest {
+    @Test
+    fun `S18 - a manual-lifecycle schema surfaces default_traits, and a trait's resources are present or omitted per declaration`() =
+        testApplication {
+            val globalYaml =
+                """
+                work_item_schemas:
+                  bug:
+                    lifecycle: manual
+                    default_traits:
+                      - t1
+                    notes: []
+                traits:
+                  t1:
+                    resources:
+                      - key: staging-db
+                        mode: exclusive
+                        ttlSeconds: 1800
+                    notes: []
+                  t2:
+                    notes: []
+                """.trimIndent()
+            val (schemaService, global) = globalFixture(globalYaml)
+            val repo = buildH2RepositoryProvider()
+            val root = createRootItem(repo)
+            val resolver = EffectiveConfigResolver(global, PerRootConfigService(repo.projectConfigRepository()))
+            application { configureEffectiveConfigTestApp(repo, resolver, schemaService) }
+
+            val response = client.get("/api/v1/roots/${root.id}/config/effective") { header("Authorization", "Bearer $TEST_TOKEN") }
+            val dto = decodeEffective(response.bodyAsText())
+
+            val bugEntry = dto.schemas.first { it.type == "bug" }
+            assertEquals(
+                "manual",
+                bugEntry.lifecycleMode,
+                "lifecycle: manual must surface as lifecycleMode [config-format.md \"lifecycle\"]"
+            )
+            assertEquals(listOf("t1"), bugEntry.defaultTraits, "default_traits must surface verbatim [config-format.md \"default_traits\"]")
+
+            val t1 = dto.traits.first { it.name == "t1" }
+            val t1Resources = t1.resources
+            assertNotNull(t1Resources, "a trait declaring resources: must populate TraitDto.resources")
+            assertEquals(1, t1Resources.size)
+            val resourceEntry = t1Resources.first()
+            assertEquals("staging-db", resourceEntry.key)
+            assertEquals("exclusive", resourceEntry.mode)
+            assertEquals(1800, resourceEntry.ttlSeconds)
+
+            val t2 = dto.traits.first { it.name == "t2" }
+            assertNull(
+                t2.resources,
+                "a trait with no resources: declared must omit the field, not emit an empty list [api-rest.md TraitDto]"
+            )
+        }
 }
