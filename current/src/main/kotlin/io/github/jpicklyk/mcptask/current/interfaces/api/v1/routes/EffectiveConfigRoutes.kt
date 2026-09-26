@@ -149,7 +149,7 @@ fun Route.effectiveConfigRoutes(
                     rootId = rootId.toString(),
                     schemas = schemaDtos,
                     traits = traits,
-                    types = keys.toList(),
+                    types = entries.map { (key, _) -> key },
                     statusGraph = statusGraph,
                     defaultSchema =
                         entries.firstOrNull { (key, _) -> key == "default" }?.second?.toEffectiveSchemaDto("default"),

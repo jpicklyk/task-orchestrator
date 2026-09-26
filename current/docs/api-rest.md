@@ -289,6 +289,11 @@ format, but the fingerprint is a SHA-256 over the stored `configYaml`'s UTF-8 by
 `SQLiteProjectConfigRepository.computeFingerprint`) rather than the global config file. `PUT` additionally
 accepts `If-Match` for optimistic-concurrency writes (see §18).
 
+The per-root effective config endpoint (§18, `GET /roots/{rootId}/config/effective`) uses a DIFFERENT
+prefix, `"eff-<fingerprint>"`, where the fingerprint is a SHA-256 over BOTH layers' fingerprints (global
+and per-root), so it changes when either layer changes. It supports `If-None-Match` → `304` like the
+`cfg-` endpoints, but an `eff-` ETag is never accepted as a per-root config `If-Match`.
+
 **Normalization (both endpoints, identical rule):** before hashing, the config text has one leading
 UTF-8 BOM (U+FEFF) stripped if present, then every CRLF (`\r\n`) is replaced with LF (`\n`) — nothing
 else. The stored/served `configYaml` bytes are never rewritten; only the value fed into the SHA-256
@@ -733,8 +738,10 @@ Every registered type (the union of this root's per-root `work_item_schemas` key
 schema service's keys) resolved against `{rootId}`'s LAYERED config in one response — the same
 per-root/global view `EffectiveConfigResolver` and MCP `query_items(schema, type=K, rootId=R)`
 already compute, surfaced as one REST resource instead of requiring a dashboard to probe per type.
-`types` is the sorted union of keys (ascending natural `String` order), and `schemas`/`schemaDtos`
-follow that same order. `traits` lists every trait name visible to this root (per-root names first,
+`types` lists every schema key (per-root and global, ascending natural `String` order) that
+resolves to a schema for this root, and `schemas` follows that same order — `types` always equals
+the `type` values of `schemas`. A key that does not resolve under the root's mode is omitted from
+both (e.g. under `schema_resolution: isolated`, a global-only type with no per-root `default`). `traits` lists every trait name visible to this root (per-root names first,
 then global, distinct) with its resolved notes/dispatch/resources — a trait unknown to both layers
 is skipped. `globalFingerprint`/`perRootFingerprint` are omitted when null (no global config loaded
 / no per-root config pushed for this root, respectively). `defaultSchema` is the resolved `"default"`
@@ -1487,6 +1494,8 @@ Returns up to 50 hits. `noteKey` is populated on every hit (note-body search alw
 
 All require `READ`. All config endpoints emit a fingerprint-based ETag (`"cfg-<fingerprint>"`) and support `If-None-Match` → `304 Not Modified`.
 
+These endpoints describe the **global** config only. For what a specific project root actually resolves to (its per-root config layered over the global one, per its `schema_resolution` mode), use `GET /roots/{rootId}/config/effective` (§18).
+
 ### GET /config
 
 Full config snapshot: all schemas, traits, types, and the status-transition graph.
@@ -1651,7 +1660,7 @@ read, wrapped in the same `config_unavailable` 503 envelope `POST /items/{id}/ad
 
 **Responses:**
 - `200 OK` → `EffectiveConfigDto`; `ETag: "eff-<fingerprint>"` — a composite fingerprint over
-  BOTH layers (`"eff-" + sha256Hex("global:" + (globalFingerprint ?: "-") + "\npr-root:" +
+  BOTH layers (`"eff-" + sha256Hex("global:" + (globalFingerprint ?: "-") + "\nper-root:" +
   (perRootFingerprint ?: "-"))`), distinct from `/config*`'s and `/roots/{rootId}/config`'s
   `"cfg-"` prefix so an effective ETag can never be mistaken for a per-root-config `If-Match`
   fingerprint value

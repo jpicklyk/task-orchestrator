@@ -45,7 +45,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cache warmed by one surface now serves the other.
 - Each MCP tool invocation and REST config-resolving request now reads per-root config against one
   per-request/per-call config snapshot (`ConfigSession`) instead of re-reading it on every
-  individual resolution step within that call.
+  individual resolution step within that call. The snapshot also remembers a failed read: if a
+  root's per-root config cannot be read cold (no last-known-good yet), every later lookup for that
+  root within the SAME call (e.g. the rest of an `advance_item`/`complete_tree` batch) reports
+  `config_unavailable` without re-reading; the next call reads fresh.
 - The global `.taskorchestrator/config.yaml` file is now parsed exactly ONCE per process, into a
   single shared `GlobalConfigFile` — the schema service, the status-label service, and the
   actor-authentication service all read from this one parsed document instead of each
