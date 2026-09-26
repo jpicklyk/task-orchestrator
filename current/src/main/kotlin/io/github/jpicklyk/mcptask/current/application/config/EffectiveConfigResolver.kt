@@ -9,6 +9,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import java.util.UUID
+import kotlin.coroutines.coroutineContext
 
 /**
  * The single entry point for effective (layered) config resolution: schema, traits, resources,
@@ -175,6 +176,21 @@ class EffectiveConfigResolver(
         return layered(rootId).mergeDispatch(traits)
     }
 
-    /** One per-root read for [rootId], or null (no read) when [rootId] is null or no source is wired. */
-    private suspend fun layerFor(rootId: UUID?): ConfigLayer? = rootId?.let { perRoot?.layer(it) }
+    /**
+     * One per-root read for [rootId], or null (no read) when [rootId] is null or no source is
+     * wired. When a [ConfigSession] is ambient in the coroutine context (installed by
+     * [withConfigSession] at the call boundary), the read is memoised per `(perRoot, rootId)` for
+     * the lifetime of that session — see [ConfigSession] for the memo contract, including the
+     * `runBlocking` caveat. With no ambient session, every call reads fresh (O2 requires this: T0
+     * and existing direct-[EffectiveConfigResolver] callers depend on unmemoised reads).
+     */
+    private suspend fun layerFor(rootId: UUID?): ConfigLayer? {
+        if (rootId == null || perRoot == null) return null
+        val session = coroutineContext[ConfigSession.Key]
+        return if (session != null) {
+            session.memoized(perRoot, rootId) { perRoot.layer(rootId) }
+        } else {
+            perRoot.layer(rootId)
+        }
+    }
 }

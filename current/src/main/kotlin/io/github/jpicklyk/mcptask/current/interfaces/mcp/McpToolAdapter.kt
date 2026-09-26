@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
+import io.github.jpicklyk.mcptask.current.application.config.withConfigSession
 import io.github.jpicklyk.mcptask.current.application.tools.ErrorCodes
 import io.github.jpicklyk.mcptask.current.application.tools.ResponseUtil
 import io.github.jpicklyk.mcptask.current.application.tools.ToolDefinition
@@ -99,8 +100,9 @@ class McpToolAdapter {
 
                     toolDefinition.validateParams(preprocessedParams)
 
-                    // Execute the tool
-                    val result = toolDefinition.execute(preprocessedParams, context)
+                    // Execute the tool. withConfigSession installs a per-call memo for
+                    // EffectiveConfigResolver's per-root layer reads (O2); see ConfigSession's KDoc.
+                    val result = withConfigSession { toolDefinition.execute(preprocessedParams, context) }
                     val resultObj = result as? JsonObject
 
                     // Determine error state from response envelope

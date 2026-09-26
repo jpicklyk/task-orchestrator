@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.tools.workflow
 
+import io.github.jpicklyk.mcptask.current.application.config.withConfigSession
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceFailure
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceResult
@@ -302,6 +303,14 @@ Call to move an item between phases once its work is done — never edit status 
     }
 
     override suspend fun execute(
+        params: JsonElement,
+        context: ToolExecutionContext
+    ): JsonElement =
+        withConfigSession {
+            executeWithSession(params, context)
+        }
+
+    private suspend fun executeWithSession(
         params: JsonElement,
         context: ToolExecutionContext
     ): JsonElement {

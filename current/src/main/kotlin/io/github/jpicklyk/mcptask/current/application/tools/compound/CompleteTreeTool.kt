@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.tools.compound
 
+import io.github.jpicklyk.mcptask.current.application.config.withConfigSession
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceCascadeEvent
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceFailure
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
@@ -232,6 +233,14 @@ Call when closing out a finished hierarchy — one atomic call instead of per-it
     }
 
     override suspend fun execute(
+        params: JsonElement,
+        context: ToolExecutionContext
+    ): JsonElement =
+        withConfigSession {
+            executeWithSession(params, context)
+        }
+
+    private suspend fun executeWithSession(
         params: JsonElement,
         context: ToolExecutionContext
     ): JsonElement {
