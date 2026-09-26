@@ -10,7 +10,6 @@
 # application -> infrastructure (R2)
 application/service/AdvanceService.kt -> io.github.jpicklyk.mcptask.current.infrastructure.config.EnvBoolean
 application/service/PlanDocumentService.kt -> io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
-application/service/ProjectConfigPushService.kt -> io.github.jpicklyk.mcptask.current.infrastructure.config.YamlSchemaParser
 application/service/ProjectConfigPushService.kt -> io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 application/tools/ActorParsing.kt -> io.github.jpicklyk.mcptask.current.infrastructure.security.sha256Hex
 application/tools/ToolExecutionContext.kt -> io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider

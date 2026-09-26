@@ -4,7 +4,9 @@ import io.github.jpicklyk.mcptask.current.domain.model.ActorAuthenticationConfig
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.VerifierConfig
 import org.slf4j.LoggerFactory
+import org.yaml.snakeyaml.LoaderOptions
 import org.yaml.snakeyaml.Yaml
+import org.yaml.snakeyaml.constructor.SafeConstructor
 import java.io.FileReader
 import java.nio.file.Path
 
@@ -190,7 +192,7 @@ class YamlActorAuthenticationConfigService private constructor(
 
         val loaded =
             try {
-                val yaml = Yaml()
+                val yaml = Yaml(SafeConstructor(LoaderOptions()))
                 FileReader(path.toFile()).use { reader -> yaml.load<Any?>(reader) }
             } catch (e: IllegalArgumentException) {
                 throw e

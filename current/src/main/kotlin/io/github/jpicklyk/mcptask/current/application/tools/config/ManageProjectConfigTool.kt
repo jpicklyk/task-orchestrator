@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.tools.config
 
+import io.github.jpicklyk.mcptask.current.application.config.ConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.application.service.ProjectConfigPushResult
 import io.github.jpicklyk.mcptask.current.application.service.ProjectConfigPushService
 import io.github.jpicklyk.mcptask.current.application.tools.*
@@ -22,7 +23,9 @@ import kotlinx.serialization.json.*
  *   BEFORE storing it, then upserts via [io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository].
  * - **get**: reads back the stored config + fingerprint for a root, or a not-found error.
  */
-class ManageProjectConfigTool : BaseToolDefinition() {
+class ManageProjectConfigTool(
+    private val configDocumentParser: ConfigDocumentParser,
+) : BaseToolDefinition() {
     override val name = "manage_project_config"
 
     override val description =
@@ -185,7 +188,7 @@ the root's stored fingerprint history.
         val configYaml = requireString(params, "configYaml")
         val force = optionalBoolean(params, "force")
 
-        val service = ProjectConfigPushService(context.repositoryProvider)
+        val service = ProjectConfigPushService(context.repositoryProvider, configDocumentParser)
         return when (val result = service.push(rootId!!, configYaml, force)) {
             is ProjectConfigPushResult.Success ->
                 successResponse(
@@ -266,7 +269,7 @@ the root's stored fingerprint history.
         if (idError != null) return idError
         val fingerprint = optionalString(params, "fingerprint")
 
-        val service = ProjectConfigPushService(context.repositoryProvider)
+        val service = ProjectConfigPushService(context.repositoryProvider, configDocumentParser)
         return when (val result = service.get(rootId!!)) {
             is Result.Success -> {
                 val config =

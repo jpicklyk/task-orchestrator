@@ -22,6 +22,7 @@ import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetNextItem
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetNextStatusTool
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
+import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.health.ReadinessMarker
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
@@ -499,7 +500,7 @@ internal fun buildMcpTools(): List<ToolDefinition> =
         // Phase 3: Context
         GetContextTool(),
         // Per-root schema layering: transport-agnostic config sync
-        ManageProjectConfigTool(),
+        ManageProjectConfigTool(YamlConfigDocumentParser),
         // Per-root plan document store: dual ingestion (REST PUT + MCP stash)
         ManagePlanDocumentsTool(),
     )

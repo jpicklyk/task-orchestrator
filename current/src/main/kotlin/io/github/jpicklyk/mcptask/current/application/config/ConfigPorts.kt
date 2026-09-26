@@ -27,9 +27,10 @@ interface PerRootConfigSource {
 }
 
 /**
- * Shared YAML -> [ConfigDocument] parse for per-root config readers (currently `PerRootConfigService`),
- * so there is exactly one SafeConstructor-parsing implementation for attacker-reachable (pushed)
- * config YAML, instead of one per caller.
+ * Shared YAML -> [ConfigDocument] parse for per-root config readers and writers (currently
+ * `PerRootConfigService` and `ProjectConfigPushService`), so there is exactly one
+ * SafeConstructor-parsing implementation for attacker-reachable (pushed) config YAML, instead of
+ * one per caller.
  */
 interface ConfigDocumentParser {
     /** Outcome of a single [parse] call. */

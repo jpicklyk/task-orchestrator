@@ -1,15 +1,12 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
+import io.github.jpicklyk.mcptask.current.application.config.ConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.domain.model.FingerprintRelation
 import io.github.jpicklyk.mcptask.current.domain.model.GuardedUpsertOutcome
 import io.github.jpicklyk.mcptask.current.domain.model.ProjectConfig
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
-import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlSchemaParser
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
-import org.yaml.snakeyaml.LoaderOptions
-import org.yaml.snakeyaml.Yaml
-import org.yaml.snakeyaml.constructor.SafeConstructor
 import java.time.Instant
 import java.util.UUID
 
@@ -31,6 +28,7 @@ import java.util.UUID
  */
 class ProjectConfigPushService(
     private val repositoryProvider: RepositoryProvider,
+    private val parser: ConfigDocumentParser,
 ) {
     /**
      * Validates and persists [configYaml] for [rootItemId]. See [ProjectConfigPushResult] for the
@@ -177,43 +175,35 @@ class ProjectConfigPushService(
 
     /**
      * Parses [configYaml] the same way [io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService]
-     * will on every subsequent read (via the shared [YamlSchemaParser]), but BEFORE storing — a
+     * will on every subsequent read (via the shared [parser]), but BEFORE storing — a
      * stored-but-unparseable config would otherwise silently fall through to the global schema on
      * every future read, a confusing failure mode discovered only much later. Parses ONCE: the
      * returned [YamlParseOutcome.Success.root] is reused by [push]'s embedded-rootId guard so the
      * document is never parsed twice for one push.
      *
-     * Uses [SafeConstructor] rather than SnakeYAML's default `Constructor` — `configYaml` is
+     * Delegates the actual YAML load to [parser] (a [ConfigDocumentParser]), which uses a
+     * SafeConstructor rather than SnakeYAML's default `Constructor` — `configYaml` is
      * attacker-reachable input (pushed over MCP or REST, not read from a trusted local file), and
      * the default `Constructor` will happily instantiate an arbitrary Java type named by a
-     * `!!`-tag (the SnakeYAML deserialization-RCE gadget class, CWE-502). `SafeConstructor` only
+     * `!!`-tag (the SnakeYAML deserialization-RCE gadget class, CWE-502). SafeConstructor only
      * ever builds plain maps/lists/scalars, which is all a config document legitimately needs; any
-     * `!!`-tagged custom type throws [org.yaml.snakeyaml.constructor.ConstructorException] before
-     * anything is instantiated, and that exception is caught below like any other parse failure.
+     * `!!`-tagged custom type throws a constructor exception before anything is instantiated, which
+     * [parser] surfaces as [ConfigDocumentParser.Outcome.Failed] and this method maps to
+     * [YamlParseOutcome.Failure] like any other parse failure.
      *
-     * Soft validation warnings collected by [YamlSchemaParser.parseRoot] (e.g. a note entry
-     * missing `key`, an invalid `lifecycle` value, an invalid `role` value) are NOT treated as
-     * rejection here — only a hard YAML syntax/shape failure (invalid syntax, or a non-map
-     * document) is. Those soft warnings mirror the global config loader's existing behavior: skip
-     * the offending entry, keep going — but unlike the global loader (which only logs them), they
-     * are carried back on [YamlParseOutcome.Success.warnings] so [push] can surface them to the
-     * caller via [ProjectConfigPushResult.Success.schemaWarnings] instead of silently dropping them.
+     * Soft validation warnings collected during parsing (e.g. a note entry missing `key`, an
+     * invalid `lifecycle` value, an invalid `role` value) are NOT treated as rejection here — only
+     * a hard YAML syntax/shape failure (invalid syntax, or a non-map document) is. Those soft
+     * warnings mirror the global config loader's existing behavior: skip the offending entry, keep
+     * going — but unlike the global loader (which only logs them), they are carried back on
+     * [YamlParseOutcome.Success.warnings] so [push] can surface them to the caller via
+     * [ProjectConfigPushResult.Success.schemaWarnings] instead of silently dropping them.
      */
     private fun parseAndValidateYaml(configYaml: String): YamlParseOutcome =
-        try {
-            @Suppress("UNCHECKED_CAST")
-            val root = Yaml(SafeConstructor(LoaderOptions())).load<Map<String, Any>>(configYaml)
-            val warnings =
-                if (root != null) {
-                    YamlSchemaParser.parseRoot(root, warnOnMissingSchemas = false).warnings
-                } else {
-                    emptyList()
-                }
-            YamlParseOutcome.Success(root, warnings)
-        } catch (
-            @Suppress("TooGenericExceptionCaught") e: Exception
-        ) {
-            YamlParseOutcome.Failure(e.message ?: e.javaClass.simpleName)
+        when (val outcome = parser.parse(configYaml, warnOnMissingSchemas = false)) {
+            is ConfigDocumentParser.Outcome.Parsed ->
+                YamlParseOutcome.Success(outcome.rawRoot, outcome.document.warnings)
+            is ConfigDocumentParser.Outcome.Failed -> YamlParseOutcome.Failure(outcome.detail)
         }
 
     /**
@@ -228,12 +218,12 @@ class ProjectConfigPushService(
         return runCatching { UUID.fromString(rawRootId) }.getOrNull()
     }
 
-    /** Outcome of a single [Yaml.load] + [YamlSchemaParser.parseRoot] pass over `configYaml`. */
+    /** Outcome of a single [parser] parse pass over `configYaml`. */
     private sealed class YamlParseOutcome {
         /**
          * [root] is the SafeConstructor-parsed document root, or null for an empty/blank document.
-         * [warnings] are the soft schema/trait parse warnings collected by
-         * [YamlSchemaParser.parseRoot] (empty for a blank document, since parseRoot never runs).
+         * [warnings] are the soft schema/trait parse warnings collected during parsing (empty for
+         * a blank document).
          */
         data class Success(
             val root: Map<String, Any>?,

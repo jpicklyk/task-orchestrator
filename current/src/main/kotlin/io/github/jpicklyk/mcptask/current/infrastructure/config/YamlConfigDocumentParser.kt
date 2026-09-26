@@ -8,7 +8,9 @@ import org.yaml.snakeyaml.constructor.SafeConstructor
 
 /**
  * Shared [ConfigDocumentParser] implementation for attacker-reachable (pushed) per-root config
- * YAML — used by [PerRootConfigService].
+ * YAML — used by [PerRootConfigService] on the read path and by
+ * [io.github.jpicklyk.mcptask.current.application.service.ProjectConfigPushService] on the
+ * validate-before-write path, so both converge on identical parse behavior for the same document.
  *
  * Uses [SafeConstructor] rather than SnakeYAML's default `Constructor`: the input originates from
  * a pushed document (via `manage_project_config` / `PUT /api/v1/roots/{rootId}/config`), not a
@@ -17,8 +19,7 @@ import org.yaml.snakeyaml.constructor.SafeConstructor
  * anything else as a parse failure.
  *
  * Any exception during load or parse becomes [ConfigDocumentParser.Outcome.Failed] with
- * `e.message ?: e.javaClass.simpleName` — the same fallback
- * `ProjectConfigPushService.parseAndValidateYaml` used before this extraction.
+ * `e.message ?: e.javaClass.simpleName`.
  */
 object YamlConfigDocumentParser : ConfigDocumentParser {
     @Suppress("UNCHECKED_CAST", "TooGenericExceptionCaught")
