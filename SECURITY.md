@@ -202,6 +202,23 @@ actor_authentication:
   `jwks_path` causes a startup error (`IllegalArgumentException`). This matches the existing
   mutual-exclusion rule for DID-trust + static-JWKS combinations.
 
+- **HTTPS is required for oidc_discovery/jwks_uri.** `http` is rejected unless `allow_insecure_url: true`
+  in the verifier config AND the URL's host is a literal loopback address (`localhost`, `127.x.x.x`,
+  `::1` — no DNS resolution is performed, so a hostname that merely resolves to loopback is still
+  rejected). This mirrors the REST API's `API_JWKS_URL`/`API_JWKS_ALLOW_INSECURE_URL` contract.
+  `jwks_path` and DID-trust mode are unaffected.
+
+- **Actor-proof lifetime is capped.** `verifier.max_token_lifetime_seconds` (default `86400`, 24h)
+  rejects a JWKS actor proof once `exp - iat` exceeds the cap; `<= 0`, a non-integer value, or a value above
+  `3153600000` (100 years) fails startup. The REST API enforces the same cap on bearer tokens via `API_JWKS_MAX_TOKEN_LIFETIME_SECONDS`
+  (same default and validation).
+
+- **Optional `jti` replay protection.** `verifier.jti_replay_protection` (default `false`, opt-in) —
+  when enabled, actor proofs must carry a `jti` claim and each proof may be used only once per MCP
+  call, tracked in-memory per server instance. Clients must mint a fresh proof for every call,
+  including retries and heartbeats. The cache is bounded (10,000 entries, oldest evicted first), so it
+  is a best-effort per-instance control: a flood of distinct valid proofs can evict a live entry.
+
 For deeper configuration detail see [Fleet Deployment — Cross-Org did:web Deployments](current/docs/fleet-deployment.md#cross-org-didweb-deployments).
 
 **Trust model:** Under DID trust, the JWT's `iss` claim is the resolution key. Only DIDs matching
@@ -252,7 +269,7 @@ This means that in deployments where non-Claude-Code clients connect to the serv
 - **SQLite database**: Stored on a Docker volume (`mcp-task-data`) or a local file path. Ensure appropriate file permissions on the host mount. The database is not encrypted at rest — use disk-level encryption if required.
 - **Config files**: `.taskorchestrator/config.yaml` is mounted read-only (`:ro`) in Docker. It contains workflow rules and optional JWKS endpoints, not credentials. JWKS URIs point to public key endpoints — no secrets are stored in config.
 - **No secrets in actor claims**: The `actor.proof` field should contain a JWT token, not raw credentials. The `claimedBy` field on a `WorkItem` should contain an identifier (session ID, container name, JWT `jti`, or `did:web` identifier), not secrets. These values appear in audit trails and diagnostic tool responses.
-- **Actor proofs are not stored verbatim**: since the `V17__Store_Actor_Proof_Evidence.sql` migration, `notes`/`role_transitions` rows never persist the raw `actor.proof` JWT — only a SHA-256 hash and (when VERIFIED) the verified claims are kept. Pre-upgrade backups, and free space in the live file left from before that migration, may still hold live tokens until each token's own `exp` — rotate long-lived actor keys/tokens (the only remedy reaching every copy), optionally compact offline (fleet-deployment.md, "Proof handling"), and purge old backups. The REST admin `verification.proof` view (hash + claims) requires `ApiCapability.ADMIN`; `?include=proof` is a deprecated no-op retained only for backward compatibility (it now only adds a `Warning` response header, since `actor.proof` on the wire is always `null`).
+- **Actor proofs are not stored verbatim**: since the `V17__Store_Actor_Proof_Evidence.sql` migration, `notes`/`role_transitions` rows never persist the raw `actor.proof` JWT — only a SHA-256 hash and (when VERIFIED) the verified claims are kept. Pre-upgrade backups, and free space in the live file left from before that migration, may still hold live tokens until each token's own `exp`. Rotate long-lived actor keys/tokens (the only remedy reaching every copy), then purge old backups — compaction of the live file (VACUUM + FTS5 rebuild) now runs automatically once on the first Flyway-mode start after upgrading (`DB_COMPACT_ON_UPGRADE=false` to opt out; offline runbook in fleet-deployment.md, "Proof handling", as a fallback). The REST admin `verification.proof` view (hash + claims) requires `ApiCapability.ADMIN`;
 
 ### Threat Model Summary
 

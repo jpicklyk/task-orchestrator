@@ -32,6 +32,12 @@ sealed class ApiAuthConfig {
         val audience: String,
         val algorithms: List<String>,
         val cacheTtlSeconds: Long,
+        // max_token_lifetime_seconds equivalent for the REST API: env API_JWKS_MAX_TOKEN_LIFETIME_SECONDS.
+        // Caps token acceptance the same way as VerifierConfig.Jwks.maxTokenLifetimeSeconds (see its
+        // KDoc): exp - now > this + 60s clock skew is always rejected; when iat is present, iat more
+        // than 60s in the future or exp - iat > this + 60s is also rejected. Defaulted so existing
+        // constructor call sites keep compiling; ApiAuthConfigLoader enforces > 0 at parse time.
+        val maxTokenLifetimeSeconds: Long = 86400,
     ) : ApiAuthConfig()
 
     // Opt-in unauthenticated mode (API_AUTH_MODE=none + API_ALLOW_UNAUTHENTICATED=true).

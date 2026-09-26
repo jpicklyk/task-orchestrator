@@ -129,6 +129,7 @@ default, and an unrecognized non-empty value either falls back to the default wi
 - `LOG_LEVEL` — DEBUG / INFO / WARN / ERROR (default: `INFO`)
 - `LOG_FILE` — opt-in log file path (default: unset, no file logging). Logs are always JSON on stderr; see `current/docs/fleet-deployment.md` → "Logging".
 - `FLYWAY_REPAIR` — run repair and exit (default: `false`)
+- `DB_COMPACT_ON_UPGRADE` — run the one-time post-V17 startup compaction (VACUUM + FTS5 rebuild) on the first Flyway-mode start after upgrading (default: `true`; set `false` to opt out)
 - `DEGRADED_MODE_POLICY` — overrides `actor_authentication.degraded_mode_policy` in config; values: `accept-cached` (default) | `accept-self-reported` | `reject`; invalid value = startup failure
 - `READINESS_FILE` — path to the readiness marker file the server touches once startup (DB init,
   schema update, and transport bind) has fully succeeded; default `/tmp/mcp-task-orchestrator.ready`.

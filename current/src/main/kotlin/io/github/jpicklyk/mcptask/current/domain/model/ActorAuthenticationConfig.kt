@@ -147,6 +147,19 @@ sealed class VerifierConfig {
      *   (`localhost`, `127.x.x.x`, `::1`) — local development/testing only. Does not affect
      *   [jwksPath] (a local file) or DID-trust mode, which are always resolved over `https` by the
      *   DID resolver itself.
+     * @param maxTokenLifetimeSeconds Config key `max_token_lifetime_seconds` (default 86400 = 24h).
+     *   Caps how long a token may remain acceptable from the moment it is presented: a token is
+     *   rejected once `exp - now > maxTokenLifetimeSeconds + 60` (60s clock skew), regardless of
+     *   `iat`; when `iat` is present, a token is additionally rejected when `iat` is more than 60s
+     *   in the future, or when `exp - iat > maxTokenLifetimeSeconds + 60`. Must be a positive
+     *   number — enforced at config-parse time, not here.
+     * @param jtiReplayProtection Config key `jti_replay_protection` (default false — off).
+     *   When enabled, every verified token must carry a non-blank `jti` claim, and the
+     *   `(iss, jti)` pair may be presented only once per [JtiReplayCache] retention window
+     *   (`exp + 60s`). Off by default because the same proof is legitimately re-verified multiple
+     *   times within a single MCP call (idempotency keys, multi-transition batches); the
+     *   per-call memo ([io.github.jpicklyk.mcptask.current.application.service.ActorVerificationScope])
+     *   keeps that in-call reuse from tripping the cache even when this is enabled.
      */
     data class Jwks(
         val oidcDiscovery: String? = null,
@@ -162,6 +175,8 @@ sealed class VerifierConfig {
         val didPattern: String? = null,
         val didStrictRelationship: Boolean = true,
         val didLooseKidMatch: Boolean = true,
-        val allowInsecureUrl: Boolean = false
+        val allowInsecureUrl: Boolean = false,
+        val maxTokenLifetimeSeconds: Long = 86400,
+        val jtiReplayProtection: Boolean = false
     ) : VerifierConfig()
 }

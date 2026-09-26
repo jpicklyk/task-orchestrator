@@ -2643,7 +2643,7 @@ Use `DEGRADED_MODE_POLICY=reject` for cross-org or multi-tenant fleet deployment
 | Verifier type | Behavior |
 |---|---|
 | `noop` (or absent) | All actor claims are accepted as `unchecked`. No cryptographic check is performed. |
-| `jwks` | JWT tokens in `actor.proof` are validated against the configured JWKS key set. Valid token → `status: verified`. Invalid, expired, wrong-claims, or missing-`exp` token → `status: rejected` with a descriptive `reason` (missing `exp` yields `reason: "missing exp claim"`) and `metadata.failureKind`. Missing proof → `status: absent`. Network/fetch errors → `status: unavailable`. |
+| `jwks` | JWT tokens in `actor.proof` are validated against the configured JWKS key set. Valid token → `status: verified`. Invalid, expired, wrong-claims, or missing-`exp` token → `status: rejected` with a descriptive `reason` (missing `exp` yields `reason: "missing exp claim"`) and `metadata.failureKind`. A token whose lifetime exceeds `max_token_lifetime_seconds` is rejected with `reason: "token lifetime exceeds maximum"`, `failureKind: claims`; a future-dated `iat` yields `reason: "iat in the future"`, `failureKind: claims`. A malformed claims set (e.g. non-numeric `exp`/`iat`) is rejected with `reason: "malformed JWT claims: …"`, `failureKind: claims` — under both DID trust and static-JWKS mode. When `jti_replay_protection: true`, a missing `jti` is rejected with `reason: "missing jti claim"`, `failureKind: claims`, and a replayed `(iss, jti)` pair is rejected with `reason: "jti replay detected"`, `failureKind: policy`. Missing proof → `status: absent`. Network/fetch errors → `status: unavailable`. |
 
 ### JWKS Key Sources
 
@@ -2661,6 +2661,8 @@ Configure exactly one of `oidc_discovery`, `jwks_uri`, or `jwks_path`; more than
 | `stale_on_error` | When true (default), a stale cached key set is used if a JWKS refresh fails. The result is `verified` with `metadata.verifiedFromCache="true"` and `metadata.cacheAgeSeconds` set. When false, fetch failures always return `unavailable`. |
 | `require_sub_match` | When true, the JWT `sub` claim must match `actor.id`. |
 | `allow_insecure_url` | Boolean, default `false`. Must be a boolean — any other type fails startup. When `false` (default), `oidc_discovery` and `jwks_uri` (plus a `jwks_uri` discovered via `oidc_discovery`) must use `https`; any other scheme fails startup. When `true`, plaintext `http` is additionally accepted, but only for a literal loopback host (`localhost`, `127.x.x.x`, `::1`) — local dev/test only. Does not affect `jwks_path` or DID-trust mode. |
+| `max_token_lifetime_seconds` | Integer, default `86400` (24h). Must be a positive number (Int/Long only) — any other type or a non-positive value fails startup. Caps how long a token remains acceptable: rejected once `exp - now` exceeds this value plus the 60s clock-skew allowance, independent of `iat`; when `iat` is present, a future-dated `iat` or an `exp - iat` spread beyond the same cap is also rejected. See [fleet-deployment.md § Token Lifetime Cap](fleet-deployment.md#token-lifetime-cap). |
+| `jti_replay_protection` | Boolean, default `false`. When `true`, every token must carry a non-blank `jti`, and each `(iss, jti)` pair may be presented only once (tracked until `exp + 60s`) — see [fleet-deployment.md § Opt-in `jti` Replay Protection](fleet-deployment.md#opt-in-jti-replay-protection) for the per-call memo that keeps legitimate in-call/heartbeat re-verification of the same proof from tripping this. |
 
 ### Docker — JWKS Path Mount
 
