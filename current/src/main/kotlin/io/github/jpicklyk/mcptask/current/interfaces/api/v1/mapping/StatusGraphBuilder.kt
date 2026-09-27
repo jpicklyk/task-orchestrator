@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.mapping
 import io.github.jpicklyk.mcptask.current.application.service.RoleTransitionHandler
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.domain.model.Role
+import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.StatusGraphDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.StatusGraphTypeDto
 
@@ -56,9 +57,17 @@ class StatusGraphBuilder(
         return graph
     }
 
-    private fun buildGraph(): StatusGraphDto {
+    private fun buildGraph(): StatusGraphDto = buildStatusGraph(schemaService.getAllSchemas())
+
+    /**
+     * Builds the status-transition graph for [schemas] directly, bypassing the fingerprint cache —
+     * used by callers (e.g. the per-root effective config view) that already hold a resolved,
+     * possibly per-root-layered schema map and need a fresh, uncached graph for it. Graph `types`
+     * follow [schemas]' iteration order. [getStatusGraph] (global-only, fingerprint-cached) is
+     * unchanged.
+     */
+    fun buildStatusGraph(schemas: Map<String, WorkItemSchema>): StatusGraphDto {
         val triggers = RoleTransitionHandler.USER_TRIGGERS.toList().sorted()
-        val schemas = schemaService.getAllSchemas()
 
         val types =
             schemas.entries.map { (typeName, schema) ->

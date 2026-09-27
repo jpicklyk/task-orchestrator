@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.application.tools.config
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
+import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
@@ -44,7 +45,7 @@ class ManageProjectConfigToolDispatchWarningsTest {
     @BeforeEach
     fun setUp() =
         runBlocking {
-            tool = ManageProjectConfigTool()
+            tool = ManageProjectConfigTool(YamlConfigDocumentParser)
 
             val dbName = "test_${System.nanoTime()}"
             val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")

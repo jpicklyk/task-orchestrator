@@ -149,18 +149,29 @@ reparent path anywhere in the codebase to make it live up to its name.
 
 ## Matching Rules
 
-Schema resolution uses **type-first lookup with tag fallback**:
+Schema resolution uses **type-first lookup with tag fallback**, run per the item's root's effective
+`schema_resolution` mode (`legacy` | `layered` | `isolated` — see "Global vs Per-Project Config"
+below for the full per-mode precedence chains and how the effective mode is chosen):
 
-1. If the item has a `type` field, look up the schema by type in `work_item_schemas` → direct lookup (exact match)
-2. If no type or no type-based schema found, look up by first tag match in `note_schemas` (legacy)
-3. If no tag matches, fall back to the schema named `default` (in either section) if one exists
-4. If nothing matches, the item is schema-free — no gate enforcement
+1. If the item has a `type` field, look it up in `work_item_schemas` (exact match) against each
+   config layer, in the order that mode's chain sets.
+2. If no type or no type-based schema found, fall back to tag matching: **the first tag with an
+   exact schema match wins.** A tag is never reported as "matched" merely because a `default`
+   schema exists in that layer — a bug fixed as part of AR-39 (previously, the legacy global tag
+   step could match an unrelated first tag whenever a global `default` existed, even though that
+   tag had no schema of its own).
+3. If nothing matches by type or tag, fall back to the schema named `default` — always the last
+   resort, never a substitute for an exact match, tried per-layer at the point that mode's chain
+   reaches it.
+4. If nothing matches, the item is schema-free — no gate enforcement.
 
 **Key points:**
 - Setting `type` on an item is the preferred way to activate a schema
 - Tags can still be used for schema matching (legacy), but `type` takes precedence
 - Only one schema applies per item
 - Matching is exact and case-sensitive
+- With no `schema_resolution` key set anywhere, resolution is `legacy` — behaves exactly as it
+  always has. `layered` and `isolated` are opt-in, per-document.
 
 ---
 
@@ -770,24 +781,63 @@ Config resolves in **two layers**, chosen per work item by its `rootId`:
 
 **Startup failure.** A structurally broken/unparseable global config.yaml, or an invalid or wrong-typed `actor_authentication` field within it, fails server startup outright (the parse exception propagates uncaught). The one exception is `status_labels`: a malformed `status_labels` value is caught, logged as a WARN, and the server falls back to defaults instead of refusing to start.
 
-For an item with a `rootId`, every schema / tag / trait lookup is **whole-algorithm-first**: the
-entire per-root resolution runs to completion before the global layer is consulted at all. For the
-type lookup, that precedence is:
+### `schema_resolution`: choosing how the two layers combine
 
-1. Per-root exact match on `item.type`
-2. Per-root `default` schema
-3. Global exact match on `item.type`
-4. Global `default` schema
+An opt-in top-level key, `schema_resolution: legacy | layered | isolated`, controls how a root's
+per-root and global layers combine for schema/tag lookup (every other facet — traits, resources,
+`note_limits`, `status_labels` — layers the same way regardless of mode; see their own sections).
+It can be set in the global config, in a per-root pushed document, or both. The **effective mode**
+for a given root is resolved with no extra I/O, in this order:
 
-The tag lookup follows the same shape (per-root first-matching-tag, then per-root `default`,
-*then* the equivalent global steps). This means a per-root `default` schema wins over a **global
-exact type match** — once a root has pushed its own config, that config is treated as the root's
-complete self-description, not a patch layered on top of the global floor. An item with no
-`rootId` uses the global file only. Behavior is byte-identical to a single-file setup when no
-per-root config has been pushed.
+1. That root's own per-root document's `schema_resolution` key, if it sets one.
+2. Otherwise the global config's `schema_resolution` key, if it sets one — with one exception: a
+   global file's `schema_resolution: isolated` has no per-root layer above it to isolate *from*, so
+   it is treated as `layered` instead, with this load-time warning added verbatim:
+
+   > `schema_resolution: isolated has no effect in the global config (nothing to isolate from); treating as layered`
+3. Otherwise `legacy` — absent everywhere resolves exactly as it always has. This is a pure opt-in:
+   no existing deployment's resolution changes because of this feature alone (aside from the tag-
+   matching fix in "Matching Rules" above, which applies in every mode).
+
+An unrecognized value (wrong type, wrong case, or any string other than the three above) is treated
+as absent — it never fails config load — and adds exactly one warning naming the raw value,
+verbatim:
+
+> `Unrecognized schema_resolution value '<raw>' (expected legacy, layered or isolated); treating as absent`
+
+On a per-root push (`manage_project_config` / `PUT /roots/{rootId}/config`), this same warning text
+surfaces as one entry in the response's `schemaWarnings` array — see the push response documented
+in `api-reference.md` / `api-rest.md`.
+
+For an item with a `rootId`, the type-lookup precedence per mode is:
+
+| Mode | Type-lookup precedence |
+|---|---|
+| **legacy** (effective when the key is absent everywhere) | 1. Per-root exact match on `item.type` → 2. Per-root `default` schema → 3. Global exact match on `item.type` → 4. Global `default` schema |
+| **layered** | 1. Per-root exact match on `item.type` → 2. Global exact match on `item.type` → 3. Per-root `default` schema → 4. Global `default` schema |
+| **isolated** | 1. Per-root exact match on `item.type` → 2. Per-root `default` schema — **the global layer is never consulted** |
+
+The tag lookup follows the same per-mode shape, always exact-match-only per "Matching Rules" above:
+- **legacy** is **whole-algorithm-first** — the entire per-root resolution (first-matching-tag,
+  then per-root `default`) runs to completion before the global tag algorithm (first tag with an
+  exact global match, then global `default`) is consulted at all. This means a per-root `default`
+  schema wins over a **global exact type match** — once a root has pushed its own config, that
+  config is treated as the root's complete self-description, not a patch layered on top of the
+  global floor.
+- **layered** is **exact-first**: per-root's first exact tag match, then the global layer's first
+  exact tag match, are both tried before either layer's `default` — so a global exact type or tag
+  match beats a per-root `default` under `layered`.
+- **isolated** tries only the per-root layer's tags, then its `default`; the global layer is never
+  reached.
+
+An item with no `rootId` uses the global file only, in every mode. Behavior is byte-identical to a
+single-file setup when no per-root config has been pushed and no document sets `schema_resolution`.
 
 **Layer roles:** global = server-wide floor; per-root = the project's complete self-description,
-which can lower the floor to zero via the empty default (see below).
+which can lower the floor to zero via the empty default (see below) — this description of the
+`default` schema's role holds under `legacy`; under `layered`/`isolated`, prefer
+`schema_resolution: isolated` for that purpose (see "Schema-free / non-dev / business-workflow
+projects" below).
 
 **This project's own split.** In this repository, the **global** config
 (`deploy/global-config/.taskorchestrator/config.yaml`, mounted via `AGENT_CONFIG_DIR`) carries
@@ -820,10 +870,15 @@ deliberate revert or overwrite is intended.
 
 **Read-error handling.** If a per-root config read itself fails (the underlying repository call errors), the server serves the last-known-good cached parse for that root when one exists. Only when there is no cached parse yet (a cold root hitting a read error on its very first resolution) does the call fail, surfaced as errorCode `config_unavailable` / errorKind `transient` — callers should apply their own backoff and retry rather than treating it as "no per-root config, fall back to global".
 
-**Per-root honorable settings.** `note_limits`, `status_labels`, and `resources` are layered the
-same way as schemas/traits: a per-root document that **explicitly** sets `note_limits.mode`, a
-trigger under `status_labels`, or the `resources` top-level key wins for that root; a per-root
-document that **omits the key entirely** falls through to the global value, unchanged.
+**Per-root honorable settings.** `note_limits`, `status_labels`, `resources`, and
+`schema_resolution` are layered the same way as schemas/traits: a per-root document that
+**explicitly** sets `note_limits.mode`, a trigger under `status_labels`, the `resources` top-level
+key, or `schema_resolution` wins for that root; a per-root document that **omits the key
+entirely** falls through to the global value, unchanged. `schema_resolution` was parsed but *not*
+yet honored per-root before AR-39 — it is honored now, so a per-root document that sets it no
+longer appears in `ignoredSections` on push. An unrecognized `schema_resolution` value adds one
+`schemaWarnings` entry on push (see above) but does not block the push or fall back to a different
+key.
 `status_labels` falls through **per trigger** — a per-root map that only overrides `start` still
 defers to the global config for `complete`, `block`, etc. (and a trigger explicitly mapped to
 `null` in the per-root doc means "no label for this trigger", which is different from the trigger
@@ -857,19 +912,34 @@ same way it ignores any other unrecognized top-level key.
 
 A project that has no notion of "notes to fill" — non-dev workflows, business-process tracking,
 or anything using Task Orchestrator purely for status/dependency tracking — can push a per-root
-config with an **empty default schema** to fence off the global config entirely:
+config with `schema_resolution: isolated` and an **empty default schema** to fence off the global
+config entirely:
 
 ```yaml
+schema_resolution: isolated
 work_item_schemas:
   default:
     lifecycle: auto   # or manual / permanent for workflow-style projects
     notes: []
 ```
 
-Because per-root resolution is whole-algorithm-first, this `default` entry resolves for every item
-type in this root (no exact type match needed) with zero required notes — every gate passes
-automatically, regardless of what the global config requires for the same type elsewhere. The
-global config is never consulted for this root once this per-root default resolves.
+`schema_resolution: isolated` makes this explicit and unconditional: the global layer is never
+consulted for this root, for any type or tag, regardless of what it defines. This is the
+**preferred** way to fence a root off — it does not depend on an empty `default` shadowing every
+type, so it also fences types the global config exact-matches, which an empty default alone would
+not do under `layered`.
+
+**Without `schema_resolution` set (legacy, the default), an empty per-root `default` schema still
+fences the root**, because legacy's per-root resolution is whole-algorithm-first: this `default`
+entry resolves for every item type in this root (no exact type match needed) with zero required
+notes — every gate passes automatically, regardless of what the global config requires for the same
+type elsewhere. The global config is never consulted for this root once this per-root default
+resolves.
+
+**An empty per-root `default` does *not* fence a root under `schema_resolution: layered`** — under
+`layered`, a global *exact* type match is tried before the per-root `default`, so any type the
+global config defines exactly still resolves globally despite the per-root empty default. Use
+`isolated`, not an empty `default`, to fence a root once it opts into `layered`.
 
 **Why the global default still matters even with per-root fencing available:** stdio mode (no
 per-root DB row exists at all — items resolve via `rootId == null`), the bootstrap window before a

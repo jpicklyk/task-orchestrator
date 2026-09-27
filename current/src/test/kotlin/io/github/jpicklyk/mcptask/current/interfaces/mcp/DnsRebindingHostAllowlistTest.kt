@@ -6,8 +6,11 @@ import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.read.ListAppender
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
 import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
+import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
+import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
+import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlStatusLabelService
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
@@ -146,6 +149,13 @@ class DnsRebindingHostAllowlistTest {
             serverVersion = "1.0.0",
             actorAuthEnabled = false,
             noteSchemaService = NoOpNoteSchemaService,
+            toolContext =
+                ToolExecutionContext(
+                    provider,
+                    NoOpNoteSchemaService,
+                    statusLabelService = YamlStatusLabelService(),
+                    perRootConfigService = PerRootConfigService(provider.projectConfigRepository()),
+                ),
             degradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
             idempotencyCache = IdempotencyCache(),
             appConfig = appConfig,

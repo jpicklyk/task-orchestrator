@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.tools.workflow
 
+import io.github.jpicklyk.mcptask.current.application.config.withConfigSession
 import io.github.jpicklyk.mcptask.current.application.service.buildDispatchProfileJson
 import io.github.jpicklyk.mcptask.current.application.service.buildExpectedNotesJson
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
@@ -158,33 +159,40 @@ Call with no arguments to resume a session; call with `itemId` before any advanc
     override suspend fun execute(
         params: JsonElement,
         context: ToolExecutionContext
-    ): JsonElement {
-        val (itemId, idError) = resolveItemId(params, "itemId", context, required = false)
-        if (idError != null) return idError
-        val (ancestorId, ancestorIdError) = resolveItemId(params, "ancestorId", context, required = false)
-        if (ancestorIdError != null) return ancestorIdError
-        val sinceInstant = parseInstant(params, "since")
-        val includeAncestors = optionalBoolean(params, "includeAncestors", false)
-        val transitionLimit =
-            params.jsonObject["limit"]
-                ?.jsonPrimitive
-                ?.intOrNull
-                ?.coerceIn(1, 200) ?: 10
+    ): JsonElement =
+        withConfigSession {
+            val (itemId, idError) = resolveItemId(params, "itemId", context, required = false)
+            if (idError != null) return@withConfigSession idError
+            val (ancestorId, ancestorIdError) = resolveItemId(params, "ancestorId", context, required = false)
+            if (ancestorIdError != null) return@withConfigSession ancestorIdError
+            val sinceInstant = parseInstant(params, "since")
+            val includeAncestors = optionalBoolean(params, "includeAncestors", false)
+            val transitionLimit =
+                params.jsonObject["limit"]
+                    ?.jsonPrimitive
+                    ?.intOrNull
+                    ?.coerceIn(1, 200) ?: 10
 
-        val explicitMode = optionalString(params, "mode")
+            val explicitMode = optionalString(params, "mode")
 
-        return when {
-            explicitMode == "item" || (explicitMode == null && itemId != null) -> {
-                if (itemId == null) return errorResponse("mode=item requires itemId parameter", ErrorCodes.VALIDATION_ERROR)
-                executeItemMode(itemId, context, includeAncestors)
+            when {
+                explicitMode == "item" || (explicitMode == null && itemId != null) -> {
+                    if (itemId == null) {
+                        errorResponse("mode=item requires itemId parameter", ErrorCodes.VALIDATION_ERROR)
+                    } else {
+                        executeItemMode(itemId, context, includeAncestors)
+                    }
+                }
+                explicitMode == "session-resume" || (explicitMode == null && sinceInstant != null) -> {
+                    if (sinceInstant == null) {
+                        errorResponse("mode=session-resume requires since parameter", ErrorCodes.VALIDATION_ERROR)
+                    } else {
+                        executeSessionResumeMode(sinceInstant, context, includeAncestors, transitionLimit, ancestorId)
+                    }
+                }
+                else -> executeHealthCheckMode(context, includeAncestors, ancestorId)
             }
-            explicitMode == "session-resume" || (explicitMode == null && sinceInstant != null) -> {
-                if (sinceInstant == null) return errorResponse("mode=session-resume requires since parameter", ErrorCodes.VALIDATION_ERROR)
-                executeSessionResumeMode(sinceInstant, context, includeAncestors, transitionLimit, ancestorId)
-            }
-            else -> executeHealthCheckMode(context, includeAncestors, ancestorId)
         }
-    }
 
     // ──────────────────────────────────────────────
     // Mode 1: Item context

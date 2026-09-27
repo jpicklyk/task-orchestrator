@@ -9,10 +9,13 @@ import com.nimbusds.jwt.JWTClaimsSet
 import com.nimbusds.jwt.SignedJWT
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
 import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
+import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.infrastructure.config.CacheState
 import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksKeySetProvider
 import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksResult
+import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
+import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlStatusLabelService
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
@@ -152,16 +155,24 @@ class McpJwksRestAuthTest {
         eventBus: ApiEventBus? = null,
     ) {
         installMcpStreamableHttp(emptyServer())
+        val repositoryProvider = inMemoryProvider()
         installRestApiRoutes(
             apiConfig = jwksConfig(),
             eventBus = eventBus,
-            effectiveProvider = inMemoryProvider(),
+            effectiveProvider = repositoryProvider,
             apiTokenEntries = emptyMap(), // jwks mode loads no bearer entries
             allowQueryToken = false,
             serverName = "jwks-rest-test",
             serverVersion = "1.0.0",
             actorAuthEnabled = false,
             noteSchemaService = NoOpNoteSchemaService,
+            toolContext =
+                ToolExecutionContext(
+                    repositoryProvider,
+                    NoOpNoteSchemaService,
+                    statusLabelService = YamlStatusLabelService(),
+                    perRootConfigService = PerRootConfigService(repositoryProvider.projectConfigRepository()),
+                ),
             degradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
             idempotencyCache = IdempotencyCache(),
             jwksVerifier = verifier,

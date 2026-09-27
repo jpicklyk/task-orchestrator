@@ -284,7 +284,7 @@ note_schemas:
     // --- Default schema fallback tests ---
 
     @Test
-    fun `returns default schema when no named schema matches`() {
+    fun `returns null when no named schema matches even with a default schema`() {
         val tempDir = createTempConfigDir()
         writeConfig(
             tempDir,
@@ -310,13 +310,7 @@ note_schemas:
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
         val service = YamlNoteSchemaService(configPath)
 
-        val schema = service.getSchemaForTags(listOf("unknown-tag"))
-        assertNotNull(schema)
-        assertEquals(2, schema.size)
-        assertEquals("implementation-notes", schema[0].key)
-        assertEquals(Role.WORK, schema[0].role)
-        assertEquals("review-checklist", schema[1].key)
-        assertEquals(Role.REVIEW, schema[1].role)
+        assertNull(service.getSchemaForTags(listOf("unknown-tag")))
     }
 
     @Test
@@ -383,7 +377,7 @@ note_schemas:
     }
 
     @Test
-    fun `empty tags list returns default schema`() {
+    fun `empty tags list returns null even with a default schema`() {
         val tempDir = createTempConfigDir()
         writeConfig(
             tempDir,
@@ -400,10 +394,7 @@ note_schemas:
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
         val service = YamlNoteSchemaService(configPath)
 
-        val schema = service.getSchemaForTags(emptyList())
-        assertNotNull(schema)
-        assertEquals(1, schema.size)
-        assertEquals("implementation-notes", schema[0].key)
+        assertNull(service.getSchemaForTags(emptyList()))
     }
 
     @Test
@@ -428,7 +419,7 @@ note_schemas:
     }
 
     @Test
-    fun `hasReviewPhase returns true for default with review notes`() {
+    fun `hasReviewPhase does not fall back to default`() {
         val tempDir = createTempConfigDir()
         writeConfig(
             tempDir,
@@ -449,7 +440,7 @@ note_schemas:
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
         val service = YamlNoteSchemaService(configPath)
 
-        assertTrue(service.hasReviewPhase(listOf("unknown-tag")))
+        assertFalse(service.hasReviewPhase(listOf("unknown-tag")))
     }
 
     @Test
@@ -820,7 +811,7 @@ work_item_schemas:
     }
 
     @Test
-    fun `getSchemaForType falls back to default schema`() {
+    fun `getSchemaForType does not fall back to default schema`() {
         val tempDir = createTempConfigDir()
         writeConfig(
             tempDir,
@@ -846,11 +837,7 @@ work_item_schemas:
         val configPath = tempDir.toPath().resolve(".taskorchestrator/config.yaml")
         val service = YamlNoteSchemaService(configPath)
 
-        val schema = service.getSchemaForType("unknown-type")
-        assertNotNull(schema)
-        assertEquals("default", schema.type)
-        assertEquals(1, schema.notes.size)
-        assertEquals("implementation-notes", schema.notes[0].key)
+        assertNull(service.getSchemaForType("unknown-type"))
     }
 
     @Test

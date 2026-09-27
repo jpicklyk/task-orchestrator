@@ -1,5 +1,8 @@
 package io.github.jpicklyk.mcptask.current.application.tools
 
+import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
+import io.github.jpicklyk.mcptask.current.application.config.ConfigLayer
+import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
 import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceMode
@@ -219,15 +222,19 @@ class ToolExecutionContextResourceMergeTest {
                 listOf(ResourceRequirement(key = "global-resource"))
 
             val perRootRequirement = ResourceRequirement(key = "per-root-resource", mode = ResourceMode.ADVISORY)
-            coEvery { perRoot.getSnapshot(rootId) } returns
-                PerRootConfigService.Snapshot(
-                    workItemSchemas = emptyMap(),
-                    traits = emptyMap(),
-                    noteLimitsModeExplicit = null,
-                    statusLabels = null,
+            coEvery { perRoot.layer(rootId) } returns
+                ConfigLayer(
+                    document =
+                        ConfigDocument(
+                            workItemSchemas = emptyMap(),
+                            traits = emptyMap(),
+                            noteLimitsMode = null,
+                            statusLabels = null,
+                            traitResources = mapOf("needs-staging-db" to listOf(perRootRequirement)),
+                            resourceRegistry = emptyMap(),
+                        ),
                     fingerprint = "fp",
-                    traitResources = mapOf("needs-staging-db" to listOf(perRootRequirement)),
-                    resourceRegistry = emptyMap()
+                    source = ConfigSource.PER_ROOT,
                 )
 
             val repoProvider = mockk<RepositoryProvider>(relaxed = true)
@@ -258,15 +265,19 @@ class ToolExecutionContextResourceMergeTest {
             every { noteSchemaService.getTraitResources("needs-staging-db") } returns
                 listOf(ResourceRequirement(key = "global-resource"))
 
-            coEvery { perRoot.getSnapshot(rootId) } returns
-                PerRootConfigService.Snapshot(
-                    workItemSchemas = emptyMap(),
-                    traits = emptyMap(),
-                    noteLimitsModeExplicit = null,
-                    statusLabels = null,
+            coEvery { perRoot.layer(rootId) } returns
+                ConfigLayer(
+                    document =
+                        ConfigDocument(
+                            workItemSchemas = emptyMap(),
+                            traits = emptyMap(),
+                            noteLimitsMode = null,
+                            statusLabels = null,
+                            traitResources = emptyMap(),
+                            resourceRegistry = emptyMap(),
+                        ),
                     fingerprint = "fp",
-                    traitResources = emptyMap(),
-                    resourceRegistry = emptyMap()
+                    source = ConfigSource.PER_ROOT,
                 )
 
             val repoProvider = mockk<RepositoryProvider>(relaxed = true)
@@ -288,15 +299,19 @@ class ToolExecutionContextResourceMergeTest {
         runBlocking {
             val rootId = UUID.randomUUID()
             val perRoot = mockk<PerRootConfigService>()
-            coEvery { perRoot.getSnapshot(rootId) } returns
-                PerRootConfigService.Snapshot(
-                    workItemSchemas = emptyMap(),
-                    traits = emptyMap(),
-                    noteLimitsModeExplicit = null,
-                    statusLabels = null,
+            coEvery { perRoot.layer(rootId) } returns
+                ConfigLayer(
+                    document =
+                        ConfigDocument(
+                            workItemSchemas = emptyMap(),
+                            traits = emptyMap(),
+                            noteLimitsMode = null,
+                            statusLabels = null,
+                            traitResources = emptyMap(),
+                            resourceRegistry = mapOf("per-root-only" to ResourceDefinition(key = "per-root-only")),
+                        ),
                     fingerprint = "fp",
-                    traitResources = emptyMap(),
-                    resourceRegistry = mapOf("per-root-only" to ResourceDefinition(key = "per-root-only"))
+                    source = ConfigSource.PER_ROOT,
                 )
             every { noteSchemaService.getResourceRegistry() } returns
                 mapOf("global-only" to ResourceDefinition(key = "global-only"))
@@ -317,15 +332,19 @@ class ToolExecutionContextResourceMergeTest {
             val perRootDef = ResourceDefinition(key = "shared-key", description = "per-root version", defaultTtlSeconds = 111)
             val globalDef = ResourceDefinition(key = "shared-key", description = "global version", defaultTtlSeconds = 222)
 
-            coEvery { perRoot.getSnapshot(rootId) } returns
-                PerRootConfigService.Snapshot(
-                    workItemSchemas = emptyMap(),
-                    traits = emptyMap(),
-                    noteLimitsModeExplicit = null,
-                    statusLabels = null,
+            coEvery { perRoot.layer(rootId) } returns
+                ConfigLayer(
+                    document =
+                        ConfigDocument(
+                            workItemSchemas = emptyMap(),
+                            traits = emptyMap(),
+                            noteLimitsMode = null,
+                            statusLabels = null,
+                            traitResources = emptyMap(),
+                            resourceRegistry = mapOf("shared-key" to perRootDef),
+                        ),
                     fingerprint = "fp",
-                    traitResources = emptyMap(),
-                    resourceRegistry = mapOf("shared-key" to perRootDef)
+                    source = ConfigSource.PER_ROOT,
                 )
             every { noteSchemaService.getResourceRegistry() } returns mapOf("shared-key" to globalDef)
 

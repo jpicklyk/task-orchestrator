@@ -1,5 +1,8 @@
 package io.github.jpicklyk.mcptask.current.application.tools.notes
 
+import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
+import io.github.jpicklyk.mcptask.current.application.config.ConfigLayer
+import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
 import io.github.jpicklyk.mcptask.current.application.service.NoteSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
@@ -1814,21 +1817,29 @@ class ManageNotesToolTest {
             // the note's maxLength) — only note_limits behavior is under test here, so each
             // snapshot's workItemSchemas/traits are empty, giving that path a harmless miss.
             val perRoot = mockk<PerRootConfigService>()
-            coEvery { perRoot.getSnapshot(strictRootId) } returns
-                PerRootConfigService.Snapshot(
-                    workItemSchemas = emptyMap(),
-                    traits = emptyMap(),
-                    noteLimitsModeExplicit = "reject",
-                    statusLabels = null,
-                    fingerprint = "fp-strict"
+            coEvery { perRoot.layer(strictRootId) } returns
+                ConfigLayer(
+                    document =
+                        ConfigDocument(
+                            workItemSchemas = emptyMap(),
+                            traits = emptyMap(),
+                            noteLimitsMode = "reject",
+                            statusLabels = null,
+                        ),
+                    fingerprint = "fp-strict",
+                    source = ConfigSource.PER_ROOT,
                 )
-            coEvery { perRoot.getSnapshot(laxRootId) } returns
-                PerRootConfigService.Snapshot(
-                    workItemSchemas = emptyMap(),
-                    traits = emptyMap(),
-                    noteLimitsModeExplicit = null,
-                    statusLabels = null,
-                    fingerprint = "fp-lax"
+            coEvery { perRoot.layer(laxRootId) } returns
+                ConfigLayer(
+                    document =
+                        ConfigDocument(
+                            workItemSchemas = emptyMap(),
+                            traits = emptyMap(),
+                            noteLimitsMode = null,
+                            statusLabels = null,
+                        ),
+                    fingerprint = "fp-lax",
+                    source = ConfigSource.PER_ROOT,
                 )
 
             val schemaEntries = listOf(NoteSchemaEntry(key = "limited", role = Role.WORK, maxLength = 10))

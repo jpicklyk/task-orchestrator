@@ -289,6 +289,11 @@ format, but the fingerprint is a SHA-256 over the stored `configYaml`'s UTF-8 by
 `SQLiteProjectConfigRepository.computeFingerprint`) rather than the global config file. `PUT` additionally
 accepts `If-Match` for optimistic-concurrency writes (see §18).
 
+The per-root effective config endpoint (§18, `GET /roots/{rootId}/config/effective`) uses a DIFFERENT
+prefix, `"eff-<fingerprint>"`, where the fingerprint is a SHA-256 over BOTH layers' fingerprints (global
+and per-root), so it changes when either layer changes. It supports `If-None-Match` → `304` like the
+`cfg-` endpoints, but an `eff-` ETag is never accepted as a per-root config `If-Match`.
+
 **Normalization (both endpoints, identical rule):** before hashing, the config text has one leading
 UTF-8 BOM (U+FEFF) stripped if present, then every CRLF (`\r\n`) is replaced with LF (`\n`) — nothing
 else. The stored/served `configYaml` bytes are never rewritten; only the value fed into the SHA-256
@@ -354,7 +359,7 @@ All error responses use:
 | `insufficient_scope` | 403 | A generic `requireCapability` check failed for the plugin's configured capability; (SSE-specific) a `GET /api/v1/events` connection carries a `tags_include` scope but the route has no `WorkItemRepository` wired to filter by it — fail-closed rather than serving an unfiltered stream; or (SSE-specific) a root-scoped principal's `?root=` values do not intersect its token's `scope.rootIds` — the requested roots are entirely outside scope (see §21) |
 | `transition_failed` | 422 | Role transition rejected (invalid trigger, gate failure, dependency blocker) |
 | `resource_unavailable` | 409 | Resource-lease gate contention on `POST /items/{id}/advance` into WORK — transient, retryable. Carries a `Retry-After` header and `details.contendedResources`/`details.retryAfterMs`. Never discloses the current holder. |
-| `config_unavailable` | 503 | Per-root config read failed (a transient database error) and there was no last-known-good cached config to serve for that root — transient, retryable; the caller applies its own backoff (no `Retry-After` header). Returned by `POST /items/{id}/advance` and `GET /items/{id}/gate` (see §9, §10). |
+| `config_unavailable` | 503 | Per-root config read failed (a transient database error) and there was no last-known-good cached config to serve for that root — transient, retryable; the caller applies its own backoff (no `Retry-After` header). Returned by `POST /items/{id}/advance`, `GET /items/{id}/gate` (see §9, §10), and `GET /roots/{rootId}/config/effective` (see §18). REST and the MCP tools now read per-root config through the same `EffectiveConfigResolver`/last-known-good cache (one shared instance, built once in `ServerComposition`) — a transient DB error on one surface is absorbed by a cache warmed by the other, so this error is rarer than it was when each surface kept its own cache. |
 | `db_error` | 500 | Database query failed |
 
 ---
@@ -696,6 +701,57 @@ Note: `"<previousRole>"` is a literal sentinel string — dashboards must resolv
   "types": [<StatusGraphTypeDto>]
 }
 ```
+
+**EffectiveSchemaDto** (see §18, `GET /roots/{rootId}/config/effective`):
+```json
+{
+  "type": "feature-task",
+  "matchedType": "feature-task",
+  "configSource": "per-root",
+  "configFingerprint": "e3b0c44298fc1c14...",
+  "lifecycleMode": "auto",
+  "hasReviewPhase": true,
+  "notes": [<NoteSchemaEntryDto>],
+  "defaultTraits": ["needs-security-review"]
+}
+```
+`type` is the queried type key; `matchedType` is the schema that actually answered it (`"default"`
+when a default schema resolved the miss). `configSource` is `"per-root"` or `"global"` — the same
+literal MCP `query_items(operation="schema", ...)` uses. `configFingerprint` is the supplying
+layer's fingerprint, omitted when that layer has none.
+
+**EffectiveConfigDto** (see §18, `GET /roots/{rootId}/config/effective`):
+```json
+{
+  "rootId": "550e8400-e29b-41d4-a716-446655440000",
+  "schemas": [<EffectiveSchemaDto>],
+  "traits": [<TraitDto>],
+  "types": ["bug", "feature-task"],
+  "statusGraph": <StatusGraphDto>,
+  "defaultSchema": <EffectiveSchemaDto>|null,
+  "globalFingerprint": "e3b0c44298fc1c14...",
+  "perRootFingerprint": "a94a8fe5cc...",
+  "schemaResolution": "legacy"
+}
+```
+Every registered type (the union of this root's per-root `work_item_schemas` keys and the global
+schema service's keys) resolved against `{rootId}`'s LAYERED config in one response — the same
+per-root/global view `EffectiveConfigResolver` and MCP `query_items(schema, type=K, rootId=R)`
+already compute, surfaced as one REST resource instead of requiring a dashboard to probe per type.
+`types` lists every schema key (per-root and global, ascending natural `String` order) that
+resolves to a schema for this root, and `schemas` follows that same order — `types` always equals
+the `type` values of `schemas`. A key that does not resolve under the root's mode is omitted from
+both (e.g. under `schema_resolution: isolated`, a global-only type with no per-root `default`). `traits` lists every trait name visible to this root (per-root names first,
+then global, distinct) with its resolved notes/dispatch/resources — a trait unknown to both layers
+is skipped. `globalFingerprint`/`perRootFingerprint` are omitted when null (no global config loaded
+/ no per-root config pushed for this root, respectively). `defaultSchema` is the resolved `"default"`
+entry, omitted when no layer defines one. `schemaResolution` (AR-39) is this root's effective
+`schema_resolution` mode — `"legacy"`, `"layered"`, or `"isolated"` — always populated on a `200`
+(`"legacy"` when the key is absent everywhere); see
+[`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md)
+→ "Global vs Per-Project Config". Distinct from `ConfigSnapshotDto` (GLOBAL-only, `/config`) and the
+raw stored YAML `GET /roots/{rootId}/config` returns — this route performs no trait merging (same
+as `SchemaDto`/the MCP type-path): it reports each type's RESOLVED BASE schema only.
 
 **ProjectConfigResponseDto** (see §18):
 ```json
@@ -1438,6 +1494,8 @@ Returns up to 50 hits. `noteKey` is populated on every hit (note-body search alw
 
 All require `READ`. All config endpoints emit a fingerprint-based ETag (`"cfg-<fingerprint>"`) and support `If-None-Match` → `304 Not Modified`.
 
+These endpoints describe the **global** config only. For what a specific project root actually resolves to (its per-root config layered over the global one, per its `schema_resolution` mode), use `GET /roots/{rootId}/config/effective` (§18).
+
 ### GET /config
 
 Full config snapshot: all schemas, traits, types, and the status-transition graph.
@@ -1531,7 +1589,7 @@ compare-and-set precondition the caller supplied for this request is still enfor
 
 On success, the parsed document's top-level keys are checked against the honored allowlist -
 `work_item_schemas`, `note_schemas`, `traits`, `project`, `note_limits`, `status_labels`,
-`resources` - and any other key present (e.g. `actor_authentication`, which stays global-only - see
+`resources`, `schema_resolution` (AR-39) - and any other key present (e.g. `actor_authentication`, which stays global-only - see
 [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md))
 is reported in the response's `ignoredSections` array so a push is never silently partial.
 `resources` is honored with an inverted precedence versus the other six keys - global wins on a
@@ -1583,6 +1641,45 @@ Removes the stored config row for `{rootId}`. Requires `WRITE_CONFIG`.
 **Responses:**
 - `204 No Content` — deleted
 - `404 not_found` — no config row existed for `{rootId}`
+
+### GET /roots/{rootId}/config/effective
+
+Additive route (AR-39/C5): every registered type resolved against `{rootId}`'s LAYERED
+(per-root-over-global) config in one response — the same view `EffectiveConfigResolver` and MCP
+`query_items(operation="schema", type=K, rootId=R)` already compute. Distinct from `GET /config`
+(§17, GLOBAL-only) and `GET /roots/{rootId}/config` above (the RAW stored YAML): this route reports
+the RESOLVED base schema per type, with no trait merging — same as `SchemaDto`/the MCP type-path.
+Purely additive: no existing `/config*` or `/roots/{rootId}/config` route, body, or ETag changes.
+Requires `READ`.
+
+**Authorization/validation order:** `READ` capability → parse `{rootId}` as a UUID (`400
+bad_request` on failure) → `ApiScope.rootIds` scope check (`403 scope_forbidden`) → root WorkItem
+exists (`404 not_found`) → root is depth-0 (`422 validation_error`) → exactly one per-root config
+read, wrapped in the same `config_unavailable` 503 envelope `POST /items/{id}/advance` and `GET
+/items/{id}/gate` use (see §6, §9, §10) — see §4/§5's note above on the shared REST/MCP cache.
+
+**Responses:**
+- `200 OK` → `EffectiveConfigDto`; `ETag: "eff-<fingerprint>"` — a composite fingerprint over
+  BOTH layers (`"eff-" + sha256Hex("global:" + (globalFingerprint ?: "-") + "\nper-root:" +
+  (perRootFingerprint ?: "-"))`), distinct from `/config*`'s and `/roots/{rootId}/config`'s
+  `"cfg-"` prefix so an effective ETag can never be mistaken for a per-root-config `If-Match`
+  fingerprint value
+- `304 Not Modified` — `If-None-Match` matches the current effective ETag
+- `400 bad_request` — `{rootId}` is missing or not a valid UUID
+- `403 scope_forbidden` — capability present but `{rootId}` outside token scope
+- `404 not_found` — `{rootId}` does not resolve to an existing WorkItem
+- `422 validation_error` — `{rootId}` resolves to a WorkItem that is not depth-0
+- `500 db_error` — the root-lookup read itself failed with a repository error other than
+  not-found (a transient DB failure surfaces here, distinct from the 404 case above)
+- `503 config_unavailable` — the per-root config read failed and there was no last-known-good
+  cached config for `{rootId}` (see §6); transient, no `Retry-After` header
+
+`schemaResolution` on the response body is `{rootId}`'s effective `schema_resolution` mode —
+`"legacy"`, `"layered"`, or `"isolated"` — and is **always present** on a `200` response (never
+omitted; `"legacy"` when the key is absent everywhere). See
+[`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md)
+→ "Global vs Per-Project Config" for the mode precedence chains and how the effective mode is
+chosen, and `EffectiveConfigDto` above for the full response shape.
 
 ---
 
@@ -1832,6 +1929,11 @@ This graph does NOT reflect:
 Dashboard UI: do not use the status graph to pre-compute which buttons to enable. Always call `POST /items/{id}/advance` and surface the `422` error if the transition is blocked at runtime — `gate_blocked` (unfilled required note), `transition_blocked` (dependency blocker), or `transition_failed` (invalid state).
 
 The `"<previousRole>"` sentinel in `blocked.resume` is a literal string — resolve it from the live item's `previousRole` field.
+
+This same caveat applies to the `statusGraph` field `GET /roots/{rootId}/config/effective` (§18)
+returns: it is built by the same status-graph construction over that root's resolved schema set, so
+it is equally structural-only — it does not reflect note gates, dependency blockers, claim
+ownership, or per-item lifecycle exceptions for `{rootId}`'s items either.
 
 ---
 

@@ -2,7 +2,9 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
 import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
+import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
+import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.audit.ApiAuditBridge
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
@@ -80,7 +82,16 @@ class WriteRouteAuthInvariantTest {
                     authConfig = jwksAuthConfig()
                     jwksVerifier = verifier
                 }
-                itemWriteRoutes(repo, degradedModePolicy, IdempotencyCache(), NoOpNoteSchemaService)
+                itemWriteRoutes(
+                    repo,
+                    degradedModePolicy,
+                    IdempotencyCache(),
+                    ToolExecutionContext(
+                        repo,
+                        NoOpNoteSchemaService,
+                        perRootConfigService = PerRootConfigService(repo.projectConfigRepository()),
+                    ).advanceServiceFactory(),
+                )
                 noteWriteRoutes(repo, degradedModePolicy, IdempotencyCache())
                 dependencyWriteRoutes(repo, degradedModePolicy)
             }

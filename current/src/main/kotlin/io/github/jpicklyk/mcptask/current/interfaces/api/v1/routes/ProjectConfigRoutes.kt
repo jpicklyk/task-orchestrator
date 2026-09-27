@@ -1,8 +1,10 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
+import io.github.jpicklyk.mcptask.current.application.config.ConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.application.service.ProjectConfigPushResult
 import io.github.jpicklyk.mcptask.current.application.service.ProjectConfigPushService
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
+import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlConfigDocumentParser
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.enforceScopeForItem
@@ -83,10 +85,13 @@ private const val NON_MATCHING_FINGERPRINT_SENTINEL = "<malformed-if-match>"
  * [io.github.jpicklyk.mcptask.current.interfaces.mcp.installRestApiRoutes]) and is never reachable on
  * the unauthenticated `/mcp` transport.
  */
-fun Route.projectConfigRoutes(repositoryProvider: RepositoryProvider) {
+fun Route.projectConfigRoutes(
+    repositoryProvider: RepositoryProvider,
+    configDocumentParser: ConfigDocumentParser = YamlConfigDocumentParser,
+) {
     val workItemRepo = repositoryProvider.workItemRepository()
     val projectConfigRepo = repositoryProvider.projectConfigRepository()
-    val service = ProjectConfigPushService(repositoryProvider)
+    val service = ProjectConfigPushService(repositoryProvider, configDocumentParser)
 
     route("/roots/{rootId}/config") {
         // ─── GET /roots/{rootId}/config ──────────────────────────────────────

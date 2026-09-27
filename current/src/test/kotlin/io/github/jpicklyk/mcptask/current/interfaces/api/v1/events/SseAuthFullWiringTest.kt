@@ -2,7 +2,10 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
 import io.github.jpicklyk.mcptask.current.application.service.NoOpNoteSchemaService
+import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
+import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
+import io.github.jpicklyk.mcptask.current.infrastructure.config.YamlStatusLabelService
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthMode
@@ -128,6 +131,13 @@ class SseAuthFullWiringTest {
             serverVersion = "1.0.0",
             actorAuthEnabled = false,
             noteSchemaService = NoOpNoteSchemaService,
+            toolContext =
+                ToolExecutionContext(
+                    provider,
+                    NoOpNoteSchemaService,
+                    statusLabelService = YamlStatusLabelService(),
+                    perRootConfigService = PerRootConfigService(provider.projectConfigRepository()),
+                ),
             degradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
             idempotencyCache = IdempotencyCache(),
         )

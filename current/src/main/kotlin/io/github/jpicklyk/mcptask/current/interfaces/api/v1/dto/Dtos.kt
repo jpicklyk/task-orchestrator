@@ -318,6 +318,53 @@ data class ConfigSnapshotDto(
     val defaultSchema: SchemaDto? = null,
 )
 
+/**
+ * A single type's RESOLVED base schema (no trait merging), from `GET
+ * /api/v1/roots/{rootId}/config/effective` — see [EffectiveConfigDto].
+ *
+ * [type] is the queried type key; [matchedType] is the schema that actually answered it
+ * (`"default"` when a default schema answered a miss). [configSource] is `"per-root"` or
+ * `"global"` — the same literal MCP `query_items(schema, ...)` uses for `configSource`.
+ * [configFingerprint] is the supplying layer's fingerprint, omitted when that layer has none.
+ */
+@Serializable
+data class EffectiveSchemaDto(
+    val type: String,
+    val matchedType: String,
+    val configSource: String,
+    val configFingerprint: String? = null,
+    val lifecycleMode: String,
+    val hasReviewPhase: Boolean,
+    val notes: List<NoteSchemaEntryDto>,
+    val defaultTraits: List<String>,
+)
+
+/**
+ * Full per-root EFFECTIVE (layered) config view returned by `GET
+ * /api/v1/roots/{rootId}/config/effective` — every registered type resolved against [rootId]'s
+ * per-root config over the global fallback, in one response. Additive: distinct from
+ * [ConfigSnapshotDto] (GLOBAL-only) and the raw stored YAML `/roots/{rootId}/config` returns.
+ *
+ * [globalFingerprint]/[perRootFingerprint] are omitted when null (no global config loaded /
+ * no per-root config pushed for this root, respectively).
+ *
+ * [schemaResolution] (AR-39, C4) is [rootId]'s effective `schema_resolution` mode —
+ * `"legacy"`, `"layered"`, or `"isolated"` — always populated on a 200 response (`"legacy"` when
+ * absent everywhere); additive field, appended last.
+ */
+@Serializable
+data class EffectiveConfigDto(
+    val rootId: String,
+    val schemas: List<EffectiveSchemaDto>,
+    val traits: List<TraitDto>,
+    val types: List<String>,
+    val statusGraph: StatusGraphDto,
+    val defaultSchema: EffectiveSchemaDto? = null,
+    val globalFingerprint: String? = null,
+    val perRootFingerprint: String? = null,
+    val schemaResolution: String? = null,
+)
+
 // ─── Phase 5: Write-API request DTOs ─────────────────────────────────────────
 
 /**

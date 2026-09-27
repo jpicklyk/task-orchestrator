@@ -172,7 +172,7 @@ private fun respondWith304IfMatch(
 
 // ─── Domain → DTO mapping helpers ───────────────────────────────────────────
 
-private fun NoteSchemaEntry.toDto(): NoteSchemaEntryDto =
+internal fun NoteSchemaEntry.toDto(): NoteSchemaEntryDto =
     NoteSchemaEntryDto(
         key = key,
         role = role.name.lowercase(),
@@ -183,7 +183,7 @@ private fun NoteSchemaEntry.toDto(): NoteSchemaEntryDto =
         maxLength = maxLength,
     )
 
-private fun WorkItemSchema.toDto(): SchemaDto =
+internal fun WorkItemSchema.toDto(): SchemaDto =
     SchemaDto(
         type = type,
         lifecycleMode = lifecycleMode.name.lowercase(),
@@ -192,14 +192,14 @@ private fun WorkItemSchema.toDto(): SchemaDto =
         defaultTraits = defaultTraits,
     )
 
-private fun DispatchProfile.toDto(): DispatchProfileDto =
+internal fun DispatchProfile.toDto(): DispatchProfileDto =
     DispatchProfileDto(
         agent = agent,
         model = model,
         effort = effort,
     )
 
-private fun ResourceRequirement.toDto(): ResourceRequirementDto =
+internal fun ResourceRequirement.toDto(): ResourceRequirementDto =
     ResourceRequirementDto(
         key = key,
         mode = mode.name.lowercase(),

@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.tools.compound
 
+import io.github.jpicklyk.mcptask.current.application.config.withConfigSession
 import io.github.jpicklyk.mcptask.current.application.service.DocRefSpec
 import io.github.jpicklyk.mcptask.current.application.service.MarkdownSectionSplitter
 import io.github.jpicklyk.mcptask.current.application.service.TreeDepSpec
@@ -506,6 +507,14 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
     }
 
     override suspend fun execute(
+        params: JsonElement,
+        context: ToolExecutionContext
+    ): JsonElement =
+        withConfigSession {
+            executeWithSession(params, context)
+        }
+
+    private suspend fun executeWithSession(
         params: JsonElement,
         context: ToolExecutionContext
     ): JsonElement {

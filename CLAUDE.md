@@ -54,11 +54,11 @@ Traits are **composable orchestration signals** declared in `.taskorchestrator/c
 4. **Resources** -- optional `resources:` list declaring shared-resource requirements (`exclusive` or `advisory` mode) enforced as a lease gate at WORK entry, independent of the note-requirement dimension. See `claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md` -> "Resources (Trait Dimension)" for declaration syntax, merge semantics, and the leaf-task-types-only rule.
 5. **Dispatch** -- optional `dispatch.<queue|work|review>: {agent?, model?, effort?}` declaring which agent/model/effort should pick up a phase, surfaced on `advance_item`/`get_context`/`query_items`. See `claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md` -> "Dispatch (Trait Dimension)" for declaration syntax and precedence.
 
-**Resolution flow:** `ToolExecutionContext.resolveSchema(item)` merges trait notes from two sources:
+**Resolution flow:** schema and trait resolution live in `application/config` — `EffectiveConfigResolver` (the shared entry point, one instance built in `ServerComposition` and used by both MCP and REST) and `LayeredConfig` (the per-root/global merge for one resolution, built fresh per `EffectiveConfigResolver.layered(rootId)` call). `ToolExecutionContext.resolveSchema(item)` and its sibling methods now delegate to `configResolver` rather than resolving inline. Trait notes merge from two sources:
 - `defaultTraits` on the schema type definition (always applied to items of that type)
 - Per-item `traits` from the item's `properties` JSON bag (applied via `PropertiesHelper.extractTraits()`)
 
-Base schema note keys win on duplicates; first-trait-in-order wins for duplicate trait keys. Dispatch resolution (`resolveDispatchProfile()`) walks per-item traits FIRST, then `defaultTraits` -- the reverse of note merging -- and a per-root trait's `dispatch` map replaces the global trait's map wholesale, per trait (no per-role fall-through).
+Base schema note keys win on duplicates; first-trait-in-order wins for duplicate trait keys. Dispatch resolution walks per-item traits FIRST, then `defaultTraits` -- the reverse of note merging -- and a per-root trait's `dispatch` map replaces the global trait's map wholesale, per trait (no per-role fall-through). The `default` schema is a **mode-dependent last resort**, not a fixed final step: `LayeredConfig`'s effective `schema_resolution` mode (`legacy`/`layered`/`isolated`, AR-39 — see `config-format.md` → "Global vs Per-Project Config") decides how far each layer's exact type/tag matches are tried before either layer's `default` is consulted at all.
 
 **Example:** An item typed `feature-task` with trait `needs-migration-review` gets the base `feature-task` notes PLUS the `migration-assessment` note (queue phase, required, with `migration-review` skill pointer and guidance about SQLite table recreation patterns). The orchestrator sees this merged schema via `get_context(itemId=...)` and routes accordingly -- dispatching a migration-specialized agent or invoking the migration-review skill.
 
@@ -67,15 +67,17 @@ Base schema note keys win on duplicates; first-trait-in-order wins for duplicate
 | What | Path |
 |------|------|
 | Trait definitions | `.taskorchestrator/config.yaml` -> `traits:` section |
-| Schema resolution + trait merging | `current/.../application/tools/ToolExecutionContext.kt` -> `resolveSchema()`, `mergeTraits()` |
+| Schema resolution + trait merging | `current/.../application/config/LayeredConfig.kt` (per-root/global merge, `resolveBaseSchema()`/`resolveTypeSchema()`/`mergeTraits()`), `current/.../application/config/EffectiveConfigResolver.kt` (shared entry point) |
+| `schema_resolution` mode | `current/.../application/config/SchemaResolutionMode.kt` (enum + parse), `LayeredConfig.effectiveMode` |
 | Properties helper | `current/.../application/tools/PropertiesHelper.kt` -> `extractTraits()`, `mergeTraits()` |
 | Domain models | `WorkItemSchema.kt` (`defaultTraits`), `NoteSchemaEntry.kt` (`skill`, `guidance`) |
-| Dispatch resolution | `current/.../domain/model/DispatchProfile.kt` (domain model); `current/.../application/tools/ToolExecutionContext.kt` -> `resolveDispatchProfile()` |
+| Dispatch resolution | `current/.../domain/model/DispatchProfile.kt` (domain model); `current/.../application/config/LayeredConfig.kt` -> `mergeDispatch()`/`traitDispatchEntry()` |
+| `ToolExecutionContext` | `current/.../application/tools/ToolExecutionContext.kt` — thin delegate methods over `configResolver`; no longer where the merge logic lives |
 
 ## Tight Coupling Areas
 
 ### ToolExecutionContext
-Most of its dependencies are defaulted (`ToolExecutionContext.kt`), but the class is still constructed by hand at three separate sites: `ServerComposition.kt` (MCP), and `ItemRoutes.kt` / `ItemWriteRoutes.kt` (REST). `AdvanceService` is likewise hand-wired at three call sites: `AdvanceItemTool.kt`, `ItemWriteRoutes.kt`, and `CompleteTreeTool.kt`. Adding a new constructor dependency to either class means updating every one of its construction sites, not just the class itself — the compiler will not catch a site you miss if the new parameter has a default.
+`ToolExecutionContext` is now constructed exactly ONCE, in `ServerComposition.build()` (MCP). REST no longer builds its own copy: `ItemRoutes.kt` (`itemGateRoutes`) and `ItemWriteRoutes.kt` (`itemWriteRoutes`) take the already-built `EffectiveConfigResolver` (`toolContext.configResolver`) and, where they used to hand-wire `AdvanceService`, an `AdvanceServiceFactory` (`toolContext.advanceServiceFactory()`) instead — both wired in `CurrentMcpServer.installRestApiRoutes()` from the single `CompositionResult`. This is also what makes REST and MCP share one per-root last-known-good config cache (previously two independent caches — see `api-rest.md` §6). `AdvanceService` itself is built in exactly one place, `AdvanceServiceFactory.forItem()` (`application/service/AdvanceServiceFactory.kt`); `AdvanceItemTool.kt`, `CompleteTreeTool.kt`, and the REST advance route all call `advanceServiceFactory.forItem(item, trigger)` instead of constructing `AdvanceService` inline. Adding a new constructor dependency to `ToolExecutionContext` or `AdvanceServiceFactory` still means updating that class's own (now singular) construction site plus its own field/getter — the compiler will not catch a site you miss if the new parameter has a default.
 
 ### DirectDatabaseSchemaManager
 Table creation order is derived automatically (`SchemaUtils.create` orders by FK references), not manually maintained. The real hazard is keeping the Direct-mode table list and DDL in parity with the Flyway migrations: a new table or column must be added to both, and the two can drift silently since nothing enforces the parity at compile time.
@@ -93,11 +95,15 @@ val globalConfigPath = Paths.get(AppConfig.resolveConfigBaseDir(appConfig.agentC
 
 - In Docker: `-e AGENT_CONFIG_DIR=/project` (where config is mounted)
 - In local dev: not needed (uses working directory)
-- Resolved once in `ServerComposition.kt` and shared by every service that reads the global config:
-  the schema service (`YamlWorkItemSchemaService`, exposed under the `YamlNoteSchemaService` type
-  alias), the status-label service, and the actor-authentication service. `ManageNotesTool`,
-  `ManagePlanDocumentsTool`, and `JwksKeySetProvider` also resolve it independently for their own
-  file access.
+- Resolved once in `ServerComposition.kt` into a single `GlobalConfigFile(globalConfigPath)`
+  (`infrastructure/config/GlobalConfigFile.kt`), which reads and parses
+  `.taskorchestrator/config.yaml` exactly ONCE and caches the parsed `ConfigDocument` for the life
+  of the process. The schema service (`YamlWorkItemSchemaService`, exposed under the
+  `YamlNoteSchemaService` type alias), the status-label service (`YamlStatusLabelService`), and the
+  actor-authentication service (`YamlActorAuthenticationConfigService`) all take this SAME
+  `GlobalConfigFile` instance instead of each independently re-reading and re-parsing the file.
+  `ManageNotesTool`, `ManagePlanDocumentsTool`, and `JwksKeySetProvider` also resolve
+  `AGENT_CONFIG_DIR` independently for their own (non-global-config) file access.
 - **This is the GLOBAL/fallback config.** `AGENT_CONFIG_DIR` locates the single, server-wide `.taskorchestrator/config.yaml`, read once at startup (restart to reload). Per-**project** config is stored per-root in the DB — pushed via `manage_project_config` or `PUT /api/v1/roots/{rootId}/config`, synced from the workspace file by the `config-sync` SessionStart hook — and hot-reloads without a restart, layering over this global file per item `rootId`. See `claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md` → "Global vs Per-Project Config".
 - This repo's own `.taskorchestrator/config.yaml` is git-tracked dogfood config and doubles as a living schema/trait example — it is delivered to the server per-root via the `config-sync` hook, not mounted as the global config. The actual global mount is the process-schema floor at `deploy/global-config/.taskorchestrator/` — agent-observation, session-retrospective, improvement-proposal, and container schemas only, shared across every project the server serves.
 
