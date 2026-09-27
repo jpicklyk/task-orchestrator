@@ -465,6 +465,218 @@ this plugin.
 
 ---
 
+## Seats (Trait & Schema Dimension)
+
+A schema or trait can declare `seats:` — a list of named orchestration roles within a phase (A1).
+Seats are **pure signals**: the server parses, validates, merges, and serves them, but does not
+itself enforce who reads or writes what. They exist so an orchestrator (or a client reading
+`get_context`/`query_items`) can tell *which* agent owns a phase's entry transition, *which* agent
+owns each required note, and *which* dispatch profile (agent/model/effort) applies to each seat —
+without the orchestrator hand-maintaining that mapping outside the config file. A config with no
+`seats:` anywhere is completely unaffected: every seat-related response field is omitted, and the
+one exception (`features`) is documented in "Byte-identity" below.
+
+### Declaration form
+
+```yaml
+work_item_schemas:
+  bug-fix:
+    default_traits: [needs-test-author]
+    seats:                                    # NEW, schema-level, list
+      - { name: planner,      phase: queue }
+      - { name: implementer,  phase: work, enters: true }
+      - { name: extractor,    phase: work, after: [implementer] }
+      - { name: orchestrator, phase: work }
+      - { name: reviewer,     phase: review }
+    notes:
+      - { key: diagnosis, role: queue, required: true, seat: planner }
+      - { key: implementation-notes, role: work, required: true, seat: implementer }
+      - { key: session-tracking, role: work, required: true, seat: orchestrator }
+
+traits:
+  needs-test-author:
+    seats:                                    # NEW, trait-level
+      - { name: test-author, phase: work, after: [extractor], reads_exclude: [implementation-notes] }
+    notes:
+      - { key: test-plan, role: queue, required: true, seat: planner }
+      - { key: test-manifest, role: work, required: true, seat: test-author, independent_of: [implementer] }
+
+  delegated:
+    dispatch:
+      work:
+        agent: task-orchestrator:implementer  # phase-level profile (unchanged)
+        seats:                                # NEW per-seat overrides
+          test-author: { agent: task-orchestrator:test-author, model: sonnet }
+          extractor:   { agent: null, model: sonnet, effort: low }   # agent: null CLEARS the phase agent for this seat
+```
+
+### Seat-entry fields (`seats[]`, schema-level or trait-level)
+
+| Field | Required | Type | Notes |
+|-------|----------|------|-------|
+| `name` | yes | string | Non-blank, unique within its declaring scope (see "Fatal errors" below). Seat names are **opaque to the server** — no meaning is attached to any particular name, including `orchestrator`, except the reserved bucket name `unowned` (see "The `unowned` bucket" below), which a seat may never be named. |
+| `phase` | yes | string | `queue`, `work`, or `review` only — exact lowercase match, same set as note `role`. |
+| `enters` | no | boolean | Default `false`. Whether this seat is the one that transitions the item **into** `phase`. At most one seat may set this `true` per phase within a single `seats:` list, or within a schema's own seats plus its same-document `default_traits`' seats — see "Fatal errors" (F1). A conflict discovered only at resolve time (per-item traits, or traits supplied by a different config layer) is **not** fatal — see "Merge rules" below. |
+| `after` | no | list of strings | Seat names this seat's work logically follows — an ordering **hint**, not enforced by the server. A name outside the declaring scope, or naming a seat in a different phase, is served exactly as declared; it never fails validation. |
+| `reads_exclude` | no | list of strings | Note keys this seat should **not** read — a hint powering test-author-style blindness. Parsed and served in A1; **not enforced** until A2. |
+
+### Note-entry fields (new on `notes[]`)
+
+| Field | Required | Type | Notes |
+|-------|----------|------|-------|
+| `seat` | no | string | The seat (by name) that owns this note. Determines which bucket a missing required note lands in under `missingBySeat` — see "The `unowned` bucket" below. A note with no `seat`, or a `seat` naming an undeclared seat, or a `seat` declared for a *different* phase than the note's own `role`, is `unowned`. |
+| `independent_of` | no | list of strings | Seat names this note's authoring must stay independent of (e.g. a test-author's `test-manifest` staying independent of the `implementer` seat). **Parsed and served only in A1 — not enforced.** |
+
+### Per-seat dispatch overrides (`dispatch.<phase>.seats.<seat>`)
+
+A trait's existing `dispatch:` block (see "Dispatch (Trait Dimension)" above) can carry a `seats:`
+sub-key under any phase, overlaying a per-seat override on top of that phase's dispatch profile:
+
+```yaml
+traits:
+  delegated:
+    dispatch:
+      work:
+        agent: task-orchestrator:implementer
+        seats:
+          test-author: { agent: task-orchestrator:test-author, model: sonnet }
+          extractor:   { agent: null, model: sonnet, effort: low }
+```
+
+| Field | Required | Notes |
+|-------|----------|-------|
+| `agent` / `model` / `effort` | no | Same types and validation as the phase-level fields (see "Dispatch (Trait Dimension)" above; `effort` is validated against the same case-sensitive set). Each field independently either overrides the phase default, **clears** it (an explicit YAML `null` for that field), or — when absent from the override entirely — falls through to the phase default. |
+
+A phase map that carries **only** `seats:` (no `agent`/`model`/`effort` of its own) is valid — it
+declares no phase-level profile, but its seat overrides still apply on top of whatever phase
+default resolves from elsewhere (another trait, or none). This differs from the phase-level rule in
+"Dispatch (Trait Dimension)" above: there, a phase map with no valid field at all is dropped with a
+warning; here, `seats:` alone is enough to keep the phase map meaningful. An override map with no
+field set at all (nothing overridden, nothing cleared) is dropped with a warning, the same rule as
+an empty phase-level profile.
+
+### Merge rules
+
+Seats merge alongside notes when a trait's seats combine with a schema's base seats
+(`ToolExecutionContext.resolveSchema()` / `LayeredConfig.mergeTraits()`), using the same
+`default_traits`-then-per-item-`traits` trait ordering as note merging (see "Trait Merge Semantics"
+above):
+
+1. **Base-schema seats always win by name.** If a trait declares a seat with the same `name` as one
+   already in the schema's own `seats:` list, the trait's seat is dropped with a warning — the base
+   schema's version is kept unchanged. (A trait may *add* seats; it may not *redefine* a base seat.)
+2. **First-trait-in-order wins on a duplicate seat name across traits.** Same rule as note merging:
+   the earlier trait in application order keeps its seat; a later trait's same-named seat is
+   dropped with a warning.
+3. **Merged seat order is base seats, then surviving trait seats in application order** — the same
+   ordering `missingBySeat` and the served `seats`/`dispatchBySeat` fields use.
+4. **A second `enters: true` seat landing in a phase that already has one is demoted, not
+   rejected.** Unlike a same-document conflict (fatal at load time — F1, see "Fatal errors" below),
+   an `enters` conflict that only appears once traits are merged at resolve time (a per-item trait,
+   or a trait supplied by a different config layer) is resolved deterministically: the seat that
+   already has the phase keeps `enters: true`; the later seat is served with `enters` demoted to
+   `false`, and a warning is logged. Resolution never throws for this case.
+5. **Note `seat` / `independent_of` ride on the existing note-merge rules unchanged** — base-key-wins,
+   first-trait-in-order wins for duplicate trait keys (see "Trait Merge Semantics" above).
+6. **Per-seat dispatch overrides resolve item-traits-first, then `default_traits`** — the *opposite*
+   order from note merging, matching the existing dispatch-profile precedence rule (see "Dispatch
+   (Trait Dimension)" → "Precedence" above). For a given `(phase, seat)` pair, the first trait in
+   that order that declares an override for it wins outright; its fields overlay the phase's
+   already-resolved dispatch profile (`agent`/`model`/`effort` field-by-field, an explicit `null`
+   clearing that field). The result is always **filtered to the seats present in the resolved
+   schema's merged seats for that phase** — an override naming a seat the item's schema doesn't
+   declare (for that phase) never surfaces.
+
+### Per-root layering
+
+Seats and per-seat dispatch overrides follow the same "declares the trait at all" unit as trait
+notes (see "Per-root layering is PER DIMENSION, not whole-trait" above), but as **two additional,
+independent** dimensions:
+
+- **Trait seats** — if the per-root document declares the trait at all (its `traits:` map contains
+  the trait's key, regardless of whether that entry itself carries a `seats:` key), the per-root
+  seats win **wholesale** for that trait name (possibly an empty list, same as trait notes); else
+  the global trait's seats apply.
+- **Trait dispatch (by-role and by-seat) replace as ONE unit.** A per-root trait entry's `dispatch:`
+  block — its phase-level profiles **and** its per-seat overrides together — replaces the global
+  trait's whole `dispatch:` block wholesale, whenever the per-root document declares **either**
+  shape for that trait. A per-root author who writes only `dispatch.<phase>.seats:` (no
+  phase-level `agent`/`model`/`effort` at all) still replaces the *entire* inherited dispatch
+  declaration for that trait, not just the seats sub-key — restate the phase-level fields too if
+  you want to keep them from the global trait.
+- **Base-schema seats** travel with whichever layer/mode supplied the base schema itself (see
+  "Global vs Per-Project Config" above for the `schema_resolution` precedence chains) — there is no
+  separate cross-layer seat merge for a schema's own (non-trait) seats.
+
+### Fatal errors (F1–F4) — fail the whole config load or push
+
+These are **structural** errors, checked over one "seats scope" at a time: a single `seats:` list
+(a schema's own, or a trait's own), or — for a schema that names traits in its own
+`default_traits`, when both are defined in the **same document** — the union of the schema's own
+seats with those same-document default traits' seats. A config violating more than one rule fails
+deterministically with the **first** rule number's message (F3, then F2, then F1, then F4).
+
+| Code | Condition | Effect |
+|------|-----------|--------|
+| F1 | Two seats with `enters: true` in the same `phase`, within one seats scope. | Global config: **fails server startup**, message names the config path and the conflicting phase. Per-root push: **rejected** like a YAML syntax error — `manage_project_config` returns `VALIDATION_ERROR`, REST `PUT` returns `422 parse_error`; **nothing is stored**. |
+| F2 | A duplicate seat `name` within one seats scope. | Same effect as F1. |
+| F3 | A seat named `unowned` (the reserved bucket name — exact match only; `Unowned` is fine). | Same effect as F1. |
+| F4 | An `after` cycle within one seats scope. | Same effect as F1. |
+
+A conflict that only appears **at resolve time** — from a per-item trait, or from a trait supplied
+by a *different* config layer than the schema — is never fatal; see "Merge rules" rule 4 above
+(resolve-time `enters` demotion) instead.
+
+**R3 — a pre-existing per-root row is not retroactively rejected.** A per-root config row stored
+*before* a server upgrade that introduces a new fatal seat check (e.g. it has two `enters: true`
+seats in one phase) is not deleted or invalidated by the upgrade. It follows the existing
+last-known-good absence contract: the server logs a `WARN` and falls back to the global config for
+that root until the row is re-pushed (which will then be rejected and must be fixed) — see
+"Read-error handling" above for the general shape of this fallback. In practice, `config-sync`
+re-pushes the workspace file at the next `SessionStart` and surfaces the rejection then.
+
+### Warnings (W1–W6) — never fail the load
+
+All of these add one entry to the document's `warnings` (global startup log) or a push response's
+`schemaWarnings` array (per-root push), and the config still loads/stores successfully.
+
+| Code | Condition |
+|------|-----------|
+| W1 | An unknown key on a note-schema entry. Known keys: `key`, `role`, `required`, `description`, `guidance`, `skill`, `maxLength`, `seat`, `independent_of`. |
+| W2 | An unknown top-level section. Known sections: `work_item_schemas`, `note_schemas`, `traits`, `resources`, `note_limits`, `status_labels`, `schema_resolution`, `actor_authentication`, `project`, `retrospective`, `actor_attribution`. |
+| W3 | An unknown key at schema level (known: `lifecycle`, `default_traits`, `notes`, `seats`) or at trait level (known: `notes`, `resources`, `dispatch`, `seats`). |
+| W4 | A malformed `seats[]` entry: missing/blank `name` (entry skipped), invalid or missing `phase` (entry skipped), non-boolean `enters` (defaults to `false`), non-list `after`/`reads_exclude` (defaults to empty), or an unknown key on the entry (ignored). |
+| W5 | DEC-11: in a schema whose *effective* seats (its own plus its same-document `default_traits`' seats) are non-empty, a **required** note (the schema's own notes plus its default traits' notes, base-key-wins) whose `seat` is null, or doesn't name a seat of the *same phase* as the note's own `role` — the warning names the note key and role, and states it will be served under `unowned` in `missingBySeat`. |
+| W6 | A malformed `dispatch.<phase>.seats` sub-section: not a map (whole sub-section ignored), an individual seat's override not a map (that seat skipped), an override naming an unknown field (ignored), an override field with an invalid value — e.g. an invalid `effort` (dropped), or an override with no valid field and nothing cleared (the whole seat entry skipped). |
+
+Probes worth knowing: an empty `seats: []` is treated identically to no `seats:` key at all
+(byte-identical serving); mixed-case `phase` values (e.g. `Work`) are invalid — phases are
+case-sensitive, same as note `role`; a blank-string `agent`/`model`/`effort` value in a seat
+override is dropped (W6) and is **not** treated as a clear — only an explicit YAML `null` clears a
+field.
+
+### The `unowned` bucket
+
+A required note that has no seat owning it — no `seat` declared, an unknown seat name, or a `seat`
+declared for a different phase than the note's own `role` — is served under the reserved
+`"unowned"` key in `missingBySeat` (see `api-reference.md` and `api-rest.md` for the exact response
+shape). This is deliberate, not an error: it lets an orchestrator see at a glance which missing
+notes have no seat routing at all, without the config load itself failing (W5 flags it as a
+warning, not a fatal error, precisely so a schema can be seat-aware for *some* notes while others
+stay unowned). `unowned` buckets are always sorted last among non-empty buckets; the reserved name
+itself can never be used for a real seat (F3).
+
+### Byte-identity
+
+A `seats`-less config (no schema or trait anywhere declares `seats:`) produces **byte-identical**
+MCP and REST responses to a pre-A1 server, with exactly **one** additive exception: the `features`
+array on `query_items(operation="schema")`, `GET /api/v1/info`, and the `.well-known` service
+descriptor (see `api-reference.md` / `api-rest.md`). No `seat`, `seats`, `dispatchBySeat`, or
+`missingBySeat` field ever appears for a seat-less schema or item — these keys are omitted
+entirely, never emitted as `null`/`{}`/`[]`.
+
+---
+
 ## Phase Flow
 
 ```

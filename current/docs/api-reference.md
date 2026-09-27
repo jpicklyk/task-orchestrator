@@ -273,13 +273,29 @@ entirely, unchanged.
   },
   "resources": [
     { "key": "staging-db", "mode": "exclusive", "ttlSeconds": 1800 }
-  ]
+  ],
+  "seats": [
+    { "name": "planner", "phase": "queue" },
+    { "name": "implementer", "phase": "work", "enters": true },
+    { "name": "extractor", "phase": "work", "after": ["implementer"] }
+  ],
+  "dispatchBySeat": {
+    "work": {
+      "implementer": { "agent": "task-orchestrator:implementer" },
+      "extractor": { "model": "sonnet", "effort": "low" }
+    }
+  },
+  "features": ["seats", "dispatchBySeat"]
 }
 ```
 
 This is the **only** place that returns full note text (`description`, `guidance`, `skill`, `maxLength`) in one shot for an entire schema. Use it to resolve the keys-only `expectedNotes` and the reference-only `guidanceKey`/`skillPointer` fields returned elsewhere. `guidance`, `skill`, and `maxLength` are omitted per-entry when unset. `configFingerprint` reports the fingerprint of whichever config layer actually supplied the schema (per-root or global) and is `null` when unavailable; cache schema responses per fingerprint to avoid re-fetching unchanged config. `configSource` is `"per-root"` when a per-root pushed config supplied the schema (via `rootId` on the `type` path, or the item's own `rootId` on the `itemId` path) and `"global"` otherwise. Errors with `RESOURCE_NOT_FOUND` when no schema matches the given `type` or the item is schema-free.
 
 `dispatch` (object, optional) is `{"queue"|"work"|"review": {agent?, model?, effort?}}` — one entry per phase with a resolved profile, from the `dispatch` trait dimension (see [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#dispatch-trait-dimension) → "Dispatch (Trait Dimension)"). Omitted entirely (never `{}`) when no resolved trait declares a profile for any phase. The `itemId` path resolves each phase from the item's per-item `traits` first, then its type's `default_traits` (the reverse of the note-merge order); the `type` path has no item, so it resolves from `default_traits` only. `resources` (array, optional) is `[{key, mode, ttlSeconds?}]`, the trait-declared shared-resource requirements — omitted entirely (never `[]`) when none resolve.
+
+**Seats (A1).** Each `notes[]` entry gains a `seat` field (string, or JSON `null` when unowned) whenever the resolved schema is seat-aware (declares `seats:` on itself or a merged trait, after trait merging) — omitted entirely for a seat-less schema, never emitted as `null` on one. An entry with a non-empty `independent_of` also gains `independentOf` (array of seat names), independent of seat-awareness. `seats` (array, optional) is `[{name, phase, enters?, after?, readsExclude?}]`, in merged order (base schema seats, then surviving trait seats — see [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#seats-trait--schema-dimension) → "Seats"); `enters` appears only when `true`, `after`/`readsExclude` only when non-empty. `dispatchBySeat` (object, optional) is `{"queue"|"work"|"review": {<seat>: {agent?, model?, effort?}}}`, phases in that order, each phase present only when at least one of its seats has a resolved profile. Both `seats` and `dispatchBySeat` are omitted entirely (never `[]`/`{}`) for a seat-less schema. `features` (array) is **always** present — see "Server feature advertisement" below.
+
+**Server feature advertisement.** `features` lists server-wide optional-response capabilities this server version can serve — currently `["seats", "dispatchBySeat"]` — **unconditionally**, regardless of whether the resolved config actually declares any `seats:`. This lets a client distinguish an old server (which never emits `seat`/`seats`/`dispatchBySeat`/`missingBySeat` at all) from a new server whose current config simply declares no seats. `features` also appears on REST `GET /api/v1/info` and the `.well-known` service descriptor (see `api-rest.md`). Only enforced/served facets are advertised — `independent_of` is parsed and served in A1 but not enforced until a later phase, so it is deliberately absent from `features`.
 
 **Examples.**
 
@@ -1330,6 +1346,7 @@ acquired for entering WORK is released in the same call (see [`workflow-guide.md
       "missingNotes": [
         { "key": "feature-summary", "description": "...", "guidance": "...", "skill": "spec-quality" }
       ],
+      "missingBySeat": { "planner": ["feature-summary"] },
       "previousRole": "queue",
       "targetRole": "work"
     }
@@ -1339,6 +1356,8 @@ acquired for entering WORK is released in the same call (see [`workflow-guide.md
 ```
 
 `guidance` and `skill` are omitted per-entry when unset. `previousRole`/`targetRole` are present only on gate-blocked failures — other failure shapes (dependency `blockers`, ownership/policy rejection, resource-lease contention) do not carry them. A hook such as `subagent-start.mjs` distinguishes "item already in your phase" from every other failure via `errorCode === "gate_blocked"` combined with `previousRole` equal to the caller's own phase — never via the mere absence of `errorCode`, since every failure now has one.
+
+`missingBySeat` (object, optional, A1) buckets `missingNotes`' keys by owning seat — same shape, ordering, and omission rule as `get_context`'s `gateStatus.missingBySeat` (`{<seat>: [keys], ..., "unowned": [keys]}`, non-empty buckets only, `unowned` last): present only when the target schema is seat-aware, appended after `missingNotes`, omitted entirely for a seat-less schema.
 
 **Ownership / policy rejection.** When a transition is rejected because another agent holds a live claim, or by `degradedModePolicy=reject`, the failed result carries structured fields alongside `error`: `errorKind`, `errorCode` (`not_claim_holder` or `rejected_by_policy`), and — for ownership rejections — `contendedItemId`.
 
@@ -1531,11 +1550,19 @@ When `mode` is omitted, the mode is inferred from which parameters are present (
   "mode": "item",
   "item": { "id": "uuid", "title": "JWT Handler", "role": "work", "tags": "task-implementation", "depth": 1 },
   "schema": [
-    { "key": "task-scope", "role": "queue", "required": true, "exists": true, "filled": true },
-    { "key": "done-criteria", "role": "work", "required": false, "exists": false, "filled": false }
+    { "key": "task-scope", "role": "queue", "required": true, "exists": true, "filled": true, "seat": "planner" },
+    { "key": "done-criteria", "role": "work", "required": false, "exists": false, "filled": false, "seat": "implementer" }
   ],
-  "gateStatus": { "canAdvance": true, "phase": "work", "missing": [] },
+  "gateStatus": { "canAdvance": true, "phase": "work", "missing": [], "missingBySeat": {} },
   "dispatch": { "agent": "task-orchestrator:implementer", "effort": "medium" },
+  "seats": [
+    { "name": "implementer", "phase": "work", "enters": true },
+    { "name": "extractor", "phase": "work", "after": ["implementer"] }
+  ],
+  "dispatchBySeat": {
+    "implementer": { "agent": "task-orchestrator:implementer" },
+    "extractor": { "model": "sonnet", "effort": "low" }
+  },
   "claimDetail": {
     "claimedBy": "agent-worker-42",
     "claimedAt": "2026-01-01T12:00:00Z",
@@ -1556,7 +1583,9 @@ When `mode` is omitted, the mode is inferred from which parameters are present (
 
 `get_context` does not return `noteProgress` — `gateStatus` (`canAdvance`, `phase`, `missing[]`) is the canonical gate signal for the current phase. Required/remaining/total counts are still available via `advance_item` responses and `manage_notes(upsert)`'s `itemContext`.
 
-Each entry in the `schema` array is keys-only: `key`, `role`, `required`, `exists`, `filled`. Resolve `description`/`guidance`/`skill` for any entry via `query_items(operation="schema", itemId=...)`.
+Each entry in the `schema` array is keys-only: `key`, `role`, `required`, `exists`, `filled`, plus `seat` (A1) whenever the resolved schema is seat-aware — omitted entirely for a seat-less schema. Resolve `description`/`guidance`/`skill` for any entry via `query_items(operation="schema", itemId=...)`.
+
+**Seats (A1).** `gateStatus.missingBySeat` (object, optional) buckets `missing`'s keys by owning seat — `{<seat>: [keys], ..., "unowned": [keys]}`, non-empty buckets only, in merged-seat order with `unowned` always last — present whenever the resolved schema is seat-aware AND the item is not `TERMINAL` (an empty object `{}` when the schema is seat-aware but nothing is missing); omitted entirely for a seat-less schema or a terminal item. Top-level `seats` (array, optional) and `dispatchBySeat` (object, optional, **flat** — `{<seat>: {agent?, model?, effort?}}`, unlike the per-phase-nested shape `query_items(operation="schema")` returns) cover the item's **current phase only** — same seat-declaration and dispatch-resolution rules as `query_items(operation="schema")`'s `seats`/`dispatchBySeat` fields (see [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#seats-trait--schema-dimension) → "Seats"), both omitted entirely (never `[]`/`{}`) when the current phase declares no seats. All seat fields are absent for a `TERMINAL` item and for any seat-less schema — a seat-less config's `get_context` response is byte-identical to a pre-A1 server.
 
 `claimDetail` is present only when the item is currently claimed (`claimedBy != null`). This is the **only** tool mode that exposes `claimedBy` identity — use it for operator diagnostics on stalled or contested items.
 

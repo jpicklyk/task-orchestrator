@@ -545,12 +545,21 @@ unset — never a raw possibly-null passthrough.
 {
   "canAdvance": false,
   "phase": "work",
-  "missing": ["implementation-notes"]
+  "missing": ["implementation-notes"],
+  "missingBySeat": { "implementer": ["implementation-notes"] }
 }
 ```
 
 `phase` is the item's CURRENT role, lowercased. `missing` is the required-note KEY strings (schema
 order) still unfilled for `phase` — plain strings, never `{key, description, ...}` objects.
+
+`missingBySeat` (object, optional, A1) buckets `missing`'s keys by owning seat —
+`{<seat>: [keys], ..., "unowned": [keys]}`, non-empty buckets only, in merged-seat order with
+`unowned` always last. Present only when the item's resolved schema is seat-aware AND the item is
+not `TERMINAL` (an empty object `{}` when seat-aware but nothing is missing); omitted entirely
+(`explicitNulls=false`) for a seat-less schema or a terminal item — see
+[`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#seats-trait--schema-dimension)
+→ "Seats" for how a note's owning seat is determined and the `unowned` bucket rule.
 
 ### ItemGateDto
 
@@ -976,6 +985,29 @@ cannot be loaded.
 - `503 config_unavailable` — the item's per-root config could not be read and there was no
   last-known-good cached config for that root (see §6); transient, no `Retry-After` header
 
+### GET /items/{id}/schema
+
+The item's resolved schema view — body **exactly equal** to MCP's
+`query_items(operation="schema", itemId=...)` `data` object (see
+[api-reference.md](api-reference.md) → "Key Parameters — schema"): both this route and that MCP
+operation call the SAME `ItemSchemaView.buildItemSchemaJson` builder, so the two response bodies
+stay identical by construction, never by separately-maintained convention. `{ type,
+configFingerprint, configSource, notes: [...], dispatch?, resources?, seats?, dispatchBySeat?,
+features }` — `seats`/`dispatchBySeat` present only for a seat-aware schema, `features` always
+present. Id handling mirrors `GET /items/{id}` and `GET /items/{id}/gate`: full UUID only (a hex
+prefix is rejected), checked in the order below. Same `configResolver` and last-known-good per-root
+config cache as `GET /items/{id}/gate` (§6) — no separate cache, no `ETag`/`If-None-Match` handling
+(§4's rationale applies here too: neither notes nor config version `item.modifiedAt`).
+
+**Responses:**
+- `200 OK` → the resolved schema view JSON (unwrapped — no envelope DTO)
+- `400 bad_request` — invalid UUID (including a hex prefix; this route, unlike list/search
+  endpoints, requires a full UUID)
+- `403 scope_forbidden`
+- `404 not_found` — item does not exist
+- `404 no_schema` — the item is schema-free (no type/tag match, and no `default` schema resolves)
+- `503 config_unavailable` — same meaning and no-`Retry-After` shape as `GET /items/{id}/gate` above
+
 ---
 
 ## 10. Endpoints — Items (Write)
@@ -1216,7 +1248,7 @@ The `cascadeEvents`, `unblockedItems`, and `expectedNotes` fields are **additive
 - `415 unsupported_media_type` — `Content-Type` is present and is not `application/json` (an absent header is accepted as `*/*`); checked before the body is read
 - `409 resource_unavailable` — resource-lease gate contention; `Retry-After` header + `details.contendedResources`/`details.retryAfterMs` (see above)
 - `409 not_claim_holder` — pre-existing, defensive-only on this route (REST bypasses claim ownership by default — see "Claimed-item behavior" above); not expected to occur in normal REST usage
-- `422 gate_blocked` — a required-note gate failed; `details.missingNotes` lists the unfilled required notes
+- `422 gate_blocked` — a required-note gate failed; `details.missingNotes` lists the unfilled required notes, and `details.missingBySeat` (A1, optional) buckets those keys by owning seat when the target schema is seat-aware
 - `422 transition_blocked` — a dependency blocker prevents the transition; `details.blockers` lists the blocking edges
 - `422 transition_failed` — invalid state transition (resolution/apply failure)
 - `503 config_unavailable` — the item's per-root config could not be read and there was no
@@ -1232,10 +1264,16 @@ The `cascadeEvents`, `unblockedItems`, and `expectedNotes` fields are **additive
     "targetRole": "work",
     "missingNotes": [
       { "key": "spec", "description": "Problem statement and approach", "guidance": "..." }
-    ]
+    ],
+    "missingBySeat": { "planner": ["spec"] }
   }
 }
 ```
+
+`details.missingBySeat` (object, optional, A1) appears immediately after `details.missingNotes` —
+same shape, ordering, and omission rule as `GateStatusDto.missingBySeat` above
+(`{<seat>: [keys], ..., "unowned": [keys]}`, non-empty buckets only, `unowned` last): present only
+when the target schema is seat-aware, omitted entirely for a seat-less schema.
 
 The `hasReviewPhase` is resolved from the item's schema (type + tags + traits) to match `AdvanceItemTool` behavior — an advance from `work` goes to `review` when the schema has a review phase, or directly to `terminal` when it does not.
 
@@ -1753,9 +1791,15 @@ Requires `READ`. Returns server metadata and the caller's resolved capabilities.
   "apiVersion": "v1",
   "capabilities": ["read", "write-items"],
   "claimModeAvailable": true,
-  "actorAuthenticationEnabled": false
+  "actorAuthenticationEnabled": false,
+  "features": ["seats", "dispatchBySeat"]
 }
 ```
+
+`features` (array, A1) advertises server-wide optional-response capabilities this server version
+can serve, **unconditionally** — regardless of whether the resolved config for any given root
+actually declares `seats:`. See [api-reference.md](api-reference.md) → "Server feature
+advertisement" for the full rationale and the current list.
 
 ### GET /api/v1/health
 
@@ -1775,9 +1819,13 @@ Requires `READ`. Returns server metadata and the caller's resolved capabilities.
   "name": "mcp-task-orchestrator-current",
   "version": "3.8.0",
   "apiVersion": "v1",
-  "apiUrl": "/api/v1"
+  "apiUrl": "/api/v1",
+  "features": ["seats", "dispatchBySeat"]
 }
 ```
+
+`features` (array, A1) — same server-wide feature advertisement as `GET /api/v1/info`'s `features`
+above.
 
 ---
 

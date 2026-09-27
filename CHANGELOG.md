@@ -9,6 +9,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Seats (A1): explicit `seats:` declarations on schemas and traits.** A schema or trait can now
+  declare a `seats:` list — named orchestration roles within a phase, each with an optional
+  `enters` (the seat that transitions the item into that phase), `after` (an ordering hint), and
+  `reads_exclude` (a blindness hint, parsed and served only — enforcement is a later phase). Note
+  entries gain `seat` (the owning seat) and `independent_of` (also parsed/served only). A trait's
+  `dispatch.<phase>:` block can carry a `seats:` sub-key with per-seat overrides
+  (`dispatch.<phase>.seats.<seat>: {agent?, model?, effort?}`, an explicit `agent: null` clearing
+  the phase default for that seat only). Seats are pure orchestration signals — the server parses,
+  validates, merges, and serves them, but enforces nothing new. See
+  [`config-format.md`](claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md)
+  → "Seats (Trait & Schema Dimension)" for the full syntax, merge rules, and per-root layering.
+  - Served as `seats` and `dispatchBySeat` on `get_context` (current phase only, flat per-seat
+    profiles) and `query_items(operation="schema")` (all phases, per-phase-nested profiles), as
+    `seat`/`independentOf` on every note-schema entry, and as `missingBySeat` (required notes
+    bucketed by owning seat, with a reserved `unowned` bucket for a note with no seat owner) on
+    `get_context`'s `gateStatus`, `advance_item`'s gate-blocked failures, REST `GET
+    /items/{id}/gate`, and REST `POST /items/{id}/advance`'s `422 gate_blocked` response.
+  - New REST route `GET /api/v1/items/{id}/schema` — the item's resolved schema view, identical to
+    `query_items(operation="schema", itemId=...)`'s response body (both built by the same shared
+    function). See [`api-rest.md`](current/docs/api-rest.md) → "GET /items/{id}/schema".
+  - New `features` array (currently `["seats", "dispatchBySeat"]`) on `query_items(schema)`, `GET
+    /api/v1/info`, and the `.well-known` service descriptor — advertised unconditionally so a
+    client can tell an old server (which never emits these fields) apart from a new server whose
+    current config simply declares no seats.
+  - Two `enters: true` seats in the same phase, a duplicate seat name, a seat named the reserved
+    `unowned`, or an `after` cycle now fail config load (global startup) or a per-root config push
+    outright — nothing is stored. Malformed seat/dispatch-override entries and unknown keys warn
+    and skip rather than failing the load.
+  - **Byte-identity preserved.** A config with no `seats:` anywhere produces byte-identical
+    MCP/REST responses to a pre-A1 server, with exactly one additive exception: the `features`
+    field described above.
+  - **Upgrade note.** A per-root config row stored *before* this upgrade that would now fail one of
+    the new fatal seat checks (e.g. two `enters: true` seats in one phase) is **not** rejected
+    retroactively — it is not re-validated just because the server upgraded. The server logs a
+    `WARN` and falls back to the global config for that root until the row is re-pushed (at which
+    point the new checks apply and the push is rejected if still invalid).
+
 - `schema_resolution: legacy | layered | isolated` — an opt-in, per-document top-level config key
   (AR-39) controlling how a root's per-root and global config layers combine for schema/tag
   lookup. Settable in the global config, in a per-root pushed document, or both; the effective mode
