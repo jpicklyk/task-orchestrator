@@ -201,6 +201,8 @@ class SeatConfigLoadFailClosedTest {
 
         assertTrue(!isSuccess(result), "push must be rejected: $result")
         assertEquals(ErrorCodes.VALIDATION_ERROR, errorOf(result)["code"]!!.jsonPrimitive.content)
+        val message = errorOf(result)["message"]!!.jsonPrimitive.content
+        assertTrue(message.contains("work"), "N4: the rejection message must name phase 'work': $message")
 
         val getResult = get(context, rootId.toString())
         assertTrue(!isSuccess(getResult))
@@ -455,6 +457,35 @@ class SeatConfigLoadFailClosedTest {
         assertTrue(
             schemaWarnings.none { it.contains("project") || it.contains("retrospective") || it.contains("actor_attribution") },
             "hook-local sections must produce NO warning: $schemaWarnings",
+        )
+    }
+
+    // N4 -- push W4: a seat entry with a missing name warns at push time too (not just at global load).
+    private val warnMissingSeatNameYaml =
+        """
+        work_item_schemas:
+          warn-missing-seat-name:
+            seats:
+              - { phase: work }
+              - { name: ok, phase: work }
+            notes:
+              - key: n1
+                role: work
+                required: true
+                seat: ok
+        """.trimIndent()
+
+    @Test
+    fun `N4 W4 push of a seat entry with a missing name succeeds with a schemaWarning naming the offending field`() {
+        val (context, rootId) = buildContext()
+
+        val result = push(context, rootId.toString(), warnMissingSeatNameYaml)
+
+        assertTrue(isSuccess(result), "a missing seat name is a soft warning, never a push rejection: $result")
+        val schemaWarnings = dataOf(result)["schemaWarnings"]!!.jsonArray.map { it.jsonPrimitive.content }
+        assertTrue(
+            schemaWarnings.any { it.contains("name") },
+            "N4: push must surface a schemaWarning naming the offending field 'name': $schemaWarnings",
         )
     }
 

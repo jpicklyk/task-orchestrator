@@ -160,6 +160,13 @@ class SeatlessResponseGoldenTest {
 
         private val prettyJson = Json { prettyPrint = true }
 
+        /** SF4: comparison must be exact STRING equality of the compact serialization (key order
+         * significant), never [JsonElement] structural equality (which ignores key order). This is a
+         * plain (non-pretty) [Json] instance so both sides serialize identically regardless of
+         * whether the source was read pretty-printed (the golden file) or built in memory (the
+         * actual, normalized capture). */
+        private val compactJson = Json { }
+
         private fun classpathResourceText(path: String): String {
             val stream =
                 SeatlessResponseGoldenTest::class.java.classLoader.getResourceAsStream(path)
@@ -397,7 +404,13 @@ class SeatlessResponseGoldenTest {
         }
         val expectedText = String(Files.readAllBytes(file.toPath()), Charsets.UTF_8)
         val expected = Json.parseToJsonElement(expectedText)
-        assertEquals(expected, normalized, "golden '$name' drifted from its recorded byte-identical snapshot")
+
+        // SF4: exact STRING equality of the compact serialization -- catches a key-order drift that
+        // JsonElement structural equality (used previously) would silently ignore. Both sides go
+        // through the SAME compact encoder so the golden file's own pretty-printing never matters.
+        val expectedCompact = compactJson.encodeToString(JsonElement.serializer(), expected)
+        val actualCompact = compactJson.encodeToString(JsonElement.serializer(), normalized)
+        assertEquals(expectedCompact, actualCompact, "golden '$name' drifted from its recorded byte-identical snapshot")
     }
 
     // ─────────────────────────────────────────────────────────────────────────

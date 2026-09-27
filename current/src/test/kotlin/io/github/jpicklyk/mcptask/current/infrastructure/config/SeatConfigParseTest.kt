@@ -361,7 +361,10 @@ class SeatConfigParseTest {
             )
         val schema = parsed.workItemSchemas.getValue("bug-fix")
         assertEquals(listOf(SeatDefinition("ok", Role.WORK)), schema.seats)
-        assertTrue(parsed.warnings.isNotEmpty(), "a missing/blank seat name must warn")
+        assertTrue(
+            parsed.warnings.any { it.contains("name") },
+            "a missing/blank seat name must warn, naming the offending field 'name': ${parsed.warnings}",
+        )
     }
 
     @Test
@@ -437,7 +440,10 @@ class SeatConfigParseTest {
         assertEquals(Role.WORK, seat.phase)
         assertTrue(seat.after.isEmpty(), "a non-list after value must coerce to empty, not throw")
         assertTrue(seat.readsExclude.isEmpty(), "a non-list reads_exclude value must coerce to empty, not throw")
-        assertTrue(parsed.warnings.isNotEmpty(), "malformed after/reads_exclude/unknown key must produce at least one warning")
+        assertTrue(
+            parsed.warnings.any { it.contains("a") && it.contains("bogus_field") },
+            "warning must name the seat ('a') and the offending unknown field ('bogus_field'): ${parsed.warnings}",
+        )
     }
 
     // ──────────────────────────────────────────────
@@ -580,5 +586,40 @@ class SeatConfigParseTest {
                 .seats
                 .single { it.name == "b" }
         assertEquals(listOf("a"), seatB.after, "after is served verbatim; cross-phase after references are not validated at parse time")
+    }
+
+    // ──────────────────────────────────────────────
+    // SF1 (S5, second half) — W5 load warning: a required note whose seat is null, names a seat of
+    // a different phase, or names an undeclared seat all fall into the `unowned` bucket at gate time;
+    // parseRoot must ALSO emit a load warning naming exactly those note keys (q1, w1, w2), never the
+    // properly-owned w3. Oracle: task-scope-addendum S5 / DEC-11.
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `S5 W5 the load warning names exactly the required notes with a null, other-phase, or undeclared seat -- not properly-owned`() {
+        val parsed =
+            parse(
+                """
+                work_item_schemas:
+                  bug-fix:
+                    seats:
+                      - { name: implementer, phase: work }
+                      - { name: reviewer, phase: review }
+                    notes:
+                      - { key: q1, role: queue, required: true }
+                      - { key: w1, role: work, required: true, seat: reviewer }
+                      - { key: w2, role: work, required: true, seat: ghost }
+                      - { key: w3, role: work, required: true, seat: implementer }
+                """.trimIndent()
+            )
+
+        val unownedWarnings = parsed.warnings.filter { it.contains("q1") || it.contains("w1") || it.contains("w2") }
+        assertTrue(unownedWarnings.any { it.contains("q1") }, "warning must name q1 (null seat): ${parsed.warnings}")
+        assertTrue(unownedWarnings.any { it.contains("w1") }, "warning must name w1 (seat of a different phase): ${parsed.warnings}")
+        assertTrue(unownedWarnings.any { it.contains("w2") }, "warning must name w2 (undeclared seat): ${parsed.warnings}")
+        assertTrue(
+            parsed.warnings.none { it.contains("w3") },
+            "w3 is properly owned by the work-phase seat 'implementer' and must NOT be named: ${parsed.warnings}",
+        )
     }
 }

@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.tools
 
 import io.github.jpicklyk.mcptask.current.application.tools.items.QueryItemsTool
+import io.github.jpicklyk.mcptask.current.application.tools.notes.ManageNotesTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
 import io.github.jpicklyk.mcptask.current.domain.model.Role
@@ -11,6 +12,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.managem
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.ServerComposition
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.boolean
@@ -75,6 +77,7 @@ class SeatServingMcpTest {
         private val SEAT_AWARE_TERMINAL_ID: UUID = UUID.fromString("a1b00000-0000-4000-8000-000000000002")
         private val SEAT_AWARE_QUEUE_ID: UUID = UUID.fromString("a1b00000-0000-4000-8000-000000000003")
         private val SEATLESS_WORK_ID: UUID = UUID.fromString("a1b00000-0000-4000-8000-000000000004")
+        private val UNOWNED_NOTE_WORK_ID: UUID = UUID.fromString("a1b00000-0000-4000-8000-000000000005")
 
         // Mirrors task-scope section 2's own worked YAML example (seats + note `seat` + per-seat dispatch).
         private const val GLOBAL_CONFIG = """
@@ -94,6 +97,12 @@ work_item_schemas:
     notes:
       - { key: plan, role: queue, required: true }
       - { key: outcome, role: work, required: true }
+  seat-aware-unowned:
+    seats:
+      - { name: implementer, phase: work, enters: true }
+    notes:
+      - { key: owned-note, role: work, required: true, seat: implementer }
+      - { key: free-note, role: work, required: true }
 traits:
   needs-test-author:
     seats:
@@ -202,6 +211,20 @@ traits:
                         depth = 1,
                     ),
                 ).getOrNull() ?: error("fixture: seat-less WORK item creation failed")
+
+            repo
+                .workItemRepository()
+                .create(
+                    WorkItem(
+                        id = UNOWNED_NOTE_WORK_ID,
+                        title = "A1b seat-aware WORK item with an unowned note",
+                        type = "seat-aware-unowned",
+                        role = Role.WORK,
+                        parentId = ROOT_ID,
+                        rootId = ROOT_ID,
+                        depth = 1,
+                    ),
+                ).getOrNull() ?: error("fixture: unowned-note WORK item creation failed")
         }
 
         return composition.toolContext
@@ -468,5 +491,150 @@ traits:
             val seatlessData = extractData(seatlessResult)
             assertEquals(expectedFeatures, seatlessData["features"]!!.jsonArray.map { it.jsonPrimitive.content })
             assertFalse(seatlessData.containsKey("seats"), "seat-less item path must not emit a seats key")
+        }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // SF5 — an unowned required note (no `seat:` at all) serializes `seat: null` (present, JSON
+    // null), never an absent key, in both get_context's schema[] and query_items(schema)'s notes[].
+    // ─────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `SF5 - a note with no owning seat serializes seat as JSON null (present) in get_context schema and query_items schema notes`(
+        @TempDir tempDir: Path,
+    ): Unit =
+        runBlocking {
+            val toolContext = newToolContext(tempDir)
+
+            val contextResult =
+                GetContextTool().execute(
+                    buildJsonObject { put("itemId", JsonPrimitive(UNOWNED_NOTE_WORK_ID.toString())) },
+                    toolContext,
+                )
+            val contextEntries = extractData(contextResult)["schema"]!!.jsonArray
+            val contextFreeNote = contextEntries.first { it.jsonObject["key"]!!.jsonPrimitive.content == "free-note" }.jsonObject
+            assertTrue(contextFreeNote.containsKey("seat"), "the 'seat' key must be present even when unowned: $contextFreeNote")
+            assertEquals(JsonNull, contextFreeNote["seat"], "an unowned note's seat must serialize as JSON null, not be omitted")
+            val contextOwnedNote = contextEntries.first { it.jsonObject["key"]!!.jsonPrimitive.content == "owned-note" }.jsonObject
+            assertEquals(JsonPrimitive("implementer"), contextOwnedNote["seat"], "sanity: the owned note keeps its seat")
+
+            val queryResult =
+                QueryItemsTool().execute(
+                    buildJsonObject {
+                        put("operation", JsonPrimitive("schema"))
+                        put("itemId", JsonPrimitive(UNOWNED_NOTE_WORK_ID.toString()))
+                    },
+                    toolContext,
+                )
+            val queryNotes = extractData(queryResult)["notes"]!!.jsonArray
+            val queryFreeNote = queryNotes.first { it.jsonObject["key"]!!.jsonPrimitive.content == "free-note" }.jsonObject
+            assertTrue(queryFreeNote.containsKey("seat"), "the 'seat' key must be present even when unowned: $queryFreeNote")
+            assertEquals(JsonNull, queryFreeNote["seat"], "an unowned note's seat must serialize as JSON null, not be omitted")
+        }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // SF6 — get_context gateStatus.missingBySeat == {} with canAdvance true once every required note
+    // is filled; advance_item(complete) with BOTH queue-phase and work-phase notes missing draws
+    // missingBySeat buckets from both phases in one map.
+    // ─────────────────────────────────────────────────────────────────────
+
+    private suspend fun upsertNote(
+        toolContext: ToolExecutionContext,
+        itemId: UUID,
+        key: String,
+        role: String,
+        body: String,
+    ) {
+        val result =
+            ManageNotesTool().execute(
+                buildJsonObject {
+                    put("operation", JsonPrimitive("upsert"))
+                    put(
+                        "notes",
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("itemId", JsonPrimitive(itemId.toString()))
+                                    put("key", JsonPrimitive(key))
+                                    put("role", JsonPrimitive(role))
+                                    put("body", JsonPrimitive(body))
+                                },
+                            )
+                        },
+                    )
+                },
+                toolContext,
+            )
+        assertTrue((result as JsonObject)["success"]!!.jsonPrimitive.boolean, "note upsert must succeed: $result")
+    }
+
+    @Test
+    fun `SF6 - get_context reports gateStatus missingBySeat as an empty object with canAdvance true once every required note is filled`(
+        @TempDir tempDir: Path,
+    ): Unit =
+        runBlocking {
+            val toolContext = newToolContext(tempDir)
+            upsertNote(toolContext, SEAT_AWARE_WORK_ID, "implementation-notes", "work", "done")
+            upsertNote(toolContext, SEAT_AWARE_WORK_ID, "session-tracking", "work", "done")
+            upsertNote(toolContext, SEAT_AWARE_WORK_ID, "test-manifest", "work", "done")
+
+            val result =
+                GetContextTool().execute(
+                    buildJsonObject { put("itemId", JsonPrimitive(SEAT_AWARE_WORK_ID.toString())) },
+                    toolContext,
+                )
+            val gateStatus = extractData(result)["gateStatus"]!!.jsonObject
+            assertTrue(gateStatus["canAdvance"]!!.jsonPrimitive.boolean, "every required note is filled: $gateStatus")
+            assertTrue(gateStatus.containsKey("missingBySeat"), "missingBySeat must be present, not omitted, once satisfied: $gateStatus")
+            assertEquals(
+                buildJsonObject { },
+                gateStatus["missingBySeat"],
+                "missingBySeat must be an empty object, not null/absent, once every required note is filled",
+            )
+        }
+
+    @Test
+    fun `SF6 - advance_item complete with queue and work notes missing draws missingBySeat buckets from both phases`(
+        @TempDir tempDir: Path,
+    ): Unit =
+        runBlocking {
+            val toolContext = newToolContext(tempDir)
+
+            val result =
+                AdvanceItemTool().execute(
+                    buildJsonObject {
+                        put(
+                            "transitions",
+                            buildJsonArray {
+                                add(
+                                    buildJsonObject {
+                                        put("itemId", JsonPrimitive(SEAT_AWARE_WORK_ID.toString()))
+                                        put("trigger", JsonPrimitive("complete"))
+                                    },
+                                )
+                            },
+                        )
+                    },
+                    toolContext,
+                )
+            val data = extractData(result)
+            val transition = data["results"]!!.jsonArray[0].jsonObject
+            assertFalse(transition["applied"]!!.jsonPrimitive.boolean, "the schema's queue+work notes are all missing")
+            val missingBySeat = transition["missingBySeat"]!!.jsonObject
+
+            // planner (queue: diagnosis, test-plan) and implementer/orchestrator/test-author (work)
+            // must ALL appear in one map -- buckets drawn from both phases, not just the current one.
+            assertEquals(
+                listOf("planner", "implementer", "orchestrator", "test-author"),
+                missingBySeat.keys.toList(),
+                "bucket order = merged-seat order across BOTH phases: $missingBySeat",
+            )
+            assertEquals(
+                listOf("diagnosis", "test-plan"),
+                missingBySeat["planner"]!!.jsonArray.map { it.jsonPrimitive.content },
+                "planner's queue-phase notes must be present even though the item is already in WORK",
+            )
+            assertEquals(listOf("implementation-notes"), missingBySeat["implementer"]!!.jsonArray.map { it.jsonPrimitive.content })
+            assertEquals(listOf("session-tracking"), missingBySeat["orchestrator"]!!.jsonArray.map { it.jsonPrimitive.content })
+            assertEquals(listOf("test-manifest"), missingBySeat["test-author"]!!.jsonArray.map { it.jsonPrimitive.content })
         }
 }

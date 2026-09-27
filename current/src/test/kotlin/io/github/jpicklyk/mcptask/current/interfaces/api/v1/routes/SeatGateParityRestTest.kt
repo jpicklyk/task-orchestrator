@@ -90,6 +90,27 @@ work_item_schemas:
         role: queue
         required: true
 """
+
+        // N1 -- a WORK-phase schema with TWO seats, each owning its own missing required work note,
+        // so the gate failure produces two non-empty missingBySeat buckets (not just one, as S12's
+        // queue-phase fixture does).
+        private const val SEAT_AWARE_WORK_GLOBAL_CONFIG = """
+work_item_schemas:
+  seat-parity-work:
+    seats:
+      - { name: implementer, phase: work, enters: true }
+      - { name: reviewer2, phase: work }
+    notes:
+      - key: impl-notes
+        role: work
+        required: true
+        seat: implementer
+      - key: extra-notes
+        role: work
+        required: true
+        seat: reviewer2
+"""
+        private val WORK_ITEM_ID: UUID = UUID.fromString("a1c00000-0000-4000-8000-000000000002")
     }
 
     private fun buildDatabaseManager(): DatabaseManager {
@@ -132,6 +153,29 @@ work_item_schemas:
                         title = "Seat parity queue item",
                         type = "seat-parity",
                         role = Role.QUEUE,
+                        parentId = ROOT_ID,
+                        rootId = ROOT_ID,
+                        depth = 1,
+                    ),
+                ).getOrNull() ?: error("fixture: item creation failed")
+        }
+    }
+
+    private fun seedWorkItem(composition: CompositionResult): WorkItem {
+        val repo = composition.toolContext.repositoryProvider
+        return runBlocking {
+            repo
+                .workItemRepository()
+                .create(WorkItem(id = ROOT_ID, title = "Seat parity root", type = "project", depth = 0))
+                .getOrNull() ?: error("fixture: root creation failed")
+            repo
+                .workItemRepository()
+                .create(
+                    WorkItem(
+                        id = WORK_ITEM_ID,
+                        title = "Seat parity work item",
+                        type = "seat-parity-work",
+                        role = Role.WORK,
                         parentId = ROOT_ID,
                         rootId = ROOT_ID,
                         depth = 1,
@@ -244,6 +288,92 @@ work_item_schemas:
                     header("Authorization", "Bearer $WRITE_TOKEN")
                     contentType(ContentType.Application.Json)
                     setBody("""{"trigger":"start"}""")
+                }
+            assertEquals(HttpStatusCode.UnprocessableEntity, advanceRestResponse.status)
+            val advanceRestJson = Json.parseToJsonElement(advanceRestResponse.bodyAsText()).jsonObject
+            assertEquals("gate_blocked", advanceRestJson["error"]!!.jsonPrimitive.content, "body: $advanceRestJson")
+            val advanceRestMissingBySeat = advanceRestJson["details"]!!.jsonObject["missingBySeat"]!!.jsonObject
+            assertEquals(contextMissingBySeat, advanceRestMissingBySeat, "REST advance 422 must match get_context")
+        }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // N1 -- S12 parity repeated for a WORK-phase item with >= 2 missingBySeat buckets, not just
+    // the single-bucket QUEUE-phase fixture S12 itself uses.
+    // ─────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `N1 missingBySeat is identical across all four surfaces for a WORK-phase item with two buckets`(
+        @TempDir tempDir: Path,
+    ): Unit =
+        testApplication {
+            val composition = buildComposition(tempDir, SEAT_AWARE_WORK_GLOBAL_CONFIG)
+            seedWorkItem(composition)
+            application { configureProductionRestApp(composition, "seat-parity-n1") }
+
+            val asStringMap: (JsonObject) -> Map<String, List<String>> = { obj ->
+                obj.mapValues { (_, v) -> v.jsonArray.map { it.jsonPrimitive.content } }
+            }
+
+            // 1. get_context
+            val contextResult =
+                runBlocking {
+                    GetContextTool().execute(
+                        buildJsonObject { put("itemId", JsonPrimitive(WORK_ITEM_ID.toString())) },
+                        composition.toolContext,
+                    )
+                }
+            val contextData = extractData(contextResult)
+            val contextGateStatus = contextData["gateStatus"]!!.jsonObject
+            assertFalse(contextGateStatus["canAdvance"]!!.jsonPrimitive.boolean, "work gate must be blocked")
+            val contextMissingBySeat = contextGateStatus["missingBySeat"]!!.jsonObject
+            assertEquals(
+                mapOf("implementer" to listOf("impl-notes"), "reviewer2" to listOf("extra-notes")),
+                asStringMap(contextMissingBySeat),
+                "sanity: two non-empty buckets, one per seat",
+            )
+
+            // 2. REST GET /gate
+            val gateResponse =
+                client.get("/api/v1/items/$WORK_ITEM_ID/gate") {
+                    header("Authorization", "Bearer $WRITE_TOKEN")
+                }
+            assertEquals(HttpStatusCode.OK, gateResponse.status)
+            val gateJson = Json.parseToJsonElement(gateResponse.bodyAsText()).jsonObject
+            val gateMissingBySeat = gateJson["gateStatus"]!!.jsonObject["missingBySeat"]!!.jsonObject
+            assertEquals(contextMissingBySeat, gateMissingBySeat, "REST /gate must match get_context")
+
+            // 3. advance_item(complete)
+            val advanceMcpResult =
+                runBlocking {
+                    AdvanceItemTool().execute(
+                        buildJsonObject {
+                            put(
+                                "transitions",
+                                buildJsonArray {
+                                    add(
+                                        buildJsonObject {
+                                            put("itemId", JsonPrimitive(WORK_ITEM_ID.toString()))
+                                            put("trigger", JsonPrimitive("complete"))
+                                        },
+                                    )
+                                },
+                            )
+                        },
+                        composition.toolContext,
+                    )
+                }
+            val advanceMcpData = extractData(advanceMcpResult)
+            val advanceMcpTransition = advanceMcpData["results"]!!.jsonArray[0].jsonObject
+            assertFalse(advanceMcpTransition["applied"]!!.jsonPrimitive.boolean, "work gate must block the complete trigger")
+            val advanceMcpMissingBySeat = advanceMcpTransition["missingBySeat"]!!.jsonObject
+            assertEquals(contextMissingBySeat, advanceMcpMissingBySeat, "advance_item(complete) must match get_context")
+
+            // 4. REST POST /advance
+            val advanceRestResponse =
+                client.post("/api/v1/items/$WORK_ITEM_ID/advance") {
+                    header("Authorization", "Bearer $WRITE_TOKEN")
+                    contentType(ContentType.Application.Json)
+                    setBody("""{"trigger":"complete"}""")
                 }
             assertEquals(HttpStatusCode.UnprocessableEntity, advanceRestResponse.status)
             val advanceRestJson = Json.parseToJsonElement(advanceRestResponse.bodyAsText()).jsonObject

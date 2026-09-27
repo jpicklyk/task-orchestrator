@@ -1,23 +1,36 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
+import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
 import io.github.jpicklyk.mcptask.current.application.service.WorkItemSchemaService
 import io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext
 import io.github.jpicklyk.mcptask.current.application.tools.items.QueryItemsTool
+import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.ProjectConfigRepository
 import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
+import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.config.PerRootConfigService
+import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
+import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.BearerTokenStore
+import io.github.jpicklyk.mcptask.current.interfaces.mcp.CompositionResult
+import io.github.jpicklyk.mcptask.current.interfaces.mcp.ServerComposition
+import io.github.jpicklyk.mcptask.current.interfaces.mcp.installRestApiRoutes
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpStatusCode
+import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
+import io.ktor.server.application.install
+import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.testing.testApplication
+import io.modelcontextprotocol.kotlin.sdk.types.McpJson
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -26,7 +39,11 @@ import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.io.TempDir
+import java.nio.file.Files
+import java.nio.file.Path
 import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -38,182 +55,277 @@ import kotlin.test.assertTrue
  * `data`) and S11b (error envelope), for the new `GET /api/v1/items/{id}/schema` route registered
  * inside [itemGateRoutes].
  *
- * Harness mirrors [ItemGateRouteTest] (route registration, id-handling probes) and
- * [ConfigUnavailableRoutesTest] (the cold-cache 503 fixture, `FailableProjectConfigRepository`
- * pattern duplicated here under this file's own names per the test-author scope rule -- no shared
- * harness file is declared for A1c). Every [ToolExecutionContext] built here uses the SAME
- * construction the REST contract cites: `ToolExecutionContext(repo, schemaService,
- * perRootConfigService = PerRootConfigService(repo.projectConfigRepository())).configResolver`.
+ * SF3 rewrite: every scenario is wired through the REAL [installRestApiRoutes] (never `itemGateRoutes`
+ * called directly), following [SeatGateParityRestTest]'s / [EffectiveConfigRoutesTest]'s
+ * `ServerComposition.build()` + `ContentNegotiation` + `installRestApiRoutes` production topology --
+ * per the task-scope-addendum's Harness rule ("never a hand-built TEC/route replica"). S11 and the
+ * 400/404/403 legs of S11b build the FULL real composition (global file layer, real per-root push via
+ * `projectConfigRepository().upsert`, real `PerRootConfigService`) and compute the `expected` body from
+ * the SAME `composition.toolContext` the route uses. The 503 leg needs a per-root config READ to fail
+ * cold, which requires substituting a failing `ProjectConfigRepository`; `ServerComposition`'s public
+ * constructor takes only a `DatabaseManager` with no seam to inject a custom `RepositoryProvider`
+ * (confirmed from this item's supplied declarations -- `ServerComposition(appConfig, databaseManager,
+ * shutdownCoordinator, logger)`), so that leg instead builds a `ToolExecutionContext` directly over the
+ * failing provider and still calls the REAL `installRestApiRoutes` with it (never `itemGateRoutes`
+ * standalone) -- the same substitution shape `ConfigUnavailableRoutesTest` uses for the sibling
+ * `/items/{id}/gate` 503 case, just routed through the real top-level entry point instead of the bare
+ * route function.
  */
 class ItemSchemaRouteTest {
+    // ─── Shared composition wiring ─────────────────────────────────────────
+
+    private fun buildDatabaseManager(): DatabaseManager {
+        val dbName = "item_schema_route_${System.nanoTime()}"
+        val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
+        DirectDatabaseSchemaManager().updateSchema()
+        return DatabaseManager(database)
+    }
+
+    private fun materializeEmptyGlobalConfig(tempDir: Path) {
+        val configDir = tempDir.resolve(".taskorchestrator")
+        Files.createDirectories(configDir)
+        Files.write(configDir.resolve("config.yaml"), "work_item_schemas: {}\n".toByteArray(Charsets.UTF_8))
+    }
+
+    private fun buildComposition(tempDir: Path): CompositionResult {
+        materializeEmptyGlobalConfig(tempDir)
+        val appConfig = AppConfig.fromEnv { key -> if (key == "AGENT_CONFIG_DIR") tempDir.toString() else null }
+        return ServerComposition(appConfig = appConfig, databaseManager = buildDatabaseManager(), shutdownCoordinator = null).build()
+    }
+
+    private fun tokenEntriesFor(
+        authConfig: ApiAuthConfig,
+    ): Map<io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.HashBytes, BearerTokenStore.TokenEntry> =
+        (authConfig as? ApiAuthConfig.Bearer)?.tokens?.mapValues { (_, principal) ->
+            BearerTokenStore.TokenEntry(principal, expiresAt = null)
+        } ?: emptyMap()
+
+    private fun Application.configureProductionSchemaApp(
+        composition: CompositionResult,
+        authConfig: ApiAuthConfig = makeTestAuthConfig(),
+    ) {
+        install(ContentNegotiation) { json(McpJson) }
+        installRestApiRoutes(
+            apiConfig = authConfig,
+            eventBus = null,
+            effectiveProvider = composition.toolContext.repositoryProvider,
+            apiTokenEntries = tokenEntriesFor(authConfig),
+            allowQueryToken = false,
+            serverName = "item-schema-route-test",
+            serverVersion = "test",
+            actorAuthEnabled = composition.actorAuthEnabled,
+            noteSchemaService = composition.noteSchemaService,
+            toolContext = composition.toolContext,
+            degradedModePolicy = composition.degradedModePolicy,
+            idempotencyCache = composition.idempotencyCache,
+        )
+    }
+
+    private fun parseObj(body: String): JsonObject = Json.parseToJsonElement(body).jsonObject
+
+    /** The SAME builder the route is documented to reuse: `query_items(operation="schema", itemId=...)`'s `data`. */
+    private fun queryItemsSchemaData(
+        toolContext: ToolExecutionContext,
+        itemId: UUID,
+    ): JsonObject {
+        val params =
+            buildJsonObject {
+                put("operation", JsonPrimitive("schema"))
+                put("itemId", JsonPrimitive(itemId.toString()))
+            }
+        val result = runBlocking { QueryItemsTool().execute(params, toolContext) }
+        val obj = result as JsonObject
+        assertTrue(obj["success"]!!.jsonPrimitive.boolean, "expected query_items(schema) success: $obj")
+        return obj["data"] as JsonObject
+    }
+
     // ─── S11 -- happy path: route body == query_items(schema, itemId).data ────
 
     @Test
-    fun `S11 GET items id schema body equals query_items schema data for a seat-aware per-root item`() =
-        testApplication {
-            val repo = buildH2RepositoryProvider()
-            val item =
-                runBlocking {
-                    val r = repo.workItemRepository().create(WorkItem(title = "Schema S11 Root", depth = 0)).getOrNull()!!
-                    val i =
-                        repo
-                            .workItemRepository()
-                            .create(
-                                WorkItem(
-                                    title = "Schema S11 seat-aware",
-                                    type = "sq-seat",
-                                    role = Role.WORK,
-                                    parentId = r.id,
-                                    rootId = r.id,
-                                    depth = 1,
-                                ),
-                            ).getOrNull()!!
-                    repo.projectConfigRepository().upsert(r.id, SEAT_AWARE_PER_ROOT_YAML).getOrNull()
-                        ?: error("fixture: per-root config upsert failed")
-                    i
-                }
-            application { configureSchemaTestApp(repo) }
+    fun `S11 GET items id schema body equals query_items schema data for a seat-aware per-root item`(
+        @TempDir tempDir: Path,
+    ) = testApplication {
+        val composition = buildComposition(tempDir)
+        val repo = composition.toolContext.repositoryProvider
+        val item =
+            runBlocking {
+                val r = repo.workItemRepository().create(WorkItem(title = "Schema S11 Root", depth = 0)).getOrNull()!!
+                val i =
+                    repo
+                        .workItemRepository()
+                        .create(
+                            WorkItem(
+                                title = "Schema S11 seat-aware",
+                                type = "sq-seat",
+                                role = Role.WORK,
+                                parentId = r.id,
+                                rootId = r.id,
+                                depth = 1,
+                            ),
+                        ).getOrNull()!!
+                repo.projectConfigRepository().upsert(r.id, SEAT_AWARE_PER_ROOT_YAML).getOrNull()
+                    ?: error("fixture: per-root config upsert failed")
+                i
+            }
+        application { configureProductionSchemaApp(composition) }
 
-            val response =
-                client.get("/api/v1/items/${item.id}/schema") {
-                    header("Authorization", "Bearer $TEST_TOKEN")
-                }
-            assertEquals(HttpStatusCode.OK, response.status)
-            val routeBody = parseObj(response.bodyAsText())
-            val expected = queryItemsSchemaData(repo, item.id)
+        val response =
+            client.get("/api/v1/items/${item.id}/schema") {
+                header("Authorization", "Bearer $TEST_TOKEN")
+            }
+        assertEquals(HttpStatusCode.OK, response.status)
+        val routeBody = parseObj(response.bodyAsText())
+        val expected = queryItemsSchemaData(composition.toolContext, item.id)
 
-            assertEquals(expected, routeBody, "route body must equal query_items(schema,itemId).data exactly")
-            // Sanity: the fixture is actually seat-aware -- proves this isn't a vacuous equality of
-            // two empty objects.
-            assertTrue(routeBody.containsKey("seats"), "sanity: fixture item must be seat-aware: $routeBody")
-        }
+        assertEquals(expected, routeBody, "route body must equal query_items(schema,itemId).data exactly")
+        // Sanity: the fixture is actually seat-aware -- proves this isn't a vacuous equality of
+        // two empty objects.
+        assertTrue(routeBody.containsKey("seats"), "sanity: fixture item must be seat-aware: $routeBody")
+    }
 
     @Test
-    fun `S11 GET items id schema body equals query_items schema data for a seat-less per-root item`() =
-        testApplication {
-            val repo = buildH2RepositoryProvider()
-            val item =
-                runBlocking {
-                    val r = repo.workItemRepository().create(WorkItem(title = "Schema S11 Root Seatless", depth = 0)).getOrNull()!!
-                    val i =
-                        repo
-                            .workItemRepository()
-                            .create(
-                                WorkItem(
-                                    title = "Schema S11 seat-less",
-                                    type = "sq-plain",
-                                    role = Role.QUEUE,
-                                    parentId = r.id,
-                                    rootId = r.id,
-                                    depth = 1,
-                                ),
-                            ).getOrNull()!!
-                    repo.projectConfigRepository().upsert(r.id, SEATLESS_PER_ROOT_YAML).getOrNull()
-                        ?: error("fixture: per-root config upsert failed")
-                    i
-                }
-            application { configureSchemaTestApp(repo) }
+    fun `S11 GET items id schema body equals query_items schema data for a seat-less per-root item`(
+        @TempDir tempDir: Path,
+    ) = testApplication {
+        val composition = buildComposition(tempDir)
+        val repo = composition.toolContext.repositoryProvider
+        val item =
+            runBlocking {
+                val r = repo.workItemRepository().create(WorkItem(title = "Schema S11 Root Seatless", depth = 0)).getOrNull()!!
+                val i =
+                    repo
+                        .workItemRepository()
+                        .create(
+                            WorkItem(
+                                title = "Schema S11 seat-less",
+                                type = "sq-plain",
+                                role = Role.QUEUE,
+                                parentId = r.id,
+                                rootId = r.id,
+                                depth = 1,
+                            ),
+                        ).getOrNull()!!
+                repo.projectConfigRepository().upsert(r.id, SEATLESS_PER_ROOT_YAML).getOrNull()
+                    ?: error("fixture: per-root config upsert failed")
+                i
+            }
+        application { configureProductionSchemaApp(composition) }
 
-            val response =
-                client.get("/api/v1/items/${item.id}/schema") {
-                    header("Authorization", "Bearer $TEST_TOKEN")
-                }
-            assertEquals(HttpStatusCode.OK, response.status)
-            val routeBody = parseObj(response.bodyAsText())
-            val expected = queryItemsSchemaData(repo, item.id)
+        val response =
+            client.get("/api/v1/items/${item.id}/schema") {
+                header("Authorization", "Bearer $TEST_TOKEN")
+            }
+        assertEquals(HttpStatusCode.OK, response.status)
+        val routeBody = parseObj(response.bodyAsText())
+        val expected = queryItemsSchemaData(composition.toolContext, item.id)
 
-            assertEquals(expected, routeBody, "route body must equal query_items(schema,itemId).data exactly")
-            assertFalse(routeBody.containsKey("seats"), "sanity: fixture item must be seat-less: $routeBody")
-        }
+        assertEquals(expected, routeBody, "route body must equal query_items(schema,itemId).data exactly")
+        assertFalse(routeBody.containsKey("seats"), "sanity: fixture item must be seat-less: $routeBody")
+    }
 
     // ─── S11b -- error envelope ────────────────────────────────────────────────
 
     @Test
-    fun `S11b GET items id schema returns 400 bad_request for a malformed id`() =
-        testApplication {
-            val repo = buildH2RepositoryProvider()
-            application { configureSchemaTestApp(repo) }
+    fun `S11b GET items id schema returns 400 bad_request for a malformed id`(
+        @TempDir tempDir: Path,
+    ) = testApplication {
+        val composition = buildComposition(tempDir)
+        application { configureProductionSchemaApp(composition) }
 
-            val response =
-                client.get("/api/v1/items/not-a-uuid/schema") {
-                    header("Authorization", "Bearer $TEST_TOKEN")
-                }
-            assertEquals(HttpStatusCode.BadRequest, response.status)
-            assertTrue(response.bodyAsText().contains("bad_request"))
-        }
-
-    @Test
-    fun `S11b GET items id schema returns 400 bad_request for an 8-hex prefix of a real item id (no hex-prefix resolution)`() =
-        testApplication {
-            val repo = buildH2RepositoryProvider()
-            val item =
-                runBlocking { repo.workItemRepository().create(WorkItem(title = "Schema S11b hex", depth = 0)).getOrNull()!! }
-            application { configureSchemaTestApp(repo) }
-
-            val hexPrefix =
-                item.id
-                    .toString()
-                    .replace("-", "")
-                    .substring(0, 8)
-            val response =
-                client.get("/api/v1/items/$hexPrefix/schema") {
-                    header("Authorization", "Bearer $TEST_TOKEN")
-                }
-            assertEquals(HttpStatusCode.BadRequest, response.status)
-            assertTrue(response.bodyAsText().contains("bad_request"))
-        }
+        val response =
+            client.get("/api/v1/items/not-a-uuid/schema") {
+                header("Authorization", "Bearer $TEST_TOKEN")
+            }
+        assertEquals(HttpStatusCode.BadRequest, response.status)
+        assertTrue(response.bodyAsText().contains("bad_request"))
+    }
 
     @Test
-    fun `S11b GET items id schema returns 404 not_found for a random UUID`() =
-        testApplication {
-            val repo = buildH2RepositoryProvider()
-            application { configureSchemaTestApp(repo) }
+    fun `S11b GET items id schema returns 400 bad_request for an 8-hex prefix of a real item id (no hex-prefix resolution)`(
+        @TempDir tempDir: Path,
+    ) = testApplication {
+        val composition = buildComposition(tempDir)
+        val item =
+            runBlocking {
+                composition.toolContext.repositoryProvider
+                    .workItemRepository()
+                    .create(WorkItem(title = "Schema S11b hex", depth = 0))
+                    .getOrNull()!!
+            }
+        application { configureProductionSchemaApp(composition) }
 
-            val response =
-                client.get("/api/v1/items/${UUID.randomUUID()}/schema") {
-                    header("Authorization", "Bearer $TEST_TOKEN")
-                }
-            assertEquals(HttpStatusCode.NotFound, response.status)
-            assertTrue(response.bodyAsText().contains("not_found"))
-        }
-
-    @Test
-    fun `S11b GET items id schema returns 404 no_schema for a schema-free item`() =
-        testApplication {
-            val repo = buildH2RepositoryProvider()
-            val item =
-                runBlocking {
-                    repo
-                        .workItemRepository()
-                        .create(WorkItem(title = "Schema S11b free", type = "no-schema-anywhere", depth = 0))
-                        .getOrNull()!!
-                }
-            application { configureSchemaTestApp(repo) }
-
-            val response =
-                client.get("/api/v1/items/${item.id}/schema") {
-                    header("Authorization", "Bearer $TEST_TOKEN")
-                }
-            assertEquals(HttpStatusCode.NotFound, response.status)
-            assertTrue(response.bodyAsText().contains("no_schema"), "body: ${response.bodyAsText()}")
-        }
+        val hexPrefix =
+            item.id
+                .toString()
+                .replace("-", "")
+                .substring(0, 8)
+        val response =
+            client.get("/api/v1/items/$hexPrefix/schema") {
+                header("Authorization", "Bearer $TEST_TOKEN")
+            }
+        assertEquals(HttpStatusCode.BadRequest, response.status)
+        assertTrue(response.bodyAsText().contains("bad_request"))
+    }
 
     @Test
-    fun `S11b GET items id schema returns 403 scope_forbidden for a token scoped to a different root`() =
-        testApplication {
-            val repo = buildH2RepositoryProvider()
-            val outsideScopeItem =
-                runBlocking { repo.workItemRepository().create(WorkItem(title = "Schema S11b scope", depth = 0)).getOrNull()!! }
-            val authConfig = makeTestAuthConfig(scopeRootIds = setOf(UUID.randomUUID()))
-            application { configureSchemaTestApp(repo, authConfig = authConfig) }
+    fun `S11b GET items id schema returns 404 not_found for a random UUID`(
+        @TempDir tempDir: Path,
+    ) = testApplication {
+        val composition = buildComposition(tempDir)
+        application { configureProductionSchemaApp(composition) }
 
-            val response =
-                client.get("/api/v1/items/${outsideScopeItem.id}/schema") {
-                    header("Authorization", "Bearer $TEST_TOKEN")
-                }
-            assertEquals(HttpStatusCode.Forbidden, response.status)
-            assertTrue(response.bodyAsText().contains("scope_forbidden"))
-        }
+        val response =
+            client.get("/api/v1/items/${UUID.randomUUID()}/schema") {
+                header("Authorization", "Bearer $TEST_TOKEN")
+            }
+        assertEquals(HttpStatusCode.NotFound, response.status)
+        assertTrue(response.bodyAsText().contains("not_found"))
+    }
+
+    @Test
+    fun `S11b GET items id schema returns 404 no_schema for a schema-free item`(
+        @TempDir tempDir: Path,
+    ) = testApplication {
+        val composition = buildComposition(tempDir)
+        val item =
+            runBlocking {
+                composition.toolContext.repositoryProvider
+                    .workItemRepository()
+                    .create(WorkItem(title = "Schema S11b free", type = "no-schema-anywhere", depth = 0))
+                    .getOrNull()!!
+            }
+        application { configureProductionSchemaApp(composition) }
+
+        val response =
+            client.get("/api/v1/items/${item.id}/schema") {
+                header("Authorization", "Bearer $TEST_TOKEN")
+            }
+        assertEquals(HttpStatusCode.NotFound, response.status)
+        assertTrue(response.bodyAsText().contains("no_schema"), "body: ${response.bodyAsText()}")
+    }
+
+    @Test
+    fun `S11b GET items id schema returns 403 scope_forbidden for a token scoped to a different root`(
+        @TempDir tempDir: Path,
+    ) = testApplication {
+        val composition = buildComposition(tempDir)
+        val outsideScopeItem =
+            runBlocking {
+                composition.toolContext.repositoryProvider
+                    .workItemRepository()
+                    .create(WorkItem(title = "Schema S11b scope", depth = 0))
+                    .getOrNull()!!
+            }
+        val authConfig = makeTestAuthConfig(scopeRootIds = setOf(UUID.randomUUID()))
+        application { configureProductionSchemaApp(composition, authConfig = authConfig) }
+
+        val response =
+            client.get("/api/v1/items/${outsideScopeItem.id}/schema") {
+                header("Authorization", "Bearer $TEST_TOKEN")
+            }
+        assertEquals(HttpStatusCode.Forbidden, response.status)
+        assertTrue(response.bodyAsText().contains("scope_forbidden"))
+    }
 
     @Test
     fun `S11b GET items id schema returns 503 config_unavailable on a cold per-root config read failure`() =
@@ -243,7 +355,34 @@ class ItemSchemaRouteTest {
             val failable = SchemaRouteFailableProjectConfigRepository(h2.projectConfigRepository())
             failable.failGet = true
             val provider = SchemaRouteFailableRepositoryProvider(h2, failable)
-            application { configureSchemaTestApp(provider) }
+            // ServerComposition's public constructor takes only a DatabaseManager, with no seam to
+            // inject a failing RepositoryProvider (see class KDoc) -- so this leg builds the
+            // ToolExecutionContext directly over the failing provider, but still exercises it through
+            // the REAL installRestApiRoutes entry point, never a bare itemGateRoutes call.
+            val toolContext =
+                ToolExecutionContext(
+                    provider,
+                    ItemSchemaRouteNoGlobalSchemaService,
+                    perRootConfigService = PerRootConfigService(provider.projectConfigRepository()),
+                )
+            application {
+                install(ContentNegotiation) { json(McpJson) }
+                val authConfig = makeTestAuthConfig()
+                installRestApiRoutes(
+                    apiConfig = authConfig,
+                    eventBus = null,
+                    effectiveProvider = provider,
+                    apiTokenEntries = tokenEntriesFor(authConfig),
+                    allowQueryToken = false,
+                    serverName = "item-schema-route-test-503",
+                    serverVersion = "test",
+                    actorAuthEnabled = false,
+                    noteSchemaService = ItemSchemaRouteNoGlobalSchemaService,
+                    toolContext = toolContext,
+                    degradedModePolicy = DegradedModePolicy.ACCEPT_CACHED,
+                    idempotencyCache = IdempotencyCache(),
+                )
+            }
 
             val response =
                 client.get("/api/v1/items/${item.id}/schema") {
@@ -282,41 +421,6 @@ work_item_schemas:
 /** No global schema for any type -- mirrors [ConfigUnavailableRoutesTest]'s own private fixture. */
 private object ItemSchemaRouteNoGlobalSchemaService : WorkItemSchemaService {
     override fun getSchemaForTags(tags: List<String>): List<NoteSchemaEntry>? = null
-}
-
-private fun buildSchemaRouteContext(repo: RepositoryProvider): ToolExecutionContext =
-    ToolExecutionContext(
-        repo,
-        ItemSchemaRouteNoGlobalSchemaService,
-        perRootConfigService = PerRootConfigService(repo.projectConfigRepository()),
-    )
-
-private fun Application.configureSchemaTestApp(
-    repo: RepositoryProvider,
-    authConfig: ApiAuthConfig = makeTestAuthConfig(),
-) {
-    configureTestApp(authConfig) {
-        itemGateRoutes(repo, buildSchemaRouteContext(repo).configResolver)
-    }
-}
-
-private fun parseObj(body: String): JsonObject = Json.parseToJsonElement(body).jsonObject
-
-/** The SAME builder the route is documented to reuse: `query_items(operation="schema", itemId=...)`'s `data`. */
-private fun queryItemsSchemaData(
-    repo: RepositoryProvider,
-    itemId: UUID,
-): JsonObject {
-    val context = buildSchemaRouteContext(repo)
-    val params =
-        buildJsonObject {
-            put("operation", JsonPrimitive("schema"))
-            put("itemId", JsonPrimitive(itemId.toString()))
-        }
-    val result = runBlocking { QueryItemsTool().execute(params, context) }
-    val obj = result as JsonObject
-    assertTrue(obj["success"]!!.jsonPrimitive.boolean, "expected query_items(schema) success: $obj")
-    return obj["data"] as JsonObject
 }
 
 /** Mirrors [ConfigUnavailableRoutesTest]'s `FailableProjectConfigRepository`, named for this file's own scope. */
