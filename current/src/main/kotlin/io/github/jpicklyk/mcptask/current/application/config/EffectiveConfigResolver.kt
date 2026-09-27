@@ -6,6 +6,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.Role
+import io.github.jpicklyk.mcptask.current.domain.model.SeatDefinition
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import java.util.UUID
@@ -105,6 +106,33 @@ class EffectiveConfigResolver(
         defaultTraits: List<String>,
         rootId: UUID?
     ): Map<Role, DispatchProfile> = resolveDispatchProfilesForTraits(defaultTraits.distinct(), rootId)
+
+    /**
+     * Per-seat dispatch profiles for [item], keyed by phase then seat name, filtered to
+     * [resolvedSchema]'s (already trait-merged) seats. Same trait order as [resolveDispatchProfile]
+     * (item traits first, then the resolved schema's defaultTraits). Returns before any per-root
+     * read when either the trait list or [resolvedSchema]'s seats are empty.
+     */
+    suspend fun resolveDispatchBySeat(
+        item: WorkItem,
+        resolvedSchema: WorkItemSchema?
+    ): Map<Role, Map<String, DispatchProfile>> {
+        val traits = dispatchTraitsFor(item, resolvedSchema)
+        val seats = resolvedSchema?.seats ?: emptyList()
+        if (traits.isEmpty() || seats.isEmpty()) return emptyMap()
+        return layered(item.rootId).mergeDispatchBySeat(traits, seats)
+    }
+
+    /** Type-only counterpart to [resolveDispatchBySeat]: [defaultTraits] is the complete trait set. */
+    suspend fun resolveDispatchBySeatForType(
+        defaultTraits: List<String>,
+        seats: List<SeatDefinition>,
+        rootId: UUID?
+    ): Map<Role, Map<String, DispatchProfile>> {
+        val traits = defaultTraits.distinct()
+        if (traits.isEmpty() || seats.isEmpty()) return emptyMap()
+        return layered(rootId).mergeDispatchBySeat(traits, seats)
+    }
 
     /** Resource registry visible to [rootId]; global wins on a key collision (see [LayeredConfig.resourceRegistry]). */
     suspend fun resolveResourceRegistry(rootId: UUID?): Map<String, ResourceDefinition> = layered(rootId).resourceRegistry()

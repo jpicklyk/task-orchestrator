@@ -5,6 +5,8 @@ import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.Role
+import io.github.jpicklyk.mcptask.current.domain.model.SeatDefinition
+import io.github.jpicklyk.mcptask.current.domain.model.SeatDispatchOverride
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 
 /**
@@ -54,4 +56,17 @@ interface GlobalConfigLookup {
 
     /** The global document's `schema_resolution`, or null when absent/unrecognized. */
     fun schemaResolution(): SchemaResolutionMode?
+
+    /**
+     * Seats declared by trait [name] (empty when none or unknown). Defaults to empty so
+     * [ServiceBackedGlobalLookup] (which has no per-trait seat service to delegate to) does not
+     * need to override this A1a addition — its strict mocks in existing tests see no new calls.
+     */
+    fun traitSeats(name: String): List<SeatDefinition> = emptyList()
+
+    /**
+     * Per-phase, per-seat dispatch override maps declared by trait [name] (empty when none or
+     * unknown). Same empty-default rationale as [traitSeats].
+     */
+    fun traitDispatchBySeat(name: String): Map<Role, Map<String, SeatDispatchOverride>> = emptyMap()
 }

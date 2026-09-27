@@ -7,6 +7,8 @@ import io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceMode
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.Role
+import io.github.jpicklyk.mcptask.current.domain.model.SeatDefinition
+import io.github.jpicklyk.mcptask.current.domain.model.SeatDispatchOverride
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import org.slf4j.Logger
@@ -38,6 +40,8 @@ import java.util.UUID
  * | Trait notes | per-root trait entry wins wholesale per trait name (an empty list shadows) |
  * | Trait resources | per-root trait entry wins wholesale per trait name |
  * | Trait dispatch | per-root trait role map wins wholesale per trait name (see [traitDispatchEntry]) |
+ * | Trait seats (A1a) | per-root wins wholesale when the per-root doc declares the trait at all (see [traitSeats]) |
+ * | Trait dispatch by seat (A1a) | per-root wins wholesale together with by-role dispatch, as ONE unit, when EITHER shape is present per-root (see [traitDispatchBySeatEntry]) |
  * | Resource registry | start from per-root, then GLOBAL overwrites each colliding key (WARN on collision) |
  * | note_limits.mode | per-root explicit value, else global |
  * | Status labels | per-root map wins per trigger by key presence (an explicit null included), else global |
@@ -112,6 +116,21 @@ class LayeredConfig(
 
     /** Trait dispatch role map for [name]: the per-root map wins wholesale, else the global one. */
     fun traitDispatch(name: String): Map<Role, DispatchProfile> = traitDispatchEntry(name)
+
+    /**
+     * Trait seats for [name]: if the per-root document declares the trait AT ALL (its `traits` map
+     * contains the key, regardless of whether that trait entry carries its own `seats:` key), the
+     * per-root seats win wholesale (possibly empty); otherwise the global trait's seats. Same unit
+     * of "declares" as [traitNotes].
+     */
+    fun traitSeats(name: String): List<SeatDefinition> {
+        val perRootTraits = perRootDocument?.traits
+        return if (perRootTraits != null && perRootTraits.containsKey(name)) {
+            perRootDocument?.traitSeats?.get(name) ?: emptyList()
+        } else {
+            global.traitSeats(name)
+        }
+    }
 
     /**
      * The resource registry visible to [rootId]. GLOBAL WINS on collision (the inverse of trait
@@ -265,9 +284,12 @@ class LayeredConfig(
         }
 
     /**
-     * Merges trait notes into [baseSchema]: default traits from the schema + per-item traits from
-     * [item]'s properties, distinct; each trait's notes via [traitNotes] (unknown traits WARN and are
-     * skipped); base note keys win, and the first trait in order wins for duplicate trait keys.
+     * Merges trait notes AND trait seats into [baseSchema]: default traits from the schema +
+     * per-item traits from [item]'s properties, distinct; each trait's notes via [traitNotes] and
+     * seats via [traitSeats] (unknown traits WARN and are skipped for both). Base note keys win,
+     * and the first trait in order wins for duplicate trait keys — see [mergeNoteEntries]. Seats
+     * merge the same way by name — see [mergeSeatEntries] — plus resolve-time demotion of a second
+     * `enters: true` seat in the same phase (WARN; A1a task-scope §4 "Merged seats").
      */
     internal fun mergeTraits(
         item: WorkItem,
@@ -279,29 +301,89 @@ class LayeredConfig(
 
         if (allTraits.isEmpty()) return baseSchema
 
-        val traitNotes = mutableListOf<NoteSchemaEntry>()
+        val traitNoteEntries = mutableListOf<NoteSchemaEntry>()
+        val traitSeatEntries = mutableListOf<SeatDefinition>()
         for (traitName in allTraits) {
             val notes = traitNotes(traitName)
             if (notes == null) {
                 logger.warn("Unknown trait '{}' on item '{}'; skipping", traitName, item.id)
                 continue
             }
-            traitNotes.addAll(notes)
+            traitNoteEntries.addAll(notes)
+            traitSeatEntries.addAll(traitSeats(traitName))
         }
 
-        if (traitNotes.isEmpty()) return baseSchema
+        if (traitNoteEntries.isEmpty() && traitSeatEntries.isEmpty()) return baseSchema
 
-        // Base note keys win; first-trait-in-order wins for duplicate trait keys
-        val existingKeys = baseSchema.notes.map { it.key }.toMutableSet()
-        val mergedNotes = baseSchema.notes.toMutableList()
+        val mergedNotes = mergeNoteEntries(baseSchema.notes, traitNoteEntries)
+        val mergedSeats = mergeSeatEntries(baseSchema.seats, traitSeatEntries, item.id)
+
+        return baseSchema.copy(notes = mergedNotes, seats = mergedSeats)
+    }
+
+    /** Base note keys win; first-trait-in-order wins for duplicate trait note keys. */
+    private fun mergeNoteEntries(
+        baseNotes: List<NoteSchemaEntry>,
+        traitNotes: List<NoteSchemaEntry>
+    ): List<NoteSchemaEntry> {
+        if (traitNotes.isEmpty()) return baseNotes
+        val existingKeys = baseNotes.map { it.key }.toMutableSet()
+        val merged = baseNotes.toMutableList()
         for (note in traitNotes) {
             if (note.key !in existingKeys) {
-                mergedNotes.add(note)
+                merged.add(note)
                 existingKeys.add(note.key)
             }
         }
+        return merged
+    }
 
-        return baseSchema.copy(notes = mergedNotes)
+    /**
+     * Base seats win over trait seats by name (a trait may add seats but not redefine a base
+     * seat — first-wins, later dropped + WARN); a second `enters: true` seat landing in a phase
+     * that already has one (from the base or an earlier trait) is demoted to `enters = false` +
+     * WARN rather than rejected — this is the RESOLVE-TIME counterpart to the LOAD-TIME F1
+     * structural check (`YamlSchemaParser`), which only covers a schema's own seats plus its
+     * SAME-DOCUMENT default traits.
+     */
+    private fun mergeSeatEntries(
+        baseSeats: List<SeatDefinition>,
+        traitSeats: List<SeatDefinition>,
+        itemId: UUID
+    ): List<SeatDefinition> {
+        if (traitSeats.isEmpty()) return baseSeats
+        val existingNames = baseSeats.map { it.name }.toMutableSet()
+        val entersPhases = baseSeats.filter { it.enters }.map { it.phase }.toMutableSet()
+        val merged = baseSeats.toMutableList()
+        for (seat in traitSeats) {
+            if (seat.name in existingNames) {
+                logger.warn(
+                    "Trait seat '{}' on item '{}' duplicates an existing seat name; a trait may add seats but not " +
+                        "redefine a base seat, dropping the trait's definition",
+                    seat.name,
+                    itemId
+                )
+                continue
+            }
+            var effectiveSeat = seat
+            if (seat.enters) {
+                if (seat.phase in entersPhases) {
+                    logger.warn(
+                        "Trait seat '{}' on item '{}' also enters phase '{}', which already has an entering seat; " +
+                            "demoting to non-entering",
+                        seat.name,
+                        itemId,
+                        seat.phase.name.lowercase()
+                    )
+                    effectiveSeat = seat.copy(enters = false)
+                } else {
+                    entersPhases.add(seat.phase)
+                }
+            }
+            merged.add(effectiveSeat)
+            existingNames.add(seat.name)
+        }
+        return merged
     }
 
     /**
@@ -347,14 +429,83 @@ class LayeredConfig(
     }
 
     /**
-     * The ONE place every dispatch read goes through (A1 seat seam): the per-root trait's role map
-     * wins wholesale over the global one. A per-root entry with no profile for a role does NOT fall
+     * Per-seat dispatch overrides over [traits] (in order): for each phase a seat in [seats]
+     * belongs to, the FIRST trait to declare an override for that (phase, seat) pair claims it —
+     * same first-wins-per-pair rule as [mergeDispatch]'s per-role claim. Each seat's final profile
+     * overlays its winning override (if any) onto that phase's [mergeDispatch] result via
+     * [SeatDispatchOverride.applyTo]; a seat with neither an override nor a phase default is
+     * omitted entirely. Result is filtered to seats actually present in [seats] for that phase —
+     * an override naming an unknown seat, or one in a phase [seats] doesn't declare it for, never
+     * surfaces. Returns before any per-root read when [seats] is empty.
+     */
+    internal fun mergeDispatchBySeat(
+        traits: List<String>,
+        seats: List<SeatDefinition>
+    ): Map<Role, Map<String, DispatchProfile>> {
+        if (seats.isEmpty()) return emptyMap()
+
+        val phaseDefaults = mergeDispatch(traits)
+
+        val overridesByRole = LinkedHashMap<Role, LinkedHashMap<String, SeatDispatchOverride>>()
+        for (traitName in traits) {
+            val traitBySeat = traitDispatchBySeatEntry(traitName)
+            for ((role, seatMap) in traitBySeat) {
+                val roleOverrides = overridesByRole.getOrPut(role) { LinkedHashMap() }
+                for ((seatName, override) in seatMap) {
+                    if (seatName !in roleOverrides) {
+                        roleOverrides[seatName] = override
+                    }
+                }
+            }
+        }
+
+        val result = LinkedHashMap<Role, Map<String, DispatchProfile>>()
+        for (role in Role.entries) {
+            val seatNamesInOrder = seats.filter { it.phase == role }.map { it.name }
+            if (seatNamesInOrder.isEmpty()) continue
+            val phaseDefault = phaseDefaults[role]
+            val roleOverrides = overridesByRole[role] ?: emptyMap()
+            val profiles = LinkedHashMap<String, DispatchProfile>()
+            for (seatName in seatNamesInOrder) {
+                val override = roleOverrides[seatName]
+                when {
+                    override != null -> profiles[seatName] = override.applyTo(phaseDefault)
+                    phaseDefault != null -> profiles[seatName] = phaseDefault
+                }
+            }
+            if (profiles.isNotEmpty()) result[role] = profiles
+        }
+        return result
+    }
+
+    /**
+     * The ONE place every BY-ROLE dispatch read goes through (A1 seat seam): the per-root trait's
+     * declaration wins wholesale over the global one WHEN THE PER-ROOT DOC DECLARES EITHER dispatch
+     * shape for this trait — its by-role map OR its by-seat map (see [traitDispatchBySeatEntry],
+     * the sibling read) — since both come from the same `dispatch:` block and a per-root author who
+     * writes only `dispatch.<phase>.seats:` still means to replace the WHOLE inherited dispatch
+     * declaration, not merge into it. A per-root entry with no profile for a role does NOT fall
      * through to the global entry for that role.
      */
-    private fun traitDispatchEntry(name: String): Map<Role, DispatchProfile> {
-        val perRootDispatch = perRootDocument?.traitDispatch?.get(name)
-        return perRootDispatch ?: global.traitDispatch(name)
-    }
+    private fun traitDispatchEntry(name: String): Map<Role, DispatchProfile> =
+        if (perRootHasDispatchEntry(name)) {
+            perRootDocument?.traitDispatch?.get(name) ?: emptyMap()
+        } else {
+            global.traitDispatch(name)
+        }
+
+    /** The by-seat sibling of [traitDispatchEntry] — same per-root-wins-wholesale unit. */
+    private fun traitDispatchBySeatEntry(name: String): Map<Role, Map<String, SeatDispatchOverride>> =
+        if (perRootHasDispatchEntry(name)) {
+            perRootDocument?.traitDispatchBySeat?.get(name) ?: emptyMap()
+        } else {
+            global.traitDispatchBySeat(name)
+        }
+
+    /** True when the per-root document declares trait [name]'s by-role OR by-seat dispatch shape. */
+    private fun perRootHasDispatchEntry(name: String): Boolean =
+        perRootDocument?.traitDispatch?.containsKey(name) == true ||
+            perRootDocument?.traitDispatchBySeat?.containsKey(name) == true
 
     private fun resolveTypeAgainstLayers(type: String): Pair<WorkItemSchema, ConfigSource>? {
         val snapshot = perRootDocument

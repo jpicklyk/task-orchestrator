@@ -6,6 +6,8 @@ import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.Role
+import io.github.jpicklyk.mcptask.current.domain.model.SeatDefinition
+import io.github.jpicklyk.mcptask.current.domain.model.SeatDispatchOverride
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 
 /**
@@ -60,6 +62,11 @@ class LayerBackedGlobalLookup(
     override fun hasExactTagSchema(tag: String): Boolean = document.workItemSchemas.containsKey(tag)
 
     override fun schemaResolution(): SchemaResolutionMode? = document.schemaResolution
+
+    override fun traitSeats(name: String): List<SeatDefinition> = document.traitSeats[name] ?: emptyList()
+
+    override fun traitDispatchBySeat(name: String): Map<Role, Map<String, SeatDispatchOverride>> =
+        document.traitDispatchBySeat[name] ?: emptyMap()
 
     private companion object {
         const val DEFAULT_KEY = "default"

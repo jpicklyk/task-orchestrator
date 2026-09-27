@@ -29,6 +29,11 @@ package io.github.jpicklyk.mcptask.current.domain.model
  * @property model Opaque model identifier/alias, meaningful to the dispatching orchestrator.
  * @property effort One of `low`, `medium`, `high`, `xhigh`, `max`, matched case-sensitively. An
  *   invalid value is dropped at parse time with a load warning — never stored on this type.
+ *
+ * A1a adds a per-seat variant of this declaration: `traits.<name>.dispatch.<phase>.seats.<seat>:`
+ * (see [io.github.jpicklyk.mcptask.current.domain.model.SeatDispatchOverride]), resolved by
+ * overlaying the override onto the phase-level [DispatchProfile] produced by this type — this type
+ * itself is unchanged.
  */
 data class DispatchProfile(
     val agent: String? = null,

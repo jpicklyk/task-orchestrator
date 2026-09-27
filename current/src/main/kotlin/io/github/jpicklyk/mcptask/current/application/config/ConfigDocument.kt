@@ -5,6 +5,8 @@ import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.Role
+import io.github.jpicklyk.mcptask.current.domain.model.SeatDefinition
+import io.github.jpicklyk.mcptask.current.domain.model.SeatDispatchOverride
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 
 /**
@@ -50,6 +52,15 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
  * @property presentSections the top-level keys of the document, in document order (a
  *   `LinkedHashSet`), untransformed — used to compute `ignoredSections` for a per-root config push
  *   without hand-maintaining a separate literal set.
+ * @property traitSeats per-trait `seats:` lists (A1a); a trait with no `seats:` key at all is
+ *   absent from the map entirely — mirroring [traitResources]/[traitDispatch] — NOT mapped to an
+ *   empty list. [LayeredConfig.traitSeats] uses presence in [traits] (not this map) to decide
+ *   whether a per-root document's declaration of a trait shadows the global one wholesale.
+ * @property traitDispatchBySeat per-trait, per-phase, per-seat dispatch override maps (A1a),
+ *   parsed from `traits.<name>.dispatch.<phase>.seats:`. A SIBLING map to [traitDispatch] — never
+ *   folded into it — so every existing `traitDispatch` reference (main and test) is unaffected by
+ *   this addition. A trait with no phase carrying a `seats:` sub-key is absent from this map
+ *   entirely.
  */
 data class ConfigDocument(
     val workItemSchemas: Map<String, WorkItemSchema>,
@@ -63,6 +74,8 @@ data class ConfigDocument(
     val actorAuthenticationSection: Any? = null,
     val presentSections: Set<String> = emptySet(),
     val warnings: List<String> = emptyList(),
+    val traitSeats: Map<String, List<SeatDefinition>> = emptyMap(),
+    val traitDispatchBySeat: Map<String, Map<Role, Map<String, SeatDispatchOverride>>> = emptyMap(),
 ) {
     companion object {
         /** The empty document: no schemas, no traits, no opinion on any other facet. */
