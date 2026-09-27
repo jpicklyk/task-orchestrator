@@ -8,6 +8,7 @@ import io.github.jpicklyk.mcptask.current.application.service.AdvanceService
 import io.github.jpicklyk.mcptask.current.application.service.CredentialRefValidation
 import io.github.jpicklyk.mcptask.current.application.service.buildDispatchProfileJson
 import io.github.jpicklyk.mcptask.current.application.service.buildExpectedNotesJson
+import io.github.jpicklyk.mcptask.current.application.service.buildMissingBySeatJson
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
@@ -833,6 +834,7 @@ Call to move an item between phases once its work is done — never edit status 
                     errorCode = GATE_BLOCKED,
                     errorKind = ErrorKind.PERMANENT,
                     missingNotes = NoteSchemaJsonHelpers.buildMissingNotesArray(failure.missingNotes),
+                    missingBySeat = buildMissingBySeatJson(failure.missingBySeat),
                     previousRole = failure.previousRole,
                     targetRole = failure.targetRole
                 )
@@ -853,6 +855,7 @@ Call to move an item between phases once its work is done — never edit status 
         errorKind: ErrorKind,
         blockers: JsonArray? = null,
         missingNotes: JsonArray? = null,
+        missingBySeat: JsonObject? = null,
         previousRole: Role? = null,
         targetRole: Role? = null
     ): JsonObject =
@@ -868,6 +871,9 @@ Call to move an item between phases once its work is done — never edit status 
             }
             if (missingNotes != null) {
                 put("missingNotes", missingNotes)
+            }
+            if (missingBySeat != null) {
+                put("missingBySeat", missingBySeat)
             }
             previousRole?.let { put("previousRole", JsonPrimitive(it.toJsonString())) }
             targetRole?.let { put("targetRole", JsonPrimitive(it.toJsonString())) }

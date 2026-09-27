@@ -59,12 +59,17 @@ sealed class AdvanceFailure {
      *   whose gate rejected it)
      * @property targetRole the role the transition would have moved to (for context)
      * @property missingNotes the structured required notes that are still unfilled
+     * @property missingBySeat [missingNotes]' keys bucketed by owning seat (A1;
+     *   [io.github.jpicklyk.mcptask.current.application.service.computeMissingBySeat]) — null for a
+     *   seat-less schema, so a seat-less config's gate-failure payload stays byte-identical (A1
+     *   task-scope AC1).
      */
     data class GateBlocked(
         val message: String,
         val previousRole: Role,
         val targetRole: Role,
-        val missingNotes: List<NoteSchemaEntry>
+        val missingNotes: List<NoteSchemaEntry>,
+        val missingBySeat: Map<String, List<String>>? = null
     ) : AdvanceFailure()
 
     /**
@@ -536,7 +541,8 @@ class AdvanceService(
             } else {
                 "Gate check failed: required notes not filled: $missingKeys"
             }
-        return AdvanceFailure.GateBlocked(message, item.role, targetRole, missingEntries)
+        val missingBySeat = computeMissingBySeat(schema, missingEntries.map { it.key })
+        return AdvanceFailure.GateBlocked(message, item.role, targetRole, missingEntries, missingBySeat)
     }
 
     /** Result of the step-4.5 resource gate: proceed (with derived refs) or reject the advance. */
