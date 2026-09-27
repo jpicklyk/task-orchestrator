@@ -90,18 +90,32 @@ import kotlin.test.fail
  * Every id embedded in a captured response is one of these four fixed constants or [ROOT_ID] —
  * literal and stable across every run by construction, so none needs normalization.
  *
- * GOLDEN MECHANISM: [normalizeGolden] redacts exactly one field family — `data.configFingerprint`
- * on a `query_items` `schema`-operation success response (see `QueryItemsToolTest` "schema
- * operation by type returns full entries and fingerprint" for the field's existence). Whether that
- * value is a pure content hash (the GLOBAL-layer formula `configFingerprint(content)` asserted by
- * `GlobalConfigFileTest` looks to be, content-only) or additionally reflects a per-root push
- * identity (`PerRootConfigService.getFingerprint`, not among the declarations supplied to this
- * blind author) cannot be confirmed without opening `src/main`, so it is normalized defensively
- * rather than compared byte-for-byte. No other field in any of the 12 captures below is expected to
- * vary run-to-run: none of `GetContextToolTest` / `ItemGateRouteTest` / `AdvanceItemToolTest`'s
- * existing field-shape assertions show a `createdAt`/`modifiedAt`/path-bearing field in an
- * item-mode `get_context`, a gate route, or a gate-failure `advance_item` result — matching the
- * task-scope-addendum's own S1 note: "normalize any volatile field (none expected)".
+ * GOLDEN MECHANISM: [normalizeGolden] normalizes exactly two field families (full rationale on the
+ * function itself) and nothing else:
+ * 1. `metadata.timestamp` — every MCP tool envelope (`ResponseUtil.createSuccessResponse`/
+ *    `createErrorResponse`) always attaches `metadata: {timestamp, version}`
+ *    (`ResponseUtilTest` "createMetadata includes timestamp and version"); the wall-clock
+ *    `timestamp` varies every run, `version` does not and is left untouched. An earlier version of
+ *    this test assumed no timestamp appeared in any of these response shapes — WRONG: that held
+ *    for `data`, not for the MCP envelope wrapping it. Caught by the orchestrator's record+compare
+ *    run against the untouched base, which failed on effectively all 9 MCP captures until this was
+ *    fixed.
+ * 2. `data.configFingerprint` on a `query_items` `schema`-operation success response (see
+ *    `QueryItemsToolTest` "schema operation by type returns full entries and fingerprint" for the
+ *    field's existence). Whether that value is a pure content hash (the GLOBAL-layer formula
+ *    `configFingerprint(content)` asserted by `GlobalConfigFileTest` looks to be, content-only) or
+ *    additionally reflects a per-root push identity (`PerRootConfigService.getFingerprint`, not
+ *    among the declarations supplied to this blind author) cannot be confirmed without opening
+ *    `src/main`, so it is normalized defensively rather than compared byte-for-byte.
+ *
+ * No other field in any of the 12 captures is normalized. In particular the REST `/gate` and REST
+ * advance-422 response bodies carry no `metadata`/timestamp field of their own (their fields are
+ * `itemId`/`title`/`role`/`gateStatus`/... and `error`/`details`/... — per `ItemGateRouteTest` /
+ * `ItemWriteRoutesFailurePathTest`'s existing field-shape assertions), so [normalizeGolden]'s
+ * timestamp rule is a no-op there by construction rather than by a REST-specific carve-out — it is
+ * still applied (recursively, into the REST envelope's `body`) so the mechanism self-adjusts if a
+ * REST shape ever gains the same wrapper, per the orchestrator's "check the REST responses too"
+ * instruction.
  *
  * RECORD MODE — deviation from the literal dispatch, flagged for reviewer confirmation: the
  * dispatch asked for a JVM system property (`a1.golden.record=true`). `current/build.gradle.kts`'s
@@ -165,12 +179,17 @@ class SeatlessResponseGoldenTest {
         return DatabaseManager(database)
     }
 
-    /** Writes the classpath global-config fixture to a real file under [tempDir], as [GlobalConfigFile] requires a Path. */
+    /**
+     * Writes the classpath global-config fixture to a real file under [tempDir], as
+     * [GlobalConfigFile] requires a Path. Written as explicit UTF-8 bytes (never the platform
+     * default charset — this fixture's guidance text carries em-dashes (U+2014) that a
+     * cp1252-default Windows JVM would otherwise mangle on write).
+     */
     private fun materializeGlobalConfig(tempDir: Path): Path {
         val configDir = tempDir.resolve(".taskorchestrator")
         Files.createDirectories(configDir)
         val file = configDir.resolve("config.yaml")
-        Files.writeString(file, classpathResourceText(GLOBAL_CONFIG_RESOURCE))
+        Files.write(file, classpathResourceText(GLOBAL_CONFIG_RESOURCE).toByteArray(Charsets.UTF_8))
         return file
     }
 
@@ -281,16 +300,50 @@ class SeatlessResponseGoldenTest {
     // Golden mechanism
     // ─────────────────────────────────────────────────────────────────────────
 
-    /** See class KDoc "GOLDEN MECHANISM". Redacts `data.configFingerprint` on a success envelope, if present. */
+    /**
+     * See class KDoc "GOLDEN MECHANISM". Normalizes exactly two field families, recursively (so a
+     * REST capture's `body` sub-object — see [restEnvelope] — gets the same treatment as a
+     * top-level MCP envelope):
+     *
+     * 1. `metadata.timestamp` — EVERY MCP tool envelope is built by `ResponseUtil.createSuccessResponse`
+     *    / `createErrorResponse`, which always attaches `metadata: {timestamp, version}`
+     *    (`ResponseUtilTest` "createMetadata includes timestamp and version": an ISO-8601
+     *    wall-clock capture time). `metadata.version` (the build version) is left untouched — only
+     *    `timestamp` varies run-to-run. Confirmed absent from the REST `/gate` and REST
+     *    advance-422 response bodies captured here (their fields are `itemId`/`title`/`role`/
+     *    `gateStatus`/... and `error`/`details`/... respectively, per `ItemGateRouteTest` /
+     *    `ItemWriteRoutesFailurePathTest`'s existing field-shape assertions — no `metadata` key),
+     *    so in practice this only fires on the 9 MCP captures; it is applied uniformly (including
+     *    to a REST `body`) rather than hand-listing which captures need it, so it self-adjusts if a
+     *    REST shape ever gains the same envelope.
+     * 2. `data.configFingerprint` on a `query_items` `schema`-operation success response — see the
+     *    class KDoc for why this one is normalized defensively.
+     *
+     * Nothing else is touched.
+     */
     private fun normalizeGolden(element: JsonElement): JsonElement {
         if (element !is JsonObject) return element
-        val success = element["success"] as? JsonPrimitive
-        val data = element["data"] as? JsonObject
+        var result = element
+
+        val metadata = result["metadata"] as? JsonObject
+        if (metadata != null && metadata.containsKey("timestamp")) {
+            val patchedMetadata = JsonObject(metadata + ("timestamp" to JsonPrimitive("<A1-T0-NORMALIZED-TIMESTAMP>")))
+            result = JsonObject(result + ("metadata" to patchedMetadata))
+        }
+
+        val success = result["success"] as? JsonPrimitive
+        val data = result["data"] as? JsonObject
         if (success?.booleanOrNull == true && data != null && data.containsKey("configFingerprint")) {
             val patchedData = JsonObject(data + ("configFingerprint" to JsonPrimitive("<A1-T0-NORMALIZED-CONFIG-FINGERPRINT>")))
-            return JsonObject(element + ("data" to patchedData))
+            result = JsonObject(result + ("data" to patchedData))
         }
-        return element
+
+        val body = result["body"] as? JsonObject
+        if (body != null) {
+            result = JsonObject(result + ("body" to normalizeGolden(body)))
+        }
+
+        return result
     }
 
     /** Resolves the golden `.json` file's on-disk location, matching the dispatch's "resolved from the project dir". */
@@ -312,6 +365,15 @@ class SeatlessResponseGoldenTest {
         return userDir
     }
 
+    /**
+     * Explicit UTF-8 byte-level golden I/O — never `File.readText()`/`File.writeText()`'s or
+     * `Files.writeString`'s charset DEFAULTS, always [Charsets.UTF_8] spelled out on both the write
+     * and the read, and the comparison always runs over a String decoded from those explicit UTF-8
+     * bytes on both sides. This machine (and CI Windows runners generally) is not guaranteed to
+     * default to UTF-8 (cp1252), and this fixture's config guidance text carries em-dashes
+     * (U+2014) that a platform-default read/write would mangle into `�` — exactly the failure the
+     * orchestrator's record+compare run on the untouched base surfaced.
+     */
     private fun compareOrRecord(
         name: String,
         actual: JsonElement,
@@ -320,7 +382,8 @@ class SeatlessResponseGoldenTest {
         val file = goldenFile(name)
         if (System.getenv(RECORD_ENV_VAR)?.equals("true", ignoreCase = true) == true) {
             file.parentFile.mkdirs()
-            file.writeText(prettyJson.encodeToString(JsonElement.serializer(), normalized))
+            val jsonText = prettyJson.encodeToString(JsonElement.serializer(), normalized)
+            Files.write(file.toPath(), jsonText.toByteArray(Charsets.UTF_8))
             fail(
                 "recorded golden '$name' to ${file.absolutePath}; re-run WITHOUT $RECORD_ENV_VAR to verify " +
                     "— a record run must never be treated as a passing verification.",
@@ -332,7 +395,8 @@ class SeatlessResponseGoldenTest {
                     "never auto-created; run record mode first (see class KDoc \"RECORD MODE\").",
             )
         }
-        val expected = Json.parseToJsonElement(file.readText())
+        val expectedText = String(Files.readAllBytes(file.toPath()), Charsets.UTF_8)
+        val expected = Json.parseToJsonElement(expectedText)
         assertEquals(expected, normalized, "golden '$name' drifted from its recorded byte-identical snapshot")
     }
 
