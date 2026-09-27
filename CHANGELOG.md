@@ -22,13 +22,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   → "Seats (Trait & Schema Dimension)" for the full syntax, merge rules, and per-root layering.
   - Served as `seats` and `dispatchBySeat` on `get_context` (current phase only, flat per-seat
     profiles) and `query_items(operation="schema")` (all phases, per-phase-nested profiles), as
-    `seat`/`independentOf` on every note-schema entry, and as `missingBySeat` (required notes
+    `seat`/`independentOf` on note-schema entries, and as `missingBySeat` (required notes
     bucketed by owning seat, with a reserved `unowned` bucket for a note with no seat owner) on
     `get_context`'s `gateStatus`, `advance_item`'s gate-blocked failures, REST `GET
     /items/{id}/gate`, and REST `POST /items/{id}/advance`'s `422 gate_blocked` response. The
-    `seat`/`independentOf` fields appear on a note-schema entry only when the resolved schema is
-    seat-aware (declares `seats:` on itself or a merged trait) — omitted entirely for a seat-less
-    schema, never emitted as `null`.
+    `seat` field appears on every note-schema entry when the resolved schema is seat-aware
+    (declares `seats:` on itself or a merged trait) — JSON `null` for an entry with no declared
+    seat — and is omitted entirely for a seat-less schema; `independentOf` appears only on an
+    entry that declares a non-empty list.
   - New REST route `GET /api/v1/items/{id}/schema` — the item's resolved schema view, identical to
     `query_items(operation="schema", itemId=...)`'s response body (both built by the same shared
     function). See [`api-rest.md`](current/docs/api-rest.md) → "GET /items/{id}/schema".
