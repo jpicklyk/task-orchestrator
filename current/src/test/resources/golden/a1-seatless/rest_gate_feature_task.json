@@ -1,0 +1,17 @@
+{
+    "status": 200,
+    "body": {
+        "itemId": "a1000000-0000-4000-8000-000000000001",
+        "title": "A1 T0 golden feature-task",
+        "role": "queue",
+        "gateStatus": {
+            "canAdvance": false,
+            "phase": "queue",
+            "missing": [
+                "task-scope"
+            ]
+        },
+        "guidanceKey": "task-scope",
+        "skillPointer": "spec-quality"
+    }
+}

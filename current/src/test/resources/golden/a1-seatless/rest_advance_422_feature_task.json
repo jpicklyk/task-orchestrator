@@ -1,0 +1,18 @@
+{
+    "status": 422,
+    "body": {
+        "error": "gate_blocked",
+        "message": "Gate check failed: required notes not filled for queue phase: task-scope",
+        "details": {
+            "targetRole": "work",
+            "missingNotes": [
+                {
+                    "key": "task-scope",
+                    "description": "What to build — target files, acceptance criteria, constraints.",
+                    "guidance": "Define the narrow scope of this task. Include: what to build (specific behavior or component), target files and modules, acceptance criteria (how to verify it works), and constraints or dependencies on other tasks. The parent feature specification covers the 'why' and alternatives — this note covers the 'what' for this specific task.",
+                    "skill": "spec-quality"
+                }
+            ]
+        }
+    }
+}

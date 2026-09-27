@@ -1,0 +1,79 @@
+{
+    "success": true,
+    "data": {
+        "mode": "item",
+        "item": {
+            "id": "a1000000-0000-4000-8000-000000000004",
+            "title": "A1 T0 golden terminal",
+            "role": "terminal",
+            "depth": 1
+        },
+        "schema": [
+            {
+                "key": "diagnosis",
+                "role": "queue",
+                "required": true,
+                "exists": false,
+                "filled": false
+            },
+            {
+                "key": "implementation-notes",
+                "role": "work",
+                "required": true,
+                "exists": false,
+                "filled": false
+            },
+            {
+                "key": "review-checklist",
+                "role": "review",
+                "required": true,
+                "exists": false,
+                "filled": false
+            },
+            {
+                "key": "delegation-metadata",
+                "role": "work",
+                "required": false,
+                "exists": false,
+                "filled": false
+            },
+            {
+                "key": "session-tracking",
+                "role": "work",
+                "required": true,
+                "exists": false,
+                "filled": false
+            },
+            {
+                "key": "test-plan",
+                "role": "queue",
+                "required": true,
+                "exists": false,
+                "filled": false
+            },
+            {
+                "key": "test-manifest",
+                "role": "work",
+                "required": true,
+                "exists": false,
+                "filled": false
+            },
+            {
+                "key": "test-independence-audit",
+                "role": "review",
+                "required": true,
+                "exists": false,
+                "filled": false
+            }
+        ],
+        "gateStatus": {
+            "canAdvance": false,
+            "phase": "terminal",
+            "missing": []
+        }
+    },
+    "metadata": {
+        "timestamp": "<A1-T0-NORMALIZED-TIMESTAMP>",
+        "version": "3.15.0"
+    }
+}

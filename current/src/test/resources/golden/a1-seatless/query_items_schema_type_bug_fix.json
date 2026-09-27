@@ -1,0 +1,49 @@
+{
+    "success": true,
+    "data": {
+        "type": "bug-fix",
+        "configFingerprint": "<A1-T0-NORMALIZED-CONFIG-FINGERPRINT>",
+        "configSource": "per-root",
+        "notes": [
+            {
+                "key": "diagnosis",
+                "role": "queue",
+                "required": true,
+                "description": "Reproduction, root cause, and fix approach.",
+                "guidance": "This note must cover: reproduction steps (exact inputs and expected vs actual output), root cause (specific file, function, and condition), the defect class (every other site that shares the root-cause pattern - same cast/fallback idiom, predicate, wildcard or error-classification path - found by a named sweep, each frozen as a decision or listed under Deferred with a reason), fix approach with alternatives considered (min 2 options + 'do nothing'), blast radius of the fix, and test strategy (regression test for the bug, edge cases around the fix). Read references/project-concerns.md for codebase-specific constraints. Target ~2500-3500 characters; the 6000 maxLength is a backstop, not a goal - a shorter note that cites file:line and states the decision is better than a longer one that restates context.",
+                "skill": "spec-quality",
+                "maxLength": 6000
+            },
+            {
+                "key": "implementation-notes",
+                "role": "work",
+                "required": true,
+                "description": "Context handoff for downstream agents — what changed, deviations from the diagnosis, and patterns to apply elsewhere.",
+                "guidance": "Document what was changed and why. Focus on what downstream agents need to know: deviations from the planned fix, whether the root cause was different than diagnosed, patterns that should be applied elsewhere (e.g., same bug exists in similar code paths), and any assumptions that turned out wrong. Cover the substance — do not pad with boilerplate, restated spec content, or redundant summaries. Target ~1500-2200 characters; the 3000 maxLength is a backstop, not a goal.",
+                "maxLength": 3000
+            },
+            {
+                "key": "review-checklist",
+                "role": "review",
+                "required": true,
+                "description": "Quality gate — fix alignment, test quality, and simplification review.",
+                "guidance": "Verify: (1) the fix addresses the diagnosed root cause and doesn't just mask symptoms, (2) a regression test exists that would have caught the original bug, (3) tests cover edge cases from the diagnosis test strategy, (4) if /simplify was run and made changes, verify those changes have test coverage — the reviewer does not run simplify or make fixes, only reports gaps. Target ~2000-3000 characters; the 4000 maxLength is a backstop, not a goal.",
+                "skill": "review-quality",
+                "maxLength": 4000
+            }
+        ],
+        "dispatch": {
+            "work": {
+                "agent": "task-orchestrator:implementer"
+            },
+            "review": {
+                "agent": "task-orchestrator:reviewer",
+                "effort": "high"
+            }
+        }
+    },
+    "metadata": {
+        "timestamp": "<A1-T0-NORMALIZED-TIMESTAMP>",
+        "version": "3.15.0"
+    }
+}
