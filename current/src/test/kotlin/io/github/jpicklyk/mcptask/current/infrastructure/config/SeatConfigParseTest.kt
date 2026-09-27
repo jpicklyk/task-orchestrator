@@ -199,6 +199,21 @@ class SeatConfigParseTest {
     }
 
     @Test
+    fun `probe -- a seat named Unowned (mixed case) is not reserved -- F3 is an exact-match check only`() {
+        val parsed =
+            parse(
+                """
+                work_item_schemas:
+                  bug-fix:
+                    seats:
+                      - { name: Unowned, phase: work }
+                """.trimIndent()
+            )
+        val schema = parsed.workItemSchemas.getValue("bug-fix")
+        assertEquals(listOf(SeatDefinition("Unowned", Role.WORK)), schema.seats)
+    }
+
+    @Test
     fun `S4 F4 a two-seat after cycle within one seats list is fatal`() {
         assertFailsWith<ConfigStructureException> {
             parse(

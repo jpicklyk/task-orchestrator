@@ -7,6 +7,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.SeatDefinition
 import io.github.jpicklyk.mcptask.current.domain.model.SeatDispatchOverride
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
+import kotlinx.coroutines.runBlocking
 import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -245,4 +246,74 @@ class LayeredConfigSeatTest {
 
         assertEquals(listOf("implementer", "z"), merged.seats.map { it.name }, "base seats first, then trait seats, dropped-name aside")
     }
+
+    // ──────────────────────────────────────────────
+    // S2 (resolver half) — resolveSchema's merged seat order is base seats, then trait seats,
+    // exercised through EffectiveConfigResolver rather than LayeredConfig.mergeTraits directly, so
+    // a mutation that merges trait seats before base seats reddens even when the names don't
+    // collide (task-scope §2 example order; task-scope §4 merged-order row; red: M14).
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `S2 resolveSchema merges base seats before trait seats, non-overlapping names, via EffectiveConfigResolver`(): Unit =
+        runBlocking {
+            val doc =
+                ConfigDocument(
+                    workItemSchemas =
+                        mapOf(
+                            "bug-fix" to
+                                WorkItemSchema(
+                                    type = "bug-fix",
+                                    defaultTraits = listOf("t-def"),
+                                    seats = listOf(SeatDefinition("a", Role.WORK), SeatDefinition("b", Role.WORK))
+                                )
+                        ),
+                    traits = mapOf("t-def" to emptyList()),
+                    traitSeats = mapOf("t-def" to listOf(SeatDefinition("c", Role.WORK), SeatDefinition("d", Role.WORK)))
+                )
+            val resolver = EffectiveConfigResolver(globalLookup(doc), perRoot = null)
+            val item = WorkItem(title = "S2 item", type = "bug-fix", role = Role.WORK, depth = 0)
+
+            val resolved = resolver.resolveSchema(item)!!
+
+            assertEquals(
+                listOf("a", "b", "c", "d"),
+                resolved.seats.map { it.name },
+                "merged order must be base seats first, then trait seats -- a mutation merging trait seats first must redden this"
+            )
+        }
+
+    // ──────────────────────────────────────────────
+    // S7 (resolver half) — resolveDispatchBySeat's item-traits-first-then-defaultTraits walk order
+    // (dispatchTraitsFor), exercised through EffectiveConfigResolver rather than
+    // LayeredConfig.mergeDispatchBySeat with a pre-ordered list, so a mutation that walks
+    // defaultTraits before item traits reddens (task-scope §4; test-plan S7; red: M4b).
+    // ──────────────────────────────────────────────
+
+    @Test
+    fun `S7 resolveDispatchBySeat walks item traits before defaultTraits -- the item trait's override wins`(): Unit =
+        runBlocking {
+            val doc =
+                ConfigDocument(
+                    workItemSchemas = emptyMap(),
+                    traits = mapOf("t-item" to emptyList(), "t-def" to emptyList()),
+                    traitDispatchBySeat =
+                        mapOf(
+                            "t-item" to mapOf(Role.WORK to mapOf("x" to SeatDispatchOverride(model = "m2"))),
+                            "t-def" to mapOf(Role.WORK to mapOf("x" to SeatDispatchOverride(model = "m1")))
+                        )
+                )
+            val resolver = EffectiveConfigResolver(globalLookup(doc), perRoot = null)
+            val item = WorkItem(title = "S7 item", type = "bug-fix", role = Role.WORK, depth = 0, properties = """{"traits":["t-item"]}""")
+            val resolvedSchema =
+                WorkItemSchema(type = "bug-fix", defaultTraits = listOf("t-def"), seats = listOf(SeatDefinition("x", Role.WORK)))
+
+            val byseat = resolver.resolveDispatchBySeat(item, resolvedSchema)
+
+            assertEquals(
+                "m2",
+                byseat[Role.WORK]?.get("x")?.model,
+                "item trait t-item must be walked before defaultTraits t-def and claim the (work, x) pair first"
+            )
+        }
 }
