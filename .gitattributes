@@ -6,3 +6,7 @@
 # these files LF in the repo avoids the one-time re-push every CRLF/BOM checkout would otherwise
 # trigger on first sync (see infrastructure/security/Sha256Hex.kt's configFingerprint KDoc).
 **/.taskorchestrator/*.yaml text eol=lf
+
+# Byte-exact golden snapshots (A1 T0 SeatlessResponseGoldenTest compares raw bytes): a CRLF
+# checkout would fail every compare on Windows, so pin them (and their YAML fixtures) to LF.
+current/src/test/resources/golden/** text eol=lf
