@@ -585,7 +585,10 @@ above):
    already-resolved dispatch profile (`agent`/`model`/`effort` field-by-field, an explicit `null`
    clearing that field). The result is always **filtered to the seats present in the resolved
    schema's merged seats for that phase** — an override naming a seat the item's schema doesn't
-   declare (for that phase) never surfaces.
+   declare (for that phase) never surfaces. **A seat with no per-seat override of its own inherits
+   the phase's already-resolved default dispatch profile as-is** (the same profile `dispatch.<phase>`
+   reports); it is omitted only when that phase has neither a default profile nor an override for
+   it (`LayeredConfig.mergeDispatchBySeat`).
 
 ### Per-root layering
 
@@ -614,7 +617,9 @@ These are **structural** errors, checked over one "seats scope" at a time: a sin
 (a schema's own, or a trait's own), or — for a schema that names traits in its own
 `default_traits`, when both are defined in the **same document** — the union of the schema's own
 seats with those same-document default traits' seats. A config violating more than one rule fails
-deterministically with the **first** rule number's message (F3, then F2, then F1, then F4).
+deterministically with the message for whichever rule is checked first — the fixed check order is
+**F3, then F2, then F1, then F4** (reserved name, then duplicate name, then duplicate `enters` per
+phase, then an `after` cycle) — not ascending numeric order.
 
 | Code | Condition | Effect |
 |------|-----------|--------|

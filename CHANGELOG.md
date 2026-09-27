@@ -25,7 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `seat`/`independentOf` on every note-schema entry, and as `missingBySeat` (required notes
     bucketed by owning seat, with a reserved `unowned` bucket for a note with no seat owner) on
     `get_context`'s `gateStatus`, `advance_item`'s gate-blocked failures, REST `GET
-    /items/{id}/gate`, and REST `POST /items/{id}/advance`'s `422 gate_blocked` response.
+    /items/{id}/gate`, and REST `POST /items/{id}/advance`'s `422 gate_blocked` response. The
+    `seat`/`independentOf` fields appear on a note-schema entry only when the resolved schema is
+    seat-aware (declares `seats:` on itself or a merged trait) — omitted entirely for a seat-less
+    schema, never emitted as `null`.
   - New REST route `GET /api/v1/items/{id}/schema` — the item's resolved schema view, identical to
     `query_items(operation="schema", itemId=...)`'s response body (both built by the same shared
     function). See [`api-rest.md`](current/docs/api-rest.md) → "GET /items/{id}/schema".
