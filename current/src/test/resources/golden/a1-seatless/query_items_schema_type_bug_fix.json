@@ -40,7 +40,11 @@
                 "agent": "task-orchestrator:reviewer",
                 "effort": "high"
             }
-        }
+        },
+        "features": [
+            "seats",
+            "dispatchBySeat"
+        ]
     },
     "metadata": {
         "timestamp": "<A1-T0-NORMALIZED-TIMESTAMP>",
