@@ -50,6 +50,7 @@ import io.ktor.server.routing.post
 import io.modelcontextprotocol.kotlin.sdk.types.McpJson
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -137,8 +138,10 @@ private fun errorCaptured(
  * Maps a structured [AdvanceFailure] from [AdvanceService] to an HTTP error response.
  *
  * - [AdvanceFailure.GateBlocked] → **422** `gate_blocked`, with the structured missing required
- *   notes in `details.missingNotes`. This is the key behavioral change from unification: a REST
- *   advance that fails a required-note gate is now REJECTED instead of silently advancing.
+ *   notes in `details.missingNotes` and, when the target schema is seat-aware, `details.missingBySeat`
+ *   (A1c — same shape as `GET /items/{id}/gate`'s `gateStatus.missingBySeat`, omitted otherwise).
+ *   This is the key behavioral change from unification: a REST advance that fails a required-note
+ *   gate is now REJECTED instead of silently advancing.
  * - [AdvanceFailure.ValidationFailed] → **422** `transition_blocked`, with the dependency blockers.
  * - [AdvanceFailure.ResolutionFailed] / [AdvanceFailure.ApplyFailed] → **422** `transition_failed`.
  * - [AdvanceFailure.ResourceLeaseUnavailable] → **409** `resource_unavailable`, with a
@@ -229,6 +232,18 @@ private fun buildGateBlockedDetails(failure: AdvanceFailure.GateBlocked): JsonOb
                 }
             },
         )
+        // A1c: mirrors get_context / REST /gate's missingBySeat — present only when
+        // AdvanceService computed it (seat-aware schema), absent otherwise.
+        failure.missingBySeat?.let { bySeat ->
+            put(
+                "missingBySeat",
+                buildJsonObject {
+                    bySeat.forEach { (seat, keys) ->
+                        put(seat, JsonArray(keys.map { JsonPrimitive(it) }))
+                    }
+                },
+            )
+        }
     }
 
 /** Builds the `details` object for a [AdvanceFailure.ValidationFailed] 422 response. */

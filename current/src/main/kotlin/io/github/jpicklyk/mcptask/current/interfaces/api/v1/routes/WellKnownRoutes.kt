@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
+import io.github.jpicklyk.mcptask.current.application.config.ServerFeatures
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.call
 import io.ktor.server.response.respond
@@ -32,6 +33,7 @@ fun Route.wellKnownRoutes(
                 version = serverVersion,
                 apiVersion = "v1",
                 apiUrl = "/api/v1",
+                features = ServerFeatures.ADVERTISED,
             ),
         )
     }
@@ -44,4 +46,6 @@ data class WellKnownDto(
     val version: String,
     val apiVersion: String,
     val apiUrl: String,
+    // A1c: same server-wide feature advertisement as ServiceInfoDto.features.
+    val features: List<String> = ServerFeatures.ADVERTISED,
 )

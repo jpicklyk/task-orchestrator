@@ -2,6 +2,8 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.config.withConfigSession
+import io.github.jpicklyk.mcptask.current.application.service.ItemSchemaView
+import io.github.jpicklyk.mcptask.current.application.service.computeMissingBySeat
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
 import io.github.jpicklyk.mcptask.current.application.tools.toJsonString
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
@@ -595,23 +597,33 @@ fun Route.itemRoutes(repositoryProvider: RepositoryProvider) {
 }
 
 /**
- * Registers the read-only gate-status sub-resource for a single item, under `/api/v1`.
+ * Registers the read-only gate-status and schema-view sub-resources for a single item, under
+ * `/api/v1`.
  *
  * - `GET /items/{id}/gate` — the item's title, current role, and canonical gate status for that
  *   role: field-for-field identical to `get_context` item mode's `gateStatus` /
  *   `guidanceKey` / `skillPointer`, computed via the SAME [EffectiveConfigResolver.resolveSchema] +
  *   [computePhaseNoteContext] path get_context uses — no gate logic is reimplemented here.
+ *   `gateStatus.missingBySeat` (A1c) is present only for a seat-aware, non-terminal item — see
+ *   [io.github.jpicklyk.mcptask.current.application.service.computeMissingBySeat].
+ * - `GET /items/{id}/schema` (A1c, NEW) — the item's resolved schema view, body EXACTLY equal to
+ *   `query_items(schema, itemId)`'s `data` object: both routes call the SAME
+ *   [io.github.jpicklyk.mcptask.current.application.service.ItemSchemaView.buildItemSchemaJson]
+ *   builder (A1 task-scope §6 AC3 — never a second builder). 404 `no_schema` when the item is
+ *   schema-free (builder returns `null`).
  *
  * Id handling mirrors `GET /items/{id}`: full UUID only (a hex prefix is rejected), malformed →
  * 400 `bad_request`, unknown → 404 `not_found`, out-of-scope → 403 `scope_forbidden`, checked in
- * that order. No dependency/blocker info and no dispatch field (out of scope for this route — see
- * task-scope). No ETag / `If-None-Match` handling: the gate depends on notes and config, neither
- * of which `item.modifiedAt` versions, so a `respondWithEtagCheck` here could serve a stale 304
- * after a note fill.
+ * that order, for BOTH routes. No dependency/blocker info and no dispatch field on `/gate` (out of
+ * scope for this route — see task-scope). No ETag / `If-None-Match` handling on either route: both
+ * depend on notes and config, neither of which `item.modifiedAt` versions, so a
+ * `respondWithEtagCheck` here could serve a stale 304 after a note fill or config push.
  *
  * [configResolver] is the SAME [EffectiveConfigResolver] instance the MCP tool context and the
  * REST advance route share (via [io.github.jpicklyk.mcptask.current.application.tools.ToolExecutionContext.configResolver]),
- * so this route shares MCP's last-known-good per-root config cache instead of maintaining its own.
+ * so these routes share MCP's last-known-good per-root config cache instead of maintaining their own.
+ * A [PerRootConfigUnavailableException] raised resolving that cache responds 503
+ * `config_unavailable` on both routes, same envelope as the advance route's D6 handling.
  */
 fun Route.itemGateRoutes(
     repositoryProvider: RepositoryProvider,
@@ -667,6 +679,9 @@ fun Route.itemGateRoutes(
             val phaseContext = computePhaseNoteContext(item.role, resolvedSchema?.notes, notesByKey)
             val missing = phaseContext?.missingKeys ?: emptyList()
             val isTerminal = item.role == Role.TERMINAL
+            // Same rule A1b's get_context applies: computeMissingBySeat alone would still return
+            // `{}` for a seat-aware TERMINAL item, so the terminal check is explicit here too.
+            val missingBySeat = if (isTerminal) null else computeMissingBySeat(resolvedSchema, missing)
 
             call.respond(
                 HttpStatusCode.OK,
@@ -679,11 +694,57 @@ fun Route.itemGateRoutes(
                             canAdvance = !isTerminal && missing.isEmpty(),
                             phase = item.role.toJsonString(),
                             missing = missing,
+                            missingBySeat = missingBySeat,
                         ),
                     guidanceKey = phaseContext?.guidanceKey,
                     skillPointer = phaseContext?.skillPointer,
                 ),
             )
+        }
+
+        // ─── GET /items/{id}/schema ────────────────────────────────────────────
+        get("/items/{id}/schema") {
+            val rawId =
+                call.parameters["id"] ?: run {
+                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Missing item id"))
+                    return@get
+                }
+            val id =
+                runCatching { UUID.fromString(rawId) }.getOrNull() ?: run {
+                    call.respond(HttpStatusCode.BadRequest, ErrorDto("bad_request", "Invalid UUID: $rawId"))
+                    return@get
+                }
+
+            val itemResult = workItemRepo.getById(id)
+            if (itemResult is Result.Error) {
+                call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Item $id not found"))
+                return@get
+            }
+            val item = (itemResult as Result.Success).data
+
+            if (!enforceScopeForItem(call, id, workItemRepo)) {
+                call.respond(HttpStatusCode.Forbidden, ErrorDto("scope_forbidden", "Access denied for item $id"))
+                return@get
+            }
+
+            // Same 503 envelope as GET /items/{id}/gate on a per-root config read failure.
+            val schemaJson =
+                try {
+                    withConfigSession { ItemSchemaView.buildItemSchemaJson(item, configResolver) }
+                } catch (e: PerRootConfigUnavailableException) {
+                    call.respond(
+                        HttpStatusCode.ServiceUnavailable,
+                        ErrorDto(PerRootConfigUnavailableException.CODE, e.message),
+                    )
+                    return@get
+                }
+
+            if (schemaJson == null) {
+                call.respond(HttpStatusCode.NotFound, ErrorDto("no_schema", "Item $id has no matching schema"))
+                return@get
+            }
+
+            call.respond(HttpStatusCode.OK, schemaJson)
         }
     }
 }

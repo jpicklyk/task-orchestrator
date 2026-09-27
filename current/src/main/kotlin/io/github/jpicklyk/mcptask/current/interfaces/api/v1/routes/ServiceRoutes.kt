@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
+import io.github.jpicklyk.mcptask.current.application.config.ServerFeatures
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
 import io.ktor.http.HttpStatusCode
@@ -48,6 +49,7 @@ fun Route.serviceRoutes(
                 capabilities = capabilities,
                 claimModeAvailable = true,
                 actorAuthenticationEnabled = actorAuthEnabled,
+                features = ServerFeatures.ADVERTISED,
             ),
         )
     }
@@ -86,6 +88,10 @@ data class ServiceInfoDto(
     val capabilities: List<String>,
     val claimModeAvailable: Boolean,
     val actorAuthenticationEnabled: Boolean,
+    // A1c: advertises server-wide optional-response features (e.g. "seats", "dispatchBySeat") a
+    // client can look for regardless of whether any config on this server currently uses them —
+    // see ServerFeatures.ADVERTISED.
+    val features: List<String> = ServerFeatures.ADVERTISED,
 )
 
 // DTO for GET /api/v1/health
