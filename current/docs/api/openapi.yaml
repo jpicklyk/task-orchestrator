@@ -3143,8 +3143,8 @@ paths:
                 $ref: "#/components/schemas/ErrorDto"
         "413":
           description: >-
-            body exceeds the 64 KiB cap (unchanged); now enforced before the body is fully
-            buffered.
+            body exceeds the 64 KiB cap (16 KiB / 16384 UTF-8 bytes for a `rule/<key>` slug); now
+            enforced before the body is fully buffered.
           content:
             application/json:
               schema:
