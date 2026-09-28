@@ -5,7 +5,9 @@ import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkT
 import io.github.jpicklyk.mcptask.current.application.tools.config.ManagePlanDocumentsTool
 import io.github.jpicklyk.mcptask.current.domain.model.PlanDocumentStatus
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
+import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
@@ -45,12 +47,14 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.jetbrains.exposed.v1.jdbc.Database
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
@@ -348,6 +352,21 @@ class RuleBudgetStashTest {
                             ),
                     )
                 assertEquals(true, result.isError, "the adapter's pre-execute validateParams() must reject this call: $result")
+                val structured =
+                    result.structuredContent
+                        ?: error("error response must carry structuredContent: $result")
+                val errorObj =
+                    structured["error"]?.jsonObject
+                        ?: error("structuredContent must contain the error object: $structured")
+                assertEquals(
+                    io.github.jpicklyk.mcptask.current.application.tools.ErrorCodes.VALIDATION_ERROR,
+                    errorObj["code"]?.jsonPrimitive?.content,
+                    "review follow-up: assert the REASON, not just isError",
+                )
+                assertTrue(
+                    errorObj["message"]?.jsonPrimitive?.content?.contains("rule/") == true,
+                    "the validation reason must name the rule/ guard: $errorObj",
+                )
 
                 val itemsResult = repo.workItemRepository().findByFilters(parentId = root.id, limit = 100)
                 val titles = (itemsResult as Result.Success).data.items.map { it.title }
@@ -368,5 +387,60 @@ class RuleBudgetStashTest {
                 client.close()
                 server.close()
             }
+        }
+
+    // =========================================================================================
+    // Review follow-up (orchestrator fix b3bdc5e0, per task-scope-addendum par C): a root lookup
+    // that fails with a repository error OTHER than not-found must yield RepositoryError from
+    // RuleService.get / RuleService.list -- NOT RootNotFound. Tested through the public RuleService
+    // (constructor takes domain repositories -- a WorkItemRepository double returning
+    // Result.Error(RepositoryError.DatabaseError(...)) is fault injection at a declared
+    // constructor seam, not a hand-built internal replica).
+    // =========================================================================================
+
+    @Test
+    fun `review follow-up - RuleService get and list map a non-not-found root-lookup repo error to RepositoryError not RootNotFound`(
+        @TempDir tempDir: Path,
+    ) {
+        val composition = buildComposition(tempDir)
+        val repo = composition.toolContext.repositoryProvider
+        val root =
+            runBlocking { repo.workItemRepository().create(WorkItem(title = "RuleService RepoError Root", depth = 0)).getOrNull()!! }
+        runBlocking { repo.planDocumentRepository().stash(root.id, "rule/x", "body") }
+        val unknownId = UUID.randomUUID()
+
+        val failingWorkItemRepo = RuleBudgetFailingWorkItemRepository(repo.workItemRepository(), root.id)
+        val service = RuleService(repo.planDocumentRepository(), failingWorkItemRepo)
+
+        val getResult = runBlocking { service.get(root.id, "x") }
+        assertTrue(
+            getResult is RuleGetResult.RepositoryError,
+            "a non-not-found repository error must map to RepositoryError, not RootNotFound: $getResult",
+        )
+
+        val listResult = runBlocking { service.list(root.id) }
+        assertTrue(listResult is RuleListResult.RepositoryError, "list must also map to RepositoryError: $listResult")
+
+        // Control: a genuinely unknown root (untouched by the failing wrapper) still yields RootNotFound.
+        val notFoundGet = runBlocking { service.get(unknownId, "x") }
+        assertTrue(notFoundGet is RuleGetResult.RootNotFound, "an unrestricted unknown root must still be RootNotFound: $notFoundGet")
+        val notFoundList = runBlocking { service.list(unknownId) }
+        assertTrue(
+            notFoundList is RuleListResult.RootNotFound,
+            "list must also still RootNotFound for a genuinely unknown root: $notFoundList"
+        )
+    }
+}
+
+/** Wraps a real [WorkItemRepository], failing [getById] for exactly one id with a non-not-found repository error. */
+private class RuleBudgetFailingWorkItemRepository(
+    private val delegate: WorkItemRepository,
+    private val failingId: UUID,
+) : WorkItemRepository by delegate {
+    override suspend fun getById(id: UUID): Result<WorkItem> =
+        if (id == failingId) {
+            Result.Error(RepositoryError.DatabaseError("Simulated getById failure for $id"))
+        } else {
+            delegate.getById(id)
         }
 }

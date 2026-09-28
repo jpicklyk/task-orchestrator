@@ -215,6 +215,18 @@ class QueryRulesToolTest {
         val stash3 = stashViaTool(composition.toolContext, root.id, "rule/versioned", FIXTURE_B)
         val hash3 = dataOf(stash3)["contentHash"]!!.jsonPrimitive.content
         assertEquals(contentHash, hash3, "re-stashing the original body must restore the original content hash")
+        val get3 =
+            queryRules(
+                composition.toolContext,
+                "operation" to JsonPrimitive("get"),
+                "rootId" to JsonPrimitive(root.id.toString()),
+                "key" to JsonPrimitive("versioned"),
+            )
+        assertEquals(
+            contentHash,
+            dataOf(get3)["rulesVersion"]!!.jsonPrimitive.content,
+            "rulesVersion (not just contentHash) must also revert on re-stash of the original body",
+        )
     }
 
     // -----------------------------------------------------------------------
@@ -414,6 +426,121 @@ class QueryRulesToolTest {
                 "operation" to JsonPrimitive("get"),
                 "rootId" to JsonPrimitive(child.id.toString()),
                 "key" to JsonPrimitive("some-key"),
+            )
+        assertFalse(isSuccess(result))
+        assertEquals(ErrorCodes.VALIDATION_ERROR, errorOf(result)["code"]!!.jsonPrimitive.content)
+    }
+
+    // -----------------------------------------------------------------------
+    // Review follow-up: list-mode root errors (unknown root / non-depth-0) -- S6 previously only
+    // exercised the get() leg of these two root-level errors, never list().
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun `review follow-up - list(rootId) for an unknown root returns RESOURCE_NOT_FOUND naming the root`(
+        @TempDir tempDir: Path,
+    ) {
+        val composition = buildComposition(tempDir)
+        val unknownRoot = UUID.randomUUID()
+        val result =
+            queryRules(composition.toolContext, "operation" to JsonPrimitive("list"), "rootId" to JsonPrimitive(unknownRoot.toString()))
+        assertFalse(isSuccess(result))
+        val error = errorOf(result)
+        assertEquals(ErrorCodes.RESOURCE_NOT_FOUND, error["code"]!!.jsonPrimitive.content)
+        assertTrue(error["message"]!!.jsonPrimitive.content.contains("Root WorkItem not found"), "message: $error")
+    }
+
+    @Test
+    fun `review follow-up - list(rootId) for a non-depth-0 root returns VALIDATION_ERROR`(
+        @TempDir tempDir: Path,
+    ) {
+        val composition = buildComposition(tempDir)
+        val repo = composition.toolContext.repositoryProvider
+        val child =
+            runBlocking {
+                val r = repo.workItemRepository().create(WorkItem(title = "List VALIDATION_ERROR Root", depth = 0)).getOrNull()!!
+                repo
+                    .workItemRepository()
+                    .create(WorkItem(title = "List VALIDATION_ERROR Child", parentId = r.id, rootId = r.id, depth = 1))
+                    .getOrNull()!!
+            }
+        val result =
+            queryRules(composition.toolContext, "operation" to JsonPrimitive("list"), "rootId" to JsonPrimitive(child.id.toString()))
+        assertFalse(isSuccess(result))
+        assertEquals(ErrorCodes.VALIDATION_ERROR, errorOf(result)["code"]!!.jsonPrimitive.content)
+    }
+
+    // -----------------------------------------------------------------------
+    // Review follow-up: item-mode skill-grammar VALIDATION_ERROR and null item.rootId
+    // -----------------------------------------------------------------------
+
+    @Test
+    fun `review follow-up - item mode where the resolved skill fails the key grammar returns VALIDATION_ERROR naming the skill`(
+        @TempDir tempDir: Path,
+    ) {
+        val globalConfig =
+            """
+            work_item_schemas:
+              bad-skill-type:
+                notes:
+                  - key: some-note
+                    role: queue
+                    required: false
+                    skill: "Bad Skill With Spaces"
+            """.trimIndent()
+        val composition = buildComposition(tempDir, globalConfig)
+        val repo = composition.toolContext.repositoryProvider
+        val root = runBlocking { repo.workItemRepository().create(WorkItem(title = "Skill Grammar Root", depth = 0)).getOrNull()!! }
+        val item =
+            runBlocking {
+                repo
+                    .workItemRepository()
+                    .create(
+                        WorkItem(
+                            title = "Skill Grammar Item",
+                            type = "bad-skill-type",
+                            role = Role.QUEUE,
+                            parentId = root.id,
+                            rootId = root.id,
+                            depth = 1,
+                        ),
+                    ).getOrNull()!!
+            }
+        val result =
+            queryRules(
+                composition.toolContext,
+                "operation" to JsonPrimitive("get"),
+                "itemId" to JsonPrimitive(item.id.toString()),
+                "noteKey" to JsonPrimitive("some-note"),
+            )
+        assertFalse(isSuccess(result))
+        val error = errorOf(result)
+        assertEquals(ErrorCodes.VALIDATION_ERROR, error["code"]!!.jsonPrimitive.content)
+        assertTrue(
+            error["message"]!!.jsonPrimitive.content.contains("Bad Skill With Spaces"),
+            "message must name the malformed skill: $error",
+        )
+    }
+
+    @Test
+    fun `review follow-up - item mode on an item with a null rootId returns VALIDATION_ERROR`(
+        @TempDir tempDir: Path,
+    ) {
+        val composition = buildComposition(tempDir)
+        // A depth-0 root item has no parent and no rootId of its own -- item.rootId is null by construction.
+        val root =
+            runBlocking {
+                composition.toolContext.repositoryProvider
+                    .workItemRepository()
+                    .create(WorkItem(title = "Null rootId Root", depth = 0))
+                    .getOrNull()!!
+            }
+        val result =
+            queryRules(
+                composition.toolContext,
+                "operation" to JsonPrimitive("get"),
+                "itemId" to JsonPrimitive(root.id.toString()),
+                "noteKey" to JsonPrimitive("anything"),
             )
         assertFalse(isSuccess(result))
         assertEquals(ErrorCodes.VALIDATION_ERROR, errorOf(result)["code"]!!.jsonPrimitive.content)

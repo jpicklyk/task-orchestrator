@@ -2,6 +2,9 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.tools.config.ManagePlanDocumentsTool
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
+import io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError
+import io.github.jpicklyk.mcptask.current.domain.repository.Result
+import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
@@ -41,6 +44,8 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.nio.file.Files
 import java.nio.file.Path
+import java.security.MessageDigest
+import java.time.Instant
 import java.util.UUID
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
@@ -142,6 +147,11 @@ class RuleRoutesTest {
         runBlocking { repo.planDocumentRepository().stash(rootId, slug, body) }
     }
 
+    private fun sha256Hex(bytes: ByteArray): String {
+        val digest = MessageDigest.getInstance("SHA-256").digest(bytes)
+        return digest.joinToString("") { "%02x".format(it) }
+    }
+
     companion object {
         /** Own copy of the S1 fixture body -- see `QueryRulesToolTest.FIXTURE_B` for the field-by-field rationale. */
         const val FIXTURE_B =
@@ -174,6 +184,11 @@ class RuleRoutesTest {
             assertContentEquals(FIXTURE_B.toByteArray(Charsets.UTF_8), servedBody.toByteArray(Charsets.UTF_8))
             assertEquals(root.id.toString(), body["rootId"]!!.jsonPrimitive.content)
             assertEquals("protocol.entry-seat", body["key"]!!.jsonPrimitive.content)
+            assertEquals(
+                sha256Hex(FIXTURE_B.toByteArray(Charsets.UTF_8)),
+                body["rulesVersion"]!!.jsonPrimitive.content,
+                "REST rulesVersion must equal an independently computed SHA-256 of the UTF-8 body (M2 must also go red on REST)",
+            )
         }
 
     // -----------------------------------------------------------------------
@@ -204,6 +219,7 @@ class RuleRoutesTest {
                 }
             // Record the outcome either way, per addendum P1 -- but if ingestion succeeded, the GET
             // below must serve exactly what was PUT.
+            println("[probe P1] REST PUT rule%2Fp1-key status = ${putResponse.status}")
             if (putResponse.status == HttpStatusCode.OK) {
                 val getResponse =
                     client.get("/api/v1/roots/${root.id}/rules/p1-key") {
@@ -250,6 +266,22 @@ class RuleRoutesTest {
             val keys = rules.map { it.jsonObject["key"]!!.jsonPrimitive.content }
             assertEquals(listOf("protocol.entry-seat", "test-author"), keys)
             rules.forEach { assertFalse(it.jsonObject.containsKey("body")) }
+
+            val byKey = rules.associate { it.jsonObject["key"]!!.jsonPrimitive.content to it.jsonObject }
+            assertEquals(
+                sha256Hex("b".toByteArray(Charsets.UTF_8)),
+                byKey.getValue("protocol.entry-seat")["rulesVersion"]!!.jsonPrimitive.content,
+                "list entry rulesVersion must equal an independently computed SHA-256 of its stored body",
+            )
+            assertEquals(
+                sha256Hex("a".toByteArray(Charsets.UTF_8)),
+                byKey.getValue("test-author")["rulesVersion"]!!.jsonPrimitive.content,
+            )
+            rules.forEach { entry ->
+                val updatedAt = entry.jsonObject["updatedAt"]!!.jsonPrimitive.content
+                assertTrue(updatedAt.isNotBlank(), "updatedAt must be present: $entry")
+                Instant.parse(updatedAt) // throws if not a parseable ISO-8601 instant
+            }
         }
 
     // -----------------------------------------------------------------------
@@ -293,7 +325,9 @@ class RuleRoutesTest {
                     header("Authorization", "Bearer $TEST_TOKEN")
                 }
             assertEquals(HttpStatusCode.NotFound, response.status)
-            assertTrue(response.bodyAsText().contains("not_found"))
+            // contains("not_found") would also match "rule_not_found" -- assert the exact code so a
+            // skipped root-exists check (which would 404 rule_not_found instead) cannot pass this.
+            assertEquals("not_found", parseObj(response.bodyAsText())["error"]!!.jsonPrimitive.content, "body: ${response.bodyAsText()}")
         }
 
     @Test
@@ -400,6 +434,80 @@ class RuleRoutesTest {
             assertTrue(response.bodyAsText().contains("bad_request"))
         }
 
+    // Review follow-up: S8 previously exercised only an uppercase key -- cover the grammar's other
+    // forbidden shapes (embedded slash, leading dot, over-length) on the REST leg too.
+    @Test
+    fun `S8 GET roots rootId rules key returns 400 bad_request for a key containing a slash`(
+        @TempDir tempDir: Path,
+    ): Unit =
+        testApplication {
+            val composition = buildComposition(tempDir)
+            val root =
+                runBlocking {
+                    composition.toolContext.repositoryProvider
+                        .workItemRepository()
+                        .create(
+                            WorkItem(title = "S8 Slash Root", depth = 0)
+                        ).getOrNull()!!
+                }
+            application { configureProductionRuleApp(composition) }
+
+            val response =
+                client.get("/api/v1/roots/${root.id}/rules/a%2Fb") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                }
+            assertEquals(HttpStatusCode.BadRequest, response.status, "body: ${response.bodyAsText()}")
+            assertTrue(response.bodyAsText().contains("bad_request"))
+        }
+
+    @Test
+    fun `S8 GET roots rootId rules key returns 400 bad_request for a key with a leading dot`(
+        @TempDir tempDir: Path,
+    ): Unit =
+        testApplication {
+            val composition = buildComposition(tempDir)
+            val root =
+                runBlocking {
+                    composition.toolContext.repositoryProvider
+                        .workItemRepository()
+                        .create(
+                            WorkItem(title = "S8 Dot Root", depth = 0)
+                        ).getOrNull()!!
+                }
+            application { configureProductionRuleApp(composition) }
+
+            val response =
+                client.get("/api/v1/roots/${root.id}/rules/.x") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                }
+            assertEquals(HttpStatusCode.BadRequest, response.status, "body: ${response.bodyAsText()}")
+            assertTrue(response.bodyAsText().contains("bad_request"))
+        }
+
+    @Test
+    fun `S8 GET roots rootId rules key returns 400 bad_request for a 101-char key`(
+        @TempDir tempDir: Path,
+    ): Unit =
+        testApplication {
+            val composition = buildComposition(tempDir)
+            val root =
+                runBlocking {
+                    composition.toolContext.repositoryProvider
+                        .workItemRepository()
+                        .create(
+                            WorkItem(title = "S8 Long Root", depth = 0)
+                        ).getOrNull()!!
+                }
+            application { configureProductionRuleApp(composition) }
+
+            val response =
+                client.get("/api/v1/roots/${root.id}/rules/${"a".repeat(101)}") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                }
+            assertEquals(HttpStatusCode.BadRequest, response.status, "body: ${response.bodyAsText()}")
+            assertTrue(response.bodyAsText().contains("bad_request"))
+        }
+
     // -----------------------------------------------------------------------
     // Probe P2 (REST side) -- REST rootId is parsed as a full UUID, no hex-prefix resolution
     // -----------------------------------------------------------------------
@@ -432,4 +540,120 @@ class RuleRoutesTest {
             assertEquals(HttpStatusCode.BadRequest, response.status)
             assertTrue(response.bodyAsText().contains("bad_request"))
         }
+}
+
+/**
+ * Review follow-up (orchestrator fix `b3bdc5e0`, per `task-scope-addendum` par C): a root lookup
+ * that fails with a repository error OTHER than not-found must yield `RuleGetResult`/
+ * `RuleListResult.RepositoryError` -> REST 500 `db_error` -- NOT the 404 `not_found` a genuinely
+ * missing root gets. Mirrors [EffectiveConfigRoutesRootLookupFailureTest]'s S19 fixture/assertion
+ * shape (own copy -- top-level private classes are file-scoped, so no name clash across files in
+ * this package).
+ */
+class RuleRoutesRootLookupFailureTest {
+    private fun buildDatabaseManager(): DatabaseManager {
+        val dbName = "rule_routes_root_lookup_failure_${System.nanoTime()}"
+        val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
+        DirectDatabaseSchemaManager().updateSchema()
+        return DatabaseManager(database)
+    }
+
+    private fun materializeEmptyGlobalConfig(tempDir: Path) {
+        val configDir = tempDir.resolve(".taskorchestrator")
+        Files.createDirectories(configDir)
+        Files.write(configDir.resolve("config.yaml"), "work_item_schemas: {}\n".toByteArray(Charsets.UTF_8))
+    }
+
+    private fun buildComposition(tempDir: Path): CompositionResult {
+        materializeEmptyGlobalConfig(tempDir)
+        val appConfig = AppConfig.fromEnv { key -> if (key == "AGENT_CONFIG_DIR") tempDir.toString() else null }
+        return ServerComposition(appConfig = appConfig, databaseManager = buildDatabaseManager(), shutdownCoordinator = null).build()
+    }
+
+    private fun tokenEntriesFor(authConfig: ApiAuthConfig): Map<HashBytes, BearerTokenStore.TokenEntry> =
+        (authConfig as? ApiAuthConfig.Bearer)?.tokens?.mapValues { (_, principal) ->
+            BearerTokenStore.TokenEntry(principal, expiresAt = null)
+        } ?: emptyMap()
+
+    private fun parseObj(body: String): JsonObject = Json.parseToJsonElement(body).jsonObject
+
+    @Test
+    fun `review follow-up - a non-not-found root-lookup repo error is 500 db_error for GET key and list, unknown root still 404s`(
+        @TempDir tempDir: Path,
+    ): Unit =
+        testApplication {
+            val composition = buildComposition(tempDir)
+            val repo = composition.toolContext.repositoryProvider
+            val root = runBlocking { repo.workItemRepository().create(WorkItem(title = "RepoError Root", depth = 0)).getOrNull()!! }
+            runBlocking { repo.planDocumentRepository().stash(root.id, "rule/x", "unreachable body") }
+            val unknownId = UUID.randomUUID()
+
+            val failingProvider =
+                RuleRoutesFailingRepositoryProvider(
+                    repo,
+                    RuleRoutesFailingWorkItemRepository(repo.workItemRepository(), root.id),
+                )
+            val authConfig = makeTestAuthConfig()
+            application {
+                install(ContentNegotiation) { json(McpJson) }
+                installRestApiRoutes(
+                    apiConfig = authConfig,
+                    eventBus = null,
+                    effectiveProvider = failingProvider,
+                    apiTokenEntries = tokenEntriesFor(authConfig),
+                    allowQueryToken = false,
+                    serverName = "rule-routes-root-lookup-failure-test",
+                    serverVersion = "test",
+                    actorAuthEnabled = composition.actorAuthEnabled,
+                    noteSchemaService = composition.noteSchemaService,
+                    toolContext = composition.toolContext,
+                    degradedModePolicy = composition.degradedModePolicy,
+                    idempotencyCache = composition.idempotencyCache,
+                )
+            }
+
+            val failingGet =
+                client.get("/api/v1/roots/${root.id}/rules/x") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                }
+            assertEquals(HttpStatusCode.InternalServerError, failingGet.status, "body: ${failingGet.bodyAsText()}")
+            assertEquals("db_error", parseObj(failingGet.bodyAsText())["error"]!!.jsonPrimitive.content)
+
+            val failingList =
+                client.get("/api/v1/roots/${root.id}/rules") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                }
+            assertEquals(HttpStatusCode.InternalServerError, failingList.status, "body: ${failingList.bodyAsText()}")
+            assertEquals("db_error", parseObj(failingList.bodyAsText())["error"]!!.jsonPrimitive.content)
+
+            // Control: a genuinely unknown root (no wrapper failure involved) must still 404 not_found
+            // -- proves the 500s above are NOT just "any repository error reaching this route".
+            val notFoundGet =
+                client.get("/api/v1/roots/$unknownId/rules/x") {
+                    header("Authorization", "Bearer $TEST_TOKEN")
+                }
+            assertEquals(HttpStatusCode.NotFound, notFoundGet.status)
+            assertEquals("not_found", parseObj(notFoundGet.bodyAsText())["error"]!!.jsonPrimitive.content)
+        }
+}
+
+/** Wraps a real [WorkItemRepository], failing [getById] for exactly one id with a non-not-found repository error. */
+private class RuleRoutesFailingWorkItemRepository(
+    private val delegate: WorkItemRepository,
+    private val failingId: UUID,
+) : WorkItemRepository by delegate {
+    override suspend fun getById(id: UUID): Result<WorkItem> =
+        if (id == failingId) {
+            Result.Error(RepositoryError.DatabaseError("Simulated getById failure for $id"))
+        } else {
+            delegate.getById(id)
+        }
+}
+
+/** Wraps a real [RepositoryProvider], substituting [failingWorkItemRepo] for [workItemRepository]. */
+private class RuleRoutesFailingRepositoryProvider(
+    private val delegate: RepositoryProvider,
+    private val failingWorkItemRepo: WorkItemRepository,
+) : RepositoryProvider by delegate {
+    override fun workItemRepository(): WorkItemRepository = failingWorkItemRepo
 }
