@@ -51,6 +51,8 @@ proposal item's own status says "terminal".
 | `234b50a0` | declarations-extractor seat and its accuracy contract | **Test author protocol** — the declarations paragraph (extractor seat, accuracy contract, orchestrator scan) and rule 4's public-evidence self-resolution clause |
 | `bb191508` | sweep the whole defect class during planning | **Planning seat return template** (`defect-class-siblings` field); the `bug-fix` schema's `diagnosis` guidance carries the same requirement at note-fill time |
 | `c068c943` (#360) | per-PR CHANGELOG `[Unreleased]` bullet | **Docs** — `CHANGELOG.md` is orchestrator- or docs-seat-owned at finalization, never an implementer's; the bullet itself and the PR body's `## Changelog` section are `/implement` Step 6 steps (orchestrator-side, not a delegated fact) |
+| `27c021b1` (#318) | hand-assembled Ktor test apps diverging from production | **Test author protocol** — the declarations block's `harness:` line, its accuracy-contract bullet, and rule 4's harness clause (named helper or stop-and-ask) |
+| `395f316f` (#374) | tests that bypass the runtime's validation order | **Test author protocol** — the declarations block's `runtime call order:` line and its accuracy-contract bullet (the pinned `McpToolAdapter` sentence) |
 
 ---
 
@@ -202,6 +204,8 @@ DECLARATIONS for <short-uuid> — verbatim and complete
 <every public declaration the tests touch: types and data-class constructors with full parameter
 lists and defaults; function and method signatures; constants; enum values; and any KDoc carrying
 an oracle or stating an invariant — including the validate() the fixtures must satisfy>
+harness: <fully-qualified src/test helper fn + file:line | NONE + the exact plugin list production installs>
+runtime call order: <MCP: the pinned sentence below | REST: the route's check order from the frozen error table>
 ```
 
 Extractor accuracy contract:
@@ -214,10 +218,19 @@ Extractor accuracy contract:
 - For every scenario input the plan names (route query params, env vars, config keys, tool
   params), give the exact name or write `NOT DECLARED: <what>`.
 - A claim that a file or symbol does not exist names the check that produced it.
+- `harness:` names the helper that builds the application under test, fully qualified with its
+  `file:line` (e.g. `io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.configureTestApp`,
+  `ApiTestHelper.kt:153`; `configureWriteTestApp`, `WriteRoutesTest.kt:76`) — or `NONE` plus the exact
+  plugin list the production module installs, so the gap is visible rather than improvised.
+- `runtime call order:` for an MCP tool is this pinned sentence, verbatim: "`McpToolAdapter`
+  preprocesses params, calls `validateParams`, then `execute` inside `withConfigSession`;
+  `execute()` alone never validates" (`interfaces/mcp/McpToolAdapter.kt:101-111`). For a REST
+  route it is the route's check order, copied from the frozen error table.
 
 Orchestrator scan, before handoff: grep the declarations file for behaviour words (`returns`,
 `throws`, `falls back`, `catches`, `calls`, `if`, `when`, `otherwise`, `instead`) and strip every
-hit that describes behaviour rather than declaring a signature or pre-existing KDoc; then delete
+hit that describes behaviour rather than declaring a signature or pre-existing KDoc — the pinned
+`runtime call order:` sentence is exempt, since it is fixed contract text, not extractor prose; then delete
 any unredacted copy so only the scanned file reaches the author. The scan is not optional: on
 2026-09-25 the extractor leaked implementation prose in 2 of 2 runs despite an explicit
 prohibition, and the scan caught both.
@@ -237,7 +250,9 @@ Rules for the author (a breach is a breach whether or not anything useful was se
    diff. Asking costs a round-trip; the lookup costs the dispatch. An ambiguity resolvable from
    public non-`src/main` evidence (the tool's parameterSchema, `src/test` harnesses, docs) may be
    self-resolved if the manifest's arbitration record states the evidence used; the reviewer
-   verifies it.
+   verifies it. The harness follows the same path: when the block's `harness:` line names a
+   helper, build the application under test through it and never assemble a Ktor
+   `application {}` by hand; when it says `NONE` and the scenarios need one, stop and ask.
 5. **Surface labels.** `test-plan` labels every scenario `EXISTING-SURFACE` or `NEW-SURFACE`. Write
    each `NEW-SURFACE` test so the plan's narrowest-revert recipe (keep the new type/parameter,
    revert only its call sites) still exercises it; where the plan names a substitute verification

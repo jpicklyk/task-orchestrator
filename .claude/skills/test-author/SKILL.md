@@ -176,7 +176,14 @@ paste inline and verbatim every public declaration the author needs: types and d
 constructors with full parameter lists and defaults, function and method signatures, constants,
 enum values, and any KDoc that carries an oracle or states an invariant (`validate()` included,
 per §7 Fixture invariants). The author writes tests against that block and goes looking for
-nothing further.
+nothing further. The block also carries a `harness:` line and a `runtime call order:` line (for
+an MCP tool, validation runs in `McpToolAdapter` before `execute()`, so a test that calls
+`execute()` directly never sees it); the template's Test author protocol slot fixes their shape.
+
+**Harness rule.** When `harness:` names a helper, build the application under test through it —
+never hand-assemble a Ktor `application {}`, whose plugin set drifts from production so its tests
+prove the harness rather than the route. When it says `NONE` and the scenarios need one, that is
+a missing declaration (§4.4), not an invitation to assemble.
 
 A declarations block that is missing entirely is an orchestrator error. Say so and stop (§4.4);
 do not reconstruct it.
