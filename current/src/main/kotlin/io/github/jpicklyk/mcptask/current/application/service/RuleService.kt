@@ -42,7 +42,13 @@ class RuleService(
         val item =
             when (val itemResult = workItemRepository.getById(rootId)) {
                 is Result.Success -> itemResult.data
-                is Result.Error -> return RuleGetResult.RootNotFound(rootId)
+                // Only a genuine not-found is a 404; any other repository failure is a db_error (500).
+                is Result.Error ->
+                    return if (itemResult.error is io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError.NotFound) {
+                        RuleGetResult.RootNotFound(rootId)
+                    } else {
+                        RuleGetResult.RepositoryError(itemResult.error.message)
+                    }
             }
         if (item.depth != 0) {
             return RuleGetResult.NotDepthZero(rootId, item.depth)
@@ -69,7 +75,13 @@ class RuleService(
         val item =
             when (val itemResult = workItemRepository.getById(rootId)) {
                 is Result.Success -> itemResult.data
-                is Result.Error -> return RuleListResult.RootNotFound(rootId)
+                // Only a genuine not-found is a 404; any other repository failure is a db_error (500).
+                is Result.Error ->
+                    return if (itemResult.error is io.github.jpicklyk.mcptask.current.domain.repository.RepositoryError.NotFound) {
+                        RuleListResult.RootNotFound(rootId)
+                    } else {
+                        RuleListResult.RepositoryError(itemResult.error.message)
+                    }
             }
         if (item.depth != 0) {
             return RuleListResult.NotDepthZero(rootId, item.depth)
