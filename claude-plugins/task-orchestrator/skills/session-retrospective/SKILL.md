@@ -182,6 +182,19 @@ Match each Step 3 dimension finding against the listing by title. For each candi
   query_items(operation="search", query="<finding keywords>", scope={tags: ["retrospective-trend"]})
   ```
 
+#### Deep mode (`--deep`, opt-in)
+
+Only when `$ARGUMENTS` contains `--deep`, the user invoked this skill in the main session (never a hook-dispatched or background run), and the Workflow tool is callable — otherwise ignore the flag and match inline as above. The `retro-analysis` workflow then replaces the inline matching; it is read-only, and Step 6 still does every write.
+
+1. Build `retro-analysis/args-v1`: `contract`, `runId: "ra-<YYYYMMDD>-<HHMM>"`, `date`, `mode: "deep"`, `rootId` (when a project root is known), `findings` (each Step 3 finding as `{fid: "f<n>", dimension, text, keywords}`), `trends` (the 4.2 listing as `{id, short, title}`), `observations` (one unscoped `query_items(operation="search", tags="agent-observation", limit=100)`, terminal ones dropped), `retros` (the 10 most recent `tags="session-retrospective"` items). Only ids and titles go in; the workflow's agents read summaries and notes themselves.
+2. Unless dry-run, and only when `rootId` is known: stash `{findings, retroScope}` (retroScope = the Step 1 root and item ids) with `manage_plan_documents(operation="stash", rootId, slug="retro/<runId>", body=<JSON>)` and add `planDocSlug: "retro/<runId>"` to the args.
+3. Launch `Workflow({name: "task-orchestrator:retro-analysis", args})` with args as a real object, then end the turn.
+4. On the task notification: if `started: false`, report its `reason` and match inline as above. Otherwise the result echoes `findings` (after compaction, re-read `retro/<runId>` with `manage_plan_documents(operation="get", ...)` if needed); resume at Step 5 with it:
+   - `matched` entries are the 4.3 recurrences — Step 6 increments `Sessions: N` from `sessionsBefore`, or from a `get` when it is null;
+   - `newTrends` and `unresolved` fids are new-pattern candidates;
+   - `staleTrends` are retire candidates; `observationLinks` feed the report.
+5. Skip 4.4 for matched trends whose `evidence` the result already carries.
+
 ### 4.4 Fetch full evidence (only when it matters)
 
 For matched trends where per-session history changes the assessment (e.g., judging whether a pattern is worsening, stabilizing, or was already flagged as environmental), fetch evidence notes:
