@@ -1268,6 +1268,23 @@ that item. `canAdvance` (`get_context`, REST `GET /items/{id}/gate`) already fol
 `canAdvance = !terminal && missing.isEmpty() && !independenceBlocks`, the same pattern the missing-
 required-notes check already used.
 
+### JSON emission
+
+The `violations` key's presence rule differs by surface, and the difference is deliberate (a bare
+gate READ should tell a client "the check ran and found nothing" vs "the check doesn't apply here",
+while a transition RESULT should stay quiet unless there is something to report):
+
+- **`gateStatus`** (`get_context`, REST `GET /items/{id}/gate`) emits `violations` whenever
+  independence checking applies to the item's current phase — **including an empty array** `[]`
+  when the check ran and found nothing.
+- **Everywhere else** — a successful `advance_item`/REST-advance result, each `cascadeEvents` entry,
+  a REST `422 gate_blocked`'s `details.violations`, and an `advance_item`/`complete_tree`
+  applied-or-failure entry (`complete_tree` in `warn` mode included) — `violations` is emitted
+  **only when the list is non-empty**; an empty result is simply omitted, not sent as `[]`.
+- **On every surface**, `violations` is absent entirely when independence `mode` is `off`, or when
+  the relevant schema (the item's own for `gateStatus`/an applied entry, the cascade's own target
+  schema for a `cascadeEvents` entry) declares no `independent_of` anywhere.
+
 ### Honest limits
 
 A2 is an **attestation-consistency check, not an enforcement mechanism**, unless it is paired with
@@ -1289,14 +1306,63 @@ relying on it:
   `require_verified` in a per-root `independence` block replaces the global policy wholesale for
   every item under that root, with no separate confirmation step beyond the ordinary
   `manage_project_config` push.
-- **It cannot detect two humans, or two agents, sharing one actor id.** If two different people or
-  processes both write notes under the same `actorClaim.id` (deliberately or by copy-pasted
-  configuration), every note they write is indistinguishable to this check — it will never raise
-  `same_actor` between them, because by this check's definition they ARE the same actor.
+- **Two parties sharing one actor id always raise `same_actor` — a false positive the check cannot
+  tell apart from a genuine collision.** If two different people or processes both write notes under
+  the same `actorClaim.id` (deliberately or by copy-pasted configuration), every note they write is
+  indistinguishable to this check — it raises `same_actor` between them every time, even when by the
+  real-world-actor meaning of "actor" they are genuinely independent; the check only knows the string
+  in `actorClaim.id`, not who is really typing.
+- **REST note writes ignore any client-supplied actor field.** A REST note write's actor is always
+  the server-resolved caller identity, never a value the request body can set. Under
+  `API_AUTH_MODE=none` every REST write is attributed to the single actor `api:local-unauth`, so ALL
+  notes written over REST while unauthenticated collide as `same_actor` with each other — REST
+  independence checking is meaningless in that mode. Bearer-token REST writes are attributed to
+  `api:<tokenId>`/`api:<sub>` and so are distinguishable from each other, but they are UNCHECKED for
+  verification purposes — under `require_verified: true` a bearer REST write's note is always
+  `unverified`, regardless of how strong the bearer token's own authentication was.
+- **Only FILLED notes are compared, and a filled note can be unfilled again.** Deleting a note's body
+  or blanking it out erases its findings — the check re-evaluates from current note bodies each time,
+  it does not remember that a conflicting note ever existed. `start` only ever evaluates the
+  declaring note's OWN current phase (not every phase the way `complete` does), so a same-actor
+  conflict recorded in an earlier phase's S-note is invisible to a later phase's `start` check unless
+  that earlier note is still filled at evaluation time.
+- **Under `require_verified: true`, a VERIFIED note with no proof `sub`** (non-DID trust, a JWKS
+  config with `requireSubMatch: false`, or a JWT lacking a `sub` claim) **falls back to the
+  self-reported `actorClaim.id` for identity** — so a single credential can present two different
+  identities to the check depending on what `actor` string the caller chose to send. Separately,
+  identity resolution differs by transport for JWKS-verified writes: a REST JWKS write is identified
+  as `api:<sub>` while an MCP JWKS-verified note resolves to the bare `<sub>` — the same real-world
+  principal writing one note over REST and another over MCP is NEVER flagged `same_actor` between
+  those two notes, even with `require_verified: true` and full JWKS verification (a documented,
+  pre-existing limit, unchanged by A2).
+- **A per-root config push can weaken or disable the gate in more ways than the obvious one.**
+  Beyond a deliberate `mode: off` or a dropped `require_verified`, an empty, non-map, or bad-`mode`
+  per-root `independence` block still resolves to `mode: warn, require_verified: false` (the same
+  fallback a malformed *global* block gets) and, because a present per-root block always wins
+  wholesale, this silently downgrades a stricter global `reject` policy for every item under that
+  root. A per-root schema push can also strip a note's `independent_of`/`seat` declaration entirely —
+  once stripped, the gate has nothing to evaluate for that note and simply stops emitting findings,
+  with no error or warning that independence checking went inert for it. `manage_project_config` over
+  MCP has no capability gate of its own, unlike the REST `PUT` route which requires `WRITE_CONFIG` —
+  anyone who can call `manage_project_config` over MCP can weaken or disable the independence gate
+  for a root.
+- **The `independence: temporal-only` waiver is self-service and has no config-level off switch.**
+  Whoever writes the declaring note is the same party who can add the waiver marker to it, and for
+  the common case of a single agent writing its own notes sequentially, the ordering requirement
+  (`N.createdAt` after every same-identity `S`-note's `createdAt`) is satisfied automatically simply
+  by writing last. In practice this makes the waiver an opt-out any note-writer can apply to itself
+  under `reject` mode — there is no config knob to disable the waiver mechanism for a schema, trait,
+  or root.
+- **Even with attribution redaction on, non-admin callers still learn the relation between notes.**
+  `API_REDACT_NOTE_ATTRIBUTION` hides the actor id itself, but a `same_actor` or `missing_actor`
+  finding is still visible on `gateStatus.violations` and the advance/cascade/failure surfaces to any
+  caller who can read them — so a non-admin caller cannot see WHO wrote two notes, but can still see
+  THAT they were (or were not) written by the same actor.
 - **Under `API_AUTH_MODE=none`, REST note writes are indistinguishable from one another** by anything
-  stronger than the caller-supplied `actor` field — there is no bearer-token identity to cross-check
-  a self-reported actor id against, so the same limits as the self-reported case above apply, with no
-  additional assurance from the REST layer itself.
+  stronger than the caller-supplied `actor` field on MCP writes (REST writes have no caller-supplied
+  actor field at all — see above) — there is no bearer-token identity to cross-check a self-reported
+  actor id against, so the same limits as the self-reported case above apply, with no additional
+  assurance from the REST layer itself.
 
 None of the above is a defect to be fixed later — A2 is deliberately scoped as attestation, not
 identity verification; pair it with `actor_authentication` (`require_verified: true`) for a stronger

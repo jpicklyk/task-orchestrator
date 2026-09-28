@@ -1266,8 +1266,7 @@ Any resource lease that cascade itself acquired for entering `work` is released 
       "previousRole": "work",
       "targetRole": "terminal",
       "applied": true,
-      "statusLabel": "done",
-      "violations": []
+      "statusLabel": "done"
     }
   ],
   // A cascade whose own apply step failed instead looks like:
@@ -1284,7 +1283,7 @@ Any resource lease that cascade itself acquired for entering `work` is released 
 
 The `cascadeEvents`, `unblockedItems`, and `expectedNotes` fields are **additive** — they were added when the REST and MCP advance paths were unified. A gate-blocked cascade carries `"applied": false`, `"gateBlocked": true`, and a `missingNotes` array.
 
-`violations` (array, optional, A2) — on the top-level response and on each `cascadeEvents` entry — reports independence-attestation findings for that transition's target schema, `IndependenceViolationDto` objects mirroring `GateStatusDto.violations` above; present (possibly `[]`) whenever independence mode is not `off` and the target schema declares `independent_of` somewhere, populated in `warn` mode too (a `warn`-mode transition still applies and still reports what it found). Omitted entirely when the target schema declares no `independent_of` or mode is `off`.
+`violations` (array, optional, A2) — on the top-level response and on each `cascadeEvents` entry — reports independence-attestation findings for that transition's target schema, `IndependenceViolationDto` objects mirroring `GateStatusDto.violations` above, but under a stricter presence rule: present ONLY when the list is non-empty. It is omitted (not `[]`) both when independence checking applies but finds nothing, and when independence mode is `off` or the target schema declares no `independent_of`. Populated in `warn` mode too, whenever there is something to report (a `warn`-mode transition still applies and still reports what it found).
 
 **Responses:**
 - `200 OK` → `AdvanceResponseDto`
@@ -1324,12 +1323,14 @@ same shape, ordering, and omission rule as `GateStatusDto.missingBySeat` above
 (`{<seat>: [keys], ..., "unowned": [keys]}`, non-empty buckets only, `unowned` last): present only
 when the target schema is seat-aware, omitted entirely for a seat-less schema.
 
-`details.violations` (array, optional, A2) appears after `details.missingBySeat` — same shape and
-presence rule as `GateStatusDto.violations`. A `gate_blocked` rejection can be caused by missing
-required notes, by a non-waived independence violation in `reject` mode, or both; `details.violations`
-reports whichever independence findings exist regardless of which condition actually triggered the
-422 (it is also present, non-empty, when the block was violations-only — an empty `missingNotes`
-alongside a populated `violations`).
+`details.violations` (array, optional, A2) appears after `details.missingBySeat` — same shape as
+`GateStatusDto.violations`, but the same non-empty-only presence rule as `AdvanceResponseDto.violations`
+above (present only when the list is non-empty; omitted, not `[]`, when independence mode is `off`,
+the target schema declares no `independent_of`, or the check applies and finds nothing). A
+`gate_blocked` rejection can be caused by missing required notes, by a non-waived independence
+violation in `reject` mode, or both; `details.violations` reports whichever independence findings
+exist regardless of which condition actually triggered the 422 (it is also present, non-empty, when
+the block was violations-only — an empty `missingNotes` alongside a populated `violations`).
 
 The `hasReviewPhase` is resolved from the item's schema (type + tags + traits) to match `AdvanceItemTool` behavior — an advance from `work` goes to `review` when the schema has a review phase, or directly to `terminal` when it does not.
 

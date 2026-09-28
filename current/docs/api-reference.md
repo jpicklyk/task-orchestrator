@@ -700,12 +700,15 @@ implied by an earlier cascade in this same batch (e.g. completing a child cascad
 terminal rather than re-applied — it is not double-counted and produces no duplicate audit row.
 
 **Independence (A2).** An applied entry (and each of its `cascadeEvents` entries) gains `violations`
-(array, optional, same `{key, seat?, constraint, conflictingSeat?, waived?}` shape as `advance_item`'s
-`violations`) — present whenever independence mode is not `off` and the item's target schema declares
-`independent_of` somewhere, populated in `warn` mode too. A `GateBlocked` entry (`applied: false`,
-`gateErrors` present) also gains `violations` alongside `gateErrors`/`missingNotes` — the item may be
-gate-failed by missing notes, a non-waived `reject`-mode violation, or both; either way this item's
-in-set dependents are skipped the same as any other gate failure. See
+(array, same `{key, seat?, constraint, conflictingSeat?, waived?}` shape as `advance_item`'s
+`violations`) — present only when the list is non-empty (omitted, not `[]`, when independence
+checking applies but finds nothing, and also omitted when independence mode is `off` or the item's
+target schema declares no `independent_of`); populated in `warn` mode too, including on a plain
+(non-cascaded) `complete_tree` applied entry. A `GateBlocked` entry (`applied: false`, `gateErrors`
+present) also gains `violations` under the same non-empty-only rule alongside
+`gateErrors`/`missingNotes` — the item may be gate-failed by missing notes, a non-waived
+`reject`-mode violation, or both; either way this item's in-set dependents are skipped the same as
+any other gate failure. See
 [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#independence-a2)
 → "Independence (A2)".
 
@@ -1318,7 +1321,7 @@ acquired for entering WORK is released in the same call (see [`workflow-guide.md
 
 `dispatch` (object, optional): `{agent?, model?, effort?}` routing profile for the **new** role (`newRole`), resolved from the `dispatch` trait dimension — see [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#dispatch-trait-dimension) → "Dispatch (Trait Dimension)". Omitted entirely (never `null`/`{}`) when no resolved trait declares a profile for the new role.
 
-**Independence (A2).** A successfully-applied result gains `violations` (array, optional, same `{key, seat?, constraint, conflictingSeat?, waived?}` shape as `get_context`'s `gateStatus.violations`) — present whenever independence mode is not `off` and the target schema declares `independent_of` somewhere, populated in `warn` mode too (a `warn`-mode transition still applies and still reports what it found). Each `cascadeEvents` entry gains the same `violations` field, evaluated against that cascade's own target schema. See [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#independence-a2) → "Independence (A2)".
+**Independence (A2).** A successfully-applied result gains `violations` (array, same `{key, seat?, constraint, conflictingSeat?, waived?}` shape as `get_context`'s `gateStatus.violations`) — present only when the list is non-empty (omitted, not `[]`, when independence checking applies but finds nothing, and also omitted when independence mode is `off` or the target schema declares no `independent_of`), populated in `warn` mode too (a `warn`-mode transition still applies and still reports what it found, when there is something to report). Each `cascadeEvents` entry gains the same `violations` field under the same non-empty-only rule, evaluated against that cascade's own target schema. See [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#independence-a2) → "Independence (A2)".
 
 **Response (failed transition).** When `applied: false`, the result shape differs from the success shape:
 

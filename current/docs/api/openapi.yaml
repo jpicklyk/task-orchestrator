@@ -642,8 +642,10 @@ components:
           nullable: true
           description: >-
             A2: independence-attestation findings for this cascade's own target schema. Present
-            (possibly empty) whenever independence mode is not off and the target schema declares
-            independent_of somewhere, populated in warn mode too; null otherwise.
+            only when the list is non-empty; null (not an empty array) when independence checking
+            applies but finds nothing, and also when independence mode is off or the target schema
+            declares no independent_of. Populated in warn mode too, whenever there is something to
+            report.
           items:
             $ref: "#/components/schemas/IndependenceViolationDto"
 
@@ -816,10 +818,11 @@ components:
           type: array
           nullable: true
           description: >-
-            A2: independence-attestation findings for the transition's target schema. Present
-            (possibly empty) whenever independence mode is not off and the target schema declares
-            independent_of somewhere, populated in warn mode too; null otherwise. See
-            config-format.md "Independence (A2)".
+            A2: independence-attestation findings for the transition's target schema. Present only
+            when the list is non-empty; null (not an empty array) when independence checking
+            applies but finds nothing, and also when independence mode is off or the target schema
+            declares no independent_of. Populated in warn mode too, whenever there is something to
+            report. See config-format.md "Independence (A2)".
           items:
             $ref: "#/components/schemas/IndependenceViolationDto"
 

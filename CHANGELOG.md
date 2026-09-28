@@ -70,9 +70,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     results and `cascadeEvents`, `complete_tree`'s applied/gate-failed entries, REST `GET
     /items/{id}/gate`'s `GateStatusDto`, REST `POST /items/{id}/advance`'s `AdvanceResponseDto`/
     `CascadeEventDto`/`422 gate_blocked` `details.violations`, and the plugin's SubagentStop
-    phase-guard hook (which blocks only on a `reject`-mode, non-waived, own-seat finding). Omitted
+    phase-guard hook (which blocks only when the gate's missing notes are empty and the block is a
+    `reject`-mode, non-waived, own-seat finding — `warn`-mode findings never block). Omitted
     entirely (not `[]`/`null`) wherever the resolved schema declares no `independent_of` or mode is
-    `off`.
+    `off`; on every surface OTHER than `gateStatus`, also omitted (not sent as `[]`) whenever the
+    check ran and simply found nothing — `gateStatus` alone reports an explicit `[]` for that case.
   - No tool description or `parameterSchema` change on `advance_item`/`get_context`/`complete_tree`.
 
 - `schema_resolution: legacy | layered | isolated` — an opt-in, per-document top-level config key
