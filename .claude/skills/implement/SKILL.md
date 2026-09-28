@@ -199,7 +199,7 @@ working directory and then names a relative `plans/<slug>.md` points at a path t
 | File ownership | Each agent's entire writable scope — including any declared edit to an existing test file — with cross-stream overlaps declared up front rather than discovered mid-wave. |
 | Test author protocol | The blindness, oracle and scope rules that keep test authorship independent of the implementation. |
 | Contract-change sweep | After a contract tightens, call sites and fixtures the changed item never names break; the sweep makes finding and construction-only-repairing them a step rather than a reminder (proposals `82034e9a`, `31a1abeb`). |
-| Docs | Routes doc edits to one serialized seat so parallel agents never write the same doc. |
+| Docs | Routes doc edits — and the finalization `CHANGELOG.md` bullet (proposal `c068c943`) — to one serialized seat so parallel agents never write the same doc. |
 | Notes | Who fills which note key, and the maxLength each must respect. |
 | Review scoping | Reviews diff owned files, not SHA ranges; the commit map serves only the ownership check (#301). |
 
@@ -893,12 +893,20 @@ After review passes:
    **Commit types:** `feat` for features, `fix` for bugs, `refactor` for tech debt,
    `perf` for performance, `test` for test-only changes, `chore` for maintenance.
 
-2. Push the working branch:
+2. **CHANGELOG bullet (proposal `c068c943`).** A user-visible change — server behaviour, the
+   MCP or REST surface, config keys, plugin skills or hooks — adds ONE bullet under
+   `CHANGELOG.md`'s `## [Unreleased]` section, in its `### Added` / `### Changed` / `### Fixed`
+   subsection (plugin skill and hook changes go under `### Plugin`), committed with the change.
+   The bullet describes behaviour, not the diff, and carries no volatile counts. A docs-, process-
+   or chore-only PR adds none and states `Changelog: none (<why>)` in the PR body instead.
+   `/prepare-release` Step 8c folds these per-PR bullets into the release section.
+
+3. Push the working branch:
    ```bash
    git push -u origin <branch-name>
    ```
 
-3. Create the PR:
+4. Create the PR:
    ```bash
    gh pr create --base main --title "<type>(<scope>): <description>" --body "$(cat <<'EOF'
    ## Summary
@@ -910,24 +918,27 @@ After review passes:
    ## Review
    <verdict summary>
 
+   ## Changelog
+   <the [Unreleased] bullet text, or none (<why>)>
+
    ## MCP
    <item ID>
    EOF
    )"
    ```
 
-4. After PR merges:
+5. After PR merges:
    ```bash
    git checkout main
    git pull origin main
    git branch -D <branch-name>
    ```
 
-5. Advance the item to terminal:
+6. Advance the item to terminal:
    ```bash
    advance_item(transitions=[{ itemId: "<uuid>", trigger: "start" }])
    ```
-6. After the item reaches terminal, follow the retrospective hook's directive if one fires (see `retrospective.mode`).
+7. After the item reaches terminal, follow the retrospective hook's directive if one fires (see `retrospective.mode`).
 
 Report the PR URL and a summary.
 
@@ -956,11 +967,14 @@ For Parallel-tier features with a shared feature worktree:
    ```
 3. Advance the parent to review and fill `review-checklist` (orchestrator-authored,
    summarizing across all children's reviews).
-4. Push the feature branch:
+4. Add the feature's CHANGELOG bullet — or record `Changelog: none (<why>)` — per the
+   Direct/Delegated tier's step 2. The orchestrator or docs seat writes it here, once; never an
+   implementer (the dispatch contract's **Docs** slot).
+5. Push the feature branch:
    ```bash
    git -C <feature-worktree-path> push -u origin feat/<feature-slug>
    ```
-5. Create **one** PR for the whole feature:
+6. Create **one** PR for the whole feature:
    ```bash
    gh pr create --base main --title "feat(<scope>): <feature description>" --body "$(cat <<'EOF'
    ## Summary
@@ -977,21 +991,24 @@ For Parallel-tier features with a shared feature worktree:
    ## Review
    <feature-level review verdict, references each child's review-checklist>
 
+   ## Changelog
+   <the [Unreleased] bullet text, or none (<why>)>
+
    ## MCP
    Parent: <parent UUID>
    Children: <list of child UUIDs>
    EOF
    )"
    ```
-6. After PR merges:
+7. After PR merges:
    ```bash
    git checkout main
    git pull origin main
    git worktree remove <feature-worktree-path>
    git branch -D feat/<feature-slug>
    ```
-7. Advance the parent feature to terminal.
-8. Retrospective — the plugin's retrospective hook fires on the parent's terminal transition.
+8. Advance the parent feature to terminal.
+9. Retrospective — the plugin's retrospective hook fires on the parent's terminal transition.
    In `dispatch` mode (see `retrospective.mode` in `.taskorchestrator/config.yaml`) it directs
    a background `/session-retrospective` automatically — follow its directive; in `nudge` mode,
    or if no directive arrives, suggest running it manually.

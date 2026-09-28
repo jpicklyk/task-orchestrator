@@ -50,6 +50,7 @@ proposal item's own status says "terminal".
 | `d1484a3e` | worktree writes landing in the main checkout | **Header** — the "Write root" line and the two-checkout `git status --short` before the first commit |
 | `234b50a0` | declarations-extractor seat and its accuracy contract | **Test author protocol** — the declarations paragraph (extractor seat, accuracy contract, orchestrator scan) and rule 4's public-evidence self-resolution clause |
 | `bb191508` | sweep the whole defect class during planning | **Planning seat return template** (`defect-class-siblings` field); the `bug-fix` schema's `diagnosis` guidance carries the same requirement at note-fill time |
+| `c068c943` (#360) | per-PR CHANGELOG `[Unreleased]` bullet | **Docs** — `CHANGELOG.md` is orchestrator- or docs-seat-owned at finalization, never an implementer's; the bullet itself and the PR body's `## Changelog` section are `/implement` Step 6 steps (orchestrator-side, not a delegated fact) |
 
 ---
 
@@ -301,9 +302,12 @@ Tightening changes this wave: `<per item — the tightened contract, or "none">`
 
 ## Docs
 
-Implementers do not edit `current/docs/**`, `README.md` or `CLAUDE.md`. List the exact edits your
-change requires under "Docs needed" in `implementation-notes`; a single serialized docs seat makes
-them after the implementation wave, so two agents never write the same doc.
+Implementers do not edit `current/docs/**`, `README.md`, `CLAUDE.md` or `CHANGELOG.md`. List the
+exact edits your change requires under "Docs needed" in `implementation-notes`; a single
+serialized docs seat makes them after the implementation wave, so two agents never write the same
+doc. The `CHANGELOG.md` `[Unreleased]` bullet belongs to the orchestrator or the docs seat at
+finalization (`/implement` Step 6), never to an implementer: parallel streams appending under the
+same `### Changed` heading collide on one shared anchor.
 
 Docs seat for this wave: `<agent/seat, or "orchestrator">`.
 
