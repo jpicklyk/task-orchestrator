@@ -166,10 +166,16 @@ change.
   The server never parses the body; it is served exactly as stored.
 - **This repo's own rules.** This repository keeps its source rule text git-tracked under
   `.taskorchestrator/rules/<key>.md` — readable and diffable like any other file, and the
-  authoritative source an agent edits. Pushing those files into the per-root `rule/<key>` store
-  automatically (so a fresh clone's rules are servable without a manual step) is a planned
-  follow-up to `config-sync` (tracked as item `83733804`); until then, stash them explicitly with
-  `manage_plan_documents`.
+  authoritative source an agent edits. The `config-sync` SessionStart hook pushes these files
+  automatically: after its usual config sync it lists the workspace's `rules/*.md` files, hashes
+  each (SHA-256 of the CRLF-normalized body), and compares against the server's per-key
+  `rulesVersion` from `GET /api/v1/roots/{rootId}/rules`; a key whose local hash differs from (or
+  is absent from) that listing is PUT to `PUT /api/v1/roots/{rootId}/plans/rule%2F<key>` and every
+  other key is left untouched. A filename that doesn't match the server's key grammar
+  (`^[a-z0-9][a-z0-9._-]{0,99}$`) or a body over 16384 bytes is skipped client-side and named in
+  the hook's output line instead of being sent. Like the config sync itself, the rule sync is
+  fail-open — a `rules/` dir that's absent, or any error talking to the API, degrades to a no-op
+  or a one-line note rather than blocking session start.
 
 ---
 
