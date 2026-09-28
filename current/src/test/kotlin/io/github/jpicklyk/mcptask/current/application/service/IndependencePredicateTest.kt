@@ -411,6 +411,26 @@ class IndependencePredicateTest {
         assertTrue(GatePredicate.blocksAdvance(violations, rejectPolicy))
     }
 
+    // Orchestrator red-proof finding: M11b survived -- the waiver must ALSO never waive N's OWN
+    // missing_actor entry (rule (1), no conflictingSeat), distinct from the S-actor-less case above
+    // (rule (3), conflictingSeat present). Here N ITSELF is actor-less, N's body still opens with
+    // the temporal-only marker, and ordering is otherwise valid (N.createdAt after S.createdAt) --
+    // since N has no actor at all, rule (4) same_actor never even evaluates, so the ONLY entry is
+    // N's own rule-(1) missing_actor check, which the waiver must leave unwaived.
+    @Test
+    fun `S5 waiver never waives N's own missing_actor entry, even with the marker present and valid ordering`() {
+        val base = Instant.now()
+        val sNote = note(S_KEY, actorId = "s-agent", createdAt = base)
+        val nNote = note(N_KEY, actorId = null, createdAt = base.plusSeconds(60), body = "independence: temporal-only\nfilled details")
+        val rejectPolicy = IndependencePolicy(IndependenceMode.REJECT)
+        val violations = GatePredicate.violationsForComplete(schema, listOf(sNote, nNote), rejectPolicy)!!
+        assertEquals(1, violations.size, "violations: $violations")
+        assertEquals(IndependenceConstraint.MISSING_ACTOR, violations[0].constraint)
+        assertNull(violations[0].conflictingSeat, "N's own missing-actor check carries no conflictingSeat")
+        assertFalse(violations[0].waived, "the waiver must never waive N's own missing_actor entry")
+        assertTrue(GatePredicate.blocksAdvance(violations, rejectPolicy), "REJECT must still block on an unwaived missing_actor entry")
+    }
+
     @Test
     fun `probe -- waiver first-line variants -- an exact, case-sensitive, trimmed first line (one trailing CR stripped) is honored`() {
         val base = Instant.now()

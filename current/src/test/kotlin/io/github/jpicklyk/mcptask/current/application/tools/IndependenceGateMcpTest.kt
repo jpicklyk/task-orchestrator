@@ -376,6 +376,44 @@ work_item_schemas:
         }
 
     // ─────────────────────────────────────────────────────────────────────
+    // Orchestrator red-proof finding: mutant M11b survived (the waiver also waived N's OWN
+    // missing_actor entry). N itself is actor-less, N's body still opens with the temporal-only
+    // marker, and ordering is otherwise valid -- the waiver must never waive missing_actor, so
+    // REJECT must still block via advance_item.
+    // ─────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `S5 waiver never waives N's own missing_actor entry -- REJECT still blocks via advance_item`(
+        @TempDir tempDir: Path
+    ): Unit =
+        runBlocking {
+            val toolContext = newToolContext(tempDir, globalConfig("reject"))
+            val root = createRoot(toolContext)
+            val item = createItem(toolContext, root, "indep-gate")
+            upsertNote(toolContext, item.id, "implementation-notes", "work", "impl", actorId = "s-agent")
+            upsertNote(
+                toolContext,
+                item.id,
+                "test-manifest",
+                "work",
+                "independence: temporal-only\nfilled details",
+                actorId = null
+            )
+
+            val transition = advance(toolContext, item.id, "start")
+            assertFalse(
+                transition["applied"]!!.jsonPrimitive.boolean,
+                "REJECT must still block on an unwaived missing_actor entry: $transition"
+            )
+            val violations = transition["violations"]!!.jsonArray
+            assertEquals(1, violations.size, "violations: $violations")
+            val entry = violations[0].jsonObject
+            assertEquals("test-manifest", entry["key"]!!.jsonPrimitive.content)
+            assertEquals("missing_actor", entry["constraint"]!!.jsonPrimitive.content)
+            assertFalse(entry["waived"]?.jsonPrimitive?.boolean ?: false, "must never be marked waived: $entry")
+        }
+
+    // ─────────────────────────────────────────────────────────────────────
     // S6 -- mode OFF bypasses the check even for a same-actor fixture that would REJECT-block.
     // ─────────────────────────────────────────────────────────────────────
 
