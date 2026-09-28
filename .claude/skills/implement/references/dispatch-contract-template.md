@@ -53,6 +53,7 @@ proposal item's own status says "terminal".
 | `c068c943` (#360) | per-PR CHANGELOG `[Unreleased]` bullet | **Docs** — `CHANGELOG.md` is orchestrator- or docs-seat-owned at finalization, never an implementer's; the bullet itself and the PR body's `## Changelog` section are `/implement` Step 6 steps (orchestrator-side, not a delegated fact) |
 | `27c021b1` (#318) | hand-assembled Ktor test apps diverging from production | **Test author protocol** — the declarations block's `harness:` line, its accuracy-contract bullet, and rule 4's harness clause (named helper or stop-and-ask) |
 | `395f316f` (#374) | tests that bypass the runtime's validation order | **Test author protocol** — the declarations block's `runtime call order:` line and its accuracy-contract bullet (the pinned `McpToolAdapter` sentence) |
+| `9023ed46` (#361) | unscoped dedup search before creating a root or feature item | out of scope: an item-creation step, adopted in the plugin skills `post-plan-workflow` (Phase 1) and `create-item` (Step 5), which run where items are materialized — no dispatched seat creates items |
 
 ---
 

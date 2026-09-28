@@ -133,6 +133,12 @@ If multiple traits apply, combine them: `traits: "needs-migration-review,needs-a
 
 ## Step 5 — Create the item(s)
 
+**Dedup check first.** Before creating each item (a work tree's root only — its children inherit the check), run ONE unscoped search:
+```
+query_items(operation="search", query="<title key terms>", limit=5)
+```
+It stays unscoped even when a rootId is known: depth-0 process-global items such as agent-observations sit outside any project ancestor, so an `ancestorId`-scoped search misses them. Show close matches as one FYI line (role + short id each) and let the user decide — never auto-link, auto-skip or auto-cancel.
+
 **Single item** (bug, observation, standalone task, action item):
 ```
 manage_items(operation="create", items=[{
