@@ -1,0 +1,63 @@
+{
+  "contract": "run-wave/snapshot-v1",
+  "rootId": "00000000-0000-4000-8000-000000000000",
+  "ancestorId": "cccccccc-3333-4333-8333-333333333333",
+  "capturedAt": "2026-09-28T12:00:00Z",
+  "features": ["seats", "dispatchBySeat", "independent_of", "rules"],
+  "rulesServed": [],
+  "candidates": [
+    {
+      "id": "cccccccc-3333-4333-8333-333333333333",
+      "short": "cccccccc",
+      "title": "Container feature",
+      "priority": "high",
+      "complexity": null,
+      "type": "scratch-feature",
+      "role": "queue",
+      "parentId": null,
+      "traits": [],
+      "hasChildren": true,
+      "source": "ready"
+    },
+    {
+      "id": "aaaaaaaa-1111-4111-8111-111111111111",
+      "short": "aaaaaaaa",
+      "title": "Item A",
+      "priority": "high",
+      "complexity": 2,
+      "type": "scratch-a",
+      "role": "queue",
+      "parentId": "cccccccc-3333-4333-8333-333333333333",
+      "traits": [],
+      "hasChildren": false,
+      "source": "ready"
+    }
+  ],
+  "blocked": [],
+  "schemas": {
+    "cccccccc-3333-4333-8333-333333333333": { "status": "ok", "type": "scratch-feature", "configFingerprint": "fp-feature", "configSource": "per-root", "notes": [] },
+    "aaaaaaaa-1111-4111-8111-111111111111": {
+      "status": "ok",
+      "type": "scratch-a",
+      "configFingerprint": "fp1",
+      "configSource": "per-root",
+      "notes": [
+        { "key": "specification", "role": "queue", "required": true, "seat": null },
+        { "key": "session-tracking", "role": "work", "required": true, "seat": null }
+      ]
+    }
+  },
+  "noteActors": {},
+  "parents": {},
+  "profile": {
+    "shell": "bash",
+    "verify": [],
+    "searchScope": ["/repo"],
+    "worktreeRoot": ".claude/worktrees",
+    "branchPrefix": { "shared": "feat/", "perItem": "fix/" },
+    "maxItems": 5,
+    "defaultModels": { "queue": "opus", "work": "sonnet", "extractor": { "model": "sonnet", "effort": "low" } }
+  },
+  "git": { "originMain": "e77c3e95", "repoRoot": "/repo", "worktrees": {} },
+  "probe": { "phase0Hooks": true, "pluginVersion": "3.8.0", "workflowSizeGuideline": "medium" }
+}

@@ -1,0 +1,116 @@
+{
+  "type": "object",
+  "required": ["contract", "runId", "rootId", "baseSha", "worktreeMode", "entryMode", "capabilities", "items"],
+  "properties": {
+    "contract": { "const": "implement-wave/args-v1" },
+    "runId": { "type": "string", "pattern": "^r-[A-Za-z0-9-]{4,40}$" },
+    "startedAt": { "type": "string" },
+    "rootId": { "type": "string" },
+    "planDocSlug": { "type": "string" },
+    "baseSha": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" },
+    "worktreeMode": { "enum": ["shared", "per-item"] },
+    "entryMode": { "enum": ["seat", "pre-entered"] },
+    "capabilities": {
+      "type": "object",
+      "required": ["features", "phase0Hooks"],
+      "properties": {
+        "features": { "type": "array", "items": { "type": "string" } },
+        "phase0Hooks": { "type": "boolean" },
+        "pluginVersion": { "type": "string" }
+      }
+    },
+    "project": {
+      "type": "object",
+      "properties": {
+        "shell": { "enum": ["bash", "powershell"] },
+        "scratchDir": { "type": "string" },
+        "verify": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "command"],
+            "properties": {
+              "name": { "type": "string" },
+              "command": { "type": "string" },
+              "seats": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        },
+        "searchScope": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "items": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "short", "type", "configFingerprint", "traits", "worktree", "stages"],
+        "properties": {
+          "id": { "type": "string" },
+          "short": { "type": "string", "pattern": "^[0-9a-f]{8}$" },
+          "title": { "type": "string" },
+          "priority": { "enum": ["high", "medium", "low"] },
+          "type": { "type": "string" },
+          "schemaFree": { "type": "boolean" },
+          "configFingerprint": { "type": ["string", "null"] },
+          "configSource": { "enum": ["per-root", "global", null] },
+          "traits": { "type": "array", "items": { "type": "string" } },
+          "itemTraits": { "type": "array", "items": { "type": "string" } },
+          "worktree": { "type": "string" },
+          "branch": { "type": "string" },
+          "stages": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": ["seat", "phase", "notes", "writes", "dispatch", "output"],
+              "properties": {
+                "seat": { "type": "string" },
+                "phase": { "enum": ["queue", "work"] },
+                "enters": { "type": "boolean" },
+                "implicitOwner": { "type": "boolean" },
+                "notes": { "type": "array", "items": { "type": "string" } },
+                "readsExclude": { "type": "array", "items": { "type": "string" } },
+                "rules": { "type": "array", "items": { "type": "string" } },
+                "skills": { "type": "array", "items": { "type": "string" } },
+                "writes": { "type": "boolean" },
+                "extraLockKeys": { "type": "array", "items": { "type": "string" } },
+                "dispatch": {
+                  "type": "object",
+                  "properties": {
+                    "agent": { "type": ["string", "null"] },
+                    "model": { "type": "string" },
+                    "effort": { "type": "string" }
+                  }
+                },
+                "output": { "type": "string" },
+                "inserted": { "type": "boolean" }
+              }
+            }
+          },
+          "orchestratorNotes": { "type": "array", "items": { "type": "string" } },
+          "unownedRequired": { "type": "array", "items": { "type": "string" } },
+          "waitsFor": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["item", "milestone"],
+              "properties": {
+                "item": { "type": "string" },
+                "milestone": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "deferred": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "reason"]
+      }
+    },
+    "outputSchemas": { "type": "object" }
+  }
+}

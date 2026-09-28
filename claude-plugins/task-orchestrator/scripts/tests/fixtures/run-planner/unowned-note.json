@@ -1,0 +1,59 @@
+{
+  "contract": "run-wave/snapshot-v1",
+  "rootId": "00000000-0000-4000-8000-000000000000",
+  "ancestorId": "02b54c1f-81a1-4383-9d13-1b0eecf8bb38",
+  "capturedAt": "2026-09-28T12:00:00Z",
+  "features": ["seats", "dispatchBySeat", "independent_of", "rules"],
+  "rulesServed": [{ "key": "commit-discipline", "rulesVersion": "1" }],
+  "candidates": [
+    {
+      "id": "01bb5ffb-56f8-4886-ab2e-2659627e35a9",
+      "short": "01bb5ffb",
+      "title": "B1a: implement-wave scheduler core",
+      "priority": "high",
+      "complexity": null,
+      "type": "plugin-change-like",
+      "role": "work",
+      "parentId": "20654a3b-11cf-4c27-b578-9a0c81c37837",
+      "traits": ["delegated", "session-tracked", "needs-test-author"],
+      "hasChildren": false,
+      "source": "work"
+    }
+  ],
+  "blocked": [],
+  "schemas": {
+    "01bb5ffb-56f8-4886-ab2e-2659627e35a9": {
+      "status": "ok",
+      "type": "plugin-change-like",
+      "configFingerprint": "66e0b0d36c8026a5c8ce3fa36339ffaecdcd0be0cd60047f2c8dcb10f7eea5e0",
+      "configSource": "per-root",
+      "notes": [
+        { "key": "specification", "role": "queue", "required": true, "seat": null },
+        { "key": "session-tracking", "role": "work", "required": true, "seat": "orchestrator" },
+        { "key": "delegation-metadata", "role": "work", "required": false, "seat": "orchestrator" },
+        { "key": "test-plan", "role": "queue", "required": true, "seat": "planner", "skill": "test-author" },
+        { "key": "test-manifest", "role": "work", "required": true, "seat": "test-author", "skill": "test-author" },
+        { "key": "test-independence-audit", "role": "review", "required": true, "seat": "reviewer", "skill": "review-quality" }
+      ],
+      "seats": [{ "name": "test-author", "phase": "work", "after": ["implementer"], "readsExclude": ["implementation-notes", "session-tracking"] }],
+      "dispatch": { "work": { "agent": "task-orchestrator:implementer" }, "review": { "agent": "task-orchestrator:reviewer", "effort": "high" } },
+      "dispatchBySeat": { "work": { "test-author": { "model": "sonnet" } } },
+      "resources": []
+    }
+  },
+  "noteActors": { "01bb5ffb-56f8-4886-ab2e-2659627e35a9": [] },
+  "parents": {
+    "20654a3b-11cf-4c27-b578-9a0c81c37837": { "role": "work", "canAdvance": true, "missing": [] }
+  },
+  "profile": {
+    "shell": "bash",
+    "verify": [],
+    "searchScope": ["/repo"],
+    "worktreeRoot": ".claude/worktrees",
+    "branchPrefix": { "shared": "feat/", "perItem": "fix/" },
+    "maxItems": 5,
+    "defaultModels": { "queue": "opus", "work": "sonnet", "extractor": { "model": "sonnet", "effort": "low" } }
+  },
+  "git": { "originMain": "e77c3e95", "repoRoot": "/repo", "worktrees": {} },
+  "probe": { "phase0Hooks": true, "pluginVersion": "3.8.0", "workflowSizeGuideline": "medium" }
+}

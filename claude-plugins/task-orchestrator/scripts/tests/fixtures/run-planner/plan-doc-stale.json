@@ -1,0 +1,159 @@
+{
+  "contract": "run-wave/plan-doc-v1",
+  "args": {
+    "contract": "implement-wave/args-v1",
+    "runId": "r-202609281200-bbbbbbbb",
+    "startedAt": "2026-09-28T12:00:00Z",
+    "rootId": "00000000-0000-4000-8000-000000000000",
+    "planDocSlug": "run/r-202609281200-bbbbbbbb",
+    "baseSha": "e77c3e95",
+    "worktreeMode": "per-item",
+    "entryMode": "seat",
+    "capabilities": {
+      "features": [
+        "seats",
+        "dispatchBySeat",
+        "independent_of",
+        "rules"
+      ],
+      "phase0Hooks": true,
+      "pluginVersion": "3.8.0"
+    },
+    "project": {
+      "shell": "bash",
+      "verify": [],
+      "searchScope": [
+        "/repo"
+      ],
+      "scratchDir": "c:/Users/jeff_/AppData/Local/Temp/s/run-wave/r-202609281200-bbbbbbbb"
+    },
+    "items": [
+      {
+        "id": "bbbbbbbb-2222-4222-8222-222222222222",
+        "short": "bbbbbbbb",
+        "title": "Item B",
+        "priority": "high",
+        "type": "scratch-a",
+        "schemaFree": false,
+        "configFingerprint": "stale-fingerprint",
+        "configSource": "per-root",
+        "traits": [],
+        "itemTraits": [],
+        "worktree": "/repo/.claude/worktrees/scratch-a-bbbbbbbb",
+        "branch": "fix/bbbbbbbb",
+        "stages": [
+          {
+            "seat": "planner",
+            "phase": "queue",
+            "notes": [
+              "specification"
+            ],
+            "rules": [],
+            "skills": [],
+            "writes": false,
+            "dispatch": {
+              "agent": null,
+              "model": "opus"
+            },
+            "output": "planner-v1"
+          },
+          {
+            "seat": "implementer",
+            "phase": "work",
+            "enters": true,
+            "implicitOwner": true,
+            "notes": [
+              "session-tracking"
+            ],
+            "rules": [],
+            "skills": [],
+            "writes": true,
+            "dispatch": {
+              "agent": null,
+              "model": "sonnet"
+            },
+            "output": "implementer-v1"
+          }
+        ],
+        "orchestratorNotes": [],
+        "unownedRequired": [],
+        "waitsFor": []
+      },
+      {
+        "id": "aaaaaaaa-1111-4111-8111-111111111111",
+        "short": "aaaaaaaa",
+        "title": "Item A",
+        "priority": "high",
+        "type": "scratch-a",
+        "schemaFree": false,
+        "configFingerprint": "fp1",
+        "configSource": "per-root",
+        "traits": [],
+        "itemTraits": [],
+        "worktree": "/repo/.claude/worktrees/scratch-a-aaaaaaaa",
+        "branch": "fix/aaaaaaaa",
+        "stages": [
+          {
+            "seat": "planner",
+            "phase": "queue",
+            "notes": [
+              "specification"
+            ],
+            "rules": [],
+            "skills": [],
+            "writes": false,
+            "dispatch": {
+              "agent": null,
+              "model": "opus"
+            },
+            "output": "planner-v1"
+          },
+          {
+            "seat": "implementer",
+            "phase": "work",
+            "enters": true,
+            "implicitOwner": true,
+            "notes": [
+              "session-tracking"
+            ],
+            "rules": [],
+            "skills": [],
+            "writes": true,
+            "dispatch": {
+              "agent": null,
+              "model": "sonnet"
+            },
+            "output": "implementer-v1"
+          }
+        ],
+        "orchestratorNotes": [],
+        "unownedRequired": [],
+        "waitsFor": []
+      }
+    ],
+    "deferred": []
+  },
+  "meta": {
+    "method": "A",
+    "featureBaseSha": "e77c3e95",
+    "worktreesToCreate": [
+      {
+        "path": "/repo/.claude/worktrees/scratch-a-bbbbbbbb",
+        "branch": "fix/bbbbbbbb",
+        "base": "e77c3e95"
+      },
+      {
+        "path": "/repo/.claude/worktrees/scratch-a-aaaaaaaa",
+        "branch": "fix/aaaaaaaa",
+        "base": "e77c3e95"
+      }
+    ],
+    "excluded": [],
+    "warnings": [],
+    "estAgents": 4,
+    "sizeGuideline": "medium",
+    "degradations": [],
+    "inRunEdges": [],
+    "advisoryResources": []
+  }
+}
