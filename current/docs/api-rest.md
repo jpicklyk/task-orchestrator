@@ -546,7 +546,10 @@ unset — never a raw possibly-null passthrough.
   "canAdvance": false,
   "phase": "work",
   "missing": ["implementation-notes"],
-  "missingBySeat": { "implementer": ["implementation-notes"] }
+  "missingBySeat": { "implementer": ["implementation-notes"] },
+  "violations": [
+    { "key": "test-manifest", "seat": "test-author", "constraint": "same_actor", "conflictingSeat": "implementer" }
+  ]
 }
 ```
 
@@ -560,6 +563,37 @@ not `TERMINAL` (an empty object `{}` when seat-aware but nothing is missing); om
 (`explicitNulls=false`) for a seat-less schema or a terminal item — see
 [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#seats-trait--schema-dimension)
 → "Seats" for how a note's owning seat is determined and the `unowned` bucket rule.
+
+`violations` (array, optional, A2) reports independence-attestation findings for `phase` —
+`IndependenceViolationDto` objects, present (possibly `[]`) whenever independence `mode` is not
+`off` and the resolved schema declares `independent_of` somewhere; omitted entirely otherwise,
+including for a terminal item. `canAdvance` already accounts for a `reject`-mode block from a
+non-waived violation, the same way it accounts for missing required notes — see
+[`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#independence-a2)
+→ "Independence (A2)".
+
+### IndependenceViolationDto
+
+```json
+{
+  "key": "test-manifest",
+  "seat": "test-author",
+  "constraint": "same_actor",
+  "conflictingSeat": "implementer",
+  "waived": true
+}
+```
+
+One A2 independence-attestation finding — field-for-field identical to the MCP JSON shape
+(`GatePredicate`/`NoteSchemaJsonHelpers.buildViolationsArray`). `key` is the declaring note's key;
+`seat` its owning seat (omitted when the schema is not seat-aware); `constraint` is
+`"same_actor"` | `"missing_actor"` | `"unverified"`; `conflictingSeat` the seat the finding was
+raised against (omitted for a `missing_actor`/`unverified` finding raised against the declaring
+note itself); `waived` present (`true`) only when the `independence: temporal-only` waiver applies
+— a waived entry never blocks a `reject`-mode transition. **Actor-free by construction: never an
+actor id, proof, or claim.** `AttributionRedactor` is not involved — there is nothing
+attribution-bearing here to redact; the same body is served to every caller regardless of
+`API_REDACT_NOTE_ATTRIBUTION` or capability tier.
 
 ### ItemGateDto
 
@@ -977,6 +1011,12 @@ If the notes read itself fails (repository error), every required note for the c
 reported missing — the same fail-safe `computePhaseNoteContext` gives `get_context` when notes
 cannot be loaded.
 
+**Independence (A2):** `gateStatus.violations` (see `GateStatusDto` in §8) is computed against the
+same `independence:` policy and `independent_of` declarations as the MCP `get_context`/`advance_item`
+paths — see [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#independence-a2)
+→ "Independence (A2)". This is also the route the plugin's SubagentStop phase-guard hook polls to
+decide whether a `reject`-mode violation should block a subagent's stop.
+
 **Responses:**
 - `200 OK` → `ItemGateDto` (§8) — no `ETag` header (§4)
 - `400 bad_request` — invalid UUID
@@ -1216,6 +1256,9 @@ Any resource lease that cascade itself acquired for entering `work` is released 
   "newRole": "work",
   "trigger": "start",
   "statusLabel": "string|null",
+  "violations": [
+    { "key": "test-manifest", "seat": "test-author", "constraint": "same_actor", "conflictingSeat": "implementer" }
+  ],
   "cascadeEvents": [
     {
       "itemId": "<uuid>",
@@ -1223,7 +1266,8 @@ Any resource lease that cascade itself acquired for entering `work` is released 
       "previousRole": "work",
       "targetRole": "terminal",
       "applied": true,
-      "statusLabel": "done"
+      "statusLabel": "done",
+      "violations": []
     }
   ],
   // A cascade whose own apply step failed instead looks like:
@@ -1239,6 +1283,8 @@ Any resource lease that cascade itself acquired for entering `work` is released 
 ```
 
 The `cascadeEvents`, `unblockedItems`, and `expectedNotes` fields are **additive** — they were added when the REST and MCP advance paths were unified. A gate-blocked cascade carries `"applied": false`, `"gateBlocked": true`, and a `missingNotes` array.
+
+`violations` (array, optional, A2) — on the top-level response and on each `cascadeEvents` entry — reports independence-attestation findings for that transition's target schema, `IndependenceViolationDto` objects mirroring `GateStatusDto.violations` above; present (possibly `[]`) whenever independence mode is not `off` and the target schema declares `independent_of` somewhere, populated in `warn` mode too (a `warn`-mode transition still applies and still reports what it found). Omitted entirely when the target schema declares no `independent_of` or mode is `off`.
 
 **Responses:**
 - `200 OK` → `AdvanceResponseDto`
@@ -1265,7 +1311,10 @@ The `cascadeEvents`, `unblockedItems`, and `expectedNotes` fields are **additive
     "missingNotes": [
       { "key": "spec", "description": "Problem statement and approach", "guidance": "..." }
     ],
-    "missingBySeat": { "planner": ["spec"] }
+    "missingBySeat": { "planner": ["spec"] },
+    "violations": [
+      { "key": "test-manifest", "seat": "test-author", "constraint": "same_actor", "conflictingSeat": "implementer" }
+    ]
   }
 }
 ```
@@ -1274,6 +1323,13 @@ The `cascadeEvents`, `unblockedItems`, and `expectedNotes` fields are **additive
 same shape, ordering, and omission rule as `GateStatusDto.missingBySeat` above
 (`{<seat>: [keys], ..., "unowned": [keys]}`, non-empty buckets only, `unowned` last): present only
 when the target schema is seat-aware, omitted entirely for a seat-less schema.
+
+`details.violations` (array, optional, A2) appears after `details.missingBySeat` — same shape and
+presence rule as `GateStatusDto.violations`. A `gate_blocked` rejection can be caused by missing
+required notes, by a non-waived independence violation in `reject` mode, or both; `details.violations`
+reports whichever independence findings exist regardless of which condition actually triggered the
+422 (it is also present, non-empty, when the block was violations-only — an empty `missingNotes`
+alongside a populated `violations`).
 
 The `hasReviewPhase` is resolved from the item's schema (type + tags + traits) to match `AdvanceItemTool` behavior — an advance from `work` goes to `review` when the schema has a review phase, or directly to `terminal` when it does not.
 
@@ -1792,14 +1848,15 @@ Requires `READ`. Returns server metadata and the caller's resolved capabilities.
   "capabilities": ["read", "write-items"],
   "claimModeAvailable": true,
   "actorAuthenticationEnabled": false,
-  "features": ["seats", "dispatchBySeat"]
+  "features": ["seats", "dispatchBySeat", "independent_of"]
 }
 ```
 
 `features` (array, A1) advertises server-wide optional-response capabilities this server version
 can serve, **unconditionally** — regardless of whether the resolved config for any given root
-actually declares `seats:`. See [api-reference.md](api-reference.md) → "Server feature
-advertisement" for the full rationale and the current list.
+actually declares `seats:`/`independent_of:`. `"independent_of"` (A2) joined this list once the
+independence attestation gate started enforcing it — see [api-reference.md](api-reference.md)
+→ "Server feature advertisement" for the full rationale and the current list.
 
 ### GET /api/v1/health
 
@@ -1820,7 +1877,7 @@ advertisement" for the full rationale and the current list.
   "version": "3.8.0",
   "apiVersion": "v1",
   "apiUrl": "/api/v1",
-  "features": ["seats", "dispatchBySeat"]
+  "features": ["seats", "dispatchBySeat", "independent_of"]
 }
 ```
 
@@ -1941,6 +1998,14 @@ All write endpoints (POST, PATCH, PUT, DELETE) synthesize an actor server-side f
 
 **Redaction env vars:**
 - `API_REDACT_NOTE_ATTRIBUTION` (default `true`) — when `true`, non-admin callers see no attribution
+
+**Independence violations (A2) are redacted by construction, not by policy.** `IndependenceViolationDto`
+carries only seat names and note keys (`key`, `seat`, `constraint`, `conflictingSeat`, `waived`) —
+never an actor id, proof, or verification claim — on every surface (`GateStatusDto.violations`,
+`AdvanceResponseDto.violations`, `CascadeEventDto.violations`, `422 gate_blocked`'s
+`details.violations`). This is unconditional: it does not vary with `API_REDACT_NOTE_ATTRIBUTION`,
+caller capability tier, or admin status, because there is no attribution-bearing field on the DTO for
+`AttributionRedactor` to redact in the first place.
 
 ---
 

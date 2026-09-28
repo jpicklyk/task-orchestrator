@@ -50,6 +50,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `WARN` and falls back to the global config for that root until the row is re-pushed (at which
     point the new checks apply and the push is rejected if still invalid).
 
+- **Independence attestation gate (A2): `independent_of` is now enforced, not just served.** A
+  top-level `independence: {mode: off|warn|reject, require_verified: bool}` config block (default
+  `warn`/`false`) turns a note-schema entry's `independent_of` (A1) into a gate check: at
+  `start`/`complete` (and the terminal/start cascade gates), the server compares the actor who wrote
+  a declaring note against the actor(s) who wrote the seat(s) it names, and reports `same_actor` /
+  `missing_actor` (fail-closed on an actor-less note) / `unverified` (with `require_verified: true`)
+  findings. `warn` mode reports without blocking; `reject` mode blocks on any non-waived finding. A
+  note may waive its own `same_actor` findings with a first body line of exactly
+  `independence: temporal-only`, when the note's `createdAt` is strictly after every same-identity
+  conflicting note's `createdAt` — the waiver never covers `missing_actor`/`unverified`. Findings
+  are actor-free by construction (`{key, seat?, constraint, conflictingSeat?, waived?}` — never an
+  actor id, proof, or claim) and are per-root honorable: a per-root `independence` block replaces
+  the global one wholesale. See
+  [`config-format.md`](claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md)
+  → "Independence (A2)" for the full semantics, including an honest-limits section on what this
+  gate does and does not catch.
+  - Surfaced as `violations` on `get_context`'s `gateStatus`, `advance_item`'s success/failure
+    results and `cascadeEvents`, `complete_tree`'s applied/gate-failed entries, REST `GET
+    /items/{id}/gate`'s `GateStatusDto`, REST `POST /items/{id}/advance`'s `AdvanceResponseDto`/
+    `CascadeEventDto`/`422 gate_blocked` `details.violations`, and the plugin's SubagentStop
+    phase-guard hook (which blocks only on a `reject`-mode, non-waived, own-seat finding). Omitted
+    entirely (not `[]`/`null`) wherever the resolved schema declares no `independent_of` or mode is
+    `off`.
+  - No tool description or `parameterSchema` change on `advance_item`/`get_context`/`complete_tree`.
+
 - `schema_resolution: legacy | layered | isolated` — an opt-in, per-document top-level config key
   (AR-39) controlling how a root's per-root and global config layers combine for schema/tag
   lookup. Settable in the global config, in a per-root pushed document, or both; the effective mode
@@ -79,6 +104,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`features` gained `"independent_of"`** (A2): `query_items(operation="schema")`, REST `GET
+  /items/{id}/schema`, `GET /api/v1/info`, and the `.well-known` service descriptor now advertise
+  `["seats", "dispatchBySeat", "independent_of"]` — `independent_of` was parsed and served but not
+  enforced in A1, so it was deliberately absent from `features` then; A2 (above) now enforces it, so
+  it joins the advertised list.
 - REST and the MCP tools now read per-root config through the SAME `EffectiveConfigResolver`
   instance (one per-root last-known-good cache, built once in `ServerComposition`) instead of each
   maintaining its own — REST previously built a separate `PerRootConfigService`/cache. This makes a
