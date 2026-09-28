@@ -67,6 +67,7 @@ CLAUDE.local.md
 # api-tokens.yaml (and everything else under this folder) stays ignored — secrets file.
 /.taskorchestrator/*
 !/.taskorchestrator/config.yaml
+!/.taskorchestrator/rules/
 
 ### Temporary plans folder ###
 /plans/

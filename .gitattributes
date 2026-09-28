@@ -10,3 +10,6 @@
 # Golden snapshots (A1 T0 SeatlessResponseGoldenTest compares exact compact-JSON strings, key order included): a CRLF
 # checkout would fail every compare on Windows, so pin them (and their YAML fixtures) to LF.
 current/src/test/resources/golden/** text eol=lf
+# Rule text is served byte-for-byte and hashed into rulesVersion (A3): pin LF so a Windows
+# checkout (core.autocrlf=true) cannot change the stashed body or its content hash.
+.taskorchestrator/rules/*.md text eol=lf

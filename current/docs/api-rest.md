@@ -42,6 +42,7 @@ for missing notes, and fails open the same way when `TASK_ORCHESTRATOR_API_URL` 
 17. [Endpoints — Config / Schema Discovery](#17-endpoints--config--schema-discovery)
 18. [Endpoints — Project Config (Per-Root)](#18-endpoints--project-config-per-root)
 19. [Endpoints — Plan Documents (Per-Root)](#19-endpoints--plan-documents-per-root)
+19a. [Endpoints — Rules (Per-Root)](#19a-endpoints--rules-per-root)
 20. [Endpoints — Service Meta](#20-endpoints--service-meta)
 21. [Server-Sent Events (SSE)](#21-server-sent-events-sse)
 22. [Audit Model](#22-audit-model)
@@ -344,6 +345,7 @@ All error responses use:
 | `validation_error` | 400 | Invalid field value or deserialization failure; or (SSE-specific) `GET /api/v1/events` was called with a `?root=` query parameter that yields no valid UUID (see §21) |
 | `precondition_required` | 400 | `PATCH` missing required `If-Match` header |
 | `not_found` | 404 | Item, note, or dependency not found |
+| `rule_not_found` | 404 | `GET /roots/{rootId}/rules/{key}` (§19a): the root resolves and is depth-0, but no `rule/<key>` plan document exists there — distinct from `not_found`, which covers an unknown `{rootId}` itself |
 | `scope_forbidden` | 403 | Item exists but is outside the caller's scope; also returned for `POST /items` creating a root item, or `PATCH /items/{id}` moving an item to root, when the resulting root-level item would be outside the caller's scope (see §3) |
 | `field_not_patchable` | 400 | PATCH attempted on a server-owned field |
 | `cycle_detected` | 400 | Dependency would create a cycle |
@@ -351,7 +353,7 @@ All error responses use:
 | `duplicate_dependency` | 409 | `POST /dependencies`: an edge with the same `fromItemId`/`toItemId`/`type` already exists |
 | `unsupported_media_type` | 415 | Wrong `Content-Type` for PATCH (see §23), or a non-JSON `Content-Type` on `POST /items`, `PUT /items/{id}/notes/{key}`, `POST /items/{id}/advance`, or `POST /dependencies` (see §5) |
 | `etag_mismatch` | 412 | `If-Match` header does not match current ETag |
-| `payload_too_large` | 413 | Request body exceeds its route's byte limit — the `Content-Length` header alone if it declares a size over the limit (body untouched), otherwise the actual bytes read, capped at `limit + 1` so an oversized body is never buffered in full. `POST /items`, `PATCH /items/{id}`, `POST /items/{id}/advance`, `PUT /items/{id}/notes/{key}`, and `POST /dependencies` share a 1 MiB limit; `PUT /roots/{rootId}/config` is 128 KiB; `PUT /roots/{rootId}/plans/{slug}` is 64 KiB (see §18, §19). |
+| `payload_too_large` | 413 | Request body exceeds its route's byte limit — the `Content-Length` header alone if it declares a size over the limit (body untouched), otherwise the actual bytes read, capped at `limit + 1` so an oversized body is never buffered in full. `POST /items`, `PATCH /items/{id}`, `POST /items/{id}/advance`, `PUT /items/{id}/notes/{key}`, and `POST /dependencies` share a 1 MiB limit; `PUT /roots/{rootId}/config` is 128 KiB; `PUT /roots/{rootId}/plans/{slug}` is 64 KiB, except a `{slug}` starting with `rule/` (e.g. `rule%2Fcommit-discipline`), which is capped tighter at 16384 bytes (16 KiB) — the single enforcement point `query_rules`/§19a rely on, so those read surfaces never re-check size themselves (see §18, §19, §19a). |
 | `version_conflict` | 409 | `PATCH /items/{id}`: `If-Match` matched at read time, but a concurrent writer's update won the version race before this write committed — optimistic-lock loss, distinct from `etag_mismatch`. Retry with a fresh `If-Match` ETag. |
 | `unauthenticated` | 401 | No authenticated principal (missing/invalid token) |
 | `verification_failed` | 401 | Not currently reachable via REST — a JWT passing `ApiBearerAuth` is always `VERIFIED`, which every `degradedModePolicy` trusts. Reserved for the same audit-policy check used by MCP tool calls, where a self-reported actor under a degraded JWKS result can still be rejected. |
@@ -813,6 +815,39 @@ is `"adopted"`; null while `"pending"`, and null again if the adopting item is l
   "plans": [<PlanDocumentSummaryDto>]
 }
 ```
+
+**RuleResponseDto** (see §19a) — §19a's per-key rule read; mirrors the MCP `query_rules` tool's
+`get` data payload minus `resolvedFrom` (REST has no item/skill-pointer mode):
+```json
+{
+  "rootId": "550e8400-e29b-41d4-a716-446655440000",
+  "key": "commit-discipline",
+  "rulesVersion": "e3b0c44298fc1c14...",
+  "body": "string"
+}
+```
+`rulesVersion` is the backing `rule/<key>` plan document's `contentHash` (same value
+`PlanDocumentResponseDto`/`PlanDocumentSummaryDto` report for that slug). `body` is served
+byte-for-byte as stored.
+
+**RuleSummaryDto** — one row of `RuleListResponseDto.rules` (see §19a); metadata only, never the
+body:
+```json
+{
+  "key": "commit-discipline",
+  "rulesVersion": "e3b0c44298fc1c14...",
+  "updatedAt": "2026-09-28T13:00:00Z"
+}
+```
+
+**RuleListResponseDto** (see §19a):
+```json
+{
+  "rootId": "550e8400-e29b-41d4-a716-446655440000",
+  "rules": [<RuleSummaryDto>]
+}
+```
+`rules` is ordered by `key` ascending.
 
 ### ResourceLeaseDto (see §14)
 
@@ -1774,6 +1809,67 @@ Lists metadata-only summaries (never the body) for every document under `{rootId
 
 **Responses:**
 - `200 OK` → `PlanDocumentListResponseDto` — `plans` ordered by `slug` ascending
+
+---
+
+## 19a. Endpoints — Rules (Per-Root)
+
+Read-only REST counterpart of the MCP `query_rules` tool's DIRECT (`rootId`+`key`) lookup -- git-
+tracked, client-neutral operating rules (the blind-authorship protocol, commit discipline,
+forbidden test patterns, review scoping, and so on), stored as `rule/<key>` plan documents (§19)
+and served here verbatim. Both surfaces converge on the same `RuleService` -- a pure read-only view
+over the same `rule/<key>` rows `manage_plan_documents`/`PUT /roots/{rootId}/plans/{slug}` write, so
+MCP and REST always agree on `rulesVersion` (the backing document's `contentHash`) and `body` for
+the same key. REST has **no item/skill-pointer mode** -- that mode resolves an item's effective
+(trait-merged) schema, which REST config-adjacent routes never read; use the MCP `query_rules` tool
+with `itemId`+`noteKey` for skill-pointer resolution.
+
+All verbs require `ApiScope.rootIds` (when scoped) to contain `{rootId}` -- `403 scope_forbidden`
+otherwise. `{rootId}` must resolve to an existing, depth-0 WorkItem. `{key}` must match the rule-key
+grammar `^[a-z0-9][a-z0-9._-]{0,99}$` -- lowercase alphanumeric, `.`, `_`, `-`; starting
+alphanumeric; max 100 characters; never `/`, uppercase, or `:` (see §8's `RuleResponseDto`). The
+route takes the BARE key, not a `rule/`-prefixed slug -- the server derives the `rule/<key>` slug
+internally; stashing or reading the underlying plan document directly still goes through §19's
+`{slug}` routes, which need a literal `%2F` in the path for a `rule/`-prefixed slug (e.g. `PUT
+/roots/{rootId}/plans/rule%2Fcommit-discipline`).
+
+**Validation/authorization order** (mirrors `EffectiveConfigRoutes`'s documented order, §18):
+parse `{rootId}` as a UUID (`400 bad_request`) → parse/validate `{key}` grammar, `{key}` route
+only (`400 bad_request`) → `enforceScopeForItem` (`403 scope_forbidden`) → root WorkItem exists
+(`404 not_found`) → root is depth-0 (`422 validation_error`) → `rule/<key>` document exists,
+`{key}` route only (`404 rule_not_found`) → `200 OK`. A repository failure at any read step is
+`500 db_error`.
+
+### GET /roots/{rootId}/rules/{key}
+
+Reads back one rule's body and `rulesVersion`. Requires `READ`.
+
+**Responses:**
+- `200 OK` → `RuleResponseDto`
+- `400 bad_request` — `{rootId}` is missing or not a valid UUID, or `{key}` fails the rule-key
+  grammar
+- `403 scope_forbidden` — capability present but `{rootId}` outside token scope
+- `404 not_found` — `{rootId}` does not resolve to an existing WorkItem
+- `422 validation_error` — `{rootId}` resolves to a WorkItem that is not depth-0
+- `404 rule_not_found` — `{rootId}` is a valid depth-0 root, but no `rule/{key}` document exists
+  there
+- `500 db_error` — the root-lookup or document read itself failed with a repository error
+
+### GET /roots/{rootId}/rules
+
+Lists `{key, rulesVersion, updatedAt}` for every valid rule key under `{rootId}`, sorted by key
+ascending, never the body. A `rule/<key>` document whose key fails the grammar (stashable via
+`manage_plan_documents`, which does not itself enforce it, but never served here) is silently
+excluded, as are non-`rule/` slugs. `status` (`pending` vs `adopted`) is ignored -- both are listed.
+Requires `READ`.
+
+**Responses:**
+- `200 OK` → `RuleListResponseDto`
+- `400 bad_request` — `{rootId}` is missing or not a valid UUID
+- `403 scope_forbidden` — capability present but `{rootId}` outside token scope
+- `404 not_found` — `{rootId}` does not resolve to an existing WorkItem
+- `422 validation_error` — `{rootId}` resolves to a WorkItem that is not depth-0
+- `500 db_error` — the root-lookup or list read itself failed with a repository error
 
 ---
 
