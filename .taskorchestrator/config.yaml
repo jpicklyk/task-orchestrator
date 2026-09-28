@@ -43,16 +43,23 @@ work_item_schemas:
   feature-task:
     lifecycle: auto
     default_traits: [delegated, session-tracked]
+    seats:
+      - { name: planner,      phase: queue }
+      - { name: implementer,  phase: work, enters: true }
+      - { name: orchestrator, phase: work, after: [implementer] }
+      - { name: reviewer,     phase: review }
     notes:
       - key: task-scope
         role: queue
         required: true
+        seat: planner
         description: "What to build — target files, acceptance criteria, constraints."
         skill: "spec-quality"
         guidance: "Define the narrow scope of this task. Include: what to build (specific behavior or component), target files and modules, acceptance criteria (how to verify it works), and constraints or dependencies on other tasks. The parent feature specification covers the 'why' and alternatives — this note covers the 'what' for this specific task."
       - key: implementation-notes
         role: work
         required: true
+        seat: implementer
         description: "Context handoff — deviations, surprises, and decisions that affect dependent work."
         guidance: "Document decisions made during implementation that weren't in the task scope. Focus on what downstream agents need to know: deviations from the plan, API or interface surprises, assumptions that turned out wrong, and any patterns discovered that affect dependent tasks. Cover the substance — do not pad with boilerplate, restated spec content, or redundant summaries."
         maxLength: 3000
@@ -60,10 +67,16 @@ work_item_schemas:
   bug-fix:
     lifecycle: auto
     default_traits: [delegated, session-tracked, needs-test-author]
+    seats:
+      - { name: planner,      phase: queue }
+      - { name: implementer,  phase: work, enters: true }
+      - { name: orchestrator, phase: work, after: [implementer] }
+      - { name: reviewer,     phase: review }
     notes:
       - key: diagnosis
         role: queue
         required: true
+        seat: planner
         description: "Reproduction, root cause, and fix approach."
         skill: "spec-quality"
         maxLength: 6000
@@ -71,12 +84,14 @@ work_item_schemas:
       - key: implementation-notes
         role: work
         required: true
+        seat: implementer
         description: "Context handoff for downstream agents — what changed, deviations from the diagnosis, and patterns to apply elsewhere."
         guidance: "Document what was changed and why. Focus on what downstream agents need to know: deviations from the planned fix, whether the root cause was different than diagnosed, patterns that should be applied elsewhere (e.g., same bug exists in similar code paths), and any assumptions that turned out wrong. Cover the substance — do not pad with boilerplate, restated spec content, or redundant summaries. Target ~1500-2200 characters; the 3000 maxLength is a backstop, not a goal."
         maxLength: 3000
       - key: review-checklist
         role: review
         required: true
+        seat: reviewer
         description: "Quality gate — fix alignment, test quality, and simplification review."
         skill: "review-quality"
         maxLength: 4000
@@ -151,6 +166,7 @@ traits:
     notes:
       - key: migration-assessment
         role: queue
+        seat: planner
         required: true
         description: "SQLite migration strategy — table recreation patterns, data migration, rollback plan."
         skill: "migration-review"
@@ -160,6 +176,7 @@ traits:
     notes:
       - key: api-compatibility
         role: review
+        seat: reviewer
         required: true
         description: "Compatibility assessment for API changes — the MCP tool surface (dynamically re-discovered) and the REST surface (hardcoded clients) have different compatibility models."
         skill: "api-compat-review"
@@ -169,6 +186,7 @@ traits:
     notes:
       - key: plugin-impact
         role: review
+        seat: reviewer
         required: true
         description: "Assessment of plugin skill and hook changes needed."
         skill: "plugin-impact-review"
@@ -178,6 +196,7 @@ traits:
     notes:
       - key: security-assessment
         role: review
+        seat: reviewer
         required: true
         description: "Security review of auth, data handling, and access control."
         skill: "security-review"
@@ -187,6 +206,7 @@ traits:
     notes:
       - key: performance-baseline
         role: queue
+        seat: planner
         required: false
         description: "Performance impact assessment and measurement plan."
         skill: "perf-review"
@@ -196,26 +216,61 @@ traits:
     notes:
       - key: delegation-metadata
         role: work
+        seat: orchestrator
         required: false
         description: "Model, isolation, rationale, and outcome for a delegated dispatch (orchestrator-filled)."
         guidance: "Filled by the orchestrator AFTER a subagent returns (the subagent doesn't know which model it ran on). Record model (haiku/sonnet/opus), isolation (inline or worktree:<path>), a one-line rationale, and a one-line outcome. Optional — feeds /session-retrospective delegation-alignment scoring; absent is tolerated."
     dispatch:
-      work:   { agent: task-orchestrator:implementer }
-      review: { agent: task-orchestrator:reviewer, effort: high }
+      queue:
+        seats:
+          planner: { model: opus }
+      work:
+        agent: task-orchestrator:implementer
+        seats:
+          implementer:  { model: sonnet }
+          test-author:  { agent: null, model: sonnet }   # blind test author: not the implementer agent
+          orchestrator: { agent: null }                  # the main session, never dispatched
+      review:
+        agent: task-orchestrator:reviewer
+        effort: high
+        seats:
+          reviewer: { model: opus }
+
+  # Model-selection traits: seat-only dispatch overrides. Per-item traits resolve BEFORE
+  # default_traits, so these win over `delegated`'s seat defaults while inheriting its phase
+  # agent/effort. Both are opt-in, applied per item at tier classification (/implement Step 1).
+  complex-implementation:
+    dispatch:
+      work:
+        seats:
+          implementer: { model: opus }   # architecture-heavy / multi-file synthesis work
+
+  high-stakes:
+    dispatch:
+      queue:
+        seats:
+          planner: { model: fable }      # a wrong plan is expensive to unwind
+      review:
+        seats:
+          reviewer: { model: fable }     # security predicates, auth, data-loss paths
 
   needs-task-review:
     notes:
       - key: review-checklist
         role: review
         required: true
+        seat: reviewer
         description: "Task-level quality gate — scope alignment and test coverage."
         maxLength: 4000
         guidance: "Verify: (1) what was built matches the task-scope note — flag scope creep or missed acceptance criteria, (2) tests cover the stated acceptance criteria and aren't strawman tests, (3) no unintended side effects on files outside the task scope. Task-level review does not run /simplify — that happens at the feature-container level."
 
   needs-test-author:
+    seats:
+      - { name: test-author, phase: work, after: [implementer], reads_exclude: [implementation-notes, session-tracking] }
     notes:
       - key: test-plan
         role: queue
+        seat: planner
         required: true
         description: "Numbered test scenarios with frozen oracles, derived from acceptance criteria before implementation begins."
         skill: "test-author"
@@ -223,6 +278,7 @@ traits:
         guidance: "Write numbered scenarios (S1, S2, ...) derived from the acceptance criteria, partitioned into happy path / failure / edge cases. For each scenario give: input, expected result, and **oracle source** — the spec clause, stated algorithm, or external reference the expected result comes from. Never derive an oracle from 'what the code returns' or from the ticket's worked example alone. Also include: an adversarial probe list (boundary/bypass inputs worth testing), the public signature the tests will compile against, and a separation declaration confirming this note is filled before implementation work begins. Queue placement is the structural lever — the oracle is frozen by this gate before any implementation exists, defeating implementation-derived oracles by ordering. Target ~2000-2800 characters; the 3500 maxLength is a backstop, not a goal."
       - key: test-manifest
         role: work
+        seat: test-author
         required: true
         description: "Test-author record — files, commit SHA range, scenario coverage mapping, and forbidden-pattern declaration."
         skill: "test-author"
@@ -230,6 +286,7 @@ traits:
         guidance: "Filled by the test author after writing the tests: actor id, test file paths, and commit SHA range; an S-id -> test mapping (covered, or not-covered:reason for each scenario); the adversarial probes actually executed and their results; a forbidden-pattern declaration listing every assumeTrue/@Disabled/escape used, each with justification; an arbitration record for any red-test disputes; and any implementer modification to test files with rationale. This is the audit trail review checks against the test-plan. Target ~1500-2200 characters; the 3000 maxLength is a backstop, not a goal."
       - key: test-independence-audit
         role: review
+        seat: reviewer
         required: true
         description: "Reviewer attestation that test authorship was independent of implementation."
         skill: "review-quality"
@@ -241,6 +298,7 @@ traits:
       - key: session-tracking
         role: work
         required: true
+        seat: orchestrator
         description: "Session context — what was done, how it went, and anything the retrospective should know."
         guidance: "Record what happened during implementation. Structure: - **Outcome**: success | partial | failure - **Files changed**: list with brief rationale - **Deviations**: anything that differed from the specification or plan - **Friction**: tool errors, roundtrips, workarounds, API confusion (type + description) - **Gate interactions**: note fill attempts, gate failures encountered - **Observations**: anything worth tracking for process improvement - **Test results**: pass/fail counts, new tests added. Keep it factual and concise — this feeds the session retrospective. Cover the substance — do not pad with boilerplate, restated spec content, or redundant summaries. Target ~600-1200 characters; the 2000 maxLength is a backstop, not a goal."
         maxLength: 2000

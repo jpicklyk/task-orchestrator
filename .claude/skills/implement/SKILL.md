@@ -61,6 +61,20 @@ it before any dispatch — `traits: "delegated"` at item creation, or
 item. This makes the orchestrator-filled `delegation-metadata` note schema-visible instead of
 convention-only. Direct tier: do not apply it — nothing is delegated.
 
+**Model-selection traits.** Seat dispatch defaults come from the `delegated` trait (planner `opus`,
+implementer `sonnet`, test-author `sonnet`, reviewer `opus`). Override them per item, at the same
+point:
+
+- `complex-implementation` — implementer on `opus`. Apply for architecture-heavy or multi-file
+  synthesis work: new public API, cross-layer seams, subtle state machines or concurrency.
+- `high-stakes` — planner and reviewer on `fable`. Apply sparingly, where a wrong plan or a missed
+  review finding is expensive: security predicates, auth, data-loss paths, hard-to-reverse design
+  decisions. Fable draws on its own usage bucket, so it is never a default. `needs-security-review`
+  does NOT imply it.
+
+Read the resolved per-seat profile from `get_context` / `query_items(operation="schema")`
+(`dispatchBySeat`) and pass its `model` explicitly on the dispatch.
+
 **Test-author trigger rule.** `bug-fix.default_traits` already includes `needs-test-author` — no
 action needed, it applies automatically. For `feature-task` items, apply `needs-test-author` per
 item (`manage_items(operation="update", items=[{itemId: "<uuid>", traits: "needs-test-author"}])`)
