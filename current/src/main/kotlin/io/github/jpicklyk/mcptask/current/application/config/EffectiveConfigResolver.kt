@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.application.config
 import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
 import io.github.jpicklyk.mcptask.current.application.tools.PropertiesHelper
 import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
+import io.github.jpicklyk.mcptask.current.domain.model.IndependencePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.Role
@@ -139,6 +140,9 @@ class EffectiveConfigResolver(
 
     /** `note_limits.mode` for [rootId]: per-root explicit value, else global. */
     suspend fun resolveNoteLimitsMode(rootId: UUID?): String = layered(rootId).noteLimitsMode()
+
+    /** `independence:` policy (A2) for [rootId]: per-root block wins WHOLESALE, else global. */
+    suspend fun resolveIndependencePolicy(rootId: UUID?): IndependencePolicy = layered(rootId).independencePolicy()
 
     /** Status labels for every trigger in [triggers] from ONE per-root read (see [LayeredConfig.statusLabel]). */
     suspend fun resolveStatusLabels(

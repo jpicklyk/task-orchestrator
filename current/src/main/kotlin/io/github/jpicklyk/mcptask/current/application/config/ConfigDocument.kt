@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.config
 
 import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
+import io.github.jpicklyk.mcptask.current.domain.model.IndependencePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
@@ -61,6 +62,12 @@ import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
  *   folded into it — so every existing `traitDispatch` reference (main and test) is unaffected by
  *   this addition. A trait with no phase carrying a `seats:` sub-key is absent from this map
  *   entirely.
+ * @property independence the resolved top-level `independence:` block (A2), or `null` when the
+ *   document has no `independence` key at all — a layering caller uses that `null` to fall through
+ *   to another layer (mirrors [noteLimitsMode]'s null-means-absent contract), applying
+ *   [IndependencePolicy.DEFAULT] only once it knows no layer opined at all. A present-but-malformed
+ *   `independence` block still resolves to a non-null [IndependencePolicy] (defaults applied
+ *   per-field), with a load warning.
  */
 data class ConfigDocument(
     val workItemSchemas: Map<String, WorkItemSchema>,
@@ -69,6 +76,7 @@ data class ConfigDocument(
     val traitDispatch: Map<String, Map<Role, DispatchProfile>> = emptyMap(),
     val resourceRegistry: Map<String, ResourceDefinition> = emptyMap(),
     val noteLimitsMode: String? = null,
+    val independence: IndependencePolicy? = null,
     val statusLabels: Map<String, String?>? = null,
     val schemaResolution: SchemaResolutionMode? = null,
     val actorAuthenticationSection: Any? = null,
@@ -102,6 +110,7 @@ data class ConfigDocument(
                 "status_labels",
                 "resources",
                 "schema_resolution",
+                "independence",
             )
     }
 }

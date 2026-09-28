@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.tools.workflow
 
 import io.github.jpicklyk.mcptask.current.application.config.withConfigSession
+import io.github.jpicklyk.mcptask.current.application.service.GatePredicate
 import io.github.jpicklyk.mcptask.current.application.service.buildDispatchBySeatFlatJson
 import io.github.jpicklyk.mcptask.current.application.service.buildDispatchProfileJson
 import io.github.jpicklyk.mcptask.current.application.service.buildExpectedNotesJson
@@ -253,6 +254,18 @@ Call with no arguments to resume a session; call with `itemId` before any advanc
         // seat-awareness), so TERMINAL is excluded explicitly rather than relying on an empty list.
         val missingBySeat = if (item.role != Role.TERMINAL) computeMissingBySeat(resolvedSchema, missingForPhase) else null
 
+        // A2: independence-attestation violations for the item's CURRENT phase — null when the
+        // item is TERMINAL (mirrors missingBySeat), independence mode is OFF, or the resolved
+        // schema declares no independent_of in any phase.
+        val independencePolicy = context.resolveIndependencePolicy(item.rootId)
+        val violations =
+            if (item.role != Role.TERMINAL && resolvedSchema != null) {
+                GatePredicate.violationsForStart(resolvedSchema, item.role, notes, independencePolicy)
+            } else {
+                null
+            }
+        val independenceBlocks = GatePredicate.blocksAdvance(violations, independencePolicy)
+
         // A1: current-phase seats + per-seat dispatch overrides (task-scope §6 "get_context item
         // mode"). Both omitted (never an empty array/object) when the resolved schema declares no
         // seats for the item's CURRENT role — byte-identical to pre-A1 for every seat-less schema.
@@ -322,10 +335,11 @@ Call with no arguments to resume a session; call with `itemId` before any advanc
                     buildJsonObject {
                         // Terminal items can never advance; schema-free items always can; schema items need all notes filled
                         val isTerminal = item.role == Role.TERMINAL
-                        put("canAdvance", JsonPrimitive(!isTerminal && missingForPhase.isEmpty()))
+                        put("canAdvance", JsonPrimitive(!isTerminal && missingForPhase.isEmpty() && !independenceBlocks))
                         put("phase", JsonPrimitive(item.role.toJsonString()))
                         put("missing", JsonArray(missingForPhase.map { JsonPrimitive(it) }))
                         buildMissingBySeatJson(missingBySeat)?.let { put("missingBySeat", it) }
+                        NoteSchemaJsonHelpers.buildViolationsArray(violations)?.let { put("violations", it) }
                     }
                 )
                 guidanceKey?.let { put("guidanceKey", JsonPrimitive(it)) }

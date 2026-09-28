@@ -18,6 +18,7 @@ import io.github.jpicklyk.mcptask.current.application.service.StatusLabelService
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeExecutor
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
+import io.github.jpicklyk.mcptask.current.domain.model.IndependencePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
@@ -208,6 +209,12 @@ class ToolExecutionContext(
      * global mode. Delegates to [EffectiveConfigResolver.resolveNoteLimitsMode].
      */
     suspend fun resolveNoteLimitsMode(rootId: UUID?): String = configResolver.resolveNoteLimitsMode(rootId)
+
+    /**
+     * Layered `independence:` policy resolution (A2): [rootId]'s per-root block wins WHOLESALE,
+     * else the global policy. Delegates to [EffectiveConfigResolver.resolveIndependencePolicy].
+     */
+    suspend fun resolveIndependencePolicy(rootId: UUID?): IndependencePolicy = configResolver.resolveIndependencePolicy(rootId)
 
     /**
      * Layered status-label resolution for a single [trigger]: an explicit per-root key for

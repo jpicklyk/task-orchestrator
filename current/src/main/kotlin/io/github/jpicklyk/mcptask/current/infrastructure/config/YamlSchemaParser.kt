@@ -3,6 +3,8 @@ package io.github.jpicklyk.mcptask.current.infrastructure.config
 import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
 import io.github.jpicklyk.mcptask.current.application.config.SchemaResolutionMode
 import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
+import io.github.jpicklyk.mcptask.current.domain.model.IndependenceMode
+import io.github.jpicklyk.mcptask.current.domain.model.IndependencePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.LifecycleMode
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition
@@ -63,6 +65,9 @@ internal object YamlSchemaParser {
     /** Recognized `note_limits.mode` values. */
     private val VALID_NOTE_LIMITS_MODES = setOf("warn", "reject")
 
+    /** Known keys on a top-level `independence:` map (A2). */
+    private val KNOWN_INDEPENDENCE_KEYS = setOf("mode", "require_verified")
+
     /** Resource keys (`traits.<name>.resources[].key` / top-level `resources:` keys) must match this shape. */
     private val RESOURCE_KEY_REGEX = Regex("^[a-z0-9][a-z0-9\\-_./]*$")
 
@@ -117,6 +122,7 @@ internal object YamlSchemaParser {
             "project",
             "retrospective",
             "actor_attribution",
+            "independence",
         )
 
     /** Known keys on a `work_item_schemas.<name>:` map (A1a W3). */
@@ -198,6 +204,7 @@ internal object YamlSchemaParser {
         val traitSeatsMap = parseTraitSeatsMap(root, warnings)
         val parsedNoteLimitsMode = parseNoteLimitsMode(root, warnings)
         val noteLimitsMode = if (root.containsKey("note_limits")) parsedNoteLimitsMode else null
+        val independence = parseIndependencePolicy(root, warnings)
         val parsedStatusLabels = parseStatusLabels(root, warnings)
         val resourceRegistry = parseResourceRegistry(root, warnings)
         val traitResources = parseTraitResources(root, resourceRegistry, warnings)
@@ -228,6 +235,7 @@ internal object YamlSchemaParser {
             traits = parsedTraits,
             warnings = warnings,
             noteLimitsMode = noteLimitsMode,
+            independence = independence,
             statusLabels = parsedStatusLabels,
             traitResources = traitResources,
             resourceRegistry = resourceRegistry,
@@ -1177,6 +1185,62 @@ internal object YamlSchemaParser {
             return DEFAULT_NOTE_LIMITS_MODE
         }
         return modeRaw
+    }
+
+    /**
+     * Parses the top-level `independence:` block (A2) into an [IndependencePolicy], or null when
+     * the key is absent entirely. A present-but-non-map value is treated as "block present with
+     * defaults" (with a warning), matching the addendum's frozen semantics. An unrecognized `mode`
+     * defaults to WARN (with a warning); a non-boolean `require_verified` defaults to false (with a
+     * warning); an unknown sub-key warns but is otherwise ignored.
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun parseIndependencePolicy(
+        root: Map<String, Any>,
+        warnings: MutableList<String>
+    ): IndependencePolicy? {
+        if (!root.containsKey("independence")) return null
+        val raw = root["independence"]
+        val independenceMap = raw as? Map<String, Any>
+        if (independenceMap == null) {
+            warnings.add("Top-level 'independence' section is not a map; treating as present with defaults")
+            return IndependencePolicy.DEFAULT
+        }
+
+        for (key in independenceMap.keys) {
+            if (key !in KNOWN_INDEPENDENCE_KEYS) {
+                warnings.add("Unknown key 'independence.$key'; ignoring")
+            }
+        }
+
+        val modeRaw = independenceMap["mode"] as? String
+        val mode =
+            if (modeRaw == null) {
+                IndependenceMode.WARN
+            } else {
+                IndependenceMode.fromConfigString(modeRaw) ?: run {
+                    warnings.add(
+                        "Invalid independence.mode value '$modeRaw'; defaulting to 'warn' " +
+                            "(valid: off, warn, reject)"
+                    )
+                    IndependenceMode.WARN
+                }
+            }
+
+        val requireVerifiedRaw = independenceMap["require_verified"]
+        val requireVerified =
+            when (requireVerifiedRaw) {
+                null -> false
+                is Boolean -> requireVerifiedRaw
+                else -> {
+                    warnings.add(
+                        "Invalid independence.require_verified value '$requireVerifiedRaw'; defaulting to false"
+                    )
+                    false
+                }
+            }
+
+        return IndependencePolicy(mode = mode, requireVerified = requireVerified)
     }
 
     /**

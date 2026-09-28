@@ -647,6 +647,7 @@ Call to move an item between phases once its work is done — never edit status 
                     }
                     event.statusLabel?.let { put("statusLabel", JsonPrimitive(it)) }
                     event.error?.let { put("error", JsonPrimitive(it)) }
+                    NoteSchemaJsonHelpers.buildViolationsArray(event.violations)?.let { put("violations", it) }
                 }
             }
 
@@ -731,6 +732,7 @@ Call to move an item between phases once its work is done — never edit status 
             verification?.toJsonOrOmit()?.let { put("verification", it) }
             if (cascadeJsonList.isNotEmpty()) put("cascadeEvents", JsonArray(cascadeJsonList))
             if (unblockedJsonList.isNotEmpty()) put("unblockedItems", JsonArray(unblockedJsonList))
+            NoteSchemaJsonHelpers.buildViolationsArray(advanceResult.violations)?.let { put("violations", it) }
             put("expectedNotes", expectedNotesJson)
             guidanceKey?.let { put("guidanceKey", JsonPrimitive(it)) }
             skillPointer?.let { put("skillPointer", JsonPrimitive(it)) }
@@ -836,7 +838,8 @@ Call to move an item between phases once its work is done — never edit status 
                     missingNotes = NoteSchemaJsonHelpers.buildMissingNotesArray(failure.missingNotes),
                     missingBySeat = buildMissingBySeatJson(failure.missingBySeat),
                     previousRole = failure.previousRole,
-                    targetRole = failure.targetRole
+                    targetRole = failure.targetRole,
+                    violations = NoteSchemaJsonHelpers.buildViolationsArray(failure.violations)
                 )
         }
 
@@ -857,7 +860,8 @@ Call to move an item between phases once its work is done — never edit status 
         missingNotes: JsonArray? = null,
         missingBySeat: JsonObject? = null,
         previousRole: Role? = null,
-        targetRole: Role? = null
+        targetRole: Role? = null,
+        violations: JsonArray? = null
     ): JsonObject =
         buildJsonObject {
             put("itemId", JsonPrimitive(itemId.toString()))
@@ -877,6 +881,9 @@ Call to move an item between phases once its work is done — never edit status 
             }
             previousRole?.let { put("previousRole", JsonPrimitive(it.toJsonString())) }
             targetRole?.let { put("targetRole", JsonPrimitive(it.toJsonString())) }
+            if (violations != null) {
+                put("violations", violations)
+            }
         }
 
     /**

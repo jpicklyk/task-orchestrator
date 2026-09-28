@@ -50,6 +50,7 @@ class AdvanceServiceFactory(
             resourceLeaseRepository = resourceLeaseRepository,
             resourceRequirementsResolver = { configResolver.resolveResourceRequirements(it) },
             resourceRegistryResolver = { configResolver.resolveResourceRegistry(it) },
-            resourceLeasesEnforced = resourceLeasesEnforced()
+            resourceLeasesEnforced = resourceLeasesEnforced(),
+            independencePolicyResolver = { workItem: WorkItem -> configResolver.resolveIndependencePolicy(workItem.rootId) }
         )
 }

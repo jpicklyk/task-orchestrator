@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.tools.workflow
 
+import io.github.jpicklyk.mcptask.current.domain.model.IndependenceViolation
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import kotlinx.serialization.json.*
 
@@ -33,4 +34,26 @@ object NoteSchemaJsonHelpers {
                 }
             }
         )
+
+    /**
+     * Builds the JSON array for A2 independence-attestation `violations` — actor-free by
+     * construction (never an actor id, proof, or claim). `seat`/`conflictingSeat` are omitted
+     * when null; `waived` is omitted unless true. Returns null when [violations] is null (meaning
+     * the `violations` key itself is omitted from the response, per the A2 contract); an empty
+     * list still serializes as `[]`.
+     */
+    fun buildViolationsArray(violations: List<IndependenceViolation>?): JsonArray? {
+        if (violations == null) return null
+        return JsonArray(
+            violations.map { violation ->
+                buildJsonObject {
+                    put("key", JsonPrimitive(violation.key))
+                    violation.seat?.let { put("seat", JsonPrimitive(it)) }
+                    put("constraint", JsonPrimitive(violation.constraint.toJsonString()))
+                    violation.conflictingSeat?.let { put("conflictingSeat", JsonPrimitive(it)) }
+                    if (violation.waived) put("waived", JsonPrimitive(true))
+                }
+            }
+        )
+    }
 }
