@@ -54,6 +54,7 @@ proposal item's own status says "terminal".
 | `27c021b1` (#318) | hand-assembled Ktor test apps diverging from production | **Test author protocol** — the declarations block's `harness:` line, its accuracy-contract bullet, and rule 4's harness clause (named helper or stop-and-ask) |
 | `395f316f` (#374) | tests that bypass the runtime's validation order | **Test author protocol** — the declarations block's `runtime call order:` line and its accuracy-contract bullet (the pinned `McpToolAdapter` sentence) |
 | `9023ed46` (#361) | unscoped dedup search before creating a root or feature item | out of scope: an item-creation step, adopted in the plugin skills `post-plan-workflow` (Phase 1) and `create-item` (Step 5), which run where items are materialized — no dispatched seat creates items |
+| `610b9a9f` (#373) | anchored byte-level edits when Edit/Write is refused | **Header** — the conditional "File-edit method" clause on the Write root line, pointing at `references/patch-anchored.py` (exact-once anchors, `DRY=1`, all-or-nothing, per-file CRLF/LF preserved) |
 
 ---
 
@@ -64,7 +65,11 @@ Feature worktree: `<absolute path, e.g. D:\Projects\task-orchestrator\.claude\wo
 Write root: `<the feature worktree path above>` — every Write/Edit path starts with it. Main-checkout
 paths are off-limits (this contract and `plans/` are read-only inputs). Before your first commit, run
 `git -C <write root> status --short` AND `git -C <main-checkout> status --short` and report both in
-`session-tracking`; the main checkout must show nothing you wrote.
+`session-tracking`; the main checkout must show nothing you wrote. File-edit method, only when
+Edit/Write is refused (the session-worktree guard): `.claude/skills/implement/references/patch-anchored.py`
+with a JSON edit spec, run with `DRY=1` first — its anchors follow the File ownership slot's
+exact-text-anchor rule. Never `sed -i`, and never build a path from an f-string or string
+concatenation: spell every path out under the write root.
 Contract path (this file): `<absolute path in the MAIN checkout, e.g. D:\Projects\task-orchestrator\plans\<slug>.md>`
 — every dispatch prompt names the contract by THIS path. `plans/` is gitignored and absent from
 the feature worktree, so a relative `plans/<slug>.md` does not resolve for an agent whose working
