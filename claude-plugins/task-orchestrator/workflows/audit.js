@@ -401,7 +401,7 @@ async function runAudit(plan, deps) {
     const scopeResult = await agent(
       'READ-ONLY. Determine the review scope for an audit. Repository root: ' + plan.repo.root + '. Candidate paths: ' + plan.scope.paths.join(', ') +
         '. Propose up to ' + plan.scope.reviewerCount + ' reviewer slices (key, label, focus, paths) and any cross-cutting lenses (key, label, focus) worth a dedicated pass.',
-      agentOpts(plan, 'scope', { label: 'scope', phase: 'Scope', schema: S.SCOPE }),
+      agentOpts(plan, 'review', { label: 'scope', phase: 'Scope', schema: S.SCOPE }),
     )
     if (!scopeResult) {
       return {
@@ -439,14 +439,14 @@ async function runAudit(plan, deps) {
     critic = await agent(
       'READ-ONLY. You are the completeness critic for an audit of ' + plan.repo.root + '. Below is what the reviewers covered. Identify up to ' + plan.gaps.max +
         ' MATERIAL gaps — subsystems or concerns not covered — each with a label and a prompt (paths and questions) for a focused follow-up reviewer. Return an empty gaps array if coverage is adequate.\n\nCOVERAGE:\n' + coverage,
-      agentOpts(plan, 'gaps', { label: 'critic', phase: 'Gaps', schema: S.CRITIC }),
+      agentOpts(plan, 'critic', { label: 'critic', phase: 'Gaps', schema: S.CRITIC }),
     )
     const gapList = (critic && critic.gaps) || []
     const runGaps = gapList.slice(0, plan.gaps.max)
     droppedGaps = gapList.slice(plan.gaps.max).map((g) => g.label)
     if (droppedGaps.length) log('critic proposed ' + gapList.length + ' gaps; running first ' + plan.gaps.max + ', dropped: ' + droppedGaps.join('; '))
     const gapRun = await parallel(runGaps.map((g, i) => () =>
-      agent(buildGapPrompt(plan, g), agentOpts(plan, 'gaps', { label: 'gap:' + (i + 1), phase: 'Gaps', schema: S.FINDINGS })).then((r) => (r ? Object.assign({}, r, { key: 'gap' + (i + 1), label: 'Gap: ' + g.label }) : null))))
+      agent(buildGapPrompt(plan, g), agentOpts(plan, 'review', { label: 'gap:' + (i + 1), phase: 'Gaps', schema: S.FINDINGS })).then((r) => (r ? Object.assign({}, r, { key: 'gap' + (i + 1), label: 'Gap: ' + g.label }) : null))))
     gapResults = gapRun.filter(Boolean)
     log('gap reviews: ' + gapResults.length + ' run')
   }
