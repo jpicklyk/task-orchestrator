@@ -39,6 +39,15 @@
 // the block cap already reached, any parse/fetch/timeout error, or a per-item non-2xx response
 // (403 — token without READ, 404) all result in that item never blocking. A silent `{}` on
 // stdout and exit 0 is always the floor.
+//
+// A2 independence-attestation violations: `gate.gateStatus.violations` (present only when
+// independence mode is not OFF and the resolved schema declares `independent_of` somewhere;
+// absent otherwise, in which case this hook behaves exactly as before A2). This hook honours a
+// REJECT-mode block the same way it honours missing required notes: it never re-derives
+// `blocksAdvance` itself, it trusts the gate route's own `canAdvance` (already false when a
+// non-waived violation blocks) and only ever names the stopping agent's OWN seat's non-waived
+// violations, mirroring the seat-only note-missing filter above. A `warn`-mode item never trips
+// this (its `canAdvance` stays true), and a waived violation never blocks in any mode.
 
 import { readFileSync, unlinkSync } from 'fs';
 import { resolve } from 'path';
@@ -87,8 +96,14 @@ async function fetchGate(base, itemId) {
   }
 }
 
+/** Renders one A2 violation as `key (constraint)`, e.g. `test-manifest (same_actor)` — never an
+ * actor id, proof, or claim (the gate route's `violations` array is already actor-free). */
+function formatViolation(v) {
+  return `${v.key} (${v.constraint})`;
+}
+
 function buildReason(blockers) {
-  const parts = blockers.map(({ gate, missing, hintValid }) => {
+  const parts = blockers.map(({ gate, missing, hintValid, violationBlockers }) => {
     const uuid8 = gate.itemId.slice(0, 8);
     const hint = !hintValid
       ? ''
@@ -97,7 +112,12 @@ function buildReason(blockers) {
         : gate.guidanceKey
           ? ` See guidance: ${gate.guidanceKey}.`
           : '';
-    return `Item ${uuid8} "${gate.title}" is in ${gate.role} with required notes still missing: ${missing.join(', ')}.${hint}`;
+    const segments = [];
+    if (missing.length > 0) segments.push(`required notes still missing: ${missing.join(', ')}`);
+    if (violationBlockers.length > 0) {
+      segments.push(`independence-attestation violations blocking this transition: ${violationBlockers.map(formatViolation).join(', ')}`);
+    }
+    return `Item ${uuid8} "${gate.title}" is in ${gate.role} with ${segments.join(' and ')}.${hint}`;
   });
   return (
     `${parts.join(' ')} Fill them via manage_notes(upsert) before returning. ` +
@@ -162,11 +182,25 @@ async function main() {
       const missing = isTestAuthor
         ? normalizedMissing
         : normalizedMissing.filter((key) => !TEST_AUTHOR_OWNED_KEYS.has(key));
-      if (missing.length === 0) continue;
+
+      // A2: only a REJECT-mode block (gate.gateStatus.canAdvance === false) can ever contribute a
+      // violation-based blocker — a warn-mode item's canAdvance stays true even with violations
+      // present, so this naturally never fires for warn. Within that, only this agent's OWN seat's
+      // non-waived violations are named (`!seat` keeps the pre-A1 role-agnostic fallback for an
+      // unrecognised/legacy agent_type, same convention the seat-role filter above uses); a
+      // waived entry, or one raised against a different seat, never blocks here either.
+      const rawViolations = Array.isArray(gate.gateStatus?.violations) ? gate.gateStatus.violations : null;
+      const violationBlockers =
+        rawViolations && gate.gateStatus?.canAdvance === false
+          ? rawViolations.filter((v) => v && v.waived !== true && (!seat || v.seat === seat))
+          : [];
+
+      if (missing.length === 0 && violationBlockers.length === 0) continue;
       // The DTO's skillPointer/guidanceKey describe only the FIRST raw missing key; only surface
-      // them when that key survived the test-author filter above.
-      const hintValid = missing[0] === normalizedMissing[0];
-      blockers.push({ gate, missing, hintValid });
+      // them when that key survived the test-author filter above, and only when there IS a missing
+      // note (a violations-only block has no note-fill hint to attach).
+      const hintValid = missing.length > 0 && missing[0] === normalizedMissing[0];
+      blockers.push({ gate, missing, hintValid, violationBlockers });
     }
 
     if (blockers.length === 0) {

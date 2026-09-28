@@ -4,6 +4,7 @@ import io.github.jpicklyk.mcptask.current.application.service.AdvanceResult
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
+import io.github.jpicklyk.mcptask.current.domain.model.IndependenceViolation
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceLease
@@ -17,6 +18,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.CascadeEventDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.DependenciesDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.DependencyEdgeDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ExpectedNoteDto
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.IndependenceViolationDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ItemDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.MissingNoteDto
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.NoteDto
@@ -242,6 +244,20 @@ fun RoleTransition.toDto(): RoleTransitionDto =
 // AdvanceMapper — AdvanceService.AdvanceResult → AdvanceResponseDto
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Maps a domain [IndependenceViolation] (A2) to its REST wire form. Field-for-field identical to
+ * [io.github.jpicklyk.mcptask.current.application.tools.workflow.NoteSchemaJsonHelpers.buildViolationsArray]'s
+ * MCP JSON shape -- actor-free by construction, never an actor id, proof, or claim.
+ */
+fun IndependenceViolation.toDto(): IndependenceViolationDto =
+    IndependenceViolationDto(
+        key = key,
+        seat = seat,
+        constraint = constraint.toJsonString(),
+        conflictingSeat = conflictingSeat,
+        waived = if (waived) true else null,
+    )
+
 /** Maps a [NoteSchemaEntry] to a [MissingNoteDto] (gate-block detail). */
 fun NoteSchemaEntry.toMissingNoteDto(): MissingNoteDto =
     MissingNoteDto(
@@ -303,11 +319,13 @@ fun AdvanceResult.toDto(existingNoteKeys: Set<String>): AdvanceResponseDto {
                             null
                         },
                     error = event.error,
+                    violations = event.violations?.map { it.toDto() },
                 )
             },
         unblockedItems =
             unblockedItems.map { UnblockedItemDto(itemId = it.itemId.toString(), title = it.title) },
         expectedNotes = expectedNotes,
+        violations = violations?.map { it.toDto() },
     )
 }
 
