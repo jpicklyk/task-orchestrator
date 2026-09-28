@@ -104,6 +104,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and retried on the next boot, never fail startup. Opt out with `DB_COMPACT_ON_UPGRADE=false` to
   keep using the offline compaction runbook instead. (#365)
 
+- **Rule text per project (A3): `query_rules` MCP tool + REST rules routes.** Git-tracked,
+  client-neutral operating rules (blind-authorship protocol, commit discipline, forbidden test
+  patterns, review scoping, and more) are now servable as text, stored per project root as
+  `rule/<key>` plan documents via the existing `manage_plan_documents` tool -- no new table, no
+  migration. A note-schema entry's `skill` pointer doubles as a rule key: the new `query_rules`
+  tool reads a rule directly (`rootId`+`key`) or resolves it through an item's effective,
+  trait-merged schema (`itemId`+`noteKey`); `query_items(operation="schema")` stays pointer-only
+  and never inlines rule bodies. `rulesVersion` on every response is the backing plan document's
+  `contentHash`.
+  - New REST routes `GET /api/v1/roots/{rootId}/rules/{key}` and `GET
+    /api/v1/roots/{rootId}/rules`, converging on the same `RuleService` as the MCP tool (no REST
+    item/skill-pointer mode). See [`api-reference.md`](current/docs/api-reference.md#query_rules)
+    and [`api-rest.md`](current/docs/api-rest.md) section 19a.
+  - A `rule/`-prefixed plan-document body is capped tighter than the general 64 KiB plan-document
+    limit, at **16384 bytes** (16 KiB, UTF-8), enforced at the same `PlanDocumentService.stash`
+    validation point both `manage_plan_documents` and the REST plan PUT route already share (MCP
+    `VALIDATION_ERROR` / REST `413 payload_too_large`).
+  - `create_work_tree` now refuses a `docRef.slug` starting with `rule/` -- rule documents are
+    read-only via `query_rules` and cannot be adopted into a work item.
+  - This repository's own initial rule set ships git-tracked under `.taskorchestrator/rules/`.
+    Pushing those files into the per-root store automatically is a planned `config-sync`
+    follow-up; until then, stash them with `manage_plan_documents`. See
+    [`config-format.md`](claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md)
+    → "Rule text".
+
 ### Changed
 
 - **`features` gained `"independent_of"`** (A2): `query_items(operation="schema")`, REST `GET

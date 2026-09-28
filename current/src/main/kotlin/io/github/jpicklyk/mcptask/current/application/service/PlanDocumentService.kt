@@ -31,7 +31,11 @@ class PlanDocumentService(
      *
      * The 64KB body cap mirrors `ManageNotesTool`'s `bodyFromFile` cap
      * ([io.github.jpicklyk.mcptask.current.application.tools.notes.ManageNotesTool]) — kept
-     * code-side (not a SQL CHECK) for consistency with how note bodies are capped elsewhere.
+     * code-side (not a SQL CHECK) for consistency with how note bodies are capped elsewhere. A
+     * `slug` starting with [RuleService.RULE_SLUG_PREFIX] (`rule/`) is capped tighter, at
+     * [RuleService.MAX_RULE_BODY_BYTES] — the single enforcement point for both `manage_plan_documents`
+     * `stash` and the REST PUT route, so `query_rules`/the `rules` REST routes never need their own
+     * cap (A3, 840e700a).
      */
     suspend fun stash(
         rootItemId: UUID,
@@ -39,8 +43,9 @@ class PlanDocumentService(
         body: String,
     ): PlanDocumentStashResult {
         val sizeBytes = body.toByteArray(Charsets.UTF_8).size
-        if (sizeBytes > MAX_BODY_BYTES) {
-            return PlanDocumentStashResult.TooLarge(sizeBytes, MAX_BODY_BYTES)
+        val maxBytes = if (slug.startsWith(RuleService.RULE_SLUG_PREFIX)) RuleService.MAX_RULE_BODY_BYTES else MAX_BODY_BYTES
+        if (sizeBytes > maxBytes) {
+            return PlanDocumentStashResult.TooLarge(sizeBytes, maxBytes)
         }
 
         val item =

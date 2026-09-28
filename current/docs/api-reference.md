@@ -37,6 +37,7 @@ errors, per-root-config-unavailable failures, and internal errors.
 | `claim_item` | Workflow | Write | Atomically claim or release work items for exclusive ownership |
 | `manage_project_config` | System | Write/Read | Push or read back per-root config YAML for the layered schema resolver |
 | `manage_plan_documents` | System | Write/Read | Stash, read back, or list per-root plan documents |
+| `query_rules` | System | Read | Read git-tracked rule text by rootId+key, by an item skill-pointer resolution, or list rule keys under a root |
 
 ---
 
@@ -2331,7 +2332,13 @@ Supports three operations, selected via `operation`:
 
 Validates, in order:
 1. The resolved body (`body` or `bodyFromFile`) must not exceed **64 KiB** (65,536 bytes, UTF-8) —
-   rejected before any repository call.
+   rejected before any repository call. **Exception:** a `slug` starting with `rule/` (a rule
+   document served back by [`query_rules`](#query_rules), below) is capped tighter, at **16384
+   bytes** (16 KiB, UTF-8) — the same `PlanDocumentStashResult.TooLarge` outcome, just a smaller
+   `maxBytes`, so the error still reads "... exceeds the 16384 byte (16 KiB) limit"
+   (`VALIDATION_ERROR` here; REST `PUT /roots/{rootId}/plans/rule%2F<key>` — note the `%2F` —
+   returns `413 payload_too_large`, see [api-rest.md](./api-rest.md) section 19a). Every other
+   slug keeps the 64 KiB cap.
 2. `rootId` must resolve to an existing WorkItem.
 3. That WorkItem must be depth 0 (a project root) — plan documents anchor to roots only.
 4. If a document already exists at `rootId`+`slug` and its `status` is `"adopted"`, the stash
@@ -2432,6 +2439,159 @@ optionally filtered by `status`, ordered by `slug` ascending.
 
 **Note on actor attribution.** Like `manage_project_config`, this tool does not accept an `actor`
 parameter — plan documents have no per-note attribution model to stamp.
+
+### query_rules
+
+**Purpose.** Read-only surface for git-tracked rule text -- client-neutral operating rules (the
+blind-authorship protocol, commit discipline, forbidden test patterns, review scoping, and so on)
+stashed as `rule/<key>` [plan documents](#manage_plan_documents) via `manage_plan_documents` and
+served here verbatim. `query_rules` never inlines rule text into `query_items(operation="schema")`
+-- that surface stays pointer-only: a note-schema entry's `skill` field names a rule key, and the
+caller resolves the actual text through this tool. Both operations converge on the same
+`RuleService` the REST `rules` routes use (see [api-rest.md](./api-rest.md) section 19a) -- one
+read-only view over the `rule/<key>` plan documents `manage_plan_documents`/`PlanDocumentService`
+write, so MCP and REST always agree on `rulesVersion` and body for the same key.
+
+Supports two operations, selected via `operation`:
+
+#### `get`
+
+Reads back one rule's body and `rulesVersion` (the backing plan document's `contentHash`).
+Exactly one of two mutually exclusive parameter pairs selects the lookup:
+
+- **Direct** -- `rootId`+`key`: reads `rule/<key>` under `rootId` directly.
+- **Skill-pointer** -- `itemId`+`noteKey`: resolves `itemId`'s EFFECTIVE (trait-merged) schema via
+  the same `ToolExecutionContext.resolveSchema()` path `manage_project_config`/`advance_item` use,
+  looks up `noteKey`'s entry in that resolved schema, and follows its `skill` field as the rule key
+  -- read under the item's OWN `rootId` (`item.rootId`, not a caller-supplied one). The response
+  echoes this resolution as `resolvedFrom`.
+
+Providing both pairs, or neither, fails validation (`get requires exactly one of (rootId+key) or
+(itemId+noteKey)`).
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `operation` | string (`"get"` \| `"list"`) | Yes | Selects the operation |
+| `rootId` | string (UUID or 4+ char hex prefix) | One of `rootId`+`key` / `itemId`+`noteKey` (get); required (list) | Project root WorkItem -- direct lookup, or the anchor for `list` |
+| `key` | string | With `rootId` (get, direct lookup only) | Rule key: lowercase alphanumeric/`.`/`_`/`-`, starting alphanumeric, max 100 chars (see **Key grammar** below); rejected on `list` |
+| `itemId` | string (UUID or 4+ char hex prefix) | With `noteKey` (get, skill-pointer lookup only) | WorkItem whose effective schema resolves the skill pointer; rejected on `list` |
+| `noteKey` | string | With `itemId` (get, skill-pointer lookup only) | Note key to resolve via `itemId`'s effective schema; its entry's `skill` field names the rule key; rejected on `list` |
+
+**Key grammar.** `^[a-z0-9][a-z0-9._-]{0,99}$` -- lowercase alphanumeric, `.`, `_`, `-`; must start
+with an alphanumeric; max 100 characters; never `/`, uppercase, or `:` (a key is one path segment,
+usable verbatim in a REST URL and as the `rule/<key>` plan-document slug suffix). Checked in
+`validateParams` for the direct `rootId`+`key` pair (`VALIDATION_ERROR` before any repository
+call); for the skill-pointer pair the RESOLVED `skill` value is checked the same way once the
+schema lookup succeeds (see **Error cases** below).
+
+**Example (direct).**
+
+```json
+{
+  "operation": "get",
+  "rootId": "3f9c2b10-...",
+  "key": "commit-discipline"
+}
+```
+
+**Example (skill-pointer).**
+
+```json
+{
+  "operation": "get",
+  "itemId": "840e700a-...",
+  "noteKey": "test-manifest"
+}
+```
+
+**Response (success, direct).**
+
+```json
+{
+  "rootId": "3f9c2b10-...",
+  "key": "commit-discipline",
+  "slug": "rule/commit-discipline",
+  "rulesVersion": "e3b0c44298fc1c14...",
+  "body": "..."
+}
+```
+
+**Response (success, skill-pointer).** Adds `resolvedFrom`:
+
+```json
+{
+  "rootId": "3f9c2b10-...",
+  "key": "test-author",
+  "slug": "rule/test-author",
+  "rulesVersion": "e3b0c44298fc1c14...",
+  "body": "...",
+  "resolvedFrom": {
+    "itemId": "840e700a-...",
+    "noteKey": "test-manifest",
+    "skill": "test-author"
+  }
+}
+```
+
+`body` is served byte-for-byte as stored -- no trimming, no re-encoding -- and `rulesVersion` is
+always the stored document's `contentHash`, the same value `manage_plan_documents`/the REST plan
+routes report for that `rule/<key>` slug.
+
+**Error cases.**
+
+| Condition | `error.code` |
+|---|---|
+| Neither or both of (`rootId`+`key`) / (`itemId`+`noteKey`) supplied | `VALIDATION_ERROR` |
+| `rootId`/`itemId` malformed (not a UUID or 4+ char hex prefix) | `VALIDATION_ERROR` |
+| `key` fails the key grammar (direct lookup) | `VALIDATION_ERROR` |
+| `itemId` does not resolve to an existing WorkItem | `RESOURCE_NOT_FOUND` |
+| Item has no `rootId` (skill-pointer lookup) | `VALIDATION_ERROR` |
+| `rootId` does not resolve to an existing WorkItem | `RESOURCE_NOT_FOUND` |
+| `rootId` (or the item's own root) is not depth-0 | `VALIDATION_ERROR` |
+| `noteKey` not found in the item's effective schema, or its entry has no `skill` field | `RESOURCE_NOT_FOUND` |
+| Resolved `skill` value fails the key grammar | `VALIDATION_ERROR` |
+| No `rule/<key>` document exists at that root | `RESOURCE_NOT_FOUND` |
+| Per-root config read fails transiently while resolving a skill pointer (no last-known-good cached) | transient `config_unavailable` (see [Error Envelope](#error-envelope)) -- a `PerRootConfigUnavailableException` from `resolveSchema()` is deliberately left uncaught in the tool and mapped by the MCP adapter, same as `manage_project_config`/`advance_item` |
+| Storage failure | `DATABASE_ERROR` |
+
+#### `list`
+
+Returns `{key, rulesVersion, updatedAt}` for every valid rule key under `rootId`, sorted by key
+ascending, **never the body**. Accepts only `rootId` -- `key`, `itemId`, and `noteKey` are all
+rejected. A `rule/<key>` document whose key fails the key grammar (stashable via
+`manage_plan_documents`, which does not itself enforce the grammar, but never served by `get` or
+`list`) is silently excluded, as are non-`rule/` slugs. A document's `status` (`pending` vs
+`adopted`) is ignored -- both are listed and served; adoption freezes a rule's content, it does not
+hide it.
+
+| Parameter | Type | Required | Description |
+|---|---|---|---|
+| `operation` | string (`"get"` \| `"list"`) | Yes | Selects the operation |
+| `rootId` | string (UUID or 4+ char hex prefix) | Yes | Project root WorkItem to list rule keys for |
+
+**Response (success).**
+
+```json
+{
+  "rootId": "3f9c2b10-...",
+  "rules": [
+    { "key": "commit-discipline", "rulesVersion": "e3b0c4...", "updatedAt": "2026-09-28T13:00:00Z" },
+    { "key": "test-author", "rulesVersion": "a94a8f...", "updatedAt": "2026-09-28T13:05:00Z" }
+  ]
+}
+```
+
+**Error cases.**
+
+| Condition | `error.code` |
+|---|---|
+| `rootId` malformed, or `key`/`itemId`/`noteKey` supplied on `list` | `VALIDATION_ERROR` |
+| `rootId` does not resolve to an existing WorkItem | `RESOURCE_NOT_FOUND` |
+| `rootId` is not depth-0 | `VALIDATION_ERROR` |
+| Storage failure | `DATABASE_ERROR` |
+
+**Note on actor attribution.** Like `manage_project_config`/`manage_plan_documents`, this tool does
+not accept an `actor` parameter -- it is read-only, with no write to attribute.
 
 ---
 
