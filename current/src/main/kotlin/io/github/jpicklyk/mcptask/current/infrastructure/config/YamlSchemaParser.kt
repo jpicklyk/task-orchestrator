@@ -1213,15 +1213,24 @@ internal object YamlSchemaParser {
             }
         }
 
-        val modeRaw = independenceMap["mode"] as? String
+        // A non-string mode (e.g. an unquoted `off`, which YAML 1.1 parses as Boolean false) is
+        // invalid and fails toward warn WITH a warning -- never silently, never toward off.
+        val modeValue = independenceMap["mode"]
         val mode =
-            if (modeRaw == null) {
-                IndependenceMode.WARN
-            } else {
-                IndependenceMode.fromConfigString(modeRaw) ?: run {
+            when (modeValue) {
+                null -> IndependenceMode.WARN
+                is String ->
+                    IndependenceMode.fromConfigString(modeValue) ?: run {
+                        warnings.add(
+                            "Invalid independence.mode value '$modeValue'; defaulting to 'warn' " +
+                                "(valid: off, warn, reject)"
+                        )
+                        IndependenceMode.WARN
+                    }
+                else -> {
                     warnings.add(
-                        "Invalid independence.mode value '$modeRaw'; defaulting to 'warn' " +
-                            "(valid: off, warn, reject)"
+                        "Invalid independence.mode value '$modeValue' (not a string); defaulting to 'warn' " +
+                            "(valid: off, warn, reject -- quote \"off\": unquoted off is a YAML boolean)"
                     )
                     IndependenceMode.WARN
                 }
