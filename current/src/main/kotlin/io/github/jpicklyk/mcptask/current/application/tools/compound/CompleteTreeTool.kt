@@ -640,6 +640,7 @@ Call when closing out a finished hierarchy — one atomic call instead of per-it
                     )
                 )
             }
+            NoteSchemaJsonHelpers.buildViolationsArrayNonEmpty(result.violations)?.let { put("violations", it) }
         }
 
     /** Mirrors the `cascadeEvents` element shape emitted by `advance_item`. */
@@ -660,6 +661,7 @@ Call when closing out a finished hierarchy — one atomic call instead of per-it
             }
             event.statusLabel?.let { put("statusLabel", JsonPrimitive(it)) }
             event.error?.let { put("error", JsonPrimitive(it)) }
+            NoteSchemaJsonHelpers.buildViolationsArrayNonEmpty(event.violations)?.let { put("violations", it) }
         }
 
     /**
@@ -695,6 +697,7 @@ Call when closing out a finished hierarchy — one atomic call instead of per-it
                     put("missingNotes", NoteSchemaJsonHelpers.buildMissingNotesArray(failure.missingNotes))
                     put("previousRole", JsonPrimitive(failure.previousRole.toJsonString()))
                     put("targetRole", JsonPrimitive(failure.targetRole.toJsonString()))
+                    NoteSchemaJsonHelpers.buildViolationsArrayNonEmpty(failure.violations)?.let { put("violations", it) }
                 }
                 is AdvanceFailure.OwnershipRejected -> {
                     putSkipped(failure.message)

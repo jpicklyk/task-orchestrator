@@ -560,14 +560,14 @@ traits:
 | `phase` | yes | string | `queue`, `work`, or `review` only — exact lowercase match, same set as note `role`. |
 | `enters` | no | boolean | Default `false`. Whether this seat is the one that transitions the item **into** `phase`. At most one seat may set this `true` per phase within a single `seats:` list, or within a schema's own seats plus its same-document `default_traits`' seats — see "Fatal errors" (F1). A conflict discovered only at resolve time (per-item traits, or traits supplied by a different config layer) is **not** fatal — see "Merge rules" below. |
 | `after` | no | list of strings | Seat names this seat's work logically follows — an ordering **hint**, not enforced by the server. A name outside the declaring scope, or naming a seat in a different phase, is served exactly as declared; it never fails validation. |
-| `reads_exclude` | no | list of strings | Note keys this seat should **not** read — a hint powering test-author-style blindness. Parsed and served in A1; **not enforced** until A2. |
+| `reads_exclude` | no | list of strings | Note keys this seat should **not** read — a hint powering test-author-style blindness. Parsed and served only — not enforced by the server (blindness is a contract/process discipline, not a server-side check). This is a separate field from a note entry's own `independent_of` — see "Independence (A2)" below. |
 
 ### Note-entry fields (new on `notes[]`)
 
 | Field | Required | Type | Notes |
 |-------|----------|------|-------|
 | `seat` | no | string | The seat (by name) that owns this note. Determines which bucket a missing required note lands in under `missingBySeat` — see "The `unowned` bucket" below. A note with no `seat`, or a `seat` naming an undeclared seat, or a `seat` declared for a *different* phase than the note's own `role`, is `unowned`. |
-| `independent_of` | no | list of strings | Seat names this note's authoring must stay independent of (e.g. a test-author's `test-manifest` staying independent of the `implementer` seat). **Parsed and served only in A1 — not enforced.** |
+| `independent_of` | no | list of strings | Seat names this note's authoring must stay independent of (e.g. a test-author's `test-manifest` staying independent of the `implementer` seat). Parsed and served since A1; **enforced as of A2** — see "Independence (A2)" below for the attestation gate, its `independence:` config block, constraints, the `independence: temporal-only` waiver, and its honest limits. |
 
 ### Per-seat dispatch overrides (`dispatch.<phase>.seats.<seat>`)
 
@@ -1222,6 +1222,196 @@ pushes its own `note_limits.mode` overrides the global mode for that root's item
 document with no `note_limits` section at all defers to the global mode unchanged.
 
 Notes are a compression boundary: keep bodies distilled prose, and route verbatim artifacts (test output, diffs, logs) through `bodyFromFile` rather than pasting them inline.
+
+## Independence (A2)
+
+A note-schema entry's `independent_of` (see "Note-entry fields" under "Seats" above) declares which
+other seat(s) a note's *authoring* must stay independent of — e.g. a test-author's `test-manifest`
+staying independent of the `implementer` seat's notes. A2 turns this from a served-only hint (A1)
+into an attestation gate: at `start`/`complete` (and the terminal/start cascade gates), the server
+compares the ACTOR who wrote a declaring note against the actor(s) who wrote the seat(s) it names,
+and reports (or, in `reject` mode, blocks on) any conflict.
+
+### Config block
+
+```yaml
+independence:
+  mode: warn            # off | warn | reject — default warn
+  require_verified: false  # default false
+```
+
+| Field | Required | Type | Notes |
+|-------|----------|------|-------|
+| `mode` | no | string | `off` (the predicate is never evaluated — `violations` is absent from every surface), `warn` (default; violations are computed and reported but never block), or `reject` (a non-waived violation blocks the transition). Must be a YAML **string**: an unquoted `off` parses as the YAML 1.1 boolean `false`, not the string `"off"` — **always quote it** (`mode: "off"`). A non-string or unrecognized value falls back to `warn` with a load warning — never silently, never toward `off`. |
+| `require_verified` | no | boolean | When `true`, a declaring note (or a conflicting seat's note) whose verification status is not `VERIFIED` (see `actor_authentication` above) also raises an `unverified` violation. Default `false`. A non-boolean value falls back to `false` with a load warning. |
+
+An unknown sub-key under `independence:` warns and is ignored. A present-but-non-map `independence:`
+value warns and is treated as the block being present with defaults (`warn`/`false`). The block is
+per-root honorable: **a per-root `independence` block replaces the global one WHOLESALE** (both
+`mode` and `require_verified` together, as one unit — not merged field-by-field) whenever the
+per-root document declares the key at all; a per-root document with no `independence` section at all
+defers to the global block unchanged (mirrors `note_limits.mode`'s per-root-wins-when-present rule,
+see "Note Body Length Limits" below, but as one wholesale unit rather than per-field).
+
+### Constraints
+
+For each note-schema entry `N` with a non-empty `independent_of` (a "declaring entry") whose note is
+FILLED (non-blank body), the server checks `N`'s note against every FILLED note owned by each seat
+`N.independent_of` names ("S-notes"), and reports up to three kinds of finding:
+
+| Constraint | Raised when |
+|---|---|
+| `same_actor` | `N`'s note and a conflicting seat's note share the same identity (see "Identity" below). |
+| `missing_actor` | `N`'s note, or a conflicting seat's note, has no actor claim at all — **fail-closed**: an untagged (actor-less) note is never treated as automatically independent, it is flagged. |
+| `unverified` | `require_verified: true` and the relevant note's verification status is not `VERIFIED`. |
+
+Each finding is a `{key, seat?, constraint, conflictingSeat?, waived?}` object: `key` is the
+declaring note's key, `seat` its owning seat (omitted when the schema is not seat-aware),
+`conflictingSeat` the seat the finding was raised against (omitted for a `missing_actor`/`unverified`
+finding raised against the declaring note itself, rather than against a specific conflicting seat),
+and `waived` present (`true`) only when the temporal-only waiver applies (see below). **These objects
+are actor-free by construction — never an actor id, proof, or claim, on any surface, MCP or REST.**
+
+**Identity.** A note's identity for comparison is its verification's `proofClaims.sub` when its
+verification status is `VERIFIED` and that `sub` is non-null; otherwise its self-reported
+`actorClaim.id`. Comparison is an exact, case-sensitive string match — see "Honest limits" below for
+what this does and does not catch.
+
+**Evaluation scope.** For `start` (and the queued-parent start cascade), only declaring entries whose
+`role` equals the item's CURRENT phase are evaluated. For `complete` (and the terminal cascade, and
+`complete_tree`), every declaring entry across ALL phases is evaluated. `cancel`, `block`/`hold`,
+`resume`, and `reopen` never evaluate independence — only `start`/`complete` triggers do. The gate
+paths that surface findings are: `advance_item` (both the direct `checkGate` and both cascade gates),
+`complete_tree`, `get_context`, the REST `GET /items/{id}/gate` route, the REST advance route's
+success and `422 gate_blocked` failure bodies, and the plugin's SubagentStop phase-guard hook (which
+trusts the gate route's own `canAdvance` rather than re-deriving `reject`-mode blocking itself).
+
+### The `independence: temporal-only` waiver
+
+A declaring note may waive its own `same_actor` findings by making its body's **first line** (after
+stripping one trailing `\r` and trimming) equal exactly `independence: temporal-only`, case-sensitive.
+The waiver only takes effect when the declaring note's `createdAt` is strictly AFTER the `createdAt`
+of every same-identity conflicting note it would otherwise collide with — i.e. the same actor wrote
+both notes, but the declaring note is attested to have been written with the other note already
+visible, which the schema owner accepts as sufficient independence for that pairing. A waived finding
+carries `"waived": true` and **never blocks a transition in any mode**, `reject` included.
+
+The waiver applies ONLY to `same_actor` findings — it never waives `missing_actor` or `unverified`
+findings, even when it also appears on a note that has one of those. An actor-less declaring note
+with a waiver first-line still raises (and still blocks, in `reject` mode) its `missing_actor`
+finding.
+
+### Blocking
+
+A transition is blocked only when `mode: reject` AND at least one finding is not `waived`. `warn`
+mode never blocks — the transition applies, and `violations` on the result simply reports what was
+found. `off` mode never computes findings at all: `violations` is absent (not `[]`) everywhere for
+that item. `canAdvance` (`get_context`, REST `GET /items/{id}/gate`) already folds this in:
+`canAdvance = !terminal && missing.isEmpty() && !independenceBlocks`, the same pattern the missing-
+required-notes check already used.
+
+### JSON emission
+
+The `violations` key's presence rule differs by surface, and the difference is deliberate (a bare
+gate READ should tell a client "the check ran and found nothing" vs "the check doesn't apply here",
+while a transition RESULT should stay quiet unless there is something to report):
+
+- **`gateStatus`** (`get_context`, REST `GET /items/{id}/gate`) emits `violations` whenever the
+  check applies — mode is not `off` and the item's resolved schema declares `independent_of` in any
+  phase — **including an empty array** `[]` when the check ran and found nothing. It is absent for a
+  terminal item.
+- **Everywhere else** — a successful `advance_item`/REST-advance result, each `cascadeEvents` entry,
+  a REST `422 gate_blocked`'s `details.violations`, and an `advance_item`/`complete_tree`
+  applied-or-failure entry (`complete_tree` in `warn` mode included) — `violations` is emitted
+  **only when the list is non-empty**; an empty result is simply omitted, not sent as `[]`.
+- **On every surface**, `violations` is absent entirely when independence `mode` is `off`, or when
+  the relevant schema (the item's own for `gateStatus`/an applied entry, the cascade's own target
+  schema for a `cascadeEvents` entry) declares no `independent_of` anywhere.
+
+### Honest limits
+
+A2 is an **attestation-consistency check, not an enforcement mechanism**, unless it is paired with
+`actor_authentication` and `require_verified: true`. Understand what it can and cannot catch before
+relying on it:
+
+- **Without `actor_authentication` + `require_verified`, identity is a self-reported `actorClaim.id`
+  — whatever string the caller supplied.** Nothing on the write path verifies that the caller is who
+  they claim to be; the check only verifies that two notes claim to be from different callers.
+- **Identity comparison is exact-match, case-sensitive.** Two ids differing only by case or
+  whitespace (`Implementer-1` vs `implementer-1`, or a trailing space) are treated as genuinely
+  distinct identities — the check cannot detect that they were meant to be the same caller, and it
+  equally cannot detect that a caller deliberately varied its id to dodge the check.
+- **The check is last-writer-wins.** Re-upserting a note (`manage_notes(upsert)` or a REST note
+  write) with a different `actor` replaces the note's actor claim outright; there is no history of
+  prior claims to compare against, so a later re-attribution silently changes which findings a note
+  contributes to.
+- **A per-root config push can weaken or disable the gate for that root** — `mode: off` or dropping
+  `require_verified` in a per-root `independence` block replaces the global policy wholesale for
+  every item under that root, with no separate confirmation step beyond the ordinary
+  `manage_project_config` push.
+- **Two parties sharing one actor id always raise `same_actor` — a false positive the check cannot
+  tell apart from a genuine collision.** If two different people or processes both write notes under
+  the same `actorClaim.id` (deliberately or by copy-pasted configuration), every note they write is
+  indistinguishable to this check — it raises `same_actor` between them every time, even when by the
+  real-world-actor meaning of "actor" they are genuinely independent; the check only knows the string
+  in `actorClaim.id`, not who is really typing.
+- **REST note writes ignore any client-supplied actor field.** A REST note write's actor is always
+  the server-resolved caller identity, never a value the request body can set. Under
+  `API_AUTH_MODE=none` every REST write is attributed to the single actor `api:local-unauth`, so ALL
+  notes written over REST while unauthenticated collide as `same_actor` with each other — REST
+  independence checking is meaningless in that mode. Bearer-token REST writes are attributed to
+  `api:<tokenId>`/`api:<sub>` and so are distinguishable from each other, but they are UNCHECKED for
+  verification purposes — under `require_verified: true` a bearer REST write's note is always
+  `unverified`, regardless of how strong the bearer token's own authentication was.
+- **Only FILLED notes are compared, and a filled note can be unfilled again.** Deleting a note's body
+  or blanking it out erases its findings — the check re-evaluates from current note bodies each time,
+  it does not remember that a conflicting note ever existed. `start` only ever evaluates the
+  declaring note's OWN current phase (not every phase the way `complete` does), so a same-actor
+  conflict recorded in an earlier phase's S-note is invisible to a later phase's `start` check unless
+  that earlier note is still filled at evaluation time.
+- **Under `require_verified: true`, a VERIFIED note with no proof `sub`** (non-DID trust, a JWKS
+  config with `requireSubMatch: false`, or a JWT lacking a `sub` claim) **falls back to the
+  self-reported `actorClaim.id` for identity** — so a single credential can present two different
+  identities to the check depending on what `actor` string the caller chose to send. Separately,
+  identity resolution differs by transport for JWKS-verified writes: a REST JWKS write is identified
+  as `api:<sub>` while an MCP JWKS-verified note resolves to the bare `<sub>` — the same real-world
+  principal writing one note over REST and another over MCP is NEVER flagged `same_actor` between
+  those two notes, even with `require_verified: true` and full JWKS verification (a documented,
+  pre-existing limit, unchanged by A2).
+- **A per-root config push can weaken or disable the gate in more ways than the obvious one.**
+  Beyond a deliberate `mode: off` or a dropped `require_verified`, an empty, non-map, or bad-`mode`
+  per-root `independence` block still resolves to `mode: warn, require_verified: false` (the same
+  fallback a malformed *global* block gets) and, because a present per-root block always wins
+  wholesale, this silently downgrades a stricter global `reject` policy for every item under that
+  root. A per-root schema push can also strip a note's `independent_of`/`seat` declaration entirely —
+  once stripped, the gate has nothing to evaluate for that note and simply stops emitting findings,
+  with no error or warning that independence checking went inert for it. `manage_project_config` over
+  MCP has no capability gate of its own, unlike the REST `PUT` route which requires `WRITE_CONFIG` —
+  anyone who can call `manage_project_config` over MCP can weaken or disable the independence gate
+  for a root.
+- **The `independence: temporal-only` waiver is self-service and has no config-level off switch.**
+  Whoever writes the declaring note is the same party who can add the waiver marker to it, and for
+  the common case of a single agent writing its own notes sequentially, the ordering requirement
+  (`N.createdAt` after every same-identity `S`-note's `createdAt`) is satisfied automatically simply
+  by writing last. In practice this makes the waiver an opt-out any note-writer can apply to itself
+  under `reject` mode — there is no config knob to disable the waiver mechanism for a schema, trait,
+  or root.
+- **Even with attribution redaction on, non-admin callers still learn the relation between notes.**
+  `API_REDACT_NOTE_ATTRIBUTION` hides the actor id itself, but a `same_actor` or `missing_actor`
+  finding is still visible on `gateStatus.violations` and the advance/cascade/failure surfaces to any
+  caller who can read them — so a non-admin caller cannot see WHO wrote two notes, but can still see
+  THAT they were (or were not) written by the same actor.
+- **Under `API_AUTH_MODE=none`, every REST note write carries the same actor, `api:local-unauth`**
+  (REST ignores client-supplied actor fields — see above). Any two notes written over REST in that
+  mode therefore always raise `same_actor` against each other, and the REST layer adds no identity
+  assurance of its own.
+
+These limits are by design: A2 is scoped as attestation, not identity verification. The exception
+is the `require_verified` identity gaps above (a VERIFIED note without a proof `sub`, and the REST
+`api:<sub>` vs MCP `<sub>` split), which a planned follow-up hardens; until then, do not treat
+`require_verified: true` as identity enforcement. Pair the check with `actor_authentication` for a
+stronger guarantee, and treat a bare `warn`/`reject` config as a discipline aid, not a security
+control.
 
 ---
 

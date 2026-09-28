@@ -286,7 +286,7 @@ entirely, unchanged.
       "extractor": { "model": "sonnet", "effort": "low" }
     }
   },
-  "features": ["seats", "dispatchBySeat"]
+  "features": ["seats", "dispatchBySeat", "independent_of"]
 }
 ```
 
@@ -298,7 +298,7 @@ This is the **only** place that returns full note text (`description`, `guidance
 
 **Type path vs. item path.** The `type` path (`type=...`, no `itemId`) returns only the BASE schema's `notes`/`seats` — no trait merging, the same as its pre-A1 note behaviour — so its `seat`/`independentOf`/`seats` reflect the type's own declared seats only; its `dispatch`/`dispatchBySeat` are still resolved from the type's `default_traits` over those base seats (there is no item, so no per-item `traits` layer applies). The `itemId` path returns the fully trait-merged schema — base schema notes and seats plus surviving `default_traits` and per-item `traits` — so its `notes`/`seats`/`dispatchBySeat` can include seats and notes contributed by traits that never appear on the `type` path. See `ItemSchemaView.buildTypeSchemaJson` vs `buildItemSchemaJson` (`application/service/ItemSchemaView.kt`).
 
-**Server feature advertisement.** `features` lists server-wide optional-response capabilities this server version can serve — currently `["seats", "dispatchBySeat"]` — **unconditionally**, regardless of whether the resolved config actually declares any `seats:`. This lets a client distinguish an old server (which never emits `seat`/`seats`/`dispatchBySeat`/`missingBySeat` at all) from a new server whose current config simply declares no seats. `features` also appears on REST `GET /api/v1/info` and the `.well-known` service descriptor (see `api-rest.md`). Only enforced/served facets are advertised — `independent_of` is parsed and served in A1 but not enforced until a later phase, so it is deliberately absent from `features`.
+**Server feature advertisement.** `features` lists server-wide optional-response capabilities this server version can serve — currently `["seats", "dispatchBySeat", "independent_of"]` — **unconditionally**, regardless of whether the resolved config actually declares any `seats:`/`independent_of:`. This lets a client distinguish an old server (which never emits `seat`/`seats`/`dispatchBySeat`/`missingBySeat`/`violations` at all) from a new server whose current config simply declares no seats or independence requirements. `features` also appears on REST `GET /api/v1/info` and the `.well-known` service descriptor (see `api-rest.md`). Only enforced/served facets are advertised — `independent_of` was parsed and served but not enforced in A1; A2 (the independence attestation gate) now enforces it, so `"independent_of"` joined the advertised list (see [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#independence-a2) → "Independence (A2)").
 
 **Examples.**
 
@@ -699,6 +699,19 @@ is empty when nothing cascaded from this item's completion. An item whose comple
 implied by an earlier cascade in this same batch (e.g. completing a child cascaded the root to
 `TERMINAL` before the root's own entry in `itemIds`/`rootId` was processed) is reported as already
 terminal rather than re-applied — it is not double-counted and produces no duplicate audit row.
+
+**Independence (A2).** An applied entry (and each of its `cascadeEvents` entries) gains `violations`
+(array, same `{key, seat?, constraint, conflictingSeat?, waived?}` shape as `advance_item`'s
+`violations`) — present only when the list is non-empty (omitted, not `[]`, when independence
+checking applies but finds nothing, and also omitted when independence mode is `off` or the item's
+target schema declares no `independent_of`); populated in `warn` mode too, including on a plain
+(non-cascaded) `complete_tree` applied entry. A `GateBlocked` entry (`applied: false`, `gateErrors`
+present) also gains `violations` under the same non-empty-only rule alongside
+`gateErrors`/`missingNotes` — the item may be gate-failed by missing notes, a non-waived
+`reject`-mode violation, or both; either way this item's in-set dependents are skipped the same as
+any other gate failure. See
+[`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#independence-a2)
+→ "Independence (A2)".
 
 **Rejected-entry fields (`applied: false`, ownership/policy rejection):** a rejection from claim
 ownership, policy, or the underlying `AdvanceService` apply step carries the SAME error shape
@@ -1309,6 +1322,8 @@ acquired for entering WORK is released in the same call (see [`workflow-guide.md
 
 `dispatch` (object, optional): `{agent?, model?, effort?}` routing profile for the **new** role (`newRole`), resolved from the `dispatch` trait dimension — see [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#dispatch-trait-dimension) → "Dispatch (Trait Dimension)". Omitted entirely (never `null`/`{}`) when no resolved trait declares a profile for the new role.
 
+**Independence (A2).** A successfully-applied result gains `violations` (array, same `{key, seat?, constraint, conflictingSeat?, waived?}` shape as `get_context`'s `gateStatus.violations`) — present only when the list is non-empty (omitted, not `[]`, when independence checking applies but finds nothing, and also omitted when independence mode is `off` or the target schema declares no `independent_of`), populated in `warn` mode too (a `warn`-mode transition still applies and still reports what it found, when there is something to report). Each `cascadeEvents` entry gains the same `violations` field under the same non-empty-only rule, evaluated against that cascade's own target schema. See [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#independence-a2) → "Independence (A2)".
+
 **Response (failed transition).** When `applied: false`, the result shape differs from the success shape:
 
 ```json
@@ -1361,6 +1376,8 @@ acquired for entering WORK is released in the same call (see [`workflow-guide.md
 `guidance` and `skill` are omitted per-entry when unset. `previousRole`/`targetRole` are present only on gate-blocked failures — other failure shapes (dependency `blockers`, ownership/policy rejection, resource-lease contention) do not carry them. A hook such as `subagent-start.mjs` distinguishes "item already in your phase" from every other failure via `errorCode === "gate_blocked"` combined with `previousRole` equal to the caller's own phase — never via the mere absence of `errorCode`, since every failure now has one.
 
 `missingBySeat` (object, optional, A1) buckets `missingNotes`' keys by owning seat — same shape, ordering, and omission rule as `get_context`'s `gateStatus.missingBySeat` (`{<seat>: [keys], ..., "unowned": [keys]}`, non-empty buckets only, `unowned` last): present only when the target schema is seat-aware, appended after `missingNotes`, omitted entirely for a seat-less schema.
+
+`violations` (array, optional, A2) is appended after `missingBySeat` on a gate-blocked failure — same shape and presence rule as the success-path `violations` field above. A transition can be gate-blocked by missing required notes, by a non-waived independence violation in `reject` mode, or both at once; `violations` reports whichever independence findings exist regardless of which condition actually triggered the block (it is also present, non-empty, when the block was violations-only — `missingNotes: []` with a populated `violations`).
 
 **Ownership / policy rejection.** When a transition is rejected because another agent holds a live claim, or by `degradedModePolicy=reject`, the failed result carries structured fields alongside `error`: `errorKind`, `errorCode` (`not_claim_holder` or `rejected_by_policy`), and — for ownership rejections — `contendedItemId`.
 
@@ -1589,6 +1606,8 @@ When `mode` is omitted, the mode is inferred from which parameters are present (
 Each entry in the `schema` array is keys-only: `key`, `role`, `required`, `exists`, `filled`, plus `seat` (A1) whenever the resolved schema is seat-aware — omitted entirely for a seat-less schema. Resolve `description`/`guidance`/`skill` for any entry via `query_items(operation="schema", itemId=...)`.
 
 **Seats (A1).** `gateStatus.missingBySeat` (object, optional) buckets `missing`'s keys by owning seat — `{<seat>: [keys], ..., "unowned": [keys]}`, non-empty buckets only, in merged-seat order with `unowned` always last — present whenever the resolved schema is seat-aware AND the item is not `TERMINAL` (an empty object `{}` when the schema is seat-aware but nothing is missing); omitted entirely for a seat-less schema or a terminal item. Top-level `seats` (array, optional) and `dispatchBySeat` (object, optional, **flat** — `{<seat>: {agent?, model?, effort?}}`, unlike the per-phase-nested shape `query_items(operation="schema")` returns) cover the item's **current phase only** — same seat-declaration and dispatch-resolution rules as `query_items(operation="schema")`'s `seats`/`dispatchBySeat` fields (see [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#seats-trait--schema-dimension) → "Seats"), both omitted entirely (never `[]`/`{}`) when the current phase declares no seats. All seat fields are absent for a `TERMINAL` item and for any seat-less schema — a seat-less config's `get_context` response is byte-identical to a pre-A1 server.
+
+**Independence (A2).** `gateStatus.violations` (array, optional) reports A2 independence-attestation findings for the item's CURRENT phase — present (possibly `[]`) whenever independence `mode` is not `off` and the resolved schema declares `independent_of` somewhere; omitted entirely (not `null`) otherwise, including for a `TERMINAL` item. Each entry is `{key, seat?, constraint, conflictingSeat?, waived?}` — actor-free by construction, never an actor id, proof, or claim — see [`config-format.md`](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#independence-a2) → "Independence (A2)" for the constraint kinds (`same_actor`/`missing_actor`/`unverified`), the `independence: temporal-only` waiver, and honest limits. `canAdvance` already accounts for a `reject`-mode block from a non-waived violation, the same way it accounts for missing required notes.
 
 `claimDetail` is present only when the item is currently claimed (`claimedBy != null`). This is the **only** tool mode that exposes `claimedBy` identity — use it for operator diagnostics on stalled or contested items.
 

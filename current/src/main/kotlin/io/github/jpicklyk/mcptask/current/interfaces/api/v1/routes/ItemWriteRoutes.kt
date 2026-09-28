@@ -11,6 +11,7 @@ import io.github.jpicklyk.mcptask.current.application.service.rest.MergePatchApp
 import io.github.jpicklyk.mcptask.current.application.service.rest.WorkItemPatchProjection
 import io.github.jpicklyk.mcptask.current.application.tools.items.WorkItemDeleteOutcome
 import io.github.jpicklyk.mcptask.current.application.tools.items.WorkItemDeletion
+import io.github.jpicklyk.mcptask.current.application.tools.workflow.NoteSchemaJsonHelpers
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
@@ -244,6 +245,11 @@ private fun buildGateBlockedDetails(failure: AdvanceFailure.GateBlocked): JsonOb
                 },
             )
         }
+        // A2: independence-attestation findings — same raw JSON shape MCP's advance_item
+        // gate_blocked details use (actor-free by construction); reuses the shared builder rather
+        // than a second JSON encoding of the same domain type. Present only when the list is
+        // non-empty (addendum emission rule); `gateStatus` is the only surface that emits `[]`.
+        NoteSchemaJsonHelpers.buildViolationsArrayNonEmpty(failure.violations)?.let { put("violations", it) }
     }
 
 /** Builds the `details` object for a [AdvanceFailure.ValidationFailed] 422 response. */

@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
 import io.github.jpicklyk.mcptask.current.application.config.withConfigSession
+import io.github.jpicklyk.mcptask.current.application.service.GatePredicate
 import io.github.jpicklyk.mcptask.current.application.service.ItemSchemaView
 import io.github.jpicklyk.mcptask.current.application.service.computeMissingBySeat
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
@@ -683,6 +684,18 @@ fun Route.itemGateRoutes(
             // `{}` for a seat-aware TERMINAL item, so the terminal check is explicit here too.
             val missingBySeat = if (isTerminal) null else computeMissingBySeat(resolvedSchema, missing)
 
+            // A2: independence-attestation violations for the item's CURRENT phase -- same
+            // computation GetContextTool's item mode uses (null when TERMINAL, mode OFF, or the
+            // resolved schema declares no `independent_of` anywhere).
+            val independencePolicy = configResolver.resolveIndependencePolicy(item.rootId)
+            val violations =
+                if (!isTerminal && resolvedSchema != null) {
+                    GatePredicate.violationsForStart(resolvedSchema, item.role, notes, independencePolicy)
+                } else {
+                    null
+                }
+            val independenceBlocks = GatePredicate.blocksAdvance(violations, independencePolicy)
+
             call.respond(
                 HttpStatusCode.OK,
                 ItemGateDto(
@@ -691,10 +704,11 @@ fun Route.itemGateRoutes(
                     role = item.role.toJsonString(),
                     gateStatus =
                         GateStatusDto(
-                            canAdvance = !isTerminal && missing.isEmpty(),
+                            canAdvance = !isTerminal && missing.isEmpty() && !independenceBlocks,
                             phase = item.role.toJsonString(),
                             missing = missing,
                             missingBySeat = missingBySeat,
+                            violations = violations?.map { it.toDto() },
                         ),
                     guidanceKey = phaseContext?.guidanceKey,
                     skillPointer = phaseContext?.skillPointer,

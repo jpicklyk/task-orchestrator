@@ -2,6 +2,8 @@ package io.github.jpicklyk.mcptask.current.application.service
 
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
+import io.github.jpicklyk.mcptask.current.domain.model.IndependencePolicy
+import io.github.jpicklyk.mcptask.current.domain.model.IndependenceViolation
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition
@@ -63,13 +65,17 @@ sealed class AdvanceFailure {
      *   [io.github.jpicklyk.mcptask.current.application.service.computeMissingBySeat]) — null for a
      *   seat-less schema, so a seat-less config's gate-failure payload stays byte-identical (A1
      *   task-scope AC1).
+     * @property violations A2 independence-attestation findings — null iff independence mode is
+     *   OFF or the schema declares no `independent_of` in any phase; otherwise a (possibly empty)
+     *   list, populated even when the block was purely a missing-notes block (warn mode too).
      */
     data class GateBlocked(
         val message: String,
         val previousRole: Role,
         val targetRole: Role,
         val missingNotes: List<NoteSchemaEntry>,
-        val missingBySeat: Map<String, List<String>>? = null
+        val missingBySeat: Map<String, List<String>>? = null,
+        val violations: List<IndependenceViolation>? = null
     ) : AdvanceFailure()
 
     /**
@@ -128,6 +134,10 @@ sealed class AdvanceFailure {
  *   neither [gateBlocked] nor [resourceBlocked] suppressed the cascade — i.e. the cascade was
  *   attempted and its apply step itself failed. Null on success and on every gate/resource
  *   suppression.
+ * @property violations A2 independence-attestation findings for the cascaded parent — null iff
+ *   independence mode is OFF or the parent's schema declares no `independent_of` in any phase;
+ *   otherwise a (possibly empty) list, populated whenever this event was gate-evaluated (i.e. a
+ *   TERMINAL or START cascade), including a suppressed ([gateBlocked]) and an applied cascade.
  */
 data class AdvanceCascadeEvent(
     val itemId: java.util.UUID,
@@ -140,7 +150,8 @@ data class AdvanceCascadeEvent(
     val gateMissingNotes: List<NoteSchemaEntry> = emptyList(),
     val resourceBlocked: Boolean = false,
     val contendedResources: List<String> = emptyList(),
-    val error: String? = null
+    val error: String? = null,
+    val violations: List<IndependenceViolation>? = null
 )
 
 /** A downstream item that became fully unblocked as a result of the primary advance. */
@@ -180,7 +191,13 @@ data class AdvanceResult(
     /** Downstream items that became fully unblocked. */
     val unblockedItems: List<AdvanceUnblockedItem>,
     /** Resolved (trait-merged) schema for the item, or null in schema-free mode. */
-    val resolvedSchema: WorkItemSchema?
+    val resolvedSchema: WorkItemSchema?,
+    /**
+     * A2 independence-attestation findings for the PRIMARY transition — null iff independence
+     * mode is OFF or the schema declares no `independent_of` in any phase; otherwise a (possibly
+     * empty) list, populated in warn mode too (a warn-mode advance still reports violations).
+     */
+    val violations: List<IndependenceViolation>? = null
 )
 
 /**
@@ -252,7 +269,8 @@ class AdvanceService(
     private val resourceLeaseRepository: ResourceLeaseRepository? = null,
     private val resourceRequirementsResolver: suspend (WorkItem) -> List<ResourceRequirement> = { emptyList() },
     private val resourceRegistryResolver: suspend (java.util.UUID?) -> Map<String, ResourceDefinition> = { emptyMap() },
-    private val resourceLeasesEnforced: Boolean = true
+    private val resourceLeasesEnforced: Boolean = true,
+    private val independencePolicyResolver: suspend (WorkItem) -> IndependencePolicy = { IndependencePolicy.DEFAULT }
 ) {
     private val handler = RoleTransitionHandler()
     private val cascadeDetector = CascadeDetector()
@@ -388,10 +406,12 @@ class AdvanceService(
             )
         }
 
-        // 4. Gate check — required notes for start / complete.
+        // 4. Gate check — required notes for start / complete, plus A2 independence violations.
+        var primaryViolations: List<IndependenceViolation>? = null
         if (itemSchema != null && (trigger == "start" || trigger == "complete")) {
-            val gateFailure = checkGate(item, itemSchema, trigger, targetRole)
-            if (gateFailure != null) return AdvanceOutcome.Failure(gateFailure)
+            val gateOutcome = checkGate(item, itemSchema, trigger, targetRole)
+            if (gateOutcome.failure != null) return AdvanceOutcome.Failure(gateOutcome.failure)
+            primaryViolations = gateOutcome.violations
         }
 
         // 4.5 Resource-lease gate — ONLY for transitions entering WORK.
@@ -503,21 +523,31 @@ class AdvanceService(
                 verification = verification,
                 cascadeEvents = cascadeEvents,
                 unblockedItems = unblocked,
-                resolvedSchema = itemSchema
+                resolvedSchema = itemSchema,
+                violations = primaryViolations
             )
         )
     }
 
+    /** Result of [checkGate]: either a blocking [failure], or a pass carrying the computed [violations]. */
+    private data class GateCheckOutcome(
+        val failure: AdvanceFailure.GateBlocked?,
+        val violations: List<IndependenceViolation>?
+    )
+
     /**
-     * Gate check for the primary transition. Returns a [AdvanceFailure.GateBlocked] when required
-     * notes are missing, or null when the gate passes (or there are no required notes to enforce).
+     * Gate check for the primary transition: required notes AND (A2) independence-attestation
+     * violations. Returns a [AdvanceFailure.GateBlocked] when required notes are missing OR
+     * [GatePredicate.blocksAdvance] is true for the computed violations; otherwise a pass carrying
+     * the (possibly null, possibly empty) violations list for the caller to attach to a successful
+     * [AdvanceResult].
      */
     private suspend fun checkGate(
         item: WorkItem,
         schema: WorkItemSchema,
         trigger: String,
         targetRole: Role
-    ): AdvanceFailure.GateBlocked? {
+    ): GateCheckOutcome {
         val existingNotes =
             when (val notesResult = noteRepository.findByItemId(item.id)) {
                 is Result.Success -> notesResult.data
@@ -532,17 +562,34 @@ class AdvanceService(
                 else -> emptyList()
             }
 
-        if (missingEntries.isEmpty()) return null
+        val policy = independencePolicyResolver(item)
+        val violations =
+            when (trigger) {
+                "start" -> GatePredicate.violationsForStart(schema, item.role, existingNotes, policy)
+                "complete" -> GatePredicate.violationsForComplete(schema, existingNotes, policy)
+                else -> null
+            }
+        val blocks = GatePredicate.blocksAdvance(violations, policy)
 
-        val missingKeys = missingEntries.joinToString { it.key }
+        if (missingEntries.isEmpty() && !blocks) return GateCheckOutcome(null, violations)
+
         val message =
-            if (trigger == "start") {
-                "Gate check failed: required notes not filled for ${item.role.name.lowercase()} phase: $missingKeys"
+            if (missingEntries.isNotEmpty()) {
+                val missingKeys = missingEntries.joinToString { it.key }
+                if (trigger == "start") {
+                    "Gate check failed: required notes not filled for ${item.role.name.lowercase()} phase: $missingKeys"
+                } else {
+                    "Gate check failed: required notes not filled: $missingKeys"
+                }
             } else {
-                "Gate check failed: required notes not filled: $missingKeys"
+                "Gate check failed: independence violations: " +
+                    violations.orEmpty().joinToString { "${it.key} (${it.constraint.toJsonString()})" }
             }
         val missingBySeat = computeMissingBySeat(schema, missingEntries.map { it.key })
-        return AdvanceFailure.GateBlocked(message, item.role, targetRole, missingEntries, missingBySeat)
+        return GateCheckOutcome(
+            AdvanceFailure.GateBlocked(message, item.role, targetRole, missingEntries, missingBySeat, violations),
+            violations
+        )
     }
 
     /** Result of the step-4.5 resource gate: proceed (with derived refs) or reject the advance. */
@@ -835,6 +882,9 @@ class AdvanceService(
                     is Result.Error -> break
                 }
 
+            // A2: warn-mode independence findings for this parent, carried onto the APPLIED event.
+            var appliedCascadeViolations: List<IndependenceViolation>? = null
+
             // Gate check: cascade-to-TERMINAL requires all required notes (like "complete").
             if (event.targetRole == Role.TERMINAL && !isCancelCascade) {
                 val parentSchema =
@@ -857,7 +907,11 @@ class AdvanceService(
                         }
                     val filledKeys = GatePredicate.filledNoteKeys(parentNotes)
                     val missingEntries = GatePredicate.missingForComplete(parentSchema, filledKeys)
-                    if (missingEntries.isNotEmpty()) {
+                    val cascadePolicy = independencePolicyResolver(parentItem)
+                    val cascadeViolations = GatePredicate.violationsForComplete(parentSchema, parentNotes, cascadePolicy)
+                    appliedCascadeViolations = cascadeViolations
+                    val cascadeBlocks = GatePredicate.blocksAdvance(cascadeViolations, cascadePolicy)
+                    if (missingEntries.isNotEmpty() || cascadeBlocks) {
                         out.add(
                             AdvanceCascadeEvent(
                                 itemId = event.itemId,
@@ -866,7 +920,8 @@ class AdvanceService(
                                 targetRole = event.targetRole,
                                 applied = false,
                                 gateBlocked = true,
-                                gateMissingNotes = missingEntries
+                                gateMissingNotes = missingEntries,
+                                violations = cascadeViolations
                             )
                         )
                         break // Stop cascading up the tree.
@@ -902,7 +957,8 @@ class AdvanceService(
                     targetRole = event.targetRole,
                     applied = cascadeApply.success,
                     statusLabel = cascadeApply.item?.statusLabel,
-                    error = if (cascadeApply.success) null else (cascadeApply.error ?: "Cascade apply failed")
+                    error = if (cascadeApply.success) null else (cascadeApply.error ?: "Cascade apply failed"),
+                    violations = appliedCascadeViolations
                 )
             )
 
@@ -984,6 +1040,8 @@ class AdvanceService(
             // Note gate for a START cascade into work: the parent's CURRENT-phase required notes
             // must be filled, exactly as a direct `start` on the parent would require. Runs BEFORE
             // the resource gate so a gate-blocked parent never acquires a lease it cannot use.
+            // A2: warn-mode independence findings for this parent, carried onto the APPLIED event.
+            var appliedCascadeViolations: List<IndependenceViolation>? = null
             if (enforceNoteGate && event.targetRole == Role.WORK) {
                 // Per D7: a per-root config read failure while gating this cascade must not fail
                 // the PRIMARY transition (already committed) — skip only this cascade event, parent
@@ -1008,7 +1066,12 @@ class AdvanceService(
                         }
                     val filledKeys = GatePredicate.filledNoteKeys(parentNotes)
                     val missingEntries = GatePredicate.missingForStart(parentSchema, event.currentRole, filledKeys)
-                    if (missingEntries.isNotEmpty()) {
+                    val cascadePolicy = independencePolicyResolver(parentItem)
+                    val cascadeViolations =
+                        GatePredicate.violationsForStart(parentSchema, event.currentRole, parentNotes, cascadePolicy)
+                    appliedCascadeViolations = cascadeViolations
+                    val cascadeBlocks = GatePredicate.blocksAdvance(cascadeViolations, cascadePolicy)
+                    if (missingEntries.isNotEmpty() || cascadeBlocks) {
                         logger.info(
                             "Start cascade into work suppressed for item {}: unfilled required {} note(s) {}",
                             parentItem.id,
@@ -1023,7 +1086,8 @@ class AdvanceService(
                                 targetRole = event.targetRole,
                                 applied = false,
                                 gateBlocked = true,
-                                gateMissingNotes = missingEntries
+                                gateMissingNotes = missingEntries,
+                                violations = cascadeViolations
                             )
                         )
                         continue
@@ -1098,7 +1162,8 @@ class AdvanceService(
                     targetRole = event.targetRole,
                     applied = cascadeApply.success,
                     statusLabel = cascadeApply.item?.statusLabel,
-                    error = if (cascadeApply.success) null else (cascadeApply.error ?: "Cascade apply failed")
+                    error = if (cascadeApply.success) null else (cascadeApply.error ?: "Cascade apply failed"),
+                    violations = appliedCascadeViolations
                 )
             )
 

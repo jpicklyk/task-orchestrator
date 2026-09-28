@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.application.config
 
 import io.github.jpicklyk.mcptask.current.application.service.NoOpStatusLabelService
 import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
+import io.github.jpicklyk.mcptask.current.domain.model.IndependencePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
@@ -67,6 +68,8 @@ class LayerBackedGlobalLookup(
 
     override fun traitDispatchBySeat(name: String): Map<Role, Map<String, SeatDispatchOverride>> =
         document.traitDispatchBySeat[name] ?: emptyMap()
+
+    override fun independencePolicy(): IndependencePolicy = document.independence ?: IndependencePolicy.DEFAULT
 
     private companion object {
         const val DEFAULT_KEY = "default"

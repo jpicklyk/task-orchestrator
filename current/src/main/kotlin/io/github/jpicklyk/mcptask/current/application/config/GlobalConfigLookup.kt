@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.config
 
 import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
+import io.github.jpicklyk.mcptask.current.domain.model.IndependencePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
@@ -69,4 +70,12 @@ interface GlobalConfigLookup {
      * unknown). Same empty-default rationale as [traitSeats].
      */
     fun traitDispatchBySeat(name: String): Map<Role, Map<String, SeatDispatchOverride>> = emptyMap()
+
+    /**
+     * The effective top-level `independence:` policy (A2). Defaults to
+     * [IndependencePolicy.DEFAULT] so [ServiceBackedGlobalLookup] (which has no independence
+     * service to delegate to) does not need to override this A2 addition — same empty-default
+     * rationale as [traitSeats]/[traitDispatchBySeat].
+     */
+    fun independencePolicy(): IndependencePolicy = IndependencePolicy.DEFAULT
 }

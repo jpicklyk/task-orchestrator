@@ -43,7 +43,8 @@
         },
         "features": [
             "seats",
-            "dispatchBySeat"
+            "dispatchBySeat",
+            "independent_of"
         ]
     },
     "metadata": {

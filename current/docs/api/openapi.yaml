@@ -637,6 +637,48 @@ components:
             Reason this cascade's own apply step failed (a persistence conflict), when applied is
             false and gateBlocked is not true. Null on success and on every gate/resource
             suppression.
+        violations:
+          type: array
+          nullable: true
+          description: >-
+            A2: independence-attestation findings for this cascade's own target schema. Present
+            only when the list is non-empty; null (not an empty array) when independence checking
+            applies but finds nothing, and also when independence mode is off or the target schema
+            declares no independent_of. Populated in warn mode too, whenever there is something to
+            report.
+          items:
+            $ref: "#/components/schemas/IndependenceViolationDto"
+
+    IndependenceViolationDto:
+      type: object
+      required: [key, constraint]
+      description: >-
+        A2: one independence-attestation finding, actor-free by construction (never an actor id,
+        proof, or claim on any surface, MCP or REST). See config-format.md "Independence (A2)".
+      properties:
+        key:
+          type: string
+          description: The declaring note's key (the note whose independent_of triggered this check).
+        seat:
+          type: string
+          nullable: true
+          description: The declaring note's owning seat. Omitted when the schema is not seat-aware.
+        constraint:
+          type: string
+          enum: [same_actor, missing_actor, unverified]
+        conflictingSeat:
+          type: string
+          nullable: true
+          description: >-
+            The seat this finding was raised against. Omitted for a missing_actor/unverified
+            finding raised against the declaring note itself rather than a specific conflicting
+            seat.
+        waived:
+          type: boolean
+          nullable: true
+          description: >-
+            True only for a same_actor finding covered by the independence: temporal-only waiver.
+            A waived finding never blocks a reject-mode transition. Omitted unless true.
 
     UnblockedItemDto:
       type: object
@@ -698,6 +740,17 @@ components:
             type: array
             items:
               type: string
+        violations:
+          type: array
+          nullable: true
+          description: >-
+            A2: independence-attestation findings for phase. Present (possibly empty) whenever
+            independence mode is not off and the resolved schema declares independent_of
+            somewhere; omitted entirely otherwise, including for a terminal item. canAdvance
+            already accounts for a reject-mode block from a non-waived violation. See
+            config-format.md "Independence (A2)".
+          items:
+            $ref: "#/components/schemas/IndependenceViolationDto"
 
     ItemGateDto:
       type: object
@@ -761,6 +814,17 @@ components:
           description: Schema notes expected for the item's NEW role (parity with MCP advance_item).
           items:
             $ref: "#/components/schemas/ExpectedNoteDto"
+        violations:
+          type: array
+          nullable: true
+          description: >-
+            A2: independence-attestation findings for the transition's target schema. Present only
+            when the list is non-empty; null (not an empty array) when independence checking
+            applies but finds nothing, and also when independence mode is off or the target schema
+            declares no independent_of. Populated in warn mode too, whenever there is something to
+            report. See config-format.md "Independence (A2)".
+          items:
+            $ref: "#/components/schemas/IndependenceViolationDto"
 
     SearchHitDto:
       type: object
@@ -1041,9 +1105,10 @@ components:
           items:
             type: string
           description: >-
-            A1: server-wide optional-response feature advertisement (currently
-            ["seats", "dispatchBySeat"]), advertised unconditionally regardless of whether the
-            resolved config for any given root declares seats. Same list as WellKnownDto.features.
+            A1/A2: server-wide optional-response feature advertisement (currently
+            ["seats", "dispatchBySeat", "independent_of"]), advertised unconditionally regardless
+            of whether the resolved config for any given root declares seats or independent_of.
+            Same list as WellKnownDto.features.
 
     WellKnownDto:
       type: object
@@ -1062,7 +1127,7 @@ components:
           type: array
           items:
             type: string
-          description: A1 — same server-wide feature advertisement as ServiceInfoDto.features.
+          description: A1/A2 — same server-wide feature advertisement as ServiceInfoDto.features.
 
     SeatDto:
       type: object
@@ -1130,7 +1195,8 @@ components:
             type: string
           description: >-
             A1: seat names this note's authoring must stay independent of. Present only when
-            non-empty, regardless of seat-awareness. Parsed and served only — not enforced.
+            non-empty, regardless of seat-awareness. Parsed and served since A1; enforced as of A2
+            (the independence attestation gate) — see config-format.md "Independence (A2)".
 
     ItemSchemaViewDto:
       type: object
@@ -1887,7 +1953,9 @@ paths:
         "422":
           description: >-
             Transition rejected. error="gate_blocked" with details.missingNotes (and, for a
-            seat-aware schema, details.missingBySeat) when a required-note gate fails;
+            seat-aware schema, details.missingBySeat) when a required-note gate fails, and/or (A2)
+            details.violations when a non-waived independence violation blocks in reject mode —
+            details.violations can be present and non-empty even when missingNotes is empty;
             error="transition_blocked" with details.blockers when a dependency blocks the
             transition; error="transition_failed" for invalid-state resolution/apply failures.
           content:

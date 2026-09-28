@@ -402,7 +402,7 @@ work_item_schemas:
             assertEquals(HttpStatusCode.OK, infoResponse.status)
             val infoJson = Json.parseToJsonElement(infoResponse.bodyAsText()).jsonObject
             assertEquals(
-                listOf("seats", "dispatchBySeat"),
+                listOf("seats", "dispatchBySeat", "independent_of"),
                 infoJson["features"]!!.jsonArray.map { it.jsonPrimitive.content },
                 "body: $infoJson",
             )
@@ -411,7 +411,7 @@ work_item_schemas:
             assertEquals(HttpStatusCode.OK, wellKnownResponse.status)
             val wellKnownJson = Json.parseToJsonElement(wellKnownResponse.bodyAsText()).jsonObject
             assertEquals(
-                listOf("seats", "dispatchBySeat"),
+                listOf("seats", "dispatchBySeat", "independent_of"),
                 wellKnownJson["features"]!!.jsonArray.map { it.jsonPrimitive.content },
                 "body: $wellKnownJson",
             )
@@ -432,7 +432,7 @@ work_item_schemas:
             assertEquals(HttpStatusCode.OK, infoResponse.status)
             val infoJson = Json.parseToJsonElement(infoResponse.bodyAsText()).jsonObject
             assertEquals(
-                listOf("seats", "dispatchBySeat"),
+                listOf("seats", "dispatchBySeat", "independent_of"),
                 infoJson["features"]!!.jsonArray.map { it.jsonPrimitive.content },
                 "features must be advertised even for a seat-less config: $infoJson",
             )
@@ -441,7 +441,7 @@ work_item_schemas:
             assertEquals(HttpStatusCode.OK, wellKnownResponse.status)
             val wellKnownJson = Json.parseToJsonElement(wellKnownResponse.bodyAsText()).jsonObject
             assertEquals(
-                listOf("seats", "dispatchBySeat"),
+                listOf("seats", "dispatchBySeat", "independent_of"),
                 wellKnownJson["features"]!!.jsonArray.map { it.jsonPrimitive.content },
                 "features must be advertised even for a seat-less config: $wellKnownJson",
             )

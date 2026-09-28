@@ -235,7 +235,7 @@ class ConfigDocumentParseTest {
     // ──────────────────────────────────────────────
 
     @Test
-    fun `S14 PER_ROOT_HONORED_SECTIONS is exactly the eight documented sections`() {
+    fun `S14 PER_ROOT_HONORED_SECTIONS is exactly the nine documented sections`() {
         assertEquals(
             setOf(
                 "work_item_schemas",
@@ -246,6 +246,7 @@ class ConfigDocumentParseTest {
                 "status_labels",
                 "resources",
                 "schema_resolution",
+                "independence",
             ),
             ConfigDocument.PER_ROOT_HONORED_SECTIONS,
         )

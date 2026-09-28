@@ -508,6 +508,12 @@ data class CascadeEventDto(
     val gateBlocked: Boolean = false,
     val missingNotes: List<MissingNoteDto>? = null,
     val error: String? = null,
+    /**
+     * A2 independence-attestation findings for this cascaded parent -- null iff independence mode
+     * is OFF or the resolved schema declares no `independent_of` in any phase; see
+     * [IndependenceViolationDto]. Populated in warn mode too (a warn-mode cascade still reports).
+     */
+    val violations: List<IndependenceViolationDto>? = null,
 )
 
 /** A downstream item that became fully unblocked as a result of an advance. */
@@ -552,6 +558,12 @@ data class AdvanceResponseDto(
     val cascadeEvents: List<CascadeEventDto> = emptyList(),
     val unblockedItems: List<UnblockedItemDto> = emptyList(),
     val expectedNotes: List<ExpectedNoteDto> = emptyList(),
+    /**
+     * A2 independence-attestation findings for this item's own transition -- null iff independence
+     * mode is OFF or the resolved schema declares no `independent_of` in any phase; see
+     * [IndependenceViolationDto]. Populated in warn mode too (a warn-mode advance still reports).
+     */
+    val violations: List<IndependenceViolationDto>? = null,
 )
 
 /**
@@ -710,6 +722,25 @@ data class ResourceLeaseHistoryResponseDto(
 // ─── Gate status DTOs ────────────────────────────────────────────────────────
 
 /**
+ * REST DTO mirror of [io.github.jpicklyk.mcptask.current.domain.model.IndependenceViolation]
+ * (A2) -- actor-free by construction (never an actor id, proof, or claim on any surface, MCP or
+ * REST; [io.github.jpicklyk.mcptask.current.interfaces.api.v1.redaction.AttributionRedactor] is
+ * NOT involved here since there is nothing attribution-bearing to redact). `seat` /
+ * `conflictingSeat` are omitted when null; `waived` is omitted unless true (matches
+ * `explicitNulls = false`, mirroring
+ * [io.github.jpicklyk.mcptask.current.application.tools.workflow.NoteSchemaJsonHelpers.buildViolationsArray]'s
+ * MCP JSON shape field-for-field).
+ */
+@Serializable
+data class IndependenceViolationDto(
+    val key: String,
+    val seat: String? = null,
+    val constraint: String,
+    val conflictingSeat: String? = null,
+    val waived: Boolean? = null,
+)
+
+/**
  * Gate-status sub-object for `GET /api/v1/items/{id}/gate`.
  *
  * Field-for-field identical to `get_context` item mode's `gateStatus`: `phase` is the item's
@@ -717,6 +748,11 @@ data class ResourceLeaseHistoryResponseDto(
  * phase — never `{key, description, ...}` objects. `missingBySeat` (A1c) is present only for a
  * seat-aware schema whose item is NOT terminal — see
  * [io.github.jpicklyk.mcptask.current.application.service.computeMissingBySeat].
+ * `violations` (A2) is present (possibly `[]`) whenever independence mode is not OFF and the
+ * resolved schema declares `independent_of` somewhere; null otherwise. `canAdvance` already
+ * accounts for a REJECT-mode block (a non-waived violation), same as `missing.isEmpty()` does for
+ * required notes -- see
+ * [io.github.jpicklyk.mcptask.current.application.service.GatePredicate.blocksAdvance].
  */
 @Serializable
 data class GateStatusDto(
@@ -724,6 +760,7 @@ data class GateStatusDto(
     val phase: String,
     val missing: List<String>,
     val missingBySeat: Map<String, List<String>>? = null,
+    val violations: List<IndependenceViolationDto>? = null,
 )
 
 /**

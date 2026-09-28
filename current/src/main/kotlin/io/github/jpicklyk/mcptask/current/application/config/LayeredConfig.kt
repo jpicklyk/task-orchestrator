@@ -2,6 +2,7 @@ package io.github.jpicklyk.mcptask.current.application.config
 
 import io.github.jpicklyk.mcptask.current.application.tools.PropertiesHelper
 import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
+import io.github.jpicklyk.mcptask.current.domain.model.IndependencePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceMode
@@ -44,6 +45,7 @@ import java.util.UUID
  * | Trait dispatch by seat (A1a) | per-root wins wholesale together with by-role dispatch, as ONE unit, when EITHER shape is present per-root (see [traitDispatchBySeatEntry]) |
  * | Resource registry | start from per-root, then GLOBAL overwrites each colliding key (WARN on collision) |
  * | note_limits.mode | per-root explicit value, else global |
+ * | independence (A2) | per-root block wins WHOLESALE (both `mode` and `require_verified` together), else global |
  * | Status labels | per-root map wins per trigger by key presence (an explicit null included), else global |
  * | Trait names | per-root keys first, then global, distinct |
  *
@@ -160,6 +162,16 @@ class LayeredConfig(
     fun noteLimitsMode(): String {
         val perRootMode = perRootDocument?.noteLimitsMode
         return perRootMode ?: global.noteLimitsMode()
+    }
+
+    /**
+     * The effective `independence:` policy (A2): the per-root block wins WHOLESALE (both `mode`
+     * and `require_verified` together, mirroring [noteLimitsMode]'s per-root-wins-when-present
+     * rule but as one unit rather than per-field), else the global policy.
+     */
+    fun independencePolicy(): IndependencePolicy {
+        val perRootPolicy = perRootDocument?.independence
+        return perRootPolicy ?: global.independencePolicy()
     }
 
     /**
