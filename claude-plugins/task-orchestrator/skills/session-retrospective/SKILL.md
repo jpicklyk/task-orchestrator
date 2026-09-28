@@ -40,17 +40,17 @@ Check for a known project root: session context injected by the SessionStart hoo
 
 ```
 get_context(ancestorId="<rootId>") — active, blocked, stalled items within the project subtree
-query_items(operation="search", role="terminal", sortBy="modifiedAt", sortOrder="desc", limit=20, ancestorId="<rootId>")
+query_items(operation="search", role="terminal", sortBy="modifiedAt", sortOrder="desc", limit=20, modifiedAfter="<ISO now − 24h>", ancestorId="<rootId>")
 ```
 
 **If no project rootId is configured**, fall back to the prior global behavior (unchanged):
 
 ```
 get_context() — active, blocked, stalled items
-query_items(operation="search", role="terminal", sortBy="modifiedAt", sortOrder="desc", limit=20)
+query_items(operation="search", role="terminal", sortBy="modifiedAt", sortOrder="desc", limit=20, modifiedAfter="<ISO now − 24h>")
 ```
 
-Build scope from recently completed items (compare `modifiedAt` to current date). Discard items that appear stale (modified more than 24 hours ago).
+Build scope from recently completed items. The 24-hour window is applied by the `modifiedAfter` filter in the call above — list-mode results carry no timestamps (only `id`, `title`, `tags` and role fields), so staleness cannot be judged after the fact.
 
 ### 1b. Collect distributed notes
 
@@ -129,7 +129,7 @@ For items with both queue-phase notes (specs) and work-phase notes (implementati
 
 ### 3d. Plan-to-Execution Alignment
 
-Compare item creation timestamps to the root item's creation time (or the earliest item in scope if no root provided):
+Compare item creation timestamps to the root item's creation time (or the earliest item in scope if no root provided). Creation times come from `query_items(operation="get", itemId="<uuid>", includeTimestamps=true)` per in-scope item (at most 20 calls); neither the overview nor list-mode results carry timestamps:
 - Items created significantly after the root (>1 hour) = ad-hoc additions (may be necessary or scope creep)
 - Items still in queue role under the root = planned but skipped
 - **Score:** Fraction of planned items that reached terminal
@@ -170,11 +170,11 @@ Cross-check with a list-mode search (`query_items(operation="search", tags="cont
 query_items(operation="search", tags="retrospective-trend", role="queue", limit=100)
 ```
 
-This is list-mode (structured filter, no `query`), so it returns every non-retired trend's title + summary — roughly 3-4k tokens for ~60 trends. This replaces the old whole-file read outright.
+This is list-mode (structured filter, no `query`), so it returns **`id`, `title` and `tags` only** — minimal fields, no `summary` and no timestamps — for every non-retired trend. The title's kebab key and one-line claim are the match surface (the kebab key is the stable identity). This replaces the old whole-file read outright.
 
 ### 4.3 Match findings
 
-Match each Step 3 dimension finding against the listing (titles + summaries):
+Match each Step 3 dimension finding against the listing by title. For each candidate (a title match, or an uncertain match), fetch its summary with `query_items(operation="get", itemId="<trend-uuid>")` before deciding:
 - If a finding matches an existing trend (same schema note, same delegation pattern, same friction type), note the incremented session count for Step 6.
 - If a finding is new, mark it as a candidate for a new trend item in Step 6.
 - For uncertain matches where title/summary keyword matching isn't conclusive, run a per-finding FTS query for semantic reach:
@@ -278,7 +278,7 @@ Do **not** complete the item yet — the `actions-taken` work-phase note is stil
 
 Write trend items from the Step 3/4 findings as MCP items, batched — one `manage_notes` call for all evidence-note upserts this run, one `manage_items` call for all summary updates this run:
 
-- **Recurrence** (finding matched an existing trend in Step 4.3): upsert an evidence note `evidence-<YYYY-MM-DD>-<retro-short-id>` (role `work`, body = this session's specific evidence: what happened, retro item ID, cost/impact) AND update the trend item's `summary` — increment `Sessions: N`, update `Last seen: YYYY-MM-DD`, and condense the observation if drift warrants it.
+- **Recurrence** (finding matched an existing trend in Step 4.3): upsert an evidence note `evidence-<YYYY-MM-DD>-<retro-short-id>` (role `work`, body = this session's specific evidence: what happened, retro item ID, cost/impact) AND update the trend item's `summary` — increment `Sessions: N`, update `Last seen: YYYY-MM-DD`, and condense the observation if drift warrants it. The `Sessions: N` you increment is read from the Step 4.3 `get` of that trend — never inferred from the listing, which carries no summary.
 - **New pattern**: create a trend item (shape below) with `Sessions: 1` in its summary, plus its first evidence note.
 - **Retire** (a previously-active trend is now addressed, obsolete, superseded, or accepted-environmental): `advance_item(itemId="<trend-uuid>", trigger="cancel", summary="archived: <reason>")`. `cancel` is gate-free — it moves any non-terminal role straight to terminal with no note check. `statusLabel: cancelled` on a trend item means "retired from active watching", not failure; the transition's `summary` line carries the actual semantic. A cancelled trend drops out of the Step 4.2 active listing automatically (it filters `role="queue"`).
 - **Graduation** (Step 7 creates a proposal from this trend): record `GRADUATED -> proposal <short-id>` in the trend's `summary`. This does **not** change the trend's role — cancelling a graduated trend, if ever warranted, is a separate later decision once the proposal resolves.
@@ -464,7 +464,7 @@ query_items(operation="search", tags="improvement-proposal", ancestorId="<rootId
 
 Fold both result sets into the durability and staleness checks below.
 
-1. **Trend durability:** Did previously identified trends get addressed? Query trend items whose summary carries a `GRADUATED -> proposal <id>` pointer (`query_items(operation="search", query="GRADUATED", scope={tags: ["retrospective-trend"]})`, or scan the Step 4.2 listing) and check whether the proposal each one graduated into is terminal.
+1. **Trend durability:** Did previously identified trends get addressed? Query trend items whose summary carries a `GRADUATED -> proposal <id>` pointer (`query_items(operation="search", query="GRADUATED", scope={tags: ["retrospective-trend"]})`) and check whether the proposal each one graduated into is terminal.
 2. **Proposal staleness:** Any proposals created 3+ retrospectives ago with no movement (still in queue)? Also flag any stuck in `work` — a proposal sitting in-progress across runs is usually a stalled adoption, not active work. When stale queue proposals exist (global or project-scoped), the report (step 9) should suggest running `/task-orchestrator:review-proposals`. Treat `cancelled` proposals as **resolved-rejected**, not stale — read their `adoption-decision` note before proposing anything similar again (do-not-re-propose rule); a rejected idea resurfacing under a new title is a signal to check history first, not to recreate it.
 3. **Self-quality:** Are retrospective notes converging on useful patterns, or repeating the same observations without resolution? Are notes too verbose (>800 tokens each) or too shallow (<100 tokens)?
 
