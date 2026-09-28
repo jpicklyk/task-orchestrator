@@ -1322,6 +1322,54 @@ components:
           items:
             $ref: "#/components/schemas/PlanDocumentSummaryDto"
 
+    RuleResponseDto:
+      type: object
+      required: [rootId, key, rulesVersion, body]
+      description: >-
+        Section 19a's per-key rule read. Mirrors the MCP query_rules tool's get data payload
+        minus resolvedFrom (REST has no item/skill-pointer mode).
+      properties:
+        rootId:
+          type: string
+          format: uuid
+        key:
+          type: string
+          description: Rule key, matching ^[a-z0-9][a-z0-9._-]{0,99}$
+        rulesVersion:
+          type: string
+          description: >-
+            The backing rule/<key> plan document's contentHash (same value
+            PlanDocumentResponseDto/PlanDocumentSummaryDto report for that slug).
+        body:
+          type: string
+          description: Raw stored rule text, served byte-for-byte as stored.
+
+    RuleSummaryDto:
+      type: object
+      required: [key, rulesVersion, updatedAt]
+      description: One row of RuleListResponseDto.rules (section 19a); metadata only, never the body.
+      properties:
+        key:
+          type: string
+        rulesVersion:
+          type: string
+        updatedAt:
+          type: string
+          format: date-time
+
+    RuleListResponseDto:
+      type: object
+      required: [rootId, rules]
+      properties:
+        rootId:
+          type: string
+          format: uuid
+        rules:
+          type: array
+          description: Ordered by key ascending.
+          items:
+            $ref: "#/components/schemas/RuleSummaryDto"
+
   responses:
     Unauthorized:
       description: Missing or invalid bearer token
@@ -3103,6 +3151,123 @@ paths:
                 $ref: "#/components/schemas/ErrorDto"
         "422":
           description: rootId is not depth-0
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDto"
+
+  /roots/{rootId}/rules:
+    parameters:
+      - name: rootId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      summary: List rule keys under a root, metadata only
+      operationId: listRules
+      tags: [rules]
+      description: |
+        Requires READ + scope. Returns {key, rulesVersion, updatedAt} for every valid
+        rule/<key> plan document under {rootId}, sorted by key ascending, never the body.
+        Read-only REST counterpart of the MCP query_rules tool's list operation; both
+        surfaces converge on the same RuleService.
+      responses:
+        "200":
+          description: Rule key summaries
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RuleListResponseDto"
+        "400":
+          description: rootId is missing or not a valid UUID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDto"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: rootId does not resolve to an existing WorkItem
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDto"
+        "422":
+          description: rootId resolves to a WorkItem that is not depth-0
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDto"
+        "500":
+          description: The root-lookup or list read itself failed with a repository error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDto"
+
+  /roots/{rootId}/rules/{key}:
+    parameters:
+      - name: rootId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: key
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: "^[a-z0-9][a-z0-9._-]{0,99}$"
+    get:
+      summary: Read back one rule's body and rulesVersion
+      operationId: getRule
+      tags: [rules]
+      description: |
+        Requires READ + scope. Reads the rule/<key> plan document under {rootId} verbatim.
+        Read-only REST counterpart of the MCP query_rules tool's direct (rootId+key) get
+        lookup; both surfaces converge on the same RuleService, so rulesVersion (the backing
+        document's contentHash) and body always agree between MCP and REST for the same key.
+        REST has no item/skill-pointer mode -- use the MCP query_rules tool with
+        itemId+noteKey for that resolution.
+      responses:
+        "200":
+          description: The rule's body and rulesVersion
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RuleResponseDto"
+        "400":
+          description: rootId is missing or not a valid UUID, or key fails the rule-key grammar
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDto"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: >-
+            Either rootId does not resolve to an existing WorkItem (error: not_found), or
+            rootId is a valid depth-0 root but no rule/<key> document exists there
+            (error: rule_not_found).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDto"
+        "422":
+          description: rootId resolves to a WorkItem that is not depth-0
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorDto"
+        "500":
+          description: The root-lookup or document read itself failed with a repository error.
           content:
             application/json:
               schema:

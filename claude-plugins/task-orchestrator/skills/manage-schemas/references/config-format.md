@@ -129,6 +129,48 @@ a review-quality framework, point at the actual framework skill name (e.g. `revi
 the collision-prone generic word. `manage-schemas`'s `validate` operation flags known collisions
 in this set — see `SKILL.md` → VALIDATE.
 
+### Rule text
+
+A note entry's `skill` pointer doubles as more than a Skill-tool name: when it also names a rule
+key, it is resolvable through the MCP `query_rules` tool's skill-pointer lookup
+(`itemId`+`noteKey`) as client-neutral operating-rule TEXT, not just a skill invocation. This is a
+second, independent consumer of the same `skill` field -- no new schema field, no config syntax
+change.
+
+- **Storage.** Rule text is stored per project root as `rule/<key>` [plan
+  documents](../../../../../current/docs/api-reference.md#manage_plan_documents) via the existing
+  `manage_plan_documents` tool (or `PUT /api/v1/roots/{rootId}/plans/rule%2F<key>` -- note the
+  required `%2F`, since the REST plan route takes one path segment) -- no new table, no migration.
+  The plan document's `contentHash` doubles as the rule's `rulesVersion`.
+- **Serving.** `query_rules` (MCP) and `GET /api/v1/roots/{rootId}/rules[/{key}]` (REST) read that
+  store back, verbatim, never re-parsing or re-rendering the body. See
+  [api-reference.md](../../../../../current/docs/api-reference.md#query_rules) and
+  [api-rest.md](../../../../../current/docs/api-rest.md) section 19a for the full get/list
+  contracts, parameter shapes, and error tables.
+- **`query_items(schema)` stays pointer-only.** Rule text is never inlined into a resolved
+  schema's `skill`/`skillPointer` field -- the caller always resolves the actual body through
+  `query_rules`, either directly (`rootId`+`key`) or via the item's effective schema
+  (`itemId`+`noteKey`).
+- **Key grammar.** `^[a-z0-9][a-z0-9._-]{0,99}$` -- lowercase alphanumeric, `.`, `_`, `-`; must
+  start with an alphanumeric; max 100 characters; never `/`, uppercase, or `:` (a key is one path
+  segment, usable verbatim in a REST URL and as the `rule/<key>` plan-document slug suffix). The
+  same grammar a `skill:` value must match for it to resolve as a rule key -- a `skill:` pointer
+  that fails this grammar still works as a Skill-tool name, it simply cannot also resolve through
+  `query_rules`.
+- **Size budget.** A `rule/`-prefixed plan-document body is capped at **16384 bytes** (16 KiB,
+  UTF-8) at stash time -- tighter than the general 64 KiB plan-document cap -- enforced by the same
+  `PlanDocumentService.stash` pipeline both `manage_plan_documents` and the REST plan PUT route
+  share, so `query_rules`/the rules REST routes never need their own size check on read.
+- **Writing style.** Client-neutral prose usable by any executor invoking the rule, not
+  Claude-specific — with an optional trailing `## claude:` section for Claude Code-specific detail.
+  The server never parses the body; it is served exactly as stored.
+- **This repo's own rules.** This repository keeps its source rule text git-tracked under
+  `.taskorchestrator/rules/<key>.md` — readable and diffable like any other file, and the
+  authoritative source an agent edits. Pushing those files into the per-root `rule/<key>` store
+  automatically (so a fresh clone's rules are servable without a manual step) is a planned
+  follow-up to `config-sync` (tracked as item `83733804`); until then, stash them explicitly with
+  `manage_plan_documents`.
+
 ---
 
 ## Lifecycle Modes
