@@ -104,7 +104,8 @@ optionally filtered to a single `status` (pending or adopted).
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Inline document text to stash; mutually exclusive with bodyFromFile; max 64 KiB"
+                                    "Inline document text to stash; mutually exclusive with bodyFromFile; max 64 KiB " +
+                                        "(16 KiB for a rule/<key> slug)"
                                 )
                             )
                         }
@@ -118,7 +119,8 @@ optionally filtered to a single `status` (pending or adopted).
                                 JsonPrimitive(
                                     "Server-side path to stash instead of body; mutually exclusive with body; " +
                                         "resolved strictly relative to the agent config root; rejects absolute " +
-                                        "paths, '..', and symlink escapes; file must exist, <=65536 bytes; " +
+                                        "paths, '..', and symlink escapes; file must exist, <=65536 bytes " +
+                                        "(<=16384 for a rule/<key> slug); " +
                                         "CRLF normalized to LF"
                                 )
                             )

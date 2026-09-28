@@ -1106,7 +1106,7 @@ components:
             type: string
           description: >-
             A1/A2: server-wide optional-response feature advertisement (currently
-            ["seats", "dispatchBySeat", "independent_of"]), advertised unconditionally regardless
+            ["seats", "dispatchBySeat", "independent_of", "rules"]), advertised unconditionally regardless
             of whether the resolved config for any given root declares seats or independent_of.
             Same list as WellKnownDto.features.
 

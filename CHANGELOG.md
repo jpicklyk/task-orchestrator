@@ -131,6 +131,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `features` (on `query_items(operation="schema")`, `GET /api/v1/info`, and the `.well-known`
+  descriptor) now also lists `"rules"`, so MCP and REST-only clients can detect per-root rule text
+  (`query_rules`, `GET /api/v1/roots/{rootId}/rules[/{key}]`) with one check.
+- `create_work_tree`'s `docRef` and `manage_plan_documents`' `body`/`bodyFromFile` parameter
+  descriptions now state the `rule/` limits: a `rule/` docRef slug is rejected, and a `rule/<key>`
+  body is capped at 16 KiB.
 - **`features` gained `"independent_of"`** (A2): `query_items(operation="schema")`, REST `GET
   /items/{id}/schema`, `GET /api/v1/info`, and the `.well-known` service descriptor now advertise
   `["seats", "dispatchBySeat", "independent_of"]` — `independent_of` was parsed and served but not
@@ -199,6 +205,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Plugin
 
+- Workflow Orchestrator output style: for a seat-aware item, every seat's dispatch model comes from
+  the resolved `dispatchBySeat`; a pinned model is changed through the project's traits, not
+  overridden at dispatch time.
 - SubagentStart now skips protocol injection entirely for `agent_type: "workflow-subagent"` —
   Claude workflow agents follow their own script-driven transition logic — and reworded the
   injected protocol to be seat-conditional: only an entry seat, or a single agent that owns the
