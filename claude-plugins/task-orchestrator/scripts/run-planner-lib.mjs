@@ -831,17 +831,20 @@ export function assembleArgs(snap, planned, opts) {
     if (existing && existing.head) baseSha = existing.head;
   }
 
-  // Substitute the <worktree> and <scratchpad> placeholders (design §3.4) so no literal
-  // placeholder ever reaches args-v1: shared mode uses the one feature worktree; per-item mode
-  // has no single worktree, so <worktree> expands into each item's own worktree (searchScope
-  // gains one entry per item; verify commands - which are one shared string per command - use
-  // the first item's worktree as the representative substitution).
+  // Substitute the <worktree> and <scratchpad> placeholders (design §3.4). <worktree> is
+  // substituted ONLY in shared mode, where there is exactly one feature worktree for the whole
+  // run; per-item mode leaves the literal placeholder in project.verify[].command and
+  // project.searchScope - each seat substitutes its OWN item.worktree at prompt time, and
+  // items[0]'s worktree must never stand in for the run. <scratchpad> is always the session
+  // scratchpad ROOT passed in opts.scratchpad (the same root project.scratchDir is derived
+  // from), never the per-run scratchDir.
+  const scratchpadRoot = scratchpad ? normalizePath(scratchpad) : null;
   const scratchDirValue = scratchpad ? normalizePath(`${scratchpad}/run-wave/${runId}`) : null;
   const substitute = (str, worktreeValue) => {
     if (typeof str !== 'string') return str;
     let out = str;
     if (worktreeValue) out = out.split('<worktree>').join(worktreeValue);
-    if (scratchDirValue) out = out.split('<scratchpad>').join(scratchDirValue);
+    if (scratchpadRoot) out = out.split('<scratchpad>').join(scratchpadRoot);
     return out;
   };
 
@@ -852,18 +855,8 @@ export function assembleArgs(snap, planned, opts) {
     searchScope = (profile.searchScope || []).map((s) => normalizePath(substitute(s, wt)));
     verify = (profile.verify || []).map((v) => ({ ...v, command: substitute(v.command, wt) }));
   } else {
-    const worktrees = items.map((it) => it.worktree).filter(Boolean);
-    const expanded = [];
-    for (const s of profile.searchScope || []) {
-      if (typeof s === 'string' && s.includes('<worktree>')) {
-        for (const wt of worktrees) expanded.push(normalizePath(substitute(s, wt)));
-      } else {
-        expanded.push(normalizePath(substitute(s, null)));
-      }
-    }
-    searchScope = [...new Set(expanded)];
-    const firstWt = worktrees[0] || '';
-    verify = (profile.verify || []).map((v) => ({ ...v, command: substitute(v.command, firstWt) }));
+    searchScope = (profile.searchScope || []).map((s) => normalizePath(substitute(s, null)));
+    verify = (profile.verify || []).map((v) => ({ ...v, command: substitute(v.command, null) }));
   }
 
   const project = {
