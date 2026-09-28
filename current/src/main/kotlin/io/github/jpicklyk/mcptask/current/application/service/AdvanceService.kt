@@ -882,6 +882,9 @@ class AdvanceService(
                     is Result.Error -> break
                 }
 
+            // A2: warn-mode independence findings for this parent, carried onto the APPLIED event.
+            var appliedCascadeViolations: List<IndependenceViolation>? = null
+
             // Gate check: cascade-to-TERMINAL requires all required notes (like "complete").
             if (event.targetRole == Role.TERMINAL && !isCancelCascade) {
                 val parentSchema =
@@ -906,6 +909,7 @@ class AdvanceService(
                     val missingEntries = GatePredicate.missingForComplete(parentSchema, filledKeys)
                     val cascadePolicy = independencePolicyResolver(parentItem)
                     val cascadeViolations = GatePredicate.violationsForComplete(parentSchema, parentNotes, cascadePolicy)
+                    appliedCascadeViolations = cascadeViolations
                     val cascadeBlocks = GatePredicate.blocksAdvance(cascadeViolations, cascadePolicy)
                     if (missingEntries.isNotEmpty() || cascadeBlocks) {
                         out.add(
@@ -953,7 +957,8 @@ class AdvanceService(
                     targetRole = event.targetRole,
                     applied = cascadeApply.success,
                     statusLabel = cascadeApply.item?.statusLabel,
-                    error = if (cascadeApply.success) null else (cascadeApply.error ?: "Cascade apply failed")
+                    error = if (cascadeApply.success) null else (cascadeApply.error ?: "Cascade apply failed"),
+                    violations = appliedCascadeViolations
                 )
             )
 
@@ -1035,6 +1040,8 @@ class AdvanceService(
             // Note gate for a START cascade into work: the parent's CURRENT-phase required notes
             // must be filled, exactly as a direct `start` on the parent would require. Runs BEFORE
             // the resource gate so a gate-blocked parent never acquires a lease it cannot use.
+            // A2: warn-mode independence findings for this parent, carried onto the APPLIED event.
+            var appliedCascadeViolations: List<IndependenceViolation>? = null
             if (enforceNoteGate && event.targetRole == Role.WORK) {
                 // Per D7: a per-root config read failure while gating this cascade must not fail
                 // the PRIMARY transition (already committed) — skip only this cascade event, parent
@@ -1062,6 +1069,7 @@ class AdvanceService(
                     val cascadePolicy = independencePolicyResolver(parentItem)
                     val cascadeViolations =
                         GatePredicate.violationsForStart(parentSchema, event.currentRole, parentNotes, cascadePolicy)
+                    appliedCascadeViolations = cascadeViolations
                     val cascadeBlocks = GatePredicate.blocksAdvance(cascadeViolations, cascadePolicy)
                     if (missingEntries.isNotEmpty() || cascadeBlocks) {
                         logger.info(
@@ -1154,7 +1162,8 @@ class AdvanceService(
                     targetRole = event.targetRole,
                     applied = cascadeApply.success,
                     statusLabel = cascadeApply.item?.statusLabel,
-                    error = if (cascadeApply.success) null else (cascadeApply.error ?: "Cascade apply failed")
+                    error = if (cascadeApply.success) null else (cascadeApply.error ?: "Cascade apply failed"),
+                    violations = appliedCascadeViolations
                 )
             )
 
