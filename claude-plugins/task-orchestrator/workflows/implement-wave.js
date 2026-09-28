@@ -526,13 +526,14 @@ function mapEntry(env, entryMode = 'seat') {
 
 /**
  * mapStageResult(stage, env, entryMode='seat') -> {status, reason}
- * Precedence: null envelope; schema-changed; entry (when stage.enters and not
- * done); planner proceed===false; test-author missingDeclaration/breachDisclosure;
- * else env.status when stopped|deferred; else done.
+ * Precedence: null envelope; schema-changed; config-unavailable; entry (when
+ * stage.enters and not done); planner proceed===false; test-author
+ * missingDeclaration/breachDisclosure; else env.status when stopped|deferred; else done.
  */
 function mapStageResult(stage, env, entryMode = 'seat') {
   if (env === null || env === undefined) return { status: 'stopped', reason: 'agent returned null' }
   if (env.reason === 'schema-changed') return { status: 'stopped', reason: 'schema-changed' }
+  if (env.reason === 'config-unavailable') return { status: 'deferred', reason: 'config-unavailable' }
   if (stage.enters) {
     const entryResult = mapEntry(env, entryMode)
     if (entryResult.status !== 'done') return entryResult
