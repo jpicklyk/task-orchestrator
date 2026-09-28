@@ -124,8 +124,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `create_work_tree` now refuses a `docRef.slug` starting with `rule/` -- rule documents are
     read-only via `query_rules` and cannot be adopted into a work item.
   - This repository's own initial rule set ships git-tracked under `.taskorchestrator/rules/`.
-    Pushing those files into the per-root store automatically is a planned `config-sync`
-    follow-up; until then, stash them with `manage_plan_documents`. See
+    The plugin's `config-sync` hook pushes those files into the per-root store automatically at
+    session start (plugin 3.8.0, #375). See
     [`config-format.md`](claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md)
     → "Rule text".
 
@@ -203,7 +203,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ActorClaimDto` schema (it was already never sent). Admins read proof evidence via
   `verification.proof`. (#362)
 
-### Plugin
+## [Plugin 3.8.0] - 2026-09-28
+
+Plugin-only release — no server changes, no image rebuild. Server stays at 3.15.0 (the server-side
+changes listed under Unreleased above ship with the next server release).
+
+### Added
+
+- `config-sync` now also syncs this workspace's git-tracked `.taskorchestrator/rules/*.md` files
+  into the per-root rule store at session start: one `GET /api/v1/roots/{rootId}/rules`, then a
+  `PUT /api/v1/roots/{rootId}/plans/rule%2F<key>` only for keys whose local hash (SHA-256 of the
+  CRLF-normalized body) differs from — or is absent from — the served `rulesVersion`. Filenames
+  that fail the rule-key grammar and bodies over 16 KiB are skipped client-side and named in the
+  hook's one output line; rules present on the server but absent locally are never deleted. The
+  step is fail-open (an absent `rules/` dir is a silent no-op; any API error degrades to a note)
+  and the SessionStart entry's timeout is raised to 10 s. Against an authenticated server the
+  config-sync token now also needs `read` in addition to `write-config`. Replaces the manual
+  `manage_plan_documents` stash that the A3 rule-text feature (server, unreleased) otherwise needs.
+- Added a hook-local `actor_attribution.required: true` config option, independent of
+  `actor_authentication`, that makes `enforce-actor-attribution` deny actor-less `advance_item`/
+  `manage_notes(upsert)` writes without also requiring full `actor_authentication` (JWKS identity
+  verification) to be configured.
+- SessionStart now warns when a dev checkout's `claude-plugins/task-orchestrator/.claude-plugin/plugin.json`
+  version differs from the version of the plugin actually running the hook, pointing to
+  `claude-plugins/CLAUDE.md` → "Plugin Discovery and Cache Refresh". Silent outside a dev checkout
+  or when either version can't be read.
+
+### Changed
 
 - Workflow Orchestrator output style: for a seat-aware item, every seat's dispatch model comes from
   the resolved `dispatchBySeat`; a pinned model is changed through the project's traits, not
@@ -223,14 +249,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Skill enforcement now skips its length/placeholder heuristic for a note upserted via
   `bodyFromFile` — that file's content isn't visible to the hook, so a short literal `body` is no
   longer conflated with a substantive file-backed note.
-- SessionStart now warns when a dev checkout's `claude-plugins/task-orchestrator/.claude-plugin/plugin.json`
-  version differs from the version of the plugin actually running the hook, pointing to
-  `claude-plugins/CLAUDE.md` → "Plugin Discovery and Cache Refresh". Silent outside a dev checkout
-  or when either version can't be read.
-- Added a hook-local `actor_attribution.required: true` config option, independent of
-  `actor_authentication`, that makes `enforce-actor-attribution` deny actor-less `advance_item`/
-  `manage_notes(upsert)` writes without also requiring full `actor_authentication` (JWKS identity
-  verification) to be configured.
 - `enforce-actor-attribution` now also checks the singular-sugar `advance_item` form
   (`itemId` + `trigger` with a top-level `actor`); previously an actor-less singular call passed
   the hook even when enforcement was on.
@@ -242,6 +260,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   surface close matches (role + short id) as an FYI line, leaving the decision to the user —
   nothing is auto-linked, skipped or cancelled. The search is unscoped so process-global items
   outside the project tree, such as agent-observations, are caught too.
+
+### Plugin
+
+- Bumped plugin version to **3.8.0** — rule-text sync in `config-sync`, the
+  `actor_attribution.required` option, the version-freshness warning, workflow-safe phase guard and
+  SubagentStart behavior, and seat-aware agent definitions.
 
 ## [3.15.0] - 2026-09-25
 
