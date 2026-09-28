@@ -145,23 +145,37 @@ function standardResponder(plan) {
 // ── S10: T-meta ──────────────────────────────────────────────────────────────
 // Oracle: declarations META block (verbatim), copied here without alteration.
 
-test('S10 / T-meta: meta is a pure literal matching the frozen declaration exactly', () => {
-  const meta = loadMeta(SCRIPT_PATH)
+test('S10 / T-meta: meta is a pure literal; name and phases are exact per Appendix B, description/whenToUse carry the required content', () => {
   // loadMeta evaluates the literal inside a separate vm context (workflow-harness.mjs), so the
   // returned object's Object.prototype is from that other realm — deepStrictEqual treats that
   // as "same structure but not reference-equal" against a same-realm plain object. Round-trip
   // through JSON (the literal is plain strings/arrays/objects only) to compare by value.
-  assert.deepEqual(JSON.parse(JSON.stringify(meta)), {
-    name: 'audit',
-    description:
-      'Barrier-per-phase audit: reviewers, gap critic, adversarial verify, synthesis report, and a triage-derived findings proposal.',
-    whenToUse:
-      'Presets quick|standard|full trade reviewer/verifier fan-out for cost; runId, date, and reportPath are required args; full runs roughly 90 minutes and about 30M tokens — prefer quick or standard for routine sweeps.',
-    phases: [
-      { title: 'Scope' }, { title: 'Review' }, { title: 'Gaps' }, { title: 'Merge' },
-      { title: 'Verify' }, { title: 'Synthesize' }, { title: 'Triage' },
-    ],
-  })
+  const meta = JSON.parse(JSON.stringify(loadMeta(SCRIPT_PATH)))
+  assert.equal(meta.name, 'audit')
+  assert.deepEqual(meta.phases, [
+    { title: 'Scope' }, { title: 'Review' }, { title: 'Gaps' }, { title: 'Merge' },
+    { title: 'Verify' }, { title: 'Synthesize' }, { title: 'Triage' },
+  ])
+  // Appendix B freezes `name` and `phases` verbatim, but declares description/whenToUse as
+  // placeholders (`description:<string>`, `whenToUse:<names presets ...>`) — content
+  // requirements, not exact wording. Asserting exact characters here would make this test an
+  // oracle-from-a-snapshot rather than an oracle-from-the-spec; check the content Appendix B
+  // actually requires instead.
+  assert.equal(typeof meta.description, 'string')
+  assert.ok(meta.description.length > 0)
+  for (const preset of ['quick', 'standard', 'full']) {
+    assert.ok(meta.whenToUse.includes(preset), `whenToUse must name preset "${preset}"`)
+  }
+  for (const requiredArg of ['runId', 'date', 'reportPath']) {
+    assert.ok(meta.whenToUse.includes(requiredArg), `whenToUse must name required arg "${requiredArg}"`)
+  }
+  assert.match(meta.whenToUse, /90/, "whenToUse must state full's time cost (~90 minutes)")
+  assert.match(meta.whenToUse, /30M|30 ?million/i, "whenToUse must state full's token cost (~30M tokens)")
+  // Review finding O2: whenToUse must also warn that quick fits the default maxAgents (60)
+  // while standard/full need allowLarge (or a raised maxAgents) — required by arbitration
+  // case 2 (coordinator citation: Phase C contract Appendix B META + review finding O2).
+  assert.match(meta.whenToUse, /maxAgents/, 'whenToUse must name maxAgents')
+  assert.match(meta.whenToUse, /allowLarge/, 'whenToUse must name allowLarge')
 })
 
 // ── S11: T-core-pure ─────────────────────────────────────────────────────────
@@ -1158,4 +1172,171 @@ test('reportIds: maps findingIndex entries findingId -> reportId; null synth -> 
     ],
   })
   assert.deepEqual(CORE.reportIds(synth), { 'f-1': 'AR-01', 'f-2': 'AR-02' })
+})
+
+// ── Follow-up (reviewer test-independence-audit, O1/O6/O8) ──────────────────
+// Oracle: phase-c-workflows.md §2.x + phase-c-dispatch-contract.md Appendix B, same as
+// above — never the current script's own output. Some of these exercise behavior the
+// implementer is concurrently fixing (verify-prompt substance, models/efforts passed to
+// agent opts, scope cap to reviewerCount, triage over kept-within-cap only) — that fix is
+// NOT what these particular tests check, but if one of these goes red against the script as
+// it stands, it is reported red, not weakened.
+
+test('Follow-up S4: cap tail — findings beyond maxFindings end UNVERIFIED, counted in stats.unverifiedByCap, logged "unverified by cap"', async () => {
+  const plan = buildPlan({ verify: { highLenses: ['combined'], defaultLenses: ['combined'], maxFindings: 1 } })
+  const logLines = []
+  const responder = async (label) => {
+    if (label === 'review:r1') return findingsResult({ findings: [makeFinding({ severity: 'critical' })] })
+    if (label === 'review:r2') return findingsResult({ findings: [makeFinding({ severity: 'low' })] })
+    if (label === 'merge') return dedupResult({ groups: [] })
+    if (label === 'verify:r1-1:combined') return verdictResult({ refuted: false })
+    if (label === 'synthesis') return synthResult({ reportPath: plan.reportPath })
+    throw new Error('cap-tail: unexpected label ' + label) // r2-1 must never reach Verify — it is capped
+  }
+  const { agent } = autoAgent(responder)
+  const result = await CORE.runAudit(plan, makeDeps({ agent, logLines }))
+  assert.equal(result.stats.unverifiedByCap, 1)
+  const tail = result.kept.find((k) => k.findingId === 'r2-1')
+  assert.ok(tail, 'the capped-out finding must still be kept')
+  assert.equal(tail.verdict, 'UNVERIFIED')
+  const verified = result.kept.find((k) => k.findingId === 'r1-1')
+  assert.ok(verified)
+  assert.notEqual(verified.verdict, 'UNVERIFIED')
+  assert.ok(logLines.some((l) => l.includes('unverified by cap')), 'a log line must mention the cap drop')
+})
+
+test('Follow-up S7: observation items carry the "agent-observation," tag prefix', () => {
+  const plan = proposalPlan({ observationPaths: ['claude-plugins/task-orchestrator/hooks'] })
+  const finding = keptFinding({
+    findingId: 'f-obs-tag', category: 'dead-code',
+    locations: ['claude-plugins/task-orchestrator/hooks/x.mjs:1'],
+  })
+  const proposal = CORE.buildProposal([finding], { 'f-obs-tag': { candidates: [], likelyDuplicate: 'none' } }, plan)
+  const item = proposal.items.find((i) => i.findingId === 'f-obs-tag')
+  assert.equal(item.class, 'observation')
+  assert.equal(item.tags, `agent-observation,audit,dead-code,audit-${plan.runId}`)
+})
+
+test('Follow-up: the first log line reports "projected <N> agents" matching projectAgents(plan).total', async () => {
+  const plan = buildPlan()
+  const logLines = []
+  const { agent } = autoAgent(standardResponder(plan))
+  await CORE.runAudit(plan, makeDeps({ agent, logLines }))
+  assert.ok(logLines.length > 0, 'expected at least one log line')
+  const expectedTotal = CORE.projectAgents(plan).total
+  assert.match(logLines[0], new RegExp(`projected ${expectedTotal} agents`))
+})
+
+test('Follow-up: stats.droppedGaps records gap proposals beyond gaps.max, and only gaps.max gap reviewers run', async () => {
+  const plan = buildPlan({ gaps: { enabled: true, max: 1 } })
+  const responder = async (label) => {
+    if (label === 'review:r1' || label === 'review:r2') return findingsResult({ findings: [makeFinding()] })
+    if (label === 'critic') {
+      return criticResult({
+        gaps: [{ label: 'g1', prompt: 'p1' }, { label: 'g2', prompt: 'p2' }, { label: 'g3', prompt: 'p3' }],
+      })
+    }
+    if (label === 'gap:1') return findingsResult({ findings: [makeFinding()] })
+    if (label === 'merge') return dedupResult({ groups: [] })
+    if (label.startsWith('verify:')) return verdictResult({ refuted: false })
+    if (label === 'synthesis') return synthResult({ reportPath: plan.reportPath })
+    throw new Error('droppedGaps: unexpected label ' + label) // gap:2 / gap:3 must never run (max=1)
+  }
+  const { agent, calls } = autoAgent(responder)
+  const result = await CORE.runAudit(plan, makeDeps({ agent }))
+  assert.equal(calls.filter((c) => c.label.startsWith('gap:')).length, 1, 'only gaps.max gap reviewers run')
+  assert.equal(result.stats.droppedGaps.length, 2)
+  const droppedText = JSON.stringify(result.stats.droppedGaps)
+  assert.match(droppedText, /g2/)
+  assert.match(droppedText, /g3/)
+})
+
+test('Follow-up: raw === 0 skips Merge and Verify entirely (no such agent calls)', async () => {
+  const plan = buildPlan() // reviewers r1, r2
+  const responder = async (label) => {
+    if (label === 'review:r1' || label === 'review:r2') return null
+    if (label === 'merge') throw new Error('merge must not be called when raw === 0')
+    if (label.startsWith('verify:')) throw new Error('verify must not be called when raw === 0')
+    if (label === 'synthesis') return synthResult({ reportPath: plan.reportPath })
+    throw new Error('raw==0: unexpected label ' + label)
+  }
+  const { agent, calls } = autoAgent(responder)
+  const result = await CORE.runAudit(plan, makeDeps({ agent }))
+  assert.equal(result.stats.raw, 0)
+  assert.equal(calls.some((c) => c.label === 'merge'), false)
+  assert.equal(calls.some((c) => c.label.startsWith('verify:')), false)
+})
+
+test('Follow-up S6: the scope prompt is READ-ONLY; the triage prompt names query_items search', async () => {
+  const plan = buildPlan({
+    scope: { paths: ['claude-plugins/task-orchestrator/hooks'] }, // reviewers absent -> Scope runs
+    items: { enabled: true, rootId: 'root-test-0001', materializeMin: 'high' },
+  })
+  const responder = async (label) => {
+    if (label === 'scope') return scopeResult({ reviewers: [reviewerSpec('r1')], lenses: [] })
+    if (label === 'review:r1') return findingsResult({ findings: [makeFinding()] })
+    if (label === 'merge') return dedupResult({ groups: [] })
+    if (label.startsWith('verify:')) return verdictResult({ refuted: false })
+    if (label === 'synthesis') return synthResult({ reportPath: plan.reportPath })
+    if (label.startsWith('triage:')) {
+      return triageResult({ results: [{ findingId: 'r1-1', candidates: [], likelyDuplicate: 'none' }] })
+    }
+    throw new Error('S6 scope/triage: unexpected label ' + label)
+  }
+  const { agent, calls } = autoAgent(responder)
+  await CORE.runAudit(plan, makeDeps({ agent }))
+  const scopeCall = calls.find((c) => c.label === 'scope')
+  assert.ok(scopeCall, 'scope must have been called')
+  assert.match(scopeCall.prompt, /READ-ONLY/)
+  const triageCall = calls.find((c) => c.label.startsWith('triage:'))
+  assert.ok(triageCall, 'triage must have been called')
+  assert.match(triageCall.prompt, /query_items/)
+  assert.match(triageCall.prompt, /search/)
+})
+
+test('Follow-up O6: scope.reviewers: [] is treated as absent (Scope phase runs), per Appendix B', async () => {
+  const plan = buildPlan({ scope: { paths: ['claude-plugins/task-orchestrator/hooks'], reviewers: [], lenses: [] } })
+  const responder = async (label) => {
+    if (label === 'scope') return scopeResult({ reviewers: [reviewerSpec('r1')], lenses: [] })
+    if (label === 'review:r1') return findingsResult({ findings: [makeFinding()] })
+    if (label === 'merge') return dedupResult({ groups: [] })
+    if (label.startsWith('verify:')) return verdictResult({ refuted: false })
+    if (label === 'synthesis') return synthResult({ reportPath: plan.reportPath })
+    throw new Error('O6: unexpected label ' + label)
+  }
+  const { agent, calls } = autoAgent(responder)
+  const result = await CORE.runAudit(plan, makeDeps({ agent }))
+  assert.ok(calls.some((c) => c.label === 'scope'), 'an empty scope.reviewers array must still trigger the Scope phase')
+  assert.equal(result.started, true)
+})
+
+test('Follow-up O8: first-group-wins — winner memberIds are exact, the losing group keeps only its unconsumed member under its own mergedTitle, and untouched findings are true ungrouped singletons', () => {
+  const all = [
+    rawFinding('a', 's1'), rawFinding('b', 's2'), rawFinding('c', 's3'),
+    rawFinding('d', 's4'), rawFinding('e', 's5'),
+  ]
+  const groups = [
+    { canonicalId: 'a', duplicateIds: ['b'], mergedTitle: 'Winner AB' },
+    { canonicalId: 'b', duplicateIds: ['c'], mergedTitle: 'Loser BC' }, // b already consumed; c is still fresh
+  ]
+  const merged = CORE.mergeFindings(all, groups)
+
+  const winner = merged.find((m) => m.id === 'a')
+  assert.ok(winner)
+  assert.deepEqual(winner.memberIds, ['a', 'b'], 'the winner owns exactly its own members, nothing leaked from the losing group')
+
+  const loserSurvivor = merged.find((m) => m.memberIds.includes('c'))
+  assert.ok(loserSurvivor, "the losing group's unconsumed member must still surface")
+  assert.deepEqual(loserSurvivor.memberIds, ['c'], "b (already consumed by the winner) must be absent from the losing group's surviving entry")
+  assert.equal(loserSurvivor.title, 'Loser BC')
+
+  // d and e were never referenced by any group: true ungrouped singletons, carrying their OWN
+  // original title/source — never a group's mergedTitle.
+  const d = merged.find((m) => m.id === 'd')
+  const e = merged.find((m) => m.id === 'e')
+  assert.deepEqual(d.memberIds, ['d'])
+  assert.equal(d.title, 'Finding d')
+  assert.deepEqual(d.sources, ['s4'])
+  assert.deepEqual(e.memberIds, ['e'])
+  assert.equal(e.title, 'Finding e')
 })
