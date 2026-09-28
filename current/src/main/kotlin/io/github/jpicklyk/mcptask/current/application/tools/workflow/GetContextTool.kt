@@ -1,8 +1,12 @@
 package io.github.jpicklyk.mcptask.current.application.tools.workflow
 
 import io.github.jpicklyk.mcptask.current.application.config.withConfigSession
+import io.github.jpicklyk.mcptask.current.application.service.buildDispatchBySeatFlatJson
 import io.github.jpicklyk.mcptask.current.application.service.buildDispatchProfileJson
 import io.github.jpicklyk.mcptask.current.application.service.buildExpectedNotesJson
+import io.github.jpicklyk.mcptask.current.application.service.buildMissingBySeatJson
+import io.github.jpicklyk.mcptask.current.application.service.buildSeatsJson
+import io.github.jpicklyk.mcptask.current.application.service.computeMissingBySeat
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.model.ResourceMode
@@ -229,11 +233,13 @@ Call with no arguments to resume a session; call with `itemId` before any advanc
 
         // Build schema list with exists/filled status
         val filledKeys = notes.filter { it.body.isNotBlank() }.map { it.key }.toSet()
+        val seatAware = resolvedSchema?.isSeatAware() == true
         val schemaEntriesArray =
             buildExpectedNotesJson(
                 schema = resolvedSchema?.notes,
                 existingNoteKeys = notesByKey.keys,
-                filledNoteKeys = filledKeys
+                filledNoteKeys = filledKeys,
+                seatAware = seatAware
             )
 
         // Gate status for current phase — uses shared computation
@@ -241,6 +247,22 @@ Call with no arguments to resume a session; call with `itemId` before any advanc
         val missingForPhase = phaseContext?.missingKeys ?: emptyList()
         val guidanceKey = phaseContext?.guidanceKey
         val skillPointer = phaseContext?.skillPointer
+        // A1: missingBySeat is served only for a seat-aware schema AND only while the item is not
+        // TERMINAL (task-scope §6) — a TERMINAL, seat-aware item would otherwise still get an empty
+        // `{}` from computeMissingBySeat (missingForPhase is empty for TERMINAL regardless of
+        // seat-awareness), so TERMINAL is excluded explicitly rather than relying on an empty list.
+        val missingBySeat = if (item.role != Role.TERMINAL) computeMissingBySeat(resolvedSchema, missingForPhase) else null
+
+        // A1: current-phase seats + per-seat dispatch overrides (task-scope §6 "get_context item
+        // mode"). Both omitted (never an empty array/object) when the resolved schema declares no
+        // seats for the item's CURRENT role — byte-identical to pre-A1 for every seat-less schema.
+        val currentPhaseSeats = resolvedSchema?.seatsForRole(item.role) ?: emptyList()
+        val dispatchBySeatForPhase =
+            if (currentPhaseSeats.isEmpty()) {
+                emptyMap()
+            } else {
+                context.configResolver.resolveDispatchBySeat(item, resolvedSchema)[item.role] ?: emptyMap()
+            }
 
         // Resolve ancestors if requested
         val ancestorsJson: JsonArray =
@@ -303,11 +325,14 @@ Call with no arguments to resume a session; call with `itemId` before any advanc
                         put("canAdvance", JsonPrimitive(!isTerminal && missingForPhase.isEmpty()))
                         put("phase", JsonPrimitive(item.role.toJsonString()))
                         put("missing", JsonArray(missingForPhase.map { JsonPrimitive(it) }))
+                        buildMissingBySeatJson(missingBySeat)?.let { put("missingBySeat", it) }
                     }
                 )
                 guidanceKey?.let { put("guidanceKey", JsonPrimitive(it)) }
                 skillPointer?.let { put("skillPointer", JsonPrimitive(it)) }
                 dispatchProfile?.let { put("dispatch", buildDispatchProfileJson(it)) }
+                buildSeatsJson(currentPhaseSeats)?.let { put("seats", it) }
+                buildDispatchBySeatFlatJson(dispatchBySeatForPhase)?.let { put("dispatchBySeat", it) }
                 // Full claim detail — diagnostic tool, single-item, operators need identity to debug stalled work.
                 // claimedBy is intentionally included here; it must NOT appear in query_items results.
                 if (item.claimedBy != null) {

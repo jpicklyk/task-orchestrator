@@ -1,13 +1,9 @@
 package io.github.jpicklyk.mcptask.current.application.tools.items
 
-import io.github.jpicklyk.mcptask.current.application.service.buildDispatchByRoleJson
-import io.github.jpicklyk.mcptask.current.application.service.buildFullSchemaEntriesJson
-import io.github.jpicklyk.mcptask.current.application.service.buildResourcesJson
+import io.github.jpicklyk.mcptask.current.application.service.ItemSchemaView
 import io.github.jpicklyk.mcptask.current.application.service.search.FtsQuerySanitizer
 import io.github.jpicklyk.mcptask.current.application.tools.*
-import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
 import io.github.jpicklyk.mcptask.current.domain.model.Priority
-import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.repository.ItemSortFields
@@ -658,14 +654,17 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
      *   ([ToolExecutionContext.resolveSchemaWithSource]: type-first, tag fallback, trait merging,
      *   layered per-root-then-global using the item's own `rootId`).
      *
-     * Response: `{ type, configFingerprint, configSource, notes: [{key, role, required, description, guidance?, skill?, maxLength?}], dispatch?, resources? }`.
+     * Response: `{ type, configFingerprint, configSource, notes: [{key, role, required, description, guidance?, skill?, maxLength?}], dispatch?, resources?, seats?, dispatchBySeat?, features }`.
      * `configSource` is `"per-root"` when the schema's base layer was the per-root config, `"global"` otherwise.
      * `dispatch` is `{"queue"|"work"|"review": {agent?, model?, effort?}}` (one entry per phase with
      * a resolved profile) and `resources` is `[{key, mode, ttlSeconds?}]` — both omitted (not an
      * empty object/array) when the resolved traits declare neither. The `itemId` path resolves
      * dispatch from the item's per-item traits THEN its type's `defaultTraits` (same order as
      * [ToolExecutionContext.resolveDispatchProfile]); the `type` path has no item, so it resolves
-     * from `defaultTraits` only.
+     * from `defaultTraits` only. `seats`/`dispatchBySeat` (A1) are present only for a seat-aware
+     * schema; `features` is always present. Built entirely by [ItemSchemaView] — the same builder
+     * REST's `GET /api/v1/items/{id}/schema` route uses (A1c), so the two stay identical by
+     * construction rather than by convention.
      */
     private suspend fun executeSchema(
         params: JsonElement,
@@ -673,15 +672,11 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
     ): JsonElement {
         val typeParam = optionalString(params, "type")
 
-        var resolvedItem: WorkItem? = null
-        var typeRootId: UUID? = null
-
-        val resolved: ResolvedSchema? =
+        val (data, subject) =
             if (typeParam != null) {
                 val (rootId, rootIdError) = resolveItemId(params, "rootId", context, required = false)
                 if (rootIdError != null) return rootIdError
-                typeRootId = rootId
-                context.resolveTypeSchema(typeParam, rootId)
+                ItemSchemaView.buildTypeSchemaJson(typeParam, rootId, context.configResolver) to "type '$typeParam'"
             } else {
                 val (resolvedId, idError) = resolveItemId(params, "itemId", context)
                 if (idError != null) return idError
@@ -693,37 +688,12 @@ guidance + skill + maxLength per entry) — the reference target for keys-only `
                             ErrorCodes.RESOURCE_NOT_FOUND
                         )
                     }
-                resolvedItem = item
-                context.resolveSchemaWithSource(item)
+                ItemSchemaView.buildItemSchemaJson(item, context.configResolver) to "item (schema-free mode)"
             }
 
-        if (resolved == null) {
-            val subject = if (typeParam != null) "type '$typeParam'" else "item (schema-free mode)"
+        if (data == null) {
             return errorResponse("No schema found for $subject", ErrorCodes.RESOURCE_NOT_FOUND)
         }
-
-        val (schema, source, fingerprint) = resolved
-
-        val dispatchByRole: Map<Role, DispatchProfile>
-        val resourcesList: List<ResourceRequirement>
-        val item = resolvedItem
-        if (item != null) {
-            dispatchByRole = context.resolveDispatchProfiles(item, schema)
-            resourcesList = context.resolveResourceRequirements(item)
-        } else {
-            dispatchByRole = context.resolveDispatchProfilesForType(schema.defaultTraits, typeRootId)
-            resourcesList = context.resolveResourceRequirementsForType(schema.defaultTraits, typeRootId)
-        }
-
-        val data =
-            buildJsonObject {
-                put("type", JsonPrimitive(schema.type))
-                put("configFingerprint", if (fingerprint != null) JsonPrimitive(fingerprint) else JsonNull)
-                put("configSource", JsonPrimitive(if (source == SchemaSource.PER_ROOT) "per-root" else "global"))
-                put("notes", buildFullSchemaEntriesJson(schema.notes))
-                buildDispatchByRoleJson(dispatchByRole)?.let { put("dispatch", it) }
-                buildResourcesJson(resourcesList)?.let { put("resources", it) }
-            }
         return successResponse(data)
     }
 

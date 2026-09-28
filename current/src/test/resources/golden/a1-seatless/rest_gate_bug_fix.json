@@ -1,0 +1,18 @@
+{
+    "status": 200,
+    "body": {
+        "itemId": "a1000000-0000-4000-8000-000000000002",
+        "title": "A1 T0 golden bug-fix",
+        "role": "work",
+        "gateStatus": {
+            "canAdvance": false,
+            "phase": "work",
+            "missing": [
+                "implementation-notes",
+                "session-tracking",
+                "test-manifest"
+            ]
+        },
+        "guidanceKey": "implementation-notes"
+    }
+}

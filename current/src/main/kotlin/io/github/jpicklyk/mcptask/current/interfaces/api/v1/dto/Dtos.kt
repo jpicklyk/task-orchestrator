@@ -714,13 +714,16 @@ data class ResourceLeaseHistoryResponseDto(
  *
  * Field-for-field identical to `get_context` item mode's `gateStatus`: `phase` is the item's
  * CURRENT role, lowercased; `missing` is the required-note KEY strings (schema order) for that
- * phase — never `{key, description, ...}` objects.
+ * phase — never `{key, description, ...}` objects. `missingBySeat` (A1c) is present only for a
+ * seat-aware schema whose item is NOT terminal — see
+ * [io.github.jpicklyk.mcptask.current.application.service.computeMissingBySeat].
  */
 @Serializable
 data class GateStatusDto(
     val canAdvance: Boolean,
     val phase: String,
     val missing: List<String>,
+    val missingBySeat: Map<String, List<String>>? = null,
 )
 
 /**

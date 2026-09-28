@@ -33,6 +33,12 @@ package io.github.jpicklyk.mcptask.current.domain.model
  * @property maxLength Optional maximum note body length in characters. When set, `manage_notes`
  *   enforces it at upsert time (after body/bodyFromFile resolution) per the configured
  *   `note_limits.mode` (warn or reject). Null means no limit is enforced.
+ * @property seat Name of the [io.github.jpicklyk.mcptask.current.domain.model.SeatDefinition] that
+ *   owns filling this note (an orchestration signal only, A1a). Null means the note has no declared
+ *   owner; in a seat-aware schema (see [WorkItemSchema.isSeatAware]) that surfaces as "unowned" —
+ *   see `io.github.jpicklyk.mcptask.current.application.service.SeatOwnership`.
+ * @property independentOf Seat names this note's authorship must be independent of (an
+ *   orchestration signal only; A1a parses and serves it, A2 enforces it).
  */
 data class NoteSchemaEntry(
     val key: String,
@@ -41,5 +47,7 @@ data class NoteSchemaEntry(
     val description: String = "",
     val guidance: String? = null,
     val skill: String? = null,
-    val maxLength: Int? = null
+    val maxLength: Int? = null,
+    val seat: String? = null,
+    val independentOf: List<String> = emptyList()
 )

@@ -1,0 +1,33 @@
+{
+    "success": true,
+    "data": {
+        "mode": "item",
+        "item": {
+            "id": "a1000000-0000-4000-8000-000000000003",
+            "title": "A1 T0 golden schema-free",
+            "role": "work",
+            "depth": 1
+        },
+        "schema": [
+            {
+                "key": "session-tracking",
+                "role": "work",
+                "required": true,
+                "exists": false,
+                "filled": false
+            }
+        ],
+        "gateStatus": {
+            "canAdvance": false,
+            "phase": "work",
+            "missing": [
+                "session-tracking"
+            ]
+        },
+        "guidanceKey": "session-tracking"
+    },
+    "metadata": {
+        "timestamp": "<A1-T0-NORMALIZED-TIMESTAMP>",
+        "version": "3.15.0"
+    }
+}

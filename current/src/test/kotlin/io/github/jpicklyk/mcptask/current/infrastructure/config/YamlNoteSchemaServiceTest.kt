@@ -595,8 +595,8 @@ note_schemas:
         writeConfig(
             tempDir,
             """
-other_config:
-  key: value
+note_limits:
+  mode: warn
             """.trimIndent()
         )
 
