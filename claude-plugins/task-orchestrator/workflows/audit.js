@@ -439,14 +439,14 @@ async function runAudit(plan, deps) {
     critic = await agent(
       'READ-ONLY. You are the completeness critic for an audit of ' + plan.repo.root + '. Below is what the reviewers covered. Identify up to ' + plan.gaps.max +
         ' MATERIAL gaps — subsystems or concerns not covered — each with a label and a prompt (paths and questions) for a focused follow-up reviewer. Return an empty gaps array if coverage is adequate.\n\nCOVERAGE:\n' + coverage,
-      agentOpts(plan, 'critic', { label: 'critic', phase: 'Gaps', schema: S.CRITIC }),
+      agentOpts(plan, 'gaps', { label: 'critic', phase: 'Gaps', schema: S.CRITIC }),
     )
     const gapList = (critic && critic.gaps) || []
     const runGaps = gapList.slice(0, plan.gaps.max)
     droppedGaps = gapList.slice(plan.gaps.max).map((g) => g.label)
     if (droppedGaps.length) log('critic proposed ' + gapList.length + ' gaps; running first ' + plan.gaps.max + ', dropped: ' + droppedGaps.join('; '))
     const gapRun = await parallel(runGaps.map((g, i) => () =>
-      agent(buildGapPrompt(plan, g), agentOpts(plan, 'gap', { label: 'gap:' + (i + 1), phase: 'Gaps', schema: S.FINDINGS })).then((r) => (r ? Object.assign({}, r, { key: 'gap' + (i + 1), label: 'Gap: ' + g.label }) : null))))
+      agent(buildGapPrompt(plan, g), agentOpts(plan, 'gaps', { label: 'gap:' + (i + 1), phase: 'Gaps', schema: S.FINDINGS })).then((r) => (r ? Object.assign({}, r, { key: 'gap' + (i + 1), label: 'Gap: ' + g.label }) : null))))
     gapResults = gapRun.filter(Boolean)
     log('gap reviews: ' + gapResults.length + ' run')
   }
@@ -500,7 +500,7 @@ async function runAudit(plan, deps) {
       'SLICE SUMMARIES & STRENGTHS:\n' + JSON.stringify(slicePayload) + '\n\nKEPT FINDINGS (' + keptPayload.length + '):\n' + JSON.stringify(keptPayload) +
       '\n\nREFUTED FINDINGS (' + refutedPayload.length + '):\n' + JSON.stringify(refutedPayload) +
       '\n\nGAP CRITIC ASSESSMENT:\n' + ((critic && critic.assessment) || '(no critic result)'),
-    agentOpts(plan, 'synthesis', { label: 'synthesis', phase: 'Synthesize', schema: S.SYNTH }),
+    agentOpts(plan, 'synth', { label: 'synthesis', phase: 'Synthesize', schema: S.SYNTH }),
   )
   const ridMap = reportIds(synth)
   const keptOut = keptRaw.map((k) => ({ findingId: k.id, reportId: ridMap[k.id] || '', title: k.title, severity: k.finalSeverity, verdict: k.verdict, category: k.category, effort: k.effort, locations: (k.locations || []).slice(0, 4), trackedId: k.trackedId || '' }))
