@@ -1,7 +1,8 @@
 # Scratch config fixture for implement-wave-prompts.test.mjs (B1b) and B1d's live L0 setup.
 # Syntax copied from .taskorchestrator/config.yaml:18-109,164-304 and
-# skills/manage-schemas/references/config-format.md:44-55,274-299,351-362 — not a live config,
-# never mounted or pushed anywhere; parsed only for existence/non-emptiness by tests.
+# skills/manage-schemas/references/config-format.md:44-55,274-299,351-362. This file IS pushed as
+# the per-root config of the B1d scratch root, via PUT /roots/{rootId}/config — it is not a live
+# config in THIS repo's own root, and no test in this suite parses it.
 
 actor_attribution:
   required: true

@@ -343,3 +343,104 @@ test('handoff: implementer prompt carries the planner handoff fields when outs a
   assert.ok(prompt.includes('use approach A'), 'handoff must carry the planner decisions text')
   assert.ok(prompt.includes('a.js'), 'handoff must carry the planner mainFiles')
 })
+
+// ---- O7: review fix-up regression tests ----
+
+// (a) part 6 renders every stage.skills name by value, never an Object.keys index count.
+test('O7a: part 6 renders every stage.skills entry by name, never an index-count placeholder', () => {
+  const core = loadCore(SCRIPT_PATH)
+  const stageDef = {
+    seat: 'planner', phase: 'queue', notes: [], writes: false, dispatch: {},
+    output: 'planner-v1', skills: ['spec-quality', 'review-quality'],
+  }
+  const item = makeItem('99999991', [stageDef])
+  const plan = makePlan([item])
+  const prompt = core.seatPrompt(plan, item, stageDef, {})
+  assert.ok(prompt.includes('spec-quality'), 'prompt must name the spec-quality skill fallback')
+  assert.ok(prompt.includes('review-quality'), 'prompt must name the review-quality skill fallback')
+  assert.ok(!/\(0\)/.test(prompt), 'prompt must never print an Object.keys-style index-count placeholder like "(0)"')
+})
+
+// (b) pre-entered prompts never offer or describe the queue-entry advance_item step.
+test('O7b: pre-entered mode never lists the advance_item tool or the queue-entry advance step', () => {
+  const core = loadCore(SCRIPT_PATH)
+  const item = makeItem('99999992', stages.bugFixLike())
+  const plan = makePlan([item], { entryMode: 'pre-entered' })
+  for (const stage of item.stages) {
+    const prompt = core.seatPrompt(plan, item, stage, {})
+    assert.ok(
+      !prompt.includes('mcp__mcp-task-orchestrator__advance_item'),
+      `TOOLS for seat ${stage.seat} must not list advance_item in pre-entered mode`
+    )
+    assert.ok(
+      !prompt.includes('call advance_item(transitions:[{itemId, trigger:"start", actor}]) exactly once'),
+      `part 13 for seat ${stage.seat} must not print the queue-entry advance_item step in pre-entered mode`
+    )
+    if (stage.enters) {
+      assert.ok(prompt.includes('never call advance_item'), `entering seat ${stage.seat} must still say never call advance_item`)
+    }
+  }
+})
+
+// (c) agentType flow (plan §9.2 #15): retry-without-agentType + fallback flag, then stopped on a second throw.
+test('O7c: an agentType throw retries once without it and records agentTypeFallback', async () => {
+  const stageDef = {
+    seat: 'owner', phase: 'work', notes: [], enters: true, writes: true,
+    output: 'generic-v1', dispatch: { agent: 'task-orchestrator:implementer' },
+  }
+  const item = makeItem('88888881', [stageDef])
+  const plan = makePlan([item])
+  const fa = fakeAgent({
+    'owner:88888881': (n, prompt, opts) => {
+      if (opts.agentType) return { throw: 'boom-with-type' }
+      return {
+        status: 'done', reason: 'ok', notes: [], commits: { pre: '', post: '' }, files: [],
+        modelReported: 'fake', entry: { applied: true, newRole: 'work' }, output: { summary: 'ok' },
+      }
+    },
+  })
+  const script = loadScript(SCRIPT_PATH)
+  const result = await script.run({ agent: fa.agent, parallel: fakeParallel, args: plan })
+  assert.equal(fa.calls.length, 2, 'expected the initial call plus one retry without agentType')
+  assert.equal(fa.calls[0].opts.agentType, 'task-orchestrator:implementer')
+  assert.equal(fa.calls[1].opts.agentType, undefined, 'the retry must omit agentType')
+  const stageResult = result.items[0].stages[0]
+  assert.equal(stageResult.status, 'done')
+  assert.equal(stageResult.agentTypeFallback, true)
+  assert.equal(stageResult.agentTypeUsed, null)
+})
+
+test('O7c: a second throw after the agentType retry yields stopped with reason starting "agent threw"', async () => {
+  const stageDef = {
+    seat: 'owner', phase: 'work', notes: [], enters: false, writes: true,
+    output: 'generic-v1', dispatch: { agent: 'task-orchestrator:implementer' },
+  }
+  const item = makeItem('88888882', [stageDef])
+  const plan = makePlan([item])
+  const fa = fakeAgent({ 'owner:88888882': { throw: 'always-boom' } })
+  const script = loadScript(SCRIPT_PATH)
+  const result = await script.run({ agent: fa.agent, parallel: fakeParallel, args: plan })
+  assert.equal(fa.calls.length, 2, 'expected the initial call plus one retry without agentType')
+  const itemResult = result.items[0]
+  assert.equal(itemResult.status, 'stopped')
+  assert.ok(itemResult.reason.startsWith('agent threw'), `expected reason to start with "agent threw", got: ${itemResult.reason}`)
+})
+
+// (d) a stage whose agent() throws unconditionally leaves no unsettled milestone: runPlan resolves
+// (no hang) and a dependent item waiting on that milestone is released, not left pending.
+test('O7d: an unconditional agent throw settles the milestone — runPlan resolves and a dependent is not left hanging', async () => {
+  const stageA = { seat: 'owner', phase: 'work', notes: [], enters: false, writes: true, output: 'generic-v1', dispatch: {} }
+  const itemA = makeItem('88888883', [stageA])
+  const stageB = { seat: 'owner', phase: 'work', notes: [], enters: false, writes: true, output: 'generic-v1', dispatch: {} }
+  const itemB = makeItem('88888884', [stageB], { waitsFor: [{ item: itemA.id, milestone: 'owner' }] })
+  const plan = makePlan([itemA, itemB])
+  const fa = fakeAgent({ 'owner:88888883': { throw: 'unconditional-boom' } })
+  const script = loadScript(SCRIPT_PATH)
+  const result = await script.run({ agent: fa.agent, parallel: fakeParallel, args: plan })
+  assert.equal(result.items.length, 2, 'runPlan must resolve with both items, not hang')
+  const itemAResult = result.items.find((r) => r.id === itemA.id)
+  const itemBResult = result.items.find((r) => r.id === itemB.id)
+  assert.equal(itemAResult.status, 'stopped')
+  assert.ok(itemAResult.reason.startsWith('agent threw'))
+  assert.equal(itemBResult.status, 'deferred', 'a dependent whose blocker stopped must be released, not hang')
+})

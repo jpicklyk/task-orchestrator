@@ -21,7 +21,7 @@ never call `advance_item` or `manage_items` — this seat freezes decisions in n
 act on them.
 
 **Seat rule.** If your dispatch prompt names a seat, fill only the notes that seat owns and leave
-the phase's other required notes to their own seats — the schema's list of required work notes is
+the phase's other required notes to their own seats — the schema's list of required queue notes is
 the phase's total, not your assignment.
 
 Fetch rule text by key rather than guessing at it: pull `protocol.in-phase-seat` via `query_rules`

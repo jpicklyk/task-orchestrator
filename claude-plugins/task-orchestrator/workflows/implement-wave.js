@@ -613,8 +613,8 @@ function promptScope(plan, item) {
   return lines.join('\n')
 }
 
-/** Part 3: tool selection. */
-function promptTools(stage) {
+/** Part 3: tool selection. Pre-entered mode never advances, so advance_item is withheld. */
+function promptTools(plan, stage) {
   const names = [
     'mcp__mcp-task-orchestrator__query_items',
     'mcp__mcp-task-orchestrator__query_notes',
@@ -623,7 +623,7 @@ function promptTools(stage) {
     'mcp__mcp-task-orchestrator__query_rules',
   ]
   if (!isReadOnlyStage(stage)) names.push('mcp__mcp-task-orchestrator__manage_notes')
-  if (stage.enters) names.push('mcp__mcp-task-orchestrator__advance_item')
+  if (stage.enters && plan.entryMode !== 'pre-entered') names.push('mcp__mcp-task-orchestrator__advance_item')
   return `TOOLS: load with ToolSearch select:${names.join(',')}`
 }
 
@@ -662,7 +662,7 @@ function promptRules(plan, stage) {
   for (const k of stage.rules || []) {
     if (!keys.includes(k)) keys.push(k)
   }
-  const skillKeys = stage.skills ? Object.keys(stage.skills) : []
+  const skillKeys = Array.isArray(stage.skills) ? stage.skills : []
   const lines = [
     `RULES: fetch each key below via query_rules(operation:"get", rootId:"${plan.rootId}", key:<key>) and follow the returned body over anything paraphrased here.`,
     `Keys: ${keys.join(', ')}.`,
@@ -784,11 +784,12 @@ function promptRerunAndEntry(plan, item, stage, actor) {
   }
   if (stage.enters) {
     lines.push('ENTRY: call get_context(itemId) first.')
-    lines.push('role "work" -> do not advance; report entry.alreadyInPhase.')
-    lines.push('role "queue" -> call advance_item(transitions:[{itemId, trigger:"start", actor}]) exactly once.')
-    lines.push('Rerun-safe entry: never call start from work — only from queue.')
     if (plan.entryMode === 'pre-entered') {
       lines.push('entryMode is pre-entered: verify role is already "work" and never call advance_item.')
+    } else {
+      lines.push('role "work" -> do not advance; report entry.alreadyInPhase.')
+      lines.push('role "queue" -> call advance_item(transitions:[{itemId, trigger:"start", actor}]) exactly once.')
+      lines.push('Rerun-safe entry: never call start from work — only from queue.')
     }
   }
   return lines.join('\n')
@@ -828,7 +829,7 @@ function seatPrompt(plan, item, stage, outs) {
   const parts = [
     promptSeatLine(plan, item, stage),
     promptScope(plan, item),
-    promptTools(stage),
+    promptTools(plan, stage),
     promptActor(stage, item, plan),
     promptOwnedNotes(stage),
     promptRules(plan, stage),
@@ -936,49 +937,61 @@ async function runItem(plan, item, deps) {
     }
   }
 
-  for (let i = 0; i < item.stages.length; i++) {
-    const stage = item.stages[i]
-    const keys = lockKeysFor(item, stage, outs, plan)
-    const stageResult = await deps.locks.withLocks(keys, () => callSeat(plan, item, stage, outs, deps))
-    const env = stageResult.env
-    outs[stage.seat] = env ? env.output : undefined
+  let currentIndex = 0
+  let abnormal = false
+  try {
+    for (let i = 0; i < item.stages.length; i++) {
+      currentIndex = i
+      const stage = item.stages[i]
+      const keys = lockKeysFor(item, stage, outs, plan)
+      const stageResult = await deps.locks.withLocks(keys, () => callSeat(plan, item, stage, outs, deps))
+      const env = stageResult.env
+      outs[stage.seat] = env ? env.output : undefined
 
-    const mapped = mapStageResult(stage, env, plan.entryMode)
-    stages.push({
-      seat: stage.seat,
-      status: mapped.status,
-      reason: mapped.reason,
-      modelReported: stageResult.modelReported || '',
-      agentTypeUsed: stageResult.agentTypeUsed || null,
-      agentTypeFallback: !!stageResult.agentTypeFallback,
-      notes: (env && env.notes) || [],
-      commits: (env && env.commits) || { pre: '', post: '' },
-      files: (env && env.files) || [],
-    })
-    deps.milestones.settle(item.id, stage.seat, { status: mapped.status, reason: mapped.reason, output: env ? env.output : null })
+      const mapped = mapStageResult(stage, env, plan.entryMode)
+      stages.push({
+        seat: stage.seat,
+        status: mapped.status,
+        reason: mapped.reason,
+        modelReported: stageResult.modelReported || '',
+        agentTypeUsed: stageResult.agentTypeUsed || null,
+        agentTypeFallback: !!stageResult.agentTypeFallback,
+        notes: (env && env.notes) || [],
+        commits: (env && env.commits) || { pre: '', post: '' },
+        files: (env && env.files) || [],
+      })
+      deps.milestones.settle(item.id, stage.seat, { status: mapped.status, reason: mapped.reason, output: env ? env.output : null })
 
-    if (mapped.status !== 'done') {
-      result.status = mapped.status
-      result.reason = mapped.reason
-      deps.milestones.releaseFrom(item, i + 1)
-      return result
-    }
-
-    if (plan.worktreeMode === 'per-item' && stage.output === 'planner-v1') {
-      const higher = await higherPriorityOutputs(plan, item, deps.milestones)
-      const overlap = overlapDeferral({ short: item.short, output: env.output }, higher, plan.worktreeMode)
-      if (overlap) {
-        result.status = 'deferred'
-        result.reason = overlap.reason
+      if (mapped.status !== 'done') {
+        result.status = mapped.status
+        result.reason = mapped.reason
         deps.milestones.releaseFrom(item, i + 1)
         return result
       }
-    }
-  }
 
-  result.status = 'done'
-  result.reason = 'all stages done'
-  return result
+      if (plan.worktreeMode === 'per-item' && stage.output === 'planner-v1') {
+        const higher = await higherPriorityOutputs(plan, item, deps.milestones)
+        const overlap = overlapDeferral({ short: item.short, output: env.output }, higher, plan.worktreeMode)
+        if (overlap) {
+          result.status = 'deferred'
+          result.reason = overlap.reason
+          deps.milestones.releaseFrom(item, i + 1)
+          return result
+        }
+      }
+    }
+
+    result.status = 'done'
+    result.reason = 'all stages done'
+    return result
+  } catch (e) {
+    abnormal = true
+    result.status = 'stopped'
+    result.reason = `agent threw: ${e && e.message}`
+    return result
+  } finally {
+    if (abnormal) deps.milestones.releaseFrom(item, currentIndex)
+  }
 }
 
 /**

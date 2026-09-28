@@ -173,10 +173,10 @@ It is invoked by the front door, never bare — a bare run returns `{started: fa
 doing any work, so calling the script directly without going through that entry path is not a
 supported way to drive a wave.
 
-Each seat the script dispatches fetches its own rule text by key via `query_rules` rather than
-carrying that text inline, and reads its item's resolved schema via `query_items` (`schema`
-operation) rather than assuming note requirements. See
-[`../api-reference.md`](../api-reference.md) for both operations.
+Each seat the script dispatches fetches its own rule text by key via
+[`query_rules`](../api-reference.md#query_rules) rather than carrying that text inline, and reads
+its item's resolved schema via [`query_items`](../api-reference.md#query_items) (`schema`
+operation) rather than assuming note requirements.
 
 Two of the seats the script dispatches are the `planner` and `test-author` agent definitions under
 `claude-plugins/task-orchestrator/agents/` — a queue-phase planning seat and a blind, independent
