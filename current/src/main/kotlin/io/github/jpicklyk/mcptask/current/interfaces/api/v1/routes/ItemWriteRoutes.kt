@@ -247,8 +247,8 @@ private fun buildGateBlockedDetails(failure: AdvanceFailure.GateBlocked): JsonOb
         }
         // A2: independence-attestation findings — same raw JSON shape MCP's advance_item
         // gate_blocked details use (actor-free by construction); reuses the shared builder rather
-        // than a second JSON encoding of the same domain type. Present (possibly `[]`) whenever
-        // AdvanceService computed a non-null violations list, absent otherwise.
+        // than a second JSON encoding of the same domain type. Present only when the list is
+        // non-empty (addendum emission rule); `gateStatus` is the only surface that emits `[]`.
         NoteSchemaJsonHelpers.buildViolationsArrayNonEmpty(failure.violations)?.let { put("violations", it) }
     }
 

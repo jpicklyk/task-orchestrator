@@ -1316,9 +1316,10 @@ The `violations` key's presence rule differs by surface, and the difference is d
 gate READ should tell a client "the check ran and found nothing" vs "the check doesn't apply here",
 while a transition RESULT should stay quiet unless there is something to report):
 
-- **`gateStatus`** (`get_context`, REST `GET /items/{id}/gate`) emits `violations` whenever
-  independence checking applies to the item's current phase — **including an empty array** `[]`
-  when the check ran and found nothing.
+- **`gateStatus`** (`get_context`, REST `GET /items/{id}/gate`) emits `violations` whenever the
+  check applies — mode is not `off` and the item's resolved schema declares `independent_of` in any
+  phase — **including an empty array** `[]` when the check ran and found nothing. It is absent for a
+  terminal item.
 - **Everywhere else** — a successful `advance_item`/REST-advance result, each `cascadeEvents` entry,
   a REST `422 gate_blocked`'s `details.violations`, and an `advance_item`/`complete_tree`
   applied-or-failure entry (`complete_tree` in `warn` mode included) — `violations` is emitted
@@ -1400,15 +1401,17 @@ relying on it:
   finding is still visible on `gateStatus.violations` and the advance/cascade/failure surfaces to any
   caller who can read them — so a non-admin caller cannot see WHO wrote two notes, but can still see
   THAT they were (or were not) written by the same actor.
-- **Under `API_AUTH_MODE=none`, REST note writes are indistinguishable from one another** by anything
-  stronger than the caller-supplied `actor` field on MCP writes (REST writes have no caller-supplied
-  actor field at all — see above) — there is no bearer-token identity to cross-check a self-reported
-  actor id against, so the same limits as the self-reported case above apply, with no additional
-  assurance from the REST layer itself.
+- **Under `API_AUTH_MODE=none`, every REST note write carries the same actor, `api:local-unauth`**
+  (REST ignores client-supplied actor fields — see above). Any two notes written over REST in that
+  mode therefore always raise `same_actor` against each other, and the REST layer adds no identity
+  assurance of its own.
 
-None of the above is a defect to be fixed later — A2 is deliberately scoped as attestation, not
-identity verification; pair it with `actor_authentication` (`require_verified: true`) for a stronger
-guarantee, and treat a bare `warn`/`reject` config as a discipline aid, not a security control.
+These limits are by design: A2 is scoped as attestation, not identity verification. The exception
+is the `require_verified` identity gaps above (a VERIFIED note without a proof `sub`, and the REST
+`api:<sub>` vs MCP `<sub>` split), which a planned follow-up hardens; until then, do not treat
+`require_verified: true` as identity enforcement. Pair the check with `actor_authentication` for a
+stronger guarantee, and treat a bare `warn`/`reject` config as a discipline aid, not a security
+control.
 
 ---
 
