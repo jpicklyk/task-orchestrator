@@ -1301,9 +1301,14 @@ test("(2) integration: with ONLY a fully-resumed item, the run refuses (args:nul
     assert.equal(result.doc?.args ?? null, null);
 });
 
-// ── (3) No literal <worktree> / <scratchpad> placeholder survives substitution in
-//        args.project.verify[].command or args.project.searchScope, in shared or per-item mode.
-//        [b2-b3-front-door.md §3.4: "<worktree> and <scratchpad> placeholders are substituted by plan"]
+// ── (3) Placeholder substitution rules, corrected per Appendix C's own text: "`<worktree>`
+//        substituted only in shared mode" and "`project.scratchDir` = `<scratchpad>/run-wave/<runId>`"
+//        where `<scratchpad>` is the session scratchpad ROOT (`opts.scratchpad`, where the gradle
+//        lock helper lives) — never `scratchDir` itself. So: shared mode substitutes `<worktree>`
+//        with the shared feature worktree; per-item mode LEAVES `<worktree>` literal (each seat
+//        substitutes its own item worktree at dispatch time) and must not leak any one item's
+//        worktree path into the shared project.* fields; both modes substitute `<scratchpad>`
+//        with the scratchpad root, and `project.scratchDir` is built from that root.
 
 function placeholderProfile() {
     return {
@@ -1317,19 +1322,9 @@ function placeholderProfile() {
     };
 }
 
-function assertNoPlaceholders(doc) {
-    for (const v of doc.args.project.verify ?? []) {
-        assert.ok(!v.command.includes("<worktree>"), `verify command still has <worktree>: ${v.command}`);
-        assert.ok(!v.command.includes("<scratchpad>"), `verify command still has <scratchpad>: ${v.command}`);
-    }
-    for (const s of doc.args.project.searchScope ?? []) {
-        assert.ok(!s.includes("<worktree>"), `searchScope still has <worktree>: ${s}`);
-        assert.ok(!s.includes("<scratchpad>"), `searchScope still has <scratchpad>: ${s}`);
-    }
-}
-
-test("(3) shared mode: no literal <worktree>/<scratchpad> remains in project.verify[].command or searchScope", () => {
+test("(3) shared mode: <worktree> is substituted with the shared feature worktree; <scratchpad> is substituted with the scratchpad ROOT (never scratchDir); project.scratchDir = <root>/run-wave/<runId>", () => {
     const parentId = "9c000000-0000-4000-8000-000000000000";
+    const scratchpadRoot = "/scratch/run";
     const snap = baseSnapshot({
         ancestorId: parentId,
         candidates: [
@@ -1343,20 +1338,65 @@ test("(3) shared mode: no literal <worktree>/<scratchpad> remains in project.ver
         parents: { [parentId]: { role: "work", canAdvance: true, missing: [] } },
         profile: placeholderProfile(),
     });
-    const result = buildPlanDoc(snap, { now: NOW, mode: "shared", scratchpad: "/scratch/run" });
+    const result = buildPlanDoc(snap, { now: NOW, mode: "shared", scratchpad: scratchpadRoot });
     assert.equal(result.ok, true, JSON.stringify(result.errors));
-    assertNoPlaceholders(result.doc);
+    const doc = result.doc;
+
+    const worktrees = new Set(doc.args.items.map((it) => it.worktree));
+    assert.equal(worktrees.size, 1, "shared mode must use one worktree for every admitted item");
+    const sharedWorktree = [...worktrees][0];
+
+    // The fixture command carries BOTH placeholders on one line; each array entry in
+    // searchScope carries only one. Check each string for the placeholders it could plausibly
+    // contain, not that every entry contains both substituted values.
+    for (const v of doc.args.project.verify ?? []) {
+        assert.ok(!v.command.includes("<worktree>"), `shared mode must substitute <worktree>: ${v.command}`);
+        assert.ok(!v.command.includes("<scratchpad>"), `<scratchpad> must be substituted: ${v.command}`);
+    }
+    assert.ok(
+        (doc.args.project.verify ?? []).some((v) => v.command.includes(sharedWorktree)),
+        "shared mode must substitute the shared worktree path into at least one verify command"
+    );
+    const searchScope = doc.args.project.searchScope ?? [];
+    for (const s of searchScope) {
+        assert.ok(!s.includes("<worktree>"), `shared mode must substitute <worktree>: ${s}`);
+        assert.ok(!s.includes("<scratchpad>"), `<scratchpad> must be substituted: ${s}`);
+    }
+    assert.ok(searchScope.some((s) => s.includes(sharedWorktree)), "shared mode must substitute the shared worktree path into searchScope");
+    assert.ok(searchScope.some((s) => s.includes(scratchpadRoot)), "the scratchpad root must be substituted into searchScope");
+
+    assert.equal(doc.args.project.scratchDir, `${scratchpadRoot}/run-wave/${doc.args.runId}`);
 });
 
-test("(3) per-item mode: no literal <worktree>/<scratchpad> remains in project.verify[].command or searchScope", () => {
+test("(3) per-item mode: <worktree> is left literal for seats to substitute (no item worktree leaks in); <scratchpad> is still substituted with the scratchpad ROOT; project.scratchDir = <root>/run-wave/<runId>", () => {
+    const scratchpadRoot = "/scratch/run";
     const snap = baseSnapshot({
         candidates: [plainCandidate({ id: "9f000000-0000-4000-8000-000000000000", short: "9f000000" })],
         schemas: { "9f000000-0000-4000-8000-000000000000": plainSchema() },
         profile: placeholderProfile(),
     });
-    const result = buildPlanDoc(snap, { now: NOW, mode: "per-item", scratchpad: "/scratch/run" });
+    const result = buildPlanDoc(snap, { now: NOW, mode: "per-item", scratchpad: scratchpadRoot });
     assert.equal(result.ok, true, JSON.stringify(result.errors));
-    assertNoPlaceholders(result.doc);
+    const doc = result.doc;
+    const itemWorktree = doc.args.items[0].worktree;
+
+    for (const v of doc.args.project.verify ?? []) {
+        assert.ok(!v.command.includes(itemWorktree), `per-item mode must not leak the item's own worktree path: ${v.command}`);
+        assert.ok(!v.command.includes("<scratchpad>"), `<scratchpad> must be substituted: ${v.command}`);
+    }
+    assert.ok(
+        (doc.args.project.verify ?? []).some((v) => v.command.includes("<worktree>")),
+        "per-item mode must leave <worktree> literal in at least one verify command"
+    );
+    const searchScope = doc.args.project.searchScope ?? [];
+    for (const s of searchScope) {
+        assert.ok(!s.includes(itemWorktree), `per-item mode must not leak the item's own worktree path: ${s}`);
+        assert.ok(!s.includes("<scratchpad>"), `<scratchpad> must be substituted: ${s}`);
+    }
+    assert.ok(searchScope.some((s) => s.includes("<worktree>")), "per-item mode must leave <worktree> literal in searchScope");
+    assert.ok(searchScope.some((s) => s.includes(scratchpadRoot)), "the scratchpad root must be substituted into searchScope");
+
+    assert.equal(doc.args.project.scratchDir, `${scratchpadRoot}/run-wave/${doc.args.runId}`);
 });
 
 // ── (4) profile.defaultModels.extractor accepts both the string form 'sonnet+low' and the
