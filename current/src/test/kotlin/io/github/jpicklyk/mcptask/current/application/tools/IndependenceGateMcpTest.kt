@@ -36,17 +36,18 @@ import kotlin.test.assertTrue
  * get_context gateStatus, S1's REJECT-mode no-independent_of case, S3's fail-closed variants
  * routed through advance_item/get_context, S6's mode-OFF bypass, S8's non-start/complete triggers
  * bypassing the check entirely, S9's MCP-side parity (get_context.gateStatus.violations ==
- * advance_item(start)'s violations for the same state), complete_tree, and the REJECT-mode start/terminal
- * cascade suppression paths (AdvanceCascadeEvent.violations) -- the cascade/complete_tree declarations
- * were appended to decl-a2a.md by the orchestrator after the first arbitration round (class
- * skeletons for CompleteTreeTool.kt/AdvanceItemTool.kt/GetContextTool.kt/AdvanceService.kt).
+ * advance_item(start)'s violations for the same state), complete_tree, and both the REJECT-mode
+ * (suppressed) and WARN-mode (applied, violations still reported) start/terminal cascade paths
+ * (AdvanceCascadeEvent.violations) -- the cascade/complete_tree declarations were appended to
+ * decl-a2a.md by the orchestrator after the first arbitration round (class skeletons for
+ * CompleteTreeTool.kt/AdvanceItemTool.kt/GetContextTool.kt/AdvanceService.kt). The two WARN-mode
+ * cascade tests were briefly removed in an earlier round after NPE'ing on a missing cascadeEvents
+ * key; a second arbitration ruling confirmed that was an IMPLEMENTATION gap (an applied WARN-mode
+ * cascade event omitted violations, now fixed) and they are restored here with their original
+ * oracle unchanged.
  *
  * Explicitly OUT OF SCOPE for this file (stage A2b, per the dispatch contract): REST /gate, REST
- * advance 422/200 mapping, the phase-guard hook. NOT covered (disclosed in test-manifest, not
- * guessed): WARN-mode cascade-event violations reporting -- both WARN cascade assertions NPE'd on
- * a missing `cascadeEvents` key this dispatch could not diagnose within its remaining budget; the
- * REJECT-mode cascade suppression path (which DOES populate `cascadeEvents[0].violations`) is
- * covered and passing.
+ * advance 422/200 mapping, the phase-guard hook.
  *
  * HARNESS (task-scope-addendum "Harness rule", pattern: SeatServingMcpTest): every capture runs the
  * REAL [ServerComposition.build] over an H2 in-memory DB and executes the REAL tool classes
@@ -519,6 +520,27 @@ work_item_schemas:
             assertEquals("same_actor", cascadeViolations[0].jsonObject["constraint"]!!.jsonPrimitive.content)
         }
 
+    @Test
+    fun `S7 start cascade -- WARN proceeds the parent cascade, reporting violations on the cascade event`(
+        @TempDir tempDir: Path
+    ): Unit =
+        runBlocking {
+            val toolContext = newToolContext(tempDir, globalConfig("warn"))
+            val root = createRoot(toolContext)
+            val parent = createChild(toolContext, root, root, "indep-cascade", Role.QUEUE, depth = 1)
+            upsertNote(toolContext, parent.id, "spec-a", "queue", "a", actorId = "p-agent")
+            upsertNote(toolContext, parent.id, "spec-b", "queue", "b", actorId = "p-agent")
+            val child = createChild(toolContext, root, parent.id, "indep-cascade", Role.QUEUE, depth = 2)
+            upsertNote(toolContext, child.id, "spec-a", "queue", "a", actorId = "c-agent-1")
+            upsertNote(toolContext, child.id, "spec-b", "queue", "b", actorId = "c-agent-2")
+
+            val transition = advance(toolContext, child.id, "start")
+            val cascade = transition["cascadeEvents"]!!.jsonArray[0].jsonObject
+            assertTrue(cascade["applied"]!!.jsonPrimitive.boolean, "WARN must let the parent cascade proceed: $cascade")
+            val cascadeViolations = cascade["violations"]!!.jsonArray
+            assertEquals(1, cascadeViolations.size, "cascade violations: $cascadeViolations")
+        }
+
     // S7 -- terminal cascade: child.complete (WORK->TERMINAL) attempts to ALSO cascade the parent
     // to TERMINAL. REJECT suppresses the parent cascade on the parent's own violation.
 
@@ -547,5 +569,26 @@ work_item_schemas:
             val cascadeViolations = cascade["violations"]!!.jsonArray
             assertEquals(1, cascadeViolations.size, "cascade violations: $cascadeViolations")
             assertEquals("same_actor", cascadeViolations[0].jsonObject["constraint"]!!.jsonPrimitive.content)
+        }
+
+    @Test
+    fun `S7 terminal cascade -- WARN proceeds the parent cascade, reporting violations on the cascade event`(
+        @TempDir tempDir: Path
+    ): Unit =
+        runBlocking {
+            val toolContext = newToolContext(tempDir, globalConfig("warn"))
+            val root = createRoot(toolContext)
+            val parent = createChild(toolContext, root, root, "indep-cascade", Role.WORK, depth = 1)
+            upsertNote(toolContext, parent.id, "spec-a", "queue", "a", actorId = "p-agent")
+            upsertNote(toolContext, parent.id, "spec-b", "queue", "b", actorId = "p-agent")
+            val child = createChild(toolContext, root, parent.id, "indep-cascade", Role.WORK, depth = 2)
+            upsertNote(toolContext, child.id, "spec-a", "queue", "a", actorId = "c-agent-1")
+            upsertNote(toolContext, child.id, "spec-b", "queue", "b", actorId = "c-agent-2")
+
+            val transition = advance(toolContext, child.id, "complete")
+            val cascade = transition["cascadeEvents"]!!.jsonArray[0].jsonObject
+            assertTrue(cascade["applied"]!!.jsonPrimitive.boolean, "WARN must let the parent terminal cascade proceed: $cascade")
+            val cascadeViolations = cascade["violations"]!!.jsonArray
+            assertEquals(1, cascadeViolations.size, "cascade violations: $cascadeViolations")
         }
 }
