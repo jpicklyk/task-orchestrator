@@ -50,11 +50,11 @@ proposal item's own status says "terminal".
 | `d1484a3e` | worktree writes landing in the main checkout | **Header** — the "Write root" line and the two-checkout `git status --short` before the first commit |
 | `234b50a0` | declarations-extractor seat and its accuracy contract | **Test author protocol** — the declarations paragraph (extractor seat, accuracy contract, orchestrator scan) and rule 4's public-evidence self-resolution clause |
 | `bb191508` | sweep the whole defect class during planning | **Planning seat return template** (`defect-class-siblings` field); the `bug-fix` schema's `diagnosis` guidance carries the same requirement at note-fill time |
-| `c068c943` (#360) | per-PR CHANGELOG `[Unreleased]` bullet | **Docs** — `CHANGELOG.md` is orchestrator- or docs-seat-owned at finalization, never an implementer's; the bullet itself and the PR body's `## Changelog` section are `/implement` Step 6 steps (orchestrator-side, not a delegated fact) |
+| `c068c943` (#360) | per-PR CHANGELOG `[Unreleased]` bullet | **Docs** — `CHANGELOG.md` is orchestrator- or docs-seat-owned, written before review, never an implementer's; the bullet itself (`/implement` Step 4c) and the Step 6 check plus the PR body's `## Changelog` section are orchestrator-side steps, not delegated facts |
 | `27c021b1` (#318) | hand-assembled Ktor test apps diverging from production | **Test author protocol** — the declarations block's `harness:` line, its accuracy-contract bullet, and rule 4's harness clause (named helper or stop-and-ask) |
 | `395f316f` (#374) | tests that bypass the runtime's validation order | **Test author protocol** — the declarations block's `runtime call order:` line and its accuracy-contract bullet (the pinned `McpToolAdapter` sentence) |
 | `9023ed46` (#361) | unscoped dedup search before creating a root or feature item | out of scope: an item-creation step, adopted in the plugin skills `post-plan-workflow` (Phase 1) and `create-item` (Step 5), which run where items are materialized — no dispatched seat creates items |
-| `610b9a9f` (#373) | anchored byte-level edits when Edit/Write is refused | **Header** — the conditional "File-edit method" clause on the Write root line, pointing at `references/patch-anchored.py` (exact-once anchors, `DRY=1`, all-or-nothing, per-file CRLF/LF preserved) |
+| `610b9a9f` (#373) | anchored byte-level edits when Edit/Write is refused | **Header** — the conditional "File-edit method" clause on the Write root line, pointing at `references/patch-anchored.py` (exact-once anchors, `DRY=1`, validate-all-then-write, per-file CRLF/LF preserved) |
 
 ---
 
@@ -235,8 +235,9 @@ Extractor accuracy contract:
 
 Orchestrator scan, before handoff: grep the declarations file for behaviour words (`returns`,
 `throws`, `falls back`, `catches`, `calls`, `if`, `when`, `otherwise`, `instead`) and strip every
-hit that describes behaviour rather than declaring a signature or pre-existing KDoc — the pinned
-`runtime call order:` sentence is exempt, since it is fixed contract text, not extractor prose; then delete
+hit that describes behaviour rather than declaring a signature or pre-existing KDoc — the whole
+`runtime call order:` line is exempt (the pinned MCP sentence or the REST check order copied from
+the frozen error table), since it is fixed contract text, not extractor prose; then delete
 any unredacted copy so only the scanned file reaches the author. The scan is not optional: on
 2026-09-25 the extractor leaked implementation prose in 2 of 2 runs despite an explicit
 prohibition, and the scan caught both.
@@ -326,8 +327,8 @@ Tightening changes this wave: `<per item — the tightened contract, or "none">`
 Implementers do not edit `current/docs/**`, `README.md`, `CLAUDE.md` or `CHANGELOG.md`. List the
 exact edits your change requires under "Docs needed" in `implementation-notes`; a single
 serialized docs seat makes them after the implementation wave, so two agents never write the same
-doc. The `CHANGELOG.md` `[Unreleased]` bullet belongs to the orchestrator or the docs seat at
-finalization (`/implement` Step 6), never to an implementer: parallel streams appending under the
+doc. The `CHANGELOG.md` `[Unreleased]` bullet belongs to the orchestrator or the docs seat, written
+once after the implementation wave and before review (`/implement` Step 4c), never to an implementer: parallel streams appending under the
 same `### Changed` heading collide on one shared anchor.
 
 Docs seat for this wave: `<agent/seat, or "orchestrator">`.
