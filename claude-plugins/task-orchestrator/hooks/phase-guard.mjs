@@ -183,15 +183,18 @@ async function main() {
         ? normalizedMissing
         : normalizedMissing.filter((key) => !TEST_AUTHOR_OWNED_KEYS.has(key));
 
-      // A2: only a REJECT-mode block (gate.gateStatus.canAdvance === false) can ever contribute a
-      // violation-based blocker — a warn-mode item's canAdvance stays true even with violations
-      // present, so this naturally never fires for warn. Within that, only this agent's OWN seat's
-      // non-waived violations are named (`!seat` keeps the pre-A1 role-agnostic fallback for an
+      // A2: only a REJECT-mode block can ever contribute a violation-based blocker. `canAdvance`
+      // alone is not the signal — it is also false whenever the gate's raw `missing` list is
+      // non-empty (warn mode with missing notes included), so gating on `canAdvance === false`
+      // by itself would report warn-mode missing-note findings as independence blockers. Only
+      // when the raw missing list is EMPTY does `canAdvance === false` imply a genuine
+      // reject-mode independence block. Within that, only this agent's OWN seat's non-waived
+      // violations are named (`!seat` keeps the pre-A1 role-agnostic fallback for an
       // unrecognised/legacy agent_type, same convention the seat-role filter above uses); a
       // waived entry, or one raised against a different seat, never blocks here either.
       const rawViolations = Array.isArray(gate.gateStatus?.violations) ? gate.gateStatus.violations : null;
       const violationBlockers =
-        rawViolations && gate.gateStatus?.canAdvance === false
+        rawViolations && rawMissing.length === 0 && gate.gateStatus?.canAdvance === false
           ? rawViolations.filter((v) => v && v.waived !== true && (!seat || v.seat === seat))
           : [];
 

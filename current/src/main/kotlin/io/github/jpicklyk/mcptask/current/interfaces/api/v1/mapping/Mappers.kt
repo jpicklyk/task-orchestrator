@@ -258,6 +258,17 @@ fun IndependenceViolation.toDto(): IndependenceViolationDto =
         waived = if (waived) true else null,
     )
 
+/**
+ * Maps a domain violations list to its REST DTO list for every surface OTHER than `gateStatus`
+ * (advance success `AdvanceResponseDto.violations`, cascade `CascadeEventDto.violations`): the
+ * key is emitted only when the list is non-null AND non-empty, mirroring
+ * [io.github.jpicklyk.mcptask.current.application.tools.workflow.NoteSchemaJsonHelpers.buildViolationsArrayNonEmpty].
+ * `gateStatus`'s own mapping (a non-null empty list still serializes as `[]`) is unaffected --
+ * this helper is never used there.
+ */
+private fun List<IndependenceViolation>?.toDtoListOrOmit(): List<IndependenceViolationDto>? =
+    this?.takeIf { it.isNotEmpty() }?.map { it.toDto() }
+
 /** Maps a [NoteSchemaEntry] to a [MissingNoteDto] (gate-block detail). */
 fun NoteSchemaEntry.toMissingNoteDto(): MissingNoteDto =
     MissingNoteDto(
@@ -319,13 +330,13 @@ fun AdvanceResult.toDto(existingNoteKeys: Set<String>): AdvanceResponseDto {
                             null
                         },
                     error = event.error,
-                    violations = event.violations?.map { it.toDto() },
+                    violations = event.violations.toDtoListOrOmit(),
                 )
             },
         unblockedItems =
             unblockedItems.map { UnblockedItemDto(itemId = it.itemId.toString(), title = it.title) },
         expectedNotes = expectedNotes,
-        violations = violations?.map { it.toDto() },
+        violations = violations.toDtoListOrOmit(),
     )
 }
 

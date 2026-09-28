@@ -249,7 +249,7 @@ private fun buildGateBlockedDetails(failure: AdvanceFailure.GateBlocked): JsonOb
         // gate_blocked details use (actor-free by construction); reuses the shared builder rather
         // than a second JSON encoding of the same domain type. Present (possibly `[]`) whenever
         // AdvanceService computed a non-null violations list, absent otherwise.
-        NoteSchemaJsonHelpers.buildViolationsArray(failure.violations)?.let { put("violations", it) }
+        NoteSchemaJsonHelpers.buildViolationsArrayNonEmpty(failure.violations)?.let { put("violations", it) }
     }
 
 /** Builds the `details` object for a [AdvanceFailure.ValidationFailed] 422 response. */

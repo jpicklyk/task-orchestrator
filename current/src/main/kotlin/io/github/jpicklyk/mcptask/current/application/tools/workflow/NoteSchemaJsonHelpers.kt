@@ -44,16 +44,28 @@ object NoteSchemaJsonHelpers {
      */
     fun buildViolationsArray(violations: List<IndependenceViolation>?): JsonArray? {
         if (violations == null) return null
-        return JsonArray(
-            violations.map { violation ->
-                buildJsonObject {
-                    put("key", JsonPrimitive(violation.key))
-                    violation.seat?.let { put("seat", JsonPrimitive(it)) }
-                    put("constraint", JsonPrimitive(violation.constraint.toJsonString()))
-                    violation.conflictingSeat?.let { put("conflictingSeat", JsonPrimitive(it)) }
-                    if (violation.waived) put("waived", JsonPrimitive(true))
-                }
-            }
-        )
+        return JsonArray(violations.map { it.toViolationJson() })
     }
+
+    /**
+     * Builds the `violations` array for every A2 surface OTHER than `gateStatus`
+     * (advance success, cascade events, 422 details, and advance_item/complete_tree failure AND
+     * applied entries): the key is emitted only when the list is non-null AND non-empty. Unlike
+     * [buildViolationsArray] (used solely by `gateStatus` / get_context / REST `/gate`, which
+     * emits the key for a non-null EMPTY list too), an empty list here returns null so the caller's
+     * `?.let { put(...) }` omits the key entirely.
+     */
+    fun buildViolationsArrayNonEmpty(violations: List<IndependenceViolation>?): JsonArray? {
+        if (violations.isNullOrEmpty()) return null
+        return JsonArray(violations.map { it.toViolationJson() })
+    }
+
+    private fun IndependenceViolation.toViolationJson(): JsonObject =
+        buildJsonObject {
+            put("key", JsonPrimitive(key))
+            seat?.let { put("seat", JsonPrimitive(it)) }
+            put("constraint", JsonPrimitive(constraint.toJsonString()))
+            conflictingSeat?.let { put("conflictingSeat", JsonPrimitive(it)) }
+            if (waived) put("waived", JsonPrimitive(true))
+        }
 }
