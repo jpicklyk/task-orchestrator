@@ -83,6 +83,7 @@ class ToolTokenBudgetTest {
             "get_next_status" to 650, // was 470; +when-to-call trigger sentence, measured 559
             "manage_project_config" to 3750, // was 3150; measured 3247 after `schemaWarnings` on push responses (40d755cc)
             "manage_plan_documents" to 2150, // measured 1834; new tool: stash/get/list per-root plan documents (dual REST+MCP ingestion)
+            "query_rules" to 1600, // measured 1384; new tool: per-root rule text get/list + skill-pointer resolution (A3, 840e700a)
         )
 
     /**
@@ -92,7 +93,7 @@ class ToolTokenBudgetTest {
      * tools (the CRUD/query surface) were deliberately left untouched — they trigger on obvious
      * need, and over-prompting tools that already trigger correctly causes overtriggering.
      */
-    private val totalCeiling = 48_850 // was 1708; +333 chars, limit/offset params + graph.truncated (6e2d8fc2)
+    private val totalCeiling = 50_450 // was 48_850; +1_600 for the new query_rules ceiling (measured 1384, A3 840e700a)
 
     // explicitNulls = false mirrors the compact-wire-shape convention already used elsewhere
     // in this codebase (see EventRoutes.kt / ItemWriteRoutes.kt / NoteWriteRoutes.kt) — a
