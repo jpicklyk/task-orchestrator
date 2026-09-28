@@ -54,18 +54,21 @@ Agent(
   Run gradle only through the contract's "Compile self-check" slot — the orchestrator owns
   full build verification.
   """,
-  model="sonnet",
-  subagent_type="general-purpose"
+  model="<stage.dispatch.model, else dispatchBySeat[phase][seat].model, else SKILL.md model table>",
+  subagent_type="<dispatch.agent when set, else general-purpose>"
 )
 ```
+
+See `SKILL.md:513-523`, "When dispatching an item's phase owner" — the full model/agent
+resolution order this line follows.
 
 **Parallel dispatch:** when children touch non-overlapping files, dispatch in parallel
 waves. The orchestrator must enforce file scope per agent — overlapping files in a
 shared worktree cause "second agent reads the file after first agent committed" mid-flight
 confusion.
 
-**Sequential dispatch:** when children share files, or when they have dependency edges,
-dispatch sequentially.
+**Sequential dispatch:** when children share files, dispatch sequentially; dependency edges are
+classified by `run-wave` (in-run vs cross-run).
 
 ### Committing in a shared worktree
 

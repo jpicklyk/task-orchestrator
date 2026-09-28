@@ -21,6 +21,9 @@ Everything below applies whether the test author is a separate dispatch or, in a
 the same agent operating at a different, declared point in time. The separation is the point —
 follow it exactly even when it feels redundant with work you can already see.
 
+When `query_rules(get, rootId, key:"test-author")` succeeds, the served text is authoritative for
+§3–§10; this skill is the fallback and the Claude-specific addendum.
+
 ---
 
 ## 1. When This Applies — The Two Seats

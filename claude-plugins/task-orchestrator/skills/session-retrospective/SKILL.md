@@ -64,7 +64,7 @@ query_notes(operation="list", itemId="<uuid>", includeBody=true)
 
 Extract:
 - Notes with key `session-tracking` — these contain per-item outcome, files changed, deviations, friction, observations, and test results
-- Notes with key `delegation-metadata` (optional) — orchestrator-recorded model and isolation data
+- Notes with key `delegation-metadata` (optional) — orchestrator-recorded model and isolation data (structured provenance line or legacy prose)
 
 ### 1c. Early exit
 
@@ -90,6 +90,23 @@ If `delegation-metadata` notes exist on any items, extract:
 - Isolation mode (inline, worktree)
 - These feed into delegation alignment analysis (step 3b)
 
+**Structured form.** A note whose first line matches `^adapter=\S+( [a-z-]+=\S+)+$` is a structured
+provenance line, not legacy prose: split the line on spaces, then each token on `key=value`. Each
+`seat:model` pair inside `seats=` is one delegation, typed by seat rather than guessed from prose —
+planner → architecture/opus; implementer, test-author → sonnet; declarations-extractor → code
+reading/sonnet; reviewer → opus; any other seat listed is recorded but not scored. Isolation comes
+from `isolation=`. `model=` is ignored whenever `seats=` is present (per-seat models supersede the
+single top-level field). Provenance field order is fixed:
+`adapter= run= seats= model= isolation= agents= tokens= duration= deferred= in-run-edges=
+orchestrator-turns=`. Example:
+
+```
+adapter=claude-workflow run=r-20260928-b2d seats=planner:opus,implementer:sonnet,declarations-extractor:sonnet,test-author:sonnet,reviewer:opus model=sonnet isolation=worktree:.claude/worktrees/feat-b2-front-door agents=5 tokens=412800 duration=1860000 deferred=0 in-run-edges=1 orchestrator-turns=3
+```
+
+**Legacy form** (unchanged): free-form prose naming model and isolation, parsed as before. A run
+that mixes structured and legacy notes across its items scores both forms.
+
 Run `get_context()` in parallel for the current state snapshot.
 
 ---
@@ -114,10 +131,22 @@ For each item in scope, examine its actual notes (from step 1b):
 | Code reading, implementation, test writing | `sonnet` |
 | Architecture, complex tradeoffs, multi-file synthesis | `opus` |
 
-- Flag misalignments (e.g., opus for bulk MCP ops, haiku for architecture)
+- Flag misalignments (e.g., opus for bulk MCP ops, haiku for architecture), scored per seat
+  delegation for a structured note (one score per `seat:model` pair in `seats=`)
+- A `substituted=` field on a delegation is an "allowlist substitution", not a misalignment — do
+  not flag it against the delegation-alignment score
+- A `model-source=self-report` field flags the delegation separately, as self-reported rather than
+  orchestrator-recorded — note it, but do not fold it into the misalignment count
 - **Score:** Fraction of delegations matching expected model for their task type
 
 **If no `delegation-metadata` notes exist:** Note "delegation metadata not recorded" and skip scoring for this dimension.
+
+**If at least one structured provenance line exists**, show a per-run summary table before
+continuing to 3c:
+
+| adapter | run | agents | tokens | duration | orchestrator-turns |
+|---------|-----|--------|--------|----------|---------------------|
+| `<adapter>` | `<run>` | `<agents>` | `<tokens>` | `<duration>` | `<orchestrator-turns>` |
 
 ### 3c. Note Effectiveness
 
@@ -549,7 +578,7 @@ Render a dashboard using the output style visual conventions:
 **Conditional prefix:**
 - Dry-run: `**Dry run** — no items created, no memory updated.`
 
-Omit sections with no data (e.g., no improvement proposals -> omit that table). If `delegation-metadata` notes were present, include a delegations count in the header line.
+Omit sections with no data (e.g., no improvement proposals -> omit that table). If `delegation-metadata` notes were present, include a delegations count in the header line: delegation count = Σ seats (structured) + notes (legacy).
 
 ---
 
