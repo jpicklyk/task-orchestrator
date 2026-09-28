@@ -337,3 +337,46 @@ test('S13-T7: no violations key and missing [] -> {} (an absent violations key i
     rmSync(tempDir, { recursive: true, force: true });
   }
 });
+
+// ── SEC2 (orchestrator review follow-up, 2026-09-28, HEAD 0b2633ac): missing notes AND a
+// non-waived violation for the caller's own seat present TOGETHER, canAdvance false -- the block
+// must be driven purely by the missing-notes gate (existing pre-A2 behavior, keyed off `missing`),
+// and the independence violation must NOT be surfaced as an independent block reason. This is
+// distinct from S13-T1 (violation alone, missing []) and S13-T6 (missing alone, no violations key
+// at all): here BOTH are present on the same response, and the oracle (orchestrator dispatch,
+// citing task-scope-addendum's frozen semantics) says the violation must not double up into the
+// reason text -- only the missing key belongs there.
+
+test('SEC2: missing notes AND a non-waived violation for the caller\'s seat together -- reason names only the missing key, never the violation', async () => {
+  const tempDir = freshTempDir();
+  const sessionId = `sec2-${randomUUID()}`;
+  const agentId = 'agent-1';
+  const itemId = 'aa000008-1111-2222-3333-444444444444';
+  seedMarker(tempDir, sessionId, agentId, { items: [itemId], blocks: 0 });
+  const server = await startStub({
+    [itemId]: gateOk({
+      itemId,
+      role: 'work',
+      // Distinct key from the violation's own key, so the reason's provenance is unambiguous.
+      missing: ['implementation-notes'],
+      canAdvance: false,
+      violations: [{ key: 'test-manifest', seat: 'implementer', constraint: 'same_actor', conflictingSeat: 'test-author', waived: false }],
+    }),
+  });
+  try {
+    const res = await runHook(
+      { session_id: sessionId, agent_id: agentId, agent_type: 'task-orchestrator:implementer' },
+      tempDir,
+      `http://127.0.0.1:${server.address().port}`
+    );
+    assert.equal(res.status, 0);
+    const out = JSON.parse(res.stdout);
+    assert.equal(out.decision, 'block', `expected block on the missing note, got: ${res.stdout}`);
+    assert.ok(out.reason.includes('implementation-notes'), out.reason);
+    assert.ok(!out.reason.includes('test-manifest'), `violation's own key must not be surfaced: ${out.reason}`);
+    assert.ok(!out.reason.includes('same_actor'), `violation constraint must not be surfaced: ${out.reason}`);
+  } finally {
+    await stopStub(server);
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});

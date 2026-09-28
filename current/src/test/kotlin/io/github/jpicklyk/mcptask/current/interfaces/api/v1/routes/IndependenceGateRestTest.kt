@@ -666,4 +666,148 @@ work_item_schemas:
             val advanceJson = parseJson(advanceResponse.bodyAsText())
             assertFalse(advanceJson.containsKey("violations"), "advance response: $advanceJson")
         }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // F1 (orchestrator review follow-up, 2026-09-28, HEAD 0b2633ac) -- JSON emission rule per the
+    // addendum's "Frozen semantics": REST /gate `gateStatus.violations` is emitted whenever
+    // non-null, INCLUDING an empty list; REST advance 200 (`AdvanceResponseDto.violations`),
+    // `CascadeEventDto.violations`, and the 422 `details.violations` are emitted ONLY WHEN
+    // NON-EMPTY. A clean (distinct-actor) fixture with `independent_of` declared exercises the
+    // "non-null but empty" case these earlier R1-R6 scenarios never triggered: R1/R2/R3/R5 all use
+    // a same-actor (non-empty) fixture, and R6 uses a schema with no `independent_of` at all
+    // (violations is null there, not an empty list) -- neither covers "computed to [] " on the
+    // clean/distinct branch.
+    // ─────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `F1 REST gate emits an empty violations array for a clean distinct-actor fixture, REST advance 200 omits it entirely`(
+        @TempDir tempDir: Path,
+    ): Unit =
+        testApplication {
+            val composition = buildComposition(tempDir, globalConfig("reject"))
+            application { configureProductionRestApp(composition, "indep-rest-f1") }
+
+            val item =
+                runBlocking {
+                    val r = createRoot(composition)
+                    val i = createItem(composition, r, "indep-gate")
+                    upsertNote(composition, i.id, "implementation-notes", "work", "impl", actorId = "agent-s")
+                    upsertNote(composition, i.id, "test-manifest", "work", "tm", actorId = "agent-n")
+                    i
+                }
+
+            val gateResponse =
+                client.get("/api/v1/items/${item.id}/gate") { header("Authorization", "Bearer $WRITE_TOKEN") }
+            assertEquals(HttpStatusCode.OK, gateResponse.status)
+            val gateStatus = parseJson(gateResponse.bodyAsText())["gateStatus"]!!.jsonObject
+            assertTrue(gateStatus["canAdvance"]!!.jsonPrimitive.boolean, "gateStatus: $gateStatus")
+            assertTrue(gateStatus.containsKey("violations"), "gateStatus must carry the key even when empty: $gateStatus")
+            assertEquals(0, gateStatus["violations"]!!.jsonArray.size, "violations: ${gateStatus["violations"]}")
+
+            val advanceResponse =
+                client.post("/api/v1/items/${item.id}/advance") {
+                    header("Authorization", "Bearer $WRITE_TOKEN")
+                    contentType(ContentType.Application.Json)
+                    setBody("""{"trigger":"start"}""")
+                }
+            assertEquals(HttpStatusCode.OK, advanceResponse.status, "clean fixture must apply: ${advanceResponse.bodyAsText()}")
+            val advanceJson = parseJson(advanceResponse.bodyAsText())
+            assertFalse(
+                advanceJson.containsKey("violations"),
+                "REST advance 200 must OMIT violations when the computed list is empty: $advanceJson",
+            )
+        }
+
+    @Test
+    fun `F1b a 422 caused by missing notes only, independence clean -- details omits violations entirely`(
+        @TempDir tempDir: Path,
+    ): Unit =
+        testApplication {
+            val composition = buildComposition(tempDir, globalConfig("reject"))
+            application { configureProductionRestApp(composition, "indep-rest-f1b") }
+
+            val item =
+                runBlocking {
+                    val r = createRoot(composition)
+                    val i = createItem(composition, r, "indep-gate")
+                    // Only implementation-notes filled; test-manifest (the N note declaring
+                    // independent_of) is left UNFILLED, so the missing-notes gate blocks the
+                    // transition while the independence check never evaluates the unfilled N at
+                    // all (task-scope-addendum: "Unfilled N is never evaluated").
+                    upsertNote(composition, i.id, "implementation-notes", "work", "impl", actorId = "agent-s")
+                    i
+                }
+
+            val advanceResponse =
+                client.post("/api/v1/items/${item.id}/advance") {
+                    header("Authorization", "Bearer $WRITE_TOKEN")
+                    contentType(ContentType.Application.Json)
+                    setBody("""{"trigger":"start"}""")
+                }
+            assertEquals(HttpStatusCode.UnprocessableEntity, advanceResponse.status)
+            val advanceJson = parseJson(advanceResponse.bodyAsText())
+            assertEquals("gate_blocked", advanceJson["error"]!!.jsonPrimitive.content, "body: $advanceJson")
+            val details = advanceJson["details"]!!.jsonObject
+            assertTrue(
+                details["missingNotes"]!!.jsonArray.isNotEmpty(),
+                "sanity: this 422 must be caused by missing notes, not independence: $details",
+            )
+            assertFalse(
+                details.containsKey("violations"),
+                "a 422 with an empty computed violations list must OMIT the key entirely: $details",
+            )
+        }
+
+    @Test
+    fun `F1c a clean start cascade omits violations on the cascade event entirely`(
+        @TempDir tempDir: Path,
+    ): Unit =
+        testApplication {
+            val composition = buildComposition(tempDir, globalConfig("reject"))
+            application { configureProductionRestApp(composition, "indep-rest-f1c") }
+
+            val child =
+                runBlocking {
+                    val root = createRoot(composition)
+                    val parent = createChild(composition, root, root, "indep-cascade", Role.QUEUE, depth = 1)
+                    upsertNote(composition, parent.id, "spec-a", "queue", "a", actorId = "p-agent-alpha")
+                    upsertNote(composition, parent.id, "spec-b", "queue", "b", actorId = "p-agent-beta")
+                    val c = createChild(composition, root, parent.id, "indep-cascade", Role.QUEUE, depth = 2)
+                    upsertNote(composition, c.id, "spec-a", "queue", "a", actorId = "c-agent-1")
+                    upsertNote(composition, c.id, "spec-b", "queue", "b", actorId = "c-agent-2")
+                    c
+                }
+
+            val response =
+                client.post("/api/v1/items/${child.id}/advance") {
+                    header("Authorization", "Bearer $WRITE_TOKEN")
+                    contentType(ContentType.Application.Json)
+                    setBody("""{"trigger":"start"}""")
+                }
+            assertEquals(HttpStatusCode.OK, response.status, "the child's own advance must stand: ${response.bodyAsText()}")
+            val json = parseJson(response.bodyAsText())
+            val cascades = json["cascadeEvents"]!!.jsonArray
+            assertEquals(1, cascades.size, "cascadeEvents: $cascades")
+            val cascade = cascades[0].jsonObject
+            assertTrue(cascade["applied"]!!.jsonPrimitive.boolean, "a clean parent cascade must apply: $cascade")
+            assertFalse(
+                cascade.containsKey("violations"),
+                "a clean cascade event must OMIT violations entirely, not report an empty array: $cascade",
+            )
+        }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // R5 (S10 continued) -- redaction structural guarantee: since violations never carry an actor
+    // id BY CONSTRUCTION (task-scope "Redaction"), toggling the redaction env var cannot make one
+    // appear. N5 (orchestrator follow-up): no lever exists in this harness to override
+    // API_REDACT_NOTE_ATTRIBUTION for a REAL installRestApiRoutes-wired process -- AppConfig.fromEnv()
+    // is read directly inside production wiring here (unlike AGENT_CONFIG_DIR, which
+    // configureProductionRestApp/buildComposition already override for other reasons), and no
+    // existing src/test harness (NoteRoutesTest included, read per the blindness rule's "everything
+    // under src/test" allowance) demonstrates overriding it for a real Ktor-wired route under test.
+    // Setting the real JVM process env var is not available without an OS-level env change outside
+    // this test's control. Skipped as NOT CHEAP rather than attempted with an unreliable workaround;
+    // R5/R5b already establish the structural guarantee (no actor id in the body) under the
+    // environment's default value.
+    // ─────────────────────────────────────────────────────────────────────
 }
