@@ -44,7 +44,8 @@
         "features": [
             "seats",
             "dispatchBySeat",
-            "independent_of"
+            "independent_of",
+            "rules"
         ]
     },
     "metadata": {

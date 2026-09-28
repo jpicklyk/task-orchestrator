@@ -158,7 +158,9 @@ points here instead of restating it):
 ## File ownership
 
 One row per stream. The listed files are that agent's ENTIRE writable scope; anything absent
-belongs to another agent or to the orchestrator.
+belongs to another agent or to the orchestrator. **Impl model** is not a free choice for a
+seat-aware item: copy it from the item's resolved `dispatchBySeat` (implementer seat), and change
+it by applying a model-selection trait (`/implement` Step 1), never by editing this column alone.
 
 | Stream | Item | Impl model | Production files owned (src/main unless noted) | New test files (author-owned) | Declared edits to EXISTING test files (author-owned) |
 |---|---|---|---|---|---|

@@ -104,6 +104,11 @@ a definition with that effort. (A client that calls the model API directly may a
 item (test author under `needs-test-author`, planning seats, the docs seat) keep the table above;
 a work-phase dispatch profile names the phase owner, not every work-phase dispatch.
 
+For a **seat-aware** item (its schema declares `seats:`), read every seat's profile — including
+the test author and planning seats — from the resolved `dispatchBySeat`, which supersedes the
+table for those seats. When a resolved profile pins a `model`, change it through the project's
+config traits, not by overriding it at dispatch time.
+
 **Always set `model` explicitly** on every Agent dispatch — defaulting wastes opus tokens or under-powers complex work.
 
 **Project convention: avoid 3+ MCP write calls in a single turn.** Parallelized reads (e.g., `get_context` + `query_items` overview) are fine and encouraged. Delegate bulk MCP write work to the Agent tool with `model: "haiku"` to keep the orchestrator context clean.

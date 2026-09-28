@@ -1945,14 +1945,15 @@ Requires `READ`. Returns server metadata and the caller's resolved capabilities.
   "capabilities": ["read", "write-items"],
   "claimModeAvailable": true,
   "actorAuthenticationEnabled": false,
-  "features": ["seats", "dispatchBySeat", "independent_of"]
+  "features": ["seats", "dispatchBySeat", "independent_of", "rules"]
 }
 ```
 
 `features` (array, A1) advertises server-wide optional-response capabilities this server version
 can serve, **unconditionally** — regardless of whether the resolved config for any given root
 actually declares `seats:`/`independent_of:`. `"independent_of"` (A2) joined this list once the
-independence attestation gate started enforcing it — see [api-reference.md](api-reference.md)
+independence attestation gate started enforcing it, and `"rules"` (A3) advertises the per-root
+rule text served by §19a — see [api-reference.md](api-reference.md)
 → "Server feature advertisement" for the full rationale and the current list.
 
 ### GET /api/v1/health
@@ -1974,7 +1975,7 @@ independence attestation gate started enforcing it — see [api-reference.md](ap
   "version": "3.8.0",
   "apiVersion": "v1",
   "apiUrl": "/api/v1",
-  "features": ["seats", "dispatchBySeat", "independent_of"]
+  "features": ["seats", "dispatchBySeat", "independent_of", "rules"]
 }
 ```
 

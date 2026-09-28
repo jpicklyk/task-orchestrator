@@ -103,7 +103,8 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
                                 JsonPrimitive(
                                     "Materialize-from-document source: { rootId? (defaults to the created/attached " +
                                         "root's own rootId; validated for consistency if given — UUID or hex prefix), " +
-                                        "slug (required, the stashed plan document's slug) }. Required whenever any " +
+                                        "slug (required, the stashed plan document's slug; a slug starting with rule/ is rejected) }. " +
+                                        "Required whenever any " +
                                         "item spec's noteAnchors is used."
                                 )
                             )
