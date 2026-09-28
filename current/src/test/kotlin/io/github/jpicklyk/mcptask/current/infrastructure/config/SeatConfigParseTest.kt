@@ -185,6 +185,27 @@ class SeatConfigParseTest {
     }
 
     @Test
+    fun `probe -- a default_trait listed twice contributes its seats once -- no false F2 duplicate-name fatal`() {
+        val parsed =
+            parse(
+                """
+                work_item_schemas:
+                  bug-fix:
+                    default_traits: [t1, t1]
+                    seats:
+                      - { name: a, phase: work, enters: true }
+                traits:
+                  t1:
+                    seats:
+                      - { name: b, phase: work }
+                """.trimIndent()
+            )
+        val schema = parsed.workItemSchemas.getValue("bug-fix")
+        assertEquals(listOf(SeatDefinition("a", Role.WORK, enters = true)), schema.seats)
+        assertEquals(listOf(SeatDefinition("b", Role.WORK)), parsed.traitSeats["t1"])
+    }
+
+    @Test
     fun `S4 F3 a seat named unowned is rejected as the reserved bucket name`() {
         assertFailsWith<ConfigStructureException> {
             parse(

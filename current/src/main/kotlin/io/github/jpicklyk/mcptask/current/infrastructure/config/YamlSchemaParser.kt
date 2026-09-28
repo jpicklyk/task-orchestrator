@@ -301,7 +301,9 @@ internal object YamlSchemaParser {
 
             val effectiveSeats = mutableListOf<SeatDefinition>()
             effectiveSeats.addAll(seats)
-            for (trait in defaultTraits) {
+            // distinct(): a trait listed twice in default_traits contributes its seats once — resolve-time
+            // mergeTraits de-dups the same way, so a repeat must not trip a false F2 duplicate-name fatal.
+            for (trait in defaultTraits.distinct()) {
                 traitSeatsMap[trait]?.let { effectiveSeats.addAll(it) }
             }
             if (effectiveSeats.size != seats.size) {
