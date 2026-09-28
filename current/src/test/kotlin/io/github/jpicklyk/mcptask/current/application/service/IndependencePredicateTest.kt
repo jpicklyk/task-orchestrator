@@ -597,4 +597,46 @@ class IndependencePredicateTest {
         val completeViolations = GatePredicate.violationsForComplete(schemaMultiPhase, notes, IndependencePolicy(IndependenceMode.WARN))!!
         assertEquals(setOf(N_KEY, "review-note"), completeViolations.map { it.key }.toSet(), "complete must evaluate notes from ALL phases")
     }
+
+    // ──────────────────────────────────────────────
+    // A2 review follow-ups (orchestrator, HEAD 0b2633ac round)
+    // ──────────────────────────────────────────────
+
+    // F3 -- N itself (not just S) can be unverified: rule (2) of the addendum's deterministic
+    // ordering ("requireVerified and N status != VERIFIED (incl. null verification) ->
+    // constraint:unverified"), own check, no conflictingSeat -- distinct from rule (5)'s
+    // conflictingSeat-bearing S-unverified case already covered by the S4 tests above.
+    @Test
+    fun `F3 N itself not VERIFIED under require_verified -- own unverified entry, no conflictingSeat`() {
+        val sNote =
+            note(
+                S_KEY,
+                actorId = "agent-s",
+                verification = VerificationResult(status = VerificationStatus.VERIFIED, proofClaims = ProofClaims(sub = "did:s"))
+            )
+        val nNote = note(N_KEY, actorId = "agent-n", verification = VerificationResult(status = VerificationStatus.UNCHECKED))
+        val violations =
+            GatePredicate.violationsForComplete(
+                schema,
+                listOf(sNote, nNote),
+                IndependencePolicy(IndependenceMode.WARN, requireVerified = true)
+            )!!
+        assertEquals(1, violations.size, "violations: $violations")
+        assertEquals(IndependenceConstraint.UNVERIFIED, violations[0].constraint)
+        assertNull(violations[0].conflictingSeat, "N's own unverified check carries no conflictingSeat")
+    }
+
+    // N3 -- the waiver requires N.createdAt STRICTLY AFTER every same-identity S-note's createdAt
+    // (task-scope-addendum, DECISION A2-D1=B). Equal timestamps do not satisfy "strictly after".
+    @Test
+    fun `N3 waiver -- equal createdAt (N == S) is NOT strictly after -- not waived, REJECT still blocks`() {
+        val same = Instant.now()
+        val sNote = note(S_KEY, actorId = "same-agent", createdAt = same)
+        val nNote = note(N_KEY, actorId = "same-agent", createdAt = same, body = "independence: temporal-only\nfilled details")
+        val rejectPolicy = IndependencePolicy(IndependenceMode.REJECT)
+        val violations = GatePredicate.violationsForComplete(schema, listOf(sNote, nNote), rejectPolicy)!!
+        assertEquals(1, violations.size, "violations: $violations")
+        assertFalse(violations[0].waived, "equal createdAt must not satisfy the strictly-after ordering requirement")
+        assertTrue(GatePredicate.blocksAdvance(violations, rejectPolicy))
+    }
 }

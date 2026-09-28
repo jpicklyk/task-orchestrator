@@ -98,7 +98,10 @@ work_item_schemas:
     // "off" to the Boolean false before YamlSchemaParser ever sees a String to match against
     // IndependenceMode -- an unquoted off silently falls back to warn (see also
     // IndependenceConfigParseTest's dedicated probe for this gotcha).
-    private fun globalConfig(mode: String): String = "independence:\n  mode: \"$mode\"\n$SCHEMA_YAML"
+    private fun globalConfig(
+        mode: String,
+        requireVerified: Boolean = false
+    ): String = "independence:\n  mode: \"$mode\"\n  require_verified: $requireVerified\n$SCHEMA_YAML"
 
     // ─────────────────────────────────────────────────────────────────────
     // Fixture wiring -- REAL ServerComposition.build over H2, global-file-only config.
@@ -512,8 +515,11 @@ work_item_schemas:
             assertEquals("implementer", entry["conflictingSeat"]!!.jsonPrimitive.content)
         }
 
+    // B1 (orchestrator review follow-up): the APPLIED complete_tree entry in WARN mode must carry
+    // the exact `violations` entry, not just apply silently -- mirrors advance_item's own
+    // WARN-mode convention (AdvanceResult.violations on a successful transition).
     @Test
-    fun `S7 complete_tree -- WARN proceeds despite the same-actor fixture`(
+    fun `S7 complete_tree -- WARN proceeds despite the same-actor fixture, the applied entry carries the exact violations entry`(
         @TempDir tempDir: Path
     ): Unit =
         runBlocking {
@@ -525,6 +531,13 @@ work_item_schemas:
 
             val r = completeTree(toolContext, item.id, trigger = "start")
             assertTrue(r["applied"]!!.jsonPrimitive.boolean, "WARN must still apply the transition: $r")
+            val violations = r["violations"]!!.jsonArray
+            assertEquals(1, violations.size, "violations: $violations")
+            val entry = violations[0].jsonObject
+            assertEquals("test-manifest", entry["key"]!!.jsonPrimitive.content)
+            assertEquals("test-author", entry["seat"]!!.jsonPrimitive.content)
+            assertEquals("same_actor", entry["constraint"]!!.jsonPrimitive.content)
+            assertEquals("implementer", entry["conflictingSeat"]!!.jsonPrimitive.content)
         }
 
     // S7 -- start cascade: child.start (QUEUE->WORK) attempts to ALSO cascade the parent
@@ -628,5 +641,161 @@ work_item_schemas:
             assertTrue(cascade["applied"]!!.jsonPrimitive.boolean, "WARN must let the parent terminal cascade proceed: $cascade")
             val cascadeViolations = cascade["violations"]!!.jsonArray
             assertEquals(1, cascadeViolations.size, "cascade violations: $cascadeViolations")
+        }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // A2 review follow-ups (orchestrator, HEAD 0b2633ac round). Oracle: the addendum's JSON
+    // emission rule -- gateStatus (get_context) emits `violations` whenever non-null INCLUDING [];
+    // advance_item success results, cascade events, and advance_item/complete_tree
+    // failure-AND-applied entries emit it ONLY WHEN NON-EMPTY; absent when mode off or no
+    // independent_of declared.
+    // ─────────────────────────────────────────────────────────────────────
+
+    // F1 -- a clean fixture (independent_of declared, distinct actors, no violations) across every
+    // MCP gate surface this file touches: get_context carries `violations: []` (present, empty);
+    // advance_item's success result, a cascade event, and complete_tree's applied entry all OMIT
+    // the key entirely.
+    @Test
+    fun `F1 clean fixture -- get_context violations is an empty array, every other surface omits the key`(
+        @TempDir tempDir: Path
+    ): Unit =
+        runBlocking {
+            val toolContext = newToolContext(tempDir, globalConfig("reject"))
+            val root = createRoot(toolContext)
+
+            // get_context: violations: [] -- present, non-null, empty.
+            val ctxItem = createItem(toolContext, root, "indep-gate")
+            upsertNote(toolContext, ctxItem.id, "implementation-notes", "work", "impl", actorId = "agent-s")
+            upsertNote(toolContext, ctxItem.id, "test-manifest", "work", "tm", actorId = "agent-n")
+            val gateStatus = getContext(toolContext, ctxItem.id)["gateStatus"]!!.jsonObject
+            assertTrue(gateStatus.containsKey("violations"), "gateStatus must carry the key even when empty: $gateStatus")
+            assertEquals(0, gateStatus["violations"]!!.jsonArray.size)
+
+            // advance_item success result: no violations key at all.
+            val advItem = createItem(toolContext, root, "indep-gate")
+            upsertNote(toolContext, advItem.id, "implementation-notes", "work", "impl", actorId = "agent-s")
+            upsertNote(toolContext, advItem.id, "test-manifest", "work", "tm", actorId = "agent-n")
+            val transition = advance(toolContext, advItem.id, "start")
+            assertTrue(transition["applied"]!!.jsonPrimitive.boolean)
+            assertFalse(transition.containsKey("violations"), "transition: $transition")
+
+            // cascade event: no violations key -- parent and child both clean, indep-cascade schema.
+            val parent = createChild(toolContext, root, root, "indep-cascade", Role.QUEUE, depth = 1)
+            upsertNote(toolContext, parent.id, "spec-a", "queue", "a", actorId = "p-agent-1")
+            upsertNote(toolContext, parent.id, "spec-b", "queue", "b", actorId = "p-agent-2")
+            val child = createChild(toolContext, root, parent.id, "indep-cascade", Role.QUEUE, depth = 2)
+            upsertNote(toolContext, child.id, "spec-a", "queue", "a", actorId = "c-agent-1")
+            upsertNote(toolContext, child.id, "spec-b", "queue", "b", actorId = "c-agent-2")
+            val cascadeTransition = advance(toolContext, child.id, "start")
+            val cascade = cascadeTransition["cascadeEvents"]!!.jsonArray[0].jsonObject
+            assertTrue(cascade["applied"]!!.jsonPrimitive.boolean, "cascade: $cascade")
+            assertFalse(cascade.containsKey("violations"), "cascade: $cascade")
+
+            // complete_tree applied entry: no violations key.
+            val ctItem = createItem(toolContext, root, "indep-gate")
+            upsertNote(toolContext, ctItem.id, "implementation-notes", "work", "impl", actorId = "agent-s")
+            upsertNote(toolContext, ctItem.id, "test-manifest", "work", "tm", actorId = "agent-n")
+            val ctApplied = completeTree(toolContext, ctItem.id, trigger = "start")
+            assertTrue(ctApplied["applied"]!!.jsonPrimitive.boolean)
+            assertFalse(ctApplied.containsKey("violations"), "complete_tree applied: $ctApplied")
+
+            // complete_tree failure entry, unrelated to independence (unfilled notes): no
+            // violations key either -- independence is never evaluated when N itself isn't FILLED.
+            val failItem = createItem(toolContext, root, "indep-gate")
+            val ctFailed = completeTree(toolContext, failItem.id, trigger = "start")
+            assertFalse(ctFailed["applied"]!!.jsonPrimitive.boolean)
+            assertFalse(ctFailed.containsKey("violations"), "complete_tree failure: $ctFailed")
+        }
+
+    // F2 -- the primary `complete` trigger (test-plan S7(ii)): evaluates ALL phases, including a
+    // QUEUE-phase N declaring independent_of, regardless of the item's current role. Uses
+    // `indep-cascade` (queue-only notes) on a WORK-role item so the evaluation is unambiguously
+    // driven by the trigger's ALL-phase scope, not by currentRole happening to equal QUEUE.
+    @Test
+    fun `F2 primary complete trigger evaluates queue-phase independent_of -- REJECT blocks, WARN applies with violations`(
+        @TempDir tempDir: Path
+    ): Unit =
+        runBlocking {
+            listOf("warn", "reject").forEach { mode ->
+                val toolContext = newToolContext(tempDir.resolve(mode), globalConfig(mode))
+                val root = createRoot(toolContext)
+                val item = createItem(toolContext, root, "indep-cascade", Role.WORK)
+                upsertNote(toolContext, item.id, "spec-a", "queue", "a", actorId = "same-agent")
+                upsertNote(toolContext, item.id, "spec-b", "queue", "b", actorId = "same-agent")
+
+                val transition = advance(toolContext, item.id, "complete")
+                val violations = transition["violations"]!!.jsonArray
+                assertEquals(1, violations.size, "mode=$mode violations: $violations")
+                assertEquals("same_actor", violations[0].jsonObject["constraint"]!!.jsonPrimitive.content)
+                if (mode == "reject") {
+                    assertFalse(transition["applied"]!!.jsonPrimitive.boolean, "REJECT must block on complete: $transition")
+                } else {
+                    assertTrue(transition["applied"]!!.jsonPrimitive.boolean, "WARN must apply on complete: $transition")
+                }
+            }
+        }
+
+    // F3 (gate-path half; the predicate-level half is IndependencePredicateTest's own F3) -- N
+    // itself lacking VERIFIED status under require_verified produces its own unverified entry (no
+    // conflictingSeat), reachable through the real advance_item path. Notes written via
+    // ManageNotesTool default to the NoOp verifier (no `verification` at all), which is itself
+    // "!= VERIFIED" per the addendum's rule (2).
+    @Test
+    fun `F3 gate-path -- N itself unverified under require_verified produces its own unverified entry`(
+        @TempDir tempDir: Path
+    ): Unit =
+        runBlocking {
+            val toolContext = newToolContext(tempDir, globalConfig("warn", requireVerified = true))
+            val root = createRoot(toolContext)
+            val item = createItem(toolContext, root, "indep-gate")
+            upsertNote(toolContext, item.id, "implementation-notes", "work", "impl", actorId = "agent-s")
+            upsertNote(toolContext, item.id, "test-manifest", "work", "tm", actorId = "agent-n")
+
+            val transition = advance(toolContext, item.id, "start")
+            val violations = transition["violations"]!!.jsonArray
+            assertTrue(
+                violations.any {
+                    it.jsonObject["key"]!!.jsonPrimitive.content == "test-manifest" &&
+                        it.jsonObject["constraint"]!!.jsonPrimitive.content == "unverified" &&
+                        it.jsonObject["conflictingSeat"] == null
+                },
+                "expected N's own unverified entry (no conflictingSeat): $violations"
+            )
+        }
+
+    // F4 -- the temporal-only waiver at the gate-path level: `waived: true` present in the JSON
+    // entry (both on get_context.gateStatus and on the advance_item transition result), REJECT
+    // still applies, and get_context.canAdvance is true. Real sequential upserts (S then N, with a
+    // real sleep) establish genuine DB-ordered createdAt values -- no fabricated timestamps.
+    @Test
+    fun `F4 waiver at gate-path -- waived true in the JSON entry, REJECT still applies, canAdvance true`(
+        @TempDir tempDir: Path
+    ): Unit =
+        runBlocking {
+            val toolContext = newToolContext(tempDir, globalConfig("reject"))
+            val root = createRoot(toolContext)
+            val item = createItem(toolContext, root, "indep-gate")
+            upsertNote(toolContext, item.id, "implementation-notes", "work", "impl", actorId = "same-agent")
+            Thread.sleep(1500)
+            upsertNote(
+                toolContext,
+                item.id,
+                "test-manifest",
+                "work",
+                "independence: temporal-only\nfilled details",
+                actorId = "same-agent"
+            )
+
+            val gateStatus = getContext(toolContext, item.id)["gateStatus"]!!.jsonObject
+            assertTrue(gateStatus["canAdvance"]!!.jsonPrimitive.boolean, "gateStatus: $gateStatus")
+            val ctxViolations = gateStatus["violations"]!!.jsonArray
+            assertEquals(1, ctxViolations.size, "violations: $ctxViolations")
+            assertTrue(ctxViolations[0].jsonObject["waived"]!!.jsonPrimitive.boolean)
+
+            val transition = advance(toolContext, item.id, "start")
+            assertTrue(transition["applied"]!!.jsonPrimitive.boolean, "REJECT must apply on a fully-waived violation list: $transition")
+            val violations = transition["violations"]!!.jsonArray
+            assertEquals(1, violations.size, "violations: $violations")
+            assertTrue(violations[0].jsonObject["waived"]!!.jsonPrimitive.boolean)
         }
 }
