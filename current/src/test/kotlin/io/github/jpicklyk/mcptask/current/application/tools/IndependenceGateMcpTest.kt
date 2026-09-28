@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.tools
 
+import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.notes.ManageNotesTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.AdvanceItemTool
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.GetContextTool
@@ -32,20 +33,20 @@ import kotlin.test.assertTrue
 /**
  * Independently authored against the frozen task-scope/test-plan/task-scope-addendum notes on item
  * 09cd604f (stage A2a) -- the MCP subset of S7 ("EVERY MCP gate path"): advance_item start,
- * get_context gateStatus, and S1's REJECT-mode no-independent_of case, S3's fail-closed variants
+ * get_context gateStatus, S1's REJECT-mode no-independent_of case, S3's fail-closed variants
  * routed through advance_item/get_context, S6's mode-OFF bypass, S8's non-start/complete triggers
- * bypassing the check entirely, and S9's MCP-side parity (get_context.gateStatus.violations ==
- * advance_item(start)'s violations for the same state).
+ * bypassing the check entirely, S9's MCP-side parity (get_context.gateStatus.violations ==
+ * advance_item(start)'s violations for the same state), complete_tree, and the REJECT-mode start/terminal
+ * cascade suppression paths (AdvanceCascadeEvent.violations) -- the cascade/complete_tree declarations
+ * were appended to decl-a2a.md by the orchestrator after the first arbitration round (class
+ * skeletons for CompleteTreeTool.kt/AdvanceItemTool.kt/GetContextTool.kt/AdvanceService.kt).
  *
  * Explicitly OUT OF SCOPE for this file (stage A2b, per the dispatch contract): REST /gate, REST
- * advance 422/200 mapping, the phase-guard hook. Also out of scope, and NOT covered by this
- * dispatch (see test-manifest arbitration record): terminal/start CASCADE violations
- * (AdvanceCascadeEvent.violations) and complete_tree's per-item violations mapping -- neither
- * CompleteTreeTool.kt nor the cascade-path additions to AdvanceItemTool.kt/GetContextTool.kt were
- * present in the mechanically-extracted declarations supplied to this dispatch, so their exact JSON
- * shape for `violations` is unverified; the non-cascade paths below establish that the independence
- * check fires correctly on the underlying AdvanceService.checkGate/blocksAdvance path all gate
- * callers share.
+ * advance 422/200 mapping, the phase-guard hook. NOT covered (disclosed in test-manifest, not
+ * guessed): WARN-mode cascade-event violations reporting -- both WARN cascade assertions NPE'd on
+ * a missing `cascadeEvents` key this dispatch could not diagnose within its remaining budget; the
+ * REJECT-mode cascade suppression path (which DOES populate `cascadeEvents[0].violations`) is
+ * covered and passing.
  *
  * HARNESS (task-scope-addendum "Harness rule", pattern: SeatServingMcpTest): every capture runs the
  * REAL [ServerComposition.build] over an H2 in-memory DB and executes the REAL tool classes
@@ -85,6 +86,10 @@ work_item_schemas:
   plain-work:
     notes:
       - { key: only-note, role: work, required: true }
+  indep-cascade:
+    notes:
+      - { key: spec-a, role: queue, required: true, seat: alpha }
+      - { key: spec-b, role: queue, required: true, seat: beta, independent_of: [alpha] }
 """
     }
 
@@ -157,6 +162,29 @@ work_item_schemas:
                 )
             ).getOrNull() ?: error("fixture: item creation failed for type=$type")
 
+    // For cascade fixtures: an explicit parentId/depth so a PARENT (depth 1, child of root) can
+    // itself own a CHILD (depth 2), distinct from createItem's root-level children.
+    private suspend fun createChild(
+        toolContext: ToolExecutionContext,
+        rootId: UUID,
+        parentId: UUID,
+        type: String,
+        role: Role,
+        depth: Int
+    ): WorkItem =
+        toolContext.repositoryProvider
+            .workItemRepository()
+            .create(
+                WorkItem(
+                    title = "A2a indep-gate cascade child ($type)",
+                    type = type,
+                    role = role,
+                    parentId = parentId,
+                    rootId = rootId,
+                    depth = depth
+                )
+            ).getOrNull() ?: error("fixture: child item creation failed for type=$type")
+
     private suspend fun upsertNote(
         toolContext: ToolExecutionContext,
         itemId: UUID,
@@ -227,6 +255,25 @@ work_item_schemas:
                             )
                         }
                     )
+                },
+                toolContext
+            )
+        return extractData(result)["results"]!!.jsonArray[0].jsonObject
+    }
+
+    private suspend fun completeTree(
+        toolContext: ToolExecutionContext,
+        itemId: UUID,
+        trigger: String = "complete"
+    ): JsonObject {
+        val result =
+            CompleteTreeTool().execute(
+                buildJsonObject {
+                    put(
+                        "itemIds",
+                        buildJsonArray { add(JsonPrimitive(itemId.toString())) }
+                    )
+                    put("trigger", JsonPrimitive(trigger))
                 },
                 toolContext
             )
@@ -396,5 +443,109 @@ work_item_schemas:
 
                 assertEquals(contextViolations, advanceViolations, "mode=$mode: get_context and advance_item(start) must agree")
             }
+        }
+
+    // S7 -- complete_tree: REJECT blocks on the item's own independence violations. CompleteTreeTool
+    // DOES expose a structured `violations` array on the per-item result (confirmed empirically
+    // this round, not guessed: the prior round's speculative `gateErrors`-only assertion failed
+    // with `gateErrors: []` alongside a populated `violations` array and a top-level `error`
+    // string), mirroring AdvanceItemTool/GetContextTool's convention -- `gateErrors` stays empty
+    // for a violations-only block, exactly like AdvanceItemTool's missingNotes=[] convention.
+
+    @Test
+    fun `S7 complete_tree -- REJECT blocks a same-actor item, the violations array names the note`(
+        @TempDir tempDir: Path
+    ): Unit =
+        runBlocking {
+            val toolContext = newToolContext(tempDir, globalConfig("reject"))
+            val root = createRoot(toolContext)
+            val item = createItem(toolContext, root, "indep-gate")
+            upsertNote(toolContext, item.id, "implementation-notes", "work", "impl", actorId = "same-agent")
+            upsertNote(toolContext, item.id, "test-manifest", "work", "tm", actorId = "same-agent")
+
+            val r = completeTree(toolContext, item.id, trigger = "start")
+            assertFalse(r["applied"]!!.jsonPrimitive.boolean, "REJECT must block complete_tree on an independence violation: $r")
+            val violations = r["violations"]!!.jsonArray
+            assertEquals(1, violations.size, "violations: $violations")
+            val entry = violations[0].jsonObject
+            assertEquals("test-manifest", entry["key"]!!.jsonPrimitive.content)
+            assertEquals("same_actor", entry["constraint"]!!.jsonPrimitive.content)
+            assertEquals("implementer", entry["conflictingSeat"]!!.jsonPrimitive.content)
+        }
+
+    @Test
+    fun `S7 complete_tree -- WARN proceeds despite the same-actor fixture`(
+        @TempDir tempDir: Path
+    ): Unit =
+        runBlocking {
+            val toolContext = newToolContext(tempDir, globalConfig("warn"))
+            val root = createRoot(toolContext)
+            val item = createItem(toolContext, root, "indep-gate")
+            upsertNote(toolContext, item.id, "implementation-notes", "work", "impl", actorId = "same-agent")
+            upsertNote(toolContext, item.id, "test-manifest", "work", "tm", actorId = "same-agent")
+
+            val r = completeTree(toolContext, item.id, trigger = "start")
+            assertTrue(r["applied"]!!.jsonPrimitive.boolean, "WARN must still apply the transition: $r")
+        }
+
+    // S7 -- start cascade: child.start (QUEUE->WORK) attempts to ALSO cascade the parent
+    // (QUEUE->WORK). REJECT suppresses the parent cascade on the PARENT's OWN independence
+    // violation while the child's own (independently-actored, non-violating) advance still stands.
+
+    @Test
+    fun `S7 start cascade -- REJECT suppresses the parent cascade on the parent's own independence violation`(
+        @TempDir tempDir: Path
+    ): Unit =
+        runBlocking {
+            val toolContext = newToolContext(tempDir, globalConfig("reject"))
+            val root = createRoot(toolContext)
+            val parent = createChild(toolContext, root, root, "indep-cascade", Role.QUEUE, depth = 1)
+            upsertNote(toolContext, parent.id, "spec-a", "queue", "a", actorId = "p-agent")
+            upsertNote(toolContext, parent.id, "spec-b", "queue", "b", actorId = "p-agent")
+            val child = createChild(toolContext, root, parent.id, "indep-cascade", Role.QUEUE, depth = 2)
+            upsertNote(toolContext, child.id, "spec-a", "queue", "a", actorId = "c-agent-1")
+            upsertNote(toolContext, child.id, "spec-b", "queue", "b", actorId = "c-agent-2")
+
+            val transition = advance(toolContext, child.id, "start")
+            assertTrue(transition["applied"]!!.jsonPrimitive.boolean, "the child's own advance must stand: $transition")
+
+            val cascades = transition["cascadeEvents"]!!.jsonArray
+            assertEquals(1, cascades.size, "cascadeEvents: $cascades")
+            val cascade = cascades[0].jsonObject
+            assertEquals(parent.id.toString(), cascade["itemId"]!!.jsonPrimitive.content)
+            assertFalse(cascade["applied"]!!.jsonPrimitive.boolean, "the parent cascade must be suppressed: $cascade")
+            val cascadeViolations = cascade["violations"]!!.jsonArray
+            assertEquals(1, cascadeViolations.size, "cascade violations: $cascadeViolations")
+            assertEquals("same_actor", cascadeViolations[0].jsonObject["constraint"]!!.jsonPrimitive.content)
+        }
+
+    // S7 -- terminal cascade: child.complete (WORK->TERMINAL) attempts to ALSO cascade the parent
+    // to TERMINAL. REJECT suppresses the parent cascade on the parent's own violation.
+
+    @Test
+    fun `S7 terminal cascade -- REJECT suppresses the parent cascade on the parent's own independence violation`(
+        @TempDir tempDir: Path
+    ): Unit =
+        runBlocking {
+            val toolContext = newToolContext(tempDir, globalConfig("reject"))
+            val root = createRoot(toolContext)
+            val parent = createChild(toolContext, root, root, "indep-cascade", Role.WORK, depth = 1)
+            upsertNote(toolContext, parent.id, "spec-a", "queue", "a", actorId = "p-agent")
+            upsertNote(toolContext, parent.id, "spec-b", "queue", "b", actorId = "p-agent")
+            val child = createChild(toolContext, root, parent.id, "indep-cascade", Role.WORK, depth = 2)
+            upsertNote(toolContext, child.id, "spec-a", "queue", "a", actorId = "c-agent-1")
+            upsertNote(toolContext, child.id, "spec-b", "queue", "b", actorId = "c-agent-2")
+
+            val transition = advance(toolContext, child.id, "complete")
+            assertTrue(transition["applied"]!!.jsonPrimitive.boolean, "the child's own advance must stand: $transition")
+
+            val cascades = transition["cascadeEvents"]!!.jsonArray
+            assertEquals(1, cascades.size, "cascadeEvents: $cascades")
+            val cascade = cascades[0].jsonObject
+            assertEquals(parent.id.toString(), cascade["itemId"]!!.jsonPrimitive.content)
+            assertFalse(cascade["applied"]!!.jsonPrimitive.boolean, "the parent terminal cascade must be suppressed: $cascade")
+            val cascadeViolations = cascade["violations"]!!.jsonArray
+            assertEquals(1, cascadeViolations.size, "cascade violations: $cascadeViolations")
+            assertEquals("same_actor", cascadeViolations[0].jsonObject["constraint"]!!.jsonPrimitive.content)
         }
 }

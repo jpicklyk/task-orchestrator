@@ -1,25 +1,10 @@
 package io.github.jpicklyk.mcptask.current.infrastructure.config
 
-import io.github.jpicklyk.mcptask.current.application.config.ConfigDocument
-import io.github.jpicklyk.mcptask.current.application.config.ConfigLayer
-import io.github.jpicklyk.mcptask.current.application.config.ConfigSource
-import io.github.jpicklyk.mcptask.current.application.config.EffectiveConfigResolver
-import io.github.jpicklyk.mcptask.current.application.config.GlobalConfigLookup
-import io.github.jpicklyk.mcptask.current.application.config.PerRootConfigSource
-import io.github.jpicklyk.mcptask.current.application.config.SchemaResolutionMode
 import io.github.jpicklyk.mcptask.current.application.service.ProjectConfigPushResult
 import io.github.jpicklyk.mcptask.current.application.service.ProjectConfigPushService
-import io.github.jpicklyk.mcptask.current.domain.model.DispatchProfile
 import io.github.jpicklyk.mcptask.current.domain.model.IndependenceMode
 import io.github.jpicklyk.mcptask.current.domain.model.IndependencePolicy
-import io.github.jpicklyk.mcptask.current.domain.model.NoteSchemaEntry
-import io.github.jpicklyk.mcptask.current.domain.model.ResourceDefinition
-import io.github.jpicklyk.mcptask.current.domain.model.ResourceRequirement
-import io.github.jpicklyk.mcptask.current.domain.model.Role
-import io.github.jpicklyk.mcptask.current.domain.model.SeatDefinition
-import io.github.jpicklyk.mcptask.current.domain.model.SeatDispatchOverride
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
-import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
 import io.github.jpicklyk.mcptask.current.infrastructure.database.schema.management.DirectDatabaseSchemaManager
@@ -152,93 +137,123 @@ class IndependenceConfigParseTest {
     }
 
     // ──────────────────────────────────────────────
-    // S12b -- per-root wholesale precedence via EffectiveConfigResolver (mirrors note_limits, Q10)
+    // S12a/S12b -- per-root wholesale precedence through the REAL ServerComposition + a REAL
+    // per-root push (orchestrator arbitration, 59a0d98e round: the prior FakeGlobalLookup test
+    // double violated the Public-API/Harness rule -- replaced with the real path, mirroring
+    // SeatPerRootResolverTest's buildComposition/createRoot/pushPerRoot pattern, asserted through
+    // ToolExecutionContext.resolveIndependencePolicy(rootId) -- a public resolver method, not a
+    // hand-built replica).
     // ──────────────────────────────────────────────
 
-    private class FakePerRootConfigSource(
-        private val layers: Map<UUID, ConfigLayer?>
-    ) : PerRootConfigSource {
-        override suspend fun layer(rootId: UUID): ConfigLayer? = layers[rootId]
+    private fun buildDatabaseManager(): DatabaseManager {
+        val dbName = "indep_layering_${System.nanoTime()}"
+        val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
+        DirectDatabaseSchemaManager().updateSchema()
+        return DatabaseManager(database)
     }
 
-    // A minimal GlobalConfigLookup test double that returns a fixed independencePolicy() and
-    // schema-free/empty defaults for every other member. Deliberately avoids constructing
-    // ServiceBackedGlobalLookup from a bare YAML file path here: that constructor shape was not
-    // among this dispatch's supplied declarations (self-resolved earlier from a pre-A2 test
-    // file), and a two-service composition of independencePolicy() is exactly the kind of wiring
-    // this item's own declarations do not describe -- exercising EffectiveConfigResolver's
-    // wholesale-replacement logic directly against the GlobalConfigLookup INTERFACE (which IS a
-    // supplied declaration) avoids that ambiguity entirely.
-    private class FakeGlobalLookup(
-        private val policy: IndependencePolicy
-    ) : GlobalConfigLookup {
-        override fun schemaForType(type: String): WorkItemSchema? = null
+    private fun materializeGlobalConfig(
+        tempDir: java.nio.file.Path,
+        content: String
+    ) {
+        val configDir = tempDir.resolve(".taskorchestrator")
+        java.nio.file.Files
+            .createDirectories(configDir)
+        java.nio.file.Files
+            .write(configDir.resolve("config.yaml"), content.toByteArray(Charsets.UTF_8))
+    }
 
-        override fun notesForTags(tags: List<String>): List<NoteSchemaEntry>? = null
+    private fun buildComposition(
+        tempDir: java.nio.file.Path,
+        globalConfig: String
+    ): io.github.jpicklyk.mcptask.current.interfaces.mcp.CompositionResult {
+        materializeGlobalConfig(tempDir, globalConfig)
+        val appConfig = AppConfig.fromEnv { key -> if (key == "AGENT_CONFIG_DIR") tempDir.toString() else null }
+        return io.github.jpicklyk.mcptask.current.interfaces.mcp
+            .ServerComposition(appConfig = appConfig, databaseManager = buildDatabaseManager(), shutdownCoordinator = null)
+            .build()
+    }
 
-        override fun traitNotes(name: String): List<NoteSchemaEntry>? = null
+    private fun createRoot(
+        composition: io.github.jpicklyk.mcptask.current.interfaces.mcp.CompositionResult,
+        title: String
+    ): UUID =
+        runBlocking {
+            composition.toolContext.repositoryProvider
+                .workItemRepository()
+                .create(WorkItem(title = title, type = "project", depth = 0))
+                .getOrNull()!!
+                .id
+        }
 
-        override fun traitResources(name: String): List<ResourceRequirement> = emptyList()
-
-        override fun traitDispatch(name: String): Map<Role, DispatchProfile> = emptyMap()
-
-        override fun resourceRegistry(): Map<String, ResourceDefinition> = emptyMap()
-
-        override fun noteLimitsMode(): String = "warn"
-
-        override fun fingerprint(): String? = null
-
-        override fun traitNames(): List<String> = emptyList()
-
-        override fun statusLabel(trigger: String): String? = null
-
-        override fun exactSchema(key: String): WorkItemSchema? = null
-
-        override fun hasExactTagSchema(tag: String): Boolean = false
-
-        override fun schemaResolution(): SchemaResolutionMode? = null
-
-        override fun traitSeats(name: String): List<SeatDefinition> = emptyList()
-
-        override fun traitDispatchBySeat(name: String): Map<Role, Map<String, SeatDispatchOverride>> = emptyMap()
-
-        override fun independencePolicy(): IndependencePolicy = policy
+    private fun pushPerRoot(
+        composition: io.github.jpicklyk.mcptask.current.interfaces.mcp.CompositionResult,
+        rootId: UUID,
+        yaml: String
+    ) {
+        runBlocking {
+            composition.toolContext.repositoryProvider
+                .projectConfigRepository()
+                .upsert(rootId, yaml)
+                .getOrNull() ?: error("fixture: per-root push failed for $rootId")
+        }
     }
 
     @Test
-    fun `S12a global-only -- a root with no per-root push resolves the global independence policy`(): Unit =
+    fun `S12a global-only -- a root with no per-root push resolves the global independence policy`(
+        @org.junit.jupiter.api.io.TempDir tempDir: java.nio.file.Path
+    ): Unit =
         runBlocking {
-            val globalLookup = FakeGlobalLookup(IndependencePolicy(IndependenceMode.REJECT, requireVerified = true))
-            val resolver = EffectiveConfigResolver(globalLookup, FakePerRootConfigSource(emptyMap()))
-            val policy = resolver.resolveIndependencePolicy(UUID.randomUUID())
+            val globalYaml =
+                """
+                independence:
+                  mode: reject
+                  require_verified: true
+                work_item_schemas:
+                  default:
+                    notes: []
+                """.trimIndent()
+            val composition = buildComposition(tempDir, globalYaml)
+            val root = createRoot(composition, "S12a root")
+            val policy = composition.toolContext.resolveIndependencePolicy(root)
             assertEquals(IndependencePolicy(IndependenceMode.REJECT, requireVerified = true), policy)
         }
 
     @Test
-    fun `S12b a per-root independence block replaces the global block WHOLESALE -- no merge of sub-keys`(): Unit =
+    fun `S12b a per-root independence block replaces the global block WHOLESALE -- no merge of sub-keys`(
+        @org.junit.jupiter.api.io.TempDir tempDir: java.nio.file.Path
+    ): Unit =
         runBlocking {
-            val globalLookup = FakeGlobalLookup(IndependencePolicy(IndependenceMode.OFF, requireVerified = true))
+            val globalYaml =
+                """
+                independence:
+                  mode: "off"
+                  require_verified: true
+                work_item_schemas:
+                  default:
+                    notes: []
+                """.trimIndent()
+            val composition = buildComposition(tempDir, globalYaml)
+            val pushedRoot = createRoot(composition, "S12b pushed root")
             // The per-root block sets ONLY mode; if require_verified merged from global rather than
             // replacing wholesale, the pushed root would resolve requireVerified=true instead of the
             // IndependencePolicy default (false).
-            val perRootDoc =
-                ConfigDocument(
-                    workItemSchemas = emptyMap(),
-                    traits = emptyMap(),
-                    independence = IndependencePolicy(mode = IndependenceMode.REJECT, requireVerified = false)
-                )
-            val pushedRoot = UUID.randomUUID()
-            val resolver =
-                EffectiveConfigResolver(
-                    globalLookup,
-                    FakePerRootConfigSource(mapOf(pushedRoot to ConfigLayer(perRootDoc, "pr-fp", ConfigSource.PER_ROOT)))
-                )
+            val perRootYaml =
+                """
+                independence:
+                  mode: reject
+                work_item_schemas:
+                  default:
+                    notes: []
+                """.trimIndent()
+            pushPerRoot(composition, pushedRoot, perRootYaml)
+            val controlRoot = createRoot(composition, "S12b control root (no push)")
 
-            val pushedPolicy = resolver.resolveIndependencePolicy(pushedRoot)
+            val pushedPolicy = composition.toolContext.resolveIndependencePolicy(pushedRoot)
             assertEquals(IndependencePolicy(IndependenceMode.REJECT, requireVerified = false), pushedPolicy)
 
             // Control root: no push at all -- must still see the global policy unchanged.
-            val controlPolicy = resolver.resolveIndependencePolicy(UUID.randomUUID())
+            val controlPolicy = composition.toolContext.resolveIndependencePolicy(controlRoot)
             assertEquals(IndependencePolicy(IndependenceMode.OFF, requireVerified = true), controlPolicy)
             assertFalse(pushedPolicy == controlPolicy, "the pushed root's policy must differ from the un-pushed control root's")
         }

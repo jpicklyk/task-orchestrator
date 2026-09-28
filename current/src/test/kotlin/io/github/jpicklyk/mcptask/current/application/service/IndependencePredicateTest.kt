@@ -12,6 +12,7 @@ import io.github.jpicklyk.mcptask.current.domain.model.ProofClaims
 import io.github.jpicklyk.mcptask.current.domain.model.Role
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationResult
 import io.github.jpicklyk.mcptask.current.domain.model.VerificationStatus
+import io.github.jpicklyk.mcptask.current.domain.model.WorkItem
 import io.github.jpicklyk.mcptask.current.domain.model.WorkItemSchema
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
@@ -213,19 +214,29 @@ class IndependencePredicateTest {
     // S4 -- require_verified, identity precedence, read back from the REAL note repository
     // ──────────────────────────────────────────────
 
-    private fun buildNoteRepo() =
-        run {
-            val dbName = "indep_predicate_${System.nanoTime()}"
-            val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
-            DirectDatabaseSchemaManager().updateSchema()
-            DefaultRepositoryProvider(DatabaseManager(database)).noteRepository()
-        }
+    private fun buildRepositoryProvider(): DefaultRepositoryProvider {
+        val dbName = "indep_predicate_${System.nanoTime()}"
+        val database = Database.connect("jdbc:h2:mem:$dbName;DB_CLOSE_DELAY=-1", driver = "org.h2.Driver")
+        DirectDatabaseSchemaManager().updateSchema()
+        return DefaultRepositoryProvider(DatabaseManager(database))
+    }
 
+    // Orchestrator arbitration fix (59a0d98e round): the original version upserted notes against
+    // the class-level `itemId` with no WorkItem ever created for it, and ignored the upsert
+    // Result -- findByItemId silently returned [] and every S4 assertion vacuously "passed" on an
+    // empty violations list. Now a real WorkItem is created first and its OWN id is used, and each
+    // upsert's Result is asserted Success so a dropped write can never masquerade as "no violations".
     private fun readBackNotes(vararg notes: Note): List<Note> =
         runBlocking {
-            val repo = buildNoteRepo()
-            notes.forEach { repo.upsert(it) }
-            (repo.findByItemId(itemId) as Result.Success).data
+            val repo = buildRepositoryProvider()
+            val itemResult = repo.workItemRepository().create(WorkItem(title = "S4 fixture item", type = "indep-predicate-test"))
+            assertTrue(itemResult is Result.Success, "fixture item creation must succeed: $itemResult")
+            val realItemId = (itemResult as Result.Success).data.id
+            notes.forEach { note ->
+                val upserted = repo.noteRepository().upsert(note.copy(itemId = realItemId))
+                assertTrue(upserted is Result.Success, "note upsert must succeed: $upserted")
+            }
+            (repo.noteRepository().findByItemId(realItemId) as Result.Success).data
         }
 
     @Test
