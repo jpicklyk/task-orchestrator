@@ -1,0 +1,134 @@
+# Post-run protocol
+
+Runs once a run's execution phase is done — either the Method A task notification arrives, or
+Method B's own loop reaches `next → {complete: true}`. This is the same sequence for both
+methods; the only difference is what triggers entry into it (see the main `SKILL.md` Step 7).
+
+Each step below writes `state.phase` before it ends, per the turn-boundary protocol in
+`SKILL.md` — resume (F7 / the Resume matrix) re-enters at the first step not yet recorded.
+
+---
+
+## Step 0 — Load the result
+
+Re-read `run/<runId>` (the plan document) and its `state` document. Save the notification's
+result JSON (Method A) or the accumulated `outs`/`stages` from state (Method B) to
+`<scratchpad>/run-wave/<runId>/result.json`. Any item with no envelope recorded at all — neither
+a successful `stage-result` nor a `stopped` marker — is treated as `stopped: "agent returned
+null"`. Set `state.phase = "notified"`.
+
+Tool: `manage_plan_documents(operation="get", ...)`.
+
+---
+
+## Step 1 — Verify
+
+`node "<helper>" verify --plan <scratchpad>/run-wave/<runId>/plan.json --result <scratchpad>/run-wave/<runId>/result.json`. Per item this checks: the declared commit SHAs actually exist
+(`git cat-file -e`), each stage's committed file list is a subset of what that seat was allowed
+to touch (implementer ⊆ `mainFiles ∪ docFiles`; test-author ⊆ `testFiles ∪
+existingTestEdits[].file`; never cross-owned), commit subjects carry the `[<short>]` tag and a
+`Seat:` trailer, and it returns the red-proof checklist the planner derived
+(`meta.redProofShape`).
+
+**Red-proofs themselves are run by you, the orchestrator**, not the helper — `verify` only
+returns the checklist of what to run. Use the project's `run-profile.json` → `verify[]` entries
+(this repo: the lock helper self-check and a scratch-worktree revert-and-rebuild) to actually
+execute them. A `verify` failure on any item means that item **fails this run** — do not advance
+it in Step 4 below, and surface the specific failure (missing SHA, foreign file, missing
+trailer, failed red-proof) rather than a generic "verify failed".
+
+---
+
+## Step 2 — Actor audit
+
+`query_notes(operation="list", itemId=<item>, keys=[<that item's seat notes>], includeBody=false)`
+for every item in the run, then compare each note's recorded actor against the expected table
+from `node "<helper>" actors --plan <scratchpad>/run-wave/<runId>/plan.json`. The expected form
+is `{itemId, key, actorId}` where `actorId` matches `<seat>:<short>:<runId>`.
+
+A note whose actor doesn't match (or a required note that's simply missing) means that item
+**fails this run**, same as a Step 1 verify failure — do not advance it. The rule this enforces:
+only the seat that owns a note may (re-)write it; a mismatch is evidence something wrote outside
+its lane, not a cosmetic discrepancy to wave through.
+
+---
+
+## Step 3 — Orchestrator notes
+
+Two notes, both actor `{id: "orchestrator:<session>", kind: "orchestrator"}` (not any seat's
+actor — these are the front door's own notes about the run, filled after Steps 1–2 have
+concrete results to report):
+
+1. **`session-tracking`** — outcome per item, files touched, deviations from the plan, and
+   Friction (the declarations-scan hit count from Method B step 4, any Step 0 fallback taken in
+   `SKILL.md`, any `verify`/actor-audit failure). Write this **after** verify and the actor audit
+   have run, in confirmed past tense — not as a speculative "pending verification" draft you
+   intend to edit later.
+2. **`delegation-metadata`** — the single provenance line, produced by
+   `node "<helper>" provenance --plan <plan> --result <result> --method A|B --turns <n> [--usage <usage-file>] [--meta-dir <dir>]`. Pass `--meta-dir` when per-seat `*.meta.json` files with
+   the actually-reported model exist (gives `model-source` other than `self-report`); otherwise
+   the line falls back to each stage's self-reported `modelReported`. This line is what the
+   session-retrospective skill's structured-provenance parser reads — do not hand-write it, and
+   do not reorder its fields.
+
+---
+
+## Step 4 — Batched advance
+
+**One** `advance_item(transitions=[...])` call covering every item that passed Steps 1–2:
+`trigger: "start"` for an item whose schema has a review phase, `trigger: "complete"` for one
+that doesn't (mirrors the standard "prefer `complete` for an item's final transition" guidance —
+here "final for this run" means "no review phase to enter", not "this is the item's last ever
+transition"). An item that failed Step 1 or Step 2 is **excluded** from this call entirely — it
+stays in its current phase for a human or a follow-up run to sort out, it does not get force-
+advanced.
+
+After the call:
+- Collect every entry in the response's `unblockedItems` — these feed Step 9 of the main skill
+  (they join the next frontier automatically, you don't need to re-derive them).
+- Surface **every** `cascadeEvents` entry that carries `gateBlocked: true` — a cascade that
+  itself got gate-blocked is not a silent no-op, tell the user which ancestor and which missing
+  note blocked it.
+
+Set `state.phase = "post-run"`.
+
+---
+
+## Step 5 — Review hand-off
+
+`node "<helper>" review-prompt --plan <scratchpad>/run-wave/<runId>/plan.json --item <short>` per
+advanced item that entered a review phase, unless the project's `run-profile.json` sets
+`review: "handoff"` — in which case control passes to the project's own review step instead (this
+repo: `/implement` Step 5) and you do not dispatch the generic reviewer yourself. The generic
+review prompt is deliberately thin: seat line, the owned-file diff command, which notes to fill,
+and which rule keys apply — it carries no rule text inline (the reviewer fetches those itself).
+
+---
+
+## Step 6 — Human checkpoints
+
+These are not automatable from inside this skill; surface them and wait as the project's own
+process requires:
+
+- Arbitration of a red test authored by an independent test-author seat (per the project's
+  arbitration rule — this repo: `/implement` Step 4b) is a **human or a separately-dispatched
+  arbitration agent's** call, not this skill's.
+- Opening a PR and merging it are the checkpoints that carry an item's items from review to
+  terminal in most projects — this skill does not open PRs itself; that's the project workflow's
+  job (this repo: `/implement` Step 6).
+
+---
+
+## Step 7 — Close and loop
+
+Once the review hand-off (Step 5) is dispatched and any immediate human checkpoints (Step 6) are
+surfaced, set `state.phase = "closed"`. Report, in one place, every item that was **deferred**
+(cross-run edge, resource contention, run-size cap — with reasons), every item that was
+**stopped** (invalid envelope, verify/actor-audit failure), and every item that was **excluded**
+at planning time (unowned required note, unavailable schema config) — each with its specific
+reason, not a bare count. Then return to `SKILL.md` Step 9: re-run Step 2 (a fresh snapshot),
+letting the items surfaced in Step 4's `unblockedItems` join the new frontier.
+
+A `closed` run's state document and pointer line are left in place (`manage_plan_documents` has
+no delete) — Step 0 F7's `phase != "closed"` filter is what keeps a finished run from being
+mistaken for an open one on the next invocation.
