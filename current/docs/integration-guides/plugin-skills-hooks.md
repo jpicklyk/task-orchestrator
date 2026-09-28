@@ -163,6 +163,27 @@ These are triggered by hooks and output styles, not invoked directly by users:
 
 ---
 
+## Workflows (Claude Code only)
+
+`implement-wave` (`claude-plugins/task-orchestrator/workflows/implement-wave.js`) is a Workflow-tool
+script: it drives one work item's seats through their phases in order, and can run several items
+concurrently, following a run plan the front door builds before the script starts.
+
+It is invoked by the front door, never bare — a bare run returns `{started: false}` rather than
+doing any work, so calling the script directly without going through that entry path is not a
+supported way to drive a wave.
+
+Each seat the script dispatches fetches its own rule text by key via `query_rules` rather than
+carrying that text inline, and reads its item's resolved schema via `query_items` (`schema`
+operation) rather than assuming note requirements. See
+[`../api-reference.md`](../api-reference.md) for both operations.
+
+Two of the seats the script dispatches are the `planner` and `test-author` agent definitions under
+`claude-plugins/task-orchestrator/agents/` — a queue-phase planning seat and a blind, independent
+test-authoring seat, respectively.
+
+---
+
 ## The Plan-Mode Pipeline
 
 This is the core automation the plugin provides:
