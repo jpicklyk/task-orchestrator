@@ -198,6 +198,32 @@ If a new category container was created, add one line:
 
 ---
 
+## From a workflow findings proposal
+
+An alternate entry path for materializing findings from a `task-orchestrator:audit` workflow run. The audit script (`workflows/audit.js`) never writes MCP items itself — it returns an `audit/result-v1` result carrying a `proposal` (candidate items to create) and a `kept[]` list (surviving findings after triage). Use this path instead of Steps 1–3 when the input is a proposal rather than free-form conversation.
+
+**Input:** the `proposal` and `kept[]` from the audit result. Each `kept[]` finding carries `findingId`, `reportId`, `title`, `severity`, `verdict`, `category`, `locations`, `trackedId`. Each proposal row carries `findingId`, `candidates` (`[{id, short, role, title}]`), `likelyDuplicate` (`none|weak|strong|unknown`), `materialize` (+ `reason`).
+
+**1. Present one table to the user** — columns: id, severity, class, type, materialize + reason, candidates.
+
+**2. Dedup.** Row `candidates` come from the unscoped Step 5 search the audit's own Triage phase already ran per finding — cite them, don't restate the search. Re-run Step 5's search only for rows where `likelyDuplicate: unknown`, or for rows the user added or retitled during review. Candidates are FYI only: never auto-link, auto-skip, or auto-cancel a row on their account (same rule as Step 5's dedup check).
+
+**3. User edits.** The user may flip `materialize`, reclassify a row's class (bug / tech-debt / agent-observation), or drop a row entirely. Nothing here is applied without these edits being explicit.
+
+**4. Resolve the container.** For each materialized non-observation row, anchor under the project root's category container using Step 2's overview scan and Step 3's decision tree — cite them, don't restate the classification table or anchoring logic.
+
+**5. Priority and type.** Priority is already mapped in the proposal (`critical`/`high` → `high`, `medium` → `medium`, `low` → `low`) — do not re-derive it. Resolve `type` via Step 4's schema discovery; leave `type` unset when no schema key matches, per Step 4's existing rule.
+
+**6. Materialize — only after explicit user confirmation.** One `create_work_tree` call for the audit container plus its materialized children under the resolved category container (≤25 children per call; a proposal with more attaches later batches via `root.id`). `agent-observation` rows are never part of this tree — create them in a separate `manage_items(create)` batch at depth 0, tagged `agent-observation`, per Step 3's observation exception.
+
+**7. No notes pre-filled** at materialization time — Step 6's existing rule (sparse content is left, not fabricated) still applies; queue notes are filled later during normal planning, not from the proposal.
+
+**8. Report** using Step 7's format, one line per created item.
+
+**Never automated:** creating anything without explicit user confirmation, acting on dedup candidates (auto-link/skip/cancel), materializing a `materialize: false` row the user did not flip, or placing an `agent-observation` row under any root.
+
+---
+
 ## Troubleshooting
 
 **No containers found in overview**
