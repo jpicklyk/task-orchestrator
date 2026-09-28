@@ -50,6 +50,11 @@ proposal item's own status says "terminal".
 | `d1484a3e` | worktree writes landing in the main checkout | **Header** — the "Write root" line and the two-checkout `git status --short` before the first commit |
 | `234b50a0` | declarations-extractor seat and its accuracy contract | **Test author protocol** — the declarations paragraph (extractor seat, accuracy contract, orchestrator scan) and rule 4's public-evidence self-resolution clause |
 | `bb191508` | sweep the whole defect class during planning | **Planning seat return template** (`defect-class-siblings` field); the `bug-fix` schema's `diagnosis` guidance carries the same requirement at note-fill time |
+| `c068c943` (#360) | per-PR CHANGELOG `[Unreleased]` bullet | **Docs** — `CHANGELOG.md` is orchestrator- or docs-seat-owned, written before review, never an implementer's; the bullet itself (`/implement` Step 4c) and the Step 6 check plus the PR body's `## Changelog` section are orchestrator-side steps, not delegated facts |
+| `27c021b1` (#318) | hand-assembled Ktor test apps diverging from production | **Test author protocol** — the declarations block's `harness:` line, its accuracy-contract bullet, and rule 4's harness clause (named helper or stop-and-ask) |
+| `395f316f` (#374) | tests that bypass the runtime's validation order | **Test author protocol** — the declarations block's `runtime call order:` line and its accuracy-contract bullet (the pinned `McpToolAdapter` sentence) |
+| `9023ed46` (#361) | unscoped dedup search before creating a root or feature item | out of scope: an item-creation step, adopted in the plugin skills `post-plan-workflow` (Phase 1) and `create-item` (Step 5), which run where items are materialized — no dispatched seat creates items |
+| `610b9a9f` (#373) | anchored byte-level edits when Edit/Write is refused | **Header** — the conditional "File-edit method" clause on the Write root line, pointing at `references/patch-anchored.py` (exact-once anchors, `DRY=1`, validate-all-then-write, per-file CRLF/LF preserved) |
 
 ---
 
@@ -60,7 +65,11 @@ Feature worktree: `<absolute path, e.g. D:\Projects\task-orchestrator\.claude\wo
 Write root: `<the feature worktree path above>` — every Write/Edit path starts with it. Main-checkout
 paths are off-limits (this contract and `plans/` are read-only inputs). Before your first commit, run
 `git -C <write root> status --short` AND `git -C <main-checkout> status --short` and report both in
-`session-tracking`; the main checkout must show nothing you wrote.
+`session-tracking`; the main checkout must show nothing you wrote. File-edit method, only when
+Edit/Write is refused (the session-worktree guard): `.claude/skills/implement/references/patch-anchored.py`
+with a JSON edit spec, run with `DRY=1` first — its anchors follow the File ownership slot's
+exact-text-anchor rule. Never `sed -i`, and never build a path from an f-string or string
+concatenation: spell every path out under the write root.
 Contract path (this file): `<absolute path in the MAIN checkout, e.g. D:\Projects\task-orchestrator\plans\<slug>.md>`
 — every dispatch prompt names the contract by THIS path. `plans/` is gitignored and absent from
 the feature worktree, so a relative `plans/<slug>.md` does not resolve for an agent whose working
@@ -201,6 +210,8 @@ DECLARATIONS for <short-uuid> — verbatim and complete
 <every public declaration the tests touch: types and data-class constructors with full parameter
 lists and defaults; function and method signatures; constants; enum values; and any KDoc carrying
 an oracle or stating an invariant — including the validate() the fixtures must satisfy>
+harness: <fully-qualified src/test helper fn + file:line | NONE + the exact plugin list production installs>
+runtime call order: <MCP: the pinned sentence below | REST: the route's check order from the frozen error table>
 ```
 
 Extractor accuracy contract:
@@ -213,10 +224,20 @@ Extractor accuracy contract:
 - For every scenario input the plan names (route query params, env vars, config keys, tool
   params), give the exact name or write `NOT DECLARED: <what>`.
 - A claim that a file or symbol does not exist names the check that produced it.
+- `harness:` names the helper that builds the application under test, fully qualified with its
+  `file:line` (e.g. `io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.configureTestApp`,
+  `ApiTestHelper.kt:153`; `configureWriteTestApp`, `WriteRoutesTest.kt:76`) — or `NONE` plus the exact
+  plugin list the production module installs, so the gap is visible rather than improvised.
+- `runtime call order:` for an MCP tool is this pinned sentence, verbatim: "`McpToolAdapter`
+  preprocesses params, calls `validateParams`, then `execute` inside `withConfigSession`;
+  `execute()` alone never validates" (`interfaces/mcp/McpToolAdapter.kt:101-111`). For a REST
+  route it is the route's check order, copied from the frozen error table.
 
 Orchestrator scan, before handoff: grep the declarations file for behaviour words (`returns`,
 `throws`, `falls back`, `catches`, `calls`, `if`, `when`, `otherwise`, `instead`) and strip every
-hit that describes behaviour rather than declaring a signature or pre-existing KDoc; then delete
+hit that describes behaviour rather than declaring a signature or pre-existing KDoc — the whole
+`runtime call order:` line is exempt (the pinned MCP sentence or the REST check order copied from
+the frozen error table), since it is fixed contract text, not extractor prose; then delete
 any unredacted copy so only the scanned file reaches the author. The scan is not optional: on
 2026-09-25 the extractor leaked implementation prose in 2 of 2 runs despite an explicit
 prohibition, and the scan caught both.
@@ -236,7 +257,9 @@ Rules for the author (a breach is a breach whether or not anything useful was se
    diff. Asking costs a round-trip; the lookup costs the dispatch. An ambiguity resolvable from
    public non-`src/main` evidence (the tool's parameterSchema, `src/test` harnesses, docs) may be
    self-resolved if the manifest's arbitration record states the evidence used; the reviewer
-   verifies it.
+   verifies it. The harness follows the same path: when the block's `harness:` line names a
+   helper, build the application under test through it and never assemble a Ktor
+   `application {}` by hand; when it says `NONE` and the scenarios need one, stop and ask.
 5. **Surface labels.** `test-plan` labels every scenario `EXISTING-SURFACE` or `NEW-SURFACE`. Write
    each `NEW-SURFACE` test so the plan's narrowest-revert recipe (keep the new type/parameter,
    revert only its call sites) still exercises it; where the plan names a substitute verification
@@ -301,9 +324,12 @@ Tightening changes this wave: `<per item — the tightened contract, or "none">`
 
 ## Docs
 
-Implementers do not edit `current/docs/**`, `README.md` or `CLAUDE.md`. List the exact edits your
-change requires under "Docs needed" in `implementation-notes`; a single serialized docs seat makes
-them after the implementation wave, so two agents never write the same doc.
+Implementers do not edit `current/docs/**`, `README.md`, `CLAUDE.md` or `CHANGELOG.md`. List the
+exact edits your change requires under "Docs needed" in `implementation-notes`; a single
+serialized docs seat makes them after the implementation wave, so two agents never write the same
+doc. The `CHANGELOG.md` `[Unreleased]` bullet belongs to the orchestrator or the docs seat, written
+once after the implementation wave and before review (`/implement` Step 4c), never to an implementer: parallel streams appending under the
+same `### Changed` heading collide on one shared anchor.
 
 Docs seat for this wave: `<agent/seat, or "orchestrator">`.
 

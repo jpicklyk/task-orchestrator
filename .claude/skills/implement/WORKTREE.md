@@ -151,8 +151,10 @@ When all children reach terminal:
 
 1. Final test + ktlint pass on the feature worktree.
 2. Fill parent feature's notes (implementation-notes, session-tracking, review-checklist).
-3. Push `<FEATURE_BRANCH>` and open one PR.
-4. After PR merges:
+3. Confirm the `CHANGELOG.md` `[Unreleased]` bullet written before review exists, or that the PR
+   body states `Changelog: none (<why>)` (`/implement` Step 4c and Step 6).
+4. Push `<FEATURE_BRANCH>` and open one PR.
+5. After PR merges:
    ```bash
    git checkout main && git pull origin main
    git worktree remove <FEATURE_WORKTREE>

@@ -264,9 +264,11 @@ of the file; check whether one exists before writing anything.
 your synthesized bullets from Step 4 into its existing `### Added` / `### Changed` / `### Fixed`
 subsections (create a subsection only if it is missing). Keep every existing bullet — they are
 the per-PR record — and add only what Step 4 found missing. Do not leave an empty `[Unreleased]`
-section behind; the next feature PR recreates it. Compare the PR numbers cited in the section
-against `git log <LAST_TAG>..HEAD` — merged PRs with no bullet are the gaps to fill (the
-September 2026 release prep found three bug-wave PRs entirely absent).
+section behind; the next feature PR recreates it. Match each merged PR in `git log <LAST_TAG>..HEAD`
+to a bullet by the behaviour it describes (per-PR bullets usually cite no PR number) — merged PRs
+with no bullet are the gaps to fill, except a PR whose body states `Changelog: none (<why>)`,
+which is intentionally bullet-less (the September 2026 release prep found three bug-wave PRs
+entirely absent).
 
 **If no `## [Unreleased]` section exists:** find the first `## [` versioned entry (after the
 header). Insert the new section **immediately above** it, with a trailing `---` separator and a

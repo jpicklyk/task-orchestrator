@@ -237,6 +237,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Reworded the implementer and reviewer agent definitions' seat rules to defer to a named seat
   assignment in the dispatch prompt, rather than assuming the agent owns every required note in
   its phase.
+- `post-plan-workflow` (before each new root or feature item it materializes) and `create-item`
+  (before each item it creates, or a work tree's root) now run one unscoped title search and
+  surface close matches (role + short id) as an FYI line, leaving the decision to the user —
+  nothing is auto-linked, skipped or cancelled. The search is unscoped so process-global items
+  outside the project tree, such as agent-observations, are caught too.
 
 ## [3.15.0] - 2026-09-25
 

@@ -176,7 +176,9 @@ paste inline and verbatim every public declaration the author needs: types and d
 constructors with full parameter lists and defaults, function and method signatures, constants,
 enum values, and any KDoc that carries an oracle or states an invariant (`validate()` included,
 per §7 Fixture invariants). The author writes tests against that block and goes looking for
-nothing further.
+nothing further. That includes the block's `harness:` and `runtime call order:` lines: build the
+application under test only as they state, per the dispatch contract's DECLARATIONS block and its
+rule 4 (a `NONE` harness the scenarios need is stop-and-ask, §4.4).
 
 A declarations block that is missing entirely is an orchestrator error. Say so and stop (§4.4);
 do not reconstruct it.
