@@ -215,7 +215,14 @@ export function resolveDispatch(schema, seat, phase, entryInfo = {}, defaults = 
 
   let def = {};
   if (seat === 'declarations-extractor' && defaults.extractor) {
-    def = defaults.extractor;
+    // defaults.extractor accepts either the object form {model, effort} or the design §3.4
+    // shorthand string form 'sonnet+low' (split on '+' -> {model:'sonnet', effort:'low'}).
+    if (typeof defaults.extractor === 'string') {
+      const [extractorModel, extractorEffort] = defaults.extractor.split('+');
+      def = extractorEffort ? { model: extractorModel, effort: extractorEffort } : { model: extractorModel };
+    } else {
+      def = defaults.extractor;
+    }
   } else if (typeof defaults[phase] === 'string') {
     def = { model: defaults[phase] };
   } else if (defaults[phase] && typeof defaults[phase] === 'object') {
@@ -348,10 +355,12 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
 
       const seatNotes = notes.filter((n) => n.role === s.phase && n.seat === s.name).map((n) => n.key);
 
+      // O1: match the FULL '<seat>:<this-item-short>:' prefix, not just '<seat>:' - a note
+      // actor stamped '<seat>:<OTHER item's short>:<run>' must never skip this item's seat.
       if (isResumed && seatNotes.length
         && seatNotes.every((k) => {
           const actorId = actorsByKey.get(k);
-          return actorId && actorId.startsWith(`${s.name}:`);
+          return actorId && actorId.startsWith(`${s.name}:${candidate.short}:`);
         })) {
         continue;
       }
@@ -435,7 +444,14 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
     });
   }
 
-  if (stages.length === 0) warnings.push('nothing to run');
+  // A resumed item whose seats are all already done derives zero stages. It must be EXCLUDED
+  // (never admitted with an empty stages array) - args-v1 items[].stages has minItems 1, and an
+  // admitted item with no stage would violate that and make normalizeArgs refuse the whole run.
+  let exclude = null;
+  if (stages.length === 0) {
+    warnings.push('nothing to run');
+    exclude = 'nothing to run';
+  }
 
   return {
     stages,
@@ -445,7 +461,7 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
     hasReviewPhase,
     warnings,
     degradations,
-    exclude: null
+    exclude
   };
 }
 
@@ -467,15 +483,16 @@ export function lastWritingWorkSeat(stages) {
  */
 export function classifyEdge(edge, { runIds, mode, milestone } = {}) {
   const { itemId, effectiveUnblockRole, satisfied } = edge || {};
+  const short = shortFromId(itemId);
   if (satisfied) return { class: 'none' };
   if (mode === 'per-item') {
-    return { class: 'cross-run', reason: `blocked by ${itemId} until ${effectiveUnblockRole} (cross-run)` };
+    return { class: 'cross-run', reason: `blocked by ${short} until ${effectiveUnblockRole} (cross-run)` };
   }
   if (!runIds || !runIds.has(itemId)) {
-    return { class: 'cross-run', reason: `blocked by ${itemId} until ${effectiveUnblockRole} (cross-run)` };
+    return { class: 'cross-run', reason: `blocked by ${short} until ${effectiveUnblockRole} (cross-run)` };
   }
   if (effectiveUnblockRole === 'review' || effectiveUnblockRole === 'terminal') {
-    return { class: 'cross-run', reason: `blocked by ${itemId} until ${effectiveUnblockRole} (cross-run)` };
+    return { class: 'cross-run', reason: `blocked by ${short} until ${effectiveUnblockRole} (cross-run)` };
   }
   return { class: 'in-run', item: itemId, milestone: milestone ?? null };
 }
@@ -814,12 +831,47 @@ export function assembleArgs(snap, planned, opts) {
     if (existing && existing.head) baseSha = existing.head;
   }
 
+  // Substitute the <worktree> and <scratchpad> placeholders (design §3.4) so no literal
+  // placeholder ever reaches args-v1: shared mode uses the one feature worktree; per-item mode
+  // has no single worktree, so <worktree> expands into each item's own worktree (searchScope
+  // gains one entry per item; verify commands - which are one shared string per command - use
+  // the first item's worktree as the representative substitution).
+  const scratchDirValue = scratchpad ? normalizePath(`${scratchpad}/run-wave/${runId}`) : null;
+  const substitute = (str, worktreeValue) => {
+    if (typeof str !== 'string') return str;
+    let out = str;
+    if (worktreeValue) out = out.split('<worktree>').join(worktreeValue);
+    if (scratchDirValue) out = out.split('<scratchpad>').join(scratchDirValue);
+    return out;
+  };
+
+  let searchScope;
+  let verify;
+  if (mode === 'shared') {
+    const wt = sharedPath || '';
+    searchScope = (profile.searchScope || []).map((s) => normalizePath(substitute(s, wt)));
+    verify = (profile.verify || []).map((v) => ({ ...v, command: substitute(v.command, wt) }));
+  } else {
+    const worktrees = items.map((it) => it.worktree).filter(Boolean);
+    const expanded = [];
+    for (const s of profile.searchScope || []) {
+      if (typeof s === 'string' && s.includes('<worktree>')) {
+        for (const wt of worktrees) expanded.push(normalizePath(substitute(s, wt)));
+      } else {
+        expanded.push(normalizePath(substitute(s, null)));
+      }
+    }
+    searchScope = [...new Set(expanded)];
+    const firstWt = worktrees[0] || '';
+    verify = (profile.verify || []).map((v) => ({ ...v, command: substitute(v.command, firstWt) }));
+  }
+
   const project = {
     shell: profile.shell || 'bash',
-    verify: profile.verify || [],
-    searchScope: (profile.searchScope || []).map(normalizePath)
+    verify,
+    searchScope
   };
-  if (scratchpad) project.scratchDir = normalizePath(`${scratchpad}/run-wave/${runId}`);
+  if (scratchDirValue) project.scratchDir = scratchDirValue;
 
   const capabilities = { features: snap.features || [], phase0Hooks: !!probe.phase0Hooks };
   if (probe.pluginVersion) capabilities.pluginVersion = probe.pluginVersion;
@@ -961,6 +1013,11 @@ export function buildPlanDoc(snap, opts = {}) {
   if (finalIds.length === 0) {
     // args is null (no items admitted), so this is the only place the deferral reasons survive -
     // meta carries them here even though the non-empty-run meta shape leaves `deferred` to args.
+    const zeroRunWarnings = [];
+    for (const ex of excluded) {
+      const w = (derivedById[ex.id] && derivedById[ex.id].warnings) || [];
+      zeroRunWarnings.push(...w);
+    }
     const doc = {
       contract: PLAN_DOC_CONTRACT,
       args: null,
@@ -970,7 +1027,7 @@ export function buildPlanDoc(snap, opts = {}) {
         worktreesToCreate: [],
         excluded,
         deferred: allDeferred,
-        warnings: [],
+        warnings: zeroRunWarnings,
         estAgents: 0,
         sizeGuideline: probe.workflowSizeGuideline ?? null,
         degradations,
@@ -999,6 +1056,12 @@ export function buildPlanDoc(snap, opts = {}) {
   for (const id of finalIds) {
     warnings.push(...(derivedById[id].warnings || []));
     degradations.push(...(derivedById[id].degradations || []));
+  }
+  // Excluded items (e.g. a resumed item with zero derived stages) still carry a warning worth
+  // surfacing even though they never reach items[].
+  for (const ex of excluded) {
+    const w = (derivedById[ex.id] && derivedById[ex.id].warnings) || [];
+    warnings.push(...w);
   }
 
   const estAgents = finalIds.reduce((sum, id) => sum + ((derivedById[id].stages || []).length), 0);

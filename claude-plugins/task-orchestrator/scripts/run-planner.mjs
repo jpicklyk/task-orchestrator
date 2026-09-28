@@ -95,8 +95,12 @@ function runPlan(args) {
   const snap = parseJson(text);
   if (!snap) return fail(2, 'invalid args', 'bad JSON input');
 
-  const now = flagValue(args, '--now', null);
-  const maxItemsRaw = flagValue(args, '--max-items', '5');
+  // --now defaults to the CLI's own clock (never read inside run-planner-lib.mjs, which stays
+  // pure) so a bare `plan` call still produces a real runId/startedAt that `validate` accepts.
+  const now = flagValue(args, '--now', null) || new Date().toISOString();
+  const profileMaxItems = snap && snap.profile && snap.profile.maxItems;
+  const defaultMaxItems = Number.isFinite(profileMaxItems) && profileMaxItems > 0 ? String(profileMaxItems) : '5';
+  const maxItemsRaw = flagValue(args, '--max-items', defaultMaxItems);
   const maxItems = Number(maxItemsRaw);
   if (!Number.isFinite(maxItems) || maxItems < 1) return fail(2, 'invalid args', 'max-items must be >= 1');
 
