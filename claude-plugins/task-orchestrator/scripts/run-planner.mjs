@@ -10,9 +10,12 @@
 // verify, actors, provenance, review-prompt.
 
 import { readFileSync, existsSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as lib from './run-planner-lib.mjs';
+import * as exec from './run-exec-lib.mjs';
+import { loadWaveCore } from './lib/wave-core.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -161,6 +164,38 @@ function runValidate(args) {
 }
 
 // ---------------------------------------------------------------------------------------
+// EXEC_IO — the injected io object run-exec-lib.mjs's EXEC_COMMANDS handlers call instead of
+// referencing fs/process/git directly. Built from this file's own existing helpers
+// (readFileSync-backed readInput/safeRead/fail, stdout, spawnSync git).
+// ---------------------------------------------------------------------------------------
+const EXEC_IO = {
+  readInput(path) {
+    if (!path) return null;
+    return parseJson(safeRead(path));
+  },
+  readText(path) {
+    if (!path) return '';
+    return safeRead(path);
+  },
+  writeOut(text) {
+    process.stdout.write(text.endsWith('\n') ? text : `${text}\n`);
+  },
+  fail(code, message, detail) {
+    fail(code, message, detail);
+  },
+  exit(code) {
+    process.exit(code);
+  },
+  git(cwd, args) {
+    const r = spawnSync('git', ['-C', cwd, ...args], { encoding: 'utf8' });
+    return { status: r.status, stdout: r.stdout || '' };
+  },
+  loadCore() {
+    return loadWaveCore({ pluginRoot: resolve(HERE, '..') });
+  }
+};
+
+// ---------------------------------------------------------------------------------------
 // Subcommand table. B2b adds: next, prompt, stage-result, scan-declarations, verify,
 // actors, provenance, review-prompt.
 // ---------------------------------------------------------------------------------------
@@ -168,7 +203,15 @@ const SUBCOMMANDS = {
   probe: runProbe,
   plan: runPlan,
   explain: runExplain,
-  validate: runValidate
+  validate: runValidate,
+  next: (args) => exec.EXEC_COMMANDS.next(args, EXEC_IO),
+  prompt: (args) => exec.EXEC_COMMANDS.prompt(args, EXEC_IO),
+  'stage-result': (args) => exec.EXEC_COMMANDS['stage-result'](args, EXEC_IO),
+  'scan-declarations': (args) => exec.EXEC_COMMANDS['scan-declarations'](args, EXEC_IO),
+  verify: (args) => exec.EXEC_COMMANDS.verify(args, EXEC_IO),
+  actors: (args) => exec.EXEC_COMMANDS.actors(args, EXEC_IO),
+  provenance: (args) => exec.EXEC_COMMANDS.provenance(args, EXEC_IO),
+  'review-prompt': (args) => exec.EXEC_COMMANDS['review-prompt'](args, EXEC_IO)
 };
 
 function main() {
