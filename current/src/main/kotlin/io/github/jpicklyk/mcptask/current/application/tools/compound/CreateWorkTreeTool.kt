@@ -3,6 +3,7 @@ package io.github.jpicklyk.mcptask.current.application.tools.compound
 import io.github.jpicklyk.mcptask.current.application.config.withConfigSession
 import io.github.jpicklyk.mcptask.current.application.service.DocRefSpec
 import io.github.jpicklyk.mcptask.current.application.service.MarkdownSectionSplitter
+import io.github.jpicklyk.mcptask.current.application.service.RuleService
 import io.github.jpicklyk.mcptask.current.application.service.TreeDepSpec
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeInput
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeResult
@@ -289,6 +290,15 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
             val slug = (docRefObj["slug"] as? JsonPrimitive)?.takeIf { it.isString }?.content
             if (slug.isNullOrBlank()) {
                 throw ToolValidationException("'docRef.slug' is required and must be a non-blank string")
+            }
+            // D1 guard (A3, 840e700a): rule documents are stashed/served through query_rules and
+            // must never be adopted into a work item -- adoption is a one-way transition
+            // (PlanDocumentService.kt), and adopting a rule/<key> slug would freeze it forever.
+            if (slug.startsWith(RuleService.RULE_SLUG_PREFIX)) {
+                throw ToolValidationException(
+                    "'docRef.slug' cannot start with '${RuleService.RULE_SLUG_PREFIX}' -- rule documents " +
+                        "are read-only via query_rules and cannot be adopted into a work item"
+                )
             }
             val rootIdElement = docRefObj["rootId"]
             if (rootIdElement != null && rootIdElement !is JsonNull) {

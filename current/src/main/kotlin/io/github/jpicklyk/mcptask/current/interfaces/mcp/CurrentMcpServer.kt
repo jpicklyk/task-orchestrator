@@ -8,6 +8,7 @@ import io.github.jpicklyk.mcptask.current.application.tools.compound.CompleteTre
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.config.ManagePlanDocumentsTool
 import io.github.jpicklyk.mcptask.current.application.tools.config.ManageProjectConfigTool
+import io.github.jpicklyk.mcptask.current.application.tools.config.QueryRulesTool
 import io.github.jpicklyk.mcptask.current.application.tools.dependency.ManageDependenciesTool
 import io.github.jpicklyk.mcptask.current.application.tools.dependency.QueryDependenciesTool
 import io.github.jpicklyk.mcptask.current.application.tools.items.ManageItemsTool
@@ -48,6 +49,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.noteWriteRout
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.planDocumentRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.projectConfigRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.resourceLeaseRoutes
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.ruleRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.searchRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.serviceRoutes
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.transitionRoutes
@@ -499,6 +501,8 @@ internal fun buildMcpTools(): List<ToolDefinition> =
         ManageProjectConfigTool(YamlConfigDocumentParser),
         // Per-root plan document store: dual ingestion (REST PUT + MCP stash)
         ManagePlanDocumentsTool(),
+        // Git-tracked rule text: read-only view over rule/<key> plan documents (A3, 840e700a)
+        QueryRulesTool(),
     )
 
 /**
@@ -631,6 +635,9 @@ internal fun Application.installRestApiRoutes(
             // plan_documents store: per-root plan document read/write —
             // converges on the same PlanDocumentService the manage_plan_documents MCP tool uses.
             planDocumentRoutes(effectiveProvider)
+            // Git-tracked rule text: read-only view over rule/<key> plan documents, converging on
+            // the same RuleService the query_rules MCP tool uses (A3, 840e700a).
+            ruleRoutes(effectiveProvider)
             // Operator resource-lease read + force-release — cross-project, server-wide (no rootId scope).
             resourceLeaseRoutes(effectiveProvider)
         }
