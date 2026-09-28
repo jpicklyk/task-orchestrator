@@ -1310,6 +1310,139 @@ test('Follow-up O6: scope.reviewers: [] is treated as absent (Scope phase runs),
   assert.equal(result.started, true)
 })
 
+// ── Second follow-up (reviewer O10: fix-up behaviour untested) ──────────────
+// Oracle: phase-c-workflows.md §2.2/§2.3 + phase-c-dispatch-contract.md Appendix B, as
+// always — never the current script's own output. The coordinator flagged that the models
+// per-phase key is currently read as `models.synthesis` rather than plan §2.2's `synth`; test
+// (O10-1) is written to §2.2 regardless and reported red if it is red against HEAD.
+
+test('Follow-up (O10-1): args.models/args.efforts reach agent() opts as model/effort, keyed exactly scope/review/gaps/merge/verify/synth/triage', async () => {
+  const MODELS = { scope: 'm-scope', review: 'm-review', gaps: 'm-gaps', merge: 'm-merge', verify: 'm-verify', synth: 'm-synth', triage: 'm-triage' }
+  const EFFORTS = { scope: 'e-scope', review: 'e-review', gaps: 'e-gaps', merge: 'e-merge', verify: 'e-verify', synth: 'e-synth', triage: 'e-triage' }
+  const plan = buildPlan({
+    scope: { paths: ['claude-plugins/task-orchestrator/hooks'] }, // reviewers absent -> Scope runs
+    gaps: { enabled: true, max: 1 },
+    items: { enabled: true, rootId: 'root-test-0001', materializeMin: 'high' },
+    models: MODELS,
+    efforts: EFFORTS,
+  })
+  const responder = async (label) => {
+    if (label === 'scope') return scopeResult({ reviewers: [reviewerSpec('r1')], lenses: [] })
+    if (label === 'review:r1') return findingsResult({ findings: [makeFinding()] })
+    if (label === 'critic') return criticResult({ gaps: [{ label: 'g1', prompt: 'p1' }] })
+    if (label === 'gap:1') return findingsResult({ findings: [makeFinding()] })
+    if (label === 'merge') return dedupResult({ groups: [] })
+    if (label.startsWith('verify:')) return verdictResult({ refuted: false })
+    if (label === 'synthesis') return synthResult({ reportPath: plan.reportPath })
+    if (label.startsWith('triage:')) return triageResult({ results: [] })
+    throw new Error('models/efforts: unexpected label ' + label)
+  }
+  const { agent, calls } = autoAgent(responder)
+  const result = await CORE.runAudit(plan, makeDeps({ agent }))
+  assert.equal(result.started, true)
+
+  const checkKey = (pred, key, desc) => {
+    const matching = calls.filter(pred)
+    assert.ok(matching.length > 0, `expected at least one call for ${desc}`)
+    for (const c of matching) {
+      assert.equal(c.opts.model, MODELS[key], `${desc} model must be models.${key}`)
+      assert.equal(c.opts.effort, EFFORTS[key], `${desc} effort must be efforts.${key}`)
+    }
+  }
+  checkKey((c) => c.label === 'scope', 'scope', 'scope')
+  checkKey((c) => c.label.startsWith('review:'), 'review', 'review:<key>')
+  checkKey((c) => c.label === 'critic', 'gaps', 'critic')
+  checkKey((c) => c.label.startsWith('gap:'), 'gaps', 'gap:<n>')
+  checkKey((c) => c.label === 'merge', 'merge', 'merge')
+  checkKey((c) => c.label.startsWith('verify:'), 'verify', 'verify:*')
+  checkKey((c) => c.label === 'synthesis', 'synth', 'synthesis') // plan §2.2's key is `synth`
+  checkKey((c) => c.label.startsWith('triage:'), 'triage', 'triage:<n>')
+})
+
+test('Follow-up (O10-2): the verify prompt names its own lens, every VERDICT field, and query_items (how alreadyTrackedId is derived)', async () => {
+  const plan = buildPlan({
+    verify: { highLenses: ['evidence', 'significance', 'consequence'], defaultLenses: ['combined'], maxFindings: 40 },
+  })
+  const responder = async (label) => {
+    if (label === 'review:r1') return findingsResult({ findings: [makeFinding({ severity: 'critical' })] })
+    if (label === 'review:r2') return findingsResult({ findings: [makeFinding({ severity: 'low' })] })
+    if (label === 'merge') return dedupResult({ groups: [] })
+    if (label.startsWith('verify:')) return verdictResult({ refuted: false })
+    if (label === 'synthesis') return synthResult({ reportPath: plan.reportPath })
+    throw new Error('verify-prompt: unexpected label ' + label)
+  }
+  const { agent, calls } = autoAgent(responder)
+  await CORE.runAudit(plan, makeDeps({ agent }))
+  const verifyCalls = calls.filter((c) => c.label.startsWith('verify:'))
+  assert.equal(verifyCalls.length, 4, 'expect 3 highLenses calls (critical finding) + 1 defaultLenses call (low finding)')
+  const VERDICT_FIELDS = ['refuted', 'confidence', 'evidenceAccurate', 'correctedEvidence', 'adjustedSeverity', 'alreadyTrackedId', 'rationale']
+  for (const c of verifyCalls) {
+    const lens = c.label.split(':').pop()
+    // Case-insensitive: the reference lens headers are uppercase ("LENS = SIGNIFICANCE."),
+    // and not every lens body happens to also use the lowercase word elsewhere (unlike
+    // evidence/consequence, whose bodies incidentally do) — the requirement is that the
+    // prompt names the lens, not that it does so in a particular case.
+    assert.match(c.prompt, new RegExp(lens, 'i'), `${c.label} prompt must name its own lens "${lens}"`)
+    for (const field of VERDICT_FIELDS) {
+      assert.ok(c.prompt.includes(field), `${c.label} prompt must name VERDICT field "${field}"`)
+    }
+    assert.ok(c.prompt.includes('query_items'), `${c.label} prompt must mention query_items (alreadyTrackedId derivation)`)
+  }
+})
+
+test('Follow-up (O10-3): a Scope agent proposing more reviewers than reviewerCount is capped to reviewerCount review calls', async () => {
+  const plan = buildPlan({
+    preset: 'quick',
+    scope: { paths: ['claude-plugins/task-orchestrator/hooks'] }, // reviewers absent -> Scope runs
+  })
+  const proposedReviewers = Array.from({ length: 6 }, (_, i) => reviewerSpec(`r${i + 1}`))
+  const responder = async (label) => {
+    if (label === 'scope') return scopeResult({ reviewers: proposedReviewers, lenses: [] })
+    if (label.startsWith('review:')) return findingsResult({ findings: [makeFinding()] })
+    if (label === 'merge') return dedupResult({ groups: [] })
+    if (label.startsWith('verify:')) return verdictResult({ refuted: false })
+    if (label === 'synthesis') return synthResult({ reportPath: plan.reportPath })
+    throw new Error('scope-cap: unexpected label ' + label)
+  }
+  const { agent, calls } = autoAgent(responder)
+  const result = await CORE.runAudit(plan, makeDeps({ agent }))
+  assert.equal(result.started, true)
+  const reviewCalls = calls.filter((c) => c.label.startsWith('review:'))
+  assert.equal(reviewCalls.length, CORE.PRESETS.quick.reviewerCount)
+  assert.equal(reviewCalls.length, 4)
+})
+
+test('Follow-up (O10-4): triage:<n> call count equals ceil(min(kept, maxFindings)/10)', async () => {
+  const reviewers = Array.from({ length: 25 }, (_, i) => reviewerSpec(`r${i + 1}`))
+  const plan = buildPlan({
+    scope: { paths: ['claude-plugins/task-orchestrator/hooks'], reviewers, lenses: [] },
+    verify: { highLenses: ['combined'], defaultLenses: ['combined'], maxFindings: 15 },
+    gaps: { enabled: false, max: 0 },
+    items: { enabled: true, rootId: 'root-test-0001', materializeMin: 'high' },
+  })
+  const projected = CORE.projectAgents(plan)
+  assert.ok(projected.total <= plan.maxAgents, 'fixture must stay within default maxAgents for this test to run without allowLarge')
+  const responder = async (label) => {
+    if (label.startsWith('review:')) return findingsResult({ findings: [makeFinding({ severity: 'medium' })] })
+    if (label === 'merge') return dedupResult({ groups: [] })
+    if (label.startsWith('verify:')) return verdictResult({ refuted: false })
+    if (label === 'synthesis') return synthResult({ reportPath: plan.reportPath })
+    if (label.startsWith('triage:')) return triageResult({ results: [] })
+    throw new Error('triage-cap: unexpected label ' + label)
+  }
+  const { agent, calls } = autoAgent(responder)
+  const result = await CORE.runAudit(plan, makeDeps({ agent }))
+  assert.equal(result.started, true)
+  assert.equal(result.kept.length, 25, 'all 25 merged findings are kept (verified ones plus the unverified-by-cap tail)')
+  const expected = Math.ceil(Math.min(result.kept.length, plan.verify.maxFindings) / 10)
+  assert.equal(expected, 2, 'fixture must actually exercise the cap boundary for this test to mean anything')
+  const triageCalls = calls.filter((c) => c.label.startsWith('triage:'))
+  assert.equal(triageCalls.length, expected)
+})
+
+// O10-5 (whenToUse contains 'maxAgents' and 'allowLarge'): already asserted by the T-meta
+// test above (added for arbitration case 2) — not duplicated here.
+
 test('Follow-up O8: first-group-wins — winner memberIds are exact, the losing group keeps only its unconsumed member under its own mergedTitle, and untouched findings are true ungrouped singletons', () => {
   const all = [
     rawFinding('a', 's1'), rawFinding('b', 's2'), rawFinding('c', 's3'),
