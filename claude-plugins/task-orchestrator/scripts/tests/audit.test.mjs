@@ -1316,9 +1316,12 @@ test('Follow-up O6: scope.reviewers: [] is treated as absent (Scope phase runs),
 // per-phase key is currently read as `models.synthesis` rather than plan §2.2's `synth`; test
 // (O10-1) is written to §2.2 regardless and reported red if it is red against HEAD.
 
-test('Follow-up (O10-1): args.models/args.efforts reach agent() opts as model/effort, keyed exactly scope/review/gaps/merge/verify/synth/triage', async () => {
-  const MODELS = { scope: 'm-scope', review: 'm-review', gaps: 'm-gaps', merge: 'm-merge', verify: 'm-verify', synth: 'm-synth', triage: 'm-triage' }
-  const EFFORTS = { scope: 'e-scope', review: 'e-review', gaps: 'e-gaps', merge: 'e-merge', verify: 'e-verify', synth: 'e-synth', triage: 'e-triage' }
+test('Follow-up (O10-1, corrected): args.models/args.efforts reach agent() opts as model/effort, keyed exactly review/critic/merge/verify/synth/triage per plan §2.2 — scope and gap:<n> reuse "review" (no dedicated scope/gaps key exists); an omitted key yields no model', async () => {
+  // plan §2.2: `models:{ review, critic, merge, verify, synth, triage }` — six keys only, no
+  // `scope` and no `gaps`. `args.models.verify` is deliberately left unset here to assert the
+  // omitted-key behavior distinctly from the "key present" behavior.
+  const MODELS = { review: 'm-review', critic: 'm-critic', merge: 'm-merge', synth: 'm-synth', triage: 'm-triage' }
+  const EFFORTS = { review: 'e-review', critic: 'e-critic', merge: 'e-merge', verify: 'e-verify', synth: 'e-synth', triage: 'e-triage' }
   const plan = buildPlan({
     scope: { paths: ['claude-plugins/task-orchestrator/hooks'] }, // reviewers absent -> Scope runs
     gaps: { enabled: true, max: 1 },
@@ -1349,14 +1352,20 @@ test('Follow-up (O10-1): args.models/args.efforts reach agent() opts as model/ef
       assert.equal(c.opts.effort, EFFORTS[key], `${desc} effort must be efforts.${key}`)
     }
   }
-  checkKey((c) => c.label === 'scope', 'scope', 'scope')
+  checkKey((c) => c.label === 'scope', 'review', 'scope (reuses "review" — no dedicated scope key)')
   checkKey((c) => c.label.startsWith('review:'), 'review', 'review:<key>')
-  checkKey((c) => c.label === 'critic', 'gaps', 'critic')
-  checkKey((c) => c.label.startsWith('gap:'), 'gaps', 'gap:<n>')
+  checkKey((c) => c.label.startsWith('gap:'), 'review', 'gap:<n> (reuses "review" — no dedicated gaps key)')
+  checkKey((c) => c.label === 'critic', 'critic', 'critic')
   checkKey((c) => c.label === 'merge', 'merge', 'merge')
-  checkKey((c) => c.label.startsWith('verify:'), 'verify', 'verify:*')
   checkKey((c) => c.label === 'synthesis', 'synth', 'synthesis') // plan §2.2's key is `synth`
   checkKey((c) => c.label.startsWith('triage:'), 'triage', 'triage:<n>')
+
+  const verifyCalls = calls.filter((c) => c.label.startsWith('verify:'))
+  assert.ok(verifyCalls.length > 0, 'expected at least one verify:* call')
+  for (const c of verifyCalls) {
+    assert.equal(c.opts.model, undefined, 'args.models.verify was omitted -> no model in opts')
+    assert.equal(c.opts.effort, EFFORTS.verify, 'args.efforts.verify WAS provided -> effort is still set')
+  }
 })
 
 test('Follow-up (O10-2): the verify prompt names its own lens, every VERDICT field, and query_items (how alreadyTrackedId is derived)', async () => {
