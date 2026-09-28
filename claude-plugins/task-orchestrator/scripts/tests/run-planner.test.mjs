@@ -1205,3 +1205,218 @@ test("Probe: a backslashed git.repoRoot never leaks a backslash into item worktr
         assert.ok(!item.worktree.includes("\\"), `worktree must be forward-slashed: ${item.worktree}`);
     }
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Follow-up (reviewer's test-independence-audit, keys=["test-independence-audit"]).
+// Oracles: b2-dispatch-contract.md Appendix C, b2-b3-front-door.md §3.1/§3.4, B1 plan §3.1.
+// Reds against HEAD are expected here (implementer concurrently fixing B1-B4/O4/O7);
+// they are reported, never weakened.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ── (1) CLI `plan` without --now uses the CLI clock; runId embeds yyyymmddHHMM (UTC) close
+//        to wall-clock time; `validate` on the resulting doc exits 0. [Appendix C "--now defaults
+//        to the CLI clock"; assembleArgs runId = r-<yyyymmddHHMM UTC of now>-<items[0].short>]
+
+test("(1) CLI plan without --now: runId's UTC yyyymmddHHMM is within a minute of wall-clock time; format ^r-\\d{12}-[0-9a-f]{8}$; validate exits 0", () => {
+    const before = new Date();
+    const snap = loadFixture("independent-two.json");
+    const res = runCli(["plan"], { input: JSON.stringify(snap) }); // no --now
+    const after = new Date();
+    assert.equal(res.status, 0, res.stderr);
+    const doc = JSON.parse(res.stdout);
+    assert.match(doc.args.runId, /^r-\d{12}-[0-9a-f]{8}$/);
+
+    const ts = doc.args.runId.slice(2, 14);
+    const y = Number(ts.slice(0, 4));
+    const mo = Number(ts.slice(4, 6));
+    const d = Number(ts.slice(6, 8));
+    const h = Number(ts.slice(8, 10));
+    const mi = Number(ts.slice(10, 12));
+    const parsedMs = Date.UTC(y, mo - 1, d, h, mi, 0);
+    // Minute-truncation can put the embedded timestamp up to 59s before generation time;
+    // allow slack for that plus test/process overhead on both sides.
+    assert.ok(
+        parsedMs >= before.getTime() - 65000 && parsedMs <= after.getTime() + 5000,
+        `runId timestamp ${ts} (${new Date(parsedMs).toISOString()}) not within a minute of wall clock [${before.toISOString()}, ${after.toISOString()}]`
+    );
+
+    const validateRes = runCli(["validate"], { input: JSON.stringify(doc) });
+    assert.equal(validateRes.status, 0, validateRes.stderr);
+});
+
+// ── (2) S18 'nothing to run': an item whose every seat's notes are already written under that
+//        seat's own actor has nothing left to run and is EXCLUDED with reason 'nothing to run'
+//        (not admitted, not deferred); a co-admitted sibling still satisfies args.items minItems 1;
+//        with only such items, the run refuses (args:null, the existing zero-admitted shape).
+
+const NOTHING_TO_RUN_ID = "9a000000-0000-4000-8000-000000000000";
+const OTHER_ADMITTED_ID = "9b000000-0000-4000-8000-000000000000";
+
+function fullyResumedNoteActors(short) {
+    return [
+        { key: "diagnosis", actorId: `planner:${short}:r-prior` },
+        { key: "test-plan", actorId: `planner:${short}:r-prior` },
+        { key: "implementation-notes", actorId: `implementer:${short}:r-prior` },
+        { key: "test-manifest", actorId: `test-author:${short}:r-prior` },
+    ];
+}
+
+test("(2) deriveStages on a fully-resumed item (every seat's notes already written) yields zero stages, exclude:'nothing to run'", () => {
+    const candidate = bugFixLikeCandidate({ id: NOTHING_TO_RUN_ID, short: "9a000000", parentId: null, role: "work", source: "work" });
+    const schemaEntry = bugFixLikeSchema();
+    const result = deriveStages(candidate, schemaEntry, {
+        rulesServed: [{ key: "declarations-extractor", rulesVersion: "1" }],
+        noteActors: fullyResumedNoteActors("9a000000"),
+        profile: { defaultModels: DISPATCH_DEFAULTS },
+    });
+    assert.deepEqual(result.stages, []);
+    assert.equal(result.exclude, "nothing to run");
+});
+
+function nothingToRunSnapshot({ withSibling }) {
+    const candidates = [bugFixLikeCandidate({ id: NOTHING_TO_RUN_ID, short: "9a000000", parentId: null, role: "work", source: "work" })];
+    const schemas = { [NOTHING_TO_RUN_ID]: bugFixLikeSchema() };
+    const noteActors = { [NOTHING_TO_RUN_ID]: fullyResumedNoteActors("9a000000") };
+    if (withSibling) {
+        candidates.push(plainCandidate({ id: OTHER_ADMITTED_ID, short: "9b000000" }));
+        schemas[OTHER_ADMITTED_ID] = plainSchema();
+    }
+    return baseSnapshot({
+        rulesServed: [{ key: "declarations-extractor", rulesVersion: "1" }, { key: "commit-discipline", rulesVersion: "1" }],
+        candidates, schemas, noteActors,
+    });
+}
+
+test("(2) integration: a fully-resumed item is excluded 'nothing to run'; a co-admitted sibling still satisfies args.items minItems 1", () => {
+    const result = buildPlanDoc(nothingToRunSnapshot({ withSibling: true }), { now: NOW });
+    assert.equal(result.ok, true, JSON.stringify(result.errors));
+    assert.deepEqual(result.doc.args.items.map((it) => it.short), ["9b000000"]);
+    assert.ok(result.doc.args.items.length >= 1);
+    assert.ok(result.doc.meta.excluded.some((e) => e.id === NOTHING_TO_RUN_ID && e.reason === "nothing to run"));
+});
+
+test("(2) integration: with ONLY a fully-resumed item, the run refuses (args:null, zero admitted)", () => {
+    const result = buildPlanDoc(nothingToRunSnapshot({ withSibling: false }), { now: NOW });
+    assert.equal(result.ok, false);
+    assert.equal(result.doc?.args ?? null, null);
+});
+
+// ── (3) No literal <worktree> / <scratchpad> placeholder survives substitution in
+//        args.project.verify[].command or args.project.searchScope, in shared or per-item mode.
+//        [b2-b3-front-door.md §3.4: "<worktree> and <scratchpad> placeholders are substituted by plan"]
+
+function placeholderProfile() {
+    return {
+        shell: "bash",
+        verify: [{ name: "compile", command: "cd <worktree> && node --check . && cat <scratchpad>/notes.txt", seats: ["implementer"] }],
+        searchScope: ["<worktree>/current/src", "<scratchpad>/notes"],
+        worktreeRoot: ".claude/worktrees",
+        branchPrefix: { shared: "feat/", perItem: "fix/" },
+        maxItems: 5,
+        defaultModels: DISPATCH_DEFAULTS,
+    };
+}
+
+function assertNoPlaceholders(doc) {
+    for (const v of doc.args.project.verify ?? []) {
+        assert.ok(!v.command.includes("<worktree>"), `verify command still has <worktree>: ${v.command}`);
+        assert.ok(!v.command.includes("<scratchpad>"), `verify command still has <scratchpad>: ${v.command}`);
+    }
+    for (const s of doc.args.project.searchScope ?? []) {
+        assert.ok(!s.includes("<worktree>"), `searchScope still has <worktree>: ${s}`);
+        assert.ok(!s.includes("<scratchpad>"), `searchScope still has <scratchpad>: ${s}`);
+    }
+}
+
+test("(3) shared mode: no literal <worktree>/<scratchpad> remains in project.verify[].command or searchScope", () => {
+    const parentId = "9c000000-0000-4000-8000-000000000000";
+    const snap = baseSnapshot({
+        ancestorId: parentId,
+        candidates: [
+            plainCandidate({ id: "9d000000-0000-4000-8000-000000000000", short: "9d000000", parentId }),
+            plainCandidate({ id: "9e000000-0000-4000-8000-000000000000", short: "9e000000", parentId }),
+        ],
+        schemas: {
+            "9d000000-0000-4000-8000-000000000000": plainSchema(),
+            "9e000000-0000-4000-8000-000000000000": plainSchema(),
+        },
+        parents: { [parentId]: { role: "work", canAdvance: true, missing: [] } },
+        profile: placeholderProfile(),
+    });
+    const result = buildPlanDoc(snap, { now: NOW, mode: "shared", scratchpad: "/scratch/run" });
+    assert.equal(result.ok, true, JSON.stringify(result.errors));
+    assertNoPlaceholders(result.doc);
+});
+
+test("(3) per-item mode: no literal <worktree>/<scratchpad> remains in project.verify[].command or searchScope", () => {
+    const snap = baseSnapshot({
+        candidates: [plainCandidate({ id: "9f000000-0000-4000-8000-000000000000", short: "9f000000" })],
+        schemas: { "9f000000-0000-4000-8000-000000000000": plainSchema() },
+        profile: placeholderProfile(),
+    });
+    const result = buildPlanDoc(snap, { now: NOW, mode: "per-item", scratchpad: "/scratch/run" });
+    assert.equal(result.ok, true, JSON.stringify(result.errors));
+    assertNoPlaceholders(result.doc);
+});
+
+// ── (4) profile.defaultModels.extractor accepts both the string form 'sonnet+low' and the
+//        object form {model,effort}; both yield the extractor stage's dispatch {model:'sonnet',
+//        effort:'low'}. [Appendix C default-object literal: extractor:{model:'sonnet',effort:'low'}]
+
+function extractorDispatchFor(defaultModelsExtractor) {
+    const snap = mixedTypesFixture();
+    const candidate = snap.candidates[0];
+    const schemaEntry = snap.schemas[candidate.id];
+    const profile = { ...snap.profile, defaultModels: { ...snap.profile.defaultModels, extractor: defaultModelsExtractor } };
+    const result = deriveStages(candidate, schemaEntry, { rulesServed: snap.rulesServed, noteActors: [], profile });
+    const extractor = result.stages.find((s) => s.seat === "declarations-extractor");
+    assert.ok(extractor, "extractor stage must be present");
+    return extractor.dispatch;
+}
+
+test("(4) profile defaultModels.extractor: string form 'sonnet+low' yields {model:'sonnet',effort:'low'}", () => {
+    const dispatch = extractorDispatchFor("sonnet+low");
+    assert.equal(dispatch.model, "sonnet");
+    assert.equal(dispatch.effort, "low");
+});
+
+test("(4) profile defaultModels.extractor: object form {model,effort} yields the same {model:'sonnet',effort:'low'}", () => {
+    const dispatch = extractorDispatchFor({ model: "sonnet", effort: "low" });
+    assert.equal(dispatch.model, "sonnet");
+    assert.equal(dispatch.effort, "low");
+});
+
+// ── (5) classifyEdge's cross-run reason names the blocker's 8-hex short, never the full UUID.
+
+test("(5) classifyEdge cross-run reason uses the blocker's 8-hex short, never the full UUID", () => {
+    const fullId = "12345678-90ab-4cde-8fed-cba098765432";
+    const edge = { itemId: fullId, role: "review", effectiveUnblockRole: "terminal", satisfied: false };
+    const result = classifyEdge(edge, { runIds: new Set([fullId]), mode: "shared", milestone: null });
+    assert.equal(result.class, "cross-run");
+    assert.ok(result.reason.includes("12345678"), result.reason);
+    assert.ok(!result.reason.includes(fullId), result.reason);
+});
+
+// ── (6) O1: resume-skip requires the note actor's short segment to match THIS item's own short;
+//        a note written under a DIFFERENT item's short must not skip the seat.
+
+test("(6) O1: a note actor stamped with a DIFFERENT item's short does not skip this item's seat", () => {
+    const snap = mixedTypesFixture();
+    const candidate = { ...snap.candidates[0], role: "work", source: "work" };
+    const schemaEntry = snap.schemas[candidate.id];
+    const noteActors = [{ key: "implementation-notes", actorId: "implementer:00000000:r-other" }]; // wrong short
+    const result = deriveStages(candidate, schemaEntry, { rulesServed: snap.rulesServed, noteActors, profile: snap.profile });
+    const seats = result.stages.map((s) => s.seat);
+    assert.ok(seats.includes("implementer"), "a note actor from a different item's short must not count as this item's resume");
+});
+
+// ── (7) O9 (tightened S5): resolveDispatch's agent is exactly null, never undefined, when the
+//        profile declares agent: null.
+
+test("(7) O9: resolveDispatch's agent is strictly null (never undefined) when the profile declares agent: null", () => {
+    const schemaEntry = { dispatchBySeat: { work: { "test-author": { agent: null, model: "sonnet" } } } };
+    const result = resolveDispatch(schemaEntry, "test-author", "work", { enters: false, implicitOwner: false }, DISPATCH_DEFAULTS);
+    assert.equal(result.agent, null);
+    assert.notEqual(result.agent, undefined);
+    assert.ok(Object.prototype.hasOwnProperty.call(result, "agent"), "agent key must be present on the result, not omitted");
+});
