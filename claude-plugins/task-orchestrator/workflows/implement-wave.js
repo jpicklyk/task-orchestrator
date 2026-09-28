@@ -584,22 +584,263 @@ function scanDeclarations(text) {
   return { text: kept.join('\n'), stripped }
 }
 
-// B1b fills this
-/** seatPrompt(plan, item, stage, outs) -> string (deterministic; stub content free) */
-function seatPrompt(plan, item, stage, outs) {
-  return `SEAT: ${stage.seat} for item ${item.id} (${item.short}). Run ${plan.runId}.`
-}
-
-// B1b fills this
-/** handoff(stage, outs) -> string */
-function handoff(stage, outs) {
-  return ''
-}
-
-// B1b fills this
 /** seatActor(stage, item, plan) -> {id, kind:'subagent', parent:'workflow:'+runId} */
 function seatActor(stage, item, plan) {
   return { id: `${stage.seat}:${item.short}:${plan.runId}`, kind: 'subagent', parent: `workflow:${plan.runId}` }
+}
+
+function isReadOnlyStage(stage) {
+  return !stage.writes && (!stage.notes || stage.notes.length === 0)
+}
+
+/** Part 1: seat line. */
+function promptSeatLine(plan, item, stage) {
+  const title = item.title || item.short
+  return `SEAT: ${stage.seat} for item ${item.id} (${item.short}) "${title}". Run ${plan.runId}.`
+}
+
+/** Part 2: worktree scope + shell discipline. */
+function promptScope(plan, item) {
+  const proj = plan.project || {}
+  const lines = [`WORKTREE: ${item.worktree}`]
+  if (proj.searchScope) lines.push(`SEARCH SCOPE: ${proj.searchScope}`)
+  if (proj.scratchDir) lines.push(`SCRATCHPAD: ${proj.scratchDir}`)
+  if (proj.shell) lines.push(`SHELL: ${proj.shell}`)
+  lines.push('Never prefix a command with cd — use absolute paths or git -C <worktree>.')
+  lines.push('Never run a bare find / or other unscoped filesystem walk.')
+  lines.push('Leave no background commands running when you return.')
+  return lines.join('\n')
+}
+
+/** Part 3: tool selection. */
+function promptTools(stage) {
+  const names = [
+    'mcp__mcp-task-orchestrator__query_items',
+    'mcp__mcp-task-orchestrator__query_notes',
+    'mcp__mcp-task-orchestrator__query_dependencies',
+    'mcp__mcp-task-orchestrator__get_context',
+    'mcp__mcp-task-orchestrator__query_rules',
+  ]
+  if (!isReadOnlyStage(stage)) names.push('mcp__mcp-task-orchestrator__manage_notes')
+  if (stage.enters) names.push('mcp__mcp-task-orchestrator__advance_item')
+  return `TOOLS: load with ToolSearch select:${names.join(',')}`
+}
+
+/** Part 4: actor. */
+function promptActor(stage, item, plan) {
+  const actor = seatActor(stage, item, plan)
+  return (
+    `ACTOR: ${JSON.stringify(actor)} — place this actor inside every notes[]/transitions[] ` +
+    'element you write (enforce-actor-attribution.mjs checks per element; phase-guard-record.mjs ' +
+    'filters on parent starting with "workflow:").'
+  )
+}
+
+/** Part 5: owned notes / excluded reads. */
+function promptOwnedNotes(stage) {
+  const owned = (stage.notes || []).join(', ') || 'none'
+  const excluded = (stage.readsExclude || []).join(', ') || 'none'
+  return (
+    `NOTES: you own [${owned}]. The phase's other required notes belong to other seats — ` +
+    `do not fill them. Excluded from your reads: [${excluded}]. Always pass keys= on every ` +
+    'query_notes call.'
+  )
+}
+
+/** Part 6: rule fetch by key. */
+function protocolKeyFor(stage) {
+  if (stage.enters) return 'protocol.entry-seat'
+  if (isReadOnlyStage(stage)) return 'protocol.read-only-agent'
+  return 'protocol.in-phase-seat'
+}
+
+function promptRules(plan, stage) {
+  const protocolKey = protocolKeyFor(stage)
+  const keys = [protocolKey]
+  if (stage.writes) keys.push('commit-discipline')
+  for (const k of stage.rules || []) {
+    if (!keys.includes(k)) keys.push(k)
+  }
+  const skillKeys = stage.skills ? Object.keys(stage.skills) : []
+  const lines = [
+    `RULES: fetch each key below via query_rules(operation:"get", rootId:"${plan.rootId}", key:<key>) and follow the returned body over anything paraphrased here.`,
+    `Keys: ${keys.join(', ')}.`,
+    `RESOURCE_NOT_FOUND for a key falls back to this stage's skills entry of the same name${skillKeys.length ? ` (${skillKeys.join(', ')})` : ''}.`,
+    `A missing PROTOCOL key (${protocolKey}) is fatal: status stopped, reason "rule ${protocolKey} unavailable".`,
+    'Record every key you fetched, with its rulesVersion, under the envelope\'s rulesFetched.',
+  ]
+  return lines.join('\n')
+}
+
+/** Part 7: drift pin, omitted for schema-free items and read-only seats. */
+function promptDriftPin(item, stage) {
+  if (item.schemaFree || isReadOnlyStage(stage)) return ''
+  const lines = [
+    `DRIFT PIN: before your first write, call query_items(operation:"schema", itemId:"${item.id}").`,
+    `Its configFingerprint must equal ${item.configFingerprint}.`,
+  ]
+  if (item.itemTraits !== undefined) {
+    lines.push(`get(itemId) -> properties.traits must equal ${JSON.stringify(item.itemTraits)}.`)
+  } else {
+    lines.push(`For reference, traits: ${JSON.stringify(item.traits || [])}.`)
+  }
+  lines.push('A mismatch means write nothing and return status "stopped", reason "schema-changed".')
+  return lines.join('\n')
+}
+
+/** Part 8: config-unavailable retry, constant. */
+function promptConfigRetry() {
+  return (
+    'CONFIG RETRY: on a config_unavailable failure, retry once after one intervening read call ' +
+    '— no sleep. A second failure returns status "deferred", reason "config-unavailable".'
+  )
+}
+
+/** Part 9: inline note bodies, constant. */
+function promptInlineBodies() {
+  return (
+    'NOTE BODIES: pass body inline on every manage_notes upsert. Never use bodyFromFile. ' +
+    're-trim and re-upsert if any upsert response carries a warning.'
+  )
+}
+
+/** Part 10: commit form, writers only. */
+function promptCommitForm(item, stage) {
+  if (!stage.writes) return ''
+  return [
+    'COMMIT: stage only your own paths, then commit with the trailer:',
+    `git -C ${item.worktree} commit --only -m "<type>(<scope>): <title> [${item.short}]" -m "<why>" -m "Seat: ${stage.seat}" -m "Co-Authored-By: <your model attribution line>" -- <paths>`,
+  ].join('\n')
+}
+
+/** Part 11: verify commands whose seats include this seat, verbatim. */
+function promptVerify(plan, stage) {
+  const proj = plan.project || {}
+  const entries = (proj.verify || []).filter((v) => Array.isArray(v.seats) && v.seats.includes(stage.seat))
+  if (entries.length === 0) return ''
+  const lines = ['VERIFY:']
+  for (const v of entries) lines.push(v.command || JSON.stringify(v))
+  return lines.join('\n')
+}
+
+/**
+ * handoff(stage, outs) -> string
+ * outs is keyed by OUTPUT-SCHEMA id (not seat name). Builds the hand-off block for
+ * stage.output from its declared upstream outputs; empty string when none apply.
+ */
+function handoff(stage, outs) {
+  const lines = []
+  if (stage.output === 'implementer-v1') {
+    const p = outs['planner-v1']
+    if (p) {
+      lines.push('HANDOFF from planner:')
+      lines.push(`decisions: ${p.decisions || 'none'}`)
+      lines.push(`mainFiles: ${(p.mainFiles || []).join(', ') || 'none'}`)
+      lines.push(`docFiles: ${(p.docFiles || []).join(', ') || 'none'}`)
+      lines.push(`missingApiOrSeam: ${p.missingApiOrSeam || 'none'}`)
+      lines.push(`diagnosisCorrections: ${p.diagnosisCorrections || 'none'}`)
+    }
+  } else if (stage.output === 'declarations-v1') {
+    const i = outs['implementer-v1']
+    if (i) {
+      lines.push('HANDOFF from implementer:')
+      lines.push(`publicSurface: ${i.publicSurface || 'none'}`)
+      lines.push(`mainFilesChanged: ${(i.mainFilesChanged || []).join(', ') || 'none'}`)
+      lines.push(`docFilesChanged: ${(i.docFilesChanged || []).join(', ') || 'none'}`)
+    }
+  } else if (stage.output === 'test-author-v1') {
+    const d = outs['declarations-v1']
+    const p = outs['planner-v1']
+    const i = outs['implementer-v1']
+    if (d || p || i) lines.push('HANDOFF:')
+    if (d) {
+      lines.push(`declarations: ${d.declarations || 'none'}`)
+      lines.push(`harnessPointers: ${d.harnessPointers || 'none'}`)
+      lines.push(`gaps: ${d.gaps || 'none'}`)
+    }
+    if (p) {
+      lines.push(`testFiles: ${(p.testFiles || []).join(', ') || 'none'}`)
+      lines.push(`existingTestEdits: ${JSON.stringify(p.existingTestEdits || [])}`)
+    }
+    if (i) {
+      lines.push(`failingExistingTests (declared edits): ${JSON.stringify(i.failingExistingTests || [])}`)
+    }
+  }
+  return lines.join('\n')
+}
+
+/** Part 13: rerun-safe check + entry protocol. */
+function promptRerunAndEntry(plan, item, stage, actor) {
+  if (!stage.writes && !stage.enters) return ''
+  const lines = []
+  if (stage.writes) {
+    lines.push(
+      `RERUN CHECK: before doing any work, run git -C ${item.worktree} log --format=%H%x09%s%x09%b ${plan.baseSha}..HEAD ` +
+        `and look for a commit subject containing "[${item.short}]" with trailer "Seat: ${stage.seat}". If found, your ` +
+        `own notes are already filled under actor ${actor.id} (verify via query_notes with includeBody:false) — stop, ` +
+        'do not redo the work.'
+    )
+  }
+  if (stage.enters) {
+    lines.push('ENTRY: call get_context(itemId) first.')
+    lines.push('role "work" -> do not advance; report entry.alreadyInPhase.')
+    lines.push('role "queue" -> call advance_item(transitions:[{itemId, trigger:"start", actor}]) exactly once.')
+    lines.push('Rerun-safe entry: never call start from work — only from queue.')
+    if (plan.entryMode === 'pre-entered') {
+      lines.push('entryMode is pre-entered: verify role is already "work" and never call advance_item.')
+    }
+  }
+  return lines.join('\n')
+}
+
+/** Part 14: return contract. */
+function promptReturn(stage) {
+  return `RETURN: return the structured envelope (${stage.output}); notes are the report.`
+}
+
+function reKeyOutsByOutputId(item, outsBySeat) {
+  const byOutput = {}
+  for (const s of item.stages) {
+    if (outsBySeat[s.seat] !== undefined) byOutput[s.output] = outsBySeat[s.seat]
+  }
+  return byOutput
+}
+
+/**
+ * seatPrompt(plan, item, stage, outs) -> string
+ * Joins the 14 non-empty prompt parts (§5.3) with "\n\n"; each part is a pure
+ * function of plan/item/stage/outs. No rule text lives here — rules are fetched by
+ * key at runtime via query_rules (part 6).
+ */
+function seatPrompt(plan, item, stage, outs) {
+  const actor = seatActor(stage, item, plan)
+  const outsByOutput = reKeyOutsByOutputId(item, outs || {})
+  if (
+    stage.output === 'test-author-v1' &&
+    outsByOutput['declarations-v1'] &&
+    typeof outsByOutput['declarations-v1'].declarations === 'string'
+  ) {
+    outsByOutput['declarations-v1'] = Object.assign({}, outsByOutput['declarations-v1'], {
+      declarations: scanDeclarations(outsByOutput['declarations-v1'].declarations).text,
+    })
+  }
+  const parts = [
+    promptSeatLine(plan, item, stage),
+    promptScope(plan, item),
+    promptTools(stage),
+    promptActor(stage, item, plan),
+    promptOwnedNotes(stage),
+    promptRules(plan, stage),
+    promptDriftPin(item, stage),
+    promptConfigRetry(),
+    promptInlineBodies(),
+    promptCommitForm(item, stage),
+    promptVerify(plan, stage),
+    handoff(stage, outsByOutput),
+    promptRerunAndEntry(plan, item, stage, actor),
+    promptReturn(stage),
+  ]
+  return parts.filter((p) => p && p.length > 0).join('\n\n')
 }
 
 function shortOf(plan, itemId) {

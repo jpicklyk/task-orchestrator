@@ -1,0 +1,132 @@
+# Scratch config fixture for implement-wave-prompts.test.mjs (B1b) and B1d's live L0 setup.
+# Syntax copied from .taskorchestrator/config.yaml:18-109,164-304 and
+# skills/manage-schemas/references/config-format.md:44-55,274-299,351-362 — not a live config,
+# never mounted or pushed anywhere; parsed only for existence/non-emptiness by tests.
+
+actor_attribution:
+  required: true
+
+work_item_schemas:
+
+  scratch-bug:
+    lifecycle: auto
+    default_traits: [delegated, session-tracked, needs-test-author]
+    seats:
+      - { name: planner,      phase: queue }
+      - { name: implementer,  phase: work, enters: true }
+      - { name: orchestrator, phase: work, after: [implementer] }
+    notes:
+      - key: diagnosis
+        role: queue
+        required: true
+        seat: planner
+        description: "Reproduction, root cause, and fix approach."
+        skill: "spec-quality"
+        guidance: "Reproduction steps, root cause (file:line), fix approach with alternatives, blast radius, test strategy."
+      - key: implementation-notes
+        role: work
+        required: true
+        seat: implementer
+        description: "What changed and deviations from the diagnosis."
+        guidance: "Document deviations from the diagnosed fix and any pattern to apply elsewhere."
+        maxLength: 3000
+
+  scratch-feature:
+    lifecycle: auto
+    default_traits: [delegated, session-tracked]
+    seats:
+      - { name: planner,      phase: queue }
+      - { name: implementer,  phase: work, enters: true }
+      - { name: orchestrator, phase: work, after: [implementer] }
+    notes:
+      - key: task-scope
+        role: queue
+        required: true
+        seat: planner
+        description: "What to build — target files, acceptance criteria, constraints."
+        skill: "spec-quality"
+        guidance: "Target files, acceptance criteria, constraints, dependencies on other tasks."
+      - key: implementation-notes
+        role: work
+        required: true
+        seat: implementer
+        description: "Context handoff — deviations, surprises, decisions."
+        guidance: "Deviations from the plan, API surprises, assumptions that turned out wrong."
+        maxLength: 3000
+
+  scratch-plugin:
+    lifecycle: auto
+    default_traits: [session-tracked]
+    notes:
+      - key: specification
+        role: queue
+        required: true
+        description: "What is changing, why, and expected behavior after the change."
+        guidance: "Describe the plugin/config change: affected files, behavior change, how to verify."
+
+  default:
+    lifecycle: auto
+    default_traits: [session-tracked]
+    notes: []
+
+traits:
+
+  delegated:
+    notes:
+      - key: delegation-metadata
+        role: work
+        seat: orchestrator
+        required: false
+        description: "Model, isolation, rationale, and outcome for a delegated dispatch (orchestrator-filled)."
+        guidance: "Filled by the orchestrator after a subagent returns — model, isolation, one-line rationale, one-line outcome."
+    dispatch:
+      queue:
+        seats:
+          planner: { model: sonnet, effort: low }
+      work:
+        agent: task-orchestrator:implementer
+        seats:
+          implementer:  { model: sonnet }
+          test-author:  { agent: null, model: sonnet }
+          orchestrator: { agent: null }
+
+  session-tracked:
+    notes:
+      - key: session-tracking
+        role: work
+        required: true
+        seat: orchestrator
+        description: "Session context — what was done, how it went."
+        guidance: "What happened during implementation, deviations, friction, test results. Keep it factual and concise."
+        maxLength: 2000
+
+  needs-test-author:
+    seats:
+      - { name: test-author, phase: work, after: [implementer], reads_exclude: [implementation-notes, session-tracking] }
+    notes:
+      - key: test-plan
+        role: queue
+        seat: planner
+        required: true
+        description: "Numbered test scenarios with frozen oracles, derived from acceptance criteria before implementation begins."
+        skill: "test-author"
+        maxLength: 3500
+        guidance: "Numbered scenarios (S1, S2, ...), each with input, expected result, and oracle source. Never derive an oracle from what the code returns."
+      - key: test-manifest
+        role: work
+        seat: test-author
+        required: true
+        description: "Test-author record — files, commit SHA range, scenario coverage mapping, forbidden-pattern declaration."
+        skill: "test-author"
+        maxLength: 3000
+        guidance: "Actor id, test file paths, commit SHA range, S-id -> test mapping, probes run, forbidden-pattern declaration."
+
+  needs-scratch-db:
+    resources:
+      - scratch-db
+
+resources:
+  scratch-db:
+    description: "Single shared scratch database — only one L0 acceptance run at a time"
+    defaultTtlSeconds: 600
+    maxHolders: 1
