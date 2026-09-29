@@ -119,10 +119,16 @@ class DatabaseManagerTransactionModeTest {
     }
 
     @Test
-    fun `a single transaction still commits and busy_timeout remains applied`() {
-        val dbName = "test_txmode_single_${System.nanoTime()}"
+    fun `a single transaction still commits and busy_timeout remains applied`(
+        @TempDir tempDir: File,
+    ) {
+        // File-backed, like S1 — not a shared-cache in-memory URL: Exposed opens a fresh
+        // connection per transaction { }, and a shared-cache memory DB is dropped once the
+        // connection that created it closes, so a table created in one transaction would not
+        // survive into the next.
+        val dbFile = File(tempDir, "busy-mode-single.db")
         val manager = DatabaseManager()
-        val initialized = manager.initialize("jdbc:sqlite:file:$dbName?mode=memory&cache=shared")
+        val initialized = manager.initialize("jdbc:sqlite:${dbFile.absolutePath}")
         assertTrue(initialized, "DatabaseManager should initialize successfully")
         managers += manager
         val db = manager.getDatabase()
