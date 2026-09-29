@@ -119,6 +119,16 @@ If the blast radius touches a surface with an automated budget, ceiling, or quot
 both the measured values and the predicted post-change values. Do not defer the
 measurement to implementation — by then the scope decision is already made.
 
+**Negative and exhaustive claims must name their sweep.** Any claim that something does
+not exist or that a list is complete ("zero callers", "no stubs", "nothing depends on
+this", "none found", "all sites") must be written as the command that produced it plus
+its scope and result count — for example
+`grep -rn "createSuspend" current/src → 0 hits (src/main + src/test)`. A negative claim
+with no named sweep is not a finding; write "not checked" instead. A sweep that covered
+only part of the surface states the part it covered, and the reader treats the remainder
+as unchecked, not as clear. The `defect-class-siblings` field of `/implement`'s planning
+seat return template is this rule's special case for a bug's root-cause pattern.
+
 ### Risk Flags
 
 Call out the one or two things most likely to go wrong. These might be areas of tight

@@ -38,6 +38,9 @@ For each tightening change identified in the run:
 4. Re-run the full verification suite (not the individual item's own narrow check) to confirm no
    further casualty surfaced elsewhere.
 
+A planner's negative claim ("zero callers", "no stubs") does not discharge this sweep; it only
+tells the sweep where to look first.
+
 ## 4. Repairs are construction-only
 
 - Fix how a casualty is **constructed** to satisfy the new contract: stub the new accessor, derive
@@ -59,7 +62,10 @@ For each tightening change identified in the run:
   invariant; a new accessor added to `RepositoryProvider`, which is widely doubled with strict
   `mockk<...>()` in tests -- every strict double lacking a stub for the new accessor fails.
 - **Never** add or widen an `@Disabled` annotation as a repair.
-- Adopted from proposals `82034e9a` and `31a1abeb`.
+- Adopted from proposals `82034e9a` and `31a1abeb`; the negative-claim line in §3 from `ef33c175`,
+  whose general rule (every negative or exhaustive claim names its sweep, or says "not checked")
+  lives in `.claude/skills/spec-quality/SKILL.md` → Blast Radius. The planning seat's
+  `defect-class-siblings` field (proposal `bb191508`) is its special case.
 - Declare each repair commit in the wave's Review scoping commit map (implementer commits /
   author commits / declared notes), alongside which tightening it answers.
 - This sweep is `/implement` Step 4b's "Contract-change sweep discipline" -- it runs between the
