@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Plugin
 
+- **`run-wave` front door (Phase B / B2+B3).** New plugin skill `/task-orchestrator:run-wave` that plans a wave of ready
+  items with the `run-planner` helper (`scripts/run-planner.mjs`: `probe|plan|explain|validate` over a pure planner
+  that derives per-item seat stages from the resolved schema, classifies dependency edges as in-run or cross-run,
+  defers on exclusive resources and file overlaps, and assembles the `implement-wave` args), launches the workflow
+  (Method A) or dispatches the same run plan with the Agent tool (Method B: `next|prompt|stage-result|
+  scan-declarations`), and on the result verifies commit ownership, audits seat actors, writes the structured
+  `delegation-metadata` provenance line and advances items (`verify|actors|provenance|review-prompt`). Run plans and
+  state persist as `run/<runId>` plan documents so a run survives turns and compaction.
+- `/implement` now routes Delegated waves with two or more ready items, and every Parallel wave, through `run-wave`;
+  the dispatch-contract template fetches its rule slots by key (new served rules `declarations-extractor` and
+  `contract-change-sweep`); `WORKTREE.md` dispatch examples read the resolved seat profile; `.taskorchestrator/
+  run-profile.json` carries this repo's verify commands and search scope; `workflowSizeGuideline: large` is set.
+- `session-retrospective` reads the structured per-seat provenance line (`seats=<seat:model,...>`) alongside the
+  legacy one-model-per-item form.
+
+### Plugin
+
 - **`implement-wave` workflow (B1).** New Claude Code Workflow script `workflows/implement-wave.js`
   that runs one work item's seats in order (planner, implementer, declarations extractor, blind test
   author) and several items concurrently from a run plan the front door builds: settle-once milestones
