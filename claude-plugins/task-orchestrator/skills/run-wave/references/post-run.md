@@ -51,11 +51,15 @@ failure (missing SHA, foreign file, missing trailer, failed red-proof) rather th
 `query_notes(operation="list", itemId=<item>, keys=[<that item's seat notes>], includeBody=false)`
 for every item in the run; write the observed `{itemId, key, actorId}` rows to
 `<scratchpad>/run-wave/<runId>/observed-actors.json`. Then run `node "<helper>" actors --plan
-<scratchpad>/run-wave/<runId>/plan.json --notes <scratchpad>/run-wave/<runId>/observed-actors.json`
+<scratchpad>/run-wave/<runId>/plan.json --notes <scratchpad>/run-wave/<runId>/observed-actors.json
+--result <scratchpad>/run-wave/<runId>/result.json`
 — passing `--notes` is what turns this call from *listing* the expected table (`{itemId, key,
-actorId}`, `actorId` = `<seat>:<short>:<runId>`) into *auditing* observed against expected. It
-**exits 0 when every item's notes match and 3 when any item has a `missing` or `mismatched`
-entry**; as with `verify`, read the JSON body regardless of exit code.
+actorId}`, `actorId` = `<seat>:<short>:<runId>`) into *auditing* observed against expected.
+**Always pass `--result`**: it limits the expected notes per item to stages whose result status
+is actually `done`, so an item whose stages were deferred or never ran is reported `skipped: true`
+(not a `missing`-notes failure) instead of flagging notes from a stage that never executed. It
+**exits 0 when every item's notes match (or is `skipped`) and 3 when any item has a `missing` or
+`mismatched` entry**; as with `verify`, read the JSON body regardless of exit code.
 
 An item carrying any `missing` or `mismatched` entry means that item **fails this run**, same as
 a Step 1 verify failure — do not advance it. The rule this enforces: only the seat that owns a

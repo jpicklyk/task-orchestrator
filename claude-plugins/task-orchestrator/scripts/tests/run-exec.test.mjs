@@ -1398,3 +1398,150 @@ test('resultFromState: --result accepts state-v1 input by contract (STATE_CONTRA
   const item = result.items.find((i) => i.short === 'aaaaaaaa')
   assert.equal(item.status, 'done')
 })
+
+// ============================================================================================
+// Wave 2 (B1d L1-L4 findings, item 1a400d81) — author-wave2, blind per §4 to
+// workflows/implement-wave.js, scripts/run-exec-lib.mjs, scripts/run-planner.mjs,
+// scripts/run-planner-lib.mjs, and skills/run-wave/**. Oracles: the frozen dispatch contract
+// (plans/fix-config-sync-busy.md "Wave 2" -> D4-D7) and this harness/existing test file, never
+// the implementation. S-ids match the item's test-plan MCP note (d9b19f4a...).
+// ============================================================================================
+
+// ---- S10-verify (D5): verify does not flag an implementer commit touching a planner testFiles ----
+// ---- entry as unowned when the item has no test-author stage; the finding remains when it does ----
+
+test('S10-verify: verify does NOT flag an implementer commit touching a planner testFiles entry as unowned when the item has no test-author stage (D5)', () => {
+  // NOTE (test-manifest arbitration): short must be a valid 8-char lowercase-hex id, or verify's
+  // commit-subject "[<short>]" tag match silently fails to attribute the commit at all and every
+  // finding is vacuously absent — confirmed empirically against loadCore's normalizeArgs short
+  // format (see T-args in implement-wave.test.mjs), never by reading run-exec-lib.mjs.
+  const plannerStage = { seat: 'planner', phase: 'queue', notes: [], writes: false, dispatch: {}, output: 'planner-v1' }
+  const implStage = { seat: 'implementer', phase: 'work', enters: true, writes: true, notes: [], dispatch: { agent: 'task-orchestrator:implementer' }, output: 'implementer-v1' }
+  const item = itemFixture({ short: 'aaaa1000', stages: [plannerStage, implStage] }) // no test-author stage
+  const args = planFixture({ items: [item] })
+  const doc = { contract: 'run-wave/plan-doc-v1', args, meta: {} }
+  const plannerOut = outputFor('planner-v1', { mainFiles: ['src/x.js'], testFiles: ['scripts/tests/x.test.mjs'] })
+  const implOut = outputFor('implementer-v1')
+  const result = {
+    contract: 'implement-wave/result-v1', started: true, runId: doc.args.runId, planDocSlug: 'run/x',
+    items: [{
+      id: item.id, short: 'aaaa1000', status: 'done', reason: 'ok',
+      stages: [
+        { seat: 'planner', status: 'done', reason: 'ok', modelReported: 'opus', notes: [], commits: { pre: '', post: '' }, files: [] },
+        { seat: 'implementer', status: 'done', reason: 'ok', modelReported: 'sonnet', notes: [], commits: { pre: 'aaaa000', post: 'bbbb111' }, files: ['src/x.js', 'scripts/tests/x.test.mjs'] },
+      ],
+      outputs: { planner: plannerOut, implementer: implOut },
+    }],
+    refused: [], deferred: [],
+  }
+  const gitFacts = {
+    exists: { aaaa000: true, bbbb111: true },
+    commits: [{ sha: 'bbbb111', subject: 'feat(x): implement [aaaa1000]', body: 'why\n\nSeat: implementer', files: ['src/x.js', 'scripts/tests/x.test.mjs'] }],
+  }
+  const out = verify(doc, result, gitFacts)
+  const row = out.items.find((i) => i.short === 'aaaa1000')
+  assert.ok(row)
+  assert.equal(
+    row.findings.some((f) => f.includes('unowned')), false,
+    `expected no unowned finding when there is no test-author stage, got: ${JSON.stringify(row.findings)}`,
+  )
+})
+
+test('S10-verify: verify DOES flag the same implementer commit touching planner testFiles as unowned when the item HAS a test-author stage (D5, contrast)', () => {
+  const { doc, item, plannerOut } = verifyFixture() // planner + implementer + test-author; testFiles: ['scripts/tests/x.test.mjs']
+  const implOut = outputFor('implementer-v1')
+  const result = {
+    contract: 'implement-wave/result-v1', started: true, runId: doc.args.runId, planDocSlug: 'run/x',
+    items: [{
+      id: item.id, short: 'aaaaaaaa', status: 'done', reason: 'ok',
+      stages: [
+        { seat: 'planner', status: 'done', reason: 'ok', modelReported: 'opus', notes: [], commits: { pre: '', post: '' }, files: [] },
+        { seat: 'implementer', status: 'done', reason: 'ok', modelReported: 'sonnet', notes: [], commits: { pre: 'aaaa000', post: 'bbbb111' }, files: ['src/x.js', 'scripts/tests/x.test.mjs'] },
+      ],
+      outputs: { planner: plannerOut, implementer: implOut },
+    }],
+    refused: [], deferred: [],
+  }
+  const gitFacts = {
+    exists: { aaaa000: true, bbbb111: true },
+    commits: [{ sha: 'bbbb111', subject: 'feat(x): implement [aaaaaaaa]', body: 'why\n\nSeat: implementer', files: ['src/x.js', 'scripts/tests/x.test.mjs'] }],
+  }
+  const out = verify(doc, result, gitFacts)
+  const row = out.items.find((i) => i.short === 'aaaaaaaa')
+  assert.equal(row.ok, false)
+  assert.ok(
+    row.findings.some((f) => f.includes('unowned') && f.includes('scripts/tests/x.test.mjs')),
+    `expected an unowned finding for the test file when a test-author stage exists, got: ${JSON.stringify(row.findings)}`,
+  )
+})
+
+// ---- S12 (D7): auditActors(doc, observed, itemIds, opts) skips expected rows for an item whose ----
+// ---- result stages are all non-done; CLI actors --result exits 0 in that case ----
+
+function s12Fixture() {
+  const plannerStage = { seat: 'planner', phase: 'queue', notes: ['specification'], writes: false, dispatch: {}, output: 'planner-v1' }
+  const item = itemFixture({ short: 's12def', stages: [plannerStage] })
+  const args = planFixture({ items: [item], runId: 'r-test-s12def' })
+  const doc = { contract: 'run-wave/plan-doc-v1', args, meta: {} }
+  const result = {
+    contract: 'implement-wave/result-v1', started: true, runId: 'r-test-s12def', planDocSlug: 'run/x',
+    items: [{
+      id: item.id, short: 's12def', status: 'deferred', reason: 'blocked',
+      stages: [
+        { seat: 'planner', status: 'deferred', reason: 'blocked', modelReported: '', notes: [], commits: { pre: '', post: '' }, files: [] },
+      ],
+      outputs: {},
+    }],
+    refused: [], deferred: [{ id: item.id, reason: 'blocked' }],
+  }
+  return { doc, item, result }
+}
+
+test('S12: auditActors(doc, observed, itemIds, {result}) reports ok:true, missing:[], skipped:true for an item whose result stages are all non-done (D7)', () => {
+  const { doc, result } = s12Fixture()
+  const observed = [] // nothing observed -- would otherwise report the "specification" note missing
+  const audit = auditActors(doc, observed, undefined, { result })
+  const row = audit.items.find((i) => i.short === 's12def')
+  assert.equal(audit.ok, true)
+  assert.ok(row)
+  assert.equal(row.ok, true)
+  assert.deepEqual(row.missing, [])
+  assert.equal(row.skipped, true)
+})
+
+test('S12: auditActors is unchanged (reports missing) when opts.result is absent, byte-for-byte with the pre-D7 (doc, observed) call (D7, contrast)', () => {
+  const { doc, result } = s12Fixture()
+  const observed = []
+  const withoutResult = auditActors(doc, observed)
+  const row = withoutResult.items.find((i) => i.short === 's12def')
+  assert.equal(withoutResult.ok, false)
+  assert.ok(row)
+  assert.equal(row.ok, false)
+  assert.deepEqual(row.missing, ['specification'])
+})
+
+test('S12 CLI: actors --plan --notes --result exits 0 when the only missing-note item has all-deferred stages in --result (D7)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'run-exec-cli-actors-result-'))
+  const { doc, result } = s12Fixture()
+  const planPath = join(dir, 'plan.json')
+  const notesPath = join(dir, 'notes.json')
+  const resultPath = join(dir, 'result.json')
+  writeFileSync(planPath, JSON.stringify(doc))
+  writeFileSync(notesPath, JSON.stringify([]))
+  writeFileSync(resultPath, JSON.stringify(result))
+  const res = runCli(['actors', '--plan', planPath, '--notes', notesPath, '--result', resultPath])
+  assert.equal(res.status, 0, res.stderr)
+  assert.equal(JSON.parse(res.stdout).ok, true)
+})
+
+test('S12 CLI: actors --plan --notes (no --result) still exits 3 for the same all-deferred item (D7, contrast — confirms --result is what changes the outcome)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'run-exec-cli-actors-noresult-'))
+  const { doc } = s12Fixture()
+  const planPath = join(dir, 'plan.json')
+  const notesPath = join(dir, 'notes.json')
+  writeFileSync(planPath, JSON.stringify(doc))
+  writeFileSync(notesPath, JSON.stringify([]))
+  const res = runCli(['actors', '--plan', planPath, '--notes', notesPath])
+  assert.equal(res.status, 3)
+  assert.equal(JSON.parse(res.stdout).ok, false)
+})

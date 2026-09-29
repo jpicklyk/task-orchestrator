@@ -29,15 +29,25 @@ import kotlin.test.assertTrue
  * S3, S4 and S8 use a REAL file-backed SQLite database in WAL mode, per the test-plan's Harness
  * section — NOT H2, NOT the in-memory shared-cache `SQLiteRepositoryTestBase` pattern — because
  * they force a genuine two-connection race via [SQLiteProjectConfigRepository]'s
- * `beforeGuardedWrite` test hook, which runs a competing write on a second real JVM thread between
- * the guard read and the write, inside the transaction under test. Production uses WAL-mode
- * file-backed SQLite (see `SQLiteWorkItemRepositoryClaimTest`'s KDoc for the same distinction on
- * the claim path); an in-memory or H2 harness would not reproduce the lost-race retry path this
- * item's fix introduces.
+ * `beforeGuardedWrite` test hook, which starts a competing write on a second real JVM thread
+ * during X's transaction (after the guard read, before the conditional write). Production uses
+ * WAL-mode file-backed SQLite (see `SQLiteWorkItemRepositoryClaimTest`'s KDoc for the same
+ * distinction on the claim path); an in-memory or H2 harness would not reproduce this race.
+ *
+ * Since transactions begin IMMEDIATE (item `1a400d81`), X — the writer whose `upsertGuarded` call
+ * this test drives directly — always acquires the write lock at BEGIN and so always wins: X's own
+ * outcome is `Applied` in every race scenario below (S3, S4, S8). The `beforeGuardedWrite` hook
+ * starts the competitor thread but does NOT join it inside X's transaction (joining there would
+ * block X on its own lock until the competitor's BEGIN IMMEDIATE times out against
+ * `busy_timeout`). Each test joins the competitor thread AFTER X's `upsertGuarded` returns, so the
+ * competitor's own guard evaluates against X's already-committed row — that competitor's outcome
+ * is what actually exercises `rejectSuperseded`/`expectedFingerprint` rejection in these tests now.
  *
  * Oracle: `fab1b3ea`'s `diagnosis`/`test-plan` notes, and the `upsertGuarded` KDoc supplied in the
- * dispatch declarations — guard order (rejectSuperseded, then expectedFingerprint, then write) and
- * the lost-race retry re-evaluating both guards against the winner's row.
+ * dispatch declarations — guard order (rejectSuperseded, then expectedFingerprint, then write); and
+ * item `1a400d81`'s contract-change sweep, which reordered these scenarios' winner under IMMEDIATE
+ * transactions while keeping their guard-evaluation intent (guards checked against the row that
+ * actually won).
  */
 class SQLiteProjectConfigRepositoryGuardedUpsertTest {
     private val managers = mutableListOf<DatabaseManager>()
@@ -116,11 +126,12 @@ class SQLiteProjectConfigRepositoryGuardedUpsertTest {
     }
 
     // ──────────────────────────────────────────────
-    // S3 — RACE: a lost race under expectedFingerprint retries and re-evaluates against the winner
+    // S3 — RACE under IMMEDIATE: X holds the write lock from BEGIN and always wins; the late
+    // competitor evaluates its guard against X's already-committed row.
     // ──────────────────────────────────────────────
 
     @Test
-    fun `S3 a lost race under expectedFingerprint retries and returns PreconditionFailed against the winner`(
+    fun `S3 X wins the race under IMMEDIATE, the late competitor under expectedFingerprint gets PreconditionFailed against X's row`(
         @TempDir tempDir: Path,
     ) = runBlocking {
         val manager = buildFileBackedManager(tempDir)
@@ -135,41 +146,59 @@ class SQLiteProjectConfigRepositoryGuardedUpsertTest {
 
         val competingRepo = SQLiteProjectConfigRepository(manager)
         val fired = AtomicBoolean(false)
+        var competingThread: Thread? = null
+        var competingResult: Result<GuardedUpsertOutcome>? = null
         val repoX =
             SQLiteProjectConfigRepository(manager) { rid ->
                 // Fire only on the FIRST guard-read (retries must not re-trigger a nested race).
+                // Start the competitor concurrently but do NOT join it here: under IMMEDIATE, X
+                // already holds the write lock from BEGIN (acquired before this hook even runs),
+                // so the competitor's own BEGIN IMMEDIATE blocks on busy_timeout until X commits —
+                // joining inside X's transaction would just block X on its own lock. Join AFTER
+                // X's upsertGuarded returns instead, so the competitor runs against X's committed
+                // row.
                 if (fired.compareAndSet(false, true)) {
-                    thread {
-                        runBlocking { competingRepo.upsertGuarded(rid, yamlC, expectedFingerprint = fpA) }
-                    }.join()
+                    competingThread =
+                        thread {
+                            competingResult =
+                                runBlocking { competingRepo.upsertGuarded(rid, yamlC, expectedFingerprint = fpA) }
+                        }
                 }
             }
 
         val result = repoX.upsertGuarded(rootId, yamlB, expectedFingerprint = fpA)
+        competingThread?.join()
 
         assertIs<Result.Success<GuardedUpsertOutcome>>(result)
         val outcome = result.data
-        assertIs<GuardedUpsertOutcome.PreconditionFailed>(outcome)
-        val fpC = plainRepo.computeFingerprint(yamlC)
-        assertEquals(fpC, outcome.currentFingerprint, "X must be told C's fingerprint — the winner's row")
-
-        val stored = (plainRepo.get(rootId) as Result.Success).data
-        assertEquals(yamlC, stored?.configYaml, "C (the winner) must be the row actually stored")
+        assertIs<GuardedUpsertOutcome.Applied>(outcome, "X holds the write lock from BEGIN under IMMEDIATE, so X always wins")
+        assertEquals(yamlB, outcome.config.configYaml)
 
         val fpB = plainRepo.computeFingerprint(yamlB)
+        val loserOutcome = competingResult
+        assertIs<Result.Success<GuardedUpsertOutcome>>(loserOutcome, "the late competitor must still complete")
+        val loserData = loserOutcome.data
+        assertIs<GuardedUpsertOutcome.PreconditionFailed>(loserData)
+        assertEquals(fpB, loserData.currentFingerprint, "the competitor must be told B's fingerprint — X's (the winner's) row")
+
+        val stored = (plainRepo.get(rootId) as Result.Success).data
+        assertEquals(yamlB, stored?.configYaml, "B (X's, the winner's content) must be the row actually stored")
+
+        val fpC = plainRepo.computeFingerprint(yamlC)
         assertEquals(
             FingerprintRelation.UNKNOWN,
-            (plainRepo.classifyFingerprint(rootId, fpB) as Result.Success).data,
-            "B (X's rejected content) was never written, so it must not appear in history either",
+            (plainRepo.classifyFingerprint(rootId, fpC) as Result.Success).data,
+            "C (the competitor's rejected content) was never written, so it must not appear in history either",
         )
     }
 
     // ──────────────────────────────────────────────
-    // S4 — RACE: a lost race under rejectSuperseded retries and re-evaluates against the winner
+    // S4 — RACE under IMMEDIATE: X wins and commits; the late competitor under rejectSuperseded
+    // gets Superseded because its own (now stale) content was pushed out of currency by X.
     // ──────────────────────────────────────────────
 
     @Test
-    fun `S4 a lost race under rejectSuperseded retries and returns Superseded against the winner`(
+    fun `S4 X wins the race under IMMEDIATE, the late competitor under rejectSuperseded gets Superseded against X's row`(
         @TempDir tempDir: Path,
     ) = runBlocking {
         val manager = buildFileBackedManager(tempDir)
@@ -183,36 +212,54 @@ class SQLiteProjectConfigRepositoryGuardedUpsertTest {
 
         val competingRepo = SQLiteProjectConfigRepository(manager)
         val fired = AtomicBoolean(false)
+        var competingThread: Thread? = null
+        var competingResult: Result<GuardedUpsertOutcome>? = null
         val repoX =
             SQLiteProjectConfigRepository(manager) { rid ->
+                // See S3's comment: start the competitor but join it only after X returns, so it
+                // races against X's committed row rather than blocking X on its own IMMEDIATE lock.
+                // The competitor re-pushes A (the ORIGINAL content) with the fast-forward guard on;
+                // once X has committed B, A is no longer current but IS in B's fingerprint history
+                // (B superseded A), so the guard must reject it as Superseded.
                 if (fired.compareAndSet(false, true)) {
-                    thread { runBlocking { competingRepo.upsertGuarded(rid, yamlB) } }.join()
+                    competingThread =
+                        thread {
+                            competingResult =
+                                runBlocking { competingRepo.upsertGuarded(rid, yamlA, rejectSuperseded = true) }
+                        }
                 }
             }
 
-        // X re-pushes A's OWN (now stale) bytes with the fast-forward guard on — the guard read
-        // sees A as current, but Y commits B before X's write lands.
-        val result = repoX.upsertGuarded(rootId, yamlA, rejectSuperseded = true)
+        // X writes B, unguarded — it always applies since it holds the lock first.
+        val result = repoX.upsertGuarded(rootId, yamlB)
+        competingThread?.join()
 
         assertIs<Result.Success<GuardedUpsertOutcome>>(result)
         val outcome = result.data
-        assertIs<GuardedUpsertOutcome.Superseded>(outcome)
+        assertIs<GuardedUpsertOutcome.Applied>(outcome, "X holds the write lock from BEGIN under IMMEDIATE, so X always wins")
+        assertEquals(yamlB, outcome.config.configYaml)
 
         val stored = (plainRepo.get(rootId) as Result.Success).data
-        assertEquals(yamlB, stored?.configYaml, "B (the winner) must be the row actually stored")
+        assertEquals(yamlB, stored?.configYaml, "B (X's, the winner's content) must be the row actually stored")
+
+        val loserOutcome = competingResult
+        assertIs<Result.Success<GuardedUpsertOutcome>>(loserOutcome, "the late competitor must still complete")
+        val loserData = loserOutcome.data
+        assertIs<GuardedUpsertOutcome.Superseded>(loserData)
         assertEquals(
             stored?.updatedAt,
-            outcome.currentUpdatedAt,
-            "Superseded.currentUpdatedAt must name the winner's updatedAt",
+            loserData.currentUpdatedAt,
+            "Superseded.currentUpdatedAt must name X's (the winner's) updatedAt",
         )
     }
 
     // ──────────────────────────────────────────────
-    // S8 — RACE, unguarded: no guard means no spurious rejection under contention
+    // S8 — RACE under IMMEDIATE, unguarded: the late competitor's unguarded write still applies
+    // cleanly after X, and X's superseded content is tracked in history, not lost.
     // ──────────────────────────────────────────────
 
     @Test
-    fun `S8 an unguarded write during a race still applies X's own content (no over-rejection)`(
+    fun `S8 X applies first under IMMEDIATE, the late unguarded competitor still applies after X and supersedes it`(
         @TempDir tempDir: Path,
     ) = runBlocking {
         val manager = buildFileBackedManager(tempDir)
@@ -227,31 +274,47 @@ class SQLiteProjectConfigRepositoryGuardedUpsertTest {
 
         val competingRepo = SQLiteProjectConfigRepository(manager)
         val fired = AtomicBoolean(false)
+        var competingThread: Thread? = null
+        var competingResult: Result<GuardedUpsertOutcome>? = null
         val repoX =
             SQLiteProjectConfigRepository(manager) { rid ->
+                // See S3's comment: start the competitor but join it only after X returns.
                 if (fired.compareAndSet(false, true)) {
-                    thread { runBlocking { competingRepo.upsertGuarded(rid, yamlB) } }.join()
+                    competingThread =
+                        thread {
+                            competingResult = runBlocking { competingRepo.upsertGuarded(rid, yamlB) }
+                        }
                 }
             }
 
-        // No guards at all (expectedFingerprint = null, rejectSuperseded = false — the defaults):
-        // an unguarded write must not spuriously reject just because a race happened underneath it.
+        // No guards at all (expectedFingerprint = null, rejectSuperseded = false — the defaults)
+        // on either side: neither write may spuriously reject just because a race happened.
         val result = repoX.upsertGuarded(rootId, yamlC)
+        competingThread?.join()
 
         assertIs<Result.Success<GuardedUpsertOutcome>>(result)
         val outcome = result.data
-        assertIs<GuardedUpsertOutcome.Applied>(outcome)
+        assertIs<GuardedUpsertOutcome.Applied>(
+            outcome,
+            "X holds the write lock from BEGIN under IMMEDIATE, so X always wins the race to write first",
+        )
         assertEquals(yamlC, outcome.config.configYaml)
 
-        val stored = (plainRepo.get(rootId) as Result.Success).data
-        assertEquals(yamlC, stored?.configYaml, "X's own content must win — unguarded means unconditional")
-        assertNotEquals(yamlB, stored?.configYaml)
+        val loserOutcome = competingResult
+        assertIs<Result.Success<GuardedUpsertOutcome>>(loserOutcome, "the late competitor must still complete")
+        val loserData = loserOutcome.data
+        assertIs<GuardedUpsertOutcome.Applied>(loserData, "unguarded means unconditional — Y applies even though it ran after X")
+        assertEquals(yamlB, loserData.config.configYaml)
 
-        val fpB = plainRepo.computeFingerprint(yamlB)
+        val stored = (plainRepo.get(rootId) as Result.Success).data
+        assertEquals(yamlB, stored?.configYaml, "Y (the late, unguarded write) ends up as the current row — it wrote last")
+        assertNotEquals(yamlC, stored?.configYaml)
+
+        val fpC = plainRepo.computeFingerprint(yamlC)
         assertEquals(
             FingerprintRelation.SUPERSEDED,
-            (plainRepo.classifyFingerprint(rootId, fpB) as Result.Success).data,
-            "Y's content (B) was written and then overwritten, so it must be SUPERSEDED, not vanish untracked",
+            (plainRepo.classifyFingerprint(rootId, fpC) as Result.Success).data,
+            "X's content (C) was written and then overwritten by Y, so it must be SUPERSEDED, not vanish untracked",
         )
     }
 }

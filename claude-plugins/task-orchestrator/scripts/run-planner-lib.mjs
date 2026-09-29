@@ -80,6 +80,12 @@ export function validateSnapshot(snap) {
   if (snap.profile !== undefined && (typeof snap.profile !== 'object' || snap.profile === null || Array.isArray(snap.profile))) {
     errors.push('profile must be an object');
   }
+  // probe is load-bearing for chooseEntry (entry mode) and assembleArgs' capabilities
+  // (pluginVersion, phase0Hooks) — a snapshot silently missing it planned pre-entered
+  // without any signal (observation a0d31e5b). Required, unlike profile.
+  if (typeof snap.probe !== 'object' || snap.probe === null || Array.isArray(snap.probe)) {
+    errors.push('probe must be an object');
+  }
   return errors.length ? { ok: false, errors } : { ok: true };
 }
 

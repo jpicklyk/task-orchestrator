@@ -50,6 +50,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   run-profile.json` carries this repo's verify commands and search scope; `workflowSizeGuideline: large` is set.
 - `session-retrospective` reads the structured per-seat provenance line (`seats=<seat:model,...>`) alongside the
   legacy one-model-per-item form.
+- Fixed `config-sync.mjs` pushing all `.taskorchestrator/rules/*.md` PUTs in parallel (`Promise.all`), which raced
+  the server's SQLite writer and produced one success plus N-1 `db_error` failures per session; rule PUTs now go
+  sequentially, one at a time. `run-planner`'s `validateSnapshot` now requires a top-level `probe` object (the
+  verbatim `probe` subcommand output), matching `chooseEntry`'s and `plan`'s existing reliance on it; a snapshot
+  missing `probe` previously planned silently pre-entered instead of failing validation. `references/snapshot.md`
+  documents `probe` next to `profile`.
+- Fixed four `implement-wave.js`/`run-exec-lib.mjs` bugs found in the B1d live
+  acceptance runs (L1–L4): (1) `lockKeysFor` no longer disables locking outright when a shared-mode writer's
+  derived file set comes back empty (no planner output, or the planner reported no files for that
+  role) — it now takes a single `worktree:<path>` key instead of none. (2) `mapStageResult` now
+  catches a `planner-v1` envelope that reports `proceed:true` with `mainFiles`/`docFiles`/`testFiles`
+  all empty while the stage owns required notes, mapping it to `stopped`/`envelope-mismatch` instead
+  of silently proceeding with nothing for downstream seats to act on; the planner's seat prompt also
+  now says to emit `StructuredOutput` exactly once. (3) An implementer stage on an item with no
+  `test-author-v1` seat now has the planner's `testFiles`/`existingTestEdits[].file` folded into both
+  its lock keys and its "owned files" set in `run-exec-lib.mjs`'s `verify` — previously those tests
+  were locked and owned by nobody, so `verify` reported them as unowned writes. (4) The
+  `missingDeclaration`/`breachDisclosure` "nothing to disclose" sentinel is no longer a literal
+  `=== 'none'` compare (so `"None."` or `"none - pre-fix tree extracted via git archive"` incorrectly
+  failed the gate) — a new `isNoneSentinel` helper matches the trimmed value against `/^none\b/i`,
+  used by both fields; the test-author output schema and seat prompt now state the accepted format.
+  `run-exec-lib.mjs`'s `auditActors` gained an optional `opts.result` (and the `actors` CLI subcommand
+  a `--result` flag) so a Step-2 actor audit no longer flags notes from stages that never ran (deferred
+  or missing from the result) as `missing` — those items instead report `skipped: true`.
 
 ### Added
 
@@ -238,6 +262,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed a malformed JWT claims set (e.g. a non-numeric `exp`/`iat`) being misreported as
   `UNAVAILABLE`/`failureKind: network` under DID trust, or `REJECTED`/`failureKind: internal` in
   static-JWKS mode; both now report `REJECTED`/`failureKind: claims`. (#366)
+- Fixed `SQLITE_BUSY_SNAPSHOT` on concurrent writers: every SQLite transaction now begins `IMMEDIATE`
+  (writer lock acquired at `BEGIN`) instead of the driver default `DEFERRED`, so a transaction that reads
+  then writes (e.g. the plan-document upsert behind `PUT /roots/{rootId}/plans/{slug}`) queues on
+  `DATABASE_BUSY_TIMEOUT_MS` instead of failing immediately when another connection commits a write
+  after its snapshot started. The JDBC URL is unchanged.
 
 ### Removed
 

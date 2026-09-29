@@ -539,3 +539,63 @@ test('normalizeForFingerprint: does not mutate its input Buffer', () => {
   normalizeForFingerprint(original);
   assert.deepEqual(original, copy);
 });
+
+// \u2500\u2500\u2500 S3 (D2, plans/fix-config-sync-busy.md) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+//
+// Blind regression coverage: syncRules must send its rule PUTs one at a time (each awaited
+// before the next starts), not fanned out via Promise.all \u2014 a concurrent fan-out is exactly what
+// trips the server's SQLITE_BUSY_SNAPSHOT (D1). Oracle: the brief's D2 text, not the hook's
+// current Promise.all implementation. Red-proof: today's Promise.all fan-out gives max in-flight
+// 3 for three rules; the fix must bring it down to 1 while still completing all three PUTs.
+
+test('S3: rule PUTs are sent one at a time \u2014 max in-flight is 1, all three still succeed', async () => {
+  const dir = tmpConfigDir();
+  const requests = [];
+  writeRuleFile(dir, 'r1.md', 'Rule one.\n');
+  writeRuleFile(dir, 'r2.md', 'Rule two.\n');
+  writeRuleFile(dir, 'r3.md', 'Rule three.\n');
+  writeConfig(dir, 'project:\n  rootId: "root-s3"\n');
+
+  let inFlight = 0;
+  let maxInFlight = 0;
+  const server = await startFakeServer((req, res) => {
+    requests.push({ method: req.method, url: req.url, body: req.rawBody });
+    if (req.method === 'GET' && req.url.startsWith('/api/v1/roots/') && req.url.includes('/config')) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ relation: 'current' }));
+      return;
+    }
+    if (req.method === 'GET' && req.url.endsWith('/rules')) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ rules: [] }));
+      return;
+    }
+    if (req.method === 'PUT' && req.url.includes('/plans/')) {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      setTimeout(() => {
+        inFlight -= 1;
+        res.writeHead(200);
+        res.end();
+      }, 30);
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  try {
+    const { port } = server.address();
+    const res = await spawnHookAgainst(dir, `http://127.0.0.1:${port}`, { hookEventName: 'SessionStart' });
+    assert.equal(res.status, 0);
+    const puts = requests.filter((r) => r.method === 'PUT');
+    assert.equal(puts.length, 3, 'all three rule PUTs must still happen');
+    assert.equal(
+      maxInFlight,
+      1,
+      `rule PUTs must be sent one at a time (serialized), got max in-flight ${maxInFlight}`,
+    );
+  } finally {
+    await stopServer(server);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

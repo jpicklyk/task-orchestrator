@@ -8,6 +8,8 @@ import org.jetbrains.exposed.v1.jdbc.Database
 import org.jetbrains.exposed.v1.jdbc.transactions.TransactionManager
 import org.jetbrains.exposed.v1.jdbc.transactions.transaction
 import org.slf4j.LoggerFactory
+import org.sqlite.SQLiteConfig
+import org.sqlite.SQLiteConnection
 import java.io.File
 import java.sql.Connection
 
@@ -88,11 +90,22 @@ class DatabaseManager(
                             // Configurable via DATABASE_BUSY_TIMEOUT_MS env var (default 5000 ms).
                             stmt.execute("PRAGMA busy_timeout = $busyTimeoutMs")
                         }
+
+                        // Begin every transaction IMMEDIATE (writer lock acquired at BEGIN)
+                        // instead of the sqlite-jdbc default DEFERRED. A DEFERRED transaction that
+                        // reads then writes can fail with SQLITE_BUSY_SNAPSHOT the instant another
+                        // connection commits a write after its snapshot started — busy_timeout
+                        // never applies because that failure isn't a lock-acquisition wait. With
+                        // IMMEDIATE, concurrent writers queue on busy_timeout instead of failing.
+                        // The JDBC URL string is left untouched (StartupCompaction/Flyway parse
+                        // it); only this connection's config is changed.
+                        (connection as? SQLiteConnection)?.connectionConfig?.transactionMode =
+                            SQLiteConfig.TransactionMode.IMMEDIATE
                     }
                 )
             TransactionManager.manager.defaultIsolationLevel = Connection.TRANSACTION_SERIALIZABLE
 
-            logger.info("Database connection established successfully")
+            logger.info("Database connection established successfully (transactions begin IMMEDIATE; busy_timeout $busyTimeoutMs ms)")
             return true
         } catch (e: Exception) {
             logger.error("Failed to initialize database: ${e.message}", e)

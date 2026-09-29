@@ -101,8 +101,14 @@ const OUTPUT_SCHEMAS = {
           },
         },
       },
-      missingDeclaration: { type: 'string' },
-      breachDisclosure: { type: 'string' },
+      missingDeclaration: {
+        type: 'string',
+        description: 'exactly "none" (optionally followed by a dash and a note) when there is nothing to disclose',
+      },
+      breachDisclosure: {
+        type: 'string',
+        description: 'exactly "none" (optionally followed by a dash and a note) when there is nothing to disclose',
+      },
     },
   },
   'generic-v1': {
@@ -389,6 +395,12 @@ function findPlannerOutput(item, outs) {
  * Shared mode + writes:true: file:<normalizePath(p)> over the implementer's
  * mainFiles∪docFiles or the test-author's testFiles∪existingTestEdits[].file,
  * plus extraLockKeys always. Sorted, deduped.
+ * An implementer stage on an item with no test-author-v1 stage additionally locks the
+ * planner's testFiles∪existingTestEdits[].file (D5 — those tests are "unowned" by anyone else,
+ * so the implementer's write locks must cover them too).
+ * When the derived file set ends up empty (no planner output at all, or the planner reported no
+ * files for this stage's role), the stage takes the single key worktree:<normalizePath(item.worktree)>
+ * instead of no key at all (D4a — an empty lock set must not disable locking altogether).
  */
 function lockKeysFor(item, stage, outs, plan) {
   const keys = new Set()
@@ -398,13 +410,24 @@ function lockKeysFor(item, stage, outs, plan) {
     let files = []
     if (stage.output === 'implementer-v1') {
       files = files.concat((plannerOut && plannerOut.mainFiles) || [], (plannerOut && plannerOut.docFiles) || [])
+      const hasTestAuthorStage = item.stages.some((s) => s.output === 'test-author-v1')
+      if (!hasTestAuthorStage) {
+        files = files.concat((plannerOut && plannerOut.testFiles) || [])
+        for (const e of (plannerOut && plannerOut.existingTestEdits) || []) {
+          if (e && e.file) files.push(e.file)
+        }
+      }
     } else if (stage.output === 'test-author-v1') {
       files = files.concat((plannerOut && plannerOut.testFiles) || [])
       for (const e of (plannerOut && plannerOut.existingTestEdits) || []) {
         if (e && e.file) files.push(e.file)
       }
     }
-    for (const f of files) keys.add(`file:${normalizePath(f)}`)
+    if (files.length === 0) {
+      keys.add(`worktree:${normalizePath(item.worktree)}`)
+    } else {
+      for (const f of files) keys.add(`file:${normalizePath(f)}`)
+    }
   }
   return Array.from(keys).sort()
 }
@@ -525,9 +548,22 @@ function mapEntry(env, entryMode = 'seat') {
 }
 
 /**
+ * isNoneSentinel(s) -> boolean
+ * True for undefined, null, '', and any string whose trimmed form matches /^none\b/i (so
+ * "none - pre-fix tree extracted via git archive" and "None." are both "nothing to disclose",
+ * while "nonexistent file opened" is not — \b fails right after "none" when the next character
+ * is a word character, as in "nonexistent").
+ */
+function isNoneSentinel(s) {
+  if (s === undefined || s === null || s === '') return true
+  return typeof s === 'string' && /^none\b/i.test(s.trim())
+}
+
+/**
  * mapStageResult(stage, env, entryMode='seat') -> {status, reason}
  * Precedence: null envelope; schema-changed; config-unavailable; entry (when
- * stage.enters and not done); planner proceed===false; test-author
+ * stage.enters and not done); planner proceed===false; planner envelope-mismatch (proceed:true
+ * with an empty mainFiles/docFiles/testFiles set while stage.notes is non-empty); test-author
  * missingDeclaration/breachDisclosure; else env.status when stopped|deferred; else done.
  */
 function mapStageResult(stage, env, entryMode = 'seat') {
@@ -538,14 +574,28 @@ function mapStageResult(stage, env, entryMode = 'seat') {
     const entryResult = mapEntry(env, entryMode)
     if (entryResult.status !== 'done') return entryResult
   }
-  if (stage.output === 'planner-v1' && env.output && env.output.proceed === false) {
-    return { status: 'stopped', reason: `planner: ${env.output.blockReason}` }
+  if (stage.output === 'planner-v1' && env.output) {
+    if (env.output.proceed === false) {
+      return { status: 'stopped', reason: `planner: ${env.output.blockReason}` }
+    }
+    if (
+      env.output.proceed === true &&
+      (env.output.mainFiles || []).length === 0 &&
+      (env.output.docFiles || []).length === 0 &&
+      (env.output.testFiles || []).length === 0 &&
+      Array.isArray(stage.notes) && stage.notes.length > 0
+    ) {
+      return {
+        status: 'stopped',
+        reason: `envelope-mismatch: planner reported no files for owned notes ${stage.notes.join(', ')}`,
+      }
+    }
   }
   if (stage.output === 'test-author-v1' && env.output) {
-    if (env.output.missingDeclaration && env.output.missingDeclaration !== 'none') {
+    if (!isNoneSentinel(env.output.missingDeclaration)) {
       return { status: 'stopped', reason: `missing declaration: ${env.output.missingDeclaration}` }
     }
-    if (env.output.breachDisclosure && env.output.breachDisclosure !== 'none') {
+    if (!isNoneSentinel(env.output.breachDisclosure)) {
       return { status: 'stopped', reason: `breach: ${env.output.breachDisclosure}` }
     }
   }
@@ -797,7 +847,17 @@ function promptRerunAndEntry(plan, item, stage, actor) {
 
 /** Part 14: return contract. */
 function promptReturn(stage) {
-  return `RETURN: return the structured envelope (${stage.output}); notes are the report.`
+  const lines = [`RETURN: return the structured envelope (${stage.output}); notes are the report.`]
+  if (stage.output === 'planner-v1') {
+    lines.push('Emit StructuredOutput exactly once, as your final action; a second call replaces the first.')
+  }
+  if (stage.output === 'test-author-v1') {
+    lines.push(
+      'missingDeclaration and breachDisclosure: exactly "none" (optionally followed by a dash and a note) ' +
+        'when there is nothing to disclose.'
+    )
+  }
+  return lines.join('\n')
 }
 
 function reKeyOutsByOutputId(item, outsBySeat) {

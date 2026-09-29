@@ -242,23 +242,24 @@ async function syncRules({ rulesDir, base, rootId, auth }) {
   const pushed = [];
   const failed = [];
   if (plan.toPush.length > 0) {
-    const results = await Promise.all(
-      plan.toPush.map(async (rule) => {
-        const putUrl = `${base}/api/v1/roots/${rootId}/plans/${encodeURIComponent(`rule/${rule.key}`)}`;
-        try {
-          const res = await fetchWithTimeout(putUrl, {
-            method: 'PUT',
-            headers: { ...auth, 'Content-Type': 'text/markdown; charset=utf-8' },
-            body: rule.bytes,
-          });
-          if (res.status === 200) return { key: rule.key, ok: true };
-          return { key: rule.key, ok: false, reason: `HTTP ${res.status}` };
-        } catch (err) {
-          return { key: rule.key, ok: false, reason: err?.message ?? String(err) };
-        }
-      }),
-    );
-    for (const result of results) {
+    // Pushed sequentially (not Promise.all) — parallel PUTs against the same root race the
+    // server's SQLite writer and surface as SQLITE_BUSY_SNAPSHOT 500s (see diagnosis on
+    // item 1a400d81). One rule at a time keeps this hook converging in a single run.
+    for (const rule of plan.toPush) {
+      const putUrl = `${base}/api/v1/roots/${rootId}/plans/${encodeURIComponent(`rule/${rule.key}`)}`;
+      let result;
+      try {
+        const res = await fetchWithTimeout(putUrl, {
+          method: 'PUT',
+          headers: { ...auth, 'Content-Type': 'text/markdown; charset=utf-8' },
+          body: rule.bytes,
+        });
+        result = res.status === 200
+          ? { key: rule.key, ok: true }
+          : { key: rule.key, ok: false, reason: `HTTP ${res.status}` };
+      } catch (err) {
+        result = { key: rule.key, ok: false, reason: err?.message ?? String(err) };
+      }
       if (result.ok) pushed.push(result.key);
       else failed.push({ key: result.key, reason: result.reason });
     }

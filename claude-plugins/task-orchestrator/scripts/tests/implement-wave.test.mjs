@@ -933,3 +933,212 @@ test('PROBE: an item with waitsFor:[] and an item with waitsFor entirely absent 
   assert.equal(result.refused.length, 0)
   assert.equal(result.runnable.length, 2)
 })
+
+// ============================================================================================
+// Wave 2 (B1d L1-L4 findings, item 1a400d81) — author-wave2, blind per §4 to
+// workflows/implement-wave.js, scripts/run-exec-lib.mjs, scripts/run-planner.mjs,
+// scripts/run-planner-lib.mjs, and skills/run-wave/**. Oracles: the frozen dispatch contract
+// (plans/fix-config-sync-busy.md "Wave 2" -> D4-D7) and this harness/existing test file, never
+// the implementation. S-ids match the item's test-plan MCP note (d9b19f4a...).
+// ============================================================================================
+
+// ---- S7 (D4a): lockKeysFor falls back to a worktree key when the derived file set is empty ----
+
+test('S7: lockKeysFor falls back to a single worktree:<path> key in shared mode when the derived file set is empty (no planner output, or empty mainFiles/docFiles) (D4a)', () => {
+  const core = loadCore(SCRIPT_PATH)
+  const item = itemFixture({
+    short: 's7empty',
+    stages: [
+      { seat: 'planner', phase: 'queue', writes: false, output: 'planner-v1', notes: [], dispatch: {} },
+      { seat: 'implementer', phase: 'work', enters: true, writes: true, output: 'implementer-v1', notes: [], dispatch: {} },
+    ],
+  })
+  const plan = planFixture({ items: [item] }) // worktreeMode: 'shared' by default
+  const implementerStage = item.stages[1]
+  const expectedWorktreeKey = `worktree:${core.normalizePath(item.worktree)}`
+
+  // no planner output at all -> worktree key
+  const keysNoOutput = core.lockKeysFor(item, implementerStage, {}, plan)
+  assert.deepEqual(keysNoOutput, [expectedWorktreeKey])
+
+  // planner output present but mainFiles/docFiles both empty -> worktree key
+  const keysEmptyArrays = core.lockKeysFor(item, implementerStage, { planner: { mainFiles: [], docFiles: [] } }, plan)
+  assert.deepEqual(keysEmptyArrays, [expectedWorktreeKey])
+})
+
+test('S7: lockKeysFor falls back to a worktree key for a test-author stage when testFiles/existingTestEdits are both empty; a non-empty file set is unchanged (D4a)', () => {
+  const core = loadCore(SCRIPT_PATH)
+  const item = itemFixture({ short: 's7ta', stages: stages.bugFixLike() })
+  const testAuthorStage = item.stages.find((s) => s.seat === 'test-author')
+  const plan = planFixture({ items: [item] })
+  const expectedWorktreeKey = `worktree:${core.normalizePath(item.worktree)}`
+
+  const keysEmpty = core.lockKeysFor(item, testAuthorStage, { planner: { testFiles: [], existingTestEdits: [] } }, plan)
+  assert.deepEqual(keysEmpty, [expectedWorktreeKey])
+
+  // non-empty file set stays file keys only (unchanged from the pre-existing rule)
+  const keysNonEmpty = core.lockKeysFor(
+    item, testAuthorStage,
+    { planner: { testFiles: ['scripts/tests/x.test.mjs'], existingTestEdits: [] } },
+    plan,
+  )
+  assert.deepEqual(keysNonEmpty, ['file:scripts/tests/x.test.mjs'])
+})
+
+test('S7: lockKeysFor with a non-empty mainFiles set is unchanged (file keys only, no worktree key added) (D4a)', () => {
+  const core = loadCore(SCRIPT_PATH)
+  const item = itemFixture({
+    short: 's7nonempty',
+    stages: [
+      { seat: 'planner', phase: 'queue', writes: false, output: 'planner-v1', notes: [], dispatch: {} },
+      { seat: 'implementer', phase: 'work', enters: true, writes: true, output: 'implementer-v1', notes: [], dispatch: {} },
+    ],
+  })
+  const plan = planFixture({ items: [item] })
+  const implementerStage = item.stages[1]
+  const keys = core.lockKeysFor(item, implementerStage, { planner: { mainFiles: ['src/only.js'], docFiles: [] } }, plan)
+  assert.deepEqual(keys, ['file:src/only.js'])
+})
+
+// ---- S8 (D4b): planner-v1 envelope-mismatch when proceed:true but all file arrays are empty ----
+
+test('S8: mapStageResult maps a planner-v1 envelope with proceed:true and all-empty file arrays to stopped "envelope-mismatch: ..." when the stage owns notes (D4b)', () => {
+  const core = loadCore(SCRIPT_PATH)
+  const plannerStageWithNotes = { seat: 'planner', phase: 'queue', writes: false, output: 'planner-v1', notes: ['specification', 'diagnosis'], dispatch: {} }
+  const env = plannerEnvelope({ proceed: true, mainFiles: [], docFiles: [], testFiles: [] })
+  const result = core.mapStageResult(plannerStageWithNotes, env, 'seat')
+  assert.deepEqual(result, {
+    status: 'stopped',
+    reason: 'envelope-mismatch: planner reported no files for owned notes specification, diagnosis',
+  })
+})
+
+test('S8: mapStageResult leaves a proceed:true, all-empty-files planner-v1 envelope at done when the stage owns no notes (D4b)', () => {
+  const core = loadCore(SCRIPT_PATH)
+  const plannerStageNoNotes = { seat: 'planner', phase: 'queue', writes: false, output: 'planner-v1', notes: [], dispatch: {} }
+  const env = plannerEnvelope({ proceed: true, mainFiles: [], docFiles: [], testFiles: [] })
+  const result = core.mapStageResult(plannerStageNoNotes, env, 'seat')
+  assert.equal(result.status, 'done')
+})
+
+test('S8: mapStageResult does NOT report envelope-mismatch when only some of mainFiles/docFiles/testFiles are empty (D4b, contrast)', () => {
+  const core = loadCore(SCRIPT_PATH)
+  const plannerStageWithNotes = { seat: 'planner', phase: 'queue', writes: false, output: 'planner-v1', notes: ['specification'], dispatch: {} }
+  const env = plannerEnvelope({ proceed: true, mainFiles: [], docFiles: [], testFiles: ['scripts/tests/x.test.mjs'] })
+  const result = core.mapStageResult(plannerStageWithNotes, env, 'seat')
+  assert.notEqual(result.status, 'stopped')
+})
+
+// ---- S9 (D4c): the planner seat prompt gains the exactly-once StructuredOutput line ----
+
+test('S9: the planner seat prompt includes the exactly-once StructuredOutput line (D4c)', () => {
+  const core = loadCore(SCRIPT_PATH)
+  const item = itemFixture({ short: 's9plan', stages: stages.featureTaskLike() })
+  const plan = planFixture({ items: [item] })
+  const plannerStage = item.stages[0]
+  const prompt = core.seatPrompt(plan, item, plannerStage, {})
+  const line = 'Emit StructuredOutput exactly once, as your final action; a second call replaces the first.'
+  const occurrences = prompt.split(line).length - 1
+  assert.equal(occurrences, 1, `expected the StructuredOutput line exactly once in the planner prompt, got ${occurrences}. Prompt:\n${prompt}`)
+})
+
+test('S9: a non-planner (implementer) seat prompt does not carry the planner-only StructuredOutput line (D4c, contrast)', () => {
+  const core = loadCore(SCRIPT_PATH)
+  const item = itemFixture({ short: 's9impl', stages: stages.featureTaskLike() })
+  const plan = planFixture({ items: [item] })
+  const implementerStage = item.stages[1]
+  const prompt = core.seatPrompt(plan, item, implementerStage, {})
+  assert.ok(
+    !prompt.includes('Emit StructuredOutput exactly once, as your final action; a second call replaces the first.'),
+    'the planner-only StructuredOutput line must not leak into the implementer prompt',
+  )
+})
+
+// ---- S10-lock (D5): implementer stage on an item with no test-author-v1 stage also locks the ----
+// ---- planner's testFiles/existingTestEdits paths; unchanged when a test-author stage exists   ----
+
+test('S10-lock: an implementer stage on an item with NO test-author stage also locks the planner testFiles/existingTestEdits[].file paths (D5)', () => {
+  const core = loadCore(SCRIPT_PATH)
+  const item = itemFixture({ short: 's10lock', stages: stages.featureTaskLike() }) // planner + implementer only
+  const implementerStage = item.stages[1]
+  const outs = {
+    planner: {
+      mainFiles: ['src/a.js'],
+      docFiles: [],
+      testFiles: ['scripts/tests/a.test.mjs'],
+      existingTestEdits: [{ file: 'scripts/tests/existing.test.mjs' }],
+    },
+  }
+  const plan = planFixture({ items: [item] })
+  const keys = core.lockKeysFor(item, implementerStage, outs, plan)
+  assert.ok(keys.includes('file:src/a.js'), `expected mainFiles key, got ${JSON.stringify(keys)}`)
+  assert.ok(keys.includes('file:scripts/tests/a.test.mjs'), `expected planner testFiles to be locked when there is no test-author stage, got ${JSON.stringify(keys)}`)
+  assert.ok(keys.includes('file:scripts/tests/existing.test.mjs'), `expected existingTestEdits[].file to be locked when there is no test-author stage, got ${JSON.stringify(keys)}`)
+})
+
+test('S10-lock: an implementer stage on an item WITH a test-author stage does not additionally lock the planner testFiles/existingTestEdits paths (D5, contrast)', () => {
+  const core = loadCore(SCRIPT_PATH)
+  const item = itemFixture({ short: 's10lockta', stages: stages.bugFixLike() }) // includes a test-author stage
+  const implementerStage = item.stages.find((s) => s.seat === 'implementer')
+  const outs = {
+    planner: {
+      mainFiles: ['src/b.js'],
+      docFiles: [],
+      testFiles: ['scripts/tests/b.test.mjs'],
+      existingTestEdits: [{ file: 'scripts/tests/existingB.test.mjs' }],
+    },
+  }
+  const plan = planFixture({ items: [item] })
+  const keys = core.lockKeysFor(item, implementerStage, outs, plan)
+  assert.ok(keys.includes('file:src/b.js'))
+  assert.ok(!keys.includes('file:scripts/tests/b.test.mjs'), `implementer must not additionally lock planner testFiles when a test-author stage exists, got ${JSON.stringify(keys)}`)
+  assert.ok(!keys.includes('file:scripts/tests/existingB.test.mjs'), `implementer must not additionally lock existingTestEdits when a test-author stage exists, got ${JSON.stringify(keys)}`)
+})
+
+// ---- S11 (D6): isNoneSentinel-driven mapStageResult on missingDeclaration/breachDisclosure ----
+
+function testAuthorEnvelopeWith(field, value) {
+  return {
+    status: 'done', reason: 'ok', notes: [], commits: { pre: '', post: '' }, files: [],
+    modelReported: 'x', entry: { applied: true, newRole: 'work' },
+    output: {
+      returnLine: 'x', testFiles: [], scenariosCovered: 'none', verify: [], redAuthorTests: [],
+      missingDeclaration: 'none', breachDisclosure: 'none',
+      [field]: value,
+    },
+  }
+}
+
+test('S11: mapStageResult treats "none", "none - <note>", "None.", and "" as the none sentinel for BOTH missingDeclaration and breachDisclosure (D6)', () => {
+  const core = loadCore(SCRIPT_PATH)
+  const testAuthorStage = { seat: 'test-author', phase: 'work', writes: true, output: 'test-author-v1', notes: [], dispatch: {}, readsExclude: [] }
+  const noneValues = ['none', 'none - pre-fix tree extracted via git archive', 'None.', '']
+
+  for (const field of ['missingDeclaration', 'breachDisclosure']) {
+    for (const value of noneValues) {
+      const env = testAuthorEnvelopeWith(field, value)
+      const result = core.mapStageResult(testAuthorStage, env, 'seat')
+      assert.equal(
+        result.status, 'done',
+        `field=${field} value=${JSON.stringify(value)} should be treated as the none sentinel, got status=${result.status} reason=${result.reason}`,
+      )
+    }
+  }
+})
+
+test('S11: mapStageResult stops a test-author stage for a genuinely non-none missingDeclaration/breachDisclosure value ("nonexistent file opened" is not a false "none" match) (D6)', () => {
+  const core = loadCore(SCRIPT_PATH)
+  const testAuthorStage = { seat: 'test-author', phase: 'work', writes: true, output: 'test-author-v1', notes: [], dispatch: {}, readsExclude: [] }
+  const nonNoneValues = ['nonexistent file opened', 'read src/x.mjs']
+
+  for (const field of ['missingDeclaration', 'breachDisclosure']) {
+    for (const value of nonNoneValues) {
+      const env = testAuthorEnvelopeWith(field, value)
+      const result = core.mapStageResult(testAuthorStage, env, 'seat')
+      assert.equal(
+        result.status, 'stopped',
+        `field=${field} value=${JSON.stringify(value)} must NOT be treated as none, got status=${result.status}`,
+      )
+    }
+  }
+})
