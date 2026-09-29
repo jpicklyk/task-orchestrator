@@ -249,6 +249,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   then writes (e.g. the plan-document upsert behind `PUT /roots/{rootId}/plans/{slug}`) queues on
   `DATABASE_BUSY_TIMEOUT_MS` instead of failing immediately when another connection commits a write
   after its snapshot started. The JDBC URL is unchanged.
+- Fixed four `implement-wave.js`/`run-exec-lib.mjs` bugs found in the B1d workflow-size-guideline
+  review (L1–L4): (1) `lockKeysFor` no longer disables locking outright when a shared-mode writer's
+  derived file set comes back empty (no planner output, or the planner reported no files for that
+  role) — it now takes a single `worktree:<path>` key instead of none. (2) `mapStageResult` now
+  catches a `planner-v1` envelope that reports `proceed:true` with `mainFiles`/`docFiles`/`testFiles`
+  all empty while the stage owns required notes, mapping it to `stopped`/`envelope-mismatch` instead
+  of silently proceeding with nothing for downstream seats to act on; the planner's seat prompt also
+  now says to emit `StructuredOutput` exactly once. (3) An implementer stage on an item with no
+  `test-author-v1` seat now has the planner's `testFiles`/`existingTestEdits[].file` folded into both
+  its lock keys and its "owned files" set in `run-exec-lib.mjs`'s `verify` — previously those tests
+  were locked and owned by nobody, so `verify` reported them as unowned writes. (4) The
+  `missingDeclaration`/`breachDisclosure` "nothing to disclose" sentinel is no longer a literal
+  `=== 'none'` compare (so `"None."` or `"none - pre-fix tree extracted via git archive"` incorrectly
+  failed the gate) — a new `isNoneSentinel` helper matches the trimmed value against `/^none\b/i`,
+  used by both fields; the test-author output schema and seat prompt now state the accepted format.
+  `run-exec-lib.mjs`'s `auditActors` gained an optional `opts.result` (and the `actors` CLI subcommand
+  a `--result` flag) so a Step-2 actor audit no longer flags notes from stages that never ran (deferred
+  or missing from the result) as `missing` — those items instead report `skipped: true`.
 
 ### Removed
 

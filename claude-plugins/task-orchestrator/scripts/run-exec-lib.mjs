@@ -784,6 +784,11 @@ export function verify(doc, result, gitFacts) {
       if (stage.writes) writingStages.push({ seat: stage.seat, output: stage.output, pre, post })
     }
 
+    // D5: with no test-author-v1 stage on this item, the implementer's owned set widens to
+    // include the planner's testFiles/existingTestEdits — those tests are "unowned" by anyone
+    // else, so the implementer writing them is not a foreign-file finding.
+    const hasTestAuthorStage = argItem.stages.some((s) => s.output === 'test-author-v1')
+
     const rangeByStageSeat = attributeCommits(itemCommits, writingStages)
     for (const stage of writingStages) {
       const range = rangeByStageSeat.get(stage.seat)
@@ -794,7 +799,9 @@ export function verify(doc, result, gitFacts) {
         const files = (commit.files || []).map(normalizePath)
         if (stage.output === 'implementer-v1') {
           for (const f of files) {
-            if (!mainFiles.has(f) && !docFiles.has(f)) findings.push(`implementer wrote unowned ${f}`)
+            const owned = mainFiles.has(f) || docFiles.has(f) ||
+              (!hasTestAuthorStage && (testFiles.has(f) || existingTestEdits.has(f)))
+            if (!owned) findings.push(`implementer wrote unowned ${f}`)
           }
         } else if (stage.output === 'test-author-v1') {
           for (const f of files) {
@@ -855,16 +862,53 @@ export function expectedActors(doc) {
 }
 
 /**
- * auditActors(doc, observed, itemIds?) -> {ok, items:[{itemId, short, ok, missing, mismatched}]}.
- * observed = [{itemId, key, actorId}] (e.g. from query_notes).
+ * auditActors(doc, observed, itemIds?, opts?) -> {ok, items:[{itemId, short, ok, missing, mismatched}]}.
+ * observed = [{itemId, key, actorId}] (e.g. from query_notes). Without opts.result, behaviour is
+ * byte-for-byte unchanged (every stage's notes are expected). With opts.result (the run's result
+ * document, D7), the expected rows for an item are limited to stages whose result status is
+ * `done` (`result.items[].stages[].status`) — an item with no result entry, or whose every stage
+ * is non-done (e.g. every writing stage deferred), contributes no expected rows and reports
+ * `{ok:true, missing:[], mismatched:[], skipped:true}` instead of flagging notes from stages that
+ * never ran.
  */
-export function auditActors(doc, observed, itemIds) {
-  const expected = expectedActors(doc)
+export function auditActors(doc, observed, itemIds, opts) {
   const filter = itemIds ? new Set(itemIds) : null
+
+  if (!opts || !opts.result) {
+    const expected = expectedActors(doc)
+    const items = doc.args.items
+      .filter((item) => !filter || filter.has(item.id) || filter.has(item.short))
+      .map((item) => {
+        const expectedForItem = expected.filter((e) => e.itemId === item.id)
+        const observedForItem = (observed || []).filter((o) => o.itemId === item.id)
+        const missing = []
+        const mismatched = []
+        for (const e of expectedForItem) {
+          const found = observedForItem.find((o) => o.key === e.key)
+          if (!found) missing.push(e.key)
+          else if (found.actorId !== e.actorId) mismatched.push({ key: e.key, expected: e.actorId, actual: found.actorId })
+        }
+        return { itemId: item.id, short: item.short, ok: missing.length === 0 && mismatched.length === 0, missing, mismatched }
+      })
+    return { ok: items.every((it) => it.ok), items }
+  }
+
+  const resultByItemId = new Map((opts.result.items || []).map((r) => [r.id, r]))
   const items = doc.args.items
     .filter((item) => !filter || filter.has(item.id) || filter.has(item.short))
     .map((item) => {
-      const expectedForItem = expected.filter((e) => e.itemId === item.id)
+      const resItem = resultByItemId.get(item.id)
+      const doneSeats = new Set(((resItem && resItem.stages) || []).filter((s) => s.status === 'done').map((s) => s.seat))
+      const expectedForItem = []
+      for (const stage of item.stages) {
+        if (!doneSeats.has(stage.seat)) continue
+        for (const key of stage.notes || []) {
+          expectedForItem.push({ key, actorId: `${stage.seat}:${item.short}:${doc.args.runId}` })
+        }
+      }
+      if (!resItem || expectedForItem.length === 0) {
+        return { itemId: item.id, short: item.short, ok: true, missing: [], mismatched: [], skipped: true }
+      }
       const observedForItem = (observed || []).filter((o) => o.itemId === item.id)
       const missing = []
       const mismatched = []
@@ -1128,7 +1172,11 @@ function execActors(argv, io) {
   const observed = io.readInput(notesPath)
   const itemsFlag = flagValue(argv, '--items')
   const itemIds = itemsFlag ? itemsFlag.split(',') : undefined
-  const result = auditActors(doc, observed, itemIds)
+  // D7: optional --result limits expected notes to stages that actually ran (status 'done'),
+  // so an item with only deferred/never-run stages is 'skipped' rather than flagged 'missing'.
+  const resultPath = flagValue(argv, '--result')
+  const resultDoc = resultPath ? io.readInput(resultPath) : undefined
+  const result = auditActors(doc, observed, itemIds, resultDoc ? { result: resultDoc } : undefined)
   io.writeOut(JSON.stringify(result))
   io.exit(result.ok ? 0 : 3)
 }
