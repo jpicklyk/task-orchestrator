@@ -1139,6 +1139,62 @@ test('B2: verify attributes each stage\'s (pre..post] commits correctly — a no
   assert.deepEqual(row.findings, [])
 })
 
+test('B2\': a first writing stage whose `pre` is the unresolved wave baseSha attributes an unowned-file finding to its own first commit; a later stage\'s commit inside that naive range still yields "precedes", not an ownership finding', () => {
+  // Oracle: Appendix D verify findings + the frozen range rule "(pre..post]; when pre does not
+  // resolve, from the first unattributed commit through post" (coordinator follow-up).
+  const plannerStage = { seat: 'planner', phase: 'queue', notes: [], writes: false, dispatch: {}, output: 'planner-v1' }
+  const implStage = { seat: 'implementer', phase: 'work', enters: true, writes: true, notes: [], dispatch: {}, output: 'implementer-v1' }
+  const testStage = { seat: 'test-author', phase: 'work', writes: true, notes: [], dispatch: {}, output: 'test-author-v1', readsExclude: [] }
+  const item = itemFixture({ short: 'aaaaaaaa', stages: [plannerStage, implStage, testStage] })
+  const baseSha = 'a'.repeat(40) // the wave's baseSha — the implementer stage's `pre`, absent from gitFacts.commits
+  const args = planFixture({ items: [item], baseSha })
+  const doc = { contract: 'run-wave/plan-doc-v1', args, meta: {} }
+  const plannerOut = outputFor('planner-v1', { mainFiles: ['src/x.js'], testFiles: ['scripts/tests/x.test.mjs'] })
+  const implOut = outputFor('implementer-v1')
+
+  const implSha1 = 'b'.repeat(40) // implementer's FIRST commit — touches an unowned file
+  const authorSha = 'c'.repeat(40) // test-author's real commit — appears BEFORE implementer's post
+  const implPostSha = 'd'.repeat(40) // implementer's declared `post` — chronologically LAST
+
+  const result = {
+    contract: 'implement-wave/result-v1', started: true, runId: args.runId, planDocSlug: 'run/x',
+    items: [{
+      id: item.id, short: 'aaaaaaaa', status: 'done', reason: 'ok',
+      stages: [
+        { seat: 'planner', status: 'done', reason: 'ok', modelReported: 'opus', notes: [], commits: { pre: baseSha, post: baseSha }, files: [] },
+        { seat: 'implementer', status: 'done', reason: 'ok', modelReported: 'sonnet', notes: [], commits: { pre: baseSha, post: implPostSha }, files: [] },
+        { seat: 'test-author', status: 'done', reason: 'ok', modelReported: 'sonnet', notes: [], commits: { pre: implPostSha, post: authorSha }, files: [] },
+      ],
+      outputs: { planner: plannerOut, implementer: implOut },
+    }],
+    refused: [], deferred: [],
+  }
+  const gitFacts = {
+    exists: { [baseSha]: true, [implSha1]: true, [authorSha]: true, [implPostSha]: true },
+    commits: [
+      { sha: implSha1, subject: 'feat(x): step1 [aaaaaaaa]', body: 'why\n\nSeat: implementer', files: ['src/x.js', 'src/unowned.js'] },
+      { sha: authorSha, subject: 'test(x): early tests [aaaaaaaa]', body: 'why\n\nSeat: test-author', files: ['scripts/tests/x.test.mjs'] },
+      { sha: implPostSha, subject: 'feat(x): finish [aaaaaaaa]', body: 'why\n\nSeat: implementer', files: ['src/x.js'] },
+    ],
+  }
+  const out = verify(doc, result, gitFacts)
+  const row = out.items.find((i) => i.short === 'aaaaaaaa')
+  assert.equal(row.ok, false)
+  assert.ok(
+    row.findings.includes('implementer wrote unowned src/unowned.js'),
+    `expected the first stage's own first commit to be attributed to it (pre unresolved -> from the first unattributed commit through post); findings: ${JSON.stringify(row.findings)}`
+  )
+  assert.ok(
+    row.findings.includes('test-author commit ccccccc precedes implementer'),
+    `expected the out-of-order test-author commit to yield the "precedes" finding; findings: ${JSON.stringify(row.findings)}`
+  )
+  assert.equal(
+    row.findings.some((f) => f.includes('scripts/tests/x.test.mjs') && !f.startsWith('test-author commit')),
+    false,
+    `the test-author-trailer commit inside implementer's naive range must not ALSO produce an ownership finding for it; findings: ${JSON.stringify(row.findings)}`
+  )
+})
+
 test('B3: next settles an entire in-run dependency chain in ONE call when the root blocker is stopped (A->B->C, same-pass cascade)', () => {
   const core = realCore()
   const A = itemFixture({ short: 'aaaaaaaa', stages: stages.featureTaskLike() })
