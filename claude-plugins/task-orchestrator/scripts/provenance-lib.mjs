@@ -110,14 +110,14 @@ const NUMERIC_KEYS = {
   'orchestrator-turns': 'orchestratorTurns',
 }
 
-function parsePairList(value) {
+function parsePairList(value, valueKey) {
   return value
     .split(',')
     .filter((s) => s.length > 0)
     .map((s) => {
       const idx = s.indexOf(':')
-      if (idx === -1) return { seat: unescapeValue(s), model: undefined }
-      return { seat: unescapeValue(s.slice(0, idx)), model: unescapeValue(s.slice(idx + 1)) }
+      if (idx === -1) return { seat: unescapeValue(s), [valueKey]: undefined }
+      return { seat: unescapeValue(s.slice(0, idx)), [valueKey]: unescapeValue(s.slice(idx + 1)) }
     })
 }
 
@@ -130,7 +130,8 @@ function parsePairList(value) {
  */
 export function parseProvenance(text) {
   if (typeof text !== 'string' || text.length === 0) return { legacy: true }
-  const firstLine = text.split('\n')[0]
+  const normalized = text.replace(/\r\n/g, '\n')
+  const firstLine = normalized.split('\n')[0]
   if (!STRUCTURED_RE.test(firstLine)) return { legacy: true }
 
   const fields = {}
@@ -149,7 +150,7 @@ export function parseProvenance(text) {
         fields.run = unescapeValue(raw)
         break
       case 'seats':
-        fields.seats = parsePairList(raw)
+        fields.seats = parsePairList(raw, 'model')
         break
       case 'model':
         fields.model = unescapeValue(raw)
@@ -158,7 +159,7 @@ export function parseProvenance(text) {
         fields.isolation = unescapeValue(raw)
         break
       case 'substituted':
-        fields.substituted = parsePairList(raw)
+        fields.substituted = parsePairList(raw, 'requested')
         break
       case 'model-source':
         fields.modelSource = unescapeValue(raw)

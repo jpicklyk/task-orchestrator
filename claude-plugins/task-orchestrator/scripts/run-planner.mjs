@@ -9,7 +9,7 @@
 // B2b adds rows to the subcommand table below: next, prompt, stage-result, scan-declarations,
 // verify, actors, provenance, review-prompt.
 
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -189,6 +189,13 @@ const EXEC_IO = {
   git(cwd, args) {
     const r = spawnSync('git', ['-C', cwd, ...args], { encoding: 'utf8' });
     return { status: r.status, stdout: r.stdout || '' };
+  },
+  listDir(dir) {
+    try {
+      return readdirSync(dir);
+    } catch {
+      return [];
+    }
   },
   loadCore() {
     return loadWaveCore({ pluginRoot: resolve(HERE, '..') });

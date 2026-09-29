@@ -146,6 +146,70 @@ function computeItemStatus(item, state, refusedById) {
 }
 
 /**
+ * cascadeDeferrals(plan, state, statusByItemId, byId, refusedById) -> Map(itemId -> reason).
+ * B3 fix: an item settled deferred THIS pass (its in-run blocker failed, or is itself
+ * cascade-deferred) must be visible to LATER items in the same next() call — otherwise a
+ * dependent of a same-pass deferral only ever sees 'waiting', and the run can never reach
+ * complete:true. Runs to a fixpoint since a chain (A->B->C) can cascade more than one hop.
+ * A blocker's failure point is "at or before the milestone" either when a real per-stage
+ * entry up to and including the milestone is stopped/deferred, the blocker was
+ * preflight-refused, or the blocker is ITSELF cascade-deferred this pass (which, by
+ * construction, only ever happens before its own stage 0 runs — i.e. always before any
+ * milestone).
+ */
+function cascadeDeferrals(plan, state, statusByItemId, byId, refusedById) {
+  const cascade = new Map()
+  let changed = true
+  while (changed) {
+    changed = false
+    for (const item of plan.items) {
+      const st = statusByItemId.get(item.id)
+      if (st.terminal || cascade.has(item.id)) continue
+      if (!Array.isArray(item.waitsFor) || item.waitsFor.length === 0) continue
+      const stageIndex = item.stages.findIndex((s) => stageStateStatus(state, item, s) === 'pending')
+      if (stageIndex !== 0) continue
+
+      for (const w of item.waitsFor) {
+        const blocker = byId.get(w.item)
+        const blockerShort = blocker ? blocker.short : w.item
+
+        if (cascade.has(w.item)) {
+          cascade.set(item.id, `in-run blocker ${blockerShort} did not reach ${w.milestone}`)
+          changed = true
+          break
+        }
+
+        const blockerStatus = statusByItemId.get(w.item)
+        if (!blockerStatus || !blockerStatus.terminal || blockerStatus.status === 'done') continue
+
+        if (refusedById.has(w.item)) {
+          cascade.set(item.id, `in-run blocker ${blockerShort} did not reach ${w.milestone}`)
+          changed = true
+          break
+        }
+
+        const milestoneStage = blocker.stages.find((s) => s.seat === w.milestone)
+        const milestoneIndex = blocker.stages.indexOf(milestoneStage)
+        let failed = false
+        for (let j = 0; j <= milestoneIndex; j++) {
+          const sjStatus = stageStateStatus(state, blocker, blocker.stages[j])
+          if (sjStatus === 'stopped' || sjStatus === 'deferred') {
+            failed = true
+            break
+          }
+        }
+        if (failed) {
+          cascade.set(item.id, `in-run blocker ${blockerShort} did not reach ${w.milestone}`)
+          changed = true
+          break
+        }
+      }
+    }
+  }
+  return cascade
+}
+
+/**
  * next(core, doc, state) -> {dispatch, waiting, settled, complete}.
  * Args order then stage order, deterministic. Per item, only the first unsettled stage is
  * considered (<=1 in flight per item). See Appendix D of the f8d3232e dispatch contract for
@@ -158,6 +222,9 @@ export function next(core, doc, state) {
 
   const statusByItemId = new Map()
   for (const item of plan.items) statusByItemId.set(item.id, computeItemStatus(item, state, refusedById))
+
+  const cascade = cascadeDeferrals(plan, state, statusByItemId, byId, refusedById)
+  const isSettled = (itemId) => statusByItemId.get(itemId).terminal || cascade.has(itemId)
 
   const inFlightLockKeys = new Set()
   for (const item of plan.items) {
@@ -179,44 +246,28 @@ export function next(core, doc, state) {
       settled.push({ item: item.short, status: st.status, reason: st.reason })
       continue
     }
+    if (cascade.has(item.id)) {
+      settled.push({ item: item.short, status: 'deferred', reason: cascade.get(item.id) })
+      continue
+    }
     if (st.inFlight) continue
 
     const stageIndex = item.stages.findIndex((s) => stageStateStatus(state, item, s) === 'pending')
     const stage = item.stages[stageIndex]
 
-    // stage-0 waitsFor gating
+    // stage-0 waitsFor gating. Any blocker that would FAIL this item was already resolved by
+    // cascadeDeferrals above (this item would be in `cascade`, handled by the branch above) —
+    // so every remaining blocker here is still legitimately pending/in-flight.
     if (stageIndex === 0 && Array.isArray(item.waitsFor) && item.waitsFor.length > 0) {
-      let deferReason = null
       let waitOn = null
       for (const w of item.waitsFor) {
         const blocker = byId.get(w.item)
         const blockerShort = blocker ? blocker.short : w.item
-        if (refusedById.has(w.item)) {
-          deferReason = `in-run blocker ${blockerShort} did not reach ${w.milestone}`
-          break
-        }
         const milestoneStage = blocker.stages.find((s) => s.seat === w.milestone)
-        const milestoneIndex = blocker.stages.indexOf(milestoneStage)
-        let failed = false
-        for (let j = 0; j <= milestoneIndex; j++) {
-          const sjStatus = stageStateStatus(state, blocker, blocker.stages[j])
-          if (sjStatus === 'stopped' || sjStatus === 'deferred') {
-            failed = true
-            break
-          }
-        }
-        if (failed) {
-          deferReason = `in-run blocker ${blockerShort} did not reach ${w.milestone}`
-          break
-        }
         if (stageStateStatus(state, blocker, milestoneStage) !== 'done') {
           waitOn = `${blockerShort}:${w.milestone}`
           break
         }
-      }
-      if (deferReason) {
-        settled.push({ item: item.short, status: 'deferred', reason: deferReason })
-        continue
       }
       if (waitOn) {
         waiting.push({ item: item.short, seat: stage.seat, on: waitOn })
@@ -234,9 +285,8 @@ export function next(core, doc, state) {
       for (const earlier of earlierItems) {
         const earlierPlanner = earlier.stages.find((s) => s.output === 'planner-v1')
         if (!earlierPlanner) continue
-        const earlierStatus = statusByItemId.get(earlier.id)
         const pStatus = stageStateStatus(state, earlier, earlierPlanner)
-        if (!earlierStatus.terminal && pStatus !== 'done') {
+        if (!isSettled(earlier.id) && pStatus !== 'done') {
           waitOnPlanner = `planner ${earlier.short}`
           break
         }
@@ -462,13 +512,23 @@ export function scanReport(core, text) {
 
 /**
  * resultFromState(core, doc, state) -> result-v1, matching runPlan's own shape.
- * An item's status/reason is its first non-done stage (a pending stage with no state entry
- * reads as stopped 'agent returned null'); stages after the first non-done one are omitted,
- * mirroring runItem's early return.
+ * An item's status/reason is its first non-done stage. A pending stage with no state entry
+ * takes `next(core, doc, state)`'s settled reason for this item when `next` would settle it
+ * this pass (e.g. an in-run blocker failure or an overlap deferral it never got to start) —
+ * only a genuinely missing result (agent dispatched, no stage-result ever recorded, and
+ * `next` does NOT consider the item settled) falls back to 'agent returned null'. Refused
+ * items are reported ONLY via `refused`, never duplicated into `items`.
  */
 export function resultFromState(core, doc, state) {
   const { plan, preflight } = resolvePlan(core, doc)
-  const items = plan.items.map((item) => {
+  const nextInfo = next(core, doc, state)
+  const settledByShort = new Map(nextInfo.settled.map((s) => [s.item, s]))
+
+  const items = []
+  for (const item of plan.items) {
+    const settledInfo = settledByShort.get(item.short)
+    if (settledInfo && settledInfo.status === 'refused') continue
+
     const stagesOut = []
     const outputs = {}
     let status = 'done'
@@ -478,13 +538,23 @@ export function resultFromState(core, doc, state) {
       const key = `${item.short}:${stage.seat}`
       const entry = state && state.stages && state.stages[key]
       if (!entry || entry.status === undefined) {
-        stagesOut.push({
-          seat: stage.seat, status: 'stopped', reason: 'agent returned null',
-          modelReported: '', agentTypeUsed: null, agentTypeFallback: false,
-          notes: [], commits: { pre: '', post: '' }, files: [],
-        })
-        status = 'stopped'
-        reason = 'agent returned null'
+        if (settledInfo && settledInfo.status !== 'done') {
+          stagesOut.push({
+            seat: stage.seat, status: settledInfo.status, reason: settledInfo.reason,
+            modelReported: '', agentTypeUsed: null, agentTypeFallback: false,
+            notes: [], commits: { pre: '', post: '' }, files: [],
+          })
+          status = settledInfo.status
+          reason = settledInfo.reason
+        } else {
+          stagesOut.push({
+            seat: stage.seat, status: 'stopped', reason: 'agent returned null',
+            modelReported: '', agentTypeUsed: null, agentTypeFallback: false,
+            notes: [], commits: { pre: '', post: '' }, files: [],
+          })
+          status = 'stopped'
+          reason = 'agent returned null'
+        }
         break
       }
       stagesOut.push({
@@ -495,7 +565,13 @@ export function resultFromState(core, doc, state) {
         agentTypeUsed: entry.agentTypeUsed || null,
         agentTypeFallback: !!entry.agentTypeFallback,
         notes: entry.notes || [],
-        commits: { pre: entry.pre || '', post: entry.post || '' },
+        // stageResult() writes flat pre/post; a state entry built by hand from a raw envelope
+        // (as an agent would return, or as a caller migrating an in-flight run might stash it)
+        // carries them nested under commits — accept either.
+        commits: {
+          pre: entry.pre !== undefined ? entry.pre : ((entry.commits && entry.commits.pre) || ''),
+          post: entry.post !== undefined ? entry.post : ((entry.commits && entry.commits.post) || ''),
+        },
         files: entry.files || [],
       })
       if (state.outs && key in state.outs) outputs[stage.seat] = state.outs[key]
@@ -506,8 +582,8 @@ export function resultFromState(core, doc, state) {
       }
     }
 
-    return { id: item.id, short: item.short, status, reason, stages: stagesOut, outputs }
-  })
+    items.push({ id: item.id, short: item.short, status, reason, stages: stagesOut, outputs })
+  }
 
   return {
     contract: 'implement-wave/result-v1',
@@ -528,6 +604,75 @@ function outputForStageId(resultItem, argItem, outputId) {
   const stage = argItem.stages.find((s) => s.output === outputId)
   if (!stage) return null
   return resultItem.outputs ? resultItem.outputs[stage.seat] : undefined
+}
+
+/**
+ * parseGitLog(text) -> [{sha, subject, body, files:[]}] oldest-first.
+ * Parses `git log --reverse --topo-order --format=%H%x1f%s%x1f%b%x1e --name-only <range>`
+ * output. --name-only prints each commit's changed-file list AFTER that commit's format
+ * block, so splitting on the record separator (\x1e) alone puts commit N's file list at the
+ * START of the (N+1)-th chunk, ahead of commit N+1's own %H%x1f header — attributing files to
+ * the wrong commit if read naively. \x1f (unit separator) cannot occur in a real subject/body/
+ * path, so the FIRST '<40 lowercase hex>\x1f' match in a chunk unambiguously locates the next
+ * commit's header; everything before it in that chunk is the PRIOR commit's file list.
+ */
+export function parseGitLog(text) {
+  if (!text) return []
+  const HEADER_RE = /([0-9a-f]{40})\x1f([^\x1f]*)\x1f([\s\S]*)/
+  const records = String(text).split('\x1e')
+  const commits = []
+
+  const attachFiles = (commit, filesText) => {
+    if (!commit || !filesText) return
+    const files = filesText.split('\n').map((s) => s.trim()).filter(Boolean)
+    if (files.length > 0) commit.files = commit.files.concat(files)
+  }
+
+  for (let i = 0; i < records.length; i++) {
+    const record = records[i]
+    if (i === 0) {
+      const m = HEADER_RE.exec(record)
+      if (m) commits.push({ sha: m[1], subject: m[2], body: m[3], files: [] })
+      continue
+    }
+    const m = HEADER_RE.exec(record)
+    if (m) {
+      const filesText = record.slice(0, m.index)
+      attachFiles(commits[commits.length - 1], filesText)
+      commits.push({ sha: m[1], subject: m[2], body: m[3], files: [] })
+    } else {
+      // Trailing record: no embedded header (end of the range) — the whole thing is the LAST
+      // parsed commit's file list.
+      attachFiles(commits[commits.length - 1], record)
+    }
+  }
+
+  return commits
+}
+
+/**
+ * stageCommitRange(itemCommits, pre, post) -> {commits, startIdx, endIdx}.
+ * itemCommits is this item's commits, oldest-first. A stage's own commits are every commit in
+ * (pre..post] — strictly after `pre` (the PRIOR stage's last commit, never this stage's own),
+ * up to and including `post`. `pre` is used to widen the range backward ONLY when it resolves
+ * to a real commit in itemCommits (the normal case: it equals the prior writing stage's real
+ * `post`) — when `pre` is absent or names something outside itemCommits (this item's baseSha,
+ * a placeholder, or anything else this function cannot resolve), the range defaults to JUST
+ * the `post` commit itself rather than reaching all the way back to index 0, so one stage's
+ * range can never swallow an EARLIER stage's real commits just because `pre` didn't resolve.
+ * `post` falsy or not found -> no commits attributed.
+ */
+function stageCommitRange(itemCommits, pre, post) {
+  if (!post) return { commits: [], startIdx: -1, endIdx: -1 }
+  const postIdx = itemCommits.findIndex((c) => c.sha === post)
+  if (postIdx === -1) return { commits: [], startIdx: -1, endIdx: -1 }
+  let startIdx = postIdx
+  if (pre) {
+    const preIdx = itemCommits.findIndex((c) => c.sha === pre)
+    if (preIdx !== -1) startIdx = preIdx + 1
+  }
+  if (startIdx > postIdx) startIdx = postIdx
+  return { commits: itemCommits.slice(startIdx, postIdx + 1), startIdx, endIdx: postIdx }
 }
 
 /**
@@ -567,6 +712,7 @@ export function verify(doc, result, gitFacts) {
       ((plannerOut && plannerOut.existingTestEdits) || []).map((e) => normalizePath(e.file))
     )
 
+    const rangeByStageSeat = new Map()
     for (const stage of argItem.stages) {
       const stageRes = (resItem.stages || []).find((s) => s.seat === stage.seat)
       if (!stageRes) continue
@@ -578,19 +724,21 @@ export function verify(doc, result, gitFacts) {
         }
       }
       if (!stage.writes) continue
-      const commit = itemCommits.find((c) => c.sha === post || c.sha === pre)
-      if (!commit) continue
-      if (!(commit.body || '').includes(`Seat: ${stage.seat}`)) {
-        findings.push(`missing Seat trailer ${commit.sha.slice(0, 7)}`)
-      }
-      const files = (commit.files || []).map(normalizePath)
-      if (stage.output === 'implementer-v1') {
-        for (const f of files) {
-          if (!mainFiles.has(f) && !docFiles.has(f)) findings.push(`implementer wrote unowned ${f}`)
+      const range = stageCommitRange(itemCommits, pre, post)
+      rangeByStageSeat.set(stage.seat, range)
+      for (const commit of range.commits) {
+        if (!(commit.body || '').includes(`Seat: ${stage.seat}`)) {
+          findings.push(`missing Seat trailer ${commit.sha.slice(0, 7)}`)
         }
-      } else if (stage.output === 'test-author-v1') {
-        for (const f of files) {
-          if (!testFiles.has(f) && !existingTestEdits.has(f)) findings.push(`test-author wrote unowned ${f}`)
+        const files = (commit.files || []).map(normalizePath)
+        if (stage.output === 'implementer-v1') {
+          for (const f of files) {
+            if (!mainFiles.has(f) && !docFiles.has(f)) findings.push(`implementer wrote unowned ${f}`)
+          }
+        } else if (stage.output === 'test-author-v1') {
+          for (const f of files) {
+            if (!testFiles.has(f) && !existingTestEdits.has(f)) findings.push(`test-author wrote unowned ${f}`)
+          }
         }
       }
     }
@@ -598,16 +746,11 @@ export function verify(doc, result, gitFacts) {
     const implStage = argItem.stages.find((s) => s.output === 'implementer-v1')
     const authorStage = argItem.stages.find((s) => s.output === 'test-author-v1')
     if (implStage && authorStage) {
-      const implRes = (resItem.stages || []).find((s) => s.seat === implStage.seat)
-      const authorRes = (resItem.stages || []).find((s) => s.seat === authorStage.seat)
-      const implSha = implRes && implRes.commits && (implRes.commits.post || implRes.commits.pre)
-      const implCommit = itemCommits.find((c) => c.sha === implSha)
-      const authorSha = authorRes && authorRes.commits && (authorRes.commits.post || authorRes.commits.pre)
-      const authorCommit = itemCommits.find((c) => c.sha === authorSha)
-      if (implCommit && authorCommit) {
-        const implIdx = itemCommits.indexOf(implCommit)
-        const authorIdx = itemCommits.indexOf(authorCommit)
-        if (authorIdx < implIdx) findings.push(`test-author commit ${authorCommit.sha.slice(0, 7)} precedes implementer`)
+      const implRange = rangeByStageSeat.get(implStage.seat)
+      const authorRange = rangeByStageSeat.get(authorStage.seat)
+      if (implRange && authorRange && implRange.commits.length > 0 && authorRange.commits.length > 0 &&
+          authorRange.startIdx <= implRange.endIdx) {
+        findings.push(`test-author commit ${authorRange.commits[0].sha.slice(0, 7)} precedes implementer`)
       }
     }
 
@@ -814,18 +957,21 @@ function flagValue(argv, name, def) {
  * readStateOrFail(doc, argv, io) -> state | undefined (calls io.fail and returns undefined
  * when the state file's runId/contract disagrees with doc.args.runId/STATE_CONTRACT).
  * Runs checkState against the RAW file content (never the initState default, which always
- * agrees by construction) so a stale or foreign state file is caught before use.
+ * agrees by construction) so a stale or foreign state file is caught before use. An absent
+ * OR EMPTY ({}) state file reads as initState(doc) — {} is a truthy object, so it must be
+ * checked for zero keys explicitly rather than relying on `raw || initState(doc)` (O5).
  */
 function readStateOrFail(doc, argv, io) {
   const raw = io.readInput(flagValue(argv, '--state'))
-  if (raw) {
+  const isEmpty = !raw || Object.keys(raw).length === 0
+  if (raw && !isEmpty) {
     const checked = checkState(doc, raw)
     if (!checked.ok) {
       io.fail(2, 'invalid args', checked.error)
       return undefined
     }
   }
-  return raw || initState(doc)
+  return isEmpty ? initState(doc) : raw
 }
 
 function execNext(argv, io) {
@@ -871,9 +1017,19 @@ function execScanDeclarations(argv, io) {
   io.exit(0)
 }
 
+/** resolveResultDoc(core, doc, resultDoc) -> result-v1 (converts a run-wave/state-v1 --result via resultFromState — B5). */
+function resolveResultDoc(core, doc, resultDoc) {
+  if (resultDoc && resultDoc.contract === STATE_CONTRACT) {
+    return resultFromState(core, doc, resultDoc)
+  }
+  return resultDoc
+}
+
 function execVerify(argv, io) {
   const doc = io.readInput(flagValue(argv, '--plan'))
-  const result = io.readInput(flagValue(argv, '--result'))
+  const resultDoc = io.readInput(flagValue(argv, '--result'))
+  const core = io.loadCore()
+  const result = resolveResultDoc(core, doc, resultDoc)
   const worktrees = Array.from(new Set(doc.args.items.map((it) => it.worktree)))
   const exists = {}
   const commits = []
@@ -892,14 +1048,7 @@ function execVerify(argv, io) {
       }
     }
     const log = io.git(wt, ['log', '--reverse', '--topo-order', '--format=%H%x1f%s%x1f%b%x1e', '--name-only', `${doc.args.baseSha}..HEAD`])
-    for (const rawCommit of log.stdout.split('\x1e')) {
-      if (!rawCommit.trim()) continue
-      const [sha, subject, rest] = rawCommit.split('\x1f')
-      if (!sha) continue
-      const lines = (rest || '').split('\n')
-      const body = lines.slice(0, -1).join('\n') || rest || ''
-      commits.push({ sha: sha.trim(), subject, body, files: [] })
-    }
+    commits.push(...parseGitLog(log.stdout))
   }
   const gitFacts = { exists, commits }
   const out = verify(doc, result, gitFacts)
@@ -925,20 +1074,23 @@ function execActors(argv, io) {
 
 function execProvenance(argv, io) {
   const doc = io.readInput(flagValue(argv, '--plan'))
-  const result = io.readInput(flagValue(argv, '--result'))
+  const resultDoc = io.readInput(flagValue(argv, '--result'))
   const core = io.loadCore()
+  const result = resolveResultDoc(core, doc, resultDoc)
   const usagePath = flagValue(argv, '--usage')
   const usage = usagePath ? io.readInput(usagePath) : undefined
   const metaDir = flagValue(argv, '--meta-dir')
   let meta
   if (metaDir) {
+    // O3: '<seat>:<short>.meta.json' is not a legal filename on NTFS (':' is reserved), so the
+    // dir is listed and each *.meta.json file's own `label` field (frozen shape
+    // {label:'<seat>:<short>', model}) supplies the key instead of the filename.
     meta = {}
-    for (const item of doc.args.items) {
-      for (const stage of item.stages) {
-        const p = `${metaDir}/${stage.seat}:${item.short}.meta.json`.replace(/\\/g, '/')
-        const parsed = io.readInput(p)
-        if (parsed) meta[`${stage.seat}:${item.short}`] = parsed
-      }
+    const names = (io.listDir ? io.listDir(metaDir) : []).filter((n) => n.endsWith('.meta.json'))
+    for (const name of names) {
+      const p = `${metaDir}/${name}`.replace(/\\/g, '/')
+      const parsed = io.readInput(p)
+      if (parsed && parsed.label) meta[parsed.label] = parsed
     }
   }
   const out = provenance({
