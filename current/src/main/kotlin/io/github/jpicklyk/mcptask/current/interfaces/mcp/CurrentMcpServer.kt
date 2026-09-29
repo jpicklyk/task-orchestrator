@@ -78,6 +78,7 @@ import kotlinx.io.buffered
 import kotlinx.serialization.json.JsonObject
 import org.slf4j.LoggerFactory
 import java.nio.file.Paths
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Current (v3) MCP Server implementation for the Task Orchestrator.
@@ -380,8 +381,15 @@ class CurrentMcpServer(
                 )
             }
 
+        // Stop the engine only if start() actually succeeded. A CIO engine's server job is LAZY: calling
+        // stop() on a never-started engine joins that job, which STARTS it and binds host:port just to
+        // tear it down again. After a transport-start failure that meant every registered shutdown path
+        // re-attempted the bind at exit, surfacing an uncaught BindException (or briefly binding a port
+        // this process never served on).
+        val httpStarted = AtomicBoolean(false)
+
         shutdownCoordinator?.addCleanupAction("Stop HTTP Server") {
-            ktorServer.stop(gracePeriodMillis = 1000, timeoutMillis = 5000)
+            if (httpStarted.get()) ktorServer.stop(gracePeriodMillis = 1000, timeoutMillis = 5000)
             done.complete()
         }
         registerCommonCleanup(server)
@@ -394,7 +402,7 @@ class CurrentMcpServer(
         if (shutdownCoordinator == null) {
             Runtime.getRuntime().addShutdownHook(
                 Thread {
-                    ktorServer.stop(1000, 5000)
+                    if (httpStarted.get()) ktorServer.stop(1000, 5000)
                     done.complete()
                     databaseManager.shutdown()
                 }
@@ -404,6 +412,7 @@ class CurrentMcpServer(
         try {
             onBeforeTransportStart("http")
             ktorServer.start(wait = false)
+            httpStarted.set(true)
         } catch (e: Exception) {
             logger.error("Error in HTTP server: ${e.message}", e)
             runCatching { readinessMarker.clear() }
