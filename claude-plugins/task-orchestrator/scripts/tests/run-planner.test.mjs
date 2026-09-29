@@ -1585,3 +1585,79 @@ test("E3: meta.worktreesToCreate is empty when snap.git.worktrees already has th
     const doc = JSON.parse(res.stdout);
     assert.deepEqual(doc.meta.worktreesToCreate, []);
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// S5 — validateSnapshot: snap.probe must be an object. Absent, null, an array,
+// or any non-object value is invalid with the exact error 'probe must be an
+// object'; a plain object (even {}) passes. [D3, plans/fix-config-sync-busy.md]
+// Blind regression: oracle is the brief's D3 text, not validateSnapshot's
+// current behavior. Red-proof: today validateSnapshot accepts a missing probe
+// (no such error appears), so these assertions fail against unfixed code.
+// ═══════════════════════════════════════════════════════════════════════════
+
+test("S5: validateSnapshot — a snapshot with no probe field is invalid with the exact error 'probe must be an object'", () => {
+    const snap = baseSnapshot();
+    delete snap.probe;
+    const result = validateSnapshot(snap);
+    assert.equal(result.ok, false);
+    assert.ok(
+        result.errors.includes("probe must be an object"),
+        `expected 'probe must be an object' in ${JSON.stringify(result.errors)}`
+    );
+});
+
+test("S5: validateSnapshot — probe: null is invalid with the exact error 'probe must be an object'", () => {
+    const snap = baseSnapshot({ probe: null });
+    const result = validateSnapshot(snap);
+    assert.equal(result.ok, false);
+    assert.ok(
+        result.errors.includes("probe must be an object"),
+        `expected 'probe must be an object' in ${JSON.stringify(result.errors)}`
+    );
+});
+
+test("S5: validateSnapshot — probe: [] (an array) is invalid with the exact error 'probe must be an object'", () => {
+    const snap = baseSnapshot({ probe: [] });
+    const result = validateSnapshot(snap);
+    assert.equal(result.ok, false);
+    assert.ok(
+        result.errors.includes("probe must be an object"),
+        `expected 'probe must be an object' in ${JSON.stringify(result.errors)}`
+    );
+});
+
+test("S5: validateSnapshot — probe: 'x' (a string) is invalid with the exact error 'probe must be an object'", () => {
+    const snap = baseSnapshot({ probe: "x" });
+    const result = validateSnapshot(snap);
+    assert.equal(result.ok, false);
+    assert.ok(
+        result.errors.includes("probe must be an object"),
+        `expected 'probe must be an object' in ${JSON.stringify(result.errors)}`
+    );
+});
+
+test("S5: validateSnapshot — probe: {} (a plain, even empty, object) passes; no probe error", () => {
+    const snap = baseSnapshot({ probe: {} });
+    const result = validateSnapshot(snap);
+    assert.equal(result.ok, true, JSON.stringify(result.errors));
+    assert.ok(!(result.errors ?? []).includes("probe must be an object"));
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// S6 — CLI: a snapshot without probe fails validation (non-zero exit); the
+// unchanged fixtures (which already carry probe) still exit 0.
+// [D3, plans/fix-config-sync-busy.md]
+// ═══════════════════════════════════════════════════════════════════════════
+
+test("S6: CLI plan on a snapshot missing probe exits non-zero", () => {
+    const snap = loadFixture("independent-two.json");
+    delete snap.probe;
+    const res = runCli(["plan"], { input: JSON.stringify(snap) });
+    assert.notEqual(res.status, 0, "CLI must reject a snapshot with no probe field");
+});
+
+test("S6: CLI plan on the unchanged independent-two.json fixture (which already carries probe) still exits 0", () => {
+    const snap = loadFixture("independent-two.json");
+    const res = runCli(["plan", "--now", NOW], { input: JSON.stringify(snap) });
+    assert.equal(res.status, 0, res.stderr);
+});
