@@ -294,7 +294,10 @@ class SQLiteProjectConfigRepositoryGuardedUpsertTest {
 
         assertIs<Result.Success<GuardedUpsertOutcome>>(result)
         val outcome = result.data
-        assertIs<GuardedUpsertOutcome.Applied>(outcome, "X holds the write lock from BEGIN under IMMEDIATE, so X always wins the race to write first")
+        assertIs<GuardedUpsertOutcome.Applied>(
+            outcome,
+            "X holds the write lock from BEGIN under IMMEDIATE, so X always wins the race to write first",
+        )
         assertEquals(yamlC, outcome.config.configYaml)
 
         val loserOutcome = competingResult
