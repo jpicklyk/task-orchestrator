@@ -101,12 +101,11 @@ class DatabaseManager(
                         // it); only this connection's config is changed.
                         (connection as? SQLiteConnection)?.connectionConfig?.transactionMode =
                             SQLiteConfig.TransactionMode.IMMEDIATE
-                        logger.info("Transaction mode set to IMMEDIATE (writer lock acquired at BEGIN)")
                     }
                 )
             TransactionManager.manager.defaultIsolationLevel = Connection.TRANSACTION_SERIALIZABLE
 
-            logger.info("Database connection established successfully")
+            logger.info("Database connection established successfully (transactions begin IMMEDIATE; busy_timeout ${busyTimeoutMs} ms)")
             return true
         } catch (e: Exception) {
             logger.error("Failed to initialize database: ${e.message}", e)

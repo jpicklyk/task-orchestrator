@@ -806,7 +806,7 @@ The V7 migration fails at startup if the trigram FTS5 table cannot be created.
 
 ## SQLite Tuning — `DATABASE_BUSY_TIMEOUT_MS`
 
-SQLite is a single-writer database. Under concurrent fleet load, write operations may queue and return `SQLITE_BUSY` if the writer lock is held too long. The `DATABASE_BUSY_TIMEOUT_MS` environment variable controls how long SQLite waits for the lock before returning an error. Every transaction the server opens begins `IMMEDIATE` (writer lock taken at `BEGIN`), so concurrent writers queue on this timeout instead of failing immediately with `SQLITE_BUSY_SNAPSHOT` at the read-then-write upgrade.
+SQLite is a single-writer database. Under concurrent fleet load, write operations may queue and return `SQLITE_BUSY` if the writer lock is held too long. The `DATABASE_BUSY_TIMEOUT_MS` environment variable controls how long SQLite waits for the lock before returning an error. Every transaction the server opens begins `IMMEDIATE` (writer lock taken at `BEGIN`), so concurrent writers queue on this timeout instead of failing immediately with `SQLITE_BUSY_SNAPSHOT` at the read-then-write upgrade. Because every transaction takes the writer lock, read-only transactions queue behind writers too (WAL reader/writer concurrency is not used); with one server process and millisecond-length transactions this is not measurable, but a long-running transaction delays every other request until it commits or the timeout elapses.
 
 ```bash
 # Set a longer timeout for a fleet with 30+ agents
