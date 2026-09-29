@@ -56,6 +56,7 @@ proposal item's own status says "terminal".
 | `9023ed46` (#361) | unscoped dedup search before creating a root or feature item | out of scope: an item-creation step, adopted in the plugin skills `post-plan-workflow` (Phase 1) and `create-item` (Step 5), which run where items are materialized — no dispatched seat creates items |
 | `610b9a9f` (#373) | anchored byte-level edits when Edit/Write is refused | **Header** — the conditional "File-edit method" clause on the Write root line, pointing at `references/patch-anchored.py` (exact-once anchors, `DRY=1`, validate-all-then-write, per-file CRLF/LF preserved) |
 | `c71ff3cb` (#356) | subagents leaving background commands running after they return | out of scope: delivered where every dispatched seat already reads it — the SubagentStart hook's Subagent Discipline item 4 (phase-owner seats), the `implementer`/`reviewer` agent definitions (plain dispatches), and the `implement-wave`/`review-wave` workflow prompts |
+| `aacfc16b` (#336) | multi-row empirical probe for runtime-dependent at-rest/security guarantees | out of scope: adopted in `.claude/skills/migration-review/SKILL.md` Step 3, which the `needs-migration-review` trait's `migration-assessment` note routes the planning seat to at fill time |
 
 ---
 

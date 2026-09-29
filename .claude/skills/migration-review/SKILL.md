@@ -35,6 +35,9 @@ For migrations that modify existing data:
 - [ ] Existing rows handled — default values for new columns, or explicit data migration
 - [ ] Null safety — new NOT NULL columns require a DEFAULT or data backfill
 - [ ] Large table performance — SQLite locks the entire database during writes
+- [ ] Runtime-dependent guarantees are probed, not assumed — see below
+
+**Guarantees that rest on engine runtime behavior need a multi-row probe.** When the assessment claims an at-rest, security, or data-integrity guarantee that depends on a specific runtime/engine behavior (e.g. SQLite `PRAGMA secure_delete`, `VACUUM` page reuse, WAL checkpoint timing, FTS5 shadow-table residue), the assessment MUST specify a multi-row/multi-write empirical probe as part of the required test strategy — not a single-row assertion, which can read clean whether or not the mechanism works. It MUST NOT phrase the guarantee as absolute ("scrubbed", "removed") when only a probabilistic or partial mechanism is available ("reduces residue", "partial scrub"); once the probe exists, state the measured bound (e.g. "3–14 of 200 rows survive with the pragma, 200+ without").
 
 ## Step 4: Flyway Integration
 
