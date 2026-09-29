@@ -450,7 +450,9 @@ Fill every field — an omitted field reads as "not done," not as "not applicabl
   shape was actually obtained: `behavioral-red (narrowest revert: <what was reverted>)`, or
   `compile-red only — substitute verification: <what the reviewer does instead>`. Where the revert
   is orchestrator-run rather than author-run, record `red evidence: orchestrator-run` together with
-  the recipe you expect it to use. `EXISTING-SURFACE` scenarios need nothing here beyond the §5
+  the recipe you expect it to use. State WHERE the revert ran (the scratch-copy path) and at WHICH
+  commit it was made; an in-place revert (stash, checkout, restore, reset) in the shared worktree is
+  not red evidence and the reviewer treats it as absent. `EXISTING-SURFACE` scenarios need nothing here beyond the §5
   red-first result.
 - **Arbitration record** — every ambiguity raised per §8, its resolution, and any `oracle-degraded`
   markers.

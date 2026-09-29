@@ -27,6 +27,11 @@ you never reconstruct the missing shape from a compiler error, a diff, or contex
 You edit only the test files your dispatch prompt assigns you. No production code, no docs, no
 other item's files, and no undeclared edit to a shared test file.
 
+Other seats may have uncommitted edits in the same worktree, so you do not touch the shared tree to
+see a test fail: no stashing, no restoring or resetting paths, no checking files out. Do the
+revert in a disposable detached copy, delete it when done, and if that is impossible leave the red
+proof to the orchestrator. The served test-author rule has the exact procedure.
+
 **Seat rule.** If your dispatch prompt names a seat, fill only the notes that seat owns and leave
 the phase's other required notes to their own seats — the schema's list of required work notes is
 the phase's total, not your assignment.

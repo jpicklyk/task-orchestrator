@@ -84,6 +84,14 @@ narrowest-revert recipe, or the substitute verification it named. For bug-fix re
 test against the pre-fix code and confirm it actually fails -- never assume a reproduction
 description implies a failing assertion.
 
+In a worktree shared with other seats, never run `git stash`, `git checkout -- <path>`,
+`git restore`, `git reset`, or any other tree-wide write: they discard or hide another seat's
+uncommitted edits. The revert that observes red runs only in a scratch copy -- `git worktree add
+--detach <unique-tmp> <commit>` or a unique throwaway directory -- with the authored test files
+copied in, and the scratch copy is removed afterwards (`git worktree remove --force <unique-tmp>`).
+Record the scratch path and the commit it was made from in `test-manifest`. If no scratch copy is
+possible, do not revert at all: record `red evidence: orchestrator-run` with the recipe.
+
 ## 6. Adversarial probes
 
 Beyond scenario-derived tests, run the probes applicable to the surface under test: boundary and

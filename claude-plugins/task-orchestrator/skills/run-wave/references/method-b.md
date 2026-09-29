@@ -6,8 +6,9 @@ Method A, but drives it with direct `Agent` calls from this session instead of h
 server may not yet expose enough capability data for Method A to plan seat-aware dispatch (Step 0
 F2/F3). Method B reuses Method A's core prompt-rendering and envelope-handling bytes
 (`seatPrompt`, `handoff`, `mapEntry`, `mapStageResult`, `envelopeSchema`, `lockKeysFor`,
-`normalizeArgs`, `preflight`) via `scripts/lib/wave-core.mjs`, so the two methods produce
-identical seat prompts for identical inputs — parity by construction, not by convention.
+`normalizeArgs`, `preflight`) via `scripts/lib/wave-core.mjs`, so a Method B seat prompt is
+the Method A bytes plus a Method-B-only RETURN addendum (the envelope schema block step 1 documents):
+parity holds for the core-rendered part by construction, and the addendum is the only difference.
 
 All scheduling and bookkeeping below is driven by `node "<helper>" <cmd>` calls
 (`scripts/run-exec-lib.mjs` under the hood); this reference describes the orchestration loop
@@ -18,9 +19,9 @@ around those calls, not the calls' internals.
 ## The loop
 
 1. **Schedule.** `node "<helper>" next --plan <scratchpad>/run-wave/<runId>/plan.json --state <scratchpad>/run-wave/<runId>/state.json` returns `{dispatch:[{item, seat, model, agentType, lockKeys}], waiting:[{item, seat, on}], settled:[{item, status, reason}], complete}`. `waiting` entries name what they're blocked on (`on`, e.g. `'planner <short>'` or a lock key); `settled` entries are items `next` has already resolved for this call (deferred, refused, or complete) — there is nothing left to dispatch for them. Dispatch **every** entry in `dispatch` in **one message** — a single batch of parallel `Agent` tool calls, not one call per turn. For each entry:
-   - `prompt`: the exact text from `node "<helper>" prompt --plan <plan> --state <state> --item <short> --seat <seat>`
+   - `prompt`: the exact text from `node "<helper>" prompt --plan <plan> --state <state> --item <short> --seat <seat>` — for a Method B plan (`meta.method === "B"`) it ends with a METHOD B RETURN addendum stating that no StructuredOutput tool exists, that the envelope is the last JSON object of the final message, and the exact envelope schema inlined (planner prompts also carry a line superseding the core StructuredOutput sentence); pass it verbatim
    - `model`: the entry's own `model` field (already resolved by the planner's dispatch precedence — never re-derive it here)
-   - `subagent_type`: the entry's own `agentType ?? "general-purpose"`
+   - `subagent_type`: the entry's own `agentType ?? "general-purpose"`. A `test-author` seat whose dispatch names no agent defaults to `task-orchestrator:test-author` (the blind test author) under Method B, so `agentType` is already set for it
    - **never** pass `isolation` — each item's worktree already comes from the run plan's `args.items[].worktree`; a Method B agent works inside that existing tree, it does not get its own fresh one
 2. **Respect ordering.** `next` already honors `waitsFor` milestones and the same `lockKeysFor` overlap rule the script core uses (two stages that would write overlapping lock keys are never in the same dispatch batch; when they'd overlap, the higher-priority item's stage is returned and the other is held back for a later `next` call). Do not second-guess this — if a stage you expected is missing from `dispatch`, it's in `waiting` for a reason `next` already computed.
 3. **Collect results.** For each dispatched Agent's return value, save the final text to a file and run `node "<helper>" stage-result --plan <plan> --state <state> --item <short> --seat <seat> --envelope <file> [--agent-type <t>] [--agent-type-fallback]`. This extracts the last balanced JSON blob from the text, validates it against the envelope schema, and maps it through the same `mapEntry`/`mapStageResult` logic Method A's core uses, printing `{status, reason, state}`. **The orchestrator MUST overwrite `<scratchpad>/run-wave/<runId>/state.json` with the printed `state` before running the next `stage-result` or `next` call** — the command returns the new state as JSON, it does not write the file itself. Because each call reads the state the *previous* call wrote, **run `stage-result` calls one at a time, never in parallel** — two calls issued together would both read the same pre-update state, and the second write would silently discard the first.
