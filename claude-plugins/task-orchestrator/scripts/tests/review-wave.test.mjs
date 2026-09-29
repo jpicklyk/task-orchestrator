@@ -38,6 +38,11 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 const PLUGIN = resolve(HERE, '..', '..')
 const REPO = resolve(PLUGIN, '..', '..')
 const SCRIPT_PATH = join(PLUGIN, 'workflows', 'review-wave.js')
+// implement-wave.js is B1's script (a sibling, not review-wave.js) — reaching it is outside this
+// item's blindness ban, which is scoped to review-wave.js only (c1-dispatch-contract.md). It is
+// still reached only through loadCoreNamed's public export surface, per the coordinator's ask,
+// never opened directly.
+const IMPLEMENT_SCRIPT_PATH = join(PLUGIN, 'workflows', 'implement-wave.js')
 const RULES_DIR = join(REPO, '.taskorchestrator', 'rules')
 
 // ── Core, loaded once by name (Appendix A "Core names for loadCoreNamed") ──
@@ -1276,6 +1281,39 @@ test('S13: laneSchema required list is a subset of its own properties for both o
   }
   checkRequiredSubset(laneSchema('review-v1'))
   checkRequiredSubset(laneSchema('simplify-v1'))
+})
+
+test('RW-P (container review O1): review-wave laneSchema shares byte-identical status/reason/notes/commits/files/rulesFetched/modelReported/required[]/type with implement-wave envelopeSchema, and entry is a strict subset', () => {
+  const { envelopeSchema } = loadCoreNamed(IMPLEMENT_SCRIPT_PATH, ['envelopeSchema'])
+  const implSchema = envelopeSchema('generic-v1')
+  const SHARED_KEYS = ['status', 'reason', 'notes', 'commits', 'files', 'rulesFetched', 'modelReported']
+
+  for (const outputId of ['review-v1', 'simplify-v1']) {
+    const revSchema = laneSchema(outputId)
+
+    assert.equal(revSchema.type, implSchema.type, `type mismatch for ${outputId}`)
+    assert.deepEqual(revSchema.required, implSchema.required, `required[] mismatch for ${outputId}`)
+    for (const key of SHARED_KEYS) {
+      assert.deepEqual(revSchema.properties[key], implSchema.properties[key], `properties.${key} mismatch for ${outputId}`)
+    }
+
+    // entry: review-wave's key set must be a STRICT subset of implement-wave's (review-wave has
+    // fewer entry fields — it only ever reports alreadyInPhase/previousRole since every lane is
+    // pre-entered and read-only), and every shared key's own definition must match exactly.
+    const revEntryKeys = Object.keys(revSchema.properties.entry.properties)
+    const implEntryKeys = Object.keys(implSchema.properties.entry.properties)
+    for (const k of revEntryKeys) {
+      assert.ok(implEntryKeys.includes(k), `entry key "${k}" (review-wave ${outputId}) is missing from implement-wave's entry`)
+      assert.deepEqual(
+        revSchema.properties.entry.properties[k], implSchema.properties.entry.properties[k],
+        `entry.${k} definition mismatch for ${outputId}`
+      )
+    }
+    assert.ok(
+      revEntryKeys.length < implEntryKeys.length,
+      `review-wave's entry key set for ${outputId} must be a STRICT subset (fewer keys) of implement-wave's: got ${revEntryKeys.length} vs ${implEntryKeys.length}`
+    )
+  }
 })
 
 // =============================================================================
