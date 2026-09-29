@@ -1460,3 +1460,128 @@ test("(7) O9: resolveDispatch's agent is strictly null (never undefined) when th
     assert.notEqual(result.agent, undefined);
     assert.ok(Object.prototype.hasOwnProperty.call(result, "agent"), "agent key must be present on the result, not omitted");
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Appendix E (container-review fixes, review-checklist 36b3419f on 5d33ea27).
+// BLIND per the same rule as the rest of this file: written from
+// b2-dispatch-contract.md Appendix E (E1, E3, E5) only, never from
+// run-planner-lib.mjs / run-planner.mjs source. E5 scopes this file to exactly:
+// validateSnapshot's two new error strings; `plan` exit 3 + message for the
+// <scratchpad> case; `plan` exit 3 for --worktree/--branch in per-item mode;
+// --worktree without --branch exit 3; assembleArgs' shared-mode worktree/branch
+// override (normalized) and meta.worktreesToCreate empty-vs-non-empty depending
+// on snap.git.worktrees[path]. The override/worktreesToCreate scenarios are
+// driven through the `plan` CLI rather than a direct assembleArgs(snap, planned,
+// opts) unit call: Appendix C never publishes the internal shape of `planned`
+// (only assembleArgs' own opts/output contract), and `plan`'s frozen call chain
+// (Appendix C) routes through assembleArgs, so a CLI-level assertion exercises
+// the same frozen behaviour without guessing an unpublished internal shape.
+// ═══════════════════════════════════════════════════════════════════════════
+
+test("E1: validateSnapshot rejects an empty git.repoRoot with the exact frozen error string", () => {
+    const snap = baseSnapshot({ git: { originMain: "e77c3e85", repoRoot: "", worktrees: {} } });
+    const result = validateSnapshot(snap);
+    assert.equal(result.ok, false);
+    assert.ok(result.errors.includes("git.repoRoot must be a non-empty string"), JSON.stringify(result.errors));
+});
+
+test("E1: validateSnapshot rejects a non-plain-object profile (an array) with the exact frozen error string", () => {
+    const snap = baseSnapshot({ profile: ["not", "a", "plain", "object"] });
+    const result = validateSnapshot(snap);
+    assert.equal(result.ok, false);
+    assert.ok(result.errors.includes("profile must be an object"), JSON.stringify(result.errors));
+});
+
+test("E1: plan CLI refuses (exit 3) when --scratchpad is absent but a profile verify command uses the <scratchpad> literal", () => {
+    const base = loadFixture("independent-two.json");
+    const snap = {
+        ...base,
+        profile: {
+            ...base.profile,
+            verify: [{ name: "compile-self-check", command: "<scratchpad>/gradle-locked.ps1 -Worktree x" }],
+        },
+    };
+    const res = runCli(["plan"], { input: JSON.stringify(snap) }); // no --scratchpad
+    assert.equal(res.status, 3);
+    const combined = `${res.stdout}\n${res.stderr}`;
+    assert.ok(
+        combined.includes("plan: --scratchpad is required because the profile uses <scratchpad>"),
+        combined
+    );
+});
+
+test("E3: plan CLI refuses (exit 3) when --worktree/--branch are passed together with --mode per-item", () => {
+    const snap = loadFixture("independent-two.json");
+    const res = runCli(
+        ["plan", "--mode", "per-item", "--worktree", "/repo/.claude/worktrees/custom", "--branch", "feat/custom"],
+        { input: JSON.stringify(snap) }
+    );
+    assert.equal(res.status, 3);
+    const combined = `${res.stdout}\n${res.stderr}`;
+    assert.ok(
+        combined.includes("plan: --worktree/--branch apply to --mode shared only"),
+        combined
+    );
+});
+
+test("E3: plan CLI refuses (exit 3) when --worktree is passed without --branch (shared mode)", () => {
+    const snap = loadFixture("independent-two.json");
+    const res = runCli(
+        ["plan", "--mode", "shared", "--worktree", "/repo/.claude/worktrees/custom"],
+        { input: JSON.stringify(snap) }
+    );
+    assert.equal(res.status, 3);
+});
+
+test("E3: shared-mode --worktree/--branch override replaces every item's worktree/branch, normalizing a backslashed path", () => {
+    const snap = loadFixture("in-run-edge-shared.json");
+    const res = runCli(
+        [
+            "plan", "--now", NOW, "--mode", "shared",
+            "--worktree", "C:\\repo\\shared-wt",
+            "--branch", "feat/shared-override",
+        ],
+        { input: JSON.stringify(snap) }
+    );
+    assert.equal(res.status, 0, res.stderr);
+    const doc = JSON.parse(res.stdout);
+    assert.equal(doc.args.items.length, 2);
+    for (const item of doc.args.items) {
+        assert.equal(item.worktree, "C:/repo/shared-wt", JSON.stringify(item));
+        assert.equal(item.branch, "feat/shared-override", JSON.stringify(item));
+    }
+});
+
+test("E3: meta.worktreesToCreate contains the shared override pair when snap.git.worktrees does not have that path", () => {
+    const base = loadFixture("in-run-edge-shared.json");
+    const overridePath = "/repo/custom-shared-wt";
+    const overrideBranch = "feat/custom-shared";
+    const snap = { ...base, git: { ...base.git, worktrees: {} } };
+    const res = runCli(
+        ["plan", "--now", NOW, "--mode", "shared", "--worktree", overridePath, "--branch", overrideBranch],
+        { input: JSON.stringify(snap) }
+    );
+    assert.equal(res.status, 0, res.stderr);
+    const doc = JSON.parse(res.stdout);
+    assert.ok(
+        doc.meta.worktreesToCreate.some((w) => w.path === overridePath && w.branch === overrideBranch),
+        JSON.stringify(doc.meta.worktreesToCreate)
+    );
+});
+
+test("E3: meta.worktreesToCreate is empty when snap.git.worktrees already has the shared override path", () => {
+    const base = loadFixture("in-run-edge-shared.json");
+    const overridePath = "/repo/custom-shared-wt";
+    const overrideBranch = "feat/custom-shared";
+    const snap = {
+        ...base,
+        git: { ...base.git, worktrees: { [overridePath]: { branch: overrideBranch, head: "abc1234" } } },
+    };
+    const res = runCli(
+        ["plan", "--now", NOW, "--mode", "shared", "--worktree", overridePath, "--branch", overrideBranch],
+        { input: JSON.stringify(snap) }
+    );
+    assert.equal(res.status, 0, res.stderr);
+    const doc = JSON.parse(res.stdout);
+    assert.deepEqual(doc.meta.worktreesToCreate, []);
+});
