@@ -187,6 +187,10 @@ Two of the seats the script dispatches are the `planner` and `test-author` agent
 `claude-plugins/task-orchestrator/agents/` — a queue-phase planning seat and a blind, independent
 test-authoring seat, respectively.
 
+- `audit` — read-only report + proposal; materializing its findings goes through [create-item](../../../claude-plugins/task-orchestrator/skills/create-item/SKILL.md#from-a-workflow-findings-proposal).
+- `retro-analysis` — invoked via `/session-retrospective --deep`.
+- `review-wave` — planned.
+
 ---
 
 ## The Plan-Mode Pipeline
