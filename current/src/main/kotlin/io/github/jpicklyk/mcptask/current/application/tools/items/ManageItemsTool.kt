@@ -120,7 +120,8 @@ Unified write operations for WorkItems (create, update, delete).
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "Schema type identifier; determines lifecycle mode and required notes. One type " +
+                                    "Ignored at the top level — set type on each item instead. " +
+                                        "Schema type identifier; determines lifecycle mode and required notes. One type " +
                                         "per item (unlike tags)."
                                 )
                             )
@@ -133,8 +134,8 @@ Unified write operations for WorkItems (create, update, delete).
                             put(
                                 "description",
                                 JsonPrimitive(
-                                    "JSON string of extensible item properties (e.g. lifecycle overrides, traits); " +
-                                        "stored as-is."
+                                    "Ignored at the top level — set properties on each item instead. JSON string of " +
+                                        "extensible item properties (e.g. lifecycle overrides, traits); stored as-is."
                                 )
                             )
                         }
