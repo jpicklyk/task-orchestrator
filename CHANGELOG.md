@@ -18,6 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the extractor and the author. Never call it bare — it returns `{started:false}`; the `run-wave` front door
   (B2) builds its `args`. Ships with two new agent definitions, `task-orchestrator:planner` and
   `task-orchestrator:test-author`, and a fake-agent test harness (`scripts/tests/workflow-harness.mjs`).
+- **`review-wave` workflow (Phase C / C1).** New Claude Code Workflow script `workflows/review-wave.js` that runs an
+  item's review-phase notes as independent lanes (reviewer, security, api-compat, plugin-impact, plus an advisory
+  simplify lane feeding the reviewer), each on the owned-file diff with rules fetched by key, and aggregates a verdict
+  (pass / pass-with-observations / fail-blocking). Lanes arrive as validated `review-wave/args-v1` stages built by the
+  `run-wave` front door; the script never derives lanes from config and refuses a reviewer whose actor matches an
+  implementer or test author.
 
 ### Added
 
