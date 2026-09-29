@@ -123,6 +123,17 @@ test('S4: phase-owner agent_type (plugin-qualified implementer) gets the protoco
   assert.ok(text.includes('Agent-Owned-Phase Protocol'));
 });
 
+// ── c71ff3cb / #356: Subagent Discipline item 4, leave nothing running ──────────────────────
+
+test('#356: implementer protocol carries the leave-nothing-running discipline rule', () => {
+  const text = protocolText({ session_id: 's', agent_id: 'a', agent_type: 'task-orchestrator:implementer' });
+  const idx = text.indexOf('4. **Leave nothing running.**');
+  assert.ok(idx > text.indexOf('## Subagent Discipline'), 'expected item 4 inside the Subagent Discipline list');
+  const item = text.slice(idx);
+  assert.ok(item.includes('can outlive your return'), 'expected the no-outliving-background-command rule');
+  assert.ok(item.includes('never search from `/` or a drive root'), 'expected the bounded-search rule');
+});
+
 test('S4: phase-owner agent_type (bare reviewer) gets the protocol', () => {
   const text = protocolText({ session_id: 's', agent_id: 'a', agent_type: 'reviewer' });
   assert.ok(text.includes('Agent-Owned-Phase Protocol'));

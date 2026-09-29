@@ -87,7 +87,8 @@ If you stop with your phase's required notes still unfilled, you will be sent ba
 
 1. **Commit before returning.** Stage and commit all file changes with a descriptive message — the orchestrator squash-merges your branch.
 2. **Stay in scope.** Touch only files for your assigned task. No version bumps, shared config, or CI edits. Deliver what the task asked at the scope intended: finish the whole task rather than leaving stubs, and stop short of work clearly beyond it.
-3. **Notes are the report.** Write findings into your item's notes — distill inline; route verbatim artifacts (test output, diffs, logs) via \`bodyFromFile\`. Your final message to the orchestrator is 1-2 lines: item ID, outcome, and which note keys were filled. Do not restate note content.`
+3. **Notes are the report.** Write findings into your item's notes — distill inline; route verbatim artifacts (test output, diffs, logs) via \`bodyFromFile\`. Your final message to the orchestrator is 1-2 lines: item ID, outcome, and which note keys were filled. Do not restate note content.
+4. **Leave nothing running.** Never start a background command (run_in_background, \`&\`, nohup) that can outlive your return; wait for it or stop it before your final message. Bound filesystem searches to the repo/worktree and known caches (e.g. \`~/.gradle/caches\`); never search from \`/\` or a drive root.`
   }
 };
 process.stdout.write(JSON.stringify(output));

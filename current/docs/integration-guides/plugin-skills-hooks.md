@@ -79,6 +79,8 @@ below.
 
 **Effect:** A phase-owner subagent knows to defer to whatever seat its own dispatch prompt assigned it: only an **entry seat** (the seat that starts the item's current phase), or a single agent that owns the whole phase with no seat named, calls `advance_item(trigger="start")` to enter its phase; a non-entry or read-only seat never calls `advance_item` at all — it does its assigned work and fills its own notes without transitioning the item. When it does own the transition, it fills notes using the `guidanceKey` loop, commits changes, and returns without calling `complete`. The orchestrator handles terminal transitions. A non-phase-owner subagent dispatched to work on an item still needs the protocol included in its dispatch prompt explicitly — it is not auto-injected.
 
+**Subagent Discipline:** the same injection ends with a short discipline list — commit before returning, stay in scope, notes are the report, and leave nothing running (no background command may outlive the subagent's return, and filesystem searches stay bounded to the repo/worktree and known caches, never `/` or a drive root). The `implementer` and `reviewer` agent definitions carry the leave-nothing-running rule too, so a dispatch that bypasses the hook still sees it.
+
 ### Phase-Guard Record
 
 **Event:** `PostToolUse` on `advance_item` — fires after every `advance_item` call, in the main session and inside subagents.

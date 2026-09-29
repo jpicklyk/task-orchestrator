@@ -55,6 +55,10 @@ proposal item's own status says "terminal".
 | `395f316f` (#374) | tests that bypass the runtime's validation order | **Test author protocol** — moved to rule `declarations-extractor` (the declarations block's `runtime call order:` line and its accuracy-contract bullet, the pinned `McpToolAdapter` sentence) |
 | `9023ed46` (#361) | unscoped dedup search before creating a root or feature item | out of scope: an item-creation step, adopted in the plugin skills `post-plan-workflow` (Phase 1) and `create-item` (Step 5), which run where items are materialized — no dispatched seat creates items |
 | `610b9a9f` (#373) | anchored byte-level edits when Edit/Write is refused | **Header** — the conditional "File-edit method" clause on the Write root line, pointing at `references/patch-anchored.py` (exact-once anchors, `DRY=1`, validate-all-then-write, per-file CRLF/LF preserved) |
+| `c71ff3cb` (#356) | subagents leaving background commands running after they return | out of scope: delivered where the phase-owner seats already read it — the SubagentStart hook's Subagent Discipline item 4 (phase-owner seats), the `implementer`/`reviewer` agent definitions (plain dispatches), and the `implement-wave`/`review-wave` workflow prompts |
+| `aacfc16b` (#336) | multi-row empirical probe for runtime-dependent at-rest/security guarantees | out of scope: adopted in `.claude/skills/migration-review/SKILL.md` Step 3, which the `needs-migration-review` trait's `migration-assessment` note routes the planning seat to at fill time |
+| `ef33c175` (#319) | negative and exhaustive claims must name their sweep | **Contract-change sweep** — moved to rule `contract-change-sweep` §3 (a planner's negative claim does not discharge the sweep); the general rule lives in `spec-quality/SKILL.md` → Blast Radius, and the `defect-class-siblings` field (`bb191508`) is its planning-seat special case |
+| `4048a4ee` (#320) | note length: schema-sourced targets and `note_limits` warn/reject semantics | **Notes** — the table's numbers are a convenience copy the resolved schema overrides, and `warn` accepts an over-limit note with a `warning` (no re-upsert) while `reject` fails it with `NOTE_BODY_TOO_LONG` |
 
 ---
 
@@ -240,8 +244,16 @@ Generated from the run plan (`stages[].notes` + `orchestratorNotes`).
 | Reviewer | `review-checklist`, `test-independence-audit` | `<1500 / …>` |
 | Orchestrator | `delegation-metadata` | `<…>` |
 
-Take the limits from the item's resolved schema, not from memory — an over-limit body is warned
-or rejected per `note_limits.mode`. Only the run plan's entry seat calls `advance_item(start)`; the
+Take every limit and target from the item's RESOLVED schema (`query_items(operation="schema",
+itemId=...)` — each entry's `maxLength` and guidance), not from this table and not
+from memory. Where this table names a number, it is a convenience copy — the schema wins on conflict.
+
+`note_limits.mode` is `warn` unless the effective config (per-root or global) sets `reject`. Under `warn` an over-limit note is
+ACCEPTED and returns a `warning` field — a warning is not a failure and is not a reason to
+re-upsert. Under `reject` the note fails with `code: NOTE_BODY_TOO_LONG` and must be shortened
+(`manage_notes` upsert; `manage-schemas` `references/config-format.md` → "Note Body Length Limits").
+
+Only the run plan's entry seat calls `advance_item(start)`; the
 orchestrator owns every later transition.
 
 ## Review scoping
