@@ -78,12 +78,19 @@ function cloneState(state) {
 
 /**
  * resolvePlan(core, doc) -> {plan, preflight}.
- * plan = core.normalizeArgs(doc.args).plan; throws '<reason>' from normalizeArgs on failure
- * (the CLI's top-level catch reports it under 'invalid args').
+ * plan = core.normalizeArgs(doc.args).plan; throws 'invalid args: <reason>' on failure — the
+ * schema-level reasons normalizeArgs returns already carry that prefix, and the run-level
+ * guard reasons (e.g. 'server lacks seats; …', 'seat entry requires phase0Hooks') do not, so
+ * it is added here when missing, per Appendix D.
  */
 export function resolvePlan(core, doc) {
   const normalized = core.normalizeArgs(doc.args)
-  if (!normalized.ok) throw new Error(normalized.reason)
+  if (!normalized.ok) {
+    const reason = normalized.reason && normalized.reason.startsWith('invalid args:')
+      ? normalized.reason
+      : `invalid args: ${normalized.reason}`
+    throw new Error(reason)
+  }
   const preflight = core.preflight(normalized.plan)
   return { plan: normalized.plan, preflight }
 }
@@ -803,10 +810,28 @@ function flagValue(argv, name, def) {
   return def
 }
 
+/**
+ * readStateOrFail(doc, argv, io) -> state | undefined (calls io.fail and returns undefined
+ * when the state file's runId/contract disagrees with doc.args.runId/STATE_CONTRACT).
+ * Runs checkState against the RAW file content (never the initState default, which always
+ * agrees by construction) so a stale or foreign state file is caught before use.
+ */
+function readStateOrFail(doc, argv, io) {
+  const raw = io.readInput(flagValue(argv, '--state'))
+  if (raw) {
+    const checked = checkState(doc, raw)
+    if (!checked.ok) {
+      io.fail(2, 'invalid args', checked.error)
+      return undefined
+    }
+  }
+  return raw || initState(doc)
+}
+
 function execNext(argv, io) {
   const doc = io.readInput(flagValue(argv, '--plan'))
-  const statePath = flagValue(argv, '--state')
-  const state = io.readInput(statePath) || initState(doc)
+  const state = readStateOrFail(doc, argv, io)
+  if (state === undefined) return
   const core = io.loadCore()
   const result = next(core, doc, state)
   io.writeOut(JSON.stringify(result))
@@ -815,7 +840,8 @@ function execNext(argv, io) {
 
 function execPrompt(argv, io) {
   const doc = io.readInput(flagValue(argv, '--plan'))
-  const state = io.readInput(flagValue(argv, '--state')) || initState(doc)
+  const state = readStateOrFail(doc, argv, io)
+  if (state === undefined) return
   const core = io.loadCore()
   const text = prompt(core, doc, state, flagValue(argv, '--item'), flagValue(argv, '--seat'))
   io.writeOut(text)
@@ -824,7 +850,8 @@ function execPrompt(argv, io) {
 
 function execStageResult(argv, io) {
   const doc = io.readInput(flagValue(argv, '--plan'))
-  const state = io.readInput(flagValue(argv, '--state')) || initState(doc)
+  const state = readStateOrFail(doc, argv, io)
+  if (state === undefined) return
   const core = io.loadCore()
   const envelopeText = io.readText(flagValue(argv, '--envelope'))
   const opts = {
