@@ -70,6 +70,16 @@ export function validateSnapshot(snap) {
       }
     }
   }
+  // E1 (blocker B1): git.repoRoot and profile are load-bearing for assembleArgs (worktree paths,
+  // <scratchpad>/<worktree> substitution) but were never validated, so a snapshot missing either
+  // passed silently and produced broken paths downstream.
+  const repoRoot = snap.git && snap.git.repoRoot;
+  if (typeof repoRoot !== 'string' || repoRoot.trim() === '') {
+    errors.push('git.repoRoot must be a non-empty string');
+  }
+  if (snap.profile !== undefined && (typeof snap.profile !== 'object' || snap.profile === null || Array.isArray(snap.profile))) {
+    errors.push('profile must be an object');
+  }
   return errors.length ? { ok: false, errors } : { ok: true };
 }
 
@@ -766,17 +776,21 @@ function normalizePath(p) {
   if (typeof p !== 'string') return p;
   let out = p.replace(/\\/g, '/');
   out = out.replace(/^\.\//, '');
-  out = out.replace(/^([A-Za-z]):/, (m, d) => `${d.toLowerCase()}:`);
   return out;
 }
 
 /**
  * assembleArgs(snap, planned, opts) -> implement-wave/args-v1 object
  * planned = {ids, waitsFor, derivedById, deferred}
- * opts = {now, runId, mode, entryMode, probe, profile, scratchpad}
+ * opts = {now, runId, mode, entryMode, probe, profile, scratchpad, worktree, branch}
+ * opts.worktree/opts.branch (E3): shared-mode only override of the derived feature worktree path
+ * and branch (e.g. /implement Step 2 reusing its own already-created worktree instead of the
+ * planner deriving a second one). Both are set together by the caller (the CLI enforces "both or
+ * neither" and "shared mode only" before calling in); this function trusts that precondition and
+ * simply substitutes the pair, normalized, in place of the derived sharedPath/sharedBranch.
  */
 export function assembleArgs(snap, planned, opts) {
-  const { now, runId, mode, entryMode, probe = {}, profile = {}, scratchpad } = opts || {};
+  const { now, runId, mode, entryMode, probe = {}, profile = {}, scratchpad, worktree, branch } = opts || {};
   const candidatesById = new Map((snap.candidates || []).map((c) => [c.id, c]));
   const repoRoot = (snap.git && snap.git.repoRoot) || '';
   const worktreeRoot = profile.worktreeRoot || '.claude/worktrees';
@@ -786,10 +800,15 @@ export function assembleArgs(snap, planned, opts) {
   let sharedPath = null;
   let sharedBranch = null;
   if (mode === 'shared' && planned.ids.length) {
-    const firstCand = candidatesById.get(planned.ids[0]);
-    const parentShort = shortFromId((firstCand && firstCand.parentId) || (firstCand && firstCand.id) || '');
-    sharedPath = normalizePath(`${repoRoot}/${worktreeRoot}/feat-${parentShort}`);
-    sharedBranch = `${branchPrefixShared}${parentShort}`;
+    if (worktree != null || branch != null) {
+      sharedPath = normalizePath(worktree);
+      sharedBranch = branch;
+    } else {
+      const firstCand = candidatesById.get(planned.ids[0]);
+      const parentShort = shortFromId((firstCand && firstCand.parentId) || (firstCand && firstCand.id) || '');
+      sharedPath = normalizePath(`${repoRoot}/${worktreeRoot}/feat-${parentShort}`);
+      sharedBranch = `${branchPrefixShared}${parentShort}`;
+    }
   }
 
   const items = planned.ids.map((id) => {
@@ -916,7 +935,7 @@ function buildWorktreesToCreate(snap, args, mode) {
  * assembleArgs -> size check.
  */
 export function buildPlanDoc(snap, opts = {}) {
-  const { now, maxItems = 5, mode: modeReq = 'auto', entry: entryReq = 'auto', method: methodReq, scratchpad } = opts;
+  const { now, maxItems = 5, mode: modeReq = 'auto', entry: entryReq = 'auto', method: methodReq, scratchpad, worktree, branch } = opts;
 
   const snapCheck = validateSnapshot(snap);
   if (!snapCheck.ok) {
@@ -950,6 +969,27 @@ export function buildPlanDoc(snap, opts = {}) {
   if (methodReq === 'A' && missingFeats.length) {
     guardErrors.push(`server lacks ${missingFeats[0]}; front door must use its fallback`);
   }
+
+  // E1 (blocker B1): the project profile's verify commands / searchScope may carry a literal
+  // '<scratchpad>' placeholder (design §3.4) that only --scratchpad substitutes; refuse rather
+  // than silently shipping the un-substituted literal into args.
+  const verifyList = Array.isArray(profile.verify) ? profile.verify : [];
+  const searchScopeList = Array.isArray(profile.searchScope) ? profile.searchScope : [];
+  const usesScratchpadPlaceholder = verifyList.some((v) => typeof (v && v.command) === 'string' && v.command.includes('<scratchpad>'))
+    || searchScopeList.some((s) => typeof s === 'string' && s.includes('<scratchpad>'));
+  if (!scratchpad && usesScratchpadPlaceholder) {
+    guardErrors.push('plan: --scratchpad is required because the profile uses <scratchpad>');
+  }
+
+  // E3 (blocker B3): --worktree/--branch (opts.worktree/opts.branch) apply to shared mode only
+  // and travel as a pair; both checks are guard-level refusals (exit 3), not CLI-level exit-2
+  // argument errors, matching how the CLI already reports buildPlanDoc's other refusals.
+  if ((worktree !== undefined) !== (branch !== undefined)) {
+    guardErrors.push('plan: --worktree and --branch must be passed together');
+  } else if ((worktree !== undefined || branch !== undefined) && mode !== 'shared') {
+    guardErrors.push('plan: --worktree/--branch apply to --mode shared only');
+  }
+
   if (guardErrors.length) {
     return { ok: false, refused: true, errors: guardErrors };
   }
@@ -1042,7 +1082,9 @@ export function buildPlanDoc(snap, opts = {}) {
     entryMode,
     probe,
     profile,
-    scratchpad
+    scratchpad,
+    worktree,
+    branch
   });
 
   const warnings = [];

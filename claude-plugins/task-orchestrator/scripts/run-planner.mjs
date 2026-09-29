@@ -111,8 +111,13 @@ function runPlan(args) {
   const entry = flagValue(args, '--entry', 'auto');
   const method = flagValue(args, '--method', undefined);
   const scratchpad = flagValue(args, '--scratchpad', undefined);
+  // E3: --worktree/--branch (shared mode only, both-or-neither) reuse an already-created
+  // feature worktree/branch instead of the planner deriving a second one. Validation (pairing,
+  // shared-mode-only) lives in run-planner-lib.mjs's buildPlanDoc guardErrors, not here.
+  const worktree = flagValue(args, '--worktree', undefined);
+  const branch = flagValue(args, '--branch', undefined);
 
-  const result = lib.buildPlanDoc(snap, { now, maxItems, mode, entry, method, scratchpad });
+  const result = lib.buildPlanDoc(snap, { now, maxItems, mode, entry, method, scratchpad, worktree, branch });
 
   if (result.ok) {
     process.stdout.write(`${JSON.stringify(result.doc)}\n`);
