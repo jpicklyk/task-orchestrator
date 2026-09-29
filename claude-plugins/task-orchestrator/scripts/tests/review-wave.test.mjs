@@ -713,6 +713,72 @@ test('S6: a non-primary fail-blocking lane halts the item before simplify settle
 })
 
 // =============================================================================
+// Follow-up (coordinator, post-S6): lane results must reach aggregateVerdict — and
+// result.lanes must be reported — in ARGS order, never completion order, regardless of which
+// lane's agent() call settles first.
+// Oracle: c1-dispatch-contract.md Appendix A — "aggregateVerdict(laneResults) (args order; ...)"
+// and "runItem(...) -> {..., lanes:[args order], ...}". Two independent (no `after`) review-v1
+// lanes, A (args-first, stopped) and B (args-second, fail-blocking); autoAgent's `order` option
+// is used to force B to settle BEFORE A under 'reverse' while A settles first under 'fifo'. If
+// runItem/aggregateVerdict correctly use args order rather than completion order, the item's
+// status/verdict/reason and the args-order of result.lanes must be byte-identical between the
+// two runs.
+// =============================================================================
+
+function twoLaneNoAfterItem(short = 'aaaaaaaa') {
+  return validRawItem(short, {
+    stages: [
+      { seat: 'reviewer', lane: 'reviewer.lane-a', phase: 'review', notes: ['review-checklist'], writes: false, protocol: 'protocol.read-only-agent', dispatch: {}, output: 'review-v1' },
+      { seat: 'reviewer', lane: 'reviewer.lane-b', phase: 'review', notes: ['test-independence-audit'], writes: false, protocol: 'protocol.read-only-agent', dispatch: {}, output: 'review-v1' },
+    ],
+  })
+}
+
+async function runTwoLaneOrdered(order) {
+  const item = twoLaneNoAfterItem('aaaaaaaa')
+  const plan = normalize(validRawPlan({ items: [item] }))
+  const responder = async (label) => {
+    if (label === 'reviewer.lane-a:aaaaaaaa') return null // maps to stopped "agent returned null"
+    if (label === 'reviewer.lane-b:aaaaaaaa') return passEnvelope(['test-independence-audit'], { verdict: 'fail-blocking' })
+    throw new Error(`unexpected label ${label}`)
+  }
+  const { agent, calls } = autoAgent(responder, { order })
+  const result = await runItem(plan, plan.items[0], { agent, log: () => {} })
+  return { result, calls }
+}
+
+test('aggregation is args-ordered, not completion-ordered: lane A (args-first, stopped) and lane B (args-second, fail-blocking) give an identical item status/verdict/reason, and result.lanes stays in args order, under both order:"fifo" and order:"reverse"', async () => {
+  const fifo = await runTwoLaneOrdered('fifo')
+  const reverse = await runTwoLaneOrdered('reverse')
+
+  // Sanity: under 'reverse', lane B (issued second, in the same concurrent burst since neither
+  // lane has `after`) must actually settle BEFORE lane A — otherwise this fixture would not
+  // exercise a real completion-order difference and the assertions below would pass vacuously.
+  const aCall = reverse.calls.find((c) => c.label === 'reviewer.lane-a:aaaaaaaa')
+  const bCall = reverse.calls.find((c) => c.label === 'reviewer.lane-b:aaaaaaaa')
+  assert.ok(aCall && bCall, 'both lane calls must have happened under reverse ordering')
+  assert.ok(bCall.t1 < aCall.t1, `sanity check failed: under order:"reverse" lane B must settle (t1=${bCall.t1}) before lane A (t1=${aCall.t1})`)
+
+  for (const [label, run] of [['fifo', fifo], ['reverse', reverse]]) {
+    assert.equal(run.result.status, 'stopped', `${label}: item status`)
+    assert.equal(run.result.verdict, 'fail-blocking', `${label}: item verdict`)
+    assert.equal(run.result.reason, 'review-fail reviewer.lane-b', `${label}: item reason must name only the fail-blocking lane, independent of completion order`)
+    assert.deepEqual(
+      run.result.lanes.map((l) => l.lane),
+      ['reviewer.lane-a', 'reviewer.lane-b'],
+      `${label}: result.lanes must be reported in args order regardless of which lane settled first`
+    )
+  }
+
+  // The two runs must be indistinguishable at the item-result level: completion order is not an
+  // observable input to aggregateVerdict or to how result.lanes is assembled.
+  assert.equal(fifo.result.status, reverse.result.status)
+  assert.equal(fifo.result.verdict, reverse.result.verdict)
+  assert.equal(fifo.result.reason, reverse.result.reason)
+  assert.deepEqual(fifo.result.lanes.map((l) => l.lane), reverse.result.lanes.map((l) => l.lane))
+})
+
+// =============================================================================
 // runItem observations aggregation (declared runItem return shape: observations[] collects
 // review-v1 findings whose severity is 'observation', tagged with their lane, in args order).
 // Oracle: c1-dispatch-contract.md Appendix A runItem return-shape description.
