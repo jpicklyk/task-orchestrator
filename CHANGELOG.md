@@ -29,6 +29,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `get` (list mode never returned `summary`); the 24 h window uses `modifiedAfter`.
 - Test harness extension `scripts/tests/workflow-harness-ext.mjs` (`loadCoreNamed`, `autoAgent`, `assertBarrier`,
   `freeRuntimeIds`, `ruleWindowHits`) for workflow scripts beyond implement-wave.
+- **`review-wave` workflow (Phase C / C1).** New Claude Code Workflow script `workflows/review-wave.js` that runs an
+  item's review-phase notes as independent lanes (this repo derives reviewer, security, api-compat and plugin-impact
+  lanes plus an advisory simplify lane feeding the reviewer; the script itself is lane-agnostic), each on the
+  owned-file diff with rules fetched by key, and aggregates a verdict in args order (pass / pass-with-observations /
+  fail-blocking). Lanes arrive as validated `review-wave/args-v1` stages, hand-built by the orchestrator until the
+  `run-wave` front door wires them (C1-productize); the script never derives lanes from config and refuses a reviewer
+  whose actor matches an implementer or test author.
 - **`run-wave` front door (Phase B / B2+B3).** New plugin skill `/task-orchestrator:run-wave` that plans a wave of ready
   items with the `run-planner` helper (`scripts/run-planner.mjs`: `probe|plan|explain|validate` over a pure planner
   that derives per-item seat stages from the resolved schema, classifies dependency edges as in-run or cross-run,

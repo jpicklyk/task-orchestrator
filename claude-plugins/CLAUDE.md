@@ -54,4 +54,4 @@ Two skill systems — do not confuse them: **project-level skills** in `.claude/
 - `workflows/` and `agents/` ride the same version-keyed cache as skills and hooks — a workflow or
   agent edit needs the same forced refresh above. Verify with `/workflows` listing
   `task-orchestrator:implement-wave`, `task-orchestrator:audit`, `task-orchestrator:retro-analysis`,
-  and (once shipped) `task-orchestrator:review-wave`, and `/agents` listing the new agent definitions.
+  and `task-orchestrator:review-wave`, and `/agents` listing the new agent definitions.
