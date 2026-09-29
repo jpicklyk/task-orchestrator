@@ -122,6 +122,9 @@ class SQLiteProjectConfigRepository(
                 // A conflicting insert (row-absent race) or a snapshot conflict on the conditional
                 // update (SQLITE_BUSY_SNAPSHOT) both surface here as an exception from the
                 // transaction rather than as a 0-row update; both are retried the same way.
+                // Transactions now begin IMMEDIATE (DatabaseManager), so a writer acquires the
+                // write lock at BEGIN and SQLITE_BUSY_SNAPSHOT should no longer occur in practice
+                // for this path -- this retry stays in place as defence in depth.
                 lastError = e
             }
         }
