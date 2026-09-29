@@ -471,6 +471,11 @@ class CurrentMcpServer(
  * failures, and internal errors, and MCP requires servers that emit log notifications to declare
  * the `logging` capability. `prompts`/`resources` are removed because no `addPrompt`/`addResource`
  * exists anywhere in this server — they were advertised-but-empty surfaces.
+ *
+ * `tools.listChanged` stays true, so every tool MUST be registered before any session connects: in
+ * kotlin-sdk 0.12.0 a post-connect `addTool` sends `tools/list_changed` from an SDK notification job
+ * with no exception handler, and a session whose transport has closed makes it throw an uncaught
+ * "Transport is not ready" (bug 947cc2ec, seen in tests).
  */
 internal fun productionServerCapabilities(): ServerCapabilities =
     ServerCapabilities(

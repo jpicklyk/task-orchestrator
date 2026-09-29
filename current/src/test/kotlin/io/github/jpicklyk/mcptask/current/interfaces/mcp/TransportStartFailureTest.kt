@@ -341,7 +341,7 @@ class TransportStartFailureTest {
     }
 
     /**
-     * Regression for bug 947cc2ec: after an http transport-start failure, running the shutdown
+     * Hardening found while investigating bug 947cc2ec (not its cause): after an http transport-start failure, running the shutdown
      * cleanup must NOT try to bind the configured port. Ktor's CIO engine starts its lazy server job
      * when `stop()` is called on a never-started engine, so an unguarded stop re-attempted the bind
      * at shutdown and — with the port held elsewhere — leaked an uncaught `BindException` from a
