@@ -26,6 +26,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksKeySetProvid
 import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksResult
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpToolAdapter
+import io.github.jpicklyk.mcptask.current.interfaces.mcp.inMemoryTestServerOptions
 import io.mockk.Runs
 import io.mockk.coEvery
 import io.mockk.every
@@ -34,12 +35,10 @@ import io.mockk.mockk
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.ClientOptions
 import io.modelcontextprotocol.kotlin.sdk.server.Server
-import io.modelcontextprotocol.kotlin.sdk.server.ServerOptions
 import io.modelcontextprotocol.kotlin.sdk.testing.ChannelTransport
 import io.modelcontextprotocol.kotlin.sdk.types.CallToolResult
 import io.modelcontextprotocol.kotlin.sdk.types.ClientCapabilities
 import io.modelcontextprotocol.kotlin.sdk.types.Implementation
-import io.modelcontextprotocol.kotlin.sdk.types.ServerCapabilities
 import io.modelcontextprotocol.kotlin.sdk.types.buildCallToolRequest
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.runBlocking
@@ -147,10 +146,7 @@ class ActorVerificationScopeTest {
             server =
                 Server(
                     serverInfo = Implementation(name = "actor-verification-scope-test-server", version = "1.0.0"),
-                    options =
-                        ServerOptions(
-                            capabilities = ServerCapabilities(tools = ServerCapabilities.Tools(listChanged = true))
-                        )
+                    options = inMemoryTestServerOptions()
                 )
             adapter = McpToolAdapter()
             val (clientTransport, serverTransport) = ChannelTransport.createLinkedPair()

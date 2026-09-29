@@ -2,15 +2,20 @@ package io.github.jpicklyk.mcptask.current.interfaces.mcp
 
 import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.database.DatabaseManager
+import io.github.jpicklyk.mcptask.current.infrastructure.shutdown.ShutdownCoordinator
 import io.mockk.every
 import io.mockk.mockkConstructor
 import io.mockk.unmockkAll
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
+import java.net.BindException
+import java.net.InetAddress
+import java.net.ServerSocket
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.CancellationException
+import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
@@ -47,17 +52,24 @@ class TransportStartFailureTest {
     /**
      * Real, freshly migrated temp-file SQLite database (mirrors `StartupOutcomeTest`'s
      * `invalidTransportAppConfig`) plus a `READINESS_FILE` pointed at a location under [tempDir].
+     *
+     * The http transport is pinned to loopback and, by default, an ephemeral port (0) — NEVER the
+     * production default 0.0.0.0:3001, which a developer's own running server (or another CI job)
+     * may already hold.
      */
     private fun appConfigFor(
         tempDir: Path,
         transport: String,
-        readinessFile: Path = tempDir.resolve("ready")
+        readinessFile: Path = tempDir.resolve("ready"),
+        httpPort: Int = 0
     ): AppConfig {
         val dbPath = tempDir.resolve("transport-start-failure-${System.nanoTime()}.db").toString()
         val env =
             mapOf(
                 "DATABASE_PATH" to dbPath,
                 "MCP_TRANSPORT" to transport,
+                "MCP_HTTP_HOST" to "127.0.0.1",
+                "MCP_HTTP_PORT" to httpPort.toString(),
                 "READINESS_FILE" to readinessFile.toString()
             )
         return AppConfig.fromEnv { key -> env[key] }
@@ -326,6 +338,50 @@ class TransportStartFailureTest {
             )
 
         assertFailsWith<Error> { server.run() }
+    }
+
+    /**
+     * Hardening found while investigating bug 947cc2ec (not its cause): after an http transport-start failure, running the shutdown
+     * cleanup must NOT try to bind the configured port. Ktor's CIO engine starts its lazy server job
+     * when `stop()` is called on a never-started engine, so an unguarded stop re-attempted the bind
+     * at shutdown and — with the port held elsewhere — leaked an uncaught `BindException` from a
+     * `server-root-…` coroutine into whatever `runTest`-based test ran next. The port here is one
+     * this test holds itself, so any bind attempt is guaranteed to fail and be observed.
+     */
+    @Test
+    fun `probe shutdown cleanup after an http transport-start failure never binds the configured port`(
+        @TempDir tempDir: Path
+    ) {
+        ServerSocket(0, 50, InetAddress.getLoopbackAddress()).use { occupied ->
+            val uncaught = CopyOnWriteArrayList<Throwable>()
+            val previousHandler = Thread.getDefaultUncaughtExceptionHandler()
+            Thread.setDefaultUncaughtExceptionHandler { _, e -> uncaught += e }
+            try {
+                val coordinator = ShutdownCoordinator()
+                val server =
+                    CurrentMcpServer(
+                        version = "test",
+                        shutdownCoordinator = coordinator,
+                        appConfig = appConfigFor(tempDir, "http", httpPort = occupied.localPort),
+                        onBeforeTransportStart = { throw IllegalStateException("bind boom") }
+                    )
+
+                val outcome = server.run()
+                assertTrue(outcome is Failed, "expected Failed, got $outcome")
+                assertEquals(Reason.TRANSPORT_START, outcome.reason)
+
+                coordinator.initiateShutdown("test")
+                assertTrue(coordinator.awaitCompletion(10_000), "shutdown cleanup must complete")
+            } finally {
+                Thread.setDefaultUncaughtExceptionHandler(previousHandler)
+            }
+
+            val bindFailures = uncaught.filter { t -> generateSequence(t) { it.cause }.any { it is BindException } }
+            assertTrue(
+                bindFailures.isEmpty(),
+                "shutdown of a never-started http transport must not attempt a bind: $bindFailures"
+            )
+        }
     }
 
     @Test

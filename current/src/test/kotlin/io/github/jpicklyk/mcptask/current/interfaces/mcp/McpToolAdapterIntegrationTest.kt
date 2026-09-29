@@ -10,7 +10,6 @@ import io.github.jpicklyk.mcptask.current.domain.model.ToolError
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.ClientOptions
 import io.modelcontextprotocol.kotlin.sdk.server.Server
-import io.modelcontextprotocol.kotlin.sdk.server.ServerOptions
 import io.modelcontextprotocol.kotlin.sdk.testing.ChannelTransport
 import io.modelcontextprotocol.kotlin.sdk.types.*
 import kotlinx.coroutines.runBlocking
@@ -41,13 +40,7 @@ class McpToolAdapterIntegrationTest {
             server =
                 Server(
                     serverInfo = Implementation(name = "test-server", version = "1.0.0"),
-                    options =
-                        ServerOptions(
-                            capabilities =
-                                ServerCapabilities(
-                                    tools = ServerCapabilities.Tools(listChanged = true)
-                                )
-                        )
+                    options = inMemoryTestServerOptions()
                 )
 
             adapter = McpToolAdapter()

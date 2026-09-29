@@ -15,11 +15,9 @@ import io.github.jpicklyk.mcptask.current.infrastructure.repository.DefaultRepos
 import io.modelcontextprotocol.kotlin.sdk.client.Client
 import io.modelcontextprotocol.kotlin.sdk.client.ClientOptions
 import io.modelcontextprotocol.kotlin.sdk.server.Server
-import io.modelcontextprotocol.kotlin.sdk.server.ServerOptions
 import io.modelcontextprotocol.kotlin.sdk.testing.ChannelTransport
 import io.modelcontextprotocol.kotlin.sdk.types.ClientCapabilities
 import io.modelcontextprotocol.kotlin.sdk.types.Implementation
-import io.modelcontextprotocol.kotlin.sdk.types.ServerCapabilities
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import io.modelcontextprotocol.kotlin.sdk.types.buildCallToolRequest
 import kotlinx.coroutines.CoroutineDispatcher
@@ -72,10 +70,7 @@ class McpToolAdapterMdcTest {
             server =
                 Server(
                     serverInfo = Implementation(name = "test-server", version = "1.0.0"),
-                    options =
-                        ServerOptions(
-                            capabilities = ServerCapabilities(tools = ServerCapabilities.Tools(listChanged = true))
-                        )
+                    options = inMemoryTestServerOptions()
                 )
             adapter = McpToolAdapter()
             val (clientTransport, serverTransport) = ChannelTransport.createLinkedPair()
