@@ -50,6 +50,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   run-profile.json` carries this repo's verify commands and search scope; `workflowSizeGuideline: large` is set.
 - `session-retrospective` reads the structured per-seat provenance line (`seats=<seat:model,...>`) alongside the
   legacy one-model-per-item form.
+- Fixed `config-sync.mjs` pushing all `.taskorchestrator/rules/*.md` PUTs in parallel (`Promise.all`), which raced
+  the server's SQLite writer and produced one success plus N-1 `db_error` failures per session; rule PUTs now go
+  sequentially, one at a time. `run-planner`'s `validateSnapshot` now requires a top-level `probe` object (the
+  verbatim `probe` subcommand output), matching `chooseEntry`'s and `plan`'s existing reliance on it; a snapshot
+  missing `probe` previously planned silently pre-entered instead of failing validation. `references/snapshot.md`
+  documents `probe` next to `profile`.
 
 ### Added
 
@@ -238,6 +244,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed a malformed JWT claims set (e.g. a non-numeric `exp`/`iat`) being misreported as
   `UNAVAILABLE`/`failureKind: network` under DID trust, or `REJECTED`/`failureKind: internal` in
   static-JWKS mode; both now report `REJECTED`/`failureKind: claims`. (#366)
+- Fixed `SQLITE_BUSY_SNAPSHOT` on concurrent writers: every SQLite transaction now begins `IMMEDIATE`
+  (writer lock acquired at `BEGIN`) instead of the driver default `DEFERRED`, so a transaction that reads
+  then writes (e.g. the plan-document upsert behind `PUT /roots/{rootId}/plans/{slug}`) queues on
+  `DATABASE_BUSY_TIMEOUT_MS` instead of failing immediately when another connection commits a write
+  after its snapshot started. The JDBC URL is unchanged.
 
 ### Removed
 
