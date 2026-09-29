@@ -44,7 +44,10 @@ Two skill systems — do not confuse them: **project-level skills** in `.claude/
   `rm -rf ~/.claude/plugins/cache/task-orchestrator-marketplace`, then
   `claude plugin marketplace update task-orchestrator-marketplace`. Re-extraction is **lazy** (next
   session start) — an empty cache dir right after the update is normal, not broken. Verify after the
-  next session starts by grepping the cached files for your change. A session that amends plugin
+  next session starts by grepping the cached files for your change; for `run-wave` also run
+  `node <cache>/scripts/run-planner.mjs probe` (it reports `pluginVersion` and `phase0Hooks`), confirm
+  `task-orchestrator:implement-wave` is listed in `/workflows`, and confirm the skill's `${CLAUDE_PLUGIN_ROOT}`
+  path resolved (no literal in the probe command). A session that amends plugin
   content must treat same-session invocations of those skills/hooks as stale (diff loaded content
   against disk before following it). The marketplace serves the working **tree** — confirm the
   checkout is on the branch you intend to install before refreshing.

@@ -165,6 +165,10 @@ These are triggered by hooks and output styles, not invoked directly by users:
 
 ## Workflows (Claude Code only)
 
+The front door for these scripts is the `/task-orchestrator:run-wave` skill: it plans a wave of ready items with
+the `run-planner` helper, launches `implement-wave` (Method A, the Workflow tool) or dispatches the same run plan
+with the Agent tool (Method B), and on the result verifies, records provenance and advances.
+
 `implement-wave` (`claude-plugins/task-orchestrator/workflows/implement-wave.js`) is a Workflow-tool
 script: it drives one work item's seats through their phases in order, and can run several items
 concurrently, following a run plan the front door builds before the script starts.
