@@ -32,27 +32,27 @@ proposal item's own status says "terminal".
 
 | Proposal | Topic | Slot / disposition |
 |---|---|---|
-| `82034e9a` | contract-change sweep checklist | **Contract-change sweep** — the post-wave sweep of call sites and fixtures after any contract-tightening change, and its construction-only repair rule |
-| `31a1abeb` | RepositoryProvider strict-mock breakage | **Contract-change sweep** — a new accessor on a strict-mocked interface is a contract tightening; the sweep's grep-and-repair step and its declaration in the commit map are the delivery |
+| `82034e9a` | contract-change sweep checklist | **Contract-change sweep** — moved to rule `contract-change-sweep`; the post-wave sweep of call sites and fixtures after any contract-tightening change, and its construction-only repair rule |
+| `31a1abeb` | RepositoryProvider strict-mock breakage | **Contract-change sweep** — moved to rule `contract-change-sweep`; a new accessor on a strict-mocked interface is a contract tightening; the sweep's grep-and-repair step and its declaration in the commit map are the delivery |
 | `4c25e3c7` | measure automated-budget headroom during planning | out of scope: adopted in `spec-quality/SKILL.md`, which queue-phase note `guidance` pointers route agents to at fill time — a delivery surface of its own that fires before this file exists for a wave, not skill prose an agent may never open |
 | `ee6f5d32` | add `ktlintFormat` to the agent compile self-check | **Compile self-check** — `:current:ktlintFormat` is first in the pinned task list |
 | `64be7e4b` | explicit-exit-code gradle pattern | **Compile self-check** — the `EXIT=0`/`EXIT≠0` branching; the proposal's `--rerun-tasks` clause stays an orchestrator-side habit, not a delegated fact |
 | `a8c08a0d` | finalize closure notes only after confirmed merge/advance | out of scope: an orchestrator closeout-sequencing rule (merge-check → advance → note), not an agent dispatch fact |
-| `568e7f7e` (#301) | `git commit --only` + owned-file-diff review scoping | **Commit discipline** and **Review scoping** |
+| `568e7f7e` (#301) | `git commit --only` + owned-file-diff review scoping | **Commit discipline** and **Review scoping** — moved to rules `commit-discipline` and `review-scoping` |
 | `b82537e4` (#302) | early exit on unowned-file compile errors + pinned build invocation | **Compile self-check** — the foreign-file early-exit rule and the array-literal `-Tasks` invocation |
-| `4cef371c` (#303) | fixtures must satisfy domain `validate()` | **Test author protocol** — rule 6, "Fixture invariants" |
+| `4cef371c` (#303) | fixtures must satisfy domain `validate()` | **Test author protocol** — moved to rule `test-author` §7, "Fixture invariants" |
 | `98d0a3b2` (#304) | planning seat as a named stage + structured return | **Planning seat return template** |
-| `fc55c183` (#306) | EXISTING-SURFACE/NEW-SURFACE labels + red-proof-shape | **Planning seat return template** (`red-proof-shape` field) and **Test author protocol** — rule 5, "Surface labels" |
+| `fc55c183` (#306) | EXISTING-SURFACE/NEW-SURFACE labels + red-proof-shape | **Planning seat return template** (`red-proof-shape` field) and **Test author protocol** — moved to rule `test-author` §2, "Surface labels" |
 | `728a3e57` (#307) | deliver adopted rules through the dispatch contract, not skill prose | this document — the template's existence plus this Adoption reach table is the shipped fix |
-| `7e9b37bb` (#310) | test-author blindness as a structural, tool-barred boundary | **Test author protocol** — rules 1-4 (declarations block, hard `src/main` ban, mandatory `keys=`, stop-and-ask) |
+| `7e9b37bb` (#310) | test-author blindness as a structural, tool-barred boundary | **Test author protocol** — moved to rule `test-author` §4 (declarations block, hard `src/main` ban, mandatory `keys=`, stop-and-ask) |
 | `a85d2b5d` (#312) | re-read shared files before editing; exact-text anchors | **File ownership** — "Shared files: re-read immediately before editing" |
-| `82ca5395` | assertions that cannot fail given their fixture or harness | **Test author protocol** — rule 9, "Forbidden"; the vacuity, harness-transformation and rejection-reason checks live in `test-author/SKILL.md` §7 |
+| `82ca5395` | assertions that cannot fail given their fixture or harness | **Test author protocol** — moved to rules `forbidden-test-patterns` and `test-assertion-vacuity`; the vacuity, harness-transformation and rejection-reason checks live there and in `test-author/SKILL.md` §7 |
 | `d1484a3e` | worktree writes landing in the main checkout | **Header** — the "Write root" line and the two-checkout `git status --short` before the first commit |
-| `234b50a0` | declarations-extractor seat and its accuracy contract | **Test author protocol** — the declarations paragraph (extractor seat, accuracy contract, orchestrator scan) and rule 4's public-evidence self-resolution clause |
+| `234b50a0` | declarations-extractor seat and its accuracy contract | **Test author protocol** — moved to rule `declarations-extractor` (extractor seat, accuracy contract, orchestrator scan) and rule `test-author` §4's public-evidence self-resolution clause |
 | `bb191508` | sweep the whole defect class during planning | **Planning seat return template** (`defect-class-siblings` field); the `bug-fix` schema's `diagnosis` guidance carries the same requirement at note-fill time |
 | `c068c943` (#360) | per-PR CHANGELOG `[Unreleased]` bullet | **Docs** — `CHANGELOG.md` is orchestrator- or docs-seat-owned, written before review, never an implementer's; the bullet itself (`/implement` Step 4c) and the Step 6 check plus the PR body's `## Changelog` section are orchestrator-side steps, not delegated facts |
-| `27c021b1` (#318) | hand-assembled Ktor test apps diverging from production | **Test author protocol** — the declarations block's `harness:` line, its accuracy-contract bullet, and rule 4's harness clause (named helper or stop-and-ask) |
-| `395f316f` (#374) | tests that bypass the runtime's validation order | **Test author protocol** — the declarations block's `runtime call order:` line and its accuracy-contract bullet (the pinned `McpToolAdapter` sentence) |
+| `27c021b1` (#318) | hand-assembled Ktor test apps diverging from production | **Test author protocol** — moved to rules `declarations-extractor` (the declarations block's `harness:` line and its accuracy-contract bullet) and `test-harness.full-wiring` (the named-helper-or-stop-and-ask clause) |
+| `395f316f` (#374) | tests that bypass the runtime's validation order | **Test author protocol** — moved to rule `declarations-extractor` (the declarations block's `runtime call order:` line and its accuracy-contract bullet, the pinned `McpToolAdapter` sentence) |
 | `9023ed46` (#361) | unscoped dedup search before creating a root or feature item | out of scope: an item-creation step, adopted in the plugin skills `post-plan-workflow` (Phase 1) and `create-item` (Step 5), which run where items are materialized — no dispatched seat creates items |
 | `610b9a9f` (#373) | anchored byte-level edits when Edit/Write is refused | **Header** — the conditional "File-edit method" clause on the Write root line, pointing at `references/patch-anchored.py` (exact-once anchors, `DRY=1`, validate-all-then-write, per-file CRLF/LF preserved) |
 
@@ -112,22 +112,13 @@ red-proof-shape: <per scenario — EXISTING-SURFACE | NEW-SURFACE + narrowest-re
 
 ## Commit discipline
 
-The feature worktree has ONE git index shared by every agent in the wave. `git add` stages into
-that shared index, so a bare `git commit` commits whatever any other agent has staged in flight.
+Fetch rule `commit-discipline` (`query_rules(operation="get", rootId=<rootId>, key="commit-discipline")`)
+for the full rule. Inline here only what the rule cannot supply — the wave-specific form:
 
-- Stage only your own paths: `git -C <wt> add <owned paths>`
-- Commit by pathspec, with the attribution trailer as its own `-m`:
-  `git -C <wt> commit --only -m "<type>(<scope>): <title> [<short-uuid>]" -m "<why>" -m "Co-Authored-By: <the dispatched agent's model attribution line>" -- <owned paths>`
-  The trailer is part of the commit form, not an optional flourish — a wave whose commits drop it
-  loses per-seat attribution across the whole PR.
-- Verify immediately: `git -C <wt> show --stat HEAD` must list exactly your owned files and
-  nothing else.
-- On mismatch: `git -C <wt> reset --soft HEAD~1`, re-stage your paths, re-commit with `--only`.
-- Never a bare `git commit`. `--only` is the only safe form in a shared worktree.
-- `--only` scopes by PATH, not by hunk: everything currently in an owned file is committed,
-  including edits you did not make. Read `git -C <wt> diff -- <owned paths>` before committing
-  if a formatter has run.
-- There is no git equivalent of the gradle lock helper. Path scoping is the entire mechanism.
+- `<wt>` = the feature worktree path (Header, above).
+- Commit subject form: `<type>(<scope>): <title> [<short-uuid>]`.
+- Trailer line: `Co-Authored-By: <the dispatched agent's model attribution line>` — its own `-m`,
+  not folded into the summary or the why line.
 
 ## Compile self-check
 
@@ -196,14 +187,14 @@ each with where the excluded work goes instead>`.
 
 ## Test author protocol
 
-One author per item, `src/test/**` only, dispatched after that item's implementer returns. The
-author's blindness is a CAPABILITY boundary, not a reading discipline: it holds only because the
-declarations below are supplied and the lookups are banned.
+One author per item, `src/test/**` only, dispatched after that item's implementer returns. Fetch
+rules `test-author`, `forbidden-test-patterns`, `test-assertion-vacuity`, `test-harness.full-wiring`,
+and `declarations-extractor` (`query_rules(operation="get", rootId=<rootId>, key=<key>)`) for the
+full protocol — blindness, oracle-derivation, scope, forbidden patterns, harness wiring, and the
+declarations-extractor seat's accuracy contract and orchestrator scan all live there now. Inline
+here only what those rules cannot supply — the wave-specific parameters:
 
-**Declarations — a dedicated declarations-extractor seat (sonnet, read-only, never the item's
-author; dispatched after the item's implementer returns) fills one block per item from `src/main`
-and the frozen `test-plan`, written to a file. The orchestrator scans it before dispatching the
-author. The author looks up nothing.**
+**Declarations file:** `<path the declarations-extractor seat writes to for this item>`.
 
 ```
 DECLARATIONS for <short-uuid> — verbatim and complete
@@ -214,113 +205,18 @@ harness: <fully-qualified src/test helper fn + file:line | NONE + the exact plug
 runtime call order: <MCP: the pinned sentence below | REST: the route's check order from the frozen error table>
 ```
 
-Extractor accuracy contract:
+`readsExclude` keys (the queue-phase keys the author's `query_notes` calls are restricted to):
+`["task-scope","diagnosis","test-plan"]`.
 
-- Copy signatures, constructors with defaults, constants, enum values and oracle-bearing KDoc
-  **verbatim** — and only KDoc that pre-dates this item. KDoc the implementation commit added is
-  implementation prose; leave it out.
-- No prose describing implementation behaviour: never paraphrase what the code does, and never
-  paste function bodies, catch blocks or call sites.
-- For every scenario input the plan names (route query params, env vars, config keys, tool
-  params), give the exact name or write `NOT DECLARED: <what>`.
-- A claim that a file or symbol does not exist names the check that produced it.
-- `harness:` names the helper that builds the application under test, fully qualified with its
-  `file:line` (e.g. `io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.configureTestApp`,
-  `ApiTestHelper.kt:153`; `configureWriteTestApp`, `WriteRoutesTest.kt:76`) — or `NONE` plus the exact
-  plugin list the production module installs, so the gap is visible rather than improvised.
-- `runtime call order:` for an MCP tool is this pinned sentence, verbatim: "`McpToolAdapter`
-  preprocesses params, calls `validateParams`, then `execute` inside `withConfigSession`;
-  `execute()` alone never validates" (`interfaces/mcp/McpToolAdapter.kt:101-111`). For a REST
-  route it is the route's check order, copied from the frozen error table.
-
-Orchestrator scan, before handoff: grep the declarations file for behaviour words (`returns`,
-`throws`, `falls back`, `catches`, `calls`, `if`, `when`, `otherwise`, `instead`) and strip every
-hit that describes behaviour rather than declaring a signature or pre-existing KDoc — the whole
-`runtime call order:` line is exempt (the pinned MCP sentence or the REST check order copied from
-the frozen error table), since it is fixed contract text, not extractor prose; then delete
-any unredacted copy so only the scanned file reaches the author. The scan is not optional: on
-2026-09-25 the extractor leaked implementation prose in 2 of 2 runs despite an explicit
-prohibition, and the scan caught both.
-
-Rules for the author (a breach is a breach whether or not anything useful was seen):
-
-1. **Read:** this file; the item's planning notes via
-   `query_notes(operation="list", itemId="<uuid>", keys=["task-scope","diagnosis","test-plan"], includeBody=true)`;
-   anything under `src/test`. Then invoke the `test-author` skill (Skill tool).
-2. **`keys=` is mandatory on EVERY `query_notes` call**, restricted to those queue-phase keys. An
-   unfiltered `operation="list"` returns `implementation-notes` and is itself a breach.
-3. **Never open any file under `src/main` with ANY tool** — Read, Grep, sed, cat, head, Glob
-   preview, editor, or any command whose output includes file content. Never `git diff` / `show` /
-   `log -p` on this branch. Not the diff, not `implementation-notes`, not `session-tracking`.
-4. **Missing or non-compiling declaration → stop and ask** (`SendMessage` to the orchestrator),
-   naming the exact declaration. Do not derive it from context, from a compiler error, or from the
-   diff. Asking costs a round-trip; the lookup costs the dispatch. An ambiguity resolvable from
-   public non-`src/main` evidence (the tool's parameterSchema, `src/test` harnesses, docs) may be
-   self-resolved if the manifest's arbitration record states the evidence used; the reviewer
-   verifies it. The harness follows the same path: when the block's `harness:` line names a
-   helper, build the application under test through it and never assemble a Ktor
-   `application {}` by hand; when it says `NONE` and the scenarios need one, stop and ask.
-5. **Surface labels.** `test-plan` labels every scenario `EXISTING-SURFACE` or `NEW-SURFACE`. Write
-   each `NEW-SURFACE` test so the plan's narrowest-revert recipe (keep the new type/parameter,
-   revert only its call sites) still exercises it; where the plan names a substitute verification
-   instead, carry it into the manifest unchanged.
-6. **Fixture invariants.** Satisfy the domain type's `validate()` by construction, deriving
-   dependent fields from each other (`claimedAt = claimExpiresAt.minus(ttl)`). Escalate rather than
-   relax when a scenario is unconstructible. Never bypass `validate()` by reflection or a test-only
-   backdoor.
-7. **Oracles** come from the `test-plan` citations, never from what the code returns. Tests must
-   fail without the fix; red-proof is orchestrator-run unless this file says otherwise.
-8. **Scope:** create ONLY the new test files the File ownership slot lists for your item, plus any
-   edit that slot's "Declared edits to EXISTING test files" column names for your item — exactly
-   that edit, nothing else in the file. Never `src/main`, never docs, never another item's files,
-   never a shared test harness. An existing test that looks wrong but is not declared is reported,
-   not edited (rule 4's stop-and-ask path).
-9. **Forbidden:** `assumeTrue` on non-platform conditions, `@Disabled` / `@Ignore`, disjunctive
-   escapes (`|| isEmpty()`), assert-not-null-only, swallowed exceptions, sleep-until-green, and
-   assertions that cannot fail given their fixture or harness (`test-author` §7, "Can this
-   assertion fail?").
-10. **Compile self-check** ONCE, per the Compile self-check slot — including its "Who runs gradle"
-    row for your seat. Foreign-file errors → record, commit, do not retry.
-11. **Commit** per the Commit discipline slot:
-    `git -C <wt> add <your paths>` then
-    `git -C <wt> commit --only -m "test(<scope>): <title> [<short-uuid>]" -m "<why>" -m "Co-Authored-By: <your model attribution line>" -- <your paths>`,
-    then `git -C <wt> show --stat HEAD` to verify.
-12. **`test-manifest`** (`manage_notes` upsert, role `work`, max `<3000>`): actor id
-    `test-author:<short-uuid>`; test file paths; commit SHA range (`<pre>..<post>` across your own
-    commits, the form the ownership two-range check and `review-quality`'s independence check both
-    read); S-id → test mapping (`covered:
-    <method>` / `not-covered: <reason>`); probes run, including the ones that found nothing;
-    forbidden-pattern declaration; invariants respected; red-proof shape obtained per
-    `NEW-SURFACE` scenario; arbitration record.
-13. **Call no `advance_item` and no `manage_items`.** Return ONE line:
-    `<short-uuid>: commit <sha> | files: <list> | scenarios: <covered>/<total> | compile: EXIT=<n> | missing-declaration: <none or name>`
-
-On a breach of any rule above, deliberate or accidental: stop, commit nothing, delete any draft
-written after it, and disclose exactly what was read — in the return line and in the manifest's
-arbitration record. A disclosed breach costs a re-dispatch; an undisclosed one costs the item's
-independence verdict.
+Return line (rule 13): `<short-uuid>: commit <sha> | files: <list> | scenarios: <covered>/<total> | compile: EXIT=<n> | missing-declaration: <none or name>`
 
 ## Contract-change sweep
 
-Orchestrator-owned, run once after the implementation wave and before build verification. A
-change that TIGHTENS a contract breaks call sites and fixtures the changed item never names — a
-parameter going optional→required, a new `validate()` invariant, a newly enforced sealed-class
-arm, or a new accessor on a widely strict-mocked interface such as `RepositoryProvider`, where
-every strict `mockk<…>()` double that does not stub it now fails (proposals `82034e9a`,
-`31a1abeb`). Both cost fix-up cycles even in waves whose dispatch prompts warned about it, so the
-sweep is a step, not a reminder.
+Fetch rule `contract-change-sweep` (`query_rules(operation="get", rootId=<rootId>, key="contract-change-sweep")`)
+for the full rule — timing, what counts as tightening, the sweep steps, and the construction-only
+repair discipline all live there now. Inline here only the wave-specific fact:
 
 Tightening changes this wave: `<per item — the tightened contract, or "none">`.
-
-- After the implementing agent returns, grep the whole repo (`src/main` AND `src/test`) for the
-  affected type, tool or accessor and check every call site and fixture against the new contract.
-- **Repairs are construction-only**: fix the call site or fixture to satisfy the contract (stub
-  the new accessor, derive the dependent field, pass the now-required argument). Never relax the
-  contract, weaken an assertion, or `@Disabled` a casualty to clear the wave.
-- Fixture repairs are orchestrator commits, not author commits. Declare each one in the Review
-  scoping commit map so a reviewer reading owned-file diffs can tell a repair from a test edit.
-- A repair that cannot be made construction-only is an arbitration case (Step 4b), not a sweep
-  outcome — escalate rather than absorbing it here.
 
 ## Docs
 
@@ -335,6 +231,8 @@ Docs seat for this wave: `<agent/seat, or "orchestrator">`.
 
 ## Notes
 
+Generated from the run plan (`stages[].notes` + `orchestratorNotes`).
+
 | Seat | Note keys it fills | maxLength |
 |---|---|---|
 | Implementer | `implementation-notes`, `session-tracking` | `<3000 / 2000>` |
@@ -343,22 +241,14 @@ Docs seat for this wave: `<agent/seat, or "orchestrator">`.
 | Orchestrator | `delegation-metadata` | `<…>` |
 
 Take the limits from the item's resolved schema, not from memory — an over-limit body is warned
-or rejected per `note_limits.mode`. No seat calls `advance_item` or `manage_items`; the
-orchestrator owns every transition.
+or rejected per `note_limits.mode`. Only the run plan's entry seat calls `advance_item(start)`; the
+orchestrator owns every later transition.
 
 ## Review scoping
 
-Reviews scope by OWNED FILES, not by SHA range:
-
-```
-git -C <wt> diff <base-sha>..HEAD -- <the reviewed item's owned files>
-```
-
-In a shared worktree the commits between a child's pre- and post-SHA interleave other streams'
-work, and a later fix-up or formatter commit falls outside that range entirely — a SHA range both
-over- and under-reports. The map below exists ONLY for the ownership two-range check
-(`git -C <wt> show --stat <sha>` per commit: implementer commits touch no `src/test/**`, author
-commits touch no `src/main/**`).
+Fetch rule `review-scoping` (`query_rules(operation="get", rootId=<rootId>, key="review-scoping")`)
+for the full rule — the owned-files-not-SHA-range diff and the two-range ownership check both live
+there now. The map below is the wave-specific record that rule's step 3 requires.
 
 | Item | Implementer commits (src/main) | Author commits (src/test) | Declared notes |
 |---|---|---|---|

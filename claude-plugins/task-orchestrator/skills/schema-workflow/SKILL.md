@@ -189,7 +189,7 @@ The hook is also silent for the entire duration of a headless ralph iteration
 - Fill review-phase notes (e.g., review-checklist), report verdict, return
 - Do NOT call `advance_item` again — the orchestrator handles the terminal transition
 
-**Key invariant:** Agents own phase entry (one `advance_item(start)` call to enter their assigned phase). The orchestrator owns all phase-to-phase transitions — advancing the item, inspecting the schema to determine the next phase (review or terminal), and dispatching phase-appropriate agents. Review agents fill review-phase notes and return — they do not advance items.
+**Key invariant:** Agents own phase entry (one `advance_item(start)` call to enter their assigned phase). When a run plan assigns several seats to one phase (`run-wave`), only that phase's entry seat makes this call; in-phase seats (test author, declarations extractor) and read-only seats never call `advance_item`; the orchestrator owns every later transition. The orchestrator owns all phase-to-phase transitions — advancing the item, inspecting the schema to determine the next phase (review or terminal), and dispatching phase-appropriate agents. Review agents fill review-phase notes and return — they do not advance items.
 
 ---
 

@@ -4,5 +4,6 @@
   },
   "env": {
     "TASK_ORCHESTRATOR_API_URL": "http://localhost:3001"
-  }
+  },
+  "workflowSizeGuideline": "large"
 }

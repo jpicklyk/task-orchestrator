@@ -52,6 +52,8 @@ that checks whether a change is present in the codebase.
 - Schema tag is `default` or absent → eligible for Direct
 <!-- END GENERATED:tier-classification -->
 
+Delegated with ≥2 ready items, or Parallel → run `/task-orchestrator:run-wave`.
+
 If the item has no schema tag, apply `quick-fix` for Direct tier or leave untagged for Delegated/Parallel (the `default` schema catches these).
 
 **Trait application on classification.** When the tier resolves to Delegated or Parallel and the
@@ -181,7 +183,10 @@ All child-task agents will be dispatched into this **shared** worktree (Step 4).
 wave's plan file before the first dispatch, fill every placeholder, and have every Step 3, 4, 4b
 and 5 dispatch prompt reference it under the template's conflict rule instead of restating design
 or process details per prompt. **The template states the rules; this table only says what each
-slot is for** — do not paraphrase a slot's rule into a prompt.
+slot is for** — do not paraphrase a slot's rule into a prompt. Under `/task-orchestrator:run-wave`,
+the Header and File ownership rows are filled from the planner's `explain` output plus the
+planner-v1 stage's own returns rather than hand-typed, and the run reuses this same worktree by
+passing `--mode shared --worktree $FEATURE_WORKTREE --branch $FEATURE_BRANCH` — the contract file and its slot order are unchanged either way.
 
 **Write it to `<main-checkout>\plans\<slug>.md` and hand agents that absolute path**, recorded
 once in the contract's Header **Contract path** line. The `plans/` directory is gitignored, so it
@@ -282,9 +287,12 @@ happens **before** `advance_item(trigger="start")` moves the item queue→work. 
 distinct seat from Step 4b's **test author** seat, which writes test code and fills
 `test-manifest` at work phase — see Step 4b's intro for the two-seat distinction.
 
-**Planning seat (Parallel tier, one `opus` agent per stream).** Dispatch one `opus` agent per
-stream after child items are materialized (post-plan-workflow) and before Step 4's implementer
-dispatch — this is the concrete, per-stream instantiation of the planning seat named above.
+**Planning seat (Parallel tier, one `opus` agent per stream).** Under `/task-orchestrator:run-wave`
+this becomes the run plan's `planner-v1` stage — it mirrors the same eight fields below, dispatched
+by the run rather than by hand; the field table stays the semantics either way. Dispatch one `opus`
+agent per stream after child items are materialized (post-plan-workflow) and before Step 4's
+implementer dispatch — this is the concrete, per-stream instantiation of the planning seat named
+above.
 Inputs: the stream's `diagnosis`/`task-scope` note and the CURRENT codebase, not the plan text
 alone. Task: verify every claim in that note against source, citing `file:line` for each
 correction; write the note if materialization left it missing, or revise it if verification
@@ -407,6 +415,12 @@ formats, UUID inclusion). The key decisions at this step are:
 - **Multiple child tasks, dependent:** dispatch sequentially into the shared feature
   worktree. Wait for each agent's commit to land before dispatching the next.
 
+**Under `/task-orchestrator:run-wave`, both bullets above are executed by the run plan** (Method A
+via `Workflow`, Method B via `next`-scheduling), reading each stage's `dispatchBySeat` entry for
+model/agent instead of the table below. The hand-dispatch form in this section and the template it
+points at remain the fallback for dispatches a run plan doesn't cover — a one-off fix agent, or an
+arbitration re-dispatch (Step 4b) — not the default path for a Parallel-tier wave.
+
 **Test-file ownership boundary.** Every implementation dispatch (Delegated single agent or
 Parallel per-child agent) excludes `src/test/**` from scope — implementers do not create or
 modify test files. When a change surfaces a needed test update, the agent reports it in its
@@ -498,7 +512,9 @@ This sweep is part of the orchestrator's verification step between waves, not th
 implementing agent's responsibility — agents are file-scoped and can't see the full
 fixture surface.
 
-**Model selection — always set `model` explicitly on every Agent dispatch:**
+**Model selection — always set `model` explicitly on every Agent dispatch.** Under
+`/task-orchestrator:run-wave`, `dispatchBySeat` already resolves model per seat and this table is
+the fallback for dispatches the run plan doesn't cover:
 
 | Agent purpose | Model |
 |--------------|-------|
@@ -653,7 +669,10 @@ invariants, surface labels, commit form and manifest fields in full; on a Delega
 no contract file, paste that slot into the prompt instead of paraphrasing it. The declarations
 block is filled by a separate, non-author **declarations-extractor** seat, and the orchestrator
 scans and strips it of implementation prose before the author sees it — the slot states the
-seat's accuracy contract and the scan (proposal `234b50a0`).
+seat's accuracy contract and the scan (proposal `234b50a0`). Under `/task-orchestrator:run-wave`,
+the extractor and the test author are both run-plan stages, and the scan step is named
+`scan-declarations` in Method B or the run script's own `scanDeclarations` call in Method A —
+same accuracy contract and strip rule either way.
 
 Capture the test author's pre/post commit SHAs the same way as implementation agents
 (`Test-Pre-SHA` / `Test-Post-SHA` in the tracking table above), then run the disjointness check.
@@ -1036,7 +1055,10 @@ Local `main` always tracks `origin/main` — no divergence, no `reset --hard` ne
 
 ## Autonomous Batch Processing
 
-When processing a Parallel-tier feature with multiple child tasks autonomously:
+When processing a Parallel-tier feature with multiple child tasks autonomously: run
+`/task-orchestrator:run-wave` over the parent, one run per topological layer — steps 1-2 below
+describe what that run does under the hood; they are the fallback for a manual walk-through when a
+run plan doesn't apply.
 
 1. **Step 2 — One worktree, one branch.** Orchestrator creates the feature worktree
    and feature branch (`feat/<slug>`) at planning time. All children share it.
@@ -1122,6 +1144,7 @@ implemented), the skill picks up from the current state:
 | work (notes filled) | Step 4 — advance to review |
 | review | Step 5 — run review |
 | terminal | Already done — report status |
+| open `run/<runId>/state` found (F7) | `/task-orchestrator:run-wave --resume <runId>` |
 
 Always call `get_context(itemId=...)` first to determine exact state before
 resuming.

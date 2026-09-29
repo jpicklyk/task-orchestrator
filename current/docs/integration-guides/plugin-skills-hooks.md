@@ -148,6 +148,7 @@ Skills are invoked as slash commands in any Claude Code session:
 | `/task-orchestrator:status-progression` | Navigate role transitions; shows current gate status and the correct trigger |
 | `/task-orchestrator:dependency-manager` | Visualize, create, and diagnose dependency graphs between work items |
 | `/task-orchestrator:batch-complete` | Complete or cancel multiple items at once — close out features or workstreams |
+| `/task-orchestrator:run-wave` | Plan and run a multi-item wave over a run plan (Method A via the `implement-wave` Workflow, or Method B direct-Agent fallback) |
 
 ---
 
@@ -164,6 +165,10 @@ These are triggered by hooks and output styles, not invoked directly by users:
 ---
 
 ## Workflows (Claude Code only)
+
+The front door for these scripts is the `/task-orchestrator:run-wave` skill: it plans a wave of ready items with
+the `run-planner` helper, launches `implement-wave` (Method A, the Workflow tool) or dispatches the same run plan
+with the Agent tool (Method B), and on the result verifies, records provenance and advances.
 
 `implement-wave` (`claude-plugins/task-orchestrator/workflows/implement-wave.js`) is a Workflow-tool
 script: it drives one work item's seats through their phases in order, and can run several items

@@ -1,0 +1,89 @@
+{
+  "contract": "run-wave/snapshot-v1",
+  "rootId": "00000000-0000-4000-8000-000000000000",
+  "ancestorId": null,
+  "capturedAt": "2026-09-28T12:00:00Z",
+  "features": ["seats", "dispatchBySeat", "independent_of", "rules"],
+  "rulesServed": [],
+  "candidates": [
+    {
+      "id": "aaaaaaaa-1111-4111-8111-111111111111",
+      "short": "aaaaaaaa",
+      "title": "Item A",
+      "priority": "high",
+      "complexity": 2,
+      "type": "scratch-a",
+      "role": "queue",
+      "parentId": "dddddddd-4444-4444-8444-444444444444",
+      "traits": [],
+      "hasChildren": false,
+      "source": "ready"
+    },
+    {
+      "id": "bbbbbbbb-2222-4222-8222-222222222222",
+      "short": "bbbbbbbb",
+      "title": "Item B",
+      "priority": "high",
+      "complexity": 2,
+      "type": "scratch-a",
+      "role": "queue",
+      "parentId": "eeeeeeee-5555-4555-8555-555555555555",
+      "traits": [],
+      "hasChildren": false,
+      "source": "ready"
+    }
+  ],
+  "blocked": [
+    {
+      "itemId": "bbbbbbbb-2222-4222-8222-222222222222",
+      "role": "queue",
+      "blockType": "dependency",
+      "blockedBy": [
+        {
+          "itemId": "aaaaaaaa-1111-4111-8111-111111111111",
+          "role": "queue",
+          "effectiveUnblockRole": "work",
+          "satisfied": false
+        }
+      ]
+    }
+  ],
+  "schemas": {
+    "aaaaaaaa-1111-4111-8111-111111111111": {
+      "status": "ok",
+      "type": "scratch-a",
+      "configFingerprint": "fp1",
+      "configSource": "per-root",
+      "notes": [
+        { "key": "specification", "role": "queue", "required": true, "seat": null },
+        { "key": "session-tracking", "role": "work", "required": true, "seat": null }
+      ]
+    },
+    "bbbbbbbb-2222-4222-8222-222222222222": {
+      "status": "ok",
+      "type": "scratch-a",
+      "configFingerprint": "fp1",
+      "configSource": "per-root",
+      "notes": [
+        { "key": "specification", "role": "queue", "required": true, "seat": null },
+        { "key": "session-tracking", "role": "work", "required": true, "seat": null }
+      ]
+    }
+  },
+  "noteActors": {},
+  "parents": {
+    "dddddddd-4444-4444-8444-444444444444": { "role": "work", "canAdvance": true, "missing": [] },
+    "eeeeeeee-5555-4555-8555-555555555555": { "role": "work", "canAdvance": true, "missing": [] }
+  },
+  "profile": {
+    "shell": "bash",
+    "verify": [],
+    "searchScope": ["/repo"],
+    "worktreeRoot": ".claude/worktrees",
+    "branchPrefix": { "shared": "feat/", "perItem": "fix/" },
+    "maxItems": 5,
+    "defaultModels": { "queue": "opus", "work": "sonnet", "extractor": { "model": "sonnet", "effort": "low" } }
+  },
+  "git": { "originMain": "e77c3e95", "repoRoot": "/repo", "worktrees": {} },
+  "probe": { "phase0Hooks": true, "pluginVersion": "3.8.0", "workflowSizeGuideline": "medium" }
+}

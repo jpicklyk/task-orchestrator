@@ -1,0 +1,99 @@
+{
+  "contract": "run-wave/snapshot-v1",
+  "rootId": "00000000-0000-4000-8000-000000000000",
+  "ancestorId": "cccccccc-3333-4333-8333-333333333333",
+  "capturedAt": "2026-09-28T12:00:00Z",
+  "features": ["seats", "dispatchBySeat", "independent_of", "rules"],
+  "rulesServed": [{ "key": "commit-discipline", "rulesVersion": "1" }, { "key": "declarations-extractor", "rulesVersion": "1" }],
+  "candidates": [
+    {
+      "id": "11111111-1111-4111-8111-111111111111",
+      "short": "11111111",
+      "title": "Seat-aware item",
+      "priority": "high",
+      "complexity": 3,
+      "type": "scratch-bug",
+      "role": "queue",
+      "parentId": "cccccccc-3333-4333-8333-333333333333",
+      "traits": ["delegated", "session-tracked", "needs-test-author"],
+      "hasChildren": false,
+      "source": "ready"
+    },
+    {
+      "id": "22222222-2222-4222-8222-222222222222",
+      "short": "22222222",
+      "title": "Seat-less item",
+      "priority": "medium",
+      "complexity": 2,
+      "type": "scratch-plugin",
+      "role": "queue",
+      "parentId": "cccccccc-3333-4333-8333-333333333333",
+      "traits": ["session-tracked"],
+      "hasChildren": false,
+      "source": "ready"
+    },
+    {
+      "id": "33333333-3333-4333-8333-333333333333",
+      "short": "33333333",
+      "title": "Schema-free item",
+      "priority": "low",
+      "complexity": null,
+      "type": "scratch-untyped",
+      "role": "queue",
+      "parentId": "cccccccc-3333-4333-8333-333333333333",
+      "traits": [],
+      "hasChildren": false,
+      "source": "ready"
+    }
+  ],
+  "blocked": [],
+  "schemas": {
+    "11111111-1111-4111-8111-111111111111": {
+      "status": "ok",
+      "type": "scratch-bug",
+      "configFingerprint": "fp-bug",
+      "configSource": "per-root",
+      "notes": [
+        { "key": "diagnosis", "role": "queue", "required": true, "seat": "planner" },
+        { "key": "test-plan", "role": "queue", "required": true, "seat": "planner", "skill": "test-author" },
+        { "key": "implementation-notes", "role": "work", "required": true, "seat": "implementer" },
+        { "key": "session-tracking", "role": "work", "required": true, "seat": "orchestrator" },
+        { "key": "test-manifest", "role": "work", "required": true, "seat": "test-author", "skill": "test-author" }
+      ],
+      "seats": [
+        { "name": "planner", "phase": "queue" },
+        { "name": "implementer", "phase": "work", "enters": true },
+        { "name": "orchestrator", "phase": "work" },
+        { "name": "test-author", "phase": "work", "after": ["implementer"], "readsExclude": ["implementation-notes", "session-tracking"] }
+      ],
+      "dispatch": { "work": { "agent": "task-orchestrator:implementer" } },
+      "dispatchBySeat": { "work": { "test-author": { "agent": null, "model": "sonnet" } } }
+    },
+    "22222222-2222-4222-8222-222222222222": {
+      "status": "ok",
+      "type": "scratch-plugin",
+      "configFingerprint": "fp-plugin",
+      "configSource": "per-root",
+      "notes": [
+        { "key": "specification", "role": "queue", "required": true, "seat": null },
+        { "key": "session-tracking", "role": "work", "required": true, "seat": null }
+      ]
+    },
+    "33333333-3333-4333-8333-333333333333": { "status": "not-found" }
+  },
+  "noteActors": {},
+  "parents": {
+    "cccccccc-3333-4333-8333-333333333333": { "role": "work", "canAdvance": true, "missing": [] }
+  },
+  "profile": {
+    "shell": "bash",
+    "verify": [],
+    "searchScope": ["/repo"],
+    "worktreeRoot": ".claude/worktrees",
+    "branchPrefix": { "shared": "feat/", "perItem": "fix/" },
+    "maxItems": 5,
+    "defaultModels": { "queue": "opus", "work": "sonnet", "extractor": { "model": "sonnet", "effort": "low" } }
+  },
+  "git": { "originMain": "e77c3e95", "repoRoot": "/repo", "worktrees": {} },
+  "probe": { "phase0Hooks": true, "pluginVersion": "3.8.0", "workflowSizeGuideline": "medium" }
+}
