@@ -6,8 +6,9 @@ Method A, but drives it with direct `Agent` calls from this session instead of h
 server may not yet expose enough capability data for Method A to plan seat-aware dispatch (Step 0
 F2/F3). Method B reuses Method A's core prompt-rendering and envelope-handling bytes
 (`seatPrompt`, `handoff`, `mapEntry`, `mapStageResult`, `envelopeSchema`, `lockKeysFor`,
-`normalizeArgs`, `preflight`) via `scripts/lib/wave-core.mjs`, so the two methods produce
-identical seat prompts for identical inputs — parity by construction, not by convention.
+`normalizeArgs`, `preflight`) via `scripts/lib/wave-core.mjs`, so a Method B seat prompt is
+the Method A bytes plus a Method-B-only RETURN addendum (the envelope schema block step 1 documents):
+parity holds for the core-rendered part by construction, and the addendum is the only difference.
 
 All scheduling and bookkeeping below is driven by `node "<helper>" <cmd>` calls
 (`scripts/run-exec-lib.mjs` under the hood); this reference describes the orchestration loop

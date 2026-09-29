@@ -1598,6 +1598,23 @@ test('#393: next() defaults a null-agent test-author to the blind agentType unde
   assert.equal(next(core, a, initState(a, 'B')).dispatch[0].agentType, null)
 })
 
+test('#393: next() under Method B keeps a non-null dispatch.agent on an implementer stage', () => {
+  const core = realCore()
+  const item = itemFixture({ short: '44444444', stages: [{ seat: 'implementer', phase: 'work', enters: true, writes: true, notes: [], dispatch: { agent: 'task-orchestrator:implementer' }, output: 'implementer-v1', readsExclude: [] }] })
+  const b = { contract: 'run-wave/plan-doc-v1', args: planFixture({ items: [item] }), meta: { method: 'B' } }
+  assert.equal(next(core, b, initState(b, 'B')).dispatch[0].agentType, 'task-orchestrator:implementer')
+})
+
+test('#393: next() under Method B leaves a null-agent planner stage with agentType null', () => {
+  const core = realCore()
+  const item = itemFixture({ short: '55555555', stages: [{ seat: 'planner', phase: 'queue', notes: [], writes: false, dispatch: {}, output: 'planner-v1', readsExclude: [] }] })
+  const b = { contract: 'run-wave/plan-doc-v1', args: planFixture({ items: [item] }), meta: { method: 'B' } }
+  const d = next(core, b, initState(b, 'B')).dispatch
+  assert.equal(d.length, 1)
+  assert.equal(d[0].seat, 'planner')
+  assert.equal(d[0].agentType, null)
+})
+
 test('#393: live-shape conformance - recorded Method B hand-backs from run r-202609291636-2e0cb4d5', () => {
   const core = realCore()
   const doc = methodBDoc('B')

@@ -22,9 +22,9 @@
 // when an element authored by an actor of kind "orchestrator" targets a note whose stored actor
 // is a "subagent" (a seat-owned note such as review-checklist or test-manifest): re-upserting it
 // would flip ownership and self-confirm the seat's verdict. The stored note is read via
-// GET /api/v1/items/{itemId}/notes/{key}. PRECONDITION: the NoteDto `actor` is null unless the
-// token has ADMIN and the server runs with API_REDACT_NOTE_ATTRIBUTION=false; under default
-// redaction the warning never fires, so the documented rule (post-run.md Step 5) is the primary
+// GET /api/v1/items/{itemId}/notes/{key}. PRECONDITION: the server (AttributionRedactor) nulls the NoteDto
+// `actor` only when redaction is ON and the caller is not ADMIN; the actor is visible when the
+// caller is ADMIN OR the server runs with API_REDACT_NOTE_ATTRIBUTION=false. Otherwise the warning never fires, so the documented rule (post-run.md Step 5) is the primary
 // control and this hook only a backstop. Never denies; silent on unset API URL, 404, non-ok,
 // null actor, timeout or any error.
 
