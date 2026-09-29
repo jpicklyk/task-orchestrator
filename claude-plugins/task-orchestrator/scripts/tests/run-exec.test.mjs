@@ -9,7 +9,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync, execFileSync } from 'node:child_process'
-import { mkdtempSync, mkdirSync, writeFileSync, readdirSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -1544,4 +1544,73 @@ test('S12 CLI: actors --plan --notes (no --result) still exits 3 for the same al
   const res = runCli(['actors', '--plan', planPath, '--notes', notesPath])
   assert.equal(res.status, 3)
   assert.equal(JSON.parse(res.stdout).ok, false)
+})
+
+// ── #393: Method B RETURN addendum, blind test-author default, live-shape conformance ──────────
+
+const LIVE_FIXTURES = join(HERE, 'fixtures', 'run-exec')
+
+function methodBDoc(method) {
+  const item = itemFixture({ short: '22222222', stages: stages.bugFixLike() })
+  const args = planFixture({ items: [item] })
+  return { contract: 'run-wave/plan-doc-v1', args, meta: method ? { method } : {} }
+}
+
+test('#393: Method B prompt carries the no-StructuredOutput statement and the inlined envelope schema; planner supersedes the core sentence', () => {
+  const core = realCore()
+  const doc = methodBDoc('B')
+  const state = initState(doc, 'B')
+  const p = prompt(core, doc, state, '22222222', 'planner')
+  assert.match(p, /no StructuredOutput tool/)
+  assert.match(p, /LAST JSON object/)
+  assert.match(p, /do not call StructuredOutput/)
+  for (const f of ['status', 'reason', 'notes', 'commits', 'files', 'modelReported', 'output', 'proceed', 'mainFiles']) {
+    assert.ok(p.includes(`"${f}"`), `schema block should name ${f}`)
+  }
+  const impl = prompt(core, doc, state, '22222222', 'implementer')
+  assert.match(impl, /no StructuredOutput tool/)
+  assert.ok(!/do not call StructuredOutput/.test(impl))
+  assert.ok(impl.includes('"mainFilesChanged"'))
+})
+
+test('#393: Method A / meta-less prompt is byte-identical to the core seatPrompt', () => {
+  const core = realCore()
+  const doc = methodBDoc(null)
+  const state = initState(doc, 'B')
+  const { plan } = resolvePlan(core, doc)
+  const item = findItem(plan, '22222222')
+  for (const seat of ['planner', 'implementer']) {
+    const expected = core.seatPrompt(plan, item, findStage(item, seat), outsBySeat(item, state))
+    assert.equal(prompt(core, doc, state, '22222222', seat), expected)
+  }
+  assert.ok(!/StructuredOutput tool/.test(prompt(core, doc, state, '22222222', 'planner').split('Emit StructuredOutput')[0]))
+})
+
+test('#393: next() defaults a null-agent test-author to the blind agentType under Method B only', () => {
+  const core = realCore()
+  const mk = (meta) => {
+    const item = itemFixture({ short: '33333333', stages: [{ seat: 'test-author', phase: 'work', notes: [], writes: true, dispatch: {}, output: 'test-author-v1', readsExclude: [] }] })
+    return { contract: 'run-wave/plan-doc-v1', args: planFixture({ items: [item] }), meta }
+  }
+  const b = mk({ method: 'B' })
+  assert.equal(next(core, b, initState(b, 'B')).dispatch[0].agentType, 'task-orchestrator:test-author')
+  const a = mk({})
+  assert.equal(next(core, a, initState(a, 'B')).dispatch[0].agentType, null)
+})
+
+test('#393: live-shape conformance - recorded Method B hand-backs from run r-202609291636-2e0cb4d5', () => {
+  const core = realCore()
+  const doc = methodBDoc('B')
+  const state = initState(doc, 'B')
+  const read = (n) => readFileSync(join(LIVE_FIXTURES, n), 'utf8')
+
+  const prose = stageResult(core, doc, state, '22222222', 'planner', read('planner-prose-reply.txt'))
+  assert.equal(prose.status, 'retry')
+  assert.equal(prose.reason, 'invalid envelope: unparseable JSON')
+
+  const planner = stageResult(core, doc, state, '22222222', 'planner', read('planner-envelope.json'))
+  assert.equal(planner.status, 'done')
+
+  const impl = stageResult(core, doc, state, '22222222', 'implementer', read('implementer-envelope.json'))
+  assert.equal(impl.status, 'done')
 })

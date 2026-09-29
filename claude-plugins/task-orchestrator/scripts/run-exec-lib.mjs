@@ -322,7 +322,7 @@ export function next(core, doc, state) {
       item: item.short,
       seat: stage.seat,
       model: stage.dispatch.model,
-      agentType: stage.dispatch.agent ?? null,
+      agentType: stage.dispatch.agent ?? (isMethodB(doc) && stage.output === 'test-author-v1' ? 'task-orchestrator:test-author' : null),
       lockKeys: keys,
     })
   }
@@ -338,7 +338,29 @@ export function prompt(core, doc, state, idOrShort, seat) {
   const { plan } = resolvePlan(core, doc)
   const item = findItem(plan, idOrShort)
   const stage = findStage(item, seat)
-  return core.seatPrompt(plan, item, stage, outsBySeat(item, state))
+  const base = core.seatPrompt(plan, item, stage, outsBySeat(item, state))
+  return isMethodB(doc) ? `${base}\n${methodBReturn(core, plan, stage)}` : base
+}
+
+/** Method B plans are marked by doc.meta.method (written by run-planner-lib); S6-style docs have meta:{}. */
+function isMethodB(doc) {
+  return !!(doc && doc.meta && doc.meta.method === 'B')
+}
+
+/**
+ * Method B RETURN addendum: no StructuredOutput tool exists for a dispatched Agent, so the envelope
+ * is the last JSON object of the final message; the exact schema is inlined. The core is untouched,
+ * so planner stages get an explicit line superseding the core's StructuredOutput sentence.
+ */
+function methodBReturn(core, plan, stage) {
+  const lines = [
+    'METHOD B RETURN: there is no StructuredOutput tool in this run. Return the envelope as the LAST JSON object of your final message (plain JSON, no code fence required; nothing after it).',
+  ]
+  if (stage.output === 'planner-v1') {
+    lines.push('This supersedes the earlier instruction to emit StructuredOutput: do not call StructuredOutput.')
+  }
+  lines.push(`Envelope JSON schema: ${JSON.stringify(core.envelopeSchema(stage.output, plan.outputSchemas))}`)
+  return lines.join('\n')
 }
 
 // ---------------------------------------------------------------------------------------
