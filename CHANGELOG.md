@@ -18,6 +18,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the extractor and the author. Never call it bare — it returns `{started:false}`; the `run-wave` front door
   (B2) builds its `args`. Ships with two new agent definitions, `task-orchestrator:planner` and
   `task-orchestrator:test-author`, and a fake-agent test harness (`scripts/tests/workflow-harness.mjs`).
+- **`audit` workflow (Phase C / C2).** New Claude Code Workflow script `workflows/audit.js`, generalized from the
+  September architecture review: presets `quick|standard|full`, barrier-per-phase reviewers → gap critic → merge →
+  adversarial verification (1–3 lenses by severity) → synthesis → triage. It never writes MCP items; its result carries a
+  findings *proposal* that `/task-orchestrator:create-item` materializes after a human confirms (new section
+  "From a workflow findings proposal"). Cost is projected up front and refused above `maxAgents` unless `allowLarge`.
+- **`retro-analysis` workflow (Phase C / C3b).** Sharded trend matching and adjudication over prior retrospectives and
+  observations, opt-in from `/session-retrospective --deep` (user-invoked only; the retrospective hooks stay the trigger).
+- `session-retrospective`: Step 4.2/4.3 now read trend ids and titles from the list-mode search and fetch summaries with
+  `get` (list mode never returned `summary`); the 24 h window uses `modifiedAfter`.
+- Test harness extension `scripts/tests/workflow-harness-ext.mjs` (`loadCoreNamed`, `autoAgent`, `assertBarrier`,
+  `freeRuntimeIds`, `ruleWindowHits`) for workflow scripts beyond implement-wave.
 - **`review-wave` workflow (Phase C / C1).** New Claude Code Workflow script `workflows/review-wave.js` that runs an
   item's review-phase notes as independent lanes (this repo derives reviewer, security, api-compat and plugin-impact
   lanes plus an advisory simplify lane feeding the reviewer; the script itself is lane-agnostic), each on the
