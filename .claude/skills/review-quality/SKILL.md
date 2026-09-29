@@ -167,6 +167,17 @@ other finding above it:
 - **Arbitration record.** Every ambiguity the test author flagged must have a named
   resolver in the manifest's arbitration record. Give oracle-degraded scenarios — ones
   where the oracle source itself was uncertain — a second, closer look.
+- **Forbidden-pattern declaration is true.** Fetch the served rules
+  `forbidden-test-patterns` and `test-assertion-vacuity`
+  (`query_rules(operation="get", rootId, key)`; fall back to the `test-author` skill's §7
+  if either is unserved) and read the test bodies behind the `test-manifest`'s
+  forbidden-pattern declaration — do not take "none used" on faith. Every instance of a
+  listed pattern (skip-guards on behavioral conditions, disjunctive escapes, not-null-only
+  or `assert.ok`-only assertions, assertions that cannot fail given their fixture or
+  harness) must appear in the declaration with a justification. An undeclared instance,
+  or a declaration claiming none when instances exist, is a blocking issue regardless of
+  whether the suite is green — a false declaration carries the same weight as
+  `not-independent`, because the manifest is the audit trail everything above relies on.
 
 ### 4. Simplification
 
@@ -203,9 +214,10 @@ Every review must end with a clear verdict:
   single-actor runs, not a degradation to flag.
 - **Fail — blocking issues** — test failures, missing acceptance criteria, critical
   gaps in test coverage, or (for items with the `needs-test-author` trait) a
-  `not-independent` independence-verification result or an unexplained implementer edit
-  to test files. These fail the item even when the test suite is green — a compromised
-  separation makes a passing suite untrustworthy. The item must go back for fixes before
+  `not-independent` independence-verification result, an unexplained implementer edit
+  to test files, or an undeclared or falsely declared forbidden test pattern. These fail
+  the item even when the test suite is green — a compromised separation or a false
+  manifest makes a passing suite untrustworthy. The item must go back for fixes before
   it can advance. List every blocking issue.
 - **Pass with observations** — no blocking issues, but simplification findings or
   minor test quality concerns worth addressing. The item can advance, but the
