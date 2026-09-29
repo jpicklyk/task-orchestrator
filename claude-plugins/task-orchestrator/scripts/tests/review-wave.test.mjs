@@ -778,6 +778,40 @@ test('aggregation is args-ordered, not completion-ordered: lane A (args-first, s
   assert.deepEqual(fifo.result.lanes.map((l) => l.lane), reverse.result.lanes.map((l) => l.lane))
 })
 
+test('aggregation rule 2 selects the FIRST stopped|deferred lane in ARGS order, not the first to settle: lane A (args-first, deferred "config-unavailable") and lane B (args-second, stopped "agent returned null", no fail-blocking lane present) under order:"reverse" (B settles first) still yield A\'s status/reason', async () => {
+  const item = twoLaneNoAfterItem('aaaaaaaa')
+  const plan = normalize(validRawPlan({ items: [item] }))
+  const responder = async (label) => {
+    if (label === 'reviewer.lane-a:aaaaaaaa') {
+      return {
+        status: 'stopped', reason: 'config-unavailable', notes: [], commits: { pre: '', post: '' },
+        files: [], modelReported: 'm', entry: { alreadyInPhase: true, previousRole: 'review' }, output: {},
+      }
+    }
+    if (label === 'reviewer.lane-b:aaaaaaaa') return null // maps to stopped "agent returned null"
+    throw new Error(`unexpected label ${label}`)
+  }
+  const { agent, calls } = autoAgent(responder, { order: 'reverse' })
+  const result = await runItem(plan, plan.items[0], { agent, log: () => {} })
+
+  // Sanity: B (issued second, same concurrent burst) must settle before A under 'reverse',
+  // otherwise this fixture would not exercise a real completion-order difference.
+  const aCall = calls.find((c) => c.label === 'reviewer.lane-a:aaaaaaaa')
+  const bCall = calls.find((c) => c.label === 'reviewer.lane-b:aaaaaaaa')
+  assert.ok(aCall && bCall, 'both lane calls must have happened')
+  assert.ok(bCall.t1 < aCall.t1, `sanity check failed: under order:"reverse" lane B must settle (t1=${bCall.t1}) before lane A (t1=${aCall.t1})`)
+
+  // Rule 2 ("the first stopped|deferred lane, args order") must pick A, whose reason
+  // "config-unavailable" is one of the verbatim triggers (schema-changed / config-unavailable /
+  // starts with "note ") -> the item's reason is A's reason verbatim, not lane-prefixed, and
+  // NOT lane B's "agent returned null" (which, if wrongly selected via completion order, would
+  // surface prefixed as "reviewer.lane-b agent returned null" since it is not a verbatim trigger).
+  assert.equal(result.status, 'deferred', 'must be A\'s status (deferred), not B\'s (stopped)')
+  assert.equal(result.verdict, null)
+  assert.equal(result.reason, 'config-unavailable', 'must be A\'s reason verbatim, args-first, not B\'s completion-first reason')
+  assert.deepEqual(result.lanes.map((l) => l.lane), ['reviewer.lane-a', 'reviewer.lane-b'])
+})
+
 // =============================================================================
 // runItem observations aggregation (declared runItem return shape: observations[] collects
 // review-v1 findings whose severity is 'observation', tagged with their lane, in args order).
