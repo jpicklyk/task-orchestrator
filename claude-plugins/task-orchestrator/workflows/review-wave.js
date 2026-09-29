@@ -684,10 +684,11 @@ async function runItem(plan, item, deps) {
   }
   await Promise.all(withAfter.map((st) => settled[st.lane]))
 
-  const agg = aggregateVerdict(laneResults)
+  // Args order, not completion order (aggregateVerdict/observations/lanes must be deterministic).
+  const orderedResults = stages.map((st) => laneResults.find((x) => x.lane === st.lane))
+  const agg = aggregateVerdict(orderedResults)
   const observations = []
-  for (const st of stages) {
-    const r = laneResults.find((x) => x.lane === st.lane)
+  for (const r of orderedResults) {
     if (!r || r.output !== 'review-v1') continue
     for (const f of r.findings || []) {
       if (f.severity === 'observation') {
@@ -701,14 +702,11 @@ async function runItem(plan, item, deps) {
 
   return {
     id: item.id, short: item.short, status: agg.status, verdict: agg.verdict, reason: agg.reason,
-    lanes: stages.map((st) => {
-      const r = laneResults.find((x) => x.lane === st.lane)
-      return {
-        lane: r.lane, status: r.status, verdict: r.verdict, reason: r.reason, notes: r.notes,
-        findingsCount: r.findingsCount, findings: r.findings, modelReported: r.modelReported,
-        agentTypeFallback: r.agentTypeFallback,
-      }
-    }),
+    lanes: orderedResults.map((r) => ({
+      lane: r.lane, status: r.status, verdict: r.verdict, reason: r.reason, notes: r.notes,
+      findingsCount: r.findingsCount, findings: r.findings, modelReported: r.modelReported,
+      agentTypeFallback: r.agentTypeFallback,
+    })),
     observations,
   }
 }
