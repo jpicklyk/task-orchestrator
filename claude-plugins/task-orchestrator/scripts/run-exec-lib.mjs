@@ -651,28 +651,85 @@ export function parseGitLog(text) {
 }
 
 /**
- * stageCommitRange(itemCommits, pre, post) -> {commits, startIdx, endIdx}.
- * itemCommits is this item's commits, oldest-first. A stage's own commits are every commit in
- * (pre..post] — strictly after `pre` (the PRIOR stage's last commit, never this stage's own),
- * up to and including `post`. `pre` is used to widen the range backward ONLY when it resolves
- * to a real commit in itemCommits (the normal case: it equals the prior writing stage's real
- * `post`) — when `pre` is absent or names something outside itemCommits (this item's baseSha,
- * a placeholder, or anything else this function cannot resolve), the range defaults to JUST
- * the `post` commit itself rather than reaching all the way back to index 0, so one stage's
- * range can never swallow an EARLIER stage's real commits just because `pre` didn't resolve.
- * `post` falsy or not found -> no commits attributed.
+ * attributeCommits(itemCommits, writingStages) -> Map<seat, {commits, indices}>.
+ * itemCommits is this item's commits, oldest-first; writingStages is argItem.stages filtered
+ * to stage.writes, in stage order, each `{seat, commits:{pre,post}}` (post resolved via
+ * gitFacts; missing/unresolved post -> that stage gets an empty range here — the "missing sha"
+ * finding is raised separately). Attribution order (frozen, B2'):
+ *   (1) TRAILER: a commit whose body carries `Seat: <seat>` for one of writingStages' seats
+ *       belongs to that seat's stage, regardless of position. This is a pure, position-
+ *       independent scan — a commit whose trailer names a stage that structurally falls
+ *       earlier or later than its neighbours is still attributed by the trailer text, which
+ *       is exactly what lets the pre-existing "test-author commit <sha7> precedes
+ *       implementer" check (verify(), below) fire instead of a false ownership finding: the
+ *       trailer still says which seat wrote it, so ownership is correct even when the ORDER
+ *       is wrong.
+ *   (2) POSITIONAL (only for commits rule 1 did not already claim for ANY seat): every commit
+ *       in `(preIdx, postIdx]` when this stage's `pre` resolves to a real commit in
+ *       itemCommits (the normal case — it equals the prior writing stage's real `post`); else
+ *       `[firstUnattributed, postIdx]`, where `firstUnattributed` is one past the highest
+ *       index any EARLIER-processed writing stage claimed (0 for the first writing stage) —
+ *       this is what correctly sweeps MULTIPLE untrailed/mistrailed commits made by the first
+ *       writing stage before its own `pre` (the wave's baseSha, excluded from a `baseSha..HEAD`
+ *       log) into that stage, rather than attributing only its final `post` commit.
+ *   (3) The stage's returned `commits` is the union of (1) and (2), sorted by position;
+ *       ownership/trailer-presence checks in verify() run over that union.
  */
-function stageCommitRange(itemCommits, pre, post) {
-  if (!post) return { commits: [], startIdx: -1, endIdx: -1 }
-  const postIdx = itemCommits.findIndex((c) => c.sha === post)
-  if (postIdx === -1) return { commits: [], startIdx: -1, endIdx: -1 }
-  let startIdx = postIdx
-  if (pre) {
-    const preIdx = itemCommits.findIndex((c) => c.sha === pre)
-    if (preIdx !== -1) startIdx = preIdx + 1
+function attributeCommits(itemCommits, writingStages) {
+  const seatSet = new Set(writingStages.map((s) => s.seat))
+  const trailerSeatByIdx = new Map()
+  itemCommits.forEach((c, idx) => {
+    for (const seat of seatSet) {
+      if ((c.body || '').includes(`Seat: ${seat}`)) {
+        trailerSeatByIdx.set(idx, seat)
+        break
+      }
+    }
+  })
+
+  const attributedIdx = new Set()
+  const rangeBySeat = new Map()
+  let firstUnattributed = 0
+
+  for (const stage of writingStages) {
+    const post = stage.post
+    if (!post) {
+      rangeBySeat.set(stage.seat, { commits: [], indices: [] })
+      continue
+    }
+    const postIdx = itemCommits.findIndex((c) => c.sha === post)
+    if (postIdx === -1) {
+      rangeBySeat.set(stage.seat, { commits: [], indices: [] })
+      continue
+    }
+
+    let startIdx
+    if (stage.pre) {
+      const preIdx = itemCommits.findIndex((c) => c.sha === stage.pre)
+      startIdx = preIdx !== -1 ? preIdx + 1 : firstUnattributed
+    } else {
+      startIdx = firstUnattributed
+    }
+
+    const idxSet = new Set()
+    for (let i = 0; i < itemCommits.length; i++) {
+      if (trailerSeatByIdx.get(i) === stage.seat) idxSet.add(i)
+    }
+    for (let i = startIdx; i <= postIdx; i++) {
+      if (attributedIdx.has(i)) continue
+      const trailerSeat = trailerSeatByIdx.get(i)
+      if (trailerSeat !== undefined && trailerSeat !== stage.seat) continue
+      idxSet.add(i)
+    }
+
+    const indices = Array.from(idxSet).sort((a, b) => a - b)
+    for (const i of indices) attributedIdx.add(i)
+    if (postIdx + 1 > firstUnattributed) firstUnattributed = postIdx + 1
+
+    rangeBySeat.set(stage.seat, { commits: indices.map((i) => itemCommits[i]), indices })
   }
-  if (startIdx > postIdx) startIdx = postIdx
-  return { commits: itemCommits.slice(startIdx, postIdx + 1), startIdx, endIdx: postIdx }
+
+  return rangeBySeat
 }
 
 /**
@@ -712,7 +769,8 @@ export function verify(doc, result, gitFacts) {
       ((plannerOut && plannerOut.existingTestEdits) || []).map((e) => normalizePath(e.file))
     )
 
-    const rangeByStageSeat = new Map()
+    // Missing-sha check first (independent of attribution) over every declared stage.
+    const writingStages = []
     for (const stage of argItem.stages) {
       const stageRes = (resItem.stages || []).find((s) => s.seat === stage.seat)
       if (!stageRes) continue
@@ -723,9 +781,12 @@ export function verify(doc, result, gitFacts) {
           findings.push(`missing sha ${sha}`)
         }
       }
-      if (!stage.writes) continue
-      const range = stageCommitRange(itemCommits, pre, post)
-      rangeByStageSeat.set(stage.seat, range)
+      if (stage.writes) writingStages.push({ seat: stage.seat, output: stage.output, pre, post })
+    }
+
+    const rangeByStageSeat = attributeCommits(itemCommits, writingStages)
+    for (const stage of writingStages) {
+      const range = rangeByStageSeat.get(stage.seat)
       for (const commit of range.commits) {
         if (!(commit.body || '').includes(`Seat: ${stage.seat}`)) {
           findings.push(`missing Seat trailer ${commit.sha.slice(0, 7)}`)
@@ -748,8 +809,8 @@ export function verify(doc, result, gitFacts) {
     if (implStage && authorStage) {
       const implRange = rangeByStageSeat.get(implStage.seat)
       const authorRange = rangeByStageSeat.get(authorStage.seat)
-      if (implRange && authorRange && implRange.commits.length > 0 && authorRange.commits.length > 0 &&
-          authorRange.startIdx <= implRange.endIdx) {
+      if (implRange && authorRange && implRange.indices.length > 0 && authorRange.indices.length > 0 &&
+          authorRange.indices[0] <= implRange.indices[implRange.indices.length - 1]) {
         findings.push(`test-author commit ${authorRange.commits[0].sha.slice(0, 7)} precedes implementer`)
       }
     }
