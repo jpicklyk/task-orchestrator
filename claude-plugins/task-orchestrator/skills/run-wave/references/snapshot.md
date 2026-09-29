@@ -18,6 +18,7 @@ Step 0 (capability probe) and Step 2 (the snapshot calls table).
  noteActors:{<itemId>: [{key, actorId}]},              // only for role=work candidates (S4 resume)
  parents:{<id>: {role, canAdvance, missing[]}},         // S11
  profile:{…parsed run-profile.json, or {} when absent},
+ probe:{…verbatim output of the `probe` subcommand},
  git:{repoRoot, originMain, worktrees:{<path>: {branch, head}}}}
 ```
 
@@ -27,6 +28,10 @@ Step 0 (capability probe) and Step 2 (the snapshot calls table).
   `plan` applies the project-profile defaults itself (`worktreeRoot`, `branchPrefix`, `maxItems`,
   `defaultModels`, `review`) — the skill never fills those defaults in by hand before writing the
   snapshot.
+- `probe` — the verbatim JSON the `probe` subcommand prints (`pluginVersion`, `phase0Hooks`,
+  `workflowSizeGuideline`, `allow`, and whatever else it emits — copy it as-is, do not curate the
+  fields). Required. `chooseEntry` reads `probe.phase0Hooks` for entry mode and `plan` copies
+  `probe.pluginVersion`/`probe.workflowSizeGuideline` into `capabilities`/`sizeGuideline`.
 - `git.repoRoot` — `git rev-parse --show-toplevel`, forward-slashed, no trailing slash. Required:
   `plan` derives every item's `worktree`/`branch` path from it in `per-item` mode and (absent a
   `--worktree`/`--branch` override) in `shared` mode too.
@@ -42,6 +47,8 @@ Two structural checks beyond the ones already documented in the helper's own doc
   `git.repoRoot` is missing, empty, or not a string.
 - `profile must be an object` — fires only when `profile` is present and is not a plain object
   (an array, a string, `null`, …). An absent `profile` is valid and is treated as `{}`.
+- `probe must be an object` — fires when `probe` is absent, `null`, an array, or any non-object.
+  Unlike `profile`, `probe` is required: a plain object (even `{}`) passes.
 
 ## The `<scratchpad>` placeholder and `plan --scratchpad`
 
