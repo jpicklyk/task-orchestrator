@@ -55,8 +55,8 @@ concrete names live only where a specific repo's addendum states them.
 ## 3. Orchestrator scan, before handoff
 
 Before the declarations file reaches the test author, the orchestrator (or whoever dispatched the
-extractor) greps it for behavior words -- forms like "returns", "throws", "falls back", "catches",
-"calls", "if", "when", "otherwise", "instead" -- and strips every hit that describes behavior
+extractor) greps it for behavior words (the list is: returns/throws/falls back/catches/calls/if/when/
+otherwise/instead) and strips every hit that describes behavior
 rather than declaring a signature or a pre-existing doc comment. The `runtime call order:` line is
 exempt from this strip, since it is fixed contract text supplied by the addendum, not extractor
 prose. After stripping, delete any unredacted copy so only the scanned file ever reaches the
