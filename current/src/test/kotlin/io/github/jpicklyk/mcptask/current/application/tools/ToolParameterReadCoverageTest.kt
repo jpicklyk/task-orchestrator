@@ -21,9 +21,12 @@ import kotlin.test.fail
  *
  * Contract — every declared top-level parameter must EITHER:
  *   1. be read somewhere in the tool's own source file, OR
- *   2. carry an explicit `Ignored` qualifier (capital I, whole word) in its own schema field
- *      `description`, following the `requiresVerification` precedent on `manage_items`
- *      ("Ignored at the top level for create — set requiresVerification on each item ...").
+ *   2. have its own schema field `description` START with `Ignored at the top level`, following
+ *      the `requiresVerification` precedent on `manage_items` ("Ignored at the top level for
+ *      create — set requiresVerification on each item ..."). The qualifier is anchored to the
+ *      start on purpose: a conditional sentence elsewhere in a description ("Ignored when
+ *      itemIds is used") describes one operation's behaviour and must NOT exempt a param whose
+ *      read could otherwise be deleted without this guard noticing.
  *
  * ## Read-detection heuristic (static source scan)
  *
@@ -32,12 +35,14 @@ import kotlin.test.fail
  *   - block comments / KDoc and whole-line or trailing ` // ` comments,
  *   - triple-quoted raw strings (the prose `description`),
  *   - the `override val parameterSchema = ToolSchema(...)` initializer (paren-matched), since
- *     the declaration itself names every parameter.
+ *     the declaration itself names every parameter; a tool file without that declaration fails
+ *     the test rather than being scanned unstripped.
  *
  * A parameter counts as read when its exact string literal (`"name"`) still appears in what
- * remains, EXCEPT as the first argument of `put(` / `putJsonObject(` / `putJsonArray(` (response
- * building, not a read). A small table of shared helpers whose parameter name is a default
- * argument (`validateRequestIdParam(params)` reads `requestId`) supplies implicit reads.
+ * remains after every `put("name"` / `putJsonObject("name"` / `putJsonArray("name"` occurrence
+ * (response building, not a read) is removed, wherever it is indented. Helpers that only
+ * VALIDATE a param (e.g. `validateRequestIdParam(params)`, whose name is a default argument) do
+ * not count — the param must be read by name.
  *
  * Why only the tool's own file: top-level params are read in the tool file (directly, or by
  * passing the literal name to a [BaseToolDefinition] helper such as `optionalString(params,
@@ -51,22 +56,17 @@ import kotlin.test.fail
  *     response key), counts as a read. The guard catches the "never wired at all" failure mode,
  *     not a param wired on one operation but not another.
  *   - A tool that reads top-level params by a computed name, or hands the whole params object to
- *     a helper in another file that reads a literal of its own, would false-fail; teach
- *     [implicitReads] about that helper rather than qualifying the param as ignored.
- *   - The `Ignored` qualifier is trusted as written; it is not cross-checked against the code.
+ *     a helper in another file that reads a literal of its own, would false-fail; pass the name
+ *     explicitly (as the [BaseToolDefinition] helpers do) rather than qualifying the param ignored.
+ *   - The `Ignored at the top level` qualifier is trusted as written; it is not cross-checked
+ *     against the code.
  */
 class ToolParameterReadCoverageTest {
     // Derived from buildMcpTools() (interfaces/mcp/CurrentMcpServer.kt) rather than a hard-coded
     // list, so this test automatically covers every tool the production server registers.
     private val allTools: List<ToolDefinition> = buildMcpTools()
 
-    /** Helper-call pattern -> parameter it reads implicitly (via a default argument). */
-    private val implicitReads: Map<Regex, String> =
-        mapOf(
-            Regex("""\bvalidateRequestIdParam\(\s*\w+\s*\)""") to "requestId",
-        )
-
-    private val ignoredQualifier = Regex("""\bIgnored\b""")
+    private val ignoredQualifierPrefix = "Ignored at the top level"
 
     @Test
     fun `every declared parameter is read or explicitly qualified as ignored`() {
@@ -74,7 +74,8 @@ class ToolParameterReadCoverageTest {
 
         for (tool in allTools) {
             val schemaProps = tool.parameterSchema.properties ?: continue
-            val source = stripNonCode(readToolSource(tool))
+            val fileName = "${tool::class.simpleName}.kt"
+            val source = stripNonCode(readToolSource(tool), fileName)
 
             for (paramName in schemaProps.keys) {
                 val desc =
@@ -83,11 +84,10 @@ class ToolParameterReadCoverageTest {
                         ?.jsonPrimitive
                         ?.contentOrNull
                         .orEmpty()
-                if (ignoredQualifier.containsMatchIn(desc)) continue
+                if (desc.trimStart().startsWith(ignoredQualifierPrefix)) continue
                 if (isRead(paramName, source)) continue
                 failures.add(
-                    "${tool.name}: parameter '$paramName' is declared in parameterSchema but never read in " +
-                        "${tool::class.simpleName}.kt"
+                    "${tool.name}: parameter '$paramName' is declared in parameterSchema but never read in $fileName"
                 )
             }
         }
@@ -95,8 +95,8 @@ class ToolParameterReadCoverageTest {
         if (failures.isNotEmpty()) {
             fail(
                 "Declared-but-unread tool parameters (accepted, silently dropped, reported as success). " +
-                    "Wire each one, or — if it is intentionally unused at the top level — say so with an " +
-                    "'Ignored ...' qualifier in its own parameterSchema description (see the " +
+                    "Wire each one, or — if it is intentionally unused at the top level — start its own " +
+                    "parameterSchema description with '$ignoredQualifierPrefix' (see the " +
                     "requiresVerification precedent on manage_items):\n" +
                     failures.joinToString("\n") { "  - $it" }
             )
@@ -107,14 +107,9 @@ class ToolParameterReadCoverageTest {
         paramName: String,
         source: String
     ): Boolean {
-        if (implicitReads.any { (pattern, param) -> param == paramName && pattern.containsMatchIn(source) }) {
-            return true
-        }
-        val literal = Regex("\"" + Regex.escape(paramName) + "\"")
-        val responseKey = Regex("""\bput(?:JsonObject|JsonArray)?\(\s*$""")
-        return literal.findAll(source).any { match ->
-            !responseKey.containsMatchIn(source.substring(maxOf(0, match.range.first - 40), match.range.first))
-        }
+        val quoted = Regex.escape("\"" + paramName + "\"")
+        val responseKey = Regex("""\bput(?:JsonObject|JsonArray)?\(\s*""" + quoted)
+        return Regex(quoted).containsMatchIn(responseKey.replace(source, ""))
     }
 
     // ---- source location & stripping ------------------------------------------------------------
@@ -138,19 +133,25 @@ class ToolParameterReadCoverageTest {
         fail("could not locate repo root (looking for a dir containing both 'claude-plugins/' and 'current/')")
     }
 
-    private fun stripNonCode(text: String): String {
+    private fun stripNonCode(
+        text: String,
+        fileName: String
+    ): String {
         var s = text.replace(Regex("\"\"\"[\\s\\S]*?\"\"\""), "\"\"")
         s = s.replace(Regex("""/\*[\s\S]*?\*/"""), "")
         s = s.replace(Regex("""(?m)^\s*//.*$"""), "")
         s = s.replace(Regex("""\s//\s.*"""), "")
-        return removeParameterSchemaInitializer(s)
+        return removeParameterSchemaInitializer(s, fileName)
     }
 
-    private fun removeParameterSchemaInitializer(s: String): String {
+    private fun removeParameterSchemaInitializer(
+        s: String,
+        fileName: String
+    ): String {
         val decl = s.indexOf("override val parameterSchema")
-        if (decl < 0) return s
+        if (decl < 0) fail("$fileName: no 'override val parameterSchema' declaration found to strip")
         val open = s.indexOf('(', decl)
-        if (open < 0) return s
+        if (open < 0) fail("$fileName: no '(' after 'override val parameterSchema'")
         var depth = 0
         var i = open
         var inString = false
@@ -174,6 +175,6 @@ class ToolParameterReadCoverageTest {
             }
             i++
         }
-        fail("unbalanced parentheses in parameterSchema initializer")
+        fail("$fileName: unbalanced parentheses in parameterSchema initializer")
     }
 }
