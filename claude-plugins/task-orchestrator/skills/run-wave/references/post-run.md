@@ -23,33 +23,44 @@ Tool: `manage_plan_documents(operation="get", ...)`.
 
 ## Step 1 — Verify
 
-`node "<helper>" verify --plan <scratchpad>/run-wave/<runId>/plan.json --result <scratchpad>/run-wave/<runId>/result.json`. Per item this checks: the declared commit SHAs actually exist
-(`git cat-file -e`), each stage's committed file list is a subset of what that seat was allowed
-to touch (implementer ⊆ `mainFiles ∪ docFiles`; test-author ⊆ `testFiles ∪
+`node "<helper>" verify --plan <scratchpad>/run-wave/<runId>/plan.json --result <scratchpad>/run-wave/<runId>/result.json` — **exits 0 when every item is `ok`, 3 when any item is not**
+(the CLI gathers `gitFacts` itself: `git cat-file -e` per declared commit SHA, plus a `git log`
+walk per distinct worktree named in the plan). Read the JSON body regardless of exit code — a
+non-zero exit here is an expected result, not a call to retry. Per item this checks: the declared
+commit SHAs actually exist, each stage's committed file list is a subset of what that seat was
+allowed to touch (implementer ⊆ `mainFiles ∪ docFiles`; test-author ⊆ `testFiles ∪
 existingTestEdits[].file`; never cross-owned), commit subjects carry the `[<short>]` tag and a
-`Seat:` trailer, and it returns the red-proof checklist the planner derived
-(`meta.redProofShape`).
+`Seat:` trailer, and it returns `items[].redProof.shape` — the red-proof checklist the planner
+derived for that item (`null` when the item had no planner-v1 output to derive one from). An
+untagged commit (no `[<short>]` in its subject) surfaces as a top-level `warnings` entry, not a
+per-item finding, and does not by itself fail the item.
 
 **Red-proofs themselves are run by you, the orchestrator**, not the helper — `verify` only
-returns the checklist of what to run. Use the project's `run-profile.json` → `verify[]` entries
-(this repo: the lock helper self-check and a scratch-worktree revert-and-rebuild) to actually
-execute them. A `verify` failure on any item means that item **fails this run** — do not advance
-it in Step 4 below, and surface the specific failure (missing SHA, foreign file, missing
-trailer, failed red-proof) rather than a generic "verify failed".
+returns the checklist (`items[].redProof.shape`, plus `items[].redProof.commands` for whichever
+of the project's `run-profile.json` → `verify[]` entries name the `orchestrator` seat) of what to
+run; this repo's profile names the lock helper self-check and a scratch-worktree
+revert-and-rebuild. A `verify` failure (`items[].ok: false`, non-empty `findings`) on any item
+means that item **fails this run** — do not advance it in Step 4 below, and surface the specific
+failure (missing SHA, foreign file, missing trailer, failed red-proof) rather than a generic
+"verify failed".
 
 ---
 
 ## Step 2 — Actor audit
 
 `query_notes(operation="list", itemId=<item>, keys=[<that item's seat notes>], includeBody=false)`
-for every item in the run, then compare each note's recorded actor against the expected table
-from `node "<helper>" actors --plan <scratchpad>/run-wave/<runId>/plan.json`. The expected form
-is `{itemId, key, actorId}` where `actorId` matches `<seat>:<short>:<runId>`.
+for every item in the run; write the observed `{itemId, key, actorId}` rows to
+`<scratchpad>/run-wave/<runId>/observed-actors.json`. Then run `node "<helper>" actors --plan
+<scratchpad>/run-wave/<runId>/plan.json --notes <scratchpad>/run-wave/<runId>/observed-actors.json`
+— passing `--notes` is what turns this call from *listing* the expected table (`{itemId, key,
+actorId}`, `actorId` = `<seat>:<short>:<runId>`) into *auditing* observed against expected. It
+**exits 0 when every item's notes match and 3 when any item has a `missing` or `mismatched`
+entry**; as with `verify`, read the JSON body regardless of exit code.
 
-A note whose actor doesn't match (or a required note that's simply missing) means that item
-**fails this run**, same as a Step 1 verify failure — do not advance it. The rule this enforces:
-only the seat that owns a note may (re-)write it; a mismatch is evidence something wrote outside
-its lane, not a cosmetic discrepancy to wave through.
+An item carrying any `missing` or `mismatched` entry means that item **fails this run**, same as
+a Step 1 verify failure — do not advance it. The rule this enforces: only the seat that owns a
+note may (re-)write it; a mismatch is evidence something wrote outside its lane, not a cosmetic
+discrepancy to wave through.
 
 ---
 
@@ -96,12 +107,19 @@ Set `state.phase = "post-run"`.
 
 ## Step 5 — Review hand-off
 
-`node "<helper>" review-prompt --plan <scratchpad>/run-wave/<runId>/plan.json --item <short>` per
-advanced item that entered a review phase, unless the project's `run-profile.json` sets
-`review: "handoff"` — in which case control passes to the project's own review step instead (this
-repo: `/implement` Step 5) and you do not dispatch the generic reviewer yourself. The generic
-review prompt is deliberately thin: seat line, the owned-file diff command, which notes to fill,
-and which rule keys apply — it carries no rule text inline (the reviewer fetches those itself).
+Set `state.phase = "review"` before dispatching or handing off the reviewer — a resume landing
+after this point (Resume matrix, `SKILL.md`) continues at Step 8 there instead of re-running
+Step 4's batched advance.
+
+`node "<helper>" review-prompt --plan <scratchpad>/run-wave/<runId>/plan.json --item <short>
+--result <scratchpad>/run-wave/<runId>/result.json` per advanced item that entered a review
+phase — **always pass `--result`**; without it the diff command falls back to a bare "owned
+files: planner output" line instead of the real `git diff <baseSha>..HEAD -- <owned files>`
+pathspec. Unless the project's `run-profile.json` sets `review: "handoff"` — in which case
+control passes to the project's own review step instead (this repo: `/implement` Step 5) and you
+do not dispatch the generic reviewer yourself. The generic review prompt is deliberately thin:
+seat line, the owned-file diff command, which notes to fill, and which rule keys apply — it
+carries no rule text inline (the reviewer fetches those itself).
 
 ---
 
@@ -113,9 +131,9 @@ process requires:
 - Arbitration of a red test authored by an independent test-author seat (per the project's
   arbitration rule — this repo: `/implement` Step 4b) is a **human or a separately-dispatched
   arbitration agent's** call, not this skill's.
-- Opening a PR and merging it are the checkpoints that carry an item's items from review to
-  terminal in most projects — this skill does not open PRs itself; that's the project workflow's
-  job (this repo: `/implement` Step 6).
+- Opening a PR and merging it are the checkpoints that carry an item from review to terminal in
+  most projects — this skill does not open PRs itself; that's the project workflow's job (this
+  repo: `/implement` Step 6).
 
 ---
 

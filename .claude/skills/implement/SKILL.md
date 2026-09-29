@@ -186,7 +186,7 @@ or process details per prompt. **The template states the rules; this table only 
 slot is for** — do not paraphrase a slot's rule into a prompt. Under `/task-orchestrator:run-wave`,
 the Header and File ownership rows are filled from the planner's `explain` output plus the
 planner-v1 stage's own returns rather than hand-typed, and the run reuses this same worktree by
-passing `--mode shared <path>` — the contract file and its slot order are unchanged either way.
+passing `--mode shared --worktree $FEATURE_WORKTREE --branch $FEATURE_BRANCH` — the contract file and its slot order are unchanged either way.
 
 **Write it to `<main-checkout>\plans\<slug>.md` and hand agents that absolute path**, recorded
 once in the contract's Header **Contract path** line. The `plans/` directory is gitignored, so it

@@ -148,6 +148,7 @@ Skills are invoked as slash commands in any Claude Code session:
 | `/task-orchestrator:status-progression` | Navigate role transitions; shows current gate status and the correct trigger |
 | `/task-orchestrator:dependency-manager` | Visualize, create, and diagnose dependency graphs between work items |
 | `/task-orchestrator:batch-complete` | Complete or cancel multiple items at once — close out features or workstreams |
+| `/task-orchestrator:run-wave` | Plan and run a multi-item wave over a run plan (Method A via the `implement-wave` Workflow, or Method B direct-Agent fallback) |
 
 ---
 

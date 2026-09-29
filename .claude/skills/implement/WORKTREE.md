@@ -59,7 +59,7 @@ Agent(
 )
 ```
 
-See `SKILL.md:513-523`, "When dispatching an item's phase owner" — the full model/agent
+See `SKILL.md:529-539`, "When dispatching an item's phase owner" — the full model/agent
 resolution order this line follows.
 
 **Parallel dispatch:** when children touch non-overlapping files, dispatch in parallel

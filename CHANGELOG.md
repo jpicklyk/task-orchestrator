@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Plugin
 
+- **`implement-wave` workflow (B1).** New Claude Code Workflow script `workflows/implement-wave.js`
+  that runs one work item's seats in order (planner, implementer, declarations extractor, blind test
+  author) and several items concurrently from a run plan the front door builds: settle-once milestones
+  for in-run dependency edges, per-file lock chains in a shared worktree, entry-result mapping
+  (`dependency_blocked`/`resource_unavailable`/`config_unavailable` → deferred, never dropped), rerun-safe
+  seats, rule text fetched by key via `query_rules` (never embedded), and a `scanDeclarations` step between
+  the extractor and the author. Never call it bare — it returns `{started:false}`; the `run-wave` front door
+  (B2) builds its `args`. Ships with two new agent definitions, `task-orchestrator:planner` and
+  `task-orchestrator:test-author`, and a fake-agent test harness (`scripts/tests/workflow-harness.mjs`).
 - **`run-wave` front door (Phase B / B2+B3).** New plugin skill `/task-orchestrator:run-wave` that plans a wave of ready
   items with the `run-planner` helper (`scripts/run-planner.mjs`: `probe|plan|explain|validate` over a pure planner
   that derives per-item seat stages from the resolved schema, classifies dependency edges as in-run or cross-run,
@@ -23,18 +32,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   run-profile.json` carries this repo's verify commands and search scope; `workflowSizeGuideline: large` is set.
 - `session-retrospective` reads the structured per-seat provenance line (`seats=<seat:model,...>`) alongside the
   legacy one-model-per-item form.
-
-### Plugin
-
-- **`implement-wave` workflow (B1).** New Claude Code Workflow script `workflows/implement-wave.js`
-  that runs one work item's seats in order (planner, implementer, declarations extractor, blind test
-  author) and several items concurrently from a run plan the front door builds: settle-once milestones
-  for in-run dependency edges, per-file lock chains in a shared worktree, entry-result mapping
-  (`dependency_blocked`/`resource_unavailable`/`config_unavailable` → deferred, never dropped), rerun-safe
-  seats, rule text fetched by key via `query_rules` (never embedded), and a `scanDeclarations` step between
-  the extractor and the author. Never call it bare — it returns `{started:false}`; the `run-wave` front door
-  (B2) builds its `args`. Ships with two new agent definitions, `task-orchestrator:planner` and
-  `task-orchestrator:test-author`, and a fake-agent test harness (`scripts/tests/workflow-harness.mjs`).
 
 ### Added
 
