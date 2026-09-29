@@ -48,3 +48,6 @@ Two skill systems — do not confuse them: **project-level skills** in `.claude/
   content must treat same-session invocations of those skills/hooks as stale (diff loaded content
   against disk before following it). The marketplace serves the working **tree** — confirm the
   checkout is on the branch you intend to install before refreshing.
+- `workflows/` and `agents/` ride the same version-keyed cache as skills and hooks — a workflow or
+  agent edit needs the same forced refresh above. Verify with `/workflows` listing
+  `task-orchestrator:implement-wave` and `/agents` listing the new agent definitions.

@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Plugin
+
+- **`implement-wave` workflow (B1).** New Claude Code Workflow script `workflows/implement-wave.js`
+  that runs one work item's seats in order (planner, implementer, declarations extractor, blind test
+  author) and several items concurrently from a run plan the front door builds: settle-once milestones
+  for in-run dependency edges, per-file lock chains in a shared worktree, entry-result mapping
+  (`dependency_blocked`/`resource_unavailable`/`config_unavailable` → deferred, never dropped), rerun-safe
+  seats, rule text fetched by key via `query_rules` (never embedded), and a `scanDeclarations` step between
+  the extractor and the author. Never call it bare — it returns `{started:false}`; the `run-wave` front door
+  (B2) builds its `args`. Ships with two new agent definitions, `task-orchestrator:planner` and
+  `task-orchestrator:test-author`, and a fake-agent test harness (`scripts/tests/workflow-harness.mjs`).
+
 ### Added
 
 - **Seats (A1): explicit `seats:` declarations on schemas and traits.** A schema or trait can now
