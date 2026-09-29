@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawnSync, spawn } from 'node:child_process';
+import { createServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -14,10 +15,41 @@ function writeConfig(dir, content) {
   writeFileSync(join(cfgDir, 'config.yaml'), content, 'utf-8');
 }
 
+function cleanEnv(extra) {
+  const env = { ...process.env, ...extra };
+  if (!('TASK_ORCHESTRATOR_API_URL' in extra)) delete env.TASK_ORCHESTRATOR_API_URL;
+  if (!('TASK_ORCHESTRATOR_API_TOKEN' in extra)) delete env.TASK_ORCHESTRATOR_API_TOKEN;
+  return env;
+}
+
+// Async variant: the stub REST server lives in this process, so the hook must run without
+// blocking the event loop (spawnSync would deadlock the stub).
+function runHookAsync(dir, payload, extraEnv) {
+  return new Promise(resolveP => {
+    const child = spawn(process.execPath, [HOOK], {
+      env: cleanEnv({ AGENT_CONFIG_DIR: dir, ...extraEnv }),
+      cwd: dir,
+    });
+    let stdout = '';
+    child.stdout.on('data', d => { stdout += d; });
+    child.on('close', status => resolveP({ status, stdout }));
+    child.stdin.end(JSON.stringify(payload));
+  });
+}
+
+async function withStub(handler, fn) {
+  const requests = [];
+  const server = createServer((req, res) => { requests.push(req.url); handler(req, res); });
+  await new Promise(r => server.listen(0, '127.0.0.1', r));
+  const url = `http://127.0.0.1:${server.address().port}`;
+  try { return await fn(url, requests); }
+  finally { await new Promise(r => server.close(r)); }
+}
+
 function runHook(dir, payload) {
   return spawnSync(process.execPath, [HOOK], {
     input: JSON.stringify(payload),
-    env: { ...process.env, AGENT_CONFIG_DIR: dir },
+    env: cleanEnv({ AGENT_CONFIG_DIR: dir }),
     encoding: 'utf-8',
     cwd: dir, // avoid the cwd-walk fallback finding this repo's real config.yaml
   });
@@ -355,4 +387,118 @@ test('O1: transitions[] present with a valid per-element actor -> allowed, even 
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// ---- seat-owned note warning (#384) ----
+const ITEM = '1369a435-bf86-4fbc-93b0-ebe22e7edb64';
+const upsert = (kind, itemId = ITEM) => ({
+  tool_name: 'mcp__mcp-task-orchestrator__manage_notes',
+  tool_input: { operation: 'upsert', notes: [{ itemId, key: 'review-checklist', role: 'review', body: 'x', actor: { id: 'o', kind } }] },
+});
+const json = (code, obj) => (req, res) => { res.statusCode = code; res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(obj)); };
+
+test('seat-owned: stored subagent + incoming orchestrator -> warns, never denies', async () => {
+  const dir = tmpConfigDir();
+  try {
+    await withStub(json(200, { actor: { id: 'reviewer:abc', kind: 'subagent' } }), async (url, reqs) => {
+      const res = await runHookAsync(dir, upsert('orchestrator'), { TASK_ORCHESTRATOR_API_URL: url });
+      assert.equal(res.status, 0);
+      const out = JSON.parse(res.stdout);
+      assert.equal(out.hookSpecificOutput.permissionDecision, undefined);
+      const ctx = out.hookSpecificOutput.additionalContext;
+      assert.match(ctx, new RegExp(ITEM));
+      assert.match(ctx, /review-checklist/);
+      assert.match(ctx, /reviewer:abc/);
+      assert.match(ctx, /orchestrator-confirmation/);
+      assert.ok(out.systemMessage);
+      assert.deepEqual(reqs, [`/api/v1/items/${ITEM}/notes/review-checklist`]);
+    });
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('seat-owned: stored orchestrator actor -> silent', async () => {
+  const dir = tmpConfigDir();
+  try {
+    await withStub(json(200, { actor: { id: 'o', kind: 'orchestrator' } }), async url => {
+      const res = await runHookAsync(dir, upsert('orchestrator'), { TASK_ORCHESTRATOR_API_URL: url });
+      assert.equal(res.status, 0);
+      assert.equal(res.stdout, '');
+    });
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('seat-owned: null (redacted) actor -> silent', async () => {
+  const dir = tmpConfigDir();
+  try {
+    await withStub(json(200, { actor: null }), async url => {
+      const res = await runHookAsync(dir, upsert('orchestrator'), { TASK_ORCHESTRATOR_API_URL: url });
+      assert.equal(res.status, 0);
+      assert.equal(res.stdout, '');
+    });
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('seat-owned: 404 absent note and 500 -> silent', async () => {
+  const dir = tmpConfigDir();
+  try {
+    for (const code of [404, 500]) {
+      await withStub(json(code, { error: 'x' }), async url => {
+        const res = await runHookAsync(dir, upsert('orchestrator'), { TASK_ORCHESTRATOR_API_URL: url });
+        assert.equal(res.status, 0);
+        assert.equal(res.stdout, '');
+      });
+    }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('seat-owned: unreachable server -> silent exit 0', async () => {
+  const dir = tmpConfigDir();
+  try {
+    const url = await withStub(json(200, {}), async u => u); // server now closed
+    const res = await runHookAsync(dir, upsert('orchestrator'), { TASK_ORCHESTRATOR_API_URL: url });
+    assert.equal(res.status, 0);
+    assert.equal(res.stdout, '');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('seat-owned: API URL unset -> silent, no request', async () => {
+  const dir = tmpConfigDir();
+  try {
+    await withStub(json(200, { actor: { id: 's', kind: 'subagent' } }), async (url, reqs) => {
+      const res = await runHookAsync(dir, upsert('orchestrator'), {});
+      assert.equal(res.status, 0);
+      assert.equal(res.stdout, '');
+      assert.equal(reqs.length, 0);
+    });
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('seat-owned: incoming subagent actor or id prefix -> no request', async () => {
+  const dir = tmpConfigDir();
+  try {
+    await withStub(json(200, { actor: { id: 's', kind: 'subagent' } }), async (url, reqs) => {
+      for (const p of [upsert('subagent'), upsert('orchestrator', '1369a435')]) {
+        const res = await runHookAsync(dir, p, { TASK_ORCHESTRATOR_API_URL: url });
+        assert.equal(res.status, 0);
+        assert.equal(res.stdout, '');
+      }
+      assert.equal(reqs.length, 0);
+    });
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('seat-owned: enforcement on + missing actor -> deny takes precedence, no warning', async () => {
+  const dir = tmpConfigDir();
+  try {
+    writeConfig(dir, 'actor_attribution:\n  required: true\n');
+    await withStub(json(200, { actor: { id: 's', kind: 'subagent' } }), async (url, reqs) => {
+      const payload = upsert('orchestrator');
+      payload.tool_input.notes.push({ itemId: ITEM, key: 'k', role: 'work', body: 'y' });
+      const res = await runHookAsync(dir, payload, { TASK_ORCHESTRATOR_API_URL: url });
+      assert.equal(res.status, 0);
+      const out = JSON.parse(res.stdout);
+      assert.equal(out.hookSpecificOutput.permissionDecision, 'deny');
+      assert.equal(out.hookSpecificOutput.additionalContext, undefined);
+    });
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });

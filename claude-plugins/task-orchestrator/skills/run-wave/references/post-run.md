@@ -125,6 +125,14 @@ do not dispatch the generic reviewer yourself. The generic review prompt is deli
 seat line, the owned-file diff command, which notes to fill, and which rule keys apply — it
 carries no rule text inline (the reviewer fetches those itself).
 
+**Re-review after fixes.** If the original reviewer seat cannot be resumed once fixes land, dispatch a
+fresh `task-orchestrator:reviewer` scoped to the fix commits (`git diff <prevReviewedSha>..HEAD -- <owned
+files>`) plus the original blocking findings. The orchestrator never appends to or re-upserts a note
+whose stored actor is a seat (`review-checklist`, `test-manifest`, `test-plan`,
+`test-independence-audit`, or any other seat-owned key) — that flips its stored actor and turns the
+seat's verdict into a self-confirmation. Any orchestrator confirmation goes under its own key,
+`orchestrator-confirmation` (role review, optional; off-schema is fine).
+
 ---
 
 ## Step 6 — Human checkpoints

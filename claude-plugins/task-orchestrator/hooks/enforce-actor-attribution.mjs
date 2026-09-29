@@ -17,10 +17,21 @@
 // When enforced, blocks advance_item and manage_notes(upsert) calls that are missing an
 // actor object on any transition/note element — or, for the singular-sugar advance_item form
 // ({itemId, trigger}, no transitions array), missing the top-level actor.
+//
+// Independently of enforcement, a best-effort NON-BLOCKING warning fires on manage_notes(upsert)
+// when an element authored by an actor of kind "orchestrator" targets a note whose stored actor
+// is a "subagent" (a seat-owned note such as review-checklist or test-manifest): re-upserting it
+// would flip ownership and self-confirm the seat's verdict. The stored note is read via
+// GET /api/v1/items/{itemId}/notes/{key}. PRECONDITION: the NoteDto `actor` is null unless the
+// token has ADMIN and the server runs with API_REDACT_NOTE_ATTRIBUTION=false; under default
+// redaction the warning never fires, so the documented rule (post-run.md Step 5) is the primary
+// control and this hook only a backstop. Never denies; silent on unset API URL, 404, non-ok,
+// null actor, timeout or any error.
 
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import { readSection, scalar, inlineScalar } from './yaml-lite.mjs';
+import { apiBaseUrl, authHeader, fetchWithTimeout } from './api-client.mjs';
 
 let input = '';
 try {
@@ -100,13 +111,13 @@ function isActorAttributionRequired(configContent) {
 }
 
 const configContent = readConfigContent();
-if (!isActorAuthenticationEnabled(configContent) && !isActorAttributionRequired(configContent)) {
-  process.exit(0);
-}
+const enforced = isActorAuthenticationEnabled(configContent) || isActorAttributionRequired(configContent);
 
 let missing = false;
 
-if (isAdvance) {
+if (!enforced) {
+  // enforcement off: no deny path
+} else if (isAdvance) {
   // The server treats `transitions[]` and the singular-sugar shape (`{itemId, trigger, actor?}`)
   // as mutually exclusive: when `transitions` is present, the singular top-level fields are
   // ignored, so only the batch shape's per-element actors matter. When `transitions` is absent,
@@ -123,7 +134,56 @@ if (isAdvance) {
   missing = notes.some(n => !n.actor);
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Returns warning strings for orchestrator-authored upserts onto subagent-owned notes.
+async function seatOwnedWarnings() {
+  if (!isNoteUpsert) return [];
+  const base = apiBaseUrl();
+  if (!base) return [];
+  const notes = Array.isArray(toolInput.notes) ? toolInput.notes : [];
+  const candidates = notes
+    .filter(n => n && n.actor && n.actor.kind === 'orchestrator'
+      && typeof n.itemId === 'string' && UUID_RE.test(n.itemId)
+      && typeof n.key === 'string' && n.key)
+    .slice(0, 10);
+  const results = await Promise.all(candidates.map(async n => {
+    try {
+      const res = await fetchWithTimeout(
+        `${base}/api/v1/items/${n.itemId}/notes/${encodeURIComponent(n.key)}`,
+        { headers: authHeader() },
+        1500,
+      );
+      if (!res.ok) return null;
+      const body = await res.json();
+      if (body && body.actor && body.actor.kind === 'subagent') {
+        return `Seat-owned note: item ${n.itemId} note "${n.key}" is stored under subagent actor ` +
+          `"${body.actor.id}". Re-upserting it as the orchestrator flips its ownership and ` +
+          'self-confirms the seat\'s verdict. Dispatch a fresh reviewer seat for re-review, or record ' +
+          'your confirmation under your own key "orchestrator-confirmation" (role review, optional).';
+      }
+    } catch {
+      // best-effort: stay silent
+    }
+    return null;
+  }));
+  return results.filter(Boolean);
+}
+
 if (!missing) {
+  let warnings = [];
+  try {
+    warnings = await seatOwnedWarnings();
+  } catch {
+    warnings = [];
+  }
+  if (warnings.length > 0) {
+    const text = warnings.join('\n');
+    process.stdout.write(JSON.stringify({
+      hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: text },
+      systemMessage: text,
+    }));
+  }
   process.exit(0);
 }
 
