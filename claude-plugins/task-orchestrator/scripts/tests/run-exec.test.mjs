@@ -1059,6 +1059,185 @@ test('probe: next/prompt tolerate an absent state.outs entry for a not-yet-run s
   assert.deepEqual(outsBySeat(A, state), {})
 })
 
+// ── Follow-up (reviewer-reproduced blockers B1-B6, O2) ──────────────────────────────────────────
+// Oracles: Appendix D (verify/resultFromState/next/provenance semantics), the b2-b3-front-door
+// plan §7-§8, master §6.3.5 (runPlan's "items: runnable items in args order" contract cited from
+// the B1 dispatch-contract Appendix B), and the coordinator's follow-up dispatch itself (B3's
+// same-pass cascade requirement, B5's state-v1/result-v1 CLI equivalence, O6's CRLF tolerance).
+// These are expected to be RED against HEAD until the implementer's fix lands; per rule 7 they
+// are left red, not weakened.
+
+test('B1 (CLI, real git log): verify surfaces a per-commit unowned-file finding from a realistic multi-commit repo (real files must not always be [])', () => {
+  const repo = makeTempGitRepo()
+  const baseSha = makeCommit(repo, 'README.md', '# base\n', 'chore: base commit')
+  makeCommit(repo, 'src/x.js', 'module.exports = 1;\n', 'feat(x): implement [aaaaaaaa]', 'why\n\nSeat: implementer')
+  makeCommit(repo, 'src/unowned.js', 'module.exports = 2;\n', 'feat(x): more work [aaaaaaaa]', 'why\n\nSeat: implementer')
+  const headSha = git(repo, ['rev-parse', 'HEAD']).trim()
+
+  const plannerStage = { seat: 'planner', phase: 'queue', notes: [], writes: false, dispatch: {}, output: 'planner-v1' }
+  const implStage = { seat: 'implementer', phase: 'work', enters: true, writes: true, notes: [], dispatch: {}, output: 'implementer-v1' }
+  const item = itemFixture({ short: 'aaaaaaaa', stages: [plannerStage, implStage], worktree: repo })
+  const args = planFixture({ items: [item], baseSha })
+  const doc = { contract: 'run-wave/plan-doc-v1', args, meta: {} }
+  const plannerOut = outputFor('planner-v1', { mainFiles: ['src/x.js'] }) // src/unowned.js is NOT declared owned
+  const result = {
+    contract: 'implement-wave/result-v1', started: true, runId: args.runId, planDocSlug: 'run/x',
+    items: [{
+      id: item.id, short: 'aaaaaaaa', status: 'done', reason: 'ok',
+      stages: [
+        { seat: 'planner', status: 'done', reason: 'ok', modelReported: 'opus', notes: [], commits: { pre: baseSha, post: baseSha }, files: [] },
+        { seat: 'implementer', status: 'done', reason: 'ok', modelReported: 'sonnet', notes: [], commits: { pre: baseSha, post: headSha }, files: [] },
+      ],
+      outputs: { planner: plannerOut, implementer: outputFor('implementer-v1') },
+    }],
+    refused: [], deferred: [],
+  }
+  const dir = mkdtempSync(join(tmpdir(), 'run-exec-cli-verify-b1-'))
+  const planPath = join(dir, 'plan.json')
+  const resultPath = join(dir, 'result.json')
+  writeFileSync(planPath, JSON.stringify(doc))
+  writeFileSync(resultPath, JSON.stringify(result))
+  const res = runCli(['verify', '--plan', planPath, '--result', resultPath])
+  assert.equal(res.status, 3, `expected verify to fail on the unowned file but got exit ${res.status}: ${res.stdout}`)
+  const out = JSON.parse(res.stdout)
+  assert.equal(out.ok, false)
+  const row = out.items.find((i) => i.short === 'aaaaaaaa')
+  assert.ok(row.findings.some((f) => f.includes('unowned') && f.includes('src/unowned.js')), `expected an unowned-file finding, got: ${JSON.stringify(row.findings)}`)
+})
+
+test('B2: verify attributes each stage\'s (pre..post] commits correctly — a normal implementer->test-author chain yields no false findings', () => {
+  const { doc, item, plannerOut } = verifyFixture()
+  const implOut = outputFor('implementer-v1')
+  const baseSha = 'a'.repeat(40)
+  const implSha = 'b'.repeat(40)
+  const authorSha = 'c'.repeat(40)
+  const result = {
+    contract: 'implement-wave/result-v1', started: true, runId: doc.args.runId, planDocSlug: 'run/x',
+    items: [{
+      id: item.id, short: 'aaaaaaaa', status: 'done', reason: 'ok',
+      stages: [
+        { seat: 'planner', status: 'done', reason: 'ok', modelReported: 'opus', notes: [], commits: { pre: baseSha, post: baseSha }, files: [] },
+        { seat: 'implementer', status: 'done', reason: 'ok', modelReported: 'sonnet', notes: [], commits: { pre: baseSha, post: implSha }, files: ['src/x.js'] },
+        { seat: 'test-author', status: 'done', reason: 'ok', modelReported: 'sonnet', notes: [], commits: { pre: implSha, post: authorSha }, files: ['scripts/tests/x.test.mjs'] },
+      ],
+      outputs: { planner: plannerOut, implementer: implOut },
+    }],
+    refused: [], deferred: [],
+  }
+  // gitFacts oldest-first: the implementer's commit (sha === test-author's own `pre`) must NOT be
+  // attributed to the test-author stage — only commits strictly after `pre` up to `post` belong to it.
+  const gitFacts = {
+    exists: { [baseSha]: true, [implSha]: true, [authorSha]: true },
+    commits: [
+      { sha: implSha, subject: 'feat(x): implement [aaaaaaaa]', body: 'why\n\nSeat: implementer', files: ['src/x.js'] },
+      { sha: authorSha, subject: 'test(x): tests [aaaaaaaa]', body: 'why\n\nSeat: test-author', files: ['scripts/tests/x.test.mjs'] },
+    ],
+  }
+  const out = verify(doc, result, gitFacts)
+  const row = out.items.find((i) => i.short === 'aaaaaaaa')
+  assert.equal(row.ok, true, `expected no false findings for a normal impl->author chain, got: ${JSON.stringify(row.findings)}`)
+  assert.deepEqual(row.findings, [])
+})
+
+test('B3: next settles an entire in-run dependency chain in ONE call when the root blocker is stopped (A->B->C, same-pass cascade)', () => {
+  const core = realCore()
+  const A = itemFixture({ short: 'aaaaaaaa', stages: stages.featureTaskLike() })
+  const B = itemFixture({ short: 'bbbbbbbb', stages: stages.featureTaskLike(), waitsFor: [{ item: A.id, milestone: 'implementer' }] })
+  const C = itemFixture({ short: 'cccccccc', stages: stages.featureTaskLike(), waitsFor: [{ item: B.id, milestone: 'implementer' }] })
+  const doc = { contract: 'run-wave/plan-doc-v1', args: planFixture({ items: [A, B, C] }), meta: {} }
+  const state = initState(doc, 'B')
+  state.stages['aaaaaaaa:planner'] = envelope({ output: outputFor('planner-v1') })
+  state.outs['aaaaaaaa:planner'] = outputFor('planner-v1')
+  state.stages['aaaaaaaa:implementer'] = envelope({ status: 'stopped', reason: 'agent threw: boom' })
+
+  const r = next(core, doc, state)
+  const bSettled = r.settled.find((s) => s.item === 'bbbbbbbb')
+  const cSettled = r.settled.find((s) => s.item === 'cccccccc')
+  assert.ok(bSettled, 'expected bbbbbbbb to be settled in this same call')
+  assert.equal(bSettled.status, 'deferred')
+  assert.ok(cSettled, 'expected cccccccc to ALSO be settled in this SAME call (same-pass cascade), not left waiting forever')
+  assert.equal(cSettled.status, 'deferred')
+  assert.equal(r.dispatch.length, 0)
+  assert.equal(r.waiting.length, 0)
+  assert.equal(r.complete, true)
+})
+
+test('B4: resultFromState reports a deferred stage\'s own reason, not "agent returned null"', () => {
+  const core = realCore()
+  const A = itemFixture({ short: 'aaaaaaaa', stages: stages.featureTaskLike() })
+  const doc = { contract: 'run-wave/plan-doc-v1', args: planFixture({ items: [A] }), meta: {} }
+  const state = initState(doc, 'B')
+  state.stages['aaaaaaaa:planner'] = { status: 'deferred', reason: 'overlap bbbbbbbb' }
+  const result = resultFromState(core, doc, state)
+  const item = result.items.find((i) => i.short === 'aaaaaaaa')
+  assert.ok(item)
+  assert.equal(item.status, 'deferred')
+  assert.equal(item.reason, 'overlap bbbbbbbb')
+})
+
+test('B4: resultFromState lists a preflight-refused item only under result.refused, matching runPlan\'s "items: runnable items" contract (B1 Appendix B)', () => {
+  const core = realCore()
+  const A = itemFixture({ short: 'aaaaaaaa', stages: stages.featureTaskLike(), worktree: 'relative/wt' })
+  const doc = { contract: 'run-wave/plan-doc-v1', args: planFixture({ items: [A] }), meta: {} }
+  const state = initState(doc, 'B')
+  const result = resultFromState(core, doc, state)
+  assert.ok(result.refused.some((r) => r.id === A.id || r.id === 'aaaaaaaa'))
+  assert.equal(result.items.some((i) => i.short === 'aaaaaaaa'), false, 'a refused item must not also appear in items — runPlan lists only runnable items there')
+})
+
+test('B5 (CLI, real git log): verify given a run-wave/state-v1 --result behaves identically to the equivalent result-v1', () => {
+  const repo = makeTempGitRepo()
+  const baseSha = makeCommit(repo, 'README.md', '# base\n', 'chore: base commit')
+  const bogusSha = '9'.repeat(40) // never actually committed
+
+  const plannerStage = { seat: 'planner', phase: 'queue', notes: [], writes: false, dispatch: {}, output: 'planner-v1' }
+  const implStage = { seat: 'implementer', phase: 'work', enters: true, writes: true, notes: [], dispatch: {}, output: 'implementer-v1' }
+  const item = itemFixture({ short: 'aaaaaaaa', stages: [plannerStage, implStage], worktree: repo })
+  const args = planFixture({ items: [item], baseSha })
+  const doc = { contract: 'run-wave/plan-doc-v1', args, meta: {} }
+
+  const state = initState(doc, 'B')
+  state.stages['aaaaaaaa:planner'] = envelope({ output: outputFor('planner-v1'), commits: { pre: baseSha, post: baseSha } })
+  state.outs['aaaaaaaa:planner'] = outputFor('planner-v1')
+  state.stages['aaaaaaaa:implementer'] = envelope({
+    output: outputFor('implementer-v1'), commits: { pre: baseSha, post: bogusSha },
+    extra: { entry: { applied: true, newRole: 'work' } },
+  })
+
+  const core = realCore()
+  const result = resultFromState(core, doc, state)
+
+  const dir = mkdtempSync(join(tmpdir(), 'run-exec-cli-verify-b5-'))
+  const planPath = join(dir, 'plan.json')
+  const statePath = join(dir, 'state-as-result.json')
+  const resultPath = join(dir, 'result.json')
+  writeFileSync(planPath, JSON.stringify(doc))
+  writeFileSync(statePath, JSON.stringify(state))
+  writeFileSync(resultPath, JSON.stringify(result))
+
+  const viaResult = runCli(['verify', '--plan', planPath, '--result', resultPath])
+  const viaState = runCli(['verify', '--plan', planPath, '--result', statePath])
+
+  assert.equal(viaResult.status, 3, `sanity: expected the result-v1 run to fail on the missing sha, got ${viaResult.status}: ${viaResult.stdout}`)
+  assert.equal(viaState.status, viaResult.status, `state-v1 --result must behave identically to the equivalent result-v1; got exit ${viaState.status} vs ${viaResult.status}`)
+  assert.deepEqual(JSON.parse(viaState.stdout), JSON.parse(viaResult.stdout))
+})
+
+test('O2/S5: the liveness invariant also holds at a later, non-initial state — not only from a blank state', () => {
+  const core = realCore()
+  const A = itemFixture({ short: 'aaaaaaaa', stages: stages.featureTaskLike() })
+  const B = itemFixture({ short: 'bbbbbbbb', stages: stages.featureTaskLike(), waitsFor: [{ item: A.id, milestone: 'implementer' }] })
+  const doc = { contract: 'run-wave/plan-doc-v1', args: planFixture({ items: [A, B] }), meta: {} }
+  const state = initState(doc, 'B')
+  state.stages['aaaaaaaa:planner'] = envelope({ output: outputFor('planner-v1') })
+  state.outs['aaaaaaaa:planner'] = outputFor('planner-v1')
+  state.stages['aaaaaaaa:implementer'] = envelope({ output: outputFor('implementer-v1') })
+  state.outs['aaaaaaaa:implementer'] = outputFor('implementer-v1')
+  const r = next(core, doc, state)
+  assert.equal(r.dispatch.length === 0 && r.waiting.length > 0, false)
+  assert.ok(r.dispatch.some((d) => d.item === 'bbbbbbbb'))
+})
+
 // ── T-*: small direct-export unit coverage (initState/checkState/findItem/findStage/validateAgainst) ─
 
 test('T-state: initState defaults contract/phase/turns/stages/outs from STATE_CONTRACT', () => {

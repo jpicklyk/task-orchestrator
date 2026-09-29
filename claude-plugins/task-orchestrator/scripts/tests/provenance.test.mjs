@@ -70,7 +70,14 @@ test('S13: formatProvenance %20-encodes spaces and normalizes backslashes to "/"
   }
   const line = formatProvenance(fields)
   assert.equal(line.includes('\\'), false, 'no literal backslash should remain in the line')
-  assert.equal(/(?<!%20)\s(?!\S+=)/.test(line) || true, true) // sanity no-op guard removed below
+  // O1 fix: every space in the line must be a field separator (immediately followed by a
+  // "key=" token) — a raw, un-encoded space inside a value would produce a space NOT
+  // followed by "key=", which this must catch.
+  const tokens = line.split(' ')
+  assert.ok(tokens.length > 1, 'expected multiple space-separated key=value tokens')
+  for (const tok of tokens) {
+    assert.match(tok, /^[a-z-]+=\S*$/, `token "${tok}" is not a bare key=value pair — a raw space leaked into a value`)
+  }
   assert.match(line, /isolation=worktree:C:\/repo\/wt%20a(\s|$)/)
 })
 
@@ -183,6 +190,32 @@ test('S13: formatProvenance(parseProvenance(l)) === l for synthetic structured l
   for (const l of lines) {
     assert.equal(formatProvenance(parseProvenance(l)), l, `round-trip failed for: ${l}`)
   }
+})
+
+// ── Follow-up (reviewer-reproduced blockers B6, O6) ─────────────────────────────────────────────
+
+test('B6: formatProvenance(parseProvenance(l)) === l for a line carrying substituted=, model-source=, journal= tails', () => {
+  const line = 'adapter=claude-agent run=r-9 seats=planner:haiku model=haiku isolation=worktree:/wt agents=1 tokens=1 duration=1 deferred=0 in-run-edges=0 orchestrator-turns=1 substituted=planner:opus model-source=self-report journal=/tmp/j.log'
+  const fields = parseProvenance(line)
+  assert.equal(formatProvenance(fields), line, 'round-trip must be exact for a line with all three tails present')
+})
+
+test('B6: parseProvenance(...).substituted[0] has {seat, requested} — the same shape formatProvenance\'s own "substituted" input takes', () => {
+  const line = 'adapter=claude-agent run=r-9 seats=planner:haiku model=haiku isolation=worktree:/wt agents=1 tokens=1 duration=1 deferred=0 in-run-edges=0 orchestrator-turns=1 substituted=planner:opus'
+  const fields = parseProvenance(line)
+  assert.ok(Array.isArray(fields.substituted))
+  assert.deepEqual(fields.substituted[0], { seat: 'planner', requested: 'opus' })
+})
+
+// ── O6: CRLF tolerance ───────────────────────────────────────────────────────────────────────
+
+test('O6: a CRLF-terminated first line still parses as structured (not {legacy:true})', () => {
+  const line = 'adapter=claude-workflow run=r-1 seats=planner:opus model=opus isolation=worktree:/wt agents=1 tokens=1 duration=1 deferred=0 in-run-edges=0 orchestrator-turns=1'
+  const text = `${line}\r\nsome trailing prose line`
+  const fields = parseProvenance(text)
+  assert.notDeepEqual(fields, { legacy: true })
+  assert.equal(fields.run, 'r-1')
+  assert.equal(formatProvenance(fields), line, 'the parsed fields must format back to the CRLF-stripped line')
 })
 
 // ── doc-sync: read the example line from session-retrospective/SKILL.md at test time ───────────
