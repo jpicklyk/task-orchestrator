@@ -251,6 +251,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `manage_items`: the top-level `type` and `properties` parameters were declared in the schema but
+  never read on any operation, so a caller setting them got a silent no-op reported as success. Their
+  schema descriptions now state they are ignored at the top level and must be set on each item instead
+  (no behaviour change). A new CI guard (`ToolParameterReadCoverageTest`) fails when any registered
+  tool declares a parameter that its source never reads, unless that parameter's own description
+  explicitly qualifies it as ignored (#290).
 - The LEGACY global tag-matching step could report the first tag in an item's tag list as the
   "matched" tag whenever the global config defined a `default` schema — even when that tag had no
   schema of its own — because the probe folded a `default`-schema hit into "this tag matched". The

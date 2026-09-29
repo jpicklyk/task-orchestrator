@@ -61,6 +61,8 @@ is computed automatically from the parent; nesting depth is unbounded at creatio
 | `traits` | string | No | Comma-separated trait names applied as a shared default to all items in this batch, for both `create` and `update` (e.g., `"needs-migration-review,needs-security-review"`); a per-item `traits` field overrides this default for that item. Adds trait note requirements from the `traits:` config section. Merged into each item's `properties` JSON automatically — on `update`, this replaces the item's existing `traits` list rather than unioning with it, and an absent value (top-level and per-item) leaves existing traits untouched. |
 | `recursive` | boolean | No | Delete all descendants before deleting the target items (default: false) |
 | `requiresVerification` | boolean | No | **Top-level `requiresVerification` is ignored.** Set it on individual items in the `items` array instead. |
+| `type` | string | No | **Top-level `type` is ignored.** Set it on individual items in the `items` array instead. |
+| `properties` | string | No | **Top-level `properties` is ignored.** Set it on individual items in the `items` array instead. |
 | `requestId` | string (UUID) | No | Client-generated UUID for idempotency. Repeated calls with the same `(actor.id, requestId)` within ~10 minutes return the cached response without re-executing. Cache is single-instance and in-memory (not persisted). |
 | `actor` | object | No | Actor for idempotency key resolution: `{ id (required string), kind (required: orchestrator\|subagent\|user\|external), parent? (optional string), proof? (optional string) }`. Required when `requestId` is provided. |
 
