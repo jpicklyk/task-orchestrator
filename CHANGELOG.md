@@ -74,6 +74,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `run-exec-lib.mjs`'s `auditActors` gained an optional `opts.result` (and the `actors` CLI subcommand
   a `--result` flag) so a Step-2 actor audit no longer flags notes from stages that never ran (deferred
   or missing from the result) as `missing` — those items instead report `skipped: true`.
+- Subagents no longer leave background commands running after they return: the SubagentStart hook's
+  Subagent Discipline gains item 4, "Leave nothing running" (no background command may outlive the
+  return; filesystem searches bounded to the repo/worktree and known caches, never `/` or a drive root),
+  and the `implementer` and `reviewer` agent definitions carry the same rule (#356).
 
 ### Added
 
