@@ -168,10 +168,10 @@ No REST, no port, no config-sync — say so.
    TASK_ORCHESTRATOR_API_URL=http://localhost:3001
    ```
 
-   A persistent alternative to this env var: `/task-orchestrator:init --user` writes `client.json` (`apiUrl` only, never a token) under the user-level `.taskorchestrator/` directory after checking `/api/v1/health`. The token still comes from the environment only, and when both are set the env var wins.
+   A persistent alternative to this env var is a `client.json` (`apiUrl` only, never a token), written after checking `/api/v1/health`. The API URL resolves in this order: the env var, then a project-level `client.json` beside the located config, then the user-level `client.json`. Project-mode `/task-orchestrator:init` writes the project-level file, but only for a loopback server (the hooks ignore a project-level URL on any other host); `/task-orchestrator:init --user` writes the user-level file, which is unrestricted, so a non-loopback server needs that or the env var. The token still comes from the environment only.
 
-   Add `TASK_ORCHESTRATOR_API_TOKEN=<token>` only when the REST API requires authentication (bearer or jwks mode). **Omitting this env var is the
-   single most common way config-sync silently no-ops** (`config-sync.mjs` returns early when `apiBaseUrl()` in
+   Add `TASK_ORCHESTRATOR_API_TOKEN=<token>` only when the REST API requires authentication (bearer or jwks mode). **Omitting this env var, with no
+   `client.json` supplying a URL either, is the single most common way config-sync silently no-ops** (`config-sync.mjs` returns early when `apiBaseUrl()` in
    `hooks/api-client.mjs` finds no URL) —
    always render it, never treat it as optional polish.
 

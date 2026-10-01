@@ -10,7 +10,15 @@ Interactive onboarding that teaches by doing. Detects your workspace state and a
 
 ## Step 1: Detect Workspace State
 
-Resolve the project rootId first: check session context for the SessionStart hook's "Config:" path and rootId; otherwise use the located config (`locateConfig()` in `hooks/config-locator.mjs`), not a cwd-relative file read. A user-level or personal-root config counts.
+Resolve the scope first. Check session context for the SessionStart hook's output: a `## Project Scope` section carries a **project rootId** (it scopes reads and anchors new items); a `## Personal Scope` section carries a **personal root** (it only anchors new items; reads stay unscoped).
+
+Without session context, ask the config locator, not a cwd-relative file read. Resolve `<plugin root>` as init Step 0 does, then:
+
+```bash
+node --input-type=module -e "const m = await import('file:///<plugin root>/hooks/config-locator.mjs'); const l = m.locateConfig(); console.log(JSON.stringify({scope: l.scope, path: l.path, rootId: l.rootId, name: l.name}))"
+```
+
+(forward slashes only; the drive-letter form on Windows). Scope `project` with a `rootId` is a project rootId; scope `user` with a `rootId` is the personal root.
 
 Call the health check to determine which path to follow:
 
@@ -18,7 +26,7 @@ Call the health check to determine which path to follow:
 get_context()
 ```
 
-When a rootId is known, pass it to scope the check to this project: `get_context(ancestorId="<rootId>")`. When no rootId is known — the common case for a truly fresh workspace, or one that hasn't been bootstrapped yet — call unscoped exactly as shown.
+When a **project** rootId is known, pass it to scope the check to this project: `get_context(ancestorId="<rootId>")`. In personal scope, or when no rootId is known (a truly fresh workspace), call unscoped exactly as shown.
 
 **If no active or stalled items exist** — follow the **Fresh-Start Path** (Steps 2-8).
 **If active items exist** — follow the **Orientation Path** (Steps A-C).
@@ -27,9 +35,9 @@ When a rootId is known, pass it to scope the check to this project: `get_context
 
 ## Step 1.5: Project Setup (delegated to init)
 
-Before following either path, check whether this workspace has a project anchor yet. Use the rootId resolved in Step 1: if it is known, the workspace is set up and nothing more is needed here.
+Before following either path, check whether this workspace has a project anchor yet. Use the scope resolved in Step 1: if either kind of root (project or personal) is known, the workspace is set up and nothing more is needed here.
 
-If no `project.rootId` is known, offer setup via `AskUserQuestion`: *"This workspace isn't set up for Task Orchestrator yet. Run `/task-orchestrator:init` to create a project anchor (or `/task-orchestrator:init --user` for a personal root that serves every unconfigured directory)?"* `/task-orchestrator:init` owns the anchor, the `config.yaml` `project:` block, the server push and the bundled-rule seeding; this skill does none of that itself. If the user accepts, run it (or tell them to) and then continue here.
+If no root is known, offer setup via `AskUserQuestion`: *"This workspace isn't set up for Task Orchestrator yet. Run `/task-orchestrator:init` to create a project anchor (or `/task-orchestrator:init --user` for a personal root that serves every unconfigured directory)?"* `/task-orchestrator:init` owns the anchor, the `config.yaml` `project:` block, the server push and the bundled-rule seeding; this skill does none of that itself. If the user accepts, run it (or tell them to) and then continue here.
 
 If the user declines, proceed unscoped. Nothing else in this skill requires an anchor.
 
@@ -240,14 +248,14 @@ get_context()
 query_items(operation="overview", includeChildren=true)
 ```
 
-Add `ancestorId="<rootId>"` to both when a rootId is known (resolved in Step 1) — this keeps the orientation dashboard scoped to the current project in multi-project workspaces. Call unscoped exactly as shown when no rootId is known.
+Add `ancestorId="<rootId>"` to both when a **project** rootId is known (resolved in Step 1) — this keeps the orientation dashboard scoped to the current project in multi-project workspaces. Call unscoped exactly as shown in personal scope or when no rootId is known.
 
 Present a condensed dashboard with these sections:
 
 - **Active Work** (role=work or review): items currently in progress — show title, role, and ancestor path
 - **Blocked / Stalled**: items that cannot advance — either dependency-blocked or missing required notes
 - **Containers**: root items with child counts by role
-- **Recommendations**: from `get_next_item(limit=3, includeDetails=true)` — add `ancestorId="<rootId>"` when known
+- **Recommendations**: from `get_next_item(limit=3, includeDetails=true)` — add `ancestorId="<rootId>"` when a project rootId is known
 
 Use status symbols: `◉` in-progress, `⊘` blocked, `○` pending, `✓` completed
 

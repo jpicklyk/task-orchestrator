@@ -152,13 +152,11 @@ TASK_ORCHESTRATOR_API_URL=http://localhost:3001
 TASK_ORCHESTRATOR_API_TOKEN=<token>   # bearer mode only; omit entirely for unauthenticated mode
 ```
 
-Verified in `config-sync.mjs` (the `TASK_ORCHESTRATOR_API_URL` guard in `main()`): if `TASK_ORCHESTRATOR_API_URL` is unset, the hook returns
-immediately with no error and no log — it silently no-ops. There is no visible symptom other than
+Verified in `config-sync.mjs` (the `TASK_ORCHESTRATOR_API_URL` guard in `main()`): the hook no-ops, with no error and no log, when no API URL resolves. The order is `TASK_ORCHESTRATOR_API_URL`, then `apiUrl` in a project-level `client.json` beside the located config (honoured only for a loopback host such as `localhost`, `127.0.0.0/8` or `[::1]`), then `apiUrl` in the user-level `client.json` (unrestricted). There is no visible symptom other than
 per-project config never showing up server-side. **Always render this env var alongside the HTTP+REST
 docker run command** — it is easy to forget because it's set outside the container, not inside it.
 
-config-sync also requires the workspace's `.taskorchestrator/config.yaml` to carry a `project:` block
-with a `rootId` (project-scoping) — without it, the hook has no root to push to and no-ops even with
+config-sync also requires the located config (project-level or user-level `.taskorchestrator/config.yaml`) to carry a `project.rootId` (project-scoping) — without it, the hook has no root to push to and no-ops even with
 the API URL set. See `manage-schemas/references/config-format.md` → "Project Scoping" (owned by
 `manage-schemas`, out of scope here — mention only, don't duplicate).
 

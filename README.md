@@ -135,7 +135,7 @@ And export the client-side variable that tells `config-sync` where the server is
 export TASK_ORCHESTRATOR_API_URL=http://localhost:3001
 ```
 
-Alternatively, `/task-orchestrator:init` writes the URL to a user-level `client.json` (`apiUrl` only, no token); the environment variable wins when both are set. `/task-orchestrator:init` sets up a project root for the current directory, and `/task-orchestrator:init --user` creates a personal root that serves every directory without its own config.
+Alternatively, a `client.json` (`apiUrl` only, no token) supplies the URL. Project-mode `/task-orchestrator:init` writes it beside the project config, only for a loopback server (add `.taskorchestrator/client.json` to `.gitignore`, the URL is machine-specific); `/task-orchestrator:init --user` writes the user-level file, which works for any host. The order is the environment variable, then the project-level file, then the user-level file. `/task-orchestrator:init` sets up a project root for the current directory, and `/task-orchestrator:init --user` creates a personal root that serves every directory without its own config.
 
 > **SECURITY:** unauthenticated REST means anyone who can reach the port has full read/write/delete
 > access. This is only safe because the port is published **loopback-only** (`-p 127.0.0.1:3001:3001`).

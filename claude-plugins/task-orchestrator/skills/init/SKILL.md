@@ -1,6 +1,6 @@
 ---
 name: init
-description: "Sets up Task Orchestrator for a project or for the user: creates (or finds) the project anchor root, writes the project: block into .taskorchestrator/config.yaml at the main checkout root, pushes it to the server, and seeds the bundled process rules. With --user it creates a personal root and writes the user-level config.yaml and client.json instead. Use when a user says: initialize task orchestrator, task-orchestrator init, set up task orchestrator for this project, set up a personal root, init --user, or when the SessionStart notice says to run /task-orchestrator:init. NOT Claude Code's built-in /init (that writes CLAUDE.md), NOT tutorial onboarding (quick-start), NOT migrating an already-populated unscoped database (adopt-project-scope), and NOT launching or reconfiguring the server (configure-server)."
+description: "Sets up Task Orchestrator for a project or for the user: creates (or finds) the project anchor root, writes the project: block into .taskorchestrator/config.yaml at the main checkout root, pushes it to the server, and seeds the bundled process rules. In project mode it also writes a project-level client.json when the server is a loopback HTTP server. With --user it creates a personal root and writes the user-level config.yaml and client.json instead. Use when a user says: initialize task orchestrator, task-orchestrator init, set up task orchestrator for this project, set up a personal root, init --user, or when the SessionStart notice says to run /task-orchestrator:init. NOT Claude Code's built-in /init (that writes CLAUDE.md), NOT tutorial onboarding (quick-start), NOT migrating an already-populated unscoped database (adopt-project-scope), and NOT launching or reconfiguring the server (configure-server)."
 argument-hint: "[--user] [project name]"
 ---
 
@@ -45,7 +45,7 @@ The target root is the parent of `git rev-parse --path-format=absolute --git-com
 
 ### P2 — Already initialized?
 
-If `<main>/.taskorchestrator/config.yaml` exists with a non-empty `project.rootId`, the project is initialized. Skip to P5 (push) and then Rule seeding. Re-running is idempotent.
+If `<main>/.taskorchestrator/config.yaml` exists with a non-empty `project.rootId`, the project is initialized. Skip to P5 (push), then the P5b `client.json` step, then Rule seeding, so an already-initialized project still gets its `client.json`. Re-running is idempotent.
 
 ### P3 — Find or create the anchor
 
@@ -91,6 +91,20 @@ manage_project_config(operation="push", rootId="<anchor-uuid>", configYaml="<ful
 - A `warning` field: relay it (non-fatal).
 - Tool absent: note it and continue; the local file is authoritative.
 
+### P5b — Project-level `client.json`
+
+So the config-sync and other hooks can reach the REST API without an environment variable. The API URL resolves in this order: `TASK_ORCHESTRATOR_API_URL`, then `apiUrl` in a `client.json` beside the located project config, then `apiUrl` in the user-level `client.json`; if none resolves the hooks do nothing.
+
+1. Run `apiBaseUrl()` (and, below, `isLoopbackApiUrl()`) from `<plugin root>/hooks/api-client.mjs` with a one-liner like Step 0:
+   ```bash
+   node --input-type=module -e "const m = await import('file:///<plugin root>/hooks/api-client.mjs'); console.log(JSON.stringify(m.apiBaseUrl({cwd: '<main>'})))"
+   ```
+   A URL resolves: skip, with one line naming it.
+2. Otherwise find the registered http MCP entry and derive and health-check `<base>` exactly as U4 steps 1-3. Stdio or an unhealthy server: skip with one line.
+3. Check the host with `m.isLoopbackApiUrl("<base>")`. A project-level file is honoured only for an `http`/`https` URL without credentials whose host is `localhost`, an IPv4 address in `127.0.0.0/8`, or `[::1]` (a file inside a repo must not redirect the bearer token to a remote host); anything else is ignored silently. When the check is false, do not write the file: say a project-level file would be ignored for this host, and that a non-loopback server needs `TASK_ORCHESTRATOR_API_URL` or `/task-orchestrator:init --user` (the user-level file is unrestricted).
+4. When true, write `<main>/.taskorchestrator/client.json` as UTF-8 JSON containing only `{"apiUrl": "<base>"}`. If the file exists with a different value, show both and ask.
+5. Note the limits: the file is read beside the located config, so a linked worktree that carries its own tracked `config.yaml` does not see the main checkout's `client.json` and falls through to the user-level file, and `AGENT_CONFIG_DIR` moves the located config and the project file with it. Advise adding `.taskorchestrator/client.json` to `.gitignore`: the URL is machine-specific.
+
 ### P6 — Rule seeding, then advise
 
 Run **Rule seeding** below, then advise committing `.taskorchestrator/config.yaml` (and `.taskorchestrator/rules/` if present). Never commit `client.json`.
@@ -105,7 +119,7 @@ Say the directory about to be written: `<userHome()>/.taskorchestrator/` (config
 
 When `TASK_ORCHESTRATOR_HOME` is set, warn that it replaces the home: the user-level `config.yaml` and `client.json` are read only from `$TASK_ORCHESTRATOR_HOME/.taskorchestrator/`, and `<OS home>/.taskorchestrator/config.yaml` is ignored unless `AGENT_CONFIG_DIR` points at it.
 
-`TASK_ORCHESTRATOR_CEILING` is an opt-in test seam (see `plans/project-init-wave2-debate/amendment-ceiling.md`); init does not set it and does not need it.
+`TASK_ORCHESTRATOR_CEILING` is an opt-in test seam that stops project-config discovery from climbing above that directory; init neither sets it nor needs it.
 
 ### U2 — Find or create the personal root
 
@@ -127,7 +141,7 @@ Write the `project:` block (same surgical rule as P4) into `userConfigPath()`, t
 
 ### U4 — `client.json`
 
-`client.json` lets the config-sync and other hooks find the REST API without an environment variable. It holds `apiUrl` only and never a token.
+`client.json` lets the config-sync and other hooks find the REST API without an environment variable. It holds `apiUrl` only and never a token. The user-level file is unrestricted: unlike the project-level file (P5b) it is honoured for any host.
 
 1. Find the registered Task Orchestrator MCP entry the way `hooks/session-start.mjs` does: `.mcp.json` `mcpServers`, then `~/.claude.json` `mcpServers` and `projects[<dir>].mcpServers`. An `http` entry carries `url`.
 2. No http entry (stdio): skip with one line. Config-sync stays a no-op in that case; MCP rule seeding below still works.
@@ -145,9 +159,9 @@ Then run Rule seeding.
 
 ## Rule seeding (both modes)
 
-The plugin ships five rules in `<plugin root>/bundled-rules/` (`protocol.entry-seat`, `protocol.in-phase-seat`, `protocol.read-only-agent`, `commit-discipline`, `review-scoping`) plus `manifest.json` mapping each key to the list of hashes ever shipped, current one last. Config-sync's policy per key: absent on the server -> push; a known older hash -> overwrite; any other hash -> never touched.
+The plugin ships these rules in `<plugin root>/bundled-rules/`: `protocol.entry-seat`, `protocol.in-phase-seat`, `protocol.read-only-agent`, `commit-discipline`, `review-scoping`, plus a `manifest.json` mapping each key to the list of hashes ever shipped, current one last. Config-sync's policy per key: absent on the server -> push; a known older hash -> overwrite; any other hash -> never touched.
 
-**REST path** (an API URL resolves: `TASK_ORCHESTRATOR_API_URL`, or the `client.json` just written). Run the hook by hand with stdin closed so it behaves as SessionStart:
+**REST path** (an API URL resolves: `TASK_ORCHESTRATOR_API_URL`, or a `client.json`, project-level or user-level). Run the hook by hand with stdin closed so it behaves as SessionStart:
 
 ```bash
 node "<plugin root>/hooks/config-sync.mjs" < /dev/null
