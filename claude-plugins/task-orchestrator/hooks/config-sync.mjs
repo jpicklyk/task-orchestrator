@@ -57,21 +57,46 @@ class DeadlineExpired extends Error {
 
 /**
  * The shared deadline. `fetch` uses timeout = min(PER_REQUEST_TIMEOUT_MS, remaining) and rejects
- * with DeadlineExpired, without sending, when remaining <= 0. `isDeadlineError(err)` is true for
- * that rejection and for an abort that fired once the deadline had passed (the request was cut
- * short by the deadline, not by its own per-request cap).
+ * with DeadlineExpired, without sending, when remaining <= 0. A request is deadline-capped when
+ * remaining <= PER_REQUEST_TIMEOUT_MS at SEND time; that is decided once, at send, never from the
+ * clock when an error is caught. `isDeadlineError(err)` is true for the not-sent rejection and for
+ * an AbortError raised by a deadline-capped request (in `fetch` or in `json` on its response).
+ * `json(res)` reads the body (bounded by the same timer, see fetchWithTimeout).
  */
-function makeDeadline(budgetMs, startedAt) {
-  const remaining = () => budgetMs - (Date.now() - startedAt);
+export function makeDeadline(budgetMs, startedAt, { now = Date.now, fetchImpl = fetchWithTimeout } = {}) {
+  const remaining = () => budgetMs - (now() - startedAt);
+  const deadlineErrors = new WeakSet();
+  const cappedResponses = new WeakSet();
+  const mark = (err) => {
+    if (err && typeof err === 'object' && err.name === 'AbortError') deadlineErrors.add(err);
+  };
   return {
-    fetch(url, opts) {
+    remaining,
+    async fetch(url, opts) {
       const rem = remaining();
-      if (rem <= 0) return Promise.reject(new DeadlineExpired());
-      return fetchWithTimeout(url, opts, Math.min(PER_REQUEST_TIMEOUT_MS, rem));
+      if (rem <= 0) throw new DeadlineExpired();
+      const capped = rem <= PER_REQUEST_TIMEOUT_MS;
+      let res;
+      try {
+        res = await fetchImpl(url, opts, Math.min(PER_REQUEST_TIMEOUT_MS, rem));
+      } catch (err) {
+        if (capped) mark(err);
+        throw err;
+      }
+      if (capped && res && typeof res === 'object') cappedResponses.add(res);
+      return res;
+    },
+    async json(res) {
+      try {
+        return await res.json();
+      } catch (err) {
+        if (res && typeof res === 'object' && cappedResponses.has(res)) mark(err);
+        throw err;
+      }
     },
     isDeadlineError(err) {
       if (err instanceof DeadlineExpired) return true;
-      return err?.name === 'AbortError' && remaining() <= 0;
+      return !!err && typeof err === 'object' && deadlineErrors.has(err);
     },
   };
 }
@@ -276,7 +301,15 @@ function loadBundledRules(dir = BUNDLED_RULES_DIR) {
  * processed (the PUT queue order). Optional `deferredCount` (default 0) counts PUTs not sent, or
  * aborted, because the shared deadline expired; when > 0 it adds `N deferred to next session`.
  */
-export function formatRuleSyncSummary({ pushedKeys, unchangedCount, skipped, failed, deferredCount = 0 }) {
+export function formatRuleSyncSummary({
+  pushedKeys,
+  unchangedCount,
+  skipped,
+  failed,
+  deferredCount = 0,
+  untouchedKeys = [],
+  bundledListingUnusable = false,
+}) {
   const base =
     pushedKeys.length > 0
       ? `pushed ${pushedKeys.length} (${pushedKeys.join(', ')}); ${unchangedCount} in sync.`
@@ -287,6 +320,12 @@ export function formatRuleSyncSummary({ pushedKeys, unchangedCount, skipped, fai
   }
   if (failed.length > 0) {
     clauses.push(`failed: ${failed.map((f) => `${f.key} (${f.reason})`).join(', ')}`);
+  }
+  if (untouchedKeys.length > 0) {
+    clauses.push(`kept unrecognized server copy: ${untouchedKeys.join(', ')}`);
+  }
+  if (bundledListingUnusable) {
+    clauses.push('bundled rules skipped (unusable rules listing)');
   }
   if (deferredCount > 0) {
     clauses.push(`${deferredCount} deferred to next session`);
@@ -307,9 +346,11 @@ export function formatRuleSyncSummary({ pushedKeys, unchangedCount, skipped, fai
  * A thrown error from the GET listing (other than the deadline) propagates to the caller, which
  * renders it as a fail-open "sync failed" summary — `main` provides the fail-open guarantee.
  */
-async function syncRules({ rulesDir, base, rootId, auth, deadline, includeBundled }) {
+async function syncRules({ rulesDir, base, rootId, auth, deadline, includeBundled, rootConfirmed = false }) {
   const ruleFiles = listRuleFiles(rulesDir);
-  const { bundled, manifest } = includeBundled ? loadBundledRules() : { bundled: [], manifest: {} };
+  const loaded = includeBundled ? loadBundledRules() : { bundled: [], manifest: {} };
+  let { bundled } = loaded;
+  const { manifest } = loaded;
   if (ruleFiles.length === 0 && bundled.length === 0) return null;
 
   const localRules = ruleFiles.map(({ key, filePath }) => ({
@@ -325,18 +366,28 @@ async function syncRules({ rulesDir, base, rootId, auth, deadline, includeBundle
     throw err;
   }
   if (listRes.status === 404) {
-    return `root ${rootId} not found on this server`;
+    if (!rootConfirmed) return `root ${rootId} not found on this server`;
+    // The root exists (config GET/PUT just confirmed it), so the missing route means an older
+    // server with no rules API: say nothing unless workspace rules could not be synced.
+    return ruleFiles.length > 0 ? 'not synced — this server has no rules API.' : null;
   }
   if (listRes.status !== 200) {
     return `sync skipped — GET rules returned HTTP ${listRes.status}`;
   }
-  let serverRules;
+  let serverRules = [];
+  let bundledListingUnusable = false;
   try {
-    const body = await listRes.json();
-    serverRules = Array.isArray(body?.rules) ? body.rules : [];
-  } catch {
-    serverRules = []; // unparseable body — degrade like an empty listing, every rule looks new
+    const body = await deadline.json(listRes);
+    if (body && typeof body === 'object' && Array.isArray(body.rules)) {
+      serverRules = body.rules.filter((rule) => rule && typeof rule === 'object' && typeof rule.key === 'string');
+    } else {
+      bundledListingUnusable = true;
+    }
+  } catch (err) {
+    if (deadline.isDeadlineError(err)) return 'sync deferred to next session';
+    bundledListingUnusable = true; // unparseable body — never guess which bundled keys are absent
   }
+  if (bundledListingUnusable) bundled = [];
   const serverVersions = new Map(serverRules.map((rule) => [rule.key, rule.rulesVersion]));
 
   const plan = planRuleSync(localRules, serverVersions);
@@ -379,6 +430,8 @@ async function syncRules({ rulesDir, base, rootId, auth, deadline, includeBundle
     skipped: plan.skipped,
     failed,
     deferredCount,
+    untouchedKeys: bundledPlan.untouched,
+    bundledListingUnusable,
   });
 }
 
@@ -427,15 +480,17 @@ async function main() {
   // 1) Read the server's current fingerprint — and, via ?fingerprint=, how our local fingerprint
   //    relates to its history (fast-forward guard) — to decide whether a push is needed.
   let currentEtag = null;
+  let rootConfirmed = false; // the server has this root (config GET 200, or config PUT 200/412)
   try {
     const res = await deadline.fetch(`${endpoint}?fingerprint=${localFingerprint}`, { headers: auth });
     if (res.status === 200) {
+      rootConfirmed = true;
       currentEtag = res.headers.get('etag');
 
       let relation;
       let updatedAt;
       try {
-        const body = await res.json();
+        const body = await deadline.json(res);
         relation = body?.relation;
         updatedAt = body?.updatedAt;
       } catch {
@@ -450,8 +505,9 @@ async function main() {
         if (decision.action === 'already-in-sync') {
           configLine = `Task Orchestrator: ${configNoun} already in sync for root ${rootId}.`;
         } else if (decision.action === 'skip-superseded') {
+          const where = found.scope === 'user' ? 'user-level config.yaml' : "checkout's config.yaml";
           configLine =
-            `Task Orchestrator: config sync skipped — your checkout's config.yaml is older than the ` +
+            `Task Orchestrator: config sync skipped — your ${where} is older than the ` +
             `server's (updated ${decision.updatedAt ?? 'unknown'}); pull or copy back before editing.`;
         }
         // decision.action === 'push' ('unknown' relation) — configLine stays unset, fall through to step 2.
@@ -478,10 +534,11 @@ async function main() {
       const headers = { ...auth, 'Content-Type': 'application/yaml' };
       if (currentEtag) headers['If-Match'] = currentEtag;
       const res = await deadline.fetch(endpoint, { method: 'PUT', headers, body: bytes });
+      if (res.status === 200 || res.status === 412) rootConfirmed = true;
       if (res.status === 200) {
         let schemaWarnings;
         try {
-          const body = await res.json();
+          const body = await deadline.json(res);
           schemaWarnings = body?.schemaWarnings;
         } catch {
           schemaWarnings = undefined; // unparseable body — degrade like no warnings reported
@@ -507,7 +564,7 @@ async function main() {
   //    process exit code.
   let rulesSummary;
   try {
-    rulesSummary = await syncRules({ rulesDir, base, rootId, auth, deadline, includeBundled: !isFileChanged });
+    rulesSummary = await syncRules({ rulesDir, base, rootId, auth, deadline, includeBundled: !isFileChanged, rootConfirmed });
   } catch (err) {
     rulesSummary = `sync failed — ${err?.message ?? err}`;
   }

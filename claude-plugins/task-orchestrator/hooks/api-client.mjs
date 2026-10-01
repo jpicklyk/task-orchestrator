@@ -45,9 +45,18 @@ export function authHeader() {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-/** `fetch()` with an AbortController-backed timeout (default 2000ms). */
+/**
+ * `fetch()` with an AbortController-backed timeout (default 2000ms). The timeout bounds the whole
+ * exchange, response-body reads (`res.json()`/`res.text()`) included: the timer stays armed after
+ * headers arrive (unref'd, so it never keeps a finished process alive; aborting after the body was
+ * read is a no-op) and is cleared only when the fetch itself rejects.
+ */
 export function fetchWithTimeout(url, opts, timeoutMs = DEFAULT_TIMEOUT_MS) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
-  return fetch(url, { ...opts, signal: controller.signal }).finally(() => clearTimeout(timer));
+  timer.unref?.();
+  return fetch(url, { ...opts, signal: controller.signal }).catch((err) => {
+    clearTimeout(timer);
+    throw err;
+  });
 }
