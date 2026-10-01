@@ -18,8 +18,9 @@
 // resolves against cwd), modelled on GIT_CEILING_DIRECTORIES. Unset or empty: no effect. When set, the
 // step-2 walk-up and the step-3 .git search stop BEFORE examining the ceiling directory (cwd equal to
 // the ceiling examines nothing), and a step-3 main checkout equal to or above the ceiling is discarded
-// (a sibling main checkout is kept). A ceiling that is not cwd or an ancestor of it has no effect on the
-// walks. Steps 1 and 4 are never bounded. Exists mainly as a test seam; leave unset in normal use.
+// only when the ceiling applied to this lookup (it is cwd or an ancestor of cwd); a main checkout below
+// or beside the ceiling is kept. A ceiling that is not cwd or an ancestor of it has no effect on the
+// lookup. Steps 1 and 4 are never bounded. Exists mainly as a test seam; leave unset in normal use.
 
 import { readFileSync, statSync } from 'fs';
 import os from 'os';
@@ -138,10 +139,14 @@ function parseProject(text) {
 }
 
 function* candidates(cwd, env, userPath, homePaths, ceiling) {
+  let ceilingMet = false;
   if (env.AGENT_CONFIG_DIR) yield resolve(cwd, env.AGENT_CONFIG_DIR, CONFIG_REL);
   let dir = resolve(cwd);
   for (;;) {
-    if (ceiling && norm(dir) === norm(ceiling)) break;
+    if (ceiling && norm(dir) === norm(ceiling)) {
+      ceilingMet = true;
+      break;
+    }
     const c = join(dir, CONFIG_REL);
     if (!homePaths.has(norm(c))) yield c;
     const parent = dirname(dir);
@@ -149,7 +154,7 @@ function* candidates(cwd, env, userPath, homePaths, ceiling) {
     dir = parent;
   }
   const main = mainCheckoutFromGit(cwd, ceiling);
-  if (main && !(ceiling && atOrAboveCeiling(main, ceiling))) {
+  if (main && !(ceilingMet && atOrAboveCeiling(main, ceiling))) {
     const c = join(main, CONFIG_REL);
     if (!homePaths.has(norm(c))) yield c;
   }
