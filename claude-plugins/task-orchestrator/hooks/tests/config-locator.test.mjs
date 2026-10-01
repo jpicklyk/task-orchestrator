@@ -3,12 +3,12 @@
 // (skipping the user-level path) -> main checkout via .git file gitdir/commondir -> user-level
 // config). Every test pins TASK_ORCHESTRATOR_HOME to an empty temp dir through the env argument.
 
-import { test } from 'node:test';
+import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, realpathSync, rmSync } from 'node:fs';
-import { tmpdir, homedir } from 'node:os';
-import { join, resolve, relative, sep } from 'node:path';
-import { userHome, userConfigPath, locateConfig } from '../config-locator.mjs';
+import os, { tmpdir, homedir } from 'node:os';
+import { join, resolve, relative, sep, dirname } from 'node:path';
+import { userHome, userConfigPath, userClientPath, locateConfig } from '../config-locator.mjs';
 
 const made = [];
 
@@ -340,7 +340,379 @@ test('probe: no caching - env and file mutation between calls are observed', () 
 });
 
 test('probe: locateConfig defaults (no args) do not throw and return a well-formed result', () => {
-  const r = locateConfig();
-  assert.ok(['project', 'user', 'none'].includes(r.scope));
-  assert.deepEqual(Object.keys(r).sort(), ['bytes', 'name', 'path', 'rootId', 'scope', 'text']);
+  // O8 edit: TASK_ORCHESTRATOR_HOME is pinned to an empty temp dir in process.env (restored in
+  // finally), so the no-arg defaults cannot be influenced by a real user-level config.
+  const pinned = tmp('o8home');
+  const saved = process.env.TASK_ORCHESTRATOR_HOME;
+  process.env.TASK_ORCHESTRATOR_HOME = pinned;
+  try {
+    const r = locateConfig();
+    assert.ok(['project', 'user', 'none'].includes(r.scope));
+    assert.deepEqual(Object.keys(r).sort(), ['bytes', 'name', 'path', 'rootId', 'scope', 'text']);
+    // Oracle: the declared defaults are cwd = process.cwd() and env = process.env.
+    const explicit = locateConfig({ cwd: process.cwd(), env: process.env });
+    assert.equal(r.scope, explicit.scope);
+    assert.equal(r.path, explicit.path);
+    assert.equal(r.text, explicit.text);
+    assert.equal(r.rootId, explicit.rootId);
+    assert.equal(r.name, explicit.name);
+  } finally {
+    if (saved === undefined) delete process.env.TASK_ORCHESTRATOR_HOME;
+    else process.env.TASK_ORCHESTRATOR_HOME = saved;
+  }
+});
+
+// ---- b2d81d68: TASK_ORCHESTRATOR_HOME replaces the home set (decision.md Ruling 1) ----
+// Oracle: decision.md Ruling 1 (b) table + task-scope planner decisions; labels per test-plan.
+// R = simulated env home (USERPROFILE and HOME set in-process) holding a config; E empty; E2 with config.
+
+// Runs fn with the env home pinned to envHome (undefined = leave process env alone) and
+// os.userInfo() mocked: a path string returns that homedir, 'throw' throws, '' returns an empty homedir.
+// Everything is restored in finally.
+function withHomes({ envHome, account, fn }) {
+  const keys = ['USERPROFILE', 'HOME'];
+  const saved = {};
+  for (const k of keys) saved[k] = process.env[k];
+  const acct = account === undefined ? tmp('acct') : account;
+  const m = mock.method(os, 'userInfo', () => {
+    if (acct === 'throw') throw new Error('no passwd entry');
+    return { homedir: acct };
+  });
+  try {
+    if (envHome !== undefined) for (const k of keys) process.env[k] = envHome;
+    return fn();
+  } finally {
+    m.mock.restore();
+    for (const k of keys) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+  }
+}
+
+// Linked worktree W (fresh) whose main checkout is the given directory M.
+function worktreeOf(M, commondir = '../..') {
+  const W = tmp('wt');
+  mkdirSync(join(M, '.git', 'worktrees', 'w'), { recursive: true });
+  writeFileSync(join(M, '.git', 'worktrees', 'w', 'commondir'), commondir);
+  writeFileSync(join(W, '.git'), `gitdir: ${join(M, '.git', 'worktrees', 'w')}\n`);
+  return W;
+}
+
+function simulatedHome() {
+  const T = tmp('hT');
+  const R = join(T, 'home');
+  mkdirSync(R, { recursive: true });
+  const cfg = writeCfg(R, projectCfg('real-home-root', 'RealHome'));
+  const sub = join(R, 'sub');
+  mkdirSync(sub, { recursive: true });
+  return { T, R, cfg, sub };
+}
+
+test('b2d81d68 S1: override E, env home R holds config, cwd R/sub -> none', () => {
+  const { R, sub } = simulatedHome();
+  const E = tmp('E');
+  withHomes({ envHome: R, fn: () => {
+    const r = locateConfig({ cwd: sub, env: { TASK_ORCHESTRATOR_HOME: E } });
+    assert.deepEqual(r, { scope: 'none', path: null, bytes: null, text: null, rootId: null, name: null });
+  } });
+});
+
+test('b2d81d68 S2: override E2 with config, cwd R/sub or R -> user at E2', () => {
+  const { R, sub } = simulatedHome();
+  const E2 = tmp('E2');
+  const e2File = writeCfg(E2, projectCfg('e2-root', 'E2'));
+  withHomes({ envHome: R, fn: () => {
+    for (const cwd of [sub, R]) {
+      const r = locateConfig({ cwd, env: { TASK_ORCHESTRATOR_HOME: E2 } });
+      assert.equal(r.scope, 'user');
+      assert.equal(norm(r.path), norm(e2File));
+      assert.equal(r.rootId, 'e2-root');
+    }
+  } });
+});
+
+test('b2d81d68 S3: override unset, cwd R/sub -> user at R', () => {
+  const { R, cfg, sub } = simulatedHome();
+  withHomes({ envHome: R, fn: () => {
+    const r = locateConfig({ cwd: sub, env: {} });
+    assert.equal(r.scope, 'user');
+    assert.equal(norm(r.path), norm(cfg));
+    assert.equal(r.rootId, 'real-home-root');
+  } });
+});
+
+test('b2d81d68 S4: override E, AGENT_CONFIG_DIR = R -> project at R (step 1 is not filtered)', () => {
+  const { R, cfg } = simulatedHome();
+  const E = tmp('E');
+  const cwd = tmp('cwd');
+  withHomes({ envHome: R, fn: () => {
+    const r = locateConfig({ cwd, env: { TASK_ORCHESTRATOR_HOME: E, AGENT_CONFIG_DIR: R } });
+    assert.equal(r.scope, 'project');
+    assert.equal(norm(r.path), norm(cfg));
+  } });
+});
+
+test('b2d81d68 S5: override E, linked worktree whose main checkout is R -> none', () => {
+  const { R } = simulatedHome();
+  const E = tmp('E');
+  const W = worktreeOf(R);
+  withHomes({ envHome: R, fn: () => {
+    const r = locateConfig({ cwd: W, env: { TASK_ORCHESTRATOR_HOME: E } });
+    assert.equal(r.scope, 'none');
+    assert.equal(r.path, null);
+  } });
+});
+
+test('b2d81d68 S6: override E, project config in R parent, cwd R/sub -> project at the parent (walk-up climbs past R)', () => {
+  const { T, R, sub } = simulatedHome();
+  const E = tmp('E');
+  const parentFile = writeCfg(T, projectCfg('parent-root', 'Parent'));
+  withHomes({ envHome: R, fn: () => {
+    const r = locateConfig({ cwd: sub, env: { TASK_ORCHESTRATOR_HOME: E } });
+    assert.equal(r.scope, 'project');
+    assert.equal(norm(r.path), norm(parentFile));
+    assert.equal(r.rootId, 'parent-root');
+  } });
+});
+
+test('b2d81d68 S7: override E, nested project config under R -> project at the nested path', () => {
+  const { R } = simulatedHome();
+  const E = tmp('E');
+  const nested = join(R, 'proj');
+  const nestedFile = writeCfg(nested, projectCfg('nested-root', 'Nested'));
+  const cwd = join(nested, 'sub');
+  mkdirSync(cwd, { recursive: true });
+  withHomes({ envHome: R, fn: () => {
+    const r = locateConfig({ cwd, env: { TASK_ORCHESTRATOR_HOME: E } });
+    assert.equal(r.scope, 'project');
+    assert.equal(norm(r.path), norm(nestedFile));
+  } });
+});
+
+test('b2d81d68 S8: env home Y empty, userInfo homedir = R (config), override E, cwd R/sub -> none', () => {
+  const { R, sub } = simulatedHome();
+  const Y = tmp('Y');
+  const E = tmp('E');
+  withHomes({ envHome: Y, account: R, fn: () => {
+    const r = locateConfig({ cwd: sub, env: { TASK_ORCHESTRATOR_HOME: E } });
+    assert.equal(r.scope, 'none');
+    assert.equal(r.path, null);
+  } });
+});
+
+test('b2d81d68 S9: env home Y holds config, userInfo homedir = R (config), override unset, cwd R/sub -> user at Y', () => {
+  const { R, sub } = simulatedHome();
+  const Y = tmp('Y');
+  const yFile = writeCfg(Y, projectCfg('y-root', 'Y'));
+  withHomes({ envHome: Y, account: R, fn: () => {
+    const r = locateConfig({ cwd: sub, env: {} });
+    assert.equal(r.scope, 'user');
+    assert.equal(norm(r.path), norm(yFile));
+    assert.equal(r.rootId, 'y-root');
+  } });
+});
+
+test('b2d81d68 S10: os.userInfo() throwing never throws out of locateConfig; S1-S3 results unchanged', () => {
+  const { R, cfg, sub } = simulatedHome();
+  const E = tmp('E');
+  const E2 = tmp('E2');
+  const e2File = writeCfg(E2, projectCfg('e2-root', 'E2'));
+  withHomes({ envHome: R, account: 'throw', fn: () => {
+    assert.equal(locateConfig({ cwd: sub, env: { TASK_ORCHESTRATOR_HOME: E } }).scope, 'none');
+    const two = locateConfig({ cwd: sub, env: { TASK_ORCHESTRATOR_HOME: E2 } });
+    assert.equal(two.scope, 'user');
+    assert.equal(norm(two.path), norm(e2File));
+    const three = locateConfig({ cwd: sub, env: {} });
+    assert.equal(three.scope, 'user');
+    assert.equal(norm(three.path), norm(cfg));
+  } });
+});
+
+test('b2d81d68 S11: env home = AGENT_CONFIG_DIR = cwd = X holding config, override E -> project at X', () => {
+  const X = tmp('X');
+  const xFile = writeCfg(X, projectCfg('x-root', 'X'));
+  const E = tmp('E');
+  withHomes({ envHome: X, fn: () => {
+    const r = locateConfig({ cwd: X, env: { TASK_ORCHESTRATOR_HOME: E, AGENT_CONFIG_DIR: X } });
+    assert.equal(r.scope, 'project');
+    assert.equal(norm(r.path), norm(xFile));
+    assert.equal(r.rootId, 'x-root');
+  } });
+});
+
+function assertHomedirFailureKeepsProject(setup) {
+  const P = tmp('proj');
+  const pFile = writeCfg(P, projectCfg('p-root', 'P'));
+  const C = tmp('cwdempty');
+  const E2 = tmp('E2');
+  const e2File = writeCfg(E2, projectCfg('e2-root', 'E2'));
+  setup(() => {
+    // User-level path is unavailable (override unset + homedir throws): every hit is project.
+    const a = locateConfig({ cwd: P, env: {} });
+    assert.equal(a.scope, 'project');
+    assert.equal(norm(a.path), norm(pFile));
+    assert.equal(a.rootId, 'p-root');
+    // Override set: user-level path is computable without homedir -> user at E2.
+    const b = locateConfig({ cwd: C, env: { TASK_ORCHESTRATOR_HOME: E2 } });
+    assert.equal(b.scope, 'user');
+    assert.equal(norm(b.path), norm(e2File));
+  });
+}
+
+test('b2d81d68 S12: USERPROFILE="" makes os.homedir() throw (win32 only); project config still found',
+  { skip: process.platform !== 'win32' }, () => {
+    // Skip is a platform gate only: an empty USERPROFILE makes os.homedir() throw only on win32.
+    assertHomedirFailureKeepsProject((run) => withHomes({ fn: () => {
+      const saved = process.env.USERPROFILE;
+      process.env.USERPROFILE = '';
+      try { run(); } finally {
+        if (saved === undefined) delete process.env.USERPROFILE;
+        else process.env.USERPROFILE = saved;
+      }
+    } }));
+  });
+
+test('b2d81d68 S12b: os.homedir() mocked to throw; project config still found, override config is user', () => {
+  assertHomedirFailureKeepsProject((run) => withHomes({ fn: () => {
+    const m = mock.method(os, 'homedir', () => { throw new Error('ERR_SYSTEM_ERROR'); });
+    try { run(); } finally { m.mock.restore(); }
+  } }));
+});
+
+test('b2d81d68 S13: bare-repo worktree (common dir basename is not .git) skips the main-checkout step', () => {
+  const T = tmp('bare');
+  writeCfg(T, projectCfg('bare-parent', 'BareParent'));
+  const bare = join(T, 'repo.git');
+  mkdirSync(join(bare, 'worktrees', 'w'), { recursive: true });
+  writeFileSync(join(bare, 'worktrees', 'w', 'commondir'), '../..');
+  const W = tmp('wt');
+  writeFileSync(join(W, '.git'), `gitdir: ${join(bare, 'worktrees', 'w')}\n`);
+  const E = tmp('E');
+  withHomes({ fn: () => {
+    const r = locateConfig({ cwd: W, env: { TASK_ORCHESTRATOR_HOME: E } });
+    assert.equal(r.scope, 'none');
+    assert.equal(r.path, null);
+  } });
+});
+
+test('b2d81d68 S14: commondir with a trailing separator still resolves the main checkout config', () => {
+  const home = tmp('home');
+  const { W, mainPath } = makeWorktree({ mainCfg: projectCfg('main-root', 'Main'), commondir: '../..' + sep });
+  withHomes({ fn: () => {
+    const r = locateConfig({ cwd: W, env: { TASK_ORCHESTRATOR_HOME: home } });
+    assert.equal(r.scope, 'project');
+    assert.equal(norm(r.path), norm(mainPath));
+    assert.equal(r.rootId, 'main-root');
+  } });
+});
+
+test('b2d81d68 S15: relative AGENT_CONFIG_DIR resolves against the cwd argument, not process.cwd()', () => {
+  const P = tmp('proj');
+  const file = writeCfg(join(P, 'cfg'), projectCfg('rel-root', 'Rel'));
+  const home = tmp('home');
+  assert.notEqual(norm(process.cwd()), norm(P));
+  withHomes({ fn: () => {
+    const r = locateConfig({ cwd: P, env: { TASK_ORCHESTRATOR_HOME: home, AGENT_CONFIG_DIR: 'cfg' } });
+    assert.equal(r.scope, 'project');
+    assert.equal(norm(r.path), norm(file));
+    assert.equal(r.rootId, 'rel-root');
+  } });
+});
+
+test('b2d81d68 S17: userClientPath is <home>/.taskorchestrator/client.json, absolute, separator-insensitive', () => {
+  const H = tmp('home');
+  const expected = resolve(H, '.taskorchestrator', 'client.json');
+  const p = userClientPath({ TASK_ORCHESTRATOR_HOME: H });
+  assert.equal(norm(p), norm(expected));
+  assert.equal(resolve(p), p);
+  assert.equal(norm(userClientPath({ TASK_ORCHESTRATOR_HOME: H + sep })), norm(expected));
+  // Same home rule as userConfigPath: they live in the same directory.
+  assert.equal(norm(dirname(p)), norm(dirname(userConfigPath({ TASK_ORCHESTRATOR_HOME: H }))));
+});
+
+test('b2d81d68 S17: userClientPath without an override uses os.homedir()', () => {
+  assert.equal(norm(userClientPath({})), norm(resolve(homedir(), '.taskorchestrator', 'client.json')));
+  assert.equal(norm(userClientPath({ TASK_ORCHESTRATOR_HOME: '' })), norm(resolve(homedir(), '.taskorchestrator', 'client.json')));
+});
+
+// ---- b2d81d68 adversarial probes ----
+
+test('b2d81d68 probe: empty-string override behaves as unset (user at R)', () => {
+  const { R, cfg, sub } = simulatedHome();
+  withHomes({ envHome: R, fn: () => {
+    const r = locateConfig({ cwd: sub, env: { TASK_ORCHESTRATOR_HOME: '' } });
+    assert.equal(r.scope, 'user');
+    assert.equal(norm(r.path), norm(cfg));
+  } });
+});
+
+test('b2d81d68 probe: override equal to the env home gives user at that home (no double effect)', () => {
+  const { R, cfg, sub } = simulatedHome();
+  withHomes({ envHome: R, fn: () => {
+    const r = locateConfig({ cwd: sub, env: { TASK_ORCHESTRATOR_HOME: R } });
+    assert.equal(r.scope, 'user');
+    assert.equal(norm(r.path), norm(cfg));
+  } });
+});
+
+test('b2d81d68 probe: trailing separator on the env home still filters the real-home config', () => {
+  const { R, sub } = simulatedHome();
+  const E = tmp('E');
+  withHomes({ envHome: R + sep, fn: () => {
+    const r = locateConfig({ cwd: sub, env: { TASK_ORCHESTRATOR_HOME: E } });
+    assert.equal(r.scope, 'none');
+  } });
+});
+
+test('b2d81d68 probe: os.userInfo() homedir empty string is ignored, not treated as a home', () => {
+  const { R, sub } = simulatedHome();
+  const E = tmp('E');
+  const P = tmp('proj');
+  const pFile = writeCfg(P, projectCfg('p-root', 'P'));
+  withHomes({ envHome: R, account: '', fn: () => {
+    assert.equal(locateConfig({ cwd: sub, env: { TASK_ORCHESTRATOR_HOME: E } }).scope, 'none');
+    const r = locateConfig({ cwd: P, env: { TASK_ORCHESTRATOR_HOME: E } });
+    assert.equal(r.scope, 'project');
+    assert.equal(norm(r.path), norm(pFile));
+  } });
+});
+
+test('b2d81d68 probe: win32 case-differing env home spelling still filters the real-home config',
+  { skip: process.platform !== 'win32' }, () => {
+    // Skip is a platform gate only: case-insensitive path equality is a win32 filesystem property.
+    const { R, sub } = simulatedHome();
+    const E = tmp('E');
+    withHomes({ envHome: R.toUpperCase(), fn: () => {
+      const r = locateConfig({ cwd: sub.toLowerCase(), env: { TASK_ORCHESTRATOR_HOME: E } });
+      assert.equal(r.scope, 'none');
+    } });
+  });
+
+test('b2d81d68 probe: repeated lookup is idempotent and observes a config appearing at R mid-sequence', () => {
+  const T = tmp('hT');
+  const R = join(T, 'home');
+  const sub = join(R, 'sub');
+  mkdirSync(sub, { recursive: true });
+  const E = tmp('E');
+  withHomes({ envHome: R, fn: () => {
+    assert.equal(locateConfig({ cwd: sub, env: { TASK_ORCHESTRATOR_HOME: E } }).scope, 'none');
+    assert.equal(locateConfig({ cwd: sub, env: { TASK_ORCHESTRATOR_HOME: E } }).scope, 'none');
+    writeCfg(R, projectCfg('late-root', 'Late'));
+    // A config at the (filtered) real home never becomes a project hit under an override.
+    assert.equal(locateConfig({ cwd: sub, env: { TASK_ORCHESTRATOR_HOME: E } }).scope, 'none');
+    assert.equal(locateConfig({ cwd: sub, env: {} }).rootId, 'late-root');
+  } });
+});
+
+test('b2d81d68 probe: BOM + CRLF config.yaml at the override still yields user scope with rootId', () => {
+  const E2 = tmp('E2');
+  const C = tmp('cwdempty');
+  writeCfg(E2, '﻿project:\r\n  rootId: bom-root\r\n  name: Bom\r\n');
+  withHomes({ fn: () => {
+    const r = locateConfig({ cwd: C, env: { TASK_ORCHESTRATOR_HOME: E2 } });
+    assert.equal(r.scope, 'user');
+    assert.equal(r.rootId, 'bom-root');
+    assert.equal(r.name, 'Bom');
+  } });
 });

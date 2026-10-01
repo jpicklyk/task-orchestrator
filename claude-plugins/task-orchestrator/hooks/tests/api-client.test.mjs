@@ -9,8 +9,9 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve, dirname } from 'node:path';
 import { apiBaseUrl, authHeader, fetchWithTimeout } from '../api-client.mjs';
+import { userClientPath } from '../config-locator.mjs';
 
 function withEnv(vars, fn) {
   const saved = {};
@@ -223,13 +224,56 @@ test('probe: no caching - client.json edits and env changes are observed between
   }
 });
 
-test('probe: BOM-prefixed client.json yields null or the URL, never throws', () => {
+test('b2d81d68 S18: BOM-prefixed client.json parses and yields the URL (O2)', () => {
   const home = homeWithClientJson('﻿' + JSON.stringify({ apiUrl: 'http://bom:1' }));
   try {
     withEnv({ TASK_ORCHESTRATOR_API_URL: undefined, TASK_ORCHESTRATOR_HOME: home }, () => {
-      const got = apiBaseUrl();
-      // Spec is silent on BOM; either outcome is acceptable but the value must be well-formed.
-      assert.ok(got === null || got === 'http://bom:1', `unexpected value ${got}`);
+      assert.equal(apiBaseUrl(), 'http://bom:1');
+    });
+  } finally {
+    cleanup(home);
+  }
+});
+
+test('b2d81d68 S19: client.json apiUrl is trimmed, then trailing slashes stripped; whitespace-only -> null (O3)', () => {
+  const cases = [
+    ['  http://h:9/  ', 'http://h:9'],
+    ['\thttp://h:9//\n', 'http://h:9'],
+    ['   ', null],
+    ['\t\n ', null],
+  ];
+  for (const [apiUrl, expected] of cases) {
+    const home = homeWithClientJson(JSON.stringify({ apiUrl }));
+    try {
+      withEnv({ TASK_ORCHESTRATOR_API_URL: undefined, TASK_ORCHESTRATOR_HOME: home }, () => {
+        assert.equal(apiBaseUrl(), expected, `apiUrl ${JSON.stringify(apiUrl)}`);
+      });
+    } finally {
+      cleanup(home);
+    }
+  }
+});
+
+test('b2d81d68 S19 probe: BOM plus padded apiUrl together', () => {
+  const home = homeWithClientJson('﻿' + JSON.stringify({ apiUrl: ' http://bom:2/ ' }));
+  try {
+    withEnv({ TASK_ORCHESTRATOR_API_URL: undefined, TASK_ORCHESTRATOR_HOME: home }, () => {
+      assert.equal(apiBaseUrl(), 'http://bom:2');
+    });
+  } finally {
+    cleanup(home);
+  }
+});
+
+test('b2d81d68 S20: apiBaseUrl reads the file at userClientPath(process.env)', () => {
+  const home = emptyHome();
+  try {
+    withEnv({ TASK_ORCHESTRATOR_API_URL: undefined, TASK_ORCHESTRATOR_HOME: home }, () => {
+      const p = userClientPath(process.env);
+      assert.ok(resolve(p).toLowerCase().startsWith(resolve(home).toLowerCase()), `path ${p} not under ${home}`);
+      mkdirSync(dirname(p), { recursive: true });
+      writeFileSync(p, JSON.stringify({ apiUrl: 'http://via-locator:7/' }));
+      assert.equal(apiBaseUrl(), 'http://via-locator:7');
     });
   } finally {
     cleanup(home);
