@@ -27,14 +27,14 @@
 
 import { readFileSync } from 'fs';
 import {
-  findConfigContent,
   parseRetrospectiveConfig,
-  parseProjectRootId,
+  retroMarkerKey,
   markerPath,
   readMarker,
   writeMarker,
   buildNudge,
 } from './retro-lib.mjs';
+import { locateConfig } from './config-locator.mjs';
 import { isHeadlessIteration } from './execution-mode.mjs';
 
 function emitEmpty() {
@@ -71,14 +71,13 @@ try {
 
   const sessionId = hookInput.session_id;
 
-  const configContent = findConfigContent();
-  const config = parseRetrospectiveConfig(configContent);
+  const located = locateConfig();
+  const config = parseRetrospectiveConfig(located.text);
   if (config.mode === 'off') emitEmpty();
 
   const cooldownMs = config.cooldownMinutes * 60 * 1000;
 
-  const rootId = parseProjectRootId(configContent);
-  const key = rootId || sessionId || 'unknown';
+  const key = retroMarkerKey(located, sessionId);
   const path = markerPath(key);
   const marker = readMarker(path);
   const now = Date.now();

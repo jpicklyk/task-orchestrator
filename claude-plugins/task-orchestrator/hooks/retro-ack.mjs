@@ -6,16 +6,19 @@
 //
 // Usage: node retro-ack.mjs
 //
-// Resolves .taskorchestrator/config.yaml the same way retro-trigger.mjs does. When a project
-// rootId is configured, only that project's marker is acked. Without a rootId — this CLI has no
-// session_id to key off of — every marker file in the shared marker directory is acked instead.
+// Resolves .taskorchestrator/config.yaml with the shared locator (config-locator.mjs), the same
+// way retro-trigger.mjs does:
+//   - project scope with a rootId: only that project's marker is acked.
+//   - user scope: markers are keyed by session id and this CLI has no session id, so every marker
+//     in the shared marker directory whose recorded `scope` is 'user' is acked; project-keyed
+//     markers are left untouched.
+//   - no config, or a project config without a rootId: every marker file is acked.
 
 import { readdirSync } from 'fs';
 import { join } from 'path';
 import os from 'os';
+import { locateConfig } from './config-locator.mjs';
 import {
-  findConfigContent,
-  parseProjectRootId,
   markerPath,
   readMarker,
   writeMarker,
@@ -32,27 +35,37 @@ function ackMarker(path) {
   });
 }
 
+function listMarkerFiles(dir) {
+  try {
+    return readdirSync(dir).filter(f => f.startsWith('retro-') && f.endsWith('.json'));
+  } catch {
+    return [];
+  }
+}
+
 try {
-  const configContent = findConfigContent();
-  const rootId = parseProjectRootId(configContent);
+  const located = locateConfig();
+  const dir = join(os.tmpdir(), 'task-orchestrator');
 
-  if (rootId) {
-    const path = markerPath(rootId);
-    ackMarker(path);
-    process.stdout.write(`Acked retrospective marker for root ${rootId} (${path}).\n`);
-  } else {
-    const dir = join(os.tmpdir(), 'task-orchestrator');
-    let files = [];
-    try {
-      files = readdirSync(dir).filter(f => f.startsWith('retro-') && f.endsWith('.json'));
-    } catch {
-      files = [];
+  if (located.scope === 'user') {
+    let count = 0;
+    for (const f of listMarkerFiles(dir)) {
+      const path = join(dir, f);
+      if (readMarker(path).scope === 'user') {
+        ackMarker(path);
+        count++;
+      }
     }
-
+    process.stdout.write(`Acked ${count} user-scope retrospective marker(s) in ${dir}.\n`);
+  } else if (located.scope === 'project' && located.rootId) {
+    const path = markerPath(located.rootId);
+    ackMarker(path);
+    process.stdout.write(`Acked retrospective marker for root ${located.rootId} (${path}).\n`);
+  } else {
+    const files = listMarkerFiles(dir);
     for (const f of files) {
       ackMarker(join(dir, f));
     }
-
     process.stdout.write(`Acked ${files.length} retrospective marker(s) in ${dir} (no project rootId configured).\n`);
   }
 } catch {

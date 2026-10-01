@@ -6,11 +6,11 @@
 // fixture project rootId, keeping this hook's tests isolated the same way retro-backstop.test.mjs
 // isolates its rootId-keyed test — never exercising the ack-everything fallback path.
 
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -24,10 +24,25 @@ function writeConfig(dir, content) {
   writeFileSync(join(cfgDir, 'config.yaml'), content, 'utf-8');
 }
 
-function runHook(agentConfigDir) {
+const made = [];
+function freshDir(prefix) {
+  const d = mkdtempSync(join(tmpdir(), prefix));
+  made.push(d);
+  return d;
+}
+after(() => { for (const d of made) rmSync(d, { recursive: true, force: true }); });
+
+// Hermetic: pinned empty TASK_ORCHESTRATOR_HOME, cwd = fixture dir. agentConfigDir === null removes
+// AGENT_CONFIG_DIR (user scope). iso pins TEMP/TMP/TMPDIR so the marker scan sees only its own dir.
+function runHook(agentConfigDir, { home, cwd, iso } = {}) {
+  const env = { ...process.env, TASK_ORCHESTRATOR_HOME: home ?? freshDir('to-ack-home-') };
+  if (agentConfigDir === null) delete env.AGENT_CONFIG_DIR;
+  else env.AGENT_CONFIG_DIR = agentConfigDir;
+  if (iso) { env.TEMP = iso; env.TMP = iso; env.TMPDIR = iso; }
   return spawnSync(process.execPath, [HOOK], {
-    env: { ...process.env, AGENT_CONFIG_DIR: agentConfigDir },
+    env,
     encoding: 'utf-8',
+    cwd: cwd ?? agentConfigDir ?? freshDir('to-ack-cwd-'),
   });
 }
 
@@ -78,4 +93,29 @@ test('ackMarker on an already-empty marker still resets terminalCount to 0, not 
     rmSync(marker, { force: true });
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('S6 user scope: acks scope:user markers only, leaves project markers byte-identical', () => {
+  const NL = String.fromCharCode(10);
+  const home = freshDir('to-ack-uhome-');
+  writeConfig(home, ['project:', '  rootId: "personal-root"', ''].join(NL));
+  const iso = freshDir('to-ack-iso-');
+  const dir = join(iso, 'task-orchestrator');
+  const userMarker = join(dir, 'retro-sess-u.json');
+  const projMarker = join(dir, 'retro-root-p.json');
+  const legacyMarker = join(dir, 'retro-legacy.json');
+  writeMarker(userMarker, { sawTerminal: true, pendingRoots: ['x'], terminalCount: 4, scope: 'user' });
+  writeMarker(projMarker, { sawTerminal: true, terminalCount: 2, scope: 'project' });
+  writeMarker(legacyMarker, { sawTerminal: true, terminalCount: 1 });
+  const projBefore = readFileSync(projMarker, 'utf-8');
+  const legacyBefore = readFileSync(legacyMarker, 'utf-8');
+  const res = runHook(null, { home, cwd: freshDir('to-ack-sib-'), iso });
+  assert.equal(res.status, 0);
+  assert.ok(res.stdout.includes('Acked 1 '), res.stdout);
+  const acked = readMarker(userMarker);
+  assert.equal(acked.sawTerminal, false);
+  assert.equal(acked.terminalCount, 0);
+  assert.ok(typeof acked.handledAt === 'number');
+  assert.equal(readFileSync(projMarker, 'utf-8'), projBefore);
+  assert.equal(readFileSync(legacyMarker, 'utf-8'), legacyBefore);
 });

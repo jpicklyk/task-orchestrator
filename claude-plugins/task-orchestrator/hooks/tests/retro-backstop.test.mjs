@@ -3,7 +3,7 @@
 // path) with a dedicated temp config directory, so the shared marker file at
 // os.tmpdir()/task-orchestrator/retro-<key>.json is never the live marker for a real project.
 
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -21,8 +21,20 @@ function writeConfig(dir, content) {
   writeFileSync(join(cfgDir, 'config.yaml'), content, 'utf-8');
 }
 
-function spawnHook(agentConfigDir, payload, envOverrides = {}) {
-  const env = { ...process.env, AGENT_CONFIG_DIR: agentConfigDir, ...envOverrides };
+const pinnedHomes = [];
+// Hermetic home: each spawn gets its OWN empty TASK_ORCHESTRATOR_HOME (never the fixture dir).
+function freshHome() {
+  const h = mkdtempSync(join(tmpdir(), 'to-retro-home-'));
+  pinnedHomes.push(h);
+  return h;
+}
+after(() => { for (const h of pinnedHomes) rmSync(h, { recursive: true, force: true }); });
+
+// agentConfigDir === null -> AGENT_CONFIG_DIR removed from the child env (user-scope tests).
+function spawnHook(agentConfigDir, payload, envOverrides = {}, cwd) {
+  const env = { ...process.env, TASK_ORCHESTRATOR_HOME: freshHome(), ...envOverrides };
+  if (agentConfigDir === null) delete env.AGENT_CONFIG_DIR;
+  else env.AGENT_CONFIG_DIR = agentConfigDir;
   if (envOverrides.TASK_ORCHESTRATOR_MODE === undefined) {
     delete env.TASK_ORCHESTRATOR_MODE;
   }
@@ -30,6 +42,7 @@ function spawnHook(agentConfigDir, payload, envOverrides = {}) {
     input: JSON.stringify(payload),
     env,
     encoding: 'utf-8',
+    cwd: cwd ?? agentConfigDir ?? freshHome(),
   });
 }
 
@@ -124,7 +137,7 @@ test('within cooldown -> {} (already handled recently)', () => {
 });
 
 test('fail-open: malformed stdin yields {} and exit 0', () => {
-  const res = spawnSync(process.execPath, [HOOK], { input: '{not valid json', encoding: 'utf-8' });
+  const res = spawnSync(process.execPath, [HOOK], { input: '{not valid json', encoding: 'utf-8', env: { ...process.env, TASK_ORCHESTRATOR_HOME: freshHome() }, cwd: freshHome() });
   assert.equal(res.status, 0);
   assert.equal(res.stdout.trim(), '{}');
 });
@@ -149,5 +162,31 @@ test('S10: headless iteration with sawTerminal:true marker -> {} and marker left
   } finally {
     rmSync(marker, { force: true });
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ── caf6b119: user scope keys the marker by session id ───────────────────────────────────────
+
+test('S5 user scope: sawTerminal marker at markerPath(sessionId) blocks; one only at markerPath(P) gives {}', () => {
+  const NL = String.fromCharCode(10);
+  const P = `pppppppp-${randomUUID()}`;
+  const home = freshHome();
+  writeConfig(home, ['project:', `  rootId: "${P}"`, '', 'retrospective:', '  mode: nudge', ''].join(NL));
+  const sid = `test-backstop-user-${randomUUID()}`;
+  const sid2 = `test-backstop-user2-${randomUUID()}`;
+  try {
+    writeMarker(markerPath(sid), { sawTerminal: true, pendingRoots: ['root-1'], scope: 'user' });
+    const blocked = spawnHook(null, { session_id: sid }, { TASK_ORCHESTRATOR_HOME: home }, freshHome());
+    assert.equal(blocked.status, 0);
+    assert.equal(JSON.parse(blocked.stdout).decision, 'block');
+
+    writeMarker(markerPath(P), { sawTerminal: true, pendingRoots: ['root-1'] });
+    const silent = spawnHook(null, { session_id: sid2 }, { TASK_ORCHESTRATOR_HOME: home }, freshHome());
+    assert.equal(silent.status, 0);
+    assert.equal(silent.stdout.trim(), '{}');
+  } finally {
+    rmSync(markerPath(sid), { force: true });
+    rmSync(markerPath(sid2), { force: true });
+    rmSync(markerPath(P), { force: true });
   }
 });

@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import {
   parseRetrospectiveConfig,
   parseRetrospectiveMode,
-  parseProjectRootId,
+  retroMarkerKey,
+  dispatchAncestorId,
   buildNudge,
   buildDispatch,
   COOLDOWN_MS,
@@ -89,20 +90,22 @@ test('parseRetrospectiveMode: thin wrapper matches parseRetrospectiveConfig().mo
   assert.equal(parseRetrospectiveMode(null), 'nudge');
 });
 
-test('parseProjectRootId: resolves rootId and tolerates a column-0 comment', () => {
-  const content = [
-    'project:',
-    '# a stray comment',
-    '  rootId: "abc-123"',
-    'retrospective:',
-    '  mode: nudge',
-  ].join('\n');
-  assert.equal(parseProjectRootId(content), 'abc-123');
+test('retroMarkerKey: user scope keys on the session id (rootId ignored)', () => {
+  assert.equal(retroMarkerKey({ scope: 'user', rootId: 'P' }, 'sess-1'), 'sess-1');
+  assert.equal(retroMarkerKey({ scope: 'user', rootId: 'P' }, undefined), 'unknown');
 });
 
-test('parseProjectRootId: null when project: block is absent', () => {
-  assert.equal(parseProjectRootId('retrospective:\n  mode: nudge\n'), null);
-  assert.equal(parseProjectRootId(null), null);
+test('retroMarkerKey: project scope keys on rootId, else session id; none scope uses session id', () => {
+  assert.equal(retroMarkerKey({ scope: 'project', rootId: 'R' }, 'sess-1'), 'R');
+  assert.equal(retroMarkerKey({ scope: 'project', rootId: null }, 'sess-1'), 'sess-1');
+  assert.equal(retroMarkerKey({ scope: 'none', rootId: null }, 'sess-1'), 'sess-1');
+  assert.equal(retroMarkerKey({ scope: 'none', rootId: null }, undefined), 'unknown');
+});
+
+test('dispatchAncestorId: project -> rootId; user and none -> null', () => {
+  assert.equal(dispatchAncestorId({ scope: 'project', rootId: 'R' }), 'R');
+  assert.equal(dispatchAncestorId({ scope: 'user', rootId: 'P' }), null);
+  assert.equal(dispatchAncestorId({ scope: 'none', rootId: null }), null);
 });
 
 test('buildNudge: empty roots renders a clean command with no argument and no root(s) fragment', () => {

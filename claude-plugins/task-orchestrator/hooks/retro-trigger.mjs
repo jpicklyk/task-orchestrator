@@ -16,9 +16,9 @@
 
 import { readFileSync } from 'fs';
 import {
-  findConfigContent,
   parseRetrospectiveConfig,
-  parseProjectRootId,
+  retroMarkerKey,
+  dispatchAncestorId,
   markerPath,
   readMarker,
   writeMarker,
@@ -27,6 +27,7 @@ import {
   buildNudge,
   buildDispatch,
 } from './retro-lib.mjs';
+import { locateConfig } from './config-locator.mjs';
 import { isHeadlessIteration, isSubagentInvocation } from './execution-mode.mjs';
 
 const MAX_ROOT_UUIDS = 50;
@@ -77,14 +78,14 @@ try {
   const toolInput = hookInput.tool_input || {};
   const toolResponse = hookInput.tool_response;
 
-  const configContent = findConfigContent();
-  const config = parseRetrospectiveConfig(configContent);
+  const located = locateConfig();
+  const config = parseRetrospectiveConfig(located.text);
   if (config.mode === 'off') emitEmpty();
 
   const cooldownMs = config.cooldownMinutes * 60 * 1000;
 
-  const rootId = parseProjectRootId(configContent);
-  const key = rootId || sessionId || 'unknown';
+  const rootId = located.rootId;
+  const key = retroMarkerKey(located, sessionId);
   const path = markerPath(key);
   const marker = readMarker(path);
   const now = Date.now();
@@ -116,6 +117,7 @@ try {
           terminalCount: (marker.terminalCount || 0) + completed,
           sessionId,
           rootId,
+          scope: located.scope,
         });
         emitEmpty();
       }
@@ -178,6 +180,7 @@ try {
       terminalCount: (marker.terminalCount || 0) + thisCallTerminalCount,
       sessionId,
       rootId,
+      scope: located.scope,
     });
     emitEmpty();
   }
@@ -206,10 +209,11 @@ try {
       terminalCount: 0,
       sessionId,
       rootId,
+      scope: located.scope,
     });
 
     const text = (config.mode === 'dispatch' && substance >= config.dispatchThreshold)
-      ? buildDispatch(roots, rootId)
+      ? buildDispatch(roots, dispatchAncestorId(located))
       : buildNudge(roots);
     emitContext(text);
   }
@@ -224,6 +228,7 @@ try {
     terminalCount: (marker.terminalCount || 0) + roots.length,
     sessionId,
     rootId,
+    scope: located.scope,
   });
   emitEmpty();
 } catch {

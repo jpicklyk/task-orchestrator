@@ -3,7 +3,7 @@
 // config directory, so the shared marker file at os.tmpdir()/task-orchestrator/retro-<key>.json
 // is never the live marker for a real project. Each test cleans up its own marker file.
 
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -22,11 +22,24 @@ function writeConfig(dir, content) {
   writeFileSync(join(cfgDir, 'config.yaml'), content, 'utf-8');
 }
 
+const pinnedHomes = [];
+// Hermetic home: every spawned hook gets its OWN empty TASK_ORCHESTRATOR_HOME (never the fixture
+// dir, never the AGENT_CONFIG_DIR dir) so the real user-level config can never be found.
+function freshHome() {
+  const h = mkdtempSync(join(tmpdir(), 'to-retro-home-'));
+  pinnedHomes.push(h);
+  return h;
+}
+after(() => { for (const h of pinnedHomes) rmSync(h, { recursive: true, force: true }); });
+
+// agentConfigDir === null -> AGENT_CONFIG_DIR is removed from the child env (user-scope tests).
 function spawnHook(agentConfigDir, payload, extra = {}) {
   // Delete TASK_ORCHESTRATOR_MODE by default so a stray value in the developer's own shell can
   // never flip a test that expects interactive behavior; extra.env can still set it explicitly
   // for the headless-mode tests below.
-  const env = { ...process.env, AGENT_CONFIG_DIR: agentConfigDir, ...extra.env };
+  const env = { ...process.env, TASK_ORCHESTRATOR_HOME: freshHome(), ...extra.env };
+  if (agentConfigDir === null) delete env.AGENT_CONFIG_DIR;
+  else env.AGENT_CONFIG_DIR = agentConfigDir;
   if (!extra.env || extra.env.TASK_ORCHESTRATOR_MODE === undefined) {
     delete env.TASK_ORCHESTRATOR_MODE;
   }
@@ -34,7 +47,7 @@ function spawnHook(agentConfigDir, payload, extra = {}) {
     input: JSON.stringify(payload),
     env,
     encoding: 'utf-8',
-    cwd: extra.cwd,
+    cwd: extra.cwd ?? agentConfigDir ?? freshHome(),
   });
 }
 
@@ -273,7 +286,7 @@ test('the roots.some bypass still fires for a distinct root inside the cooldown 
 });
 
 test('fail-open: malformed stdin yields {} and exit 0', () => {
-  const res = spawnSync(process.execPath, [HOOK], { input: '{not valid json', encoding: 'utf-8' });
+  const res = spawnSync(process.execPath, [HOOK], { input: '{not valid json', encoding: 'utf-8', env: { ...process.env, TASK_ORCHESTRATOR_HOME: freshHome() }, cwd: freshHome() });
   assert.equal(res.status, 0);
   assert.equal(res.stdout.trim(), '{}');
 });
@@ -308,7 +321,7 @@ test('fail-open: no discoverable config still exits 0 and defaults to nudge (nev
       tool_name: 'mcp__mcp-task-orchestrator__complete_tree',
       tool_input: { rootId: 'root-y' },
       tool_response: { summary: { completed: 1 } },
-    }, { cwd: tmpdir() }); // cwd override: don't let the cwd-walk fallback find this repo's real config.yaml
+    }); // hermetic: pinned empty home, cwd = the empty fixture dir
     assert.equal(res.status, 0);
     const out = JSON.parse(res.stdout);
     assert.ok(out.hookSpecificOutput.additionalContext.includes('Retrospective suggested'));
@@ -452,12 +465,13 @@ test('S10: a root recorded by a subagent-attributed trigger call is later surfac
     assert.equal(triggerRes.status, 0);
     assert.equal(triggerRes.stdout.trim(), '{}', 'subagent-attributed call must not emit a directive');
 
-    const backstopEnv = { ...process.env, AGENT_CONFIG_DIR: dir };
+    const backstopEnv = { ...process.env, AGENT_CONFIG_DIR: dir, TASK_ORCHESTRATOR_HOME: freshHome() };
     delete backstopEnv.TASK_ORCHESTRATOR_MODE;
     const backstopRes = spawnSync(process.execPath, [BACKSTOP_HOOK], {
       input: JSON.stringify({ session_id: sessionId }),
       env: backstopEnv,
       encoding: 'utf-8',
+      cwd: dir,
     });
     assert.equal(backstopRes.status, 0);
     const out = JSON.parse(backstopRes.stdout);
@@ -467,5 +481,100 @@ test('S10: a root recorded by a subagent-attributed trigger call is later surfac
   } finally {
     rmSync(marker, { force: true });
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ── caf6b119: scope-aware marker key and dispatch ancestor ───────────────────────────────────
+
+const NL = String.fromCharCode(10);
+const P = 'pppppppp-0000-0000-0000-000000000001';
+const R = 'rrrrrrrr-0000-0000-0000-000000000002';
+const DISPATCH_CFG = ['retrospective:', '  mode: dispatch', '  dispatchThreshold: 1', ''].join(NL);
+const projectBlock = (id) => ['project:', `  rootId: "${id}"`, '', ''].join(NL);
+
+function completeTree(sessionId, rootId = 'root-x') {
+  return {
+    session_id: sessionId,
+    tool_name: 'mcp__mcp-task-orchestrator__complete_tree',
+    tool_input: { rootId },
+    tool_response: { summary: { completed: 1 } },
+  };
+}
+
+// User scope: config lives in a pinned home, AGENT_CONFIG_DIR removed, cwd a sibling temp dir.
+function spawnUserScope(home, payload) {
+  return spawnHook(null, payload, { env: { TASK_ORCHESTRATOR_HOME: home }, cwd: freshHome() });
+}
+
+function userHome(cfg) {
+  const home = freshHome();
+  writeConfig(home, cfg);
+  return home;
+}
+
+test('S1 user scope: dispatch names no ancestor, marker keyed by session id with scope user', () => {
+  const home = userHome(projectBlock(P) + DISPATCH_CFG);
+  const sid = `test-trigger-user-${randomUUID()}`;
+  try {
+    const res = spawnUserScope(home, completeTree(sid));
+    assert.equal(res.status, 0);
+    const text = JSON.parse(res.stdout).hookSpecificOutput.additionalContext;
+    assert.ok(text.includes('Retrospective dispatch'), text);
+    assert.ok(text.includes('ancestorId none configured'), text);
+    assert.ok(!text.includes(P), text);
+    assert.equal(readMarker(markerPath(sid)).scope, 'user');
+    assert.deepEqual(readMarker(markerPath(P)), {});
+  } finally {
+    rmSync(markerPath(sid), { force: true });
+    rmSync(markerPath(P), { force: true });
+  }
+});
+
+test('S2 user scope: two sessions completing the same root inside the cooldown both emit', () => {
+  const home = userHome(projectBlock(P) + DISPATCH_CFG);
+  const a = `test-trigger-userA-${randomUUID()}`;
+  const b = `test-trigger-userB-${randomUUID()}`;
+  try {
+    for (const sid of [a, b]) {
+      const res = spawnUserScope(home, completeTree(sid, 'same-root'));
+      assert.equal(res.status, 0);
+      assert.ok(JSON.parse(res.stdout).hookSpecificOutput.additionalContext.includes('Retrospective dispatch'));
+    }
+  } finally {
+    rmSync(markerPath(a), { force: true });
+    rmSync(markerPath(b), { force: true });
+  }
+});
+
+test('S3/S4 project scope: keyed on rootId, 2nd session inside cooldown suppressed, dispatch names the root', () => {
+  const dir = tmpConfigDir();
+  writeConfig(dir, projectBlock(R) + DISPATCH_CFG);
+  const a = `test-trigger-projA-${randomUUID()}`;
+  const b = `test-trigger-projB-${randomUUID()}`;
+  try {
+    const first = spawnHook(dir, completeTree(a, 'same-root'));
+    const text = JSON.parse(first.stdout).hookSpecificOutput.additionalContext;
+    assert.ok(text.includes(`ancestorId ${R}`), text);
+    const marker = readMarker(markerPath(R));
+    assert.equal(marker.scope, 'project');
+    assert.equal(marker.rootId, R);
+    const second = spawnHook(dir, completeTree(b, 'same-root'));
+    assert.equal(second.stdout.trim(), '{}');
+  } finally {
+    rmSync(markerPath(R), { force: true });
+    rmSync(markerPath(a), { force: true });
+    rmSync(markerPath(b), { force: true });
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('S8 no config anywhere (pinned empty home, empty cwd) nudges and exits 0', () => {
+  const sid = `test-trigger-noconfig2-${randomUUID()}`;
+  try {
+    const res = spawnHook(null, completeTree(sid), { cwd: freshHome() });
+    assert.equal(res.status, 0);
+    assert.ok(JSON.parse(res.stdout).hookSpecificOutput.additionalContext.includes('Retrospective suggested'));
+  } finally {
+    rmSync(markerPath(sid), { force: true });
   }
 });
