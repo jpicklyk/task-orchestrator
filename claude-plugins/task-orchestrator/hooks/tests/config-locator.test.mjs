@@ -8,7 +8,8 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, realpathSync, rmSync } from 'node:fs';
 import os, { tmpdir, homedir } from 'node:os';
 import { join, resolve, relative, sep, dirname, parse } from 'node:path';
-import { userHome, userConfigPath, userClientPath, locateConfig } from '../config-locator.mjs';
+import { userHome, userConfigPath, userClientPath, locateConfig, projectClientPath } from '../config-locator.mjs';
+import { existsSync } from 'node:fs';
 
 const made = [];
 
@@ -921,4 +922,57 @@ test('b2d81d68 S32: ceiling at the common parent of the main checkout and the wo
   assert.equal(r.scope, 'project');
   assert.equal(norm(r.path), norm(mFile));
   assert.equal(r.rootId, 'main-root');
+});
+
+// ---- 4e15b651: projectClientPath ----
+// Oracle: task-scope R3 (client.json sits in the directory of the located config, only when
+// locateConfig().scope is 'project'; the locator's rules apply unchanged); test-plan S16-S20.
+
+test('4e15b651 S16: project config found by walk-up from a nested cwd -> <P>/.taskorchestrator/client.json, absolute, file absent', () => {
+  const home = tmp('home');
+  const P = tmp('proj');
+  writeCfg(P, projectCfg('p-root', 'P'));
+  const cwd = join(P, 'a', 'b');
+  mkdirSync(cwd, { recursive: true });
+  const p = projectClientPath({ cwd, env: { TASK_ORCHESTRATOR_HOME: home } });
+  assert.equal(norm(p), norm(join(P, '.taskorchestrator', 'client.json')));
+  assert.equal(resolve(p), p);
+  assert.equal(existsSync(p), false);
+});
+
+test('4e15b651 S17: user scope, no config, or AGENT_CONFIG_DIR at the user home -> null', () => {
+  const home = tmp('home');
+  writeCfg(home, projectCfg('user-root', 'User'));
+  const cwd = tmp('cwd');
+  assert.equal(projectClientPath({ cwd, env: { TASK_ORCHESTRATOR_HOME: home } }), null);
+  const emptyHome = tmp('emptyhome');
+  assert.equal(projectClientPath({ cwd, env: { TASK_ORCHESTRATOR_HOME: emptyHome } }), null);
+  assert.equal(projectClientPath({ cwd, env: { TASK_ORCHESTRATOR_HOME: home, AGENT_CONFIG_DIR: home } }), null);
+});
+
+test('4e15b651 S18: linked worktree without a config -> main checkout path; worktree with its own config -> the worktree path', () => {
+  const home = tmp('home');
+  const { M, W } = makeWorktree({ mainCfg: projectCfg('main-root', 'Main') });
+  const viaMain = projectClientPath({ cwd: W, env: { TASK_ORCHESTRATOR_HOME: home } });
+  assert.equal(norm(viaMain), norm(join(M, '.taskorchestrator', 'client.json')));
+  writeCfg(W, projectCfg('wt-root', 'Wt'));
+  const own = projectClientPath({ cwd: W, env: { TASK_ORCHESTRATOR_HOME: home } });
+  assert.equal(norm(own), norm(join(W, '.taskorchestrator', 'client.json')));
+});
+
+test('4e15b651 S19: an AGENT_CONFIG_DIR hit beats a walk-up config -> path next to it', () => {
+  const home = tmp('home');
+  const X = tmp('x');
+  const P = tmp('proj');
+  writeCfg(X, projectCfg('x-root', 'X'));
+  writeCfg(P, projectCfg('p-root', 'P'));
+  const p = projectClientPath({ cwd: P, env: { TASK_ORCHESTRATOR_HOME: home, AGENT_CONFIG_DIR: X } });
+  assert.equal(norm(p), norm(join(X, '.taskorchestrator', 'client.json')));
+});
+
+test('4e15b651 S20: cwd equal to TASK_ORCHESTRATOR_CEILING -> null; without the ceiling the same cwd yields its path', () => {
+  const { A, E } = ceilingFixture();
+  assert.equal(projectClientPath({ cwd: A, env: { TASK_ORCHESTRATOR_HOME: E, TASK_ORCHESTRATOR_CEILING: A } }), null);
+  const control = projectClientPath({ cwd: A, env: { TASK_ORCHESTRATOR_HOME: E } });
+  assert.equal(norm(control), norm(join(A, '.taskorchestrator', 'client.json')));
 });
