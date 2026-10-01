@@ -10,7 +10,7 @@ import { spawnSync, spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as configSyncModule from '../config-sync.mjs';
@@ -1706,5 +1706,145 @@ test('75f0e354 S14b: budget spent before the first rule PUT — nothing sent, re
   } finally {
     await stopServerNow(server);
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ---- 4e15b651 amendment A2: rootId validation and origin-only project URL, end to end ----
+// Oracle: task-scope A2.1-A2.5 (a rootId failing ^[A-Za-z0-9][A-Za-z0-9-]{0,63}$ is "no rootId":
+// config-sync returns before any request and prints nothing; a project-level client.json URL with a
+// path, query or fragment is ignored); test-plan S44-S46. Hermetic: no AGENT_CONFIG_DIR, cwd in a scratch
+// tree, ceiling at that tree's parent, TASK_ORCHESTRATOR_HOME at its own empty dir, a dummy token,
+// the fake server on loopback only.
+
+const A2_TOKEN = 'dummy-token-a2';
+const A2_BAD_ROOT_IDS = [
+  '../../../_cluster/settings?x=',
+  'a/b',
+  'x%2fy',
+  '..',
+  '.',
+  'a b',
+  'a.b',
+  'a' + String.fromCharCode(92) + 'b',
+  'a?b',
+  'a:b',
+  'a@b',
+];
+
+function a2Tree(configText) {
+  const T = realpathSync(mkdtempSync(join(tmpdir(), 'to-a2-')));
+  const P = join(T, 'proj');
+  writeConfig(P, configText);
+  return { T, P };
+}
+
+function spawnA2(P, T, { apiUrl } = {}) {
+  const home = mkdtempSync(join(tmpdir(), 'to-a2-home-'));
+  const env = { ...process.env };
+  delete env.AGENT_CONFIG_DIR;
+  delete env.TASK_ORCHESTRATOR_API_URL;
+  env.TASK_ORCHESTRATOR_HOME = home;
+  env.TASK_ORCHESTRATOR_CEILING = T;
+  env.TASK_ORCHESTRATOR_API_TOKEN = A2_TOKEN;
+  if (apiUrl !== undefined) env.TASK_ORCHESTRATOR_API_URL = apiUrl;
+  return new Promise((resolvePromise, rejectPromise) => {
+    const child = spawn(process.execPath, [HOOK], { env, cwd: P });
+    let stdout = '';
+    child.stdout.on('data', (d) => { stdout += d; });
+    child.on('error', (err) => { rmSync(home, { recursive: true, force: true }); rejectPromise(err); });
+    child.on('close', (status) => {
+      rmSync(home, { recursive: true, force: true });
+      resolvePromise({ status, stdout });
+    });
+    child.stdin.end(JSON.stringify({ hook_event_name: 'SessionStart' }));
+  });
+}
+
+function a2Server(requests, auths) {
+  const inner = makeScriptedHandler({ requests, rules: bundledAtCurrentHash() });
+  return startFakeServer((req, res) => {
+    auths.push(req.headers.authorization);
+    inner(req, res);
+  });
+}
+
+test('4e15b651 S44: config-sync parseRootId returns null for a value failing the rootId rule (bare and quoted); a plain token is unchanged', () => {
+  for (const v of A2_BAD_ROOT_IDS) {
+    assert.equal(parseRootId(`project:\n  rootId: ${v}\n`), null, v);
+  }
+  assert.equal(parseRootId('project:\n  rootId: "a/b"\n'), null);
+  assert.equal(parseRootId('project:\n  rootId: abc-123\n'), 'abc-123');
+});
+
+test('4e15b651 S45: a hostile rootId makes config-sync silent with zero requests; a plain token syncs under /api/v1/roots/<id>/', async () => {
+  for (const v of ['../../../_cluster/settings?x=', 'a/b', '..']) {
+    const { T, P } = a2Tree(`project:\n  rootId: ${v}\n  name: A2\n`);
+    const requests = [];
+    const auths = [];
+    const server = await a2Server(requests, auths);
+    try {
+      const { port } = server.address();
+      const res = await spawnA2(P, T, { apiUrl: `http://127.0.0.1:${port}` });
+      assert.equal(res.status, 0, v);
+      assert.equal(res.stdout, '', v);
+      assert.equal(requests.length, 0, `${v} sent ${JSON.stringify(requests.map((r) => r.url))}`);
+    } finally {
+      await stopServerNow(server);
+      rmSync(T, { recursive: true, force: true });
+    }
+  }
+  const { T, P } = a2Tree('project:\n  rootId: root-a2\n  name: A2\n');
+  const requests = [];
+  const auths = [];
+  const server = await a2Server(requests, auths);
+  try {
+    const { port } = server.address();
+    const res = await spawnA2(P, T, { apiUrl: `http://127.0.0.1:${port}` });
+    assert.equal(res.status, 0);
+    assert.ok(requests.length >= 1);
+    assert.equal(requests[0].method, 'GET');
+    assert.match(requests[0].url, /^\/api\/v1\/roots\/root-a2\/config\?fingerprint=[0-9a-f]{64}$/);
+    for (const r of requests) assert.ok(r.url.startsWith('/api/v1/roots/root-a2/'), r.url);
+  } finally {
+    await stopServerNow(server);
+    rmSync(T, { recursive: true, force: true });
+  }
+});
+
+test('4e15b651 S46: a project client.json URL with a path, query or fragment is ignored (zero requests); the bare origin syncs with the bearer token', async () => {
+  const UUID = '3f9a1c2e-5b7d-4e8f-9a0b-1c2d3e4f5a6b';
+  const suffixes = ['/_cluster/settings#', '/v2/keys/k?value=owned&x=', '/prefix', '#', '?x='];
+  for (const suffix of suffixes) {
+    const { T, P } = a2Tree(`project:\n  rootId: ${UUID}\n  name: A2\n`);
+    const requests = [];
+    const auths = [];
+    const server = await a2Server(requests, auths);
+    try {
+      const { port } = server.address();
+      writeFileSync(join(P, '.taskorchestrator', 'client.json'), JSON.stringify({ apiUrl: `http://127.0.0.1:${port}${suffix}` }));
+      const res = await spawnA2(P, T);
+      assert.equal(res.status, 0, suffix);
+      assert.equal(res.stdout, '', suffix);
+      assert.equal(requests.length, 0, `${suffix} sent ${JSON.stringify(requests.map((r) => r.url))}`);
+    } finally {
+      await stopServerNow(server);
+      rmSync(T, { recursive: true, force: true });
+    }
+  }
+  const { T, P } = a2Tree(`project:\n  rootId: ${UUID}\n  name: A2\n`);
+  const requests = [];
+  const auths = [];
+  const server = await a2Server(requests, auths);
+  try {
+    const { port } = server.address();
+    writeFileSync(join(P, '.taskorchestrator', 'client.json'), JSON.stringify({ apiUrl: `http://127.0.0.1:${port}` }));
+    const res = await spawnA2(P, T);
+    assert.equal(res.status, 0);
+    assert.ok(requests.length >= 1);
+    for (const r of requests) assert.ok(r.url.startsWith(`/api/v1/roots/${UUID}/`), r.url);
+    for (const a of auths) assert.equal(a, `Bearer ${A2_TOKEN}`);
+  } finally {
+    await stopServerNow(server);
+    rmSync(T, { recursive: true, force: true });
   }
 });

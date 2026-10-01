@@ -551,10 +551,8 @@ const HONOURED_ROWS = [
   ['H12', 'http://0177.0.0.1/'],
   ['H13', 'http://127.0.0.1./'],
   ['H14', 'http://ｌｏｃａｌｈｏｓｔ/'],
-  ['H15', 'http://localhost:3001/prefix'],
   ['H16', 'http://@localhost/'],
-  ['H17', 'http://localhost' + BACKSLASH + '@evil.example/'],
-  ['H18', 'http://localhost#@evil.example'],
+  ['H19', 'http://localhost:3001/.'],
 ];
 
 const IGNORED_ROWS = [
@@ -589,6 +587,20 @@ const IGNORED_ROWS = [
   ['I28', 'http://127.0.0.1\n.evil.example/'],
   ['I29', BACKSLASH + BACKSLASH + 'localhost' + BACKSLASH + 'share'],
   ['I30', 'http://evil.example:3001'],
+  ['I31', 'http://localhost:3001/prefix'],
+  ['I32', 'http://localhost' + BACKSLASH + '@evil.example/'],
+  ['I33', 'http://localhost#@evil.example'],
+  ['I34', 'http://localhost?'],
+  ['I35', 'http://localhost#'],
+  ['I36', 'http://127.0.0.1:3001/_cluster/settings#'],
+  ['I37', 'http://127.0.0.1:3001/v2/keys/k?value=owned&x='],
+  ['I38', 'http://localhost/#'],
+  ['I39', 'http://localhost/?'],
+  ['I40', 'http://localhost:8080/https://evil.example'],
+  ['I41', 'http://localhost' + BACKSLASH],
+  ['I42', 'http://localhost//evil.example'],
+  ['I43', 'http://:pw@localhost'],
+  ['I44', 'httpx://localhost'],
 ];
 
 const USER_URL = 'http://user.example:4102';
@@ -741,14 +753,23 @@ test('4e15b651 S10: project file rewritten between calls is re-read every time (
   }
 });
 
-test('4e15b651 S11: token keys in a project client.json are never used; the result is the URL only', () => {
+test('4e15b651 S11: token keys in the project and the user client.json are never used - authHeader() is {} after apiBaseUrl resolves either file, and is the env token only when that env var is set', () => {
   const fx = fixtureF();
   try {
-    writeProjectClient(fx, JSON.stringify({ apiUrl: 'http://127.0.0.1:4113', token: 'file-token', apiToken: 'file-token' }));
-    withEnv({ TASK_ORCHESTRATOR_API_URL: undefined, TASK_ORCHESTRATOR_API_TOKEN: undefined, TASK_ORCHESTRATOR_HOME: fx.H, TASK_ORCHESTRATOR_CEILING: fx.T }, () => {
-      assert.deepEqual(authHeader(), {});
-      assert.equal(apiBaseUrl({ cwd: fx.cwd, env: process.env }), 'http://127.0.0.1:4113');
-    });
+    const both = (url) => JSON.stringify({ apiUrl: url, token: 'file-token', apiToken: 'file-token' });
+    writeProjectClient(fx, both('http://127.0.0.1:4113'));
+    writeUserClient(fx, both(USER_URL));
+    const run = (token) => withEnv(
+      { TASK_ORCHESTRATOR_API_URL: undefined, TASK_ORCHESTRATOR_API_TOKEN: token, TASK_ORCHESTRATOR_HOME: fx.H, TASK_ORCHESTRATOR_CEILING: fx.T },
+      () => {
+        const base = apiBaseUrl({ cwd: fx.cwd });
+        return { base, auth: authHeader() };
+      },
+    );
+    assert.deepEqual(run(undefined), { base: 'http://127.0.0.1:4113', auth: {} });
+    writeProjectClient(fx, both('http://evil.example:4114'));
+    assert.deepEqual(run(undefined), { base: USER_URL, auth: {} });
+    assert.deepEqual(run('env-token'), { base: USER_URL, auth: { Authorization: 'Bearer env-token' } });
   } finally {
     cleanupF(fx);
   }
@@ -779,13 +800,13 @@ test('4e15b651 S12: an explicit env object decides all three sources, not proces
   }
 });
 
-test('4e15b651 S13: isLoopbackApiUrl is true for every honoured row (H1-H18)', () => {
+test('4e15b651 S13: isLoopbackApiUrl is true for every honoured row (H1-H14, H16, H19)', () => {
   for (const [id, value] of HONOURED_ROWS) {
     assert.equal(isLoopbackApiUrl(value), true, `${id} ${JSON.stringify(value)}`);
   }
 });
 
-test('4e15b651 S14: isLoopbackApiUrl is false for every ignored row (I1-I30)', () => {
+test('4e15b651 S14: isLoopbackApiUrl is false for every ignored row (I1-I44)', () => {
   for (const [id, value] of IGNORED_ROWS) {
     assert.equal(isLoopbackApiUrl(value), false, `${id} ${JSON.stringify(value)}`);
   }
@@ -1126,5 +1147,110 @@ test('4e15b651 A1 probe: repeated calls with unchanged files agree', () => {
     for (let i = 0; i < 3; i += 1) assert.equal(resolveG(fx), first);
   } finally {
     cleanupF(fx);
+  }
+});
+
+// ---- 4e15b651 amendment A2: origin-only project URL (rows I31-I44, H19), S35-S40 ----
+// Oracle: task-scope "Amendment A2" A2.1 (search and hash of the parsed URL empty), A2.2 (pathname of
+// the parsed URL is '/', trailing '/' run removed first), G0, G2, G3 unchanged, guard-table rows
+// computed with Node 22.15 `new URL` before any A2 implementation; test-plan S35-S40. The env URL
+// (R2) and the user-level file (R6) stay unguarded.
+
+const ignoredRow = (id) => IGNORED_ROWS.find(([rowId]) => rowId === id)[1];
+
+test('4e15b651 S35: a project apiUrl with a path, query, fragment, userinfo password or odd scheme is ignored -> null with no user file, the user value with one', () => {
+  for (const id of ['I31', 'I33', 'I34', 'I36', 'I37', 'I41']) {
+    const fx = fixtureF();
+    try {
+      writeProjectClient(fx, JSON.stringify({ apiUrl: ignoredRow(id) }));
+      assert.equal(resolveF(fx, undefined), null, `${id} without user file`);
+      writeUserClient(fx, JSON.stringify({ apiUrl: USER_URL }));
+      assert.equal(resolveF(fx, undefined), USER_URL, `${id} with user file`);
+    } finally {
+      cleanupF(fx);
+    }
+  }
+});
+
+test('4e15b651 S36: the same rows in the main checkout client.json are ignored -> user value; a bare loopback origin there is returned', () => {
+  for (const id of ['I31', 'I34', 'I36', 'I37']) {
+    const fx = fixtureG();
+    try {
+      writeClientAt(fx.H, urlJson(USER_URL));
+      writeClientAt(fx.M, urlJson(ignoredRow(id)));
+      assert.equal(resolveG(fx), USER_URL, id);
+    } finally {
+      cleanupF(fx);
+    }
+  }
+  const fx = fixtureG();
+  try {
+    writeClientAt(fx.H, urlJson(USER_URL));
+    writeClientAt(fx.M, urlJson('http://127.0.0.1:4330'));
+    assert.equal(resolveG(fx), 'http://127.0.0.1:4330', 'control');
+  } finally {
+    cleanupF(fx);
+  }
+});
+
+test('4e15b651 S37: H19 (path /.) is honoured and returned as written; requests built from it keep the /api/v1 path', () => {
+  const fx = fixtureF();
+  try {
+    writeProjectClient(fx, JSON.stringify({ apiUrl: 'http://localhost:3001/.' }));
+    const result = resolveF(fx, undefined);
+    assert.equal(result, 'http://localhost:3001/.');
+    assert.equal(new URL(result + '/api/v1/roots/R/config').pathname, '/api/v1/roots/R/config');
+  } finally {
+    cleanupF(fx);
+  }
+});
+
+test('4e15b651 S38: the env URL and the user-level file keep a path prefix, query and fragment (unguarded)', () => {
+  const fx = fixtureF();
+  try {
+    assert.equal(resolveF(fx, 'http://env.example:4340/base/'), 'http://env.example:4340/base');
+    assert.equal(resolveF(fx, 'http://localhost:4341/base?x=1#f'), 'http://localhost:4341/base?x=1#f');
+    for (const value of ['http://user.example:4342/base/path', 'http://user.example:4343/x?y=1#z', 'http://localhost:4344/prefix']) {
+      writeUserClient(fx, urlJson(value));
+      assert.equal(resolveF(fx, undefined), value, value);
+    }
+  } finally {
+    cleanupF(fx);
+  }
+});
+
+test('4e15b651 S39: the env URL is not trimmed - leading and trailing spaces are kept, only trailing slashes are stripped', () => {
+  const fx = fixtureF();
+  try {
+    const base = { TASK_ORCHESTRATOR_HOME: fx.H, TASK_ORCHESTRATOR_CEILING: fx.T };
+    assert.equal(apiBaseUrl({ cwd: fx.cwd, env: { ...base, TASK_ORCHESTRATOR_API_URL: '  http://env.example:4350  ' } }), '  http://env.example:4350  ');
+    assert.equal(apiBaseUrl({ cwd: fx.cwd, env: { ...base, TASK_ORCHESTRATOR_API_URL: ' http://env.example:4351/' } }), ' http://env.example:4351');
+  } finally {
+    cleanupF(fx);
+  }
+});
+
+test('4e15b651 S40: isLoopbackApiUrl is false for a one-element array, a URL object and an object whose toString yields a loopback URL', () => {
+  assert.equal(isLoopbackApiUrl(['http://localhost']), false);
+  assert.equal(isLoopbackApiUrl(new URL('http://localhost')), false);
+  assert.equal(isLoopbackApiUrl({ toString() { return 'http://localhost'; } }), false);
+});
+
+// ---- 4e15b651 A2 probes ----
+
+test('4e15b651 A2 probe: every table row gives the same verdict with its trailing slash toggled', () => {
+  const toggle = (v) => (v.endsWith('/') ? v.slice(0, -1) : v + '/');
+  for (const [id, value] of HONOURED_ROWS) {
+    assert.equal(isLoopbackApiUrl(toggle(value)), true, `${id} ${JSON.stringify(toggle(value))}`);
+  }
+  for (const [id, value] of IGNORED_ROWS) {
+    assert.equal(isLoopbackApiUrl(toggle(value)), false, `${id} ${JSON.stringify(toggle(value))}`);
+  }
+});
+
+test('4e15b651 A2 probe: repeated guard calls agree for an accepted and a rejected value', () => {
+  for (let i = 0; i < 3; i += 1) {
+    assert.equal(isLoopbackApiUrl('http://localhost:3001/.'), true);
+    assert.equal(isLoopbackApiUrl('http://localhost?'), false);
   }
 });

@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, realpathSync, rmSync } from 'node:fs';
 import os, { tmpdir, homedir } from 'node:os';
 import { join, resolve, relative, sep, dirname, parse } from 'node:path';
-import { userHome, userConfigPath, userClientPath, locateConfig, projectClientPath, projectClientCandidates } from '../config-locator.mjs';
+import { userHome, userConfigPath, userClientPath, locateConfig, projectClientPath, projectClientCandidates, isValidRootId } from '../config-locator.mjs';
 import { existsSync } from 'node:fs';
 
 const made = [];
@@ -934,7 +934,7 @@ test('4e15b651 S16: project config found by walk-up from a nested cwd -> <P>/.ta
   writeCfg(P, projectCfg('p-root', 'P'));
   const cwd = join(P, 'a', 'b');
   mkdirSync(cwd, { recursive: true });
-  const p = projectClientPath({ cwd, env: { TASK_ORCHESTRATOR_HOME: home } });
+  const p = projectClientPath({ cwd, env: { TASK_ORCHESTRATOR_HOME: home, TASK_ORCHESTRATOR_CEILING: dirname(P) } });
   assert.equal(norm(p), norm(join(P, '.taskorchestrator', 'client.json')));
   assert.equal(resolve(p), p);
   assert.equal(existsSync(p), false);
@@ -944,19 +944,19 @@ test('4e15b651 S17: user scope, no config, or AGENT_CONFIG_DIR at the user home 
   const home = tmp('home');
   writeCfg(home, projectCfg('user-root', 'User'));
   const cwd = tmp('cwd');
-  assert.equal(projectClientPath({ cwd, env: { TASK_ORCHESTRATOR_HOME: home } }), null);
+  assert.equal(projectClientPath({ cwd, env: { TASK_ORCHESTRATOR_HOME: home, TASK_ORCHESTRATOR_CEILING: cwd } }), null);
   const emptyHome = tmp('emptyhome');
-  assert.equal(projectClientPath({ cwd, env: { TASK_ORCHESTRATOR_HOME: emptyHome } }), null);
-  assert.equal(projectClientPath({ cwd, env: { TASK_ORCHESTRATOR_HOME: home, AGENT_CONFIG_DIR: home } }), null);
+  assert.equal(projectClientPath({ cwd, env: { TASK_ORCHESTRATOR_HOME: emptyHome, TASK_ORCHESTRATOR_CEILING: cwd } }), null);
+  assert.equal(projectClientPath({ cwd, env: { TASK_ORCHESTRATOR_HOME: home, AGENT_CONFIG_DIR: home, TASK_ORCHESTRATOR_CEILING: cwd } }), null);
 });
 
 test('4e15b651 S18: linked worktree without a config -> main checkout path; worktree with its own config -> the worktree path', () => {
   const home = tmp('home');
   const { M, W } = makeWorktree({ mainCfg: projectCfg('main-root', 'Main') });
-  const viaMain = projectClientPath({ cwd: W, env: { TASK_ORCHESTRATOR_HOME: home } });
+  const viaMain = projectClientPath({ cwd: W, env: { TASK_ORCHESTRATOR_HOME: home, TASK_ORCHESTRATOR_CEILING: dirname(W) } });
   assert.equal(norm(viaMain), norm(join(M, '.taskorchestrator', 'client.json')));
   writeCfg(W, projectCfg('wt-root', 'Wt'));
-  const own = projectClientPath({ cwd: W, env: { TASK_ORCHESTRATOR_HOME: home } });
+  const own = projectClientPath({ cwd: W, env: { TASK_ORCHESTRATOR_HOME: home, TASK_ORCHESTRATOR_CEILING: dirname(W) } });
   assert.equal(norm(own), norm(join(W, '.taskorchestrator', 'client.json')));
 });
 
@@ -966,7 +966,7 @@ test('4e15b651 S19: an AGENT_CONFIG_DIR hit beats a walk-up config -> path next 
   const P = tmp('proj');
   writeCfg(X, projectCfg('x-root', 'X'));
   writeCfg(P, projectCfg('p-root', 'P'));
-  const p = projectClientPath({ cwd: P, env: { TASK_ORCHESTRATOR_HOME: home, AGENT_CONFIG_DIR: X } });
+  const p = projectClientPath({ cwd: P, env: { TASK_ORCHESTRATOR_HOME: home, AGENT_CONFIG_DIR: X, TASK_ORCHESTRATOR_CEILING: dirname(P) } });
   assert.equal(norm(p), norm(join(X, '.taskorchestrator', 'client.json')));
 });
 
@@ -1180,4 +1180,110 @@ test('4e15b651 A1 probe: repeated calls agree and the list is stable', () => {
   const b = listOf(fx.sub, env);
   assert.deepEqual(a, b);
   assert.equal(a.length, 2);
+});
+
+// ---- 4e15b651 amendment A2: rootId rule (A2.3, A2.4) ----
+// Oracle: task-scope A2.3 - a rootId is a string matching ^[A-Za-z0-9][A-Za-z0-9-]{0,63}$ (1 to 64
+// ASCII letters, digits or hyphens, the first not a hyphen); A2.4 - locateConfig returns rootId null for
+// a value that fails it, with scope, path, name and text unchanged, in project and in user scope;
+// test-plan S41-S43.
+
+test('4e15b651 S41: isValidRootId accepts UUIDs in either case and plain tokens up to 64 characters', () => {
+  const accepted = [
+    '3f9a1c2e-5b7d-4e8f-9a0b-1c2d3e4f5a6b',
+    '3F9A1C2E-5B7D-4E8F-9A0B-1C2D3E4F5A6B',
+    'P',
+    'root-t5',
+    '3f9a',
+    '1-2-3-4-5',
+    'a'.repeat(32) + 'Z9-'.repeat(10) + 'ab',
+  ];
+  assert.equal(accepted[6].length, 64);
+  for (const v of accepted) assert.equal(isValidRootId(v), true, JSON.stringify(v));
+});
+
+test('4e15b651 S42: isValidRootId rejects separators, escapes, dots, whitespace, control and non-ASCII characters, bad lengths and non-strings', () => {
+  const BS = String.fromCharCode(92);
+  const rejected = [
+    '', 'a'.repeat(65), '-abc', 'a/b', 'a' + BS + 'b', 'a?b', 'a#b', 'a%b', 'x%2fy', 'a b', 'a\tb',
+    '\nabc', 'abc\n', 'a\nb', 'a' + String.fromCharCode(1) + 'b', '.', '..', 'a.b', 'a_b', 'a:b', 'a@b',
+    String.fromCharCode(0xe9), ' abc', 'abc ', '../../../_cluster/settings?x=',
+  ];
+  for (const v of rejected) assert.equal(isValidRootId(v), false, JSON.stringify(v));
+  for (const v of [null, undefined, 42, {}, [], ['abc']]) {
+    assert.equal(isValidRootId(v), false, `${typeof v} ${JSON.stringify(v)}`);
+  }
+});
+
+test('4e15b651 S43: locateConfig returns rootId null for an invalid configured value (project and user scope), everything else as written; valid values are returned', () => {
+  const BS = String.fromCharCode(92);
+  const UUID = '3f9a1c2e-5b7d-4e8f-9a0b-1c2d3e4f5a6b';
+  const bad = ['../../../_cluster/settings?x=', 'a/b', 'x%2fy', '..', '.', 'a b', 'a.b', 'a' + BS + 'b', 'a?b', 'a:b', 'a@b', '"a/b"'];
+  for (const v of bad) {
+    const text = `project:\n  rootId: ${v}\n  name: Nm\n`;
+    const T = tmp('a2T');
+    const P = join(T, 'proj');
+    const file = writeCfg(P, text);
+    const E = tmp('E');
+    const rp = locateConfig({ cwd: P, env: { TASK_ORCHESTRATOR_HOME: E, TASK_ORCHESTRATOR_CEILING: T } });
+    assert.equal(rp.scope, 'project', v);
+    assert.equal(rp.rootId, null, v);
+    assert.equal(rp.name, 'Nm', v);
+    assert.equal(rp.text, text, v);
+    assert.equal(norm(rp.path), norm(file), v);
+
+    const home = tmp('uh');
+    const ufile = writeCfg(home, text);
+    const cwd = tmp('ucwd');
+    const ru = locateConfig({ cwd, env: { TASK_ORCHESTRATOR_HOME: home, TASK_ORCHESTRATOR_CEILING: cwd } });
+    assert.equal(ru.scope, 'user', v);
+    assert.equal(ru.rootId, null, v);
+    assert.equal(ru.name, 'Nm', v);
+    assert.equal(ru.text, text, v);
+    assert.equal(norm(ru.path), norm(ufile), v);
+  }
+  for (const [raw, expected] of [[UUID, UUID], [`"${UUID}"`, UUID], ['root-t5', 'root-t5']]) {
+    const T = tmp('a2T');
+    const P = join(T, 'proj');
+    writeCfg(P, `project:\n  rootId: ${raw}\n  name: Nm\n`);
+    const r = locateConfig({ cwd: P, env: { TASK_ORCHESTRATOR_HOME: tmp('E'), TASK_ORCHESTRATOR_CEILING: T } });
+    assert.equal(r.scope, 'project', raw);
+    assert.equal(r.rootId, expected, raw);
+  }
+});
+
+// ---- 4e15b651 A2 probes ----
+
+test('4e15b651 A2 probe: an empty, an absent and a rejected rootId all give rootId null with scope project', () => {
+  for (const body of ['project:\n  rootId: ""\n  name: Nm\n', 'project:\n  name: Nm\n', 'project:\n  rootId: a/b\n  name: Nm\n']) {
+    const T = tmp('a2T');
+    const P = join(T, 'proj');
+    writeCfg(P, body);
+    const r = locateConfig({ cwd: P, env: { TASK_ORCHESTRATOR_HOME: tmp('E'), TASK_ORCHESTRATOR_CEILING: T } });
+    assert.equal(r.scope, 'project', body);
+    assert.equal(r.rootId, null, body);
+  }
+});
+
+test('4e15b651 A2 probe: win32 case-differing tree path still yields a valid rootId',
+  { skip: process.platform !== 'win32' }, () => {
+    // Skip is a platform gate only: case-insensitive path equality is a win32 filesystem property.
+    const T = tmp('a2T');
+    const P = join(T, 'proj');
+    writeCfg(P, projectCfg('root-t5', 'Nm'));
+    const r = locateConfig({ cwd: P.toUpperCase(), env: { TASK_ORCHESTRATOR_HOME: tmp('E'), TASK_ORCHESTRATOR_CEILING: T } });
+    assert.equal(r.scope, 'project');
+    assert.equal(r.rootId, 'root-t5');
+  });
+
+test('4e15b651 A2 probe: repeated calls agree for isValidRootId and locateConfig', () => {
+  for (let i = 0; i < 3; i += 1) {
+    assert.equal(isValidRootId('root-t5'), true);
+    assert.equal(isValidRootId('a/b'), false);
+  }
+  const T = tmp('a2T');
+  const P = join(T, 'proj');
+  writeCfg(P, projectCfg('root-t5', 'Nm'));
+  const env = { TASK_ORCHESTRATOR_HOME: tmp('E'), TASK_ORCHESTRATOR_CEILING: T };
+  assert.deepEqual(locateConfig({ cwd: P, env }), locateConfig({ cwd: P, env }));
 });

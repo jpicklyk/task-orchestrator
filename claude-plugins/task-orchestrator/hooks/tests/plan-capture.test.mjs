@@ -123,3 +123,40 @@ test('importing the module performs no stdin read and exports no config parser',
   const mod = await import('../plan-capture.mjs');
   assert.equal(mod.parseRootId, undefined);
 });
+
+// ---- 4e15b651 amendment A2: S47 hostile rootId never reaches a request path ----
+// Oracle: task-scope A2.4/A2.5 (a rootId failing ^[A-Za-z0-9][A-Za-z0-9-]{0,63}$ is "no rootId": the hook
+// returns before any request and prints nothing); a UUID then yields exactly the one PUT. Hermetic:
+// cwd in a scratch tree, ceiling at its parent, home pinned to an empty dir, fake server on loopback.
+
+function runWithCeiling({ cwd, ceiling, home, url }) {
+  return new Promise((resolveP) => {
+    const env = { ...process.env, TASK_ORCHESTRATOR_HOME: home, TASK_ORCHESTRATOR_API_URL: url, TASK_ORCHESTRATOR_CEILING: ceiling };
+    for (const k of ['AGENT_CONFIG_DIR', 'TASK_ORCHESTRATOR_MODE', 'TASK_ORCHESTRATOR_API_TOKEN']) delete env[k];
+    const child = spawn(process.execPath, [HOOK], { env, cwd });
+    let stdout = '';
+    child.stdout.on('data', (d) => { stdout += d; });
+    child.on('close', (status) => resolveP({ status, stdout }));
+    child.stdin.end(JSON.stringify(PLAN));
+  });
+}
+
+test('4e15b651 S47: plan-capture sends nothing for a hostile rootId, then exactly one PUT for a UUID', async () => {
+  const T = mkTemp('a2tree');
+  const cwd = join(T, 'proj');
+  const home = mkTemp('a2home');
+  const UUID = '3f9a1c2e-5b7d-4e8f-9a0b-1c2d3e4f5a6b';
+  writeConfig(cwd, ['project:', '  rootId: ../../../_cluster/settings?x=', '  name: "X"', ''].join(NL));
+  await withStub(async (url, requests) => {
+    const hostile = await runWithCeiling({ cwd, ceiling: T, home, url });
+    assert.equal(hostile.status, 0);
+    assert.equal(hostile.stdout, '');
+    assert.equal(requests.length, 0, JSON.stringify(requests));
+    writeConfig(cwd, ['project:', `  rootId: ${UUID}`, '  name: "X"', ''].join(NL));
+    const ok = await runWithCeiling({ cwd, ceiling: T, home, url });
+    assert.equal(ok.status, 0);
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].method, 'PUT');
+    assert.equal(requests[0].url, `/api/v1/roots/${UUID}/plans/my-great-plan`);
+  });
+});
