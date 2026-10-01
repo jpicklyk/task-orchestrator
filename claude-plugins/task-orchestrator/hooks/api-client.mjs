@@ -5,8 +5,8 @@
 // Requires (all optional — absent = the caller no-ops):
 //   TASK_ORCHESTRATOR_API_URL    base URL of the REST API, e.g. http://localhost:3001. Falls back to
 //                                `apiUrl` in client.json beside the located project config, then (linked
-//                                worktree) in the main checkout's .taskorchestrator/client.json (loopback
-//                                hosts only, first usable wins), then in <home>/.taskorchestrator/client.json (home =
+//                                worktree) in the main checkout's .taskorchestrator/client.json (bare loopback
+//                                origins only — no path, query or fragment; first usable wins), then in <home>/.taskorchestrator/client.json (home =
 //                                TASK_ORCHESTRATOR_HOME else os.homedir()) when unset/empty.
 //   TASK_ORCHESTRATOR_API_TOKEN  bearer token. Capability requirements are per-endpoint (e.g.
 //                                config-sync needs WRITE_CONFIG, the phase guard needs READ) —
