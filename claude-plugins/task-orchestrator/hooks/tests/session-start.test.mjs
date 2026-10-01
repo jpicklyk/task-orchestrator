@@ -1,8 +1,9 @@
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, realpathSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join, isAbsolute } from 'node:path';
 
@@ -14,11 +15,26 @@ function writeConfig(dir, content) {
   writeFileSync(join(cfgDir, 'config.yaml'), content, 'utf-8');
 }
 
+const trackedDirs = [];
+function trackedTmp(prefix) {
+  const d = mkdtempSync(join(tmpdir(), prefix));
+  trackedDirs.push(d);
+  return d;
+}
+after(() => {
+  for (const d of trackedDirs) rmSync(d, { recursive: true, force: true });
+});
+
 function runHook(agentConfigDir, extraEnv = {}) {
   // Isolate HOME/USERPROFILE (os.homedir() honors both) so the registration self-check reads a
   // controlled ~/.claude.json instead of the developer's real one — otherwise results become
   // machine-dependent. Tests that want a specific ~/.claude.json pass homeDir via extraEnv.
   const homeDir = extraEnv.homeDir || agentConfigDir;
+  // Hermeticity (Ruling 2): TASK_ORCHESTRATOR_HOME is pinned to its OWN fresh empty dir (never the
+  // fixture / AGENT_CONFIG_DIR / HOME dir) so the real home never yields a user-scope hit; TEMP/TMP
+  // are a fresh empty dir so the setup-hint marker is isolated. Callers may supply their own.
+  const toHome = extraEnv.toHome || trackedTmp('to-session-start-tohome-');
+  const tmpDir = extraEnv.tmpDir || trackedTmp('to-session-start-tmp-');
   return spawnSync(process.execPath, [HOOK], {
     env: {
       ...process.env,
@@ -26,6 +42,12 @@ function runHook(agentConfigDir, extraEnv = {}) {
       HOME: homeDir,
       USERPROFILE: homeDir,
       CLAUDE_CONFIG_DIR: '',
+      TASK_ORCHESTRATOR_HOME: toHome,
+      TEMP: tmpDir,
+      TMP: tmpDir,
+      TMPDIR: tmpDir,
+      TASK_ORCHESTRATOR_API_URL: '',
+      TASK_ORCHESTRATOR_SETUP_HINT: '',
       ...extraEnv.env,
     },
     encoding: 'utf-8',
@@ -422,5 +444,219 @@ test('dev checkout plugin.json malformed JSON -> fail-open, silent', () => {
   } finally {
     rmSync(dir, { recursive: true, force: true });
     rmSync(runningRoot, { recursive: true, force: true });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Setup status states, init hint, config-sync notice, watchPaths (plan section C)
+// Note: findProjectMcpConfig walks above the tmp fixture to real ancestors; a stray .mcp.json with
+// a TO entry in a tmp ancestor could make the no-registration negative cases machine-dependent
+// (pre-existing; not fixed here).
+// ─────────────────────────────────────────────────────────────────────────
+
+const COMPLIANT_STDIO = {
+  mcpServers: {
+    'mcp-task-orchestrator': { command: 'docker', args: ['run', 'ghcr.io/jpicklyk/task-orchestrator:latest'] },
+  },
+};
+const HTTP_REG = {
+  mcpServers: {
+    'mcp-task-orchestrator': { type: 'http', url: 'http://host/task-orchestrator/mcp' },
+  },
+};
+const parse = (res) => {
+  assert.equal(res.status, 0);
+  return JSON.parse(res.stdout);
+};
+
+test('none state -> Setup Status naming /task-orchestrator:init, no Project Scope, no watchPaths', () => {
+  const dir = tmpConfigDir();
+  const out = parse(runHook(dir));
+  const ctx = out.hookSpecificOutput.additionalContext;
+  assert.ok(ctx.includes('## Setup Status'));
+  assert.ok(ctx.includes('/task-orchestrator:init'));
+  assert.ok(!ctx.includes('## Project Scope'));
+  assert.ok(!('watchPaths' in out.hookSpecificOutput));
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('no-root state (project file) -> not project-scoped, names the config path', () => {
+  const dir = tmpConfigDir();
+  try {
+    writeConfig(dir, 'retrospective:\n  mode: nudge\n');
+    const ctx = parse(runHook(dir)).hookSpecificOutput.additionalContext;
+    assert.ok(ctx.includes('## Setup Status'));
+    assert.ok(ctx.includes('not project-scoped'));
+    assert.ok(ctx.includes(join(dir, '.taskorchestrator', 'config.yaml')));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('project state -> Project Scope with rootId, name, ancestorId and Config path; watchPaths = [path]', () => {
+  const dir = tmpConfigDir();
+  try {
+    writeConfig(dir, 'project:\n  rootId: proj-root-1\n  name: "Proj One"\n');
+    const out = parse(runHook(dir));
+    const ctx = out.hookSpecificOutput.additionalContext;
+    const p = join(dir, '.taskorchestrator', 'config.yaml');
+    assert.ok(ctx.includes('## Project Scope'));
+    assert.ok(ctx.includes('proj-root-1') && ctx.includes('Proj One'));
+    assert.ok(ctx.includes('ancestorId'));
+    assert.ok(ctx.includes(`Config: ${p}`));
+    assert.deepEqual(out.hookSpecificOutput.watchPaths, [p]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('user state -> Personal Scope, Personal root, no ancestorId scoping instruction; watchPaths = [user path]', () => {
+  const dir = tmpConfigDir();
+  const toHome = tmpConfigDir();
+  try {
+    writeConfig(toHome, 'project:\n  rootId: personal-root-1\n  name: "Me"\n');
+    const out = parse(runHook(dir, { toHome }));
+    const ctx = out.hookSpecificOutput.additionalContext;
+    const p = join(toHome, '.taskorchestrator', 'config.yaml');
+    assert.ok(ctx.includes('## Personal Scope'));
+    assert.ok(ctx.includes('Personal root'));
+    assert.ok(ctx.includes('personal-root-1'));
+    assert.ok(ctx.includes(p));
+    assert.ok(ctx.includes('Do NOT pass `ancestorId`'));
+    assert.ok(!ctx.includes('ancestorId: "personal-root-1"'));
+    assert.ok(!ctx.includes('## Project Scope'));
+    assert.deepEqual(out.hookSpecificOutput.watchPaths, [p]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(toHome, { recursive: true, force: true });
+  }
+});
+
+test('project hit plus existing user config -> watchPaths = [project, user]', () => {
+  const dir = tmpConfigDir();
+  const toHome = tmpConfigDir();
+  try {
+    writeConfig(dir, 'project:\n  rootId: proj-root-2\n');
+    writeConfig(toHome, 'project:\n  rootId: personal-root-2\n');
+    const out = parse(runHook(dir, { toHome }));
+    assert.deepEqual(out.hookSpecificOutput.watchPaths, [
+      join(dir, '.taskorchestrator', 'config.yaml'),
+      join(toHome, '.taskorchestrator', 'config.yaml'),
+    ]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(toHome, { recursive: true, force: true });
+  }
+});
+
+test('hint: none + registration -> single-line systemMessage once per cwd per day', () => {
+  const dir = tmpConfigDir();
+  const dir2 = tmpConfigDir();
+  const tmpDirShared = tmpConfigDir();
+  try {
+    writeUserClaudeJson(dir, COMPLIANT_STDIO);
+    writeUserClaudeJson(dir2, COMPLIANT_STDIO);
+    const first = parse(runHook(dir, { tmpDir: tmpDirShared }));
+    assert.equal(typeof first.systemMessage, 'string');
+    assert.ok(first.systemMessage.includes('/task-orchestrator:init'));
+    assert.ok(!first.systemMessage.includes('\n'));
+    const second = parse(runHook(dir, { tmpDir: tmpDirShared }));
+    assert.ok(!('systemMessage' in second));
+    const other = parse(runHook(dir2, { tmpDir: tmpDirShared }));
+    assert.equal(typeof other.systemMessage, 'string');
+  } finally {
+    for (const d of [dir, dir2, tmpDirShared]) rmSync(d, { recursive: true, force: true });
+  }
+});
+
+test('hint: no-root + registration -> systemMessage names the config path', () => {
+  const dir = tmpConfigDir();
+  try {
+    writeUserClaudeJson(dir, COMPLIANT_STDIO);
+    writeConfig(dir, 'retrospective:\n  mode: nudge\n');
+    const out = parse(runHook(dir));
+    assert.ok(out.systemMessage.includes('/task-orchestrator:init'));
+    assert.ok(out.systemMessage.includes(join(dir, '.taskorchestrator', 'config.yaml')));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('hint suppressed: no registration, SETUP_HINT=off/OFF, project and user states', () => {
+  const dir = tmpConfigDir();
+  const toHome = tmpConfigDir();
+  try {
+    assert.ok(!('systemMessage' in parse(runHook(dir))));
+
+    writeUserClaudeJson(dir, COMPLIANT_STDIO);
+    for (const v of ['off', 'OFF']) {
+      const tmpDir = tmpConfigDir();
+      try {
+        const out = parse(runHook(dir, { tmpDir, env: { TASK_ORCHESTRATOR_SETUP_HINT: v } }));
+        assert.ok(!('systemMessage' in out));
+        assert.ok(!existsSync(join(tmpDir, 'task-orchestrator')));
+      } finally {
+        rmSync(tmpDir, { recursive: true, force: true });
+      }
+    }
+
+    writeConfig(dir, 'project:\n  rootId: proj-root-3\n');
+    assert.ok(!('systemMessage' in parse(runHook(dir))));
+    rmSync(join(dir, '.taskorchestrator'), { recursive: true, force: true });
+
+    writeConfig(toHome, 'project:\n  rootId: personal-root-3\n');
+    assert.ok(!('systemMessage' in parse(runHook(dir, { toHome }))));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(toHome, { recursive: true, force: true });
+  }
+});
+
+test('hint: stale marker from another date does not suppress today', () => {
+  const dir = tmpConfigDir();
+  const tmpDir = tmpConfigDir();
+  try {
+    writeUserClaudeJson(dir, COMPLIANT_STDIO);
+    let cwd = realpathSync(dir);
+    if (process.platform === 'win32') cwd = cwd.toLowerCase();
+    const hash = createHash('sha256').update(cwd).digest('hex').slice(0, 16);
+    mkdirSync(join(tmpDir, 'task-orchestrator'), { recursive: true });
+    writeFileSync(join(tmpDir, 'task-orchestrator', `setup-hint-${hash}-2000-01-01`), '');
+    const out = parse(runHook(dir, { tmpDir }));
+    assert.equal(typeof out.systemMessage, 'string');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('config-sync notice: project state + http registration, no API URL -> present', () => {
+  const dir = tmpConfigDir();
+  try {
+    writeConfig(dir, 'project:\n  rootId: proj-root-4\n');
+    writeUserClaudeJson(dir, HTTP_REG);
+    const ctx = parse(runHook(dir)).hookSpecificOutput.additionalContext;
+    assert.ok(ctx.includes('## Config Sync'));
+    assert.ok(ctx.includes('TASK_ORCHESTRATOR_API_URL'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('config-sync notice: absent for stdio registration, API URL set, or none state', () => {
+  const dir = tmpConfigDir();
+  try {
+    writeConfig(dir, 'project:\n  rootId: proj-root-5\n');
+    writeUserClaudeJson(dir, COMPLIANT_STDIO);
+    assert.ok(!parse(runHook(dir)).hookSpecificOutput.additionalContext.includes('## Config Sync'));
+
+    writeUserClaudeJson(dir, HTTP_REG);
+    const withUrl = parse(runHook(dir, { env: { TASK_ORCHESTRATOR_API_URL: 'http://host:3001' } }));
+    assert.ok(!withUrl.hookSpecificOutput.additionalContext.includes('## Config Sync'));
+
+    rmSync(join(dir, '.taskorchestrator'), { recursive: true, force: true });
+    assert.ok(!parse(runHook(dir)).hookSpecificOutput.additionalContext.includes('## Config Sync'));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
 });

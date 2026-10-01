@@ -1,63 +1,15 @@
 #!/usr/bin/env node
-// Session Start Hook — injects current v3 workflow guidance, plus project
-// scope (rootId/name) when .taskorchestrator/config.yaml declares a `project:` block.
+// Session Start Hook — injects current v3 workflow guidance plus setup/scope status derived from
+// the shared config locator (none / config without rootId / personal root / project root).
 
-import { readFileSync } from 'fs';
-import { resolve, dirname } from 'path';
+import { readFileSync, statSync, mkdirSync, writeFileSync } from 'fs';
+import { resolve, dirname, join } from 'path';
 import { fileURLToPath } from 'url';
-import { homedir } from 'os';
-import { readSection, scalar } from './yaml-lite.mjs';
+import { homedir, tmpdir } from 'os';
+import { createHash } from 'crypto';
 import { isOrchestratorServerKey, SERVER_SEGMENT_TOKEN } from './registration.mjs';
-
-// Absolute path of the config.yaml found by findConfigPath(), if any — surfaced to the
-// caller so it can be reported as a SessionStart watchPaths entry (mid-session re-sync).
-let foundConfigPath = null;
-
-// Locate config.yaml — check AGENT_CONFIG_DIR, then walk up from cwd to find
-// the project root containing .taskorchestrator/. This handles worktrees where
-// cwd is nested under .claude/worktrees/<name>/ but config is at the repo root.
-// Pattern reused from skill-enforcement.mjs / enforce-actor-attribution.mjs.
-function findConfigPath() {
-  const candidates = [];
-  if (process.env.AGENT_CONFIG_DIR) {
-    candidates.push(resolve(process.env.AGENT_CONFIG_DIR, '.taskorchestrator', 'config.yaml'));
-  }
-  let dir = process.cwd();
-  const root = resolve(dir, '/');
-  while (dir !== root) {
-    candidates.push(resolve(dir, '.taskorchestrator', 'config.yaml'));
-    dir = resolve(dir, '..');
-  }
-  for (const candidate of candidates) {
-    try {
-      const content = readFileSync(candidate, 'utf-8');
-      foundConfigPath = candidate;
-      return content;
-    } catch {
-      continue;
-    }
-  }
-  return null;
-}
-
-// Parse the top-level `project:` block:
-//   project:
-//     rootId: "<uuid>"
-//     name: "<project name>"
-// Values may be quoted or bare. Returns { rootId, name } or null if the block
-// is absent or has no rootId.
-function parseProjectBlock(configContent) {
-  if (!configContent) return null;
-
-  const section = readSection(configContent, 'project', { blockOnly: true });
-  if (!section) return null;
-
-  const rootId = scalar(section.lines, 'rootId');
-  const name = scalar(section.lines, 'name');
-
-  if (!rootId) return null;
-  return { rootId, name };
-}
+import { locateConfig, userConfigPath } from './config-locator.mjs';
+import { apiBaseUrl } from './api-client.mjs';
 
 const BASE_GUIDANCE = `## Task Orchestrator — Session Context
 
@@ -65,45 +17,126 @@ const BASE_GUIDANCE = `## Task Orchestrator — Session Context
 - Hierarchy: items have parentId and depth; trees nest to any depth.
 - To resume: call \`get_context()\` with no args to see active and stalled items.`;
 
-function buildContext() {
-  let configContent = null;
+const EMPTY_LOCATION = { scope: 'none', path: null, rootId: null, name: null };
+
+function getLocation() {
   try {
-    configContent = findConfigPath();
+    const loc = locateConfig({ cwd: process.cwd(), env: process.env });
+    return loc && typeof loc === 'object' ? loc : EMPTY_LOCATION;
   } catch {
-    return BASE_GUIDANCE;
+    return EMPTY_LOCATION;
   }
+}
 
-  if (!configContent) {
-    return BASE_GUIDANCE;
-  }
+// none | no-root | user | project
+function setupState(loc) {
+  if (loc.scope === 'none' || !loc.path) return 'none';
+  if (!loc.rootId) return 'no-root';
+  return loc.scope === 'user' ? 'user' : 'project';
+}
 
-  let project = null;
-  try {
-    project = parseProjectBlock(configContent);
-  } catch {
-    return BASE_GUIDANCE;
-  }
+function buildContext(loc, state) {
+  const label = loc.name ? `${loc.name} (\`${loc.rootId}\`)` : `\`${loc.rootId}\``;
 
-  if (!project) {
+  if (state === 'none') {
     return `${BASE_GUIDANCE}
 
-## Project Scope
+## Setup Status
 
-This workspace is not project-scoped — no \`project:\` block found in \`.taskorchestrator/config.yaml\`.
-Run \`/adopt-project-scope\` (existing DBs) or \`/quick-start\` (fresh workspaces) to set one up.`;
+No Task Orchestrator config was found for this directory. Run \`/task-orchestrator:init\` to set up this project, or \`/task-orchestrator:init --user\` for a personal root that serves every unconfigured directory.`;
   }
 
-  const label = project.name ? `${project.name} (\`${project.rootId}\`)` : `\`${project.rootId}\``;
+  if (state === 'no-root') {
+    const fix = loc.scope === 'user'
+      ? 'Run `/task-orchestrator:init --user` to create a personal root.'
+      : 'Run `/task-orchestrator:init` to set one up.';
+    return `${BASE_GUIDANCE}
+
+## Setup Status
+
+This workspace is not project-scoped — no \`project.rootId\` in \`${loc.path}\`.
+${fix}`;
+  }
+
+  if (state === 'user') {
+    return `${BASE_GUIDANCE}
+
+## Personal Scope
+
+Personal root: ${label}
+Config: ${loc.path}
+
+- Anchor new root-level items under the personal root by setting \`parentId: "${loc.rootId}"\`.
+- Do NOT pass \`ancestorId\` on reads (\`query_items\`, \`get_next_item\`, \`get_context\`, \`get_blocked_items\`) — the personal root is a global store, so reads stay unscoped and may return other projects' items.
+- Process-global items stay OUTSIDE the personal root at depth 0: the Session Retrospectives and Improvement Proposals containers, and standalone agent-observation items.`;
+  }
 
   return `${BASE_GUIDANCE}
 
 ## Project Scope
 
 Active project: ${label}
+Config: ${loc.path}
 
-- Pass \`ancestorId: "${project.rootId}"\` on \`query_items\` (list mode), \`get_next_item\`, \`get_context\`, and \`get_blocked_items\` to scope results to this project.
-- Anchor new root-level items under this project by setting \`parentId: "${project.rootId}"\`.
-- Process-global items stay OUTSIDE the project root at depth 0: the Session Retrospectives and Improvement Proposals containers, and standalone agent-observation items — do not anchor any of them under \`${project.rootId}\`.`;
+- Pass \`ancestorId: "${loc.rootId}"\` on \`query_items\` (list mode), \`get_next_item\`, \`get_context\`, and \`get_blocked_items\` to scope results to this project.
+- Anchor new root-level items under this project by setting \`parentId: "${loc.rootId}"\`.
+- Process-global items stay OUTSIDE the project root at depth 0: the Session Retrospectives and Improvement Proposals containers, and standalone agent-observation items — do not anchor any of them under \`${loc.rootId}\`.`;
+}
+
+// Single-line, user-visible init hint. Emitted at most once per cwd per local day: the marker file
+// is created with 'wx' only after every other condition holds, so a suppressed run never consumes it.
+function buildSetupHint(loc, state, registrations) {
+  if (state !== 'none' && state !== 'no-root') return null;
+  if (registrations.length === 0) return null;
+  if ((process.env.TASK_ORCHESTRATOR_SETUP_HINT || '').trim().toLowerCase() === 'off') return null;
+
+  let cwd = resolve(process.cwd());
+  if (process.platform === 'win32') cwd = cwd.toLowerCase();
+  const hash = createHash('sha256').update(cwd).digest('hex').slice(0, 16);
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  const date = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const dir = join(tmpdir(), 'task-orchestrator');
+  const marker = join(dir, `setup-hint-${hash}-${date}`);
+  try {
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(marker, '', { flag: 'wx' });
+  } catch {
+    return null; // EEXIST = already shown today; anything else = stay silent
+  }
+  return state === 'none'
+    ? 'Task Orchestrator is not set up for this directory — run /task-orchestrator:init to configure it.'
+    : `Task Orchestrator config at ${loc.path} has no project.rootId — run /task-orchestrator:init to finish setup.`;
+}
+
+function buildConfigSyncNotice(state, registrations) {
+  if (state !== 'project' && state !== 'user') return null;
+  if (apiBaseUrl()) return null;
+  if (!registrations.some((r) => typeof r.url === 'string' && /^https?:\/\//i.test(r.url))) return null;
+  return `## Config Sync
+
+Config-sync cannot push this config because no REST API URL resolves. Set \`TASK_ORCHESTRATOR_API_URL\` or run \`/task-orchestrator:init\` (writes \`client.json\`).`;
+}
+
+function isExistingFile(p) {
+  try {
+    return statSync(p).isFile();
+  } catch {
+    return false;
+  }
+}
+
+function buildWatchPaths(loc) {
+  const paths = [];
+  if (loc.path) paths.push(loc.path);
+  try {
+    const userPath = userConfigPath(process.env);
+    const norm = (p) => (process.platform === 'win32' ? resolve(p).toLowerCase() : resolve(p));
+    if (isExistingFile(userPath) && !(loc.path && norm(loc.path) === norm(userPath))) paths.push(userPath);
+  } catch {
+    // user path unresolvable — skip
+  }
+  return paths;
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -126,7 +159,7 @@ function readJsonFile(path) {
   }
 }
 
-// Walk up from cwd looking for a project-level .mcp.json (same walk pattern as findConfigPath).
+// Walk up from cwd looking for a project-level .mcp.json .
 function findProjectMcpConfig() {
   let dir = process.cwd();
   const root = resolve(dir, '/');
@@ -182,7 +215,7 @@ function entryMentionsOrchestrator(entry) {
   }
 }
 
-// Collects { key, source } for every mcpServers entry across the discoverable registration
+// Collects { key, source, url } for every mcpServers entry across the discoverable registration
 // surfaces that "is an orchestrator registration" (key or entry body mentions the token).
 function collectOrchestratorRegistrations() {
   const found = [];
@@ -191,7 +224,7 @@ function collectOrchestratorRegistrations() {
     if (!mcpServers || typeof mcpServers !== 'object') return;
     for (const [key, entry] of Object.entries(mcpServers)) {
       const isOrchestrator = isOrchestratorServerKey(key) || entryMentionsOrchestrator(entry);
-      if (isOrchestrator) found.push({ key, source });
+      if (isOrchestrator) found.push({ key, source, url: entry && typeof entry.url === 'string' ? entry.url : null });
     }
   }
 
@@ -222,8 +255,7 @@ function collectOrchestratorRegistrations() {
   return found;
 }
 
-function buildRegistrationCheckSection() {
-  const registrations = collectOrchestratorRegistrations();
+function buildRegistrationCheckSection(registrations) {
   const offending = registrations.filter((r) => !isOrchestratorServerKey(r.key));
   if (offending.length === 0) return null;
 
@@ -259,7 +291,7 @@ function readPluginVersion(pluginJsonPath) {
 }
 
 // Walk up from AGENT_CONFIG_DIR (if set) then cwd looking for the dev-checkout's
-// own plugin.json. Mirrors findConfigPath()'s walk pattern so worktrees (cwd
+// own plugin.json. Same walk pattern as the other upward scans so worktrees (cwd
 // nested under .claude/worktrees/<name>/) still find the checkout root.
 function findDevCheckoutPluginJson() {
   const startDirs = [];
@@ -309,22 +341,39 @@ function buildFreshnessWarning() {
 The checked-out plugin version (\`${devVersion}\`) differs from the currently loaded plugin cache (\`${runningVersion}\`). Refresh the plugin cache — see \`claude-plugins/CLAUDE.md\` → "Plugin Discovery and Cache Refresh".`;
 }
 
+const location = getLocation();
+const state = setupState(location);
+
 let additionalContext;
 try {
-  additionalContext = buildContext();
+  additionalContext = buildContext(location, state);
 } catch {
   // Fail-open: any unexpected error falls back to static guidance so a broken
   // hook never blocks session start.
   additionalContext = BASE_GUIDANCE;
 }
 
+let registrations = [];
 try {
-  const registrationSection = buildRegistrationCheckSection();
+  registrations = collectOrchestratorRegistrations();
+} catch {
+  // Fail-open: registrations are purely diagnostic.
+}
+
+try {
+  const registrationSection = buildRegistrationCheckSection(registrations);
   if (registrationSection) {
     additionalContext = `${additionalContext}\n\n${registrationSection}`;
   }
 } catch {
   // Fail-open: the self-check is purely diagnostic — never let it affect session start.
+}
+
+try {
+  const notice = buildConfigSyncNotice(state, registrations);
+  if (notice) additionalContext = `${additionalContext}\n\n${notice}`;
+} catch {
+  // Fail-open.
 }
 
 try {
@@ -342,9 +391,20 @@ const output = {
     additionalContext
   }
 };
-// Ask the harness to watch the config file we actually found, so a mid-session edit fires a
+
+try {
+  const hint = buildSetupHint(location, state, registrations);
+  if (hint) output.systemMessage = hint;
+} catch {
+  // Fail-open.
+}
+
+// Ask the harness to watch the config file(s) we found so a mid-session edit fires a
 // FileChanged event that re-triggers config-sync.mjs without waiting for the next session.
-if (foundConfigPath) {
-  output.hookSpecificOutput.watchPaths = [foundConfigPath];
+try {
+  const watchPaths = buildWatchPaths(location);
+  if (watchPaths.length > 0) output.hookSpecificOutput.watchPaths = watchPaths;
+} catch {
+  // Fail-open.
 }
 process.stdout.write(JSON.stringify(output));
