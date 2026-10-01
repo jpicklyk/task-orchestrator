@@ -195,3 +195,18 @@ export function locateConfig({ cwd = process.cwd(), env = process.env } = {}) {
   }
   return none;
 }
+
+/**
+ * Absolute path of the PROJECT-level client.json: `client.json` in the directory of the located
+ * config, only when the located scope is 'project'; otherwise null. Does not check that the file
+ * exists. Never throws.
+ */
+export function projectClientPath({ cwd = process.cwd(), env = process.env } = {}) {
+  try {
+    const located = locateConfig({ cwd, env });
+    if (located.scope !== 'project' || !located.path) return null;
+    return join(dirname(located.path), 'client.json');
+  } catch {
+    return null;
+  }
+}
