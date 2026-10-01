@@ -40,13 +40,15 @@ function freshTempDir() {
 
 /** Runs phase-guard-record.mjs synchronously (it does no network I/O). */
 function runRecord(payload, tempDir, apiUrl) {
-  const env = { ...process.env, TEMP: tempDir, TMP: tempDir, TMPDIR: tempDir, TASK_ORCHESTRATOR_HOME: join(tempDir, 'to-home-empty') };
+  const env = { ...process.env, TEMP: tempDir, TMP: tempDir, TMPDIR: tempDir, TASK_ORCHESTRATOR_HOME: join(tempDir, 'to-home-empty'), TASK_ORCHESTRATOR_CEILING: tempDir };
+  delete env.AGENT_CONFIG_DIR;
   delete env.TASK_ORCHESTRATOR_API_URL;
   delete env.TASK_ORCHESTRATOR_MODE;
   if (apiUrl) env.TASK_ORCHESTRATOR_API_URL = apiUrl;
   return spawnSync(process.execPath, [RECORD_HOOK], {
     input: JSON.stringify(payload),
     env,
+    cwd: tempDir,
     encoding: 'utf-8',
   });
 }
@@ -56,10 +58,11 @@ function runRecord(payload, tempDir, apiUrl) {
  * rule). */
 function runGuard(payload, tempDir, apiUrl) {
   return new Promise((resolvePromise, rejectPromise) => {
-    const env = { ...process.env, TEMP: tempDir, TMP: tempDir, TMPDIR: tempDir, TASK_ORCHESTRATOR_HOME: join(tempDir, 'to-home-empty') };
+    const env = { ...process.env, TEMP: tempDir, TMP: tempDir, TMPDIR: tempDir, TASK_ORCHESTRATOR_HOME: join(tempDir, 'to-home-empty'), TASK_ORCHESTRATOR_CEILING: tempDir };
+    delete env.AGENT_CONFIG_DIR;
     delete env.TASK_ORCHESTRATOR_MODE;
     if (apiUrl) env.TASK_ORCHESTRATOR_API_URL = apiUrl;
-    const child = spawn(process.execPath, [GUARD_HOOK], { env });
+    const child = spawn(process.execPath, [GUARD_HOOK], { env, cwd: tempDir });
     let stdout = '';
     child.stdout.on('data', (d) => {
       stdout += d;

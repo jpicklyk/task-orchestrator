@@ -16,7 +16,7 @@
 //
 // Requires (all optional — absent = no-op):
 //   TASK_ORCHESTRATOR_API_URL    base URL of the REST API, e.g. http://localhost:3001 (falls back
-//                                to apiUrl in the user-level client.json — see api-client.mjs)
+//                                to apiUrl in a project-level, then the user-level client.json — see api-client.mjs)
 //   TASK_ORCHESTRATOR_API_TOKEN  bearer token with the WRITE_CONFIG capability, scoped to this root.
 //                                Optional: an unauthenticated server (API_AUTH_MODE=none +
 //                                API_ALLOW_UNAUTHENTICATED=true) needs no token at all — when

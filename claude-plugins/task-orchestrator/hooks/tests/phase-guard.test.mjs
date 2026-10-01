@@ -91,12 +91,13 @@ function stopStub(server) {
  * exit status + stdout once it closes. */
 function runHook(payload, tempDir, apiUrl, modeOverride) {
   return new Promise((resolvePromise, rejectPromise) => {
-    const env = { ...process.env, TEMP: tempDir, TMP: tempDir, TMPDIR: tempDir, TASK_ORCHESTRATOR_HOME: join(tempDir, 'to-home-empty') };
+    const env = { ...process.env, TEMP: tempDir, TMP: tempDir, TMPDIR: tempDir, TASK_ORCHESTRATOR_HOME: join(tempDir, 'to-home-empty'), TASK_ORCHESTRATOR_CEILING: tempDir };
+    delete env.AGENT_CONFIG_DIR;
     delete env.TASK_ORCHESTRATOR_API_URL;
     delete env.TASK_ORCHESTRATOR_MODE;
     if (apiUrl) env.TASK_ORCHESTRATOR_API_URL = apiUrl;
     if (modeOverride) env.TASK_ORCHESTRATOR_MODE = modeOverride;
-    const child = spawn(process.execPath, [HOOK], { env });
+    const child = spawn(process.execPath, [HOOK], { env, cwd: tempDir });
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (d) => {
@@ -113,9 +114,10 @@ function runHook(payload, tempDir, apiUrl, modeOverride) {
 
 function runHookRaw(rawInput, tempDir, apiUrl) {
   return new Promise((resolvePromise, rejectPromise) => {
-    const env = { ...process.env, TEMP: tempDir, TMP: tempDir, TMPDIR: tempDir, TASK_ORCHESTRATOR_HOME: join(tempDir, 'to-home-empty') };
+    const env = { ...process.env, TEMP: tempDir, TMP: tempDir, TMPDIR: tempDir, TASK_ORCHESTRATOR_HOME: join(tempDir, 'to-home-empty'), TASK_ORCHESTRATOR_CEILING: tempDir };
+    delete env.AGENT_CONFIG_DIR;
     if (apiUrl) env.TASK_ORCHESTRATOR_API_URL = apiUrl;
-    const child = spawn(process.execPath, [HOOK], { env });
+    const child = spawn(process.execPath, [HOOK], { env, cwd: tempDir });
     let stdout = '';
     child.stdout.on('data', (d) => {
       stdout += d;
