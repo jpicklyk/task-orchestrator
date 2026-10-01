@@ -421,7 +421,7 @@ JSON-RPC on the stdio transport. Each line carries `timestamp` (ISO-8601 UTC), `
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `TASK_ORCHESTRATOR_API_URL` | _(unset)_ | Base URL of the REST API for config-sync and the phase guard. When unset, the hooks fall back to `apiUrl` in a project-level `client.json` beside the located config (written by `/task-orchestrator:init`; honoured only for a loopback host), then to the user-level `client.json` (written by `/task-orchestrator:init --user`; unrestricted). |
+| `TASK_ORCHESTRATOR_API_URL` | _(unset)_ | Base URL of the REST API for config-sync and the phase guard. When unset, the hooks fall back to `apiUrl` in a project-level `client.json` beside the located config, or in the main checkout for a linked worktree (written by `/task-orchestrator:init`; honoured only for a loopback host), then to the user-level `client.json` (written by `/task-orchestrator:init --user`; unrestricted). |
 | `TASK_ORCHESTRATOR_HOME` | _(your home directory)_ | `TASK_ORCHESTRATOR_HOME` replaces your home directory for Task Orchestrator: when it is set, the user-level `config.yaml` and `client.json` are read only from `$TASK_ORCHESTRATOR_HOME/.taskorchestrator/`, and `~/.taskorchestrator/config.yaml` is ignored unless `AGENT_CONFIG_DIR` points at it. |
 | `TASK_ORCHESTRATOR_CEILING` | _(unset)_ | `TASK_ORCHESTRATOR_CEILING` is an optional directory at which project-config discovery stops climbing — like `GIT_CEILING_DIRECTORIES`. It exists mainly so tests stay isolated; leave it unset in normal use. |
 | `TASK_ORCHESTRATOR_SETUP_HINT` | _(on)_ | Set to `off` to silence the once-per-day init hint shown at session start. |

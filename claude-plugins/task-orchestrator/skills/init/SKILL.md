@@ -93,7 +93,7 @@ manage_project_config(operation="push", rootId="<anchor-uuid>", configYaml="<ful
 
 ### P5b — Project-level `client.json`
 
-So the config-sync and other hooks can reach the REST API without an environment variable. The API URL resolves in this order: `TASK_ORCHESTRATOR_API_URL`, then `apiUrl` in a `client.json` beside the located project config, then `apiUrl` in the user-level `client.json`; if none resolves the hooks do nothing.
+So the config-sync and other hooks can reach the REST API without an environment variable. The API URL resolves in this order: `TASK_ORCHESTRATOR_API_URL`, then `apiUrl` in a `client.json` beside the located project config (and, in a linked worktree, the one in the main checkout), then `apiUrl` in the user-level `client.json`; if none resolves the hooks do nothing.
 
 1. Run `apiBaseUrl()` (and, below, `isLoopbackApiUrl()`) from `<plugin root>/hooks/api-client.mjs` with a one-liner like Step 0:
    ```bash
@@ -103,7 +103,7 @@ So the config-sync and other hooks can reach the REST API without an environment
 2. Otherwise find the registered http MCP entry and derive and health-check `<base>` exactly as U4 steps 1-3. Stdio or an unhealthy server: skip with one line.
 3. Check the host with `m.isLoopbackApiUrl("<base>")`. A project-level file is honoured only for an `http`/`https` URL without credentials whose host is `localhost`, an IPv4 address in `127.0.0.0/8`, or `[::1]` (a file inside a repo must not redirect the bearer token to a remote host); anything else is ignored silently. When the check is false, do not write the file: say a project-level file would be ignored for this host, and that a non-loopback server needs `TASK_ORCHESTRATOR_API_URL` or `/task-orchestrator:init --user` (the user-level file is unrestricted).
 4. When true, write `<main>/.taskorchestrator/client.json` as UTF-8 JSON containing only `{"apiUrl": "<base>"}`. If the file exists with a different value, show both and ask.
-5. Note the limits: the file is read beside the located config, so a linked worktree that carries its own tracked `config.yaml` does not see the main checkout's `client.json` and falls through to the user-level file, and `AGENT_CONFIG_DIR` moves the located config and the project file with it. Advise adding `.taskorchestrator/client.json` to `.gitignore`: the URL is machine-specific.
+5. Note how the file is found: the hooks read `client.json` beside the located config first. In a linked worktree, when the `client.json` beside the worktree's own config yields no usable loopback URL, the hooks also read `.taskorchestrator/client.json` in the main checkout, under the same loopback rule. `AGENT_CONFIG_DIR` pins both files to the directory it names. One file in the main checkout therefore serves every linked worktree. Advise adding `.taskorchestrator/client.json` to `.gitignore`: the URL is machine-specific.
 
 ### P6 — Rule seeding, then advise
 
