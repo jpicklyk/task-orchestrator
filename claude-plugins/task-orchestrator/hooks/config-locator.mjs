@@ -21,6 +21,10 @@
 // only when the ceiling applied to this lookup (it is cwd or an ancestor of cwd); a main checkout below
 // or beside the ceiling is kept. A ceiling that is not cwd or an ancestor of it has no effect on the
 // lookup. Steps 1 and 4 are never bounded. Exists mainly as a test seam; leave unset in normal use.
+//
+// projectClientCandidates() lists the PROJECT-level client.json files to try, in order: beside the located
+// project config, then (linked worktree only) <main checkout>/.taskorchestrator/client.json.
+// projectClientPath() is its first entry, or null.
 
 import { readFileSync, statSync } from 'fs';
 import os from 'os';
@@ -202,11 +206,40 @@ export function locateConfig({ cwd = process.cwd(), env = process.env } = {}) {
  * exists. Never throws.
  */
 export function projectClientPath({ cwd = process.cwd(), env = process.env } = {}) {
+  return projectClientCandidates({ cwd, env })[0] ?? null;
+}
+
+/**
+ * Absolute PROJECT-level client.json paths, in the order to try; `[]` when the located scope is not
+ * 'project'. P1 = `client.json` beside the located config. P2 = `<main>/.taskorchestrator/client.json`
+ * when the located config sits in a linked worktree (main checkout found by mainCheckoutFromGit from the
+ * directory holding the config's `.taskorchestrator`). P2 is dropped when: the config was located through
+ * AGENT_CONFIG_DIR; the ceiling applies to this lookup (it is cwd or an ancestor of cwd) and main is the
+ * ceiling or above it; main's config path is a home-level path; or P2 equals P1. Checks no file's
+ * existence. Never throws.
+ */
+export function projectClientCandidates({ cwd = process.cwd(), env = process.env } = {}) {
   try {
     const located = locateConfig({ cwd, env });
-    if (located.scope !== 'project' || !located.path) return null;
-    return join(dirname(located.path), 'client.json');
+    if (located.scope !== 'project' || !located.path) return [];
+    const p1 = join(dirname(located.path), 'client.json');
+    const out = [p1];
+    try {
+      if (env.AGENT_CONFIG_DIR && norm(located.path) === norm(resolve(cwd, env.AGENT_CONFIG_DIR, CONFIG_REL))) return out;
+      const ceilingEnv = env.TASK_ORCHESTRATOR_CEILING;
+      const ceiling = typeof ceilingEnv === 'string' && ceilingEnv ? resolve(cwd, ceilingEnv) : null;
+      const start = dirname(dirname(located.path));
+      const main = mainCheckoutFromGit(start, ceiling);
+      if (!main) return out;
+      if (ceiling && atOrAboveCeiling(ceiling, cwd) && atOrAboveCeiling(main, ceiling)) return out;
+      if (homeLevelPaths(env).has(norm(join(main, CONFIG_REL)))) return out;
+      const p2 = join(main, '.taskorchestrator', 'client.json');
+      if (norm(p2) !== norm(p1)) out.push(p2);
+    } catch {
+      // keep what was resolved so far
+    }
+    return out;
   } catch {
-    return null;
+    return [];
   }
 }

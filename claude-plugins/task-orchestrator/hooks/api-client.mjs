@@ -4,8 +4,9 @@
 //
 // Requires (all optional — absent = the caller no-ops):
 //   TASK_ORCHESTRATOR_API_URL    base URL of the REST API, e.g. http://localhost:3001. Falls back to
-//                                `apiUrl` in client.json beside the located project config (loopback
-//                                hosts only), then in <home>/.taskorchestrator/client.json (home =
+//                                `apiUrl` in client.json beside the located project config, then (linked
+//                                worktree) in the main checkout's .taskorchestrator/client.json (loopback
+//                                hosts only, first usable wins), then in <home>/.taskorchestrator/client.json (home =
 //                                TASK_ORCHESTRATOR_HOME else os.homedir()) when unset/empty.
 //   TASK_ORCHESTRATOR_API_TOKEN  bearer token. Capability requirements are per-endpoint (e.g.
 //                                config-sync needs WRITE_CONFIG, the phase guard needs READ) —
@@ -15,7 +16,7 @@
 //                                absent, requests are sent with no Authorization header.
 
 import { readFileSync } from 'fs';
-import { userClientPath, projectClientPath } from './config-locator.mjs';
+import { userClientPath, projectClientCandidates } from './config-locator.mjs';
 
 const DEFAULT_TIMEOUT_MS = 2000;
 
@@ -54,8 +55,9 @@ export function isLoopbackApiUrl(base) {
 
 /**
  * Base URL with trailing slash(es) stripped. Order: non-empty TASK_ORCHESTRATOR_API_URL; `apiUrl` in
- * the project-level client.json beside the located project config (honoured only when
- * isLoopbackApiUrl — a repo file must not redirect the token to a remote host); `apiUrl` in the
+ * the project-level client.json files from projectClientCandidates (beside the located project config,
+ * then the main checkout's for a linked worktree; each honoured only when isLoopbackApiUrl, else the
+ * next is tried — a repo file must not redirect the token to a remote host); `apiUrl` in the
  * user-level client.json. `null` when none yields a value — callers treat `null` as "no REST API
  * configured, no-op". Never throws. The token is env-only; client.json is never read for a token.
  */
@@ -63,10 +65,13 @@ export function apiBaseUrl({ cwd = process.cwd(), env = process.env } = {}) {
   const raw = env.TASK_ORCHESTRATOR_API_URL;
   if (raw) return raw.replace(/\/+$/, '');
   try {
-    const projectPath = projectClientPath({ cwd, env });
-    if (projectPath) {
-      const url = readApiUrl(projectPath);
-      if (url && isLoopbackApiUrl(url)) return url;
+    for (const projectPath of projectClientCandidates({ cwd, env })) {
+      try {
+        const url = readApiUrl(projectPath);
+        if (url && isLoopbackApiUrl(url)) return url;
+      } catch {
+        // try the next candidate
+      }
     }
   } catch {
     // fall through to the user-level file
