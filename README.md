@@ -135,6 +135,8 @@ And export the client-side variable that tells `config-sync` where the server is
 export TASK_ORCHESTRATOR_API_URL=http://localhost:3001
 ```
 
+Alternatively, `/task-orchestrator:init` writes the URL to a user-level `client.json` (`apiUrl` only, no token); the environment variable wins when both are set. `/task-orchestrator:init` sets up a project root for the current directory, and `/task-orchestrator:init --user` creates a personal root that serves every directory without its own config.
+
 > **SECURITY:** unauthenticated REST means anyone who can reach the port has full read/write/delete
 > access. This is only safe because the port is published **loopback-only** (`-p 127.0.0.1:3001:3001`).
 > Never publish it on `0.0.0.0` or a wider interface. For shared or networked deployments use bearer
@@ -303,7 +305,7 @@ The plugin adds workflow automation on top of the MCP server: skills, hooks, and
 
 | Layer | What it does |
 |-------|-------------|
-| **Skills** | Slash commands for common workflows, including `/task-orchestrator:quick-start`, `/task-orchestrator:configure-server`, `/task-orchestrator:manage-schemas`, and `/task-orchestrator:create-item` |
+| **Skills** | Slash commands for common workflows, including `/task-orchestrator:quick-start`, `/task-orchestrator:init`, `/task-orchestrator:configure-server`, `/task-orchestrator:manage-schemas`, and `/task-orchestrator:create-item` |
 | **Hooks** | Context injection at session start, plan-mode integration, sub-agent context handoff, per-project config sync, and actor-attribution enforcement |
 | **Output style** | Workflow Orchestrator mode: Claude plans, delegates to sub-agents, and tracks progress without writing code directly |
 

@@ -11,6 +11,16 @@ YAML format and field rules for `.taskorchestrator/config.yaml`.
 - This file is typically gitignored (runtime/project config, not source code)
 - The server reads and caches this file on first schema access — changes require MCP reconnect (`/mcp`)
 
+### Config discovery (plugin hooks and skills)
+
+The plugin hooks locate the config in this order: (1) `AGENT_CONFIG_DIR` (a relative value resolves against the hook's working directory), (2) walking up from the working directory, (3) the main checkout of a linked git worktree (a bare repository's worktrees skip this step), (4) the user-level `<home>/.taskorchestrator/config.yaml`. Only step 4 yields user scope; a config sitting directly in a home directory is never a walk-up or main-checkout hit. The user-level `client.json` beside it holds the REST `apiUrl` (no token).
+
+`TASK_ORCHESTRATOR_HOME` replaces your home directory for Task Orchestrator: when it is set, the user-level `config.yaml` and `client.json` are read only from `$TASK_ORCHESTRATOR_HOME/.taskorchestrator/`, and `~/.taskorchestrator/config.yaml` is ignored unless `AGENT_CONFIG_DIR` points at it.
+
+`TASK_ORCHESTRATOR_CEILING` is an optional directory at which project-config discovery stops climbing — like `GIT_CEILING_DIRECTORIES`. It exists mainly so tests stay isolated; leave it unset in normal use.
+
+Because the user-level file applies in every directory that has no project config of its own, `actor_attribution`, `actor_authentication` and skill notes placed there take effect everywhere that is unconfigured.
+
 ---
 
 ## YAML Structure (Preferred — work_item_schemas)
@@ -176,6 +186,24 @@ change.
   the hook's output line instead of being sent. Like the config sync itself, the rule sync is
   fail-open — a `rules/` dir that's absent, or any error talking to the API, degrades to a no-op
   or a one-line note rather than blocking session start.
+- **Bundled rules.** On SessionStart only (not on FileChanged) the hook also syncs the plugin's five
+  bundled rule keys (`protocol.entry-seat`, `protocol.in-phase-seat`, `protocol.read-only-agent`,
+  `commit-discipline`, `review-scoping`), protocol keys first. `bundled-rules/manifest.json` is an
+  append-only list of known body hashes per key, and the push policy follows it: a key absent from the
+  server is pushed; a server copy matching a known older hash is overwritten with the current body; a
+  server copy matching no known hash is never touched. A same-named file in the workspace's
+  `.taskorchestrator/rules/` wins the key over the bundled copy. In user scope the pushed config is
+  reported as "user config".
+- **Shared deadline.** Config and rule requests share one budget measured from hook start (about 8 s on
+  SessionStart, about 3.5 s on FileChanged). Work not finished in time is reported as
+  `<N> deferred to next session`; an in-flight request aborted by the deadline counts as deferred, not
+  failed.
+- **Notice wordings.** `kept unrecognized server copy: <key>` appears at every session start for a
+  server rule that was customized on purpose; to make it stop, put that rule in the workspace's
+  `.taskorchestrator/rules/` so the workspace copy owns the key. `bundled rules skipped (unusable rules
+  listing)` means the server's rules listing could not be read. `root <id> not found on this server`
+  means the root was never created there, whereas `not synced — this server has no rules API.` means
+  the server predates the rules routes.
 
 ---
 
@@ -963,7 +991,8 @@ Default: absent — a workspace with no `project:` block is unscoped.
 ### Behavior
 
 - **Ignored by the global config loader, but honored per-root.** The global/fallback loader (the one that reads `AGENT_CONFIG_DIR`'s `config.yaml` at startup) ignores this block. But when the full config text is pushed per-root via `manage_project_config`, the `project:` block IS honored server-side: the embedded `project.rootId` is checked as a mismatch guard against the target `rootId` (bypass with `force`), and `project` is never listed in a push response's `ignoredSections`. Locally, it's also read by Claude Code: the SessionStart hook and plugin skills use it to scope their output to `rootId`.
-- **Created by** the `quick-start` bootstrap flow or `/adopt-project-scope` when the user opts into anchoring session context to a single project root item.
+- **Created by** `/task-orchestrator:init`, the `quick-start` bootstrap flow or `/adopt-project-scope` when the user opts into anchoring session context to a single project root item.
+- **Personal root.** `/task-orchestrator:init --user` writes a `project:` block into the user-level file whose root is a `type: project` item tagged `personal-root`. It is anchor-only: new items are parented under it, but reads stay unscoped (no `ancestorId`/`anchorId`), so the dashboard may show other projects' items.
 - **Opt-in convention.** Scoping is not enforced — its absence just means skills operate without a default root anchor, falling back to unscoped behavior.
 - The same scoping is pushed server-side via `manage_project_config` so it's visible beyond this local config file; see the project-scoping integration docs for the full push mechanism. In practice this push is triggered automatically by `manage-schemas`' write-operation report step (Step 4) and by `quick-start`'s bootstrap step (Step 1.5) whenever a `project.rootId` is present — both push the full config file text, not just this block.
 

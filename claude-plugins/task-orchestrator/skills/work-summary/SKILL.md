@@ -25,13 +25,13 @@ Supplement the data with brief observations only when there is a genuine anomaly
 
 ## Step 0.5 — Project Scope Resolution
 
-Before running Lean, Full, or Multi-Project mode, resolve the project rootId:
+Before running Lean, Full, or Multi-Project mode, resolve the scope:
 
-- Check session context for a rootId injected by the SessionStart hook.
+- Check session context from the SessionStart hook. A `## Project Scope` section carries a **project rootId**, which scopes reads (`ancestorId`/`anchorId`) and anchors. A `## Personal Scope` section carries a **personal root**, which only anchors new items: in personal scope every call below runs unscoped (whole database) and the header says `personal scope — whole database`.
 - Otherwise, read `.taskorchestrator/config.yaml`'s top-level `project.rootId` field (a file read, not an MCP call).
 - **If no rootId is found by either path, behavior is exactly as before this feature existed** — every call below runs unscoped (whole-DB), and no `ancestorId`/`anchorId` param is passed. This is the common case for single-project workspaces.
 
-When a rootId is known, Lean and Full mode calls pass it as `ancestorId="<rootId>"` — except the `overview` calls, which use `anchorId="<rootId>"` (all noted inline below). Scoped mode is unaffected — it already resolves its own scope UUID per invocation via FTS.
+When a project rootId is known, Lean and Full mode calls pass it as `ancestorId="<rootId>"` — except the `overview` calls, which use `anchorId="<rootId>"` (all noted inline below). Scoped mode is unaffected — it already resolves its own scope UUID per invocation via FTS.
 
 ---
 
@@ -167,8 +167,8 @@ Render the Full Inventory sections for that subtree only. All shared rules apply
 
 Enumerate every known project anchor and render one condensed section per project — for workspaces where multiple project roots share the same database.
 
-1. `query_items(operation="search", type="project", depth=0)` — list all depth-0 items typed `project` (the anchors created by `/quick-start`'s bootstrap flow or manually via `/manage-schemas`).
-2. If none are found, say so and stop: "No project anchors found — run `/quick-start` to bootstrap one, or use `/work-summary` (no arguments) for the whole-DB view."
+1. `query_items(operation="search", type="project", depth=0)` — list all depth-0 items typed `project` (the anchors created by `/task-orchestrator:init`, `/adopt-project-scope`, or by hand). An anchor tagged `personal-root` is the personal root; label it `(personal)` in its section header.
+2. If none are found, say so and stop: "No project anchors found — run `/task-orchestrator:init` to bootstrap one, or use `/work-summary` (no arguments) for the whole-DB view."
 3. For each anchor found, in parallel:
    - `query_items(operation="overview", anchorId="<anchor-id>", excludeTerminal=true)`
    - `get_context(ancestorId="<anchor-id>")`

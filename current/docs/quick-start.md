@@ -120,6 +120,7 @@ Skills are invoked as slash commands in any Claude Code session:
 | `/task-orchestrator:work-summary` | Insight-driven dashboard: active work, blockers, and next actions |
 | `/task-orchestrator:create-item` | Create a tracked work item from the current conversation context |
 | `/task-orchestrator:quick-start` | Interactive onboarding — teaches by doing, adapts to empty or populated workspaces |
+| `/task-orchestrator:init` | Set up a project root and config for this directory, or `--user` for a personal root |
 | `/task-orchestrator:configure-server` | Configure server transport, REST API mode, port publishing, config mount, and config-sync |
 | `/task-orchestrator:manage-schemas` | Create, view, edit, delete, and validate note schemas in config |
 | `/task-orchestrator:status-progression` | Navigate role transitions; shows current gate status and the correct trigger |
@@ -130,7 +131,7 @@ Skills are invoked as slash commands in any Claude Code session:
 
 Hooks run automatically — no invocation required:
 
-- **Session start** — injects current work context at the beginning of each Claude Code session so you never have to re-orient
+- **Session start** — injects current work context at the beginning of each Claude Code session so you never have to re-orient, reports the setup status of the directory, and names `/task-orchestrator:init` when it is not set up
 - **Plan mode** — after plan approval, prompts Claude to create MCP items so persistent tracking stays in sync with the conversation
 - **Subagent start** — passes task context into spawned subagents so they start with full awareness of the current item
 
@@ -139,6 +140,10 @@ Hooks run automatically — no invocation required:
 ### Output style
 
 The plugin includes a **Workflow Analyst** output style. When active, Claude Code acts as a project management orchestrator — it plans, delegates implementation to subagents, and tracks progress in the WorkItem graph without writing code directly. Useful for complex multi-step features. Select it from the output style menu (`/output-style`) after installing the plugin.
+
+### Initialize
+
+Run `/task-orchestrator:init` in a project directory to create its project root item and write `.taskorchestrator/config.yaml`. Run `/task-orchestrator:init --user` once for a personal root, stored in your user-level `~/.taskorchestrator/config.yaml`, that serves every directory with no project config of its own. The personal root is anchor-only: new items are parented under it, but reads stay unscoped and may show other projects' items.
 
 ---
 
@@ -411,6 +416,15 @@ JSON-RPC on the stdio transport. Each line carries `timestamp` (ISO-8601 UTC), `
 `loggerName`, `threadName`, `formattedMessage`, and an `mdc` object with correlation fields
 (`transport`, `tool`/`httpPath`, `requestId`, `sessionId`, etc. — see
 [fleet-deployment.md](fleet-deployment.md) for the full field list).
+
+**Client-side variables** (read by the plugin hooks on your machine, not by the server):
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TASK_ORCHESTRATOR_API_URL` | _(unset)_ | Base URL of the REST API for config-sync and the phase guard. When unset, falls back to `apiUrl` in the user-level `client.json` (written by `/task-orchestrator:init`). |
+| `TASK_ORCHESTRATOR_HOME` | _(your home directory)_ | `TASK_ORCHESTRATOR_HOME` replaces your home directory for Task Orchestrator: when it is set, the user-level `config.yaml` and `client.json` are read only from `$TASK_ORCHESTRATOR_HOME/.taskorchestrator/`, and `~/.taskorchestrator/config.yaml` is ignored unless `AGENT_CONFIG_DIR` points at it. |
+| `TASK_ORCHESTRATOR_CEILING` | _(unset)_ | `TASK_ORCHESTRATOR_CEILING` is an optional directory at which project-config discovery stops climbing — like `GIT_CEILING_DIRECTORIES`. It exists mainly so tests stay isolated; leave it unset in normal use. |
+| `TASK_ORCHESTRATOR_SETUP_HINT` | _(on)_ | Set to `off` to silence the once-per-day init hint shown at session start. |
 
 ---
 

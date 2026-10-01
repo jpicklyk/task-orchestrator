@@ -24,13 +24,15 @@ If title or type cannot be inferred with confidence, use `AskUserQuestion` with 
 
 ## Step 2 — Scan containers
 
-Resolve the project rootId first: check session context for a rootId injected by the SessionStart hook, or read `.taskorchestrator/config.yaml`'s top-level `project.rootId` (a file read, not an MCP call).
+Resolve the scope first from the SessionStart context. A `## Project Scope` section (Active project plus a `Config:` line) carries a **project rootId**: it scopes reads and anchors new root-level items. A `## Personal Scope` section (Personal root plus a `Config:` line) carries a **personal root**: it only anchors new items, and reads stay unscoped (no `ancestorId`/`anchorId` on read calls, which may show other projects' items). Without session context, read `.taskorchestrator/config.yaml`'s top-level `project.rootId` (a file read, not an MCP call), which yields a project rootId only.
 
-**If a rootId is known:**
+**If a project rootId is known:**
 ```
 query_items(operation="overview", anchorId="<rootId>", includeChildren=true)
 ```
 Category containers (Bugs, Features, Tech Debt, etc.) are expected as direct children of the project root — anchor new items there. **Exception:** `agent-observation` items always stay at global depth 0, outside any project root, regardless of whether a rootId is known — they're process-global, not project-scoped.
+
+**If a personal root is known:** the anchor-finding scan may run under it (`query_items(operation="overview", anchorId="<personal root>", includeChildren=true)`) — that finds an anchor, it does not read work. If no container there fits, create the item with `parentId=<personal root>`; never leave it at depth 0.
 
 **If no rootId is known**, fall back to an unscoped scan and the classification below (this is also the exact behavior from before project scoping existed):
 ```
@@ -84,7 +86,7 @@ Empty (no project root exists):
 
 ## Step 4 — Set type via schema discovery
 
-Read `.taskorchestrator/config.yaml` to discover available schemas (this is a file read, not an MCP call). In Docker, the config is mounted at a path controlled by the `AGENT_CONFIG_DIR` env var — read `$AGENT_CONFIG_DIR/.taskorchestrator/config.yaml` if that variable is set, otherwise use `.taskorchestrator/config.yaml` relative to the working directory.
+Read the file named by the session context's `Config:` line when there is one, otherwise `.taskorchestrator/config.yaml`, to discover available schemas (this is a file read, not an MCP call). In Docker, the config is mounted at a path controlled by the `AGENT_CONFIG_DIR` env var — read `$AGENT_CONFIG_DIR/.taskorchestrator/config.yaml` if that variable is set, otherwise use `.taskorchestrator/config.yaml` relative to the working directory.
 
 Schemas are defined under `work_item_schemas:` (preferred) or `note_schemas:` (legacy). Each schema key is a **type identifier** that activates gate enforcement when set as the item's `type` field. Tags remain available for categorization but are no longer the primary schema selector.
 
