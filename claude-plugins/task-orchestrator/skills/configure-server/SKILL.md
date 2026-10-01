@@ -1,6 +1,6 @@
 ---
 name: configure-server
-description: "Configures how the MCP Task Orchestrator SERVER runs and is reached — transport (HTTP vs STDIO), the REST API, port publishing, config mounts, and config-sync. Use when a user says: run the server, register the image, set up the Docker container, enable the REST API, set up config-sync, reconfigure the server, change transport, expose the API, reconnect to a different endpoint, or allow a hostname. NOT for first-time onboarding (that's quick-start) and NOT for note schemas / gates / traits / actor_authentication policy (that's manage-schemas) — this skill only decides how the container is launched and reached."
+description: "Configures how the MCP Task Orchestrator SERVER runs and is reached — transport (HTTP vs STDIO), the REST API, port publishing, config mounts, and config-sync. Use when a user says: run the server, register the image, set up the Docker container, enable the REST API, set up config-sync, reconfigure the server, change transport, expose the API, reconnect to a different endpoint, or allow a hostname. NOT for first-time onboarding (that's quick-start), NOT for project/personal setup (that's init), and NOT for note schemas / gates / traits / actor_authentication policy (that's manage-schemas) — this skill only decides how the container is launched and reached."
 argument-hint: "[optional: 'recommended', 'http', 'stdio', 'bearer', or a change request e.g. 'enable REST']"
 ---
 
@@ -168,8 +168,10 @@ No REST, no port, no config-sync — say so.
    TASK_ORCHESTRATOR_API_URL=http://localhost:3001
    ```
 
-   Add `TASK_ORCHESTRATOR_API_TOKEN=<token>` only when the REST API requires authentication (bearer or jwks mode). **Omitting this env var is the
-   single most common way config-sync silently no-ops** (`config-sync.mjs` returns early when `apiBaseUrl()` in
+   A persistent alternative to this env var is a `client.json` (`apiUrl` only, never a token), written after checking `/api/v1/health`. The API URL resolves in this order: the env var, then a project-level `client.json` beside the located config (or in the main checkout for a linked worktree), then the user-level `client.json`. Project-mode `/task-orchestrator:init` writes the project-level file, but only for a loopback server reached at a bare origin (the hooks ignore a project-level URL on any other host, or with a path, query or fragment); `/task-orchestrator:init --user` writes the user-level file, which is unrestricted, so a non-loopback server needs that or the env var. The token still comes from the environment only.
+
+   Add `TASK_ORCHESTRATOR_API_TOKEN=<token>` only when the REST API requires authentication (bearer or jwks mode). **Omitting this env var, with no
+   `client.json` supplying a URL either, is the single most common way config-sync silently no-ops** (`config-sync.mjs` returns early when `apiBaseUrl()` in
    `hooks/api-client.mjs` finds no URL) —
    always render it, never treat it as optional polish.
 
@@ -202,6 +204,8 @@ For any HTTP render, walk through:
 5. A 403, `host_not_allowed`, or a JSON-RPC error (code -32000) on `/mcp` means the request's `Host`
    header is not allowlisted — see `references/runtime-config.md` → "Host allowlist
    (MCP_ALLOWED_HOSTS)".
+
+Next: run `/task-orchestrator:init` in each project (or `/task-orchestrator:init --user` once for a personal root).
 
 ---
 

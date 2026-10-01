@@ -1,7 +1,13 @@
 #!/usr/bin/env node
-// SessionStart hook — syncs this workspace's .taskorchestrator/config.yaml into the
-// per-root config store over the REST API, so a shared HTTP-transport server picks up
-// this project's schemas/traits without a restart.
+// SessionStart/FileChanged hook — syncs the located .taskorchestrator/config.yaml (project scope,
+// or the user-level config in user scope — see config-locator.mjs) into the per-root config store
+// over the REST API, so a shared HTTP-transport server picks up its schemas/traits without a
+// restart. Then syncs the rules/*.md next to that config and, on SessionStart only, the plugin's
+// bundled rules (bundled-rules/, governed by bundled-rules/manifest.json).
+//
+// All requests share ONE deadline measured from hook start (SESSION_START_BUDGET_MS /
+// FILE_CHANGED_BUDGET_MS, kept below the hooks-config.json timeouts); each request's own timeout is
+// min(PER_REQUEST_TIMEOUT_MS, time remaining), and no request is sent once the deadline has passed.
 //
 // Fail-open by design: ANY error, missing env, or unreachable API results in exit 0 with
 // (at most) a one-line note — it must never block session start. It no-ops entirely for
@@ -9,7 +15,8 @@
 // workspace directly.
 //
 // Requires (all optional — absent = no-op):
-//   TASK_ORCHESTRATOR_API_URL    base URL of the REST API, e.g. http://localhost:3001
+//   TASK_ORCHESTRATOR_API_URL    base URL of the REST API, e.g. http://localhost:3001 (falls back
+//                                to apiUrl in a project-level, then the user-level client.json — see api-client.mjs)
 //   TASK_ORCHESTRATOR_API_TOKEN  bearer token with the WRITE_CONFIG capability, scoped to this root.
 //                                Optional: an unauthenticated server (API_AUTH_MODE=none +
 //                                API_ALLOW_UNAUTHENTICATED=true) needs no token at all — when
@@ -21,6 +28,7 @@ import { fileURLToPath } from 'url';
 import { createHash } from 'crypto';
 import { readSection, scalar } from './yaml-lite.mjs';
 import { apiBaseUrl, authHeader as buildAuthHeader, fetchWithTimeout } from './api-client.mjs';
+import { locateConfig, isValidRootId } from './config-locator.mjs';
 
 // Mirrors RuleService.KEY_PATTERN (current/.../application/service/RuleService.kt) exactly — a rule
 // key must match this server-side grammar or the PUT would be rejected anyway; validated client-side
@@ -31,28 +39,66 @@ const RULE_KEY_PATTERN = /^[a-z0-9][a-z0-9._-]{0,99}$/;
 // oversized rule body is never sent at all.
 const MAX_RULE_BODY_BYTES = 16384;
 
-/** Locate .taskorchestrator/config.yaml (AGENT_CONFIG_DIR, then walk up from cwd) and return its path + RAW bytes. */
-function findConfigBytes() {
-  const candidates = [];
-  if (process.env.AGENT_CONFIG_DIR) {
-    candidates.push(resolve(process.env.AGENT_CONFIG_DIR, '.taskorchestrator', 'config.yaml'));
+// Shared deadline budgets (ms from hook start). hooks-config.json kills the hook at 10s / 5s.
+const SESSION_START_BUDGET_MS = 8000;
+const FILE_CHANGED_BUDGET_MS = 3500;
+const PER_REQUEST_TIMEOUT_MS = 2000;
+
+// Plugin-shipped rule bodies + manifest.json ({key: [hash, ...]}, oldest first, current last).
+const BUNDLED_RULES_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'bundled-rules');
+
+/** Rejection for a request that was never sent because the shared deadline had already passed. */
+class DeadlineExpired extends Error {
+  constructor() {
+    super('deadline expired');
+    this.name = 'DeadlineExpired';
   }
-  let dir = process.cwd();
-  const fsRoot = resolve(dir, '/');
-  while (dir !== fsRoot) {
-    candidates.push(resolve(dir, '.taskorchestrator', 'config.yaml'));
-    dir = resolve(dir, '..');
-  }
-  for (const candidate of candidates) {
-    try {
-      // Buffer — hash and PUT the SAME bytes so the fingerprint matches the server's
-      const bytes = readFileSync(candidate);
-      return { path: candidate, bytes };
-    } catch {
-      continue;
-    }
-  }
-  return null;
+}
+
+/**
+ * The shared deadline. `fetch` uses timeout = min(PER_REQUEST_TIMEOUT_MS, remaining) and rejects
+ * with DeadlineExpired, without sending, when remaining <= 0. A request is deadline-capped when
+ * remaining <= PER_REQUEST_TIMEOUT_MS at SEND time; that is decided once, at send, never from the
+ * clock when an error is caught. `isDeadlineError(err)` is true for the not-sent rejection and for
+ * an AbortError raised by a deadline-capped request (in `fetch` or in `json` on its response).
+ * `json(res)` reads the body (bounded by the same timer, see fetchWithTimeout).
+ */
+export function makeDeadline(budgetMs, startedAt, { now = Date.now, fetchImpl = fetchWithTimeout } = {}) {
+  const remaining = () => budgetMs - (now() - startedAt);
+  const deadlineErrors = new WeakSet();
+  const cappedResponses = new WeakSet();
+  const mark = (err) => {
+    if (err && typeof err === 'object' && err.name === 'AbortError') deadlineErrors.add(err);
+  };
+  return {
+    remaining,
+    async fetch(url, opts) {
+      const rem = remaining();
+      if (rem <= 0) throw new DeadlineExpired();
+      const capped = rem <= PER_REQUEST_TIMEOUT_MS;
+      let res;
+      try {
+        res = await fetchImpl(url, opts, Math.min(PER_REQUEST_TIMEOUT_MS, rem));
+      } catch (err) {
+        if (capped) mark(err);
+        throw err;
+      }
+      if (capped && res && typeof res === 'object') cappedResponses.add(res);
+      return res;
+    },
+    async json(res) {
+      try {
+        return await res.json();
+      } catch (err) {
+        if (res && typeof res === 'object' && cappedResponses.has(res)) mark(err);
+        throw err;
+      }
+    },
+    isDeadlineError(err) {
+      if (err instanceof DeadlineExpired) return true;
+      return !!err && typeof err === 'object' && deadlineErrors.has(err);
+    },
+  };
 }
 
 /**
@@ -74,11 +120,12 @@ export function configFingerprint(buf) {
   return createHash('sha256').update(normalizeForFingerprint(buf)).digest('hex');
 }
 
-/** Extract project.rootId from the config text (mirrors session-start.mjs's parser). */
+/** Extract project.rootId from the config text; null when absent or not a plain token (isValidRootId). */
 export function parseRootId(text) {
   const section = readSection(text, 'project', { blockOnly: true });
   if (!section) return null;
-  return scalar(section.lines, 'rootId');
+  const id = scalar(section.lines, 'rootId');
+  return isValidRootId(id) ? id : null;
 }
 
 /**
@@ -186,11 +233,84 @@ export function planRuleSync(localRules, serverVersions) {
 }
 
 /**
+ * Pure push policy for the plugin's bundled rules. `bundled` is `[{key, bytes}]` (bytes already
+ * normalized), `manifest` is `{key: [hash, ...]}` (every hash this plugin has shipped for the key),
+ * `serverVersions` a `Map<key, rulesVersion>`, `workspaceKeys` a `Set` of the keys the workspace's
+ * own rules/ dir provides. Per bundled key:
+ * - in workspaceKeys -> omitted from every list (the workspace rule wins; planRuleSync handles it);
+ * - absent from serverVersions -> push, reason 'absent';
+ * - server hash == sha256(bytes) -> inSync;
+ * - server hash is a non-current hash listed in manifest[key] (an older version this plugin
+ *   shipped) -> push, reason 'known-old';
+ * - anything else (unknown hash, null, empty string, non-string) -> untouched, never pushed.
+ *
+ * Returns `{ toPush: [{key, bytes, reason}], inSync: [key], untouched: [key] }`.
+ */
+export function planBundledSync({ bundled, manifest, serverVersions, workspaceKeys }) {
+  const toPush = [];
+  const inSync = [];
+  const untouched = [];
+  for (const rule of bundled) {
+    if (workspaceKeys.has(rule.key)) continue;
+    if (!serverVersions.has(rule.key)) {
+      toPush.push({ key: rule.key, bytes: rule.bytes, reason: 'absent' });
+      continue;
+    }
+    const serverHash = serverVersions.get(rule.key);
+    const current = createHash('sha256').update(rule.bytes).digest('hex');
+    const shipped = Array.isArray(manifest?.[rule.key]) ? manifest[rule.key] : [];
+    if (serverHash === current) {
+      inSync.push(rule.key);
+    } else if (typeof serverHash === 'string' && serverHash !== '' && shipped.includes(serverHash)) {
+      toPush.push({ key: rule.key, bytes: rule.bytes, reason: 'known-old' });
+    } else {
+      untouched.push(rule.key);
+    }
+  }
+  return { toPush, inSync, untouched };
+}
+
+/**
+ * Reads bundled-rules/manifest.json and the `<key>.md` body for each manifest key (normalized).
+ * Fail-open: an unreadable or invalid manifest yields no bundled rules; a key whose body cannot be
+ * read is dropped.
+ */
+function loadBundledRules(dir = BUNDLED_RULES_DIR) {
+  const empty = { bundled: [], manifest: {} };
+  let manifest;
+  try {
+    manifest = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf-8'));
+  } catch {
+    return empty;
+  }
+  if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) return empty;
+  const bundled = [];
+  for (const key of Object.keys(manifest)) {
+    if (!isValidRuleKey(key)) continue;
+    try {
+      bundled.push({ key, bytes: normalizeForFingerprint(readFileSync(join(dir, `${key}.md`))) });
+    } catch {
+      // body missing — skip this key
+    }
+  }
+  return { bundled, manifest };
+}
+
+/**
  * Renders the rule-sync outcome into the text that follows `Rules: ` in the emitted line (see
  * rule 6 in the spec). `pushedKeys` and `failed`/`skipped` are listed in the order they were
- * processed (the same order `listRuleFiles`/`planRuleSync` produced, i.e. directory order).
+ * processed (the PUT queue order). Optional `deferredCount` (default 0) counts PUTs not sent, or
+ * aborted, because the shared deadline expired; when > 0 it adds `N deferred to next session`.
  */
-export function formatRuleSyncSummary({ pushedKeys, unchangedCount, skipped, failed }) {
+export function formatRuleSyncSummary({
+  pushedKeys,
+  unchangedCount,
+  skipped,
+  failed,
+  deferredCount = 0,
+  untouchedKeys = [],
+  bundledListingUnusable = false,
+}) {
   const base =
     pushedKeys.length > 0
       ? `pushed ${pushedKeys.length} (${pushedKeys.join(', ')}); ${unchangedCount} in sync.`
@@ -202,88 +322,141 @@ export function formatRuleSyncSummary({ pushedKeys, unchangedCount, skipped, fai
   if (failed.length > 0) {
     clauses.push(`failed: ${failed.map((f) => `${f.key} (${f.reason})`).join(', ')}`);
   }
+  if (untouchedKeys.length > 0) {
+    clauses.push(`kept unrecognized server copy: ${untouchedKeys.join(', ')}`);
+  }
+  if (bundledListingUnusable) {
+    clauses.push('bundled rules skipped (unusable rules listing)');
+  }
+  if (deferredCount > 0) {
+    clauses.push(`${deferredCount} deferred to next session`);
+  }
   return clauses.join('; ');
 }
 
 /**
- * Syncs `.taskorchestrator/rules/*.md` into the per-root rule store. Returns `null` when there is
- * no `rules/` dir or it holds no `.md` files (silent no-op — the caller then emits the config line
- * unchanged, byte-identical to before this feature existed). Otherwise returns the rule-sync
- * summary text that follows `Rules: ` in the combined line.
+ * Syncs the `rules/*.md` next to the located config and, when `includeBundled` (SessionStart), the
+ * plugin's bundled rules into the per-root rule store. Returns `null` when there is nothing to
+ * consider (no workspace rule files and no bundled sync) — the caller then emits the config line
+ * unchanged. Otherwise returns the summary text that follows `Rules: `.
  *
- * Any thrown error (a network failure on the GET, or on any PUT that isn't individually caught)
- * propagates to the caller, which renders it as a fail-open "sync failed" summary — this function
- * does not itself guarantee fail-open; `main` provides that guarantee at the call site.
+ * PUT queue order: every `protocol.`-prefixed key first, then the remaining workspace keys, then
+ * the remaining bundled keys. PUTs are sequential. A PUT not sent, or aborted, because the shared
+ * deadline expired counts as deferred; any other PUT failure is reported under `failed`.
+ *
+ * A thrown error from the GET listing (other than the deadline) propagates to the caller, which
+ * renders it as a fail-open "sync failed" summary — `main` provides the fail-open guarantee.
  */
-async function syncRules({ rulesDir, base, rootId, auth }) {
+async function syncRules({ rulesDir, base, rootId, auth, deadline, includeBundled, rootConfirmed = false }) {
   const ruleFiles = listRuleFiles(rulesDir);
-  if (ruleFiles.length === 0) return null;
+  const loaded = includeBundled ? loadBundledRules() : { bundled: [], manifest: {} };
+  let { bundled } = loaded;
+  const { manifest } = loaded;
+  if (ruleFiles.length === 0 && bundled.length === 0) return null;
 
   const localRules = ruleFiles.map(({ key, filePath }) => ({
     key,
     bytes: normalizeForFingerprint(readFileSync(filePath)),
   }));
 
-  const listRes = await fetchWithTimeout(`${base}/api/v1/roots/${rootId}/rules`, { headers: auth });
+  let listRes;
+  try {
+    listRes = await deadline.fetch(`${base}/api/v1/roots/${rootId}/rules`, { headers: auth });
+  } catch (err) {
+    if (deadline.isDeadlineError(err)) return 'sync deferred to next session';
+    throw err;
+  }
+  if (listRes.status === 404) {
+    if (!rootConfirmed) return `root ${rootId} not found on this server`;
+    // The root exists (config GET/PUT just confirmed it), so the missing route means an older
+    // server with no rules API: say nothing unless workspace rules could not be synced.
+    return ruleFiles.length > 0 ? 'not synced — this server has no rules API.' : null;
+  }
   if (listRes.status !== 200) {
     return `sync skipped — GET rules returned HTTP ${listRes.status}`;
   }
-  let serverRules;
+  let serverRules = [];
+  let bundledListingUnusable = false;
   try {
-    const body = await listRes.json();
-    serverRules = Array.isArray(body?.rules) ? body.rules : [];
-  } catch {
-    serverRules = []; // unparseable body — degrade like an empty listing, every rule looks new
+    const body = await deadline.json(listRes);
+    if (body && typeof body === 'object' && Array.isArray(body.rules)) {
+      serverRules = body.rules.filter((rule) => rule && typeof rule === 'object' && typeof rule.key === 'string');
+    } else {
+      bundledListingUnusable = true;
+    }
+  } catch (err) {
+    if (deadline.isDeadlineError(err)) return 'sync deferred to next session';
+    bundledListingUnusable = true; // unparseable body — never guess which bundled keys are absent
   }
+  if (bundledListingUnusable) bundled = [];
   const serverVersions = new Map(serverRules.map((rule) => [rule.key, rule.rulesVersion]));
 
   const plan = planRuleSync(localRules, serverVersions);
+  const bundledPlan = planBundledSync({
+    bundled,
+    manifest,
+    serverVersions,
+    workspaceKeys: new Set(localRules.map((rule) => rule.key)),
+  });
+
+  const isProtocol = (rule) => rule.key.startsWith('protocol.');
+  const candidates = [...plan.toPush, ...bundledPlan.toPush];
+  const queue = [...candidates.filter(isProtocol), ...candidates.filter((rule) => !isProtocol(rule))];
 
   const pushed = [];
   const failed = [];
-  if (plan.toPush.length > 0) {
-    // Pushed sequentially (not Promise.all) — parallel PUTs against the same root race the
-    // server's SQLite writer and surface as SQLITE_BUSY_SNAPSHOT 500s (see diagnosis on
-    // item 1a400d81). One rule at a time keeps this hook converging in a single run.
-    for (const rule of plan.toPush) {
-      const putUrl = `${base}/api/v1/roots/${rootId}/plans/${encodeURIComponent(`rule/${rule.key}`)}`;
-      let result;
-      try {
-        const res = await fetchWithTimeout(putUrl, {
-          method: 'PUT',
-          headers: { ...auth, 'Content-Type': 'text/markdown; charset=utf-8' },
-          body: rule.bytes,
-        });
-        result = res.status === 200
-          ? { key: rule.key, ok: true }
-          : { key: rule.key, ok: false, reason: `HTTP ${res.status}` };
-      } catch (err) {
-        result = { key: rule.key, ok: false, reason: err?.message ?? String(err) };
-      }
-      if (result.ok) pushed.push(result.key);
-      else failed.push({ key: result.key, reason: result.reason });
+  let deferredCount = 0;
+  // Pushed sequentially (not Promise.all) — parallel PUTs against the same root race the
+  // server's SQLite writer and surface as SQLITE_BUSY_SNAPSHOT 500s (see diagnosis on
+  // item 1a400d81). One rule at a time keeps this hook converging in a single run.
+  for (const rule of queue) {
+    const putUrl = `${base}/api/v1/roots/${rootId}/plans/${encodeURIComponent(`rule/${rule.key}`)}`;
+    try {
+      const res = await deadline.fetch(putUrl, {
+        method: 'PUT',
+        headers: { ...auth, 'Content-Type': 'text/markdown; charset=utf-8' },
+        body: rule.bytes,
+      });
+      if (res.status === 200) pushed.push(rule.key);
+      else failed.push({ key: rule.key, reason: `HTTP ${res.status}` });
+    } catch (err) {
+      if (deadline.isDeadlineError(err)) deferredCount += 1;
+      else failed.push({ key: rule.key, reason: err?.message ?? String(err) });
     }
   }
 
-  return formatRuleSyncSummary({ pushedKeys: pushed, unchangedCount: plan.unchangedCount, skipped: plan.skipped, failed });
+  return formatRuleSyncSummary({
+    pushedKeys: pushed,
+    unchangedCount: plan.unchangedCount + bundledPlan.inSync.length,
+    skipped: plan.skipped,
+    failed,
+    deferredCount,
+    untouchedKeys: bundledPlan.untouched,
+    bundledListingUnusable,
+  });
 }
 
 async function main() {
+  const startedAt = Date.now();
   if (typeof fetch !== 'function') return; // node < 18 — no global fetch; nothing we can do, stay silent
 
   // FileChanged fires for every watched path, not just ours. Only config.yaml's own change
   // should trigger a push — a FileChanged event for some other watched file is a silent no-op.
   // SessionStart invocations (and any unreadable/unparseable stdin) fall through unchanged.
   const hookInput = readHookInput();
-  if (hookInput?.hook_event_name === 'FileChanged' && !isTargetConfigPath(hookInput.file_path)) {
+  const isFileChanged = hookInput?.hook_event_name === 'FileChanged';
+  if (isFileChanged && !isTargetConfigPath(hookInput.file_path)) {
     return;
   }
+  const deadline = makeDeadline(isFileChanged ? FILE_CHANGED_BUDGET_MS : SESSION_START_BUDGET_MS, startedAt);
 
-  const found = findConfigBytes();
-  if (!found) return; // no config file → nothing to sync
+  const found = locateConfig();
+  if (found.scope === 'none') return; // no config file → nothing to sync
   const { path: configPath, bytes } = found;
-  const rootId = parseRootId(bytes.toString('utf-8'));
+  const rootId = found.rootId;
   if (!rootId) return; // not project-scoped → nothing to sync
+  // Project-scope wording is unchanged; a user-level config is named "user config" instead.
+  const configNoun = found.scope === 'user' ? 'user config' : 'project config';
 
   const base = apiBaseUrl();
   if (!base) return; // stdio/local: the global config file already serves this workspace
@@ -295,8 +468,8 @@ async function main() {
   const endpoint = `${base}/api/v1/roots/${rootId}/config`;
   const auth = buildAuthHeader();
 
-  // rules/ sits next to the config.yaml actually found — not cwd (AGENT_CONFIG_DIR or a
-  // cwd-walk ancestor may differ from cwd).
+  // rules/ sits next to the config.yaml actually found — not cwd (AGENT_CONFIG_DIR, a cwd-walk
+  // ancestor, the main checkout, or the user-level dir may differ from cwd).
   const rulesDir = join(dirname(configPath), 'rules');
 
   // configLine is set by whichever branch below decides the config-sync outcome; the rules step
@@ -308,15 +481,17 @@ async function main() {
   // 1) Read the server's current fingerprint — and, via ?fingerprint=, how our local fingerprint
   //    relates to its history (fast-forward guard) — to decide whether a push is needed.
   let currentEtag = null;
+  let rootConfirmed = false; // the server has this root (config GET 200, or config PUT 200/412)
   try {
-    const res = await fetchWithTimeout(`${endpoint}?fingerprint=${localFingerprint}`, { headers: auth });
+    const res = await deadline.fetch(`${endpoint}?fingerprint=${localFingerprint}`, { headers: auth });
     if (res.status === 200) {
+      rootConfirmed = true;
       currentEtag = res.headers.get('etag');
 
       let relation;
       let updatedAt;
       try {
-        const body = await res.json();
+        const body = await deadline.json(res);
         relation = body?.relation;
         updatedAt = body?.updatedAt;
       } catch {
@@ -329,17 +504,18 @@ async function main() {
         // predates this field (see the `else if` branch).
         const decision = decideSyncAction(relation, updatedAt);
         if (decision.action === 'already-in-sync') {
-          configLine = `Task Orchestrator: project config already in sync for root ${rootId}.`;
+          configLine = `Task Orchestrator: ${configNoun} already in sync for root ${rootId}.`;
         } else if (decision.action === 'skip-superseded') {
+          const where = found.scope === 'user' ? 'user-level config.yaml' : "checkout's config.yaml";
           configLine =
-            `Task Orchestrator: config sync skipped — your checkout's config.yaml is older than the ` +
+            `Task Orchestrator: config sync skipped — your ${where} is older than the ` +
             `server's (updated ${decision.updatedAt ?? 'unknown'}); pull or copy back before editing.`;
         }
         // decision.action === 'push' ('unknown' relation) — configLine stays unset, fall through to step 2.
       } else if (currentEtag && currentEtag === localEtag) {
         // Degrade path: an older server with no `relation` field at all — fall back to the
         // client-side etag compare instead of blocking on an ambiguous relation.
-        configLine = `Task Orchestrator: project config already in sync for root ${rootId}.`;
+        configLine = `Task Orchestrator: ${configNoun} already in sync for root ${rootId}.`;
       }
     } else if (res.status === 404) {
       currentEtag = null; // no row yet — first push is a create
@@ -358,16 +534,17 @@ async function main() {
     try {
       const headers = { ...auth, 'Content-Type': 'application/yaml' };
       if (currentEtag) headers['If-Match'] = currentEtag;
-      const res = await fetchWithTimeout(endpoint, { method: 'PUT', headers, body: bytes });
+      const res = await deadline.fetch(endpoint, { method: 'PUT', headers, body: bytes });
+      if (res.status === 200 || res.status === 412) rootConfirmed = true;
       if (res.status === 200) {
         let schemaWarnings;
         try {
-          const body = await res.json();
+          const body = await deadline.json(res);
           schemaWarnings = body?.schemaWarnings;
         } catch {
           schemaWarnings = undefined; // unparseable body — degrade like no warnings reported
         }
-        const syncedLine = `Task Orchestrator: synced project config to root ${rootId} — per-project schemas/traits are now live.`;
+        const syncedLine = `Task Orchestrator: synced ${configNoun} to root ${rootId} — per-project schemas/traits are now live.`;
         configLine =
           Array.isArray(schemaWarnings) && schemaWarnings.length > 0
             ? `${syncedLine} WARNINGS: ${schemaWarnings.join(' | ')}`
@@ -382,12 +559,13 @@ async function main() {
     }
   }
 
-  // 3) Push this workspace's git-tracked rule files (.taskorchestrator/rules/*.md) into the
-  //    per-root rule store. Fail-open: any exception here is swallowed into a "sync failed" line
-  //    rather than affecting the config line above or the process exit code.
+  // 3) Push the git-tracked rule files (rules/*.md next to the config) and, on SessionStart only,
+  //    the plugin's bundled rules into the per-root rule store. Fail-open: any exception here is
+  //    swallowed into a "sync failed" line rather than affecting the config line above or the
+  //    process exit code.
   let rulesSummary;
   try {
-    rulesSummary = await syncRules({ rulesDir, base, rootId, auth });
+    rulesSummary = await syncRules({ rulesDir, base, rootId, auth, deadline, includeBundled: !isFileChanged, rootConfirmed });
   } catch (err) {
     rulesSummary = `sync failed — ${err?.message ?? err}`;
   }

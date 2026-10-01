@@ -13,3 +13,5 @@ current/src/test/resources/golden/** text eol=lf
 # Rule text is served byte-for-byte and hashed into rulesVersion (A3): pin LF so a Windows
 # checkout (core.autocrlf=true) cannot change the stashed body or its content hash.
 .taskorchestrator/rules/*.md text eol=lf
+# Bundled copies the config-sync hook pushes; their hashes are listed in bundled-rules/manifest.json.
+claude-plugins/task-orchestrator/bundled-rules/*.md text eol=lf

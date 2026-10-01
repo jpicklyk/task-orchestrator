@@ -28,10 +28,12 @@ Parse `$ARGUMENTS`:
   Absent → run both discovery queries.
 - Neither → full discovery, both scopes.
 
-Read the workspace `.taskorchestrator/config.yaml` directly (file read, not MCP) for:
+Read the config file directly (file read, not MCP) — the path on the SessionStart context's `Config:` line when there is one, otherwise the workspace `.taskorchestrator/config.yaml`. In personal scope that path is the user-level file; below, "the config file" means whichever file you read here. Read it for:
 
 - `project.rootId` / `project.name` — enables the project-scoped discovery query and per-root push
-  in Step 5. If absent, project-scoped discovery and project-scoped acceptance are unavailable —
+  in Step 5. In personal scope the root is the anchor-only personal root: skip the project-scoped
+  discovery query (proposals live in the global container) but a project-scoped acceptance still edits
+  and pushes the user-level file with rootId = the personal root. If absent, project-scoped discovery and project-scoped acceptance are unavailable —
   proceed with global-only discovery.
 - `retrospective.github_feedback.enabled` — default `false` if the block or key is absent.
 - `retrospective.github_feedback.repo` — default `jpicklyk/task-orchestrator` if absent.
@@ -164,7 +166,7 @@ If the user picks Reject or Defer, either take a one-line reason from their foll
    edit this workspace's config. Instead, upsert `adoption-decision` recording that the change must
    be applied from the owning workspace, and treat the item as **deferred** (leave it in queue) —
    do not advance it.
-3. Otherwise, **Edit** the workspace `.taskorchestrator/config.yaml` to apply the change.
+3. Otherwise, **Edit** the config file read above (the workspace `.taskorchestrator/config.yaml`, or the user-level file in personal scope) to apply the change.
 4. **Validate** before pushing — same bar as `manage-schemas`' config-format rules (see
    `<skill-base-dir>/../manage-schemas/references/config-format.md`):
    - File still parses as valid YAML.
@@ -183,7 +185,7 @@ If the user picks Reject or Defer, either take a one-line reason from their foll
      itemId: "<uuid>",
      key: "adoption-decision",
      role: "work",
-     body: "accepted — <rationale>. Applied to .taskorchestrator/config.yaml (<section>), pushed per-root <rootId> on <YYYY-MM-DD>."
+     body: "accepted — <rationale>. Applied to <config file actually edited> (<section>), pushed per-root <rootId> on <YYYY-MM-DD>."
    }])
    ```
 7. Advance with `start` twice — queue→work, then work→review:

@@ -6,7 +6,7 @@ user-invocable: false
 
 # Post-Plan Workflow — Materialize and Implement
 
-Plan approval is the green light for the full pipeline. Proceed through all three phases without stopping.
+Plan approval is the green light for the full pipeline. Proceed through all three phases without stopping; the one expected stop is the turn that ends when a run-wave Method A launch hands control to the async notification (see Phase 2, Route).
 
 ## Phase 1: Materialize
 
@@ -27,6 +27,21 @@ Complete materialization **before** any implementation begins.
 Do NOT dispatch implementation agents until materialization is complete. Agents need MCP item UUIDs to self-report progress.
 
 ## Phase 2: Implement
+
+### Route: run-wave or hand-dispatch
+
+Hand off to `/task-orchestrator:run-wave` only when ALL four conditions hold; each is a concrete probe:
+
+1. **Two or more unblocked leaf items.** At least two leaf items (no children) were materialized and are unblocked: they are absent from `get_blocked_items(ancestorId=<materialized root>)`.
+2. **A rootId resolves** (project or personal), in the order run-wave Step 1 uses: session context (`Active project:` or `Personal root:` line), else `project.rootId` from the file on that context's `Config:` line, else `.taskorchestrator/config.yaml`.
+3. **Queue notes are filled.** Each of those leaves has its required queue notes filled (`get_context(itemId)` shows no missing queue notes) or is schema-free (the response has no `noteSchema`).
+4. **Protocol rules are served.** `query_rules(operation="list", rootId)` lists `protocol.entry-seat`, `protocol.in-phase-seat` and `protocol.read-only-agent`. A seed made earlier this session (by init or the run-wave F3 repair) shows up in this list.
+
+If all four hold, invoke `/task-orchestrator:run-wave <materialized root id>` and follow it. Plan approval counts as run-wave's Checkpoint 1. When a degradation forces a human look (`meta.excluded` or `meta.degradations` non-empty, or an empty run), show the `explain` table and end the turn; never use `AskUserQuestion`. A Method A launch ending the turn is expected. run-wave's post-run replaces Phase 3 below, which then applies only to the hand-dispatch path.
+
+If any condition fails, hand-dispatch as described below and add one line naming the failed condition(s); for conditions 2 and 4, point at `/task-orchestrator:init`.
+
+### Hand-dispatch
 
 Dispatch subagents to execute the plan:
 

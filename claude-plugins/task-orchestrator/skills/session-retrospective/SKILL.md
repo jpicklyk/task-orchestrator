@@ -34,7 +34,7 @@ A supplied root UUID is the **authoritative scope** — this covers dispatched m
 
 **If no root item ID provided:**
 
-Check for a known project root: session context injected by the SessionStart hook, or a `project.rootId` entry in `.taskorchestrator/config.yaml`.
+Check for a known project root: the `## Project Scope` section of the session context injected by the SessionStart hook, or a `project.rootId` entry in the project-level `.taskorchestrator/config.yaml`. A personal root (`## Personal Scope`, or the user-level config) is not a project root and takes the unscoped branch below.
 
 **If a project rootId is known**, scope both fallback calls to that subtree so concurrent runs in other projects sharing the same DB aren't conflated into this retrospective:
 
@@ -43,7 +43,7 @@ get_context(ancestorId="<rootId>") — active, blocked, stalled items within the
 query_items(operation="search", role="terminal", sortBy="modifiedAt", sortOrder="desc", limit=20, modifiedAfter="<ISO now − 24h>", ancestorId="<rootId>")
 ```
 
-**If no project rootId is configured**, fall back to the prior global behavior (unchanged):
+**If no project rootId is configured (including personal scope)**, fall back to the prior global behavior (unchanged):
 
 ```
 get_context() — active, blocked, stalled items

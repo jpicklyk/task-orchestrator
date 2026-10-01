@@ -8,8 +8,20 @@ YAML format and field rules for `.taskorchestrator/config.yaml`.
 
 - Path: `.taskorchestrator/config.yaml` in the project root (alongside `.claude/`, `.git/`, etc.)
 - Create the directory if it doesn't exist: `.taskorchestrator/`
-- This file is typically gitignored (runtime/project config, not source code)
+- Commit this file (`/task-orchestrator:init` advises it); keep `.taskorchestrator/client.json`, which holds a machine-specific URL, out of git
 - The server reads and caches this file on first schema access — changes require MCP reconnect (`/mcp`)
+
+### Config discovery (plugin hooks and skills)
+
+The plugin hooks locate the config in this order: (1) `AGENT_CONFIG_DIR` (a relative value resolves against the hook's working directory), (2) walking up from the working directory, (3) the main checkout of a linked git worktree (a bare repository's worktrees skip this step), (4) the user-level `<home>/.taskorchestrator/config.yaml`. Any hit equal to the user-level path is user scope, whichever step finds it (including `AGENT_CONFIG_DIR` set to the home directory); every other hit is project scope. A config sitting directly in a home directory is never a walk-up or main-checkout hit.
+
+The REST `apiUrl` (never a token) resolves in this order: `TASK_ORCHESTRATOR_API_URL`, then `apiUrl` in a `client.json` beside the located config when its scope is project, then `apiUrl` in the user-level `client.json`; if none resolves the hooks no-op. The project-level file is written by project-mode `/task-orchestrator:init` and is honoured only as a bare loopback origin: an `http`/`https` URL without credentials whose host is `localhost`, an IPv4 address in `127.0.0.0/8` or `[::1]`, with an optional port and no path, query or fragment (a repo file must not redirect the bearer token to a remote host or choose the request path); any other value is ignored silently. A server behind a path prefix needs `TASK_ORCHESTRATOR_API_URL` or the user-level file. The user-level file, written by `init --user`, and the env var are unrestricted. In a linked worktree, when the `client.json` beside the worktree's own config yields no usable loopback URL, the hooks also read `.taskorchestrator/client.json` in the main checkout, under the same loopback rule. `AGENT_CONFIG_DIR` pins both files to the directory it names. The project-level `client.json` assumes a single-user machine: any directory above the working directory that holds a `config.yaml` and a `client.json` can point the hooks, with the bearer token, at a loopback port. On a shared host, set `TASK_ORCHESTRATOR_API_URL`, which wins over every file, and do not work under a directory another user can write.
+
+`TASK_ORCHESTRATOR_HOME` replaces your home directory for Task Orchestrator: when it is set, the user-level `config.yaml` and `client.json` are read only from `$TASK_ORCHESTRATOR_HOME/.taskorchestrator/`, and `~/.taskorchestrator/config.yaml` is ignored unless `AGENT_CONFIG_DIR` points at it.
+
+`TASK_ORCHESTRATOR_CEILING` is an optional directory at which project-config discovery stops climbing — like `GIT_CEILING_DIRECTORIES`. It exists mainly so tests stay isolated; leave it unset in normal use.
+
+Because the user-level file applies in every directory that has no project config of its own, `actor_attribution`, `actor_authentication` and skill notes placed there take effect everywhere that is unconfigured.
 
 ---
 
@@ -176,6 +188,24 @@ change.
   the hook's output line instead of being sent. Like the config sync itself, the rule sync is
   fail-open — a `rules/` dir that's absent, or any error talking to the API, degrades to a no-op
   or a one-line note rather than blocking session start.
+- **Bundled rules.** On SessionStart only (not on FileChanged) the hook also syncs the plugin's
+  bundled rule keys (`protocol.entry-seat`, `protocol.in-phase-seat`, `protocol.read-only-agent`,
+  `commit-discipline`, `review-scoping`), protocol keys first. `bundled-rules/manifest.json` is an
+  append-only list of known body hashes per key, and the push policy follows it: a key absent from the
+  server is pushed; a server copy matching a known older hash is overwritten with the current body; a
+  server copy matching no known hash is never touched. A same-named file in the workspace's
+  `.taskorchestrator/rules/` wins the key over the bundled copy. In user scope the pushed config is
+  reported as "user config".
+- **Shared deadline.** Config and rule requests share one budget measured from hook start (about 8 s on
+  SessionStart, about 3.5 s on FileChanged). Work not finished in time is reported as
+  `<N> deferred to next session`; an in-flight request aborted by the deadline counts as deferred, not
+  failed.
+- **Notice wordings.** `kept unrecognized server copy: <key>` appears at every session start for a
+  server rule that was customized on purpose; to make it stop, put that rule in the workspace's
+  `.taskorchestrator/rules/` so the workspace copy owns the key. `bundled rules skipped (unusable rules
+  listing)` means the server's rules listing could not be read. `root <id> not found on this server`
+  means the root was never created there, whereas `not synced — this server has no rules API.` means
+  the server predates the rules routes.
 
 ---
 
@@ -957,15 +987,16 @@ Default: absent — a workspace with no `project:` block is unscoped.
 
 | Field | Required | Type | Notes |
 |-------|----------|------|-------|
-| `rootId` | yes | string (UUID) | UUID of the depth-0 item tagged `type: "project"` that anchors this repo's work |
+| `rootId` | yes | string (UUID) | UUID of the depth-0 item tagged `type: "project"` that anchors this repo's work. The hooks use it only when it is 1 to 64 letters, digits or hyphens and does not start with a hyphen (a UUID qualifies); any other value is treated as if no `rootId` were set |
 | `name` | no | string | Human-readable project name shown in dashboards and skill output |
 
 ### Behavior
 
 - **Ignored by the global config loader, but honored per-root.** The global/fallback loader (the one that reads `AGENT_CONFIG_DIR`'s `config.yaml` at startup) ignores this block. But when the full config text is pushed per-root via `manage_project_config`, the `project:` block IS honored server-side: the embedded `project.rootId` is checked as a mismatch guard against the target `rootId` (bypass with `force`), and `project` is never listed in a push response's `ignoredSections`. Locally, it's also read by Claude Code: the SessionStart hook and plugin skills use it to scope their output to `rootId`.
-- **Created by** the `quick-start` bootstrap flow or `/adopt-project-scope` when the user opts into anchoring session context to a single project root item.
+- **Created by** `/task-orchestrator:init` or `/adopt-project-scope` when the user opts into anchoring session context to a single project root item.
+- **Personal root.** `/task-orchestrator:init --user` writes a `project:` block into the user-level file whose root is a `type: project` item tagged `personal-root`. It is anchor-only: new items are parented under it, but reads stay unscoped (no `ancestorId`/`anchorId`), so the dashboard may show other projects' items.
 - **Opt-in convention.** Scoping is not enforced — its absence just means skills operate without a default root anchor, falling back to unscoped behavior.
-- The same scoping is pushed server-side via `manage_project_config` so it's visible beyond this local config file; see the project-scoping integration docs for the full push mechanism. In practice this push is triggered automatically by `manage-schemas`' write-operation report step (Step 4) and by `quick-start`'s bootstrap step (Step 1.5) whenever a `project.rootId` is present — both push the full config file text, not just this block.
+- The same scoping is pushed server-side via `manage_project_config` so it's visible beyond this local config file; see the project-scoping integration docs for the full push mechanism. In practice this push is triggered automatically by `init` (P5 for a project, U3 for a personal root) and by `manage-schemas`' write-operation report step (Step 4) whenever a `project.rootId` is present — both push the full config file text, not just this block.
 
 **Example:**
 
@@ -1117,7 +1148,7 @@ SessionStart and again mid-session whenever the file changes, via the SessionSta
 schemas beats a global exact-type match, even though in practice the global floor only defines
 process schemas this project's config doesn't redeclare.
 
-**Precedence — the workspace file is canonical; the per-root DB row is a synced replica.** The `config-sync.mjs` hook (fired at SessionStart, and again mid-session on a `FileChanged` event for the watched config.yaml — plus the `manage-schemas` / `quick-start` push steps) copies the local `.taskorchestrator/config.yaml` into the per-root store whenever it changes. Durable edits belong in the **file**: a runtime `manage_project_config` push that isn't reflected in the file is overwritten at the next sync (session start, or a mid-session file-change re-sync). A byte-identical file is a no-op (fingerprints match) — and fingerprints are computed after normalizing away a leading UTF-8 BOM and CRLF-vs-LF line endings (nothing else), so a Windows checkout of the exact same content also matches, even though its raw bytes differ.
+**Precedence — the workspace file is canonical; the per-root DB row is a synced replica.** The `config-sync.mjs` hook (fired at SessionStart, and again mid-session on a `FileChanged` event for the watched config.yaml — plus the `init` and `manage-schemas` push steps) copies the local `.taskorchestrator/config.yaml` into the per-root store whenever it changes. Durable edits belong in the **file**: a runtime `manage_project_config` push that isn't reflected in the file is overwritten at the next sync (session start, or a mid-session file-change re-sync). A byte-identical file is a no-op (fingerprints match) — and fingerprints are computed after normalizing away a leading UTF-8 BOM and CRLF-vs-LF line endings (nothing else), so a Windows checkout of the exact same content also matches, even though its raw bytes differ.
 
 **Line endings.** Both sides compute the fingerprint over the config text with one leading BOM stripped and every `\r\n` replaced with `\n` — the stored/served bytes themselves are never rewritten, only the value fed into the hash. This means a `core.autocrlf`-checked-out `.taskorchestrator/config.yaml` (CRLF on Windows, LF elsewhere) fingerprints identically regardless of checkout platform. Projects that track `config.yaml` in git should still add `**/.taskorchestrator/*.yaml text eol=lf` to `.gitattributes` (this repo does) to keep the file itself byte-stable across platforms and avoid noisy diffs — normalization only protects the fingerprint comparison, not `git diff` or editors that don't understand the normalization rule. Mixed-version caveat: an OLD plugin talking to a NEW (normalizing) server never matches its raw-byte hash against the server's normalized fingerprint for a CRLF/BOM file, so it reports a false `superseded`/mismatch on **every** session — not one-time — until the plugin is upgraded. A NEW plugin talking to an OLD server has the opposite, harmless problem: its normalized hash never matches the server's raw hash for a CRLF/BOM file, so config-sync re-uploads on every session until the server is upgraded. With matched versions, a root sees at most one `unknown` relation and one re-push after rollout (fingerprint history holds raw hashes; no backfill, by design). LF-only files without a BOM are unaffected in every case. Recommendation: upgrade the server and the plugin together.
 

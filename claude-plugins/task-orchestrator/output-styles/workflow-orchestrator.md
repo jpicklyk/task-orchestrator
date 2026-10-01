@@ -47,6 +47,8 @@ Classify every piece of work into a tier before starting — the tier determines
 
 Review applies only when the item's schema declares review-phase notes; otherwise work advances straight to terminal — detect via `newRole` and skip review dispatch.
 
+**Multi-item dispatch:** when post-plan-workflow's four-part condition holds (two or more unblocked leaf items, a resolvable rootId, filled queue notes, protocol rules listed), dispatch goes through `/task-orchestrator:run-wave`; otherwise hand-dispatch.
+
 ## Workflow Principles
 
 1. **Materialize before implement** — all MCP work items must exist before dispatching agents
@@ -58,7 +60,7 @@ Review applies only when the item's schema declares review-phase notes; otherwis
 
 ## Project Scope
 
-When session context carries a project rootId (injected by the SessionStart hook from `.taskorchestrator/config.yaml`'s `project:` block), operate project-scoped by default: pass `ancestorId: "<rootId>"` on `query_items` list mode, `get_next_item`, `get_context`, and `get_blocked_items`; anchor new root-level items under the project root via `parentId`. Process-global items stay at depth 0 outside any project root — never anchor or scope those: the Session Retrospectives and Improvement Proposals containers, and standalone `agent-observation` items (each its own root, not a child of any container). Without a configured rootId, whole-workspace behavior is unchanged; suggest `/adopt-project-scope` only when the user mentions multiple projects sharing a database.
+When session context carries a project rootId (injected by the SessionStart hook from `.taskorchestrator/config.yaml`'s `project:` block), operate project-scoped by default: pass `ancestorId: "<rootId>"` on `query_items` list mode, `get_next_item`, `get_context`, and `get_blocked_items`; anchor new root-level items under the project root via `parentId`. Process-global items stay at depth 0 outside any project root — never anchor or scope those: the Session Retrospectives and Improvement Proposals containers, and standalone `agent-observation` items (each its own root, not a child of any container). A personal root (session context `## Personal Scope`) anchors new root-level items but never scopes reads. Without a configured rootId, whole-workspace behavior is unchanged; suggest `/adopt-project-scope` only when the user mentions multiple projects sharing a database.
 
 ## Delegation
 
@@ -115,7 +117,7 @@ config traits, not by overriding it at dispatch time.
 
 Delegation prompts must include entity IDs and full context — subagents start fresh.
 
-**Parallel-tier dispatches follow a dispatch contract.** Where the project's `/implement` skill ships a dispatch-contract template, generate the run's plan file from it; otherwise write one plan file for the wave that pins branch, worktree, file ownership, commit form, build self-check and review scoping. Either way, point every dispatch prompt at that file by absolute path instead of restating those rules inline.
+**Parallel-tier dispatches follow a dispatch contract.** Where the project's `/implement` skill ships a dispatch-contract template, generate the run's plan file from it; otherwise write one plan file for the wave that pins branch, worktree, file ownership, commit form, build self-check and review scoping. Either way, point every dispatch prompt at that file by absolute path instead of restating those rules inline. Under a run plan (`/task-orchestrator:run-wave`) seat prompts are generated and never reference this file; the contract then serves the orchestrator (fallback hand-dispatches, the post-run commit map) and the reviewers, and anything a seat must know goes in the item's `specification`/`task-scope` note.
 
 **Do not delegate verification.** Do not dispatch subagents to verify or double-check your own work. Verification belongs to the schema's review phase (a separate reviewer) or to inline review on Direct tier. Current models self-verify well, so a redundant verification agent adds cost without catching more. This does not cover independent test authoring under the `needs-test-author` trait — dispatching a separate test author is production work the trait requires, not re-verification; the separation between writing code and writing its tests is the point. Redundant double-checking of your own edits remains discouraged.
 

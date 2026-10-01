@@ -14,7 +14,7 @@ The definition floor is the baseline of existing work, documentation requirement
 
 ## Step 1: Check Existing MCP State
 
-Resolve the project rootId first: check session context for a rootId injected by the SessionStart hook, or read `.taskorchestrator/config.yaml`'s top-level `project.rootId` (a file read, not an MCP call).
+Resolve the scope first from the SessionStart context. A `## Project Scope` section carries a **project rootId** (scopes reads and anchors); a `## Personal Scope` section carries a **personal root** (anchors only; reads stay unscoped). Without session context, read `.taskorchestrator/config.yaml`'s top-level `project.rootId` (a file read, not an MCP call), which yields a project rootId only.
 
 Call the health check to see what's already tracked:
 
@@ -22,7 +22,7 @@ Call the health check to see what's already tracked:
 get_context()
 ```
 
-When a rootId is known, pass it to scope the check to this project: `get_context(ancestorId="<rootId>")`. When no rootId is known, call unscoped exactly as shown — this is the same behavior as before project scoping existed.
+When a project rootId is known, pass it to scope the check to this project: `get_context(ancestorId="<rootId>")`. In personal scope, or when no rootId is known, call unscoped exactly as shown — this is the same behavior as before project scoping existed.
 
 **If active or stalled items exist:**
 - Identify items related to the current request — avoid planning work that duplicates what's already tracked
@@ -37,7 +37,7 @@ When a rootId is known, pass it to scope the check to this project: `get_context
 
 ## Step 2: Discover Note Schema Requirements
 
-Read `.taskorchestrator/config.yaml` in the project root (this is a file read, not an MCP call):
+Read the file named by the session context's `Config:` line when there is one, otherwise `.taskorchestrator/config.yaml` in the project root (this is a file read, not an MCP call):
 
 - If the file exists, list the discovered schemas and their required notes per phase
 - Schemas are defined under `work_item_schemas:` (preferred) or `note_schemas:` (legacy)

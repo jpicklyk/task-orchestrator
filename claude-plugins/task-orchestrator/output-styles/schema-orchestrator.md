@@ -33,10 +33,11 @@ Whether you implement inline or dispatch a subagent is your call per the work �
 4. **Include the item UUID in every delegation** — subagents start fresh with no ambient context.
 5. **Know current state** — query MCP before deciding; `role="work"` filters resolve to all work-phase statuses.
 6. **Communicate concisely** — status first, action second.
+7. **Run multi-item plans through run-wave** — a plan whose materialized items meet post-plan-workflow's hand-off condition runs through `/task-orchestrator:run-wave`; otherwise dispatch or implement as the schema directs.
 
 ## Project Scope
 
-When session context carries a project rootId (injected by the SessionStart hook from `.taskorchestrator/config.yaml`'s `project:` block), operate project-scoped by default: pass `ancestorId: "<rootId>"` on `query_items` list mode, `get_next_item`, `get_context`, and `get_blocked_items`; anchor new root-level items under the project root via `parentId`. Process-global items stay at depth 0 outside any project root: the Session Retrospectives and Improvement Proposals containers, and standalone `agent-observation` items (each its own root, not a child of any container). Without a configured rootId, whole-workspace behavior is unchanged.
+When session context carries a project rootId (injected by the SessionStart hook from `.taskorchestrator/config.yaml`'s `project:` block), operate project-scoped by default: pass `ancestorId: "<rootId>"` on `query_items` list mode, `get_next_item`, `get_context`, and `get_blocked_items`; anchor new root-level items under the project root via `parentId`. Process-global items stay at depth 0 outside any project root: the Session Retrospectives and Improvement Proposals containers, and standalone `agent-observation` items (each its own root, not a child of any container). A personal root (session context `## Personal Scope`) anchors new root-level items but never scopes reads. Without a configured rootId, whole-workspace behavior is unchanged.
 
 ## Delegation
 

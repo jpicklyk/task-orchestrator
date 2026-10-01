@@ -31,7 +31,7 @@ If `$ARGUMENTS` contains both an action and a schema name (e.g., "view bug-fix")
 
 ## Step 2 — Config Bootstrap
 
-Check if `.taskorchestrator/config.yaml` exists by reading it.
+The target file is the path on the SessionStart context's `Config:` line (project or personal scope) when there is one, otherwise `.taskorchestrator/config.yaml`. In personal scope that is the user-level file, so an edit applies to every directory that has no project config of its own. Check if the target file exists by reading it.
 
 **If the file does not exist:**
 - For **VIEW** or **VALIDATE**: report "No schemas configured — `.taskorchestrator/config.yaml` does not exist." and stop.
@@ -42,7 +42,7 @@ Check if `.taskorchestrator/config.yaml` exists by reading it.
 
 **If the file exists:** Read and parse it. Proceed to Step 3.
 
-> **Note:** `project:` is a recognized top-level key alongside `work_item_schemas`, `traits`, `resources`, and `actor_authentication` — it anchors this repo to a project root item and is read only by other skills (`quick-start`, `/adopt-project-scope`), never by this skill. Do not treat it as unknown, and never drop or rewrite it — every write operation in Step 3 (CREATE/EDIT/DELETE) must carry it through unchanged. See `references/config-format.md` → Project Scoping for its fields. (`resources:` is the optional shared-resource registry — see `references/config-format.md` → "Resources (Trait Dimension)"; it must be preserved the same way.)
+> **Note:** `project:` is a recognized top-level key alongside `work_item_schemas`, `traits`, `resources`, and `actor_authentication` — it anchors this repo to a project root item and is read only by other skills and the plugin hooks (`quick-start`, `/task-orchestrator:init`, `/adopt-project-scope`), never edited by this skill. Do not treat it as unknown, and never drop or rewrite it — every write operation in Step 3 (CREATE/EDIT/DELETE) must carry it through unchanged. See `references/config-format.md` → Project Scoping for its fields. (`resources:` is the optional shared-resource registry — see `references/config-format.md` → "Resources (Trait Dimension)"; it must be preserved the same way.)
 
 ---
 
@@ -147,7 +147,7 @@ For detailed workflow, see `references/validate-workflow.md` in this skill folde
 
 **For write operations (CREATE, EDIT, DELETE):**
 - Show what changed in the config file
-- **Sync to server (if project-scoped):** Check whether the config has a top-level `project.rootId` (see Step 2's note and `references/config-format.md` → Project Scoping). If present, check the tool list for `manage_project_config` — older servers may not expose it, in which case note this to the user and skip (the config.yaml write above is authoritative locally; the server picks it up on its normal read path once the tool becomes available). If the tool is available, call:
+- **Sync to server (if the file has `project.rootId` — a project root or the personal root):** Check whether the config has a top-level `project.rootId` (see Step 2's note and `references/config-format.md` → Project Scoping). If present, check the tool list for `manage_project_config` — older servers may not expose it, in which case note this to the user and skip (the config.yaml write above is authoritative locally; the server picks it up on its normal read path once the tool becomes available). If the tool is available, call:
   ```
   manage_project_config(operation="push", rootId="<project.rootId>", configYaml="<full current file text>")
   ```

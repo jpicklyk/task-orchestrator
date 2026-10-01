@@ -5,7 +5,7 @@
 // markerPath (the hook does not export it — it is deliberately self-contained, see scope
 // note in skill-enforcement.mjs).
 
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -44,12 +44,29 @@ function markerPath(sessionId) {
   return join(tmpdir(), 'task-orchestrator', `skill-enforce-${sanitized}.json`);
 }
 
+// Hermeticity recipe (Ruling 2): every spawn pins TASK_ORCHESTRATOR_HOME to its OWN fresh empty
+// temp dir (extra.home overrides it for a user-scope test), drops inherited AGENT_CONFIG_DIR unless
+// one is passed, and runs with cwd = a fixture dir (the config dir by default), never the repo.
+const pinnedHomes = [];
+after(() => {
+  for (const d of pinnedHomes) rmSync(d, { recursive: true, force: true });
+});
+function freshHome() {
+  const d = mkdtempSync(join(tmpdir(), 'to-skill-home-'));
+  pinnedHomes.push(d);
+  return d;
+}
+
 function spawnHook(agentConfigDir, payload, extra = {}) {
+  const env = { ...process.env, TASK_ORCHESTRATOR_HOME: extra.home ?? freshHome(), ...extra.env };
+  delete env.TASK_ORCHESTRATOR_MODE;
+  if (agentConfigDir) env.AGENT_CONFIG_DIR = agentConfigDir;
+  else delete env.AGENT_CONFIG_DIR;
   return spawnSync(process.execPath, [HOOK], {
     input: JSON.stringify(payload),
-    env: { ...process.env, AGENT_CONFIG_DIR: agentConfigDir, ...extra.env },
+    env,
     encoding: 'utf-8',
-    cwd: extra.cwd,
+    cwd: extra.cwd ?? agentConfigDir,
   });
 }
 
@@ -307,7 +324,12 @@ test('fail-open: missing notes array is silent', () => {
 });
 
 test('fail-open: unparseable stdin is silent', () => {
-  const res = spawnSync(process.execPath, [HOOK], { input: '{not valid json', encoding: 'utf-8' });
+  const res = spawnSync(process.execPath, [HOOK], {
+    input: '{not valid json',
+    env: { ...process.env, TASK_ORCHESTRATOR_HOME: freshHome() },
+    cwd: tmpConfigDir(),
+    encoding: 'utf-8',
+  });
   assert.equal(res.status, 0);
   assert.equal(res.stdout.trim(), '');
 });
@@ -319,11 +341,31 @@ test('fail-open: no discoverable config is silent', () => {
   try {
     const res = spawnHook(emptyDir, upsertPayload(sessionId, [
       { itemId: 'item-1', key: 'security-assessment', role: 'review', body: 'n/a' },
-    ]), { cwd: tmpdir() }); // cwd override: don't let the cwd-walk fallback find this repo's real config.yaml
+    ])); // empty fixture dir as AGENT_CONFIG_DIR and cwd; empty pinned home
     assert.equal(res.status, 0);
     assert.equal(res.stdout.trim(), '');
   } finally {
     rmSync(marker, { force: true });
     rmSync(emptyDir, { recursive: true, force: true });
+  }
+});
+
+test('user scope: FIXTURE_CONFIG only in pinned home, empty cwd -> advisory still fires', () => {
+  const home = tmpConfigDir();
+  const cwd = tmpConfigDir();
+  writeConfig(home, FIXTURE_CONFIG);
+  const sessionId = `test-userscope-${randomUUID()}`;
+  const marker = markerPath(sessionId);
+  try {
+    const res = spawnHook(null, upsertPayload(sessionId, [
+      { itemId: 'item-1', key: 'security-assessment', role: 'review', body: 'n/a' },
+    ]), { home, cwd });
+    assert.equal(res.status, 0);
+    const out = JSON.parse(res.stdout);
+    assert.match(out.hookSpecificOutput.additionalContext, /security-review/);
+  } finally {
+    rmSync(marker, { force: true });
+    rmSync(home, { recursive: true, force: true });
+    rmSync(cwd, { recursive: true, force: true });
   }
 });

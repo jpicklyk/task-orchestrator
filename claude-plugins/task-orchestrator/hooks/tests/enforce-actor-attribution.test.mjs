@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync, spawn } from 'node:child_process';
 import { createServer } from 'node:http';
@@ -15,8 +15,24 @@ function writeConfig(dir, content) {
   writeFileSync(join(cfgDir, 'config.yaml'), content, 'utf-8');
 }
 
+// Hermeticity recipe (Ruling 2): every spawn pins TASK_ORCHESTRATOR_HOME to its OWN fresh empty
+// temp dir (a user-scope test passes its own home via extra), drops inherited AGENT_CONFIG_DIR and
+// TASK_ORCHESTRATOR_MODE, and runs with cwd = a fixture dir.
+const pinnedHomes = [];
+after(() => {
+  for (const d of pinnedHomes) rmSync(d, { recursive: true, force: true });
+});
+function freshHome() {
+  const d = mkdtempSync(join(tmpdir(), 'to-actor-home-'));
+  pinnedHomes.push(d);
+  return d;
+}
+
 function cleanEnv(extra) {
   const env = { ...process.env, ...extra };
+  if (!('TASK_ORCHESTRATOR_HOME' in extra)) env.TASK_ORCHESTRATOR_HOME = freshHome();
+  if (!('AGENT_CONFIG_DIR' in extra)) delete env.AGENT_CONFIG_DIR;
+  delete env.TASK_ORCHESTRATOR_MODE;
   if (!('TASK_ORCHESTRATOR_API_URL' in extra)) delete env.TASK_ORCHESTRATOR_API_URL;
   if (!('TASK_ORCHESTRATOR_API_TOKEN' in extra)) delete env.TASK_ORCHESTRATOR_API_TOKEN;
   return env;
@@ -295,7 +311,12 @@ test('neither actor_authentication.enabled nor actor_attribution.required set ->
 });
 
 test('fail-open: malformed stdin -> silent exit 0', () => {
-  const res = spawnSync(process.execPath, [HOOK], { input: '{not json', encoding: 'utf-8' });
+  const res = spawnSync(process.execPath, [HOOK], {
+    input: '{not json',
+    env: cleanEnv({}),
+    cwd: tmpConfigDir(),
+    encoding: 'utf-8',
+  });
   assert.equal(res.status, 0);
   assert.equal(res.stdout, '');
 });
@@ -501,4 +522,49 @@ test('seat-owned: enforcement on + missing actor -> deny takes precedence, no wa
       assert.equal(out.hookSpecificOutput.additionalContext, undefined);
     });
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// project-init locator (66d8f971): user-scope config drives enforcement
+// ─────────────────────────────────────────────────────────────────────────
+
+const ADVANCE_NO_ACTOR = {
+  tool_name: 'mcp__mcp-task-orchestrator__advance_item',
+  tool_input: { transitions: [{ itemId: 'x', trigger: 'start' }] },
+};
+
+function runUserScope(home, cwd, payload) {
+  return spawnSync(process.execPath, [HOOK], {
+    input: JSON.stringify(payload),
+    env: cleanEnv({ TASK_ORCHESTRATOR_HOME: home }),
+    encoding: 'utf-8',
+    cwd,
+  });
+}
+
+test('user scope: actor_attribution.required only in pinned home, empty cwd -> denies', () => {
+  const home = mkdtempSync(join(tmpdir(), 'to-actor-uhome-'));
+  const cwd = tmpConfigDir();
+  try {
+    writeConfig(home, 'actor_attribution:\n  required: true\n');
+    const res = runUserScope(home, cwd, ADVANCE_NO_ACTOR);
+    assert.equal(res.status, 0);
+    assert.equal(JSON.parse(res.stdout).hookSpecificOutput.permissionDecision, 'deny');
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test('no config anywhere (empty pinned home, empty cwd) -> allowed, silent', () => {
+  const home = mkdtempSync(join(tmpdir(), 'to-actor-uhome-'));
+  const cwd = tmpConfigDir();
+  try {
+    const res = runUserScope(home, cwd, ADVANCE_NO_ACTOR);
+    assert.equal(res.status, 0);
+    assert.equal(res.stdout, '');
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+    rmSync(cwd, { recursive: true, force: true });
+  }
 });

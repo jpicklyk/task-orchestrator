@@ -30,7 +30,7 @@ Determine what subset of the queue to drain.
 
 Multiple keys combine with AND (space-separated). Examples: `tag=bug-fix priority=high`, `type=quick-fix`, `parentId=89d02e32`, `ancestorId=<projectRootId>`.
 
-**Project-scoped default:** when a project rootId is known (session context injected by the SessionStart hook, or `.taskorchestrator/config.yaml`'s `project.rootId`), default the filter to include `ancestorId=<rootId>` unless the user explicitly asks to drain across all projects (e.g., "ralph everything", "drain across all projects"). This keeps the Step 3 preview scoped to the current project when multiple project roots share one database.
+**Project-scoped default:** when a **project** rootId is known (the `## Project Scope` section of the session context injected by the SessionStart hook, or the project-level config's `project.rootId`), default the filter to include `ancestorId=<rootId>` unless the user explicitly asks to drain across all projects (e.g., "ralph everything", "drain across all projects"). This keeps the Step 3 preview scoped to the current project when multiple project roots share one database. A personal root (`## Personal Scope`, or the user-level config) never defaults the filter: it only anchors new items.
 
 **Known limitation — `ancestorId` is preview-only.** The Step 3 preview uses `query_items`, which supports `ancestorId`. The actual per-iteration claim (`claim_item`, driven by `iteration-prompt.md`) does **not** support `ancestorId` — its selector only understands `tag`, `type`, `priority`, and `parentId` (see that file's filter-key table). So a filter like `ancestorId=<projectRootId>` will scope what you *see* in the preview but is silently dropped when translated for the actual drain — iterations will still claim from the whole queue unless the filter also includes a `parentId`/`tag`/`type` that discriminates the project's items. If precise per-project draining matters, prefer tagging or typing items distinctly per project until `claim_item` gains `ancestorId` support.
 
@@ -85,7 +85,7 @@ Show what the loop will see. Use `query_items` with the resolved filter to displ
 query_items(operation="search", role="queue", claimStatus="unclaimed", limit=10, ...)
 ```
 
-Pass `ancestorId="<rootId>"` in `...` when a project rootId is known (resolved above) and the filter didn't already override scope — this gives an accurate project-scoped preview, subject to the preview-only limitation noted in Step 1.
+Pass `ancestorId="<rootId>"` in `...` when a project rootId (not a personal root) is known (resolved above) and the filter didn't already override scope — this gives an accurate project-scoped preview, subject to the preview-only limitation noted in Step 1.
 
 Display:
 

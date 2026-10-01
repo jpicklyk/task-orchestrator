@@ -1,0 +1,17 @@
+{
+  "protocol.entry-seat": [
+    "f5626a939845ac50bef07996906388c94e58799ef9035e45b972f76c68f90be1"
+  ],
+  "protocol.in-phase-seat": [
+    "4ede53bbb5fd53c9bd4bb594359e3de8718542e7b7b28bf1453baf81156d43c0"
+  ],
+  "protocol.read-only-agent": [
+    "55e5f899a6a6875c7999cc4de627e209c9ef71664d08ac5af17647ff844f0c44"
+  ],
+  "commit-discipline": [
+    "7f0235ee3031df777d915245d5bb72c2ee73c2d61665b64a82b9f808183566cd"
+  ],
+  "review-scoping": [
+    "3374170b94cd15cef7a931063f22c502e415a5b3c15045e3cbfacc0b3bb03a6f"
+  ]
+}

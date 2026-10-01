@@ -17,39 +17,10 @@
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import { fileURLToPath } from 'url';
-import { readSection, scalar } from './yaml-lite.mjs';
+import { locateConfig } from './config-locator.mjs';
 import { apiBaseUrl, authHeader as buildAuthHeader, fetchWithTimeout } from './api-client.mjs';
 
 const MAX_SLUG_LENGTH = 64;
-
-/** Locate .taskorchestrator/config.yaml (AGENT_CONFIG_DIR, then walk up from cwd) and return its text. */
-function findConfigText() {
-  const candidates = [];
-  if (process.env.AGENT_CONFIG_DIR) {
-    candidates.push(resolve(process.env.AGENT_CONFIG_DIR, '.taskorchestrator', 'config.yaml'));
-  }
-  let dir = process.cwd();
-  const fsRoot = resolve(dir, '/');
-  while (dir !== fsRoot) {
-    candidates.push(resolve(dir, '.taskorchestrator', 'config.yaml'));
-    dir = resolve(dir, '..');
-  }
-  for (const candidate of candidates) {
-    try {
-      return readFileSync(candidate, 'utf-8');
-    } catch {
-      continue;
-    }
-  }
-  return null;
-}
-
-/** Extract project.rootId from the config text (mirrors config-sync.mjs's parser). */
-export function parseRootId(text) {
-  const section = readSection(text, 'project', { blockOnly: true });
-  if (!section) return null;
-  return scalar(section.lines, 'rootId');
-}
 
 /** Derives a URL-safe slug from the plan's first H1 heading; falls back to a timestamp slug. */
 function deriveSlug(planText) {
@@ -98,10 +69,9 @@ async function main() {
   const planText = hookInput?.tool_input?.plan;
   if (typeof planText !== 'string' || planText.trim() === '') return; // nothing to stash
 
-  const configText = findConfigText();
-  if (!configText) return; // no config file → not a Task Orchestrator workspace
-
-  const rootId = parseRootId(configText);
+  const loc = locateConfig();
+  if (loc.scope !== 'project') return; // user scope or no config → silent
+  const rootId = loc.rootId;
   if (!rootId) return; // not project-scoped → no root to stash under
 
   const base = apiBaseUrl();
@@ -134,7 +104,7 @@ async function main() {
 }
 
 // Only auto-run when invoked directly as a hook (`node plan-capture.mjs`), not when imported
-// (e.g. by a test importing `parseRootId` for direct unit coverage) — importing must never
+// (e.g. by a test) — importing must never
 // trigger a synchronous stdin read as a side effect.
 // Fail-open: swallow every error so the hook always exits 0 and never blocks ExitPlanMode.
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

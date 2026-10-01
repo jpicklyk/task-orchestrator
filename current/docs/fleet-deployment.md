@@ -233,11 +233,11 @@ This is different from the MCP actor `reject` policy, which governs MCP tool cal
 
 In a shared HTTP deployment, per-project config lives in the DB per root (hot-reloaded, no restart), while the mounted global `.taskorchestrator/config.yaml` is only a fallback. The plugin's `config-sync.mjs` SessionStart hook keeps a project's DB config in sync with its workspace file: on session start it fingerprints the local file and, if it differs from the server's stored config, PUTs it to `PUT /api/v1/roots/{rootId}/config`. **The file is the source of truth; the DB row is a synced replica** (a byte-identical file is a no-op via `If-Match`/fingerprint).
 
-The hook is **fail-open and opt-in** — it no-ops silently (exit 0) unless `TASK_ORCHESTRATOR_API_URL` is set, so stdio/local deployments (which read the file directly) are unaffected:
+The hook is **fail-open and opt-in** — it no-ops silently (exit 0) unless an API URL resolves (in order: `TASK_ORCHESTRATOR_API_URL`, `apiUrl` in a project-level `client.json` beside the located config (or in the main checkout for a linked worktree), then `apiUrl` in the user-level `client.json`). The project-level file, written by project-mode `/task-orchestrator:init`, is honoured only as a bare loopback origin (no path, query or fragment), so a fleet (non-loopback) server, or one behind a path prefix, needs the env var or the user-level file that `/task-orchestrator:init --user` writes. The project-level `client.json` assumes a single-user machine: any directory above the working directory that holds a `config.yaml` and a `client.json` can point the hooks, with the bearer token, at a loopback port. On a shared host, set `TASK_ORCHESTRATOR_API_URL`, which wins over every file, and do not work under a directory another user can write. Stdio/local deployments (which read the file directly) are unaffected:
 
 | Variable | Required for sync | Description |
 |----------|-------------------|-------------|
-| `TASK_ORCHESTRATOR_API_URL` | yes | Base URL of the REST API, e.g. `http://orchestrator.internal:3001` (the hook appends `/api/v1/roots/{rootId}/config`). |
+| `TASK_ORCHESTRATOR_API_URL` | yes, unless `client.json` supplies `apiUrl` | Base URL of the REST API, e.g. `http://orchestrator.internal:3001` (the hook appends `/api/v1/roots/{rootId}/config`). |
 | `TASK_ORCHESTRATOR_API_TOKEN` | no | Bearer token with the `write-config` capability, scoped (`scope.root_ids`) to this workspace's project root. **Optional** — omit it entirely when the server runs in [unauthenticated mode](#unauthenticated-mode); the hook then sends the request with no `Authorization` header at all. |
 
 Set these per-workspace (e.g. in `.claude/settings.json`'s `env` block, or the shell environment). Against a bearer/jwks server the token needs only `write-config` for its own root — not `admin` (add `read` if the same token also serves the SubagentStop phase guard below). Against an unauthenticated server, no token is needed at all. Either way the server must have `API_ENABLED=true`. If the API is unreachable or returns an error, the hook logs a one-line note and continues; it never blocks session start.
@@ -262,7 +262,7 @@ back to when the DB itself is transiently unreachable.
 **HTTP-first policy.** New plugin-side infrastructure features — `config-sync.mjs`, SSE event
 streaming, the `plan-capture.mjs` hook (which stashes an approved plan as a `plan_document` via
 `PUT /roots/{rootId}/plans/{slug}`), and the SubagentStop phase guard below — are built HTTP-only, each fail-opening to a silent no-op when
-its REST env var (`TASK_ORCHESTRATOR_API_URL`, etc.) is absent. STDIO deployments keep full MCP tool
+no API URL resolves (the `TASK_ORCHESTRATOR_API_URL` env var, then a project-level or the user-level `client.json`, in that order; the project-level file is honoured only as a bare loopback origin). STDIO deployments keep full MCP tool
 functionality but do not gain these convenience features; STDIO is positioned as the local/evaluation
 transport, while a persistent HTTP daemon with the REST API enabled is the recommended path for
 ongoing fleet or multi-project work.
@@ -270,7 +270,7 @@ ongoing fleet or multi-project work.
 ### SubagentStop phase guard
 
 The plugin's SubagentStop phase guard (`hooks/phase-guard.mjs` + `hooks/phase-guard-record.mjs`) has
-the same REST dependency as `config-sync.mjs` above: it needs `TASK_ORCHESTRATOR_API_URL` set, and,
+the same REST dependency as `config-sync.mjs` above: it needs an API URL (the env var or `client.json`), and,
 against a bearer/jwks server, a `TASK_ORCHESTRATOR_API_TOKEN` scoped with the `read` capability (no
 token needed against an unauthenticated server). Without a reachable API URL it fails open — no
 subagent is ever blocked. See

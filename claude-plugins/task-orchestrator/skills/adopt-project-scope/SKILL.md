@@ -10,6 +10,8 @@ Take an existing, unscoped database (many depth-0 roots, no project anchor) and 
 
 This is a **destructive-by-execution** skill: the EXECUTE step re-parents real items. It defaults to a dry run and never mutates anything without an explicit confirmation. The only thing it ever deletes is its own throwaway server-probe tree.
 
+For a fresh workspace with no existing unscoped work, use `/task-orchestrator:init` instead; this skill is for databases that already hold unscoped work trees.
+
 **Non-goals:** cross-DB consolidation (merging items from a second database); merging multiple existing project anchors into one; any server-side enforcement of scope. This skill adopts a single workspace's single database.
 
 ---
@@ -42,7 +44,7 @@ Stop. (If the file is missing entirely, that is fine — a fresh unscoped DB has
 query_items(operation="search", type="project", depth=0)
 ```
 
-(list mode — `query` omitted, filtering by `type` and `depth`.)
+(list mode — `query` omitted, filtering by `type` and `depth`.) Drop any result tagged `personal-root`: a personal root is not a project anchor and must never be adopted as one.
 
 - **No results** → continue to 1c.
 - **One or more results** → do NOT silently create a second anchor. Offer, via `AskUserQuestion`:
@@ -127,7 +129,7 @@ Classify **every depth-0 root** into exactly one bucket:
 
 | Bucket | Rule | Action |
 |--------|------|--------|
-| **KEEP-GLOBAL** | Title matches a global container — `Session Retrospectives`, `Improvement Proposals`; OR the root itself is tagged/typed `agent-observation` (these are standalone depth-0 items, each its own root — never children of a container). | Stays at depth 0. |
+| **KEEP-GLOBAL** | Title matches a global container — `Session Retrospectives`, `Improvement Proposals`; OR the root itself is tagged/typed `agent-observation` (these are standalone depth-0 items, each its own root — never children of a container); OR a depth-0 `type=project` item tagged `personal-root` (never MOVE it). | Stays at depth 0. |
 | **MOVE** | Any work container or work tree (a root with work/queue/review children), and any standalone work item. Everything that is real project work. | Re-parented under the new anchor. |
 | **CLEANUP-CANDIDATE** | Evident test artifacts: titles containing `probe`, `smoke`, `depth-test`, `zzprobe`; or tags matching `mtest-*`. | **Flagged only** — never moved, never deleted. Recommend `/batch-complete`. |
 
@@ -195,9 +197,9 @@ manage_items(operation="update", items=[
 
 This relies on the depth-sweep fix verified in Step 1c — each moved subtree's descendant depths and `root_id` are recomputed server-side.
 
-**(c) Write the `project:` block into `config.yaml`** — read-modify-write, preserving ALL existing content:
+**(c) Write the `project:` block into `config.yaml`** at the main checkout root (the parent of `git rev-parse --path-format=absolute --git-common-dir`, so it is correct from a linked worktree; refuse a home directory, as `/task-orchestrator:init` does) — read-modify-write, preserving ALL existing content:
 
-- Read the current `.taskorchestrator/config.yaml` text (create the file with just the block if it does not exist).
+- Read the current `<main>/.taskorchestrator/config.yaml` text (create the file with just the block if it does not exist).
 - Insert this top-level block (surgical insert/append — do NOT regenerate or reformat the rest of the file; leave `work_item_schemas:`, `traits:`, `actor_authentication:`, comments, and formatting byte-for-byte intact):
   ```yaml
   project:
@@ -261,6 +263,8 @@ Render a before/after table:
   with manage_items(operation="update", items=[{ itemId, parentId: null }]) for each,
   then delete the anchor. Investigate before retrying.
 ```
+
+Finish by seeding the bundled process rules for the new anchor: run `/task-orchestrator:init` (a re-run is idempotent and resumes at rule seeding), or rely on the next session's config-sync.
 
 Remind the user that schema changes / new config require an MCP reconnect (`/mcp`) to take effect if they rely on per-root schema resolution immediately.
 

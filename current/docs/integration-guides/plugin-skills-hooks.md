@@ -3,8 +3,8 @@
 ## What You Get
 
 - Automatic hooks that fire on session start, plan mode entry, plan approval, subagent launch, and (when the REST API is configured) subagent phase-gate enforcement
-- 7 user-invocable skills as `/task-orchestrator:*` slash commands
-- 3 internal skills that power the plan-mode pipeline
+- User-invocable skills as `/task-orchestrator:*` slash commands (see "User Skills" below)
+- Internal skills that power the plan-mode pipeline (see "Internal Skills" below)
 - The Agent-Owned-Phase Protocol injected into every phase-owner subagent automatically (see "Execution modes" below for exactly which subagents that covers)
 
 ## Prerequisites
@@ -39,13 +39,36 @@ Hooks fire automatically — no invocation needed after installation.
 
 **Event:** `SessionStart` — every new Claude Code session.
 
-**What it injects:** The 13-tool surface (`manage_items`, `query_items`, `manage_notes`, `query_notes`, `manage_dependencies`, `query_dependencies`, `advance_item`, `get_next_item`, `get_blocked_items`, `get_next_status`, `create_work_tree`, `complete_tree`, `get_context`), the role lifecycle (queue → work → review → terminal), and a session tip to call `get_context()` to see active and stalled items.
+**What it injects:** Short workflow guidance: use `advance_item` for role transitions rather than raw status edits; items nest by `parentId` to any depth; call `get_context()` with no arguments to see active and stalled items.
 
-**Effect:** The agent knows the MCP tool names and workflow conventions from the first prompt, without any CLAUDE.md instructions.
+**Effect:** The agent knows the workflow conventions from the first prompt, without any CLAUDE.md instructions.
+
+**Setup status:** the hook also reports one of four states, with the `Config:` path the skills should read and edit in every state that has a config:
+
+| State | What the session sees |
+|-------|-----------------------|
+| No config found | `## Setup Status` pointing at `/task-orchestrator:init` (project) and `/task-orchestrator:init --user` (personal root) |
+| Config without `project.rootId` | `## Setup Status` naming the config file and the init command to finish setup |
+| User-level config with a root | `## Personal Scope`: the personal root anchors new items, reads stay unscoped |
+| Project config with a root | `## Project Scope`: the project root scopes reads and anchors new items |
+
+When the state is "no config" or "config without rootId" and an orchestrator MCP registration exists, a one-line `systemMessage` also suggests running init, at most once per working directory per day; set `TASK_ORCHESTRATOR_SETUP_HINT=off` to silence it. In project or user state, if an HTTP registration exists but no REST API URL resolves, a `## Config Sync` notice says config-sync cannot push and names `TASK_ORCHESTRATOR_API_URL` or `client.json`. The hook's `watchPaths` include the user-level config as well as the located one.
+
+**Config discovery:** the hook finds the config via `AGENT_CONFIG_DIR`, a walk up from the working directory, the main checkout of a linked worktree, then the user-level file. `TASK_ORCHESTRATOR_HOME` replaces your home directory for Task Orchestrator: when it is set, the user-level `config.yaml` and `client.json` are read only from `$TASK_ORCHESTRATOR_HOME/.taskorchestrator/`, and `~/.taskorchestrator/config.yaml` is ignored unless `AGENT_CONFIG_DIR` points at it. `TASK_ORCHESTRATOR_CEILING` is an optional directory at which project-config discovery stops climbing — like `GIT_CEILING_DIRECTORIES`. It exists mainly so tests stay isolated; leave it unset in normal use. Full rules: [config-format.md](../../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#config-discovery-plugin-hooks-and-skills).
 
 **Registration self-check:** The plugin's other PreToolUse/PostToolUse hooks — skill enforcement, actor attribution, the retro trigger, and Phase-Guard Record (below) — fire only when an MCP tool call's server segment — the middle part of `mcp__<server>__<tool>` — contains `task-orchestrator`. Session Start reads discoverable MCP registrations (project `.mcp.json`, and `~/.claude.json`'s top-level `mcpServers` plus its `projects[<cwd>].mcpServers`) and, for any orchestrator registration whose key omits that token, appends a `## Hook Registration Check` section naming the offending key and the fix (rename the key to include `task-orchestrator`, e.g. `mcp-task-orchestrator`). The check is purely diagnostic and fail-open: any read or parse error simply omits the section, and it never blocks session start. A registration is recognized as "the orchestrator" when its key, `url`, or `command` mentions `task-orchestrator`, or one of its args is an image-style reference such as `jpicklyk/task-orchestrator` (filesystem-path args are ignored); an HTTP registration whose key and URL both omit it is undetectable.
 
-**Plugin version freshness check:** dev-checkout only. Session Start walks up from `AGENT_CONFIG_DIR` (if set) then `cwd` looking for a checked-out `claude-plugins/task-orchestrator/.claude-plugin/plugin.json` — mirroring the same walk pattern used to find `.taskorchestrator/config.yaml`, so worktrees under `.claude/worktrees/<name>/` still find the checkout root. If found, it compares that file's `version` against the `plugin.json` of the plugin actually running the hook (resolved via `CLAUDE_PLUGIN_ROOT` when the harness sets it, else relative to the hook script's own file location). A mismatch appends a `## Plugin Version Drift` section naming both versions and pointing to `claude-plugins/CLAUDE.md` → "Plugin Discovery and Cache Refresh". Silent when no dev checkout is found, when either `plugin.json` can't be read or parsed, or when the versions match — like the registration self-check, this is purely diagnostic and never blocks session start.
+**Plugin version freshness check:** dev-checkout only. Session Start walks up from `AGENT_CONFIG_DIR` (if set) then `cwd` looking for a checked-out `claude-plugins/task-orchestrator/.claude-plugin/plugin.json` — a walk of its own (the config itself is found by the locator described above), so worktrees under `.claude/worktrees/<name>/` still find the checkout root. If found, it compares that file's `version` against the `plugin.json` of the plugin actually running the hook (resolved via `CLAUDE_PLUGIN_ROOT` when the harness sets it, else relative to the hook script's own file location). A mismatch appends a `## Plugin Version Drift` section naming both versions and pointing to `claude-plugins/CLAUDE.md` → "Plugin Discovery and Cache Refresh". Silent when no dev checkout is found, when either `plugin.json` can't be read or parsed, or when the versions match — like the registration self-check, this is purely diagnostic and never blocks session start.
+
+### Config Sync
+
+**Events:** `SessionStart` and `FileChanged` on the located `config.yaml` (and the user-level one).
+
+**What it does:** pushes the located config to the per-root config store over the REST API, then syncs the workspace's `.taskorchestrator/rules/*.md`. On SessionStart only, it also syncs the plugin's bundled process rules under a manifest policy: a missing key is pushed, a server copy matching a known older bundled version is overwritten, and any other server copy is left alone. A workspace rule with the same key wins over the bundled one. The REST URL comes from `TASK_ORCHESTRATOR_API_URL`, then `apiUrl` in a `client.json` beside the located project config, then `apiUrl` in the user-level `client.json`; the first that resolves wins, and none means the hook does nothing. Project-mode `/task-orchestrator:init` writes the project-level file, honoured only as a bare loopback origin (`http`/`https`, no credentials, host `localhost`, `127.0.0.0/8` or `[::1]`, an optional port, and no path, query or fragment) so a repo file can neither redirect the bearer token nor choose the request path; `/task-orchestrator:init --user` writes the user-level file, which is unrestricted. In a linked worktree, when the `client.json` beside the worktree's own config yields no usable loopback URL, the hooks also read `.taskorchestrator/client.json` in the main checkout, under the same loopback rule. `AGENT_CONFIG_DIR` pins both files to the directory it names. The project-level `client.json` assumes a single-user machine: any directory above the working directory that holds a `config.yaml` and a `client.json` can point the hooks, with the bearer token, at a loopback port. On a shared host, set `TASK_ORCHESTRATOR_API_URL`, which wins over every file, and do not work under a directory another user can write. Requests share one time budget; unfinished work is reported as `<N> deferred to next session`. A server rule customized on purpose shows `kept unrecognized server copy: <key>` at every session start; to stop that, put the rule in the workspace's `.taskorchestrator/rules/` so the workspace copy owns the key. It is fail-open: errors produce at most a one-line note.
+
+Details: [config-format.md](../../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#rule-text) and [fleet-deployment.md](../fleet-deployment.md).
+
+---
 
 ### Pre-Plan
 
@@ -146,6 +169,7 @@ Skills are invoked as slash commands in any Claude Code session:
 | `/task-orchestrator:work-summary` | Insight-driven dashboard of active work, blockers, and recommended next actions |
 | `/task-orchestrator:create-item` | Create a tracked work item with smart container anchoring and tag inference |
 | `/task-orchestrator:quick-start` | Interactive onboarding — teaches by doing, adapts to empty or populated workspaces |
+| `/task-orchestrator:init` | Set up a project root and config for this directory, or `--user` for a personal root that serves every unconfigured directory |
 | `/task-orchestrator:manage-schemas` | Create, view, edit, delete, and validate note schemas in config.yaml |
 | `/task-orchestrator:status-progression` | Navigate role transitions; shows current gate status and the correct trigger |
 | `/task-orchestrator:dependency-manager` | Visualize, create, and diagnose dependency graphs between work items |

@@ -35,6 +35,7 @@ Step 0 (capability probe) and Step 2 (the snapshot calls table).
 - `git.repoRoot` — `git rev-parse --show-toplevel`, forward-slashed, no trailing slash. Required:
   `plan` derives every item's `worktree`/`branch` path from it in `per-item` mode and (absent a
   `--worktree`/`--branch` override) in `shared` mode too.
+- `candidates` — besides the ready and `role:"work"` items, include every non-terminal item in the target scope that `get_blocked_items` reports as blocked only by other candidates, with `source:"ready"`. `get_next_item` no longer returns them, and the planner reports any blocked item missing from `candidates` as `not projected`. Under `--entry pre-entered` an in-run edge becomes a cross-run deferral.
 - `candidates[].traits` — the item's `properties` field is a JSON string; parse it and pull out
   the `traits` array. An absent `properties` or an absent `traits` key inside it both mean `[]`,
   not an error.

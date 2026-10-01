@@ -2,33 +2,9 @@
 // Pure module — no side effects at import time, no top-level I/O.
 
 import { readFileSync, writeFileSync, mkdirSync } from 'fs';
-import { resolve, join, dirname } from 'path';
+import { join, dirname } from 'path';
 import os from 'os';
 import { readSection, scalar, inlineScalar } from './yaml-lite.mjs';
-
-// Locate and read .taskorchestrator/config.yaml — check AGENT_CONFIG_DIR, then walk up from
-// cwd. Handles worktrees where cwd is nested under .claude/worktrees/<name>/.
-// Idiom copied from enforce-actor-attribution.mjs.
-export function findConfigContent() {
-  const candidates = [];
-  if (process.env.AGENT_CONFIG_DIR) {
-    candidates.push(resolve(process.env.AGENT_CONFIG_DIR, '.taskorchestrator', 'config.yaml'));
-  }
-  let dir = process.cwd();
-  const root = resolve(dir, '/');
-  while (dir !== root) {
-    candidates.push(resolve(dir, '.taskorchestrator', 'config.yaml'));
-    dir = resolve(dir, '..');
-  }
-  for (const candidate of candidates) {
-    try {
-      return readFileSync(candidate, 'utf-8');
-    } catch {
-      continue;
-    }
-  }
-  return null;
-}
 
 const VALID_MODES = ['nudge', 'dispatch', 'off'];
 const DEFAULT_MODE = 'nudge';
@@ -82,13 +58,18 @@ export function parseRetrospectiveMode(configContent) {
   return parseRetrospectiveConfig(configContent).mode;
 }
 
-// Parses the top-level `project:` block for its `rootId` value. Mirrors parseProjectBlock in
-// session-start.mjs, but returns only the rootId string (or null).
-export function parseProjectRootId(configContent) {
-  if (!configContent) return null;
-  const section = readSection(configContent, 'project', { blockOnly: true });
-  if (!section) return null;
-  return scalar(section.lines, 'rootId');
+// Cooldown-marker key. In user scope (a config under the user's home, shared by every directory)
+// the key is the session id, so unrelated directories never share one cooldown. Project scope
+// keeps rootId || sessionId; the none scope falls back to the session id.
+export function retroMarkerKey(located, sessionId) {
+  if (located && located.scope === 'user') return sessionId || 'unknown';
+  return (located && located.rootId) || sessionId || 'unknown';
+}
+
+// ancestorId for a dispatch directive. A user-scope personal root anchors items but must not scope
+// reads, so only a project-scope config contributes its rootId.
+export function dispatchAncestorId(located) {
+  return located && located.scope === 'project' ? (located.rootId || null) : null;
 }
 
 export function markerPath(key) {
