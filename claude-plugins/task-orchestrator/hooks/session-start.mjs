@@ -106,7 +106,7 @@ function buildSetupHint(loc, state, registrations) {
   }
   return state === 'none'
     ? 'Task Orchestrator is not set up for this directory — run /task-orchestrator:init to configure it.'
-    : `Task Orchestrator config at ${loc.path} has no project.rootId — run /task-orchestrator:init to finish setup.`;
+    : `Task Orchestrator config at ${loc.path} has no project.rootId — run /task-orchestrator:init${loc.scope === 'user' ? ' --user' : ''} to finish setup.`;
 }
 
 function buildConfigSyncNotice(state, registrations) {
@@ -115,7 +115,7 @@ function buildConfigSyncNotice(state, registrations) {
   if (!registrations.some((r) => typeof r.url === 'string' && /^https?:\/\//i.test(r.url))) return null;
   return `## Config Sync
 
-Config-sync cannot push this config because no REST API URL resolves. Set \`TASK_ORCHESTRATOR_API_URL\` or run \`/task-orchestrator:init\` (writes \`client.json\`).`;
+Config-sync cannot push this config because no REST API URL resolves. Set \`TASK_ORCHESTRATOR_API_URL\` or run \`/task-orchestrator:init${state === 'user' ? ' --user' : ''}\` (writes \`client.json\`).`;
 }
 
 function isExistingFile(p) {
@@ -272,7 +272,7 @@ ${lines.join('\n')}`;
 // ─────────────────────────────────────────────────────────────────────────
 // Plugin version freshness check — dev-checkout only. Warns when the plugin
 // version checked out on disk (claude-plugins/task-orchestrator/.claude-plugin/plugin.json,
-// found by the same AGENT_CONFIG_DIR-then-cwd walk-up used elsewhere in this file)
+// found by walking up from AGENT_CONFIG_DIR when set, then from cwd)
 // differs from the version of the plugin actually running this hook. Silent
 // when not a dev checkout (no such file found), when either version can't be
 // read, or when the versions match — never blocks session start.
