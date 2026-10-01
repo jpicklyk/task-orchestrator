@@ -13,6 +13,13 @@
 // read in its own try/catch (a source that throws or is empty is left out). TASK_ORCHESTRATOR_HOME
 // replaces the home, it does not overlay it: the real-home config is never a project hit. Step 1 is
 // not filtered. Scope is 'user' only when the hit equals the user-level path, otherwise 'project'.
+//
+// Optional walk ceiling: TASK_ORCHESTRATOR_CEILING (read from the env argument; a relative value
+// resolves against cwd), modelled on GIT_CEILING_DIRECTORIES. Unset or empty: no effect. When set, the
+// step-2 walk-up and the step-3 .git search stop BEFORE examining the ceiling directory (cwd equal to
+// the ceiling examines nothing), and a step-3 main checkout equal to or above the ceiling is discarded
+// (a sibling main checkout is kept). A ceiling that is not cwd or an ancestor of it has no effect on the
+// walks. Steps 1 and 4 are never bounded. Exists mainly as a test seam; leave unset in normal use.
 
 import { readFileSync, statSync } from 'fs';
 import os from 'os';
@@ -82,9 +89,10 @@ function readTrim(p) {
 }
 
 /** Main checkout dir for the nearest .git found walking up from cwd, or null. */
-function mainCheckoutFromGit(cwd) {
+function mainCheckoutFromGit(cwd, ceiling) {
   let dir = resolve(cwd);
   for (;;) {
+    if (ceiling && norm(dir) === norm(ceiling)) return null;
     const dotGit = join(dir, '.git');
     if (isDir(dotGit)) return null;
     if (isFile(dotGit)) {
@@ -107,6 +115,18 @@ function mainCheckoutFromGit(cwd) {
   }
 }
 
+/** True when main equals the ceiling or is an ancestor of it. */
+function atOrAboveCeiling(main, ceiling) {
+  const m = norm(main);
+  let d = resolve(ceiling);
+  for (;;) {
+    if (norm(d) === m) return true;
+    const parent = dirname(d);
+    if (parent === d) return false;
+    d = parent;
+  }
+}
+
 function parseProject(text) {
   try {
     const section = readSection(text, 'project', { blockOnly: true });
@@ -117,18 +137,19 @@ function parseProject(text) {
   }
 }
 
-function* candidates(cwd, env, userPath, homePaths) {
+function* candidates(cwd, env, userPath, homePaths, ceiling) {
   if (env.AGENT_CONFIG_DIR) yield resolve(cwd, env.AGENT_CONFIG_DIR, CONFIG_REL);
   let dir = resolve(cwd);
   for (;;) {
+    if (ceiling && norm(dir) === norm(ceiling)) break;
     const c = join(dir, CONFIG_REL);
     if (!homePaths.has(norm(c))) yield c;
     const parent = dirname(dir);
     if (parent === dir) break;
     dir = parent;
   }
-  const main = mainCheckoutFromGit(cwd);
-  if (main) {
+  const main = mainCheckoutFromGit(cwd, ceiling);
+  if (main && !(ceiling && atOrAboveCeiling(main, ceiling))) {
     const c = join(main, CONFIG_REL);
     if (!homePaths.has(norm(c))) yield c;
   }
@@ -149,7 +170,9 @@ export function locateConfig({ cwd = process.cwd(), env = process.env } = {}) {
       // home unresolvable: skip the user-level step, every hit is a project hit
     }
     const homePaths = homeLevelPaths(env);
-    for (const p of candidates(cwd, env, userPath, homePaths)) {
+    const ceilingEnv = env.TASK_ORCHESTRATOR_CEILING;
+    const ceiling = typeof ceilingEnv === 'string' && ceilingEnv ? resolve(cwd, ceilingEnv) : null;
+    for (const p of candidates(cwd, env, userPath, homePaths, ceiling)) {
       if (!isFile(p)) continue;
       let bytes;
       try {
