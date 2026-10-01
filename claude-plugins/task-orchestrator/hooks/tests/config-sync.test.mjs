@@ -20,6 +20,7 @@ import {
   configFingerprint,
   isValidRuleKey,
   planRuleSync,
+  planBundledSync,
   formatRuleSyncSummary,
 } from '../config-sync.mjs';
 
@@ -620,6 +621,468 @@ test('S3: rule PUTs are sent one at a time \u2014 max in-flight is 1, all three 
       1,
       `rule PUTs must be sent one at a time (serialized), got max in-flight ${maxInFlight}`,
     );
+  } finally {
+    await stopServer(server);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ─── 19bbe0b7: user scope, bundled rules + manifest policy, shared deadline, 404 wording ──────────
+//
+// Oracles are the frozen test-plan scenarios (S1..S15, labelled in each title) and task-scope
+// sections TS1-TS5; none is derived from the hook's current output.
+
+const BUNDLED_KEYS = [
+  'protocol.entry-seat',
+  'protocol.in-phase-seat',
+  'protocol.read-only-agent',
+  'commit-discipline',
+  'review-scoping',
+];
+const PROTOCOL_BUNDLED_KEYS = BUNDLED_KEYS.filter((k) => k.startsWith('protocol.'));
+
+function bundledNormalizedBytes(key) {
+  return normalizeForFingerprint(readFileSync(join(BUNDLED_DIR, `${key}.md`)));
+}
+
+function putKey(url) {
+  return decodeURIComponent(url.split('/plans/')[1]);
+}
+
+function stopServerNow(server) {
+  if (typeof server.closeAllConnections === 'function') server.closeAllConnections();
+  return stopServer(server);
+}
+
+/** Scripted fake API: config GET answers "current"; rules GET answers `rules`; each PUT answers 200 after `putDelayMs`. */
+function makeScriptedHandler({ requests, rules = [], putDelayMs = 0 }) {
+  return (req, res) => {
+    requests.push({ method: req.method, url: req.url, body: req.rawBody });
+    if (req.method === 'GET' && req.url.includes('/config')) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ relation: 'current' }));
+      return;
+    }
+    if (req.method === 'GET' && req.url.endsWith('/rules')) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ rules }));
+      return;
+    }
+    if (req.method === 'PUT' && req.url.includes('/plans/')) {
+      setTimeout(() => {
+        res.writeHead(200);
+        res.end();
+      }, putDelayMs);
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  };
+}
+
+/** User-scope spawn (decision.md Ruling 2): config lives under the pinned home; cwd is an empty fixture dir. */
+function spawnUserScope(home, cwd, apiUrl, { hookEventName = 'SessionStart' } = {}) {
+  const env = { ...process.env };
+  delete env.AGENT_CONFIG_DIR;
+  delete env.TASK_ORCHESTRATOR_API_TOKEN;
+  env.TASK_ORCHESTRATOR_HOME = home;
+  env.TASK_ORCHESTRATOR_API_URL = apiUrl;
+  return new Promise((resolvePromise, rejectPromise) => {
+    const child = spawn(process.execPath, [HOOK], { env, cwd });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (d) => {
+      stdout += d;
+    });
+    child.stderr.on('data', (d) => {
+      stderr += d;
+    });
+    child.on('error', rejectPromise);
+    child.on('close', (status) => resolvePromise({ status, stdout, stderr }));
+    child.stdin.end(JSON.stringify({ hook_event_name: hookEventName }));
+  });
+}
+
+test('S1: user scope — config under the pinned home syncs and the line says "user config"', async () => {
+  const home = tmpConfigDir();
+  const cwd = tmpConfigDir(); // empty: nothing to find by walk-up
+  const requests = [];
+  writeConfig(home, 'project:\n  rootId: "u1"\n');
+  const server = await startFakeServer(makeScriptedHandler({ requests, rules: bundledAtCurrentHash() }));
+  try {
+    const { port } = server.address();
+    const res = await spawnUserScope(home, cwd, `http://127.0.0.1:${port}`);
+    assert.equal(res.status, 0);
+    assert.ok(requests.some((r) => r.method === 'GET' && r.url.startsWith('/api/v1/roots/u1/config')));
+    const line = JSON.parse(res.stdout).hookSpecificOutput.additionalContext;
+    assert.ok(line.includes('root u1'), line);
+    assert.ok(line.includes('user config'), line);
+    assert.ok(!line.includes('project config'), line);
+  } finally {
+    await stopServer(server);
+    rmSync(home, { recursive: true, force: true });
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test('S13: user config without a rootId — silent exit, no requests', async () => {
+  const home = tmpConfigDir();
+  const cwd = tmpConfigDir();
+  const requests = [];
+  writeConfig(home, 'retrospective:\n  mode: nudge\n');
+  const server = await startFakeServer(makeScriptedHandler({ requests }));
+  try {
+    const { port } = server.address();
+    const res = await spawnUserScope(home, cwd, `http://127.0.0.1:${port}`);
+    assert.equal(res.status, 0);
+    assert.equal(res.stdout, '');
+    assert.equal(requests.length, 0);
+  } finally {
+    await stopServer(server);
+    rmSync(home, { recursive: true, force: true });
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test('S2: no workspace rules, none on server — all five bundled rules pushed with normalized bundled bytes', async () => {
+  const dir = tmpConfigDir();
+  const requests = [];
+  writeConfig(dir, 'project:\n  rootId: "root-s2"\n');
+  const server = await startFakeServer(makeScriptedHandler({ requests }));
+  try {
+    const { port } = server.address();
+    const res = await spawnHookAgainst(dir, `http://127.0.0.1:${port}`, { hookEventName: 'SessionStart' });
+    assert.equal(res.status, 0);
+    const puts = requests.filter((r) => r.method === 'PUT');
+    assert.equal(puts.length, 5);
+    assert.deepEqual(new Set(puts.map((p) => putKey(p.url))), new Set(BUNDLED_KEYS.map((k) => `rule/${k}`)));
+    for (const p of puts) {
+      const key = putKey(p.url).slice('rule/'.length);
+      assert.deepEqual(p.body, bundledNormalizedBytes(key), `body for ${key}`);
+    }
+    const line = JSON.parse(res.stdout).hookSpecificOutput.additionalContext;
+    for (const k of BUNDLED_KEYS) assert.ok(line.includes(k), `pushed list names ${k}: ${line}`);
+  } finally {
+    await stopServer(server);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('S5: a workspace rule with a bundled key wins — workspace bytes are PUT even when the server holds the bundled hash', async () => {
+  const dir = tmpConfigDir();
+  const requests = [];
+  const content = 'Workspace override of the entry seat.\n';
+  writeRuleFile(dir, 'protocol.entry-seat.md', content);
+  writeConfig(dir, 'project:\n  rootId: "root-s5"\n');
+  const server = await startFakeServer(makeScriptedHandler({ requests, rules: bundledAtCurrentHash() }));
+  try {
+    const { port } = server.address();
+    const res = await spawnHookAgainst(dir, `http://127.0.0.1:${port}`, { hookEventName: 'SessionStart' });
+    assert.equal(res.status, 0);
+    const puts = requests.filter((r) => r.method === 'PUT');
+    assert.equal(puts.length, 1);
+    assert.equal(putKey(puts[0].url), 'rule/protocol.entry-seat');
+    assert.deepEqual(puts[0].body, normalizeForFingerprint(Buffer.from(content)));
+  } finally {
+    await stopServer(server);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('S6: server holds an unknown hash for a bundled key — never overwritten; the other four are pushed', async () => {
+  const dir = tmpConfigDir();
+  const requests = [];
+  writeConfig(dir, 'project:\n  rootId: "root-s6"\n');
+  const server = await startFakeServer(
+    makeScriptedHandler({ requests, rules: [{ key: 'commit-discipline', rulesVersion: 'a'.repeat(64) }] }),
+  );
+  try {
+    const { port } = server.address();
+    const res = await spawnHookAgainst(dir, `http://127.0.0.1:${port}`, { hookEventName: 'SessionStart' });
+    assert.equal(res.status, 0);
+    const keys = requests.filter((r) => r.method === 'PUT').map((p) => putKey(p.url));
+    assert.equal(keys.length, 4);
+    assert.ok(!keys.includes('rule/commit-discipline'));
+    assert.deepEqual(
+      new Set(keys),
+      new Set(BUNDLED_KEYS.filter((k) => k !== 'commit-discipline').map((k) => `rule/${k}`)),
+    );
+  } finally {
+    await stopServer(server);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('S8: rules list 404 with no workspace rules — "root <id> not found on this server", zero PUTs', async () => {
+  const dir = tmpConfigDir();
+  const requests = [];
+  writeConfig(dir, 'project:\n  rootId: "root-s8"\n');
+  const server = await startFakeServer(makeFakeApiHandler({ requests, rulesGetStatus: 404 }));
+  try {
+    const { port } = server.address();
+    const res = await spawnHookAgainst(dir, `http://127.0.0.1:${port}`, { hookEventName: 'SessionStart' });
+    assert.equal(res.status, 0);
+    const line = JSON.parse(res.stdout).hookSpecificOutput.additionalContext;
+    assert.ok(line.includes('root root-s8 not found on this server'), line);
+    assert.ok(!requests.some((r) => r.method === 'PUT'));
+  } finally {
+    await stopServer(server);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('S9: SessionStart shared deadline — protocol keys first, wall time bounded, deferrals reported', async () => {
+  const dir = tmpConfigDir();
+  const requests = [];
+  for (let i = 1; i <= 8; i += 1) writeRuleFile(dir, `w${i}.md`, `Workspace rule ${i}.\n`);
+  writeConfig(dir, 'project:\n  rootId: "root-s9"\n');
+  const server = await startFakeServer(makeScriptedHandler({ requests, putDelayMs: 1500 }));
+  try {
+    const { port } = server.address();
+    const started = Date.now();
+    const res = await spawnHookAgainst(dir, `http://127.0.0.1:${port}`, { hookEventName: 'SessionStart' });
+    const wall = Date.now() - started;
+    assert.equal(res.status, 0);
+    assert.ok(wall < 9500, `wall time ${wall}ms must stay under the 8000ms budget plus margin`);
+    const putKeys = requests.filter((r) => r.method === 'PUT').map((p) => putKey(p.url));
+    const received = putKeys.length;
+    assert.ok(received >= 3, `received ${received} PUTs`);
+    assert.deepEqual(
+      new Set(putKeys.slice(0, 3)),
+      new Set(PROTOCOL_BUNDLED_KEYS.map((k) => `rule/${k}`)),
+      'first three PUTs are the protocol.* keys',
+    );
+    const line = JSON.parse(res.stdout).hookSpecificOutput.additionalContext;
+    const m = line.match(/(\d+) deferred to next session/);
+    assert.ok(m, `deferral clause missing: ${line}`);
+    const n = Number(m[1]);
+    assert.ok(n >= 13 - received && n <= 13 - received + 1, `deferred ${n} with ${received} of 13 PUTs received`);
+  } finally {
+    await stopServerNow(server);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('S10: FileChanged deadline (3500ms) — bounded wall time, deferrals reported, no bundled PUTs', async () => {
+  const dir = tmpConfigDir();
+  const requests = [];
+  for (let i = 1; i <= 4; i += 1) writeRuleFile(dir, `w${i}.md`, `Workspace rule ${i}.\n`);
+  writeConfig(dir, 'project:\n  rootId: "root-s10"\n');
+  const server = await startFakeServer(makeScriptedHandler({ requests, putDelayMs: 1500 }));
+  try {
+    const { port } = server.address();
+    const filePath = join(dir, '.taskorchestrator', 'config.yaml');
+    const started = Date.now();
+    const res = await spawnHookAgainst(dir, `http://127.0.0.1:${port}`, { hookEventName: 'FileChanged', filePath });
+    const wall = Date.now() - started;
+    assert.equal(res.status, 0);
+    assert.ok(wall < 5000, `wall time ${wall}ms must stay under the 3500ms budget plus margin`);
+    const putKeys = requests.filter((r) => r.method === 'PUT').map((p) => putKey(p.url));
+    for (const k of BUNDLED_KEYS) assert.ok(!putKeys.includes(`rule/${k}`), `no bundled PUT on FileChanged: ${k}`);
+    const line = JSON.parse(res.stdout).hookSpecificOutput.additionalContext;
+    const m = line.match(/(\d+) deferred to next session/);
+    assert.ok(m, `deferral clause missing: ${line}`);
+    assert.ok(Number(m[1]) >= 1);
+  } finally {
+    await stopServerNow(server);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('S11: request order — config GET, rules GET, then protocol.* PUTs before every other key', async () => {
+  const dir = tmpConfigDir();
+  const requests = [];
+  writeRuleFile(dir, 'aaa.md', 'Alphabetically first workspace rule.\n');
+  writeConfig(dir, 'project:\n  rootId: "root-s11"\n');
+  const server = await startFakeServer(makeScriptedHandler({ requests }));
+  try {
+    const { port } = server.address();
+    const res = await spawnHookAgainst(dir, `http://127.0.0.1:${port}`, { hookEventName: 'SessionStart' });
+    assert.equal(res.status, 0);
+    assert.equal(requests[0].method, 'GET');
+    assert.ok(requests[0].url.includes('/config'), requests[0].url);
+    assert.equal(requests[1].method, 'GET');
+    assert.ok(requests[1].url.endsWith('/rules'), requests[1].url);
+    const putKeys = requests.slice(2).map((r) => {
+      assert.equal(r.method, 'PUT');
+      return putKey(r.url);
+    });
+    assert.equal(putKeys.length, 6);
+    assert.deepEqual(new Set(putKeys.slice(0, 3)), new Set(PROTOCOL_BUNDLED_KEYS.map((k) => `rule/${k}`)));
+    assert.deepEqual(new Set(putKeys.slice(3)), new Set(['rule/aaa', 'rule/commit-discipline', 'rule/review-scoping']));
+  } finally {
+    await stopServer(server);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('S12: FileChanged pushes workspace rules only — no bundled sync', async () => {
+  const dir = tmpConfigDir();
+  const requests = [];
+  writeRuleFile(dir, 'only.md', 'The only workspace rule.\n');
+  writeConfig(dir, 'project:\n  rootId: "root-s12"\n');
+  const server = await startFakeServer(makeScriptedHandler({ requests }));
+  try {
+    const { port } = server.address();
+    const filePath = join(dir, '.taskorchestrator', 'config.yaml');
+    const res = await spawnHookAgainst(dir, `http://127.0.0.1:${port}`, { hookEventName: 'FileChanged', filePath });
+    assert.equal(res.status, 0);
+    const puts = requests.filter((r) => r.method === 'PUT');
+    assert.equal(puts.length, 1);
+    assert.equal(putKey(puts[0].url), 'rule/only');
+  } finally {
+    await stopServer(server);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('S4: planBundledSync classifies absent / known-old / current by the manifest', () => {
+  const curA = Buffer.from('current a\n');
+  const curB = Buffer.from('current b\n');
+  const curC = Buffer.from('current c\n');
+  const oldHash = sha256Hex(Buffer.from('an older shipped body\n'));
+  const manifest = {
+    ka: [oldHash, sha256Hex(curA)],
+    kb: [oldHash, sha256Hex(curB)],
+    kc: [oldHash, sha256Hex(curC)],
+  };
+  const plan = planBundledSync({
+    bundled: [
+      { key: 'ka', bytes: curA },
+      { key: 'kb', bytes: curB },
+      { key: 'kc', bytes: curC },
+    ],
+    manifest,
+    serverVersions: new Map([
+      ['ka', oldHash], // known older shipped hash -> overwrite
+      ['kc', sha256Hex(curC)], // already current
+    ]), // kb absent
+    workspaceKeys: new Set(),
+  });
+  const byKey = Object.fromEntries(plan.toPush.map((p) => [p.key, p]));
+  assert.deepEqual(Object.keys(byKey).sort(), ['ka', 'kb']);
+  assert.equal(byKey.ka.reason, 'known-old');
+  assert.equal(byKey.kb.reason, 'absent');
+  assert.deepEqual(byKey.ka.bytes, curA);
+  assert.deepEqual(byKey.kb.bytes, curB);
+  assert.deepEqual(plan.inSync, ['kc']);
+  assert.deepEqual(plan.untouched, []);
+});
+
+test('S7: planBundledSync never pushes over an unknown server hash (null, empty, unknown hex, uppercase hex)', () => {
+  const cur = Buffer.from('current\n');
+  const curHash = sha256Hex(cur);
+  const oldHash = sha256Hex(Buffer.from('older\n'));
+  const manifest = { k: [oldHash, curHash] };
+  const unknowns = [null, '', 'f'.repeat(64), curHash.toUpperCase(), oldHash.toUpperCase()];
+  for (const serverHash of unknowns) {
+    const plan = planBundledSync({
+      bundled: [{ key: 'k', bytes: cur }],
+      manifest,
+      serverVersions: new Map([['k', serverHash]]),
+      workspaceKeys: new Set(),
+    });
+    assert.deepEqual(plan.toPush, [], `serverHash ${JSON.stringify(serverHash)} must not be pushed over`);
+    assert.deepEqual(plan.inSync, [], `serverHash ${JSON.stringify(serverHash)} is not in sync`);
+    assert.deepEqual(plan.untouched, ['k'], `serverHash ${JSON.stringify(serverHash)}`);
+  }
+});
+
+test('planBundledSync: a key the workspace provides is omitted from every list, whatever the server holds', () => {
+  const cur = Buffer.from('current\n');
+  const curHash = sha256Hex(cur);
+  const oldHash = sha256Hex(Buffer.from('older\n'));
+  const manifest = { k: [oldHash, curHash] };
+  for (const serverVersions of [new Map(), new Map([['k', oldHash]]), new Map([['k', curHash]]), new Map([['k', 'zz']])]) {
+    const plan = planBundledSync({
+      bundled: [{ key: 'k', bytes: cur }],
+      manifest,
+      serverVersions,
+      workspaceKeys: new Set(['k']),
+    });
+    assert.deepEqual(plan, { toPush: [], inSync: [], untouched: [] });
+  }
+});
+
+test('formatRuleSyncSummary: deferredCount 0 changes nothing; a positive count names "N deferred to next session"', () => {
+  const base = { pushedKeys: [], unchangedCount: 4, skipped: [], failed: [] };
+  assert.equal(formatRuleSyncSummary({ ...base, deferredCount: 0 }), formatRuleSyncSummary(base));
+  assert.ok(formatRuleSyncSummary({ ...base, deferredCount: 3 }).includes('3 deferred to next session'));
+});
+
+test('probe: replay against a stateful server — the second run pushes nothing', async () => {
+  const dir = tmpConfigDir();
+  const requests = [];
+  const store = new Map();
+  writeRuleFile(dir, 'aaa.md', 'Replay rule.\n');
+  writeConfig(dir, 'project:\n  rootId: "root-replay"\n');
+  const server = await startFakeServer((req, res) => {
+    requests.push({ method: req.method, url: req.url });
+    if (req.method === 'GET' && req.url.includes('/config')) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ relation: 'current' }));
+    } else if (req.method === 'GET' && req.url.endsWith('/rules')) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ rules: [...store].map(([key, rulesVersion]) => ({ key, rulesVersion })) }));
+    } else if (req.method === 'PUT' && req.url.includes('/plans/')) {
+      store.set(putKey(req.url).slice('rule/'.length), sha256Hex(req.rawBody));
+      res.writeHead(200);
+      res.end();
+    } else {
+      res.writeHead(404);
+      res.end();
+    }
+  });
+  try {
+    const { port } = server.address();
+    const url = `http://127.0.0.1:${port}`;
+    await spawnHookAgainst(dir, url, { hookEventName: 'SessionStart' });
+    assert.equal(requests.filter((r) => r.method === 'PUT').length, 6);
+    requests.length = 0;
+    const second = await spawnHookAgainst(dir, url, { hookEventName: 'SessionStart' });
+    assert.equal(second.status, 0);
+    assert.equal(requests.filter((r) => r.method === 'PUT').length, 0);
+    assert.ok(JSON.parse(second.stdout).hookSpecificOutput.additionalContext.includes('Rules: 6 in sync.'));
+  } finally {
+    await stopServer(server);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('probe: duplicate server listing entries at the current hash — no PUT for bundled keys', async () => {
+  const dir = tmpConfigDir();
+  const requests = [];
+  writeConfig(dir, 'project:\n  rootId: "root-dup"\n');
+  const listing = [...bundledAtCurrentHash(), ...bundledAtCurrentHash()];
+  const server = await startFakeServer(makeScriptedHandler({ requests, rules: listing }));
+  try {
+    const { port } = server.address();
+    const res = await spawnHookAgainst(dir, `http://127.0.0.1:${port}`, { hookEventName: 'SessionStart' });
+    assert.equal(res.status, 0);
+    assert.ok(!requests.some((r) => r.method === 'PUT'));
+  } finally {
+    await stopServer(server);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('probe: CRLF workspace rule with a bundled key, server at the LF hash — no PUT, counted in sync', async () => {
+  const dir = tmpConfigDir();
+  const requests = [];
+  writeRuleFile(dir, 'commit-discipline.md', 'Line one.\r\nLine two.\r\n');
+  writeConfig(dir, 'project:\n  rootId: "root-crlf-bundled"\n');
+  const lfHash = sha256Hex(Buffer.from('Line one.\nLine two.\n'));
+  const rules = [
+    ...bundledAtCurrentHash().filter((r) => r.key !== 'commit-discipline'),
+    { key: 'commit-discipline', rulesVersion: lfHash },
+  ];
+  const server = await startFakeServer(makeScriptedHandler({ requests, rules }));
+  try {
+    const { port } = server.address();
+    const res = await spawnHookAgainst(dir, `http://127.0.0.1:${port}`, { hookEventName: 'SessionStart' });
+    assert.equal(res.status, 0);
+    assert.ok(!requests.some((r) => r.method === 'PUT'));
+    assert.ok(JSON.parse(res.stdout).hookSpecificOutput.additionalContext.includes('Rules: 5 in sync.'));
   } finally {
     await stopServer(server);
     rmSync(dir, { recursive: true, force: true });
