@@ -10,7 +10,7 @@ import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve, dirname } from 'node:path';
+import { join, resolve, dirname, sep } from 'node:path';
 import { apiBaseUrl, authHeader, fetchWithTimeout, isLoopbackApiUrl } from '../api-client.mjs';
 import { userClientPath } from '../config-locator.mjs';
 
@@ -841,3 +841,290 @@ test('4e15b651 probe: win32 case-differing cwd still finds the project client.js
       cleanupF(fx);
     }
   });
+
+// ---- 4e15b651 amendment A1: main-checkout client.json fallback for linked worktrees ----
+// Oracle: task-scope "Amendment A1" rules A1.1-A1.6 and test-plan S21-S34 (frozen before any A1
+// implementation). P1 = client.json beside the located project config; P2 = <main>/.taskorchestrator/
+// client.json when the located config sits in a linked worktree; each read under the same loopback
+// guard, a candidate that yields no usable loopback URL falls through to the next, then the user file.
+// Fixture G: T = ceiling (fresh realpath'd temp dir); M = T/main with a .git directory,
+// .git/worktrees/w/commondir = ../.. and (unless told otherwise) a config.yaml; W = a linked worktree
+// (a .git FILE with gitdir: <absolute M/.git/worktrees/w>) at T/<wtPath> with its own config.yaml
+// (unless told otherwise); cwd = W/sub; H = TASK_ORCHESTRATOR_HOME holding the (non-loopback) user file.
+
+const CFG_G = 'project:\n  rootId: 11111111-2222-3333-4444-555555555555\n  name: ProjG\n';
+
+function fixtureG({ wtPath = 'wt', wtConfig = true, mainConfig = true } = {}) {
+  const T = realpathSync(mkdtempSync(join(tmpdir(), 'toapi-G-')));
+  const M = join(T, 'main');
+  mkdirSync(join(M, '.git', 'worktrees', 'w'), { recursive: true });
+  writeFileSync(join(M, '.git', 'worktrees', 'w', 'commondir'), '../..');
+  if (mainConfig) {
+    mkdirSync(join(M, '.taskorchestrator'), { recursive: true });
+    writeFileSync(join(M, '.taskorchestrator', 'config.yaml'), CFG_G);
+  }
+  const W = join(T, ...wtPath.split('/'));
+  mkdirSync(W, { recursive: true });
+  writeFileSync(join(W, '.git'), `gitdir: ${join(M, '.git', 'worktrees', 'w')}\n`);
+  if (wtConfig) {
+    mkdirSync(join(W, '.taskorchestrator'), { recursive: true });
+    writeFileSync(join(W, '.taskorchestrator', 'config.yaml'), CFG_G);
+  }
+  const cwd = join(W, 'sub');
+  mkdirSync(cwd, { recursive: true });
+  const H = emptyHome();
+  return { T, M, W, cwd, H };
+}
+
+function writeClientAt(dir, content) {
+  mkdirSync(join(dir, '.taskorchestrator'), { recursive: true });
+  writeFileSync(join(dir, '.taskorchestrator', 'client.json'), content);
+}
+
+function resolveG(fx, { cwd = fx.cwd, ceiling = fx.T, extra = {} } = {}) {
+  return withEnv(
+    { TASK_ORCHESTRATOR_API_URL: undefined, TASK_ORCHESTRATOR_HOME: fx.H, TASK_ORCHESTRATOR_CEILING: ceiling, ...extra },
+    () => apiBaseUrl({ cwd }),
+  );
+}
+
+const LM = 'http://127.0.0.1:4201';
+const LW = 'http://127.0.0.1:4202';
+const urlJson = (apiUrl) => JSON.stringify({ apiUrl });
+
+test('4e15b651 S21: worktree has its config but no client.json; main checkout has a loopback one -> main value (cwd below and at W)', () => {
+  const fx = fixtureG();
+  try {
+    writeClientAt(fx.H, urlJson(USER_URL));
+    writeClientAt(fx.M, urlJson(LM));
+    assert.equal(resolveG(fx), LM);
+    assert.equal(resolveG(fx, { cwd: fx.W }), LM);
+  } finally {
+    cleanupF(fx);
+  }
+});
+
+test('4e15b651 S22: both worktree and main checkout hold a loopback client.json -> the worktree value wins', () => {
+  const fx = fixtureG();
+  try {
+    writeClientAt(fx.H, urlJson(USER_URL));
+    writeClientAt(fx.M, urlJson(LM));
+    writeClientAt(fx.W, urlJson(LW));
+    assert.equal(resolveG(fx), LW);
+  } finally {
+    cleanupF(fx);
+  }
+});
+
+test('4e15b651 S23: an unusable or non-loopback worktree client.json, for any reason, falls through to the main checkout value', () => {
+  const contents = [
+    ['bad json', '{bad'],
+    ['array', '[]'],
+    ['no apiUrl', '{}'],
+    ['apiUrl number', JSON.stringify({ apiUrl: 5 })],
+    ['apiUrl whitespace', urlJson('  ')],
+    ['empty file', ''],
+    ['non-loopback', urlJson('http://evil.example:4203')],
+    ['I1 userinfo host confusion', urlJson('http://localhost@evil.example/')],
+  ];
+  for (const [label, content] of contents) {
+    const fx = fixtureG();
+    try {
+      writeClientAt(fx.H, urlJson(USER_URL));
+      writeClientAt(fx.M, urlJson(LM));
+      writeClientAt(fx.W, content);
+      assert.equal(resolveG(fx), LM, label);
+    } finally {
+      cleanupF(fx);
+    }
+  }
+  const fx = fixtureG();
+  try {
+    writeClientAt(fx.H, urlJson(USER_URL));
+    writeClientAt(fx.M, urlJson(LM));
+    mkdirSync(join(fx.W, '.taskorchestrator', 'client.json'), { recursive: true });
+    assert.equal(resolveG(fx), LM, 'worktree client.json is a directory');
+  } finally {
+    cleanupF(fx);
+  }
+});
+
+test('4e15b651 S24: a non-loopback, unparsable or host-confusion main checkout value is ignored -> user value; with no user file -> null', () => {
+  const contents = [
+    ['non-loopback', urlJson('http://evil.example:4204')],
+    ['bad json', '{bad'],
+    ['I1 userinfo host confusion', urlJson('http://localhost@evil.example/')],
+  ];
+  for (const [label, content] of contents) {
+    const fx = fixtureG();
+    try {
+      writeClientAt(fx.M, content);
+      assert.equal(resolveG(fx), null, `${label} without user file`);
+      writeClientAt(fx.H, urlJson(USER_URL));
+      assert.equal(resolveG(fx), USER_URL, label);
+    } finally {
+      cleanupF(fx);
+    }
+  }
+});
+
+test('4e15b651 S25: ceiling at or below the main checkout drops the main-checkout file; a ceiling above it keeps it', () => {
+  const fx = fixtureG({ wtPath: 'main/wts/x' });
+  try {
+    writeClientAt(fx.H, urlJson(USER_URL));
+    writeClientAt(fx.M, urlJson(LM));
+    assert.equal(resolveG(fx, { ceiling: join(fx.M, 'wts') }), USER_URL, 'ceiling M/wts');
+    assert.equal(resolveG(fx, { ceiling: fx.M }), USER_URL, 'ceiling M');
+    assert.equal(resolveG(fx, { ceiling: fx.T }), LM, 'ceiling T');
+  } finally {
+    cleanupF(fx);
+  }
+});
+
+test('4e15b651 S26: AGENT_CONFIG_DIR pins the project file to the directory it names; a dir without a config leaves the fallback on', () => {
+  const fx = fixtureG();
+  try {
+    writeClientAt(fx.H, urlJson(USER_URL));
+    writeClientAt(fx.M, urlJson(LM));
+    assert.equal(resolveG(fx, { extra: { AGENT_CONFIG_DIR: fx.W } }), USER_URL, 'AGENT_CONFIG_DIR = W');
+    assert.equal(resolveG(fx), LM, 'unset');
+    const empty = join(fx.T, 'emptycfg');
+    mkdirSync(empty, { recursive: true });
+    assert.equal(resolveG(fx, { extra: { AGENT_CONFIG_DIR: empty } }), LM, 'AGENT_CONFIG_DIR names a dir with no config');
+  } finally {
+    cleanupF(fx);
+  }
+});
+
+test('4e15b651 S27: results that must not change - no main checkout to derive, so no second file', () => {
+  // (a) a plain checkout (.git directory) without a client.json -> user value
+  {
+    const fx = fixtureG();
+    try {
+      const C = join(fx.T, 'clone');
+      mkdirSync(join(C, '.git'), { recursive: true });
+      mkdirSync(join(C, '.taskorchestrator'), { recursive: true });
+      writeFileSync(join(C, '.taskorchestrator', 'config.yaml'), CFG_G);
+      mkdirSync(join(C, 'sub'), { recursive: true });
+      writeClientAt(fx.H, urlJson(USER_URL));
+      writeClientAt(fx.M, urlJson(LM));
+      assert.equal(resolveG(fx, { cwd: join(C, 'sub') }), USER_URL, '(a)');
+    } finally {
+      cleanupF(fx);
+    }
+  }
+  // (b) a clone (.git directory) with its own config nested inside a linked worktree W, M has Lm -> user value
+  {
+    const fx = fixtureG();
+    try {
+      const N = join(fx.W, 'clone');
+      mkdirSync(join(N, '.git'), { recursive: true });
+      mkdirSync(join(N, '.taskorchestrator'), { recursive: true });
+      writeFileSync(join(N, '.taskorchestrator', 'config.yaml'), CFG_G);
+      mkdirSync(join(N, 'sub'), { recursive: true });
+      writeClientAt(fx.H, urlJson(USER_URL));
+      writeClientAt(fx.M, urlJson(LM));
+      assert.equal(resolveG(fx, { cwd: join(N, 'sub') }), USER_URL, '(b)');
+    } finally {
+      cleanupF(fx);
+    }
+  }
+  // (c) worktree without a config: the locator resolves M's config itself, M's client.json is the project file
+  {
+    const fx = fixtureG({ wtConfig: false });
+    try {
+      writeClientAt(fx.H, urlJson(USER_URL));
+      writeClientAt(fx.M, urlJson(LM));
+      assert.equal(resolveG(fx), LM, '(c)');
+    } finally {
+      cleanupF(fx);
+    }
+  }
+  // (d) config in a non-git parent P of the worktree W = P/w (W has none) -> user value
+  {
+    const fx = fixtureG({ wtPath: 'p/w', wtConfig: false });
+    try {
+      const P = join(fx.T, 'p');
+      mkdirSync(join(P, '.taskorchestrator'), { recursive: true });
+      writeFileSync(join(P, '.taskorchestrator', 'config.yaml'), CFG_G);
+      writeClientAt(fx.H, urlJson(USER_URL));
+      writeClientAt(fx.M, urlJson(LM));
+      assert.equal(resolveG(fx), USER_URL, '(d)');
+    } finally {
+      cleanupF(fx);
+    }
+  }
+});
+
+test('4e15b651 S28: no project file -> user; main file written -> main; worktree file written -> worktree; worktree file made non-loopback -> main (no caching)', () => {
+  const fx = fixtureG();
+  try {
+    writeClientAt(fx.H, urlJson(USER_URL));
+    assert.equal(resolveG(fx), USER_URL);
+    writeClientAt(fx.M, urlJson(LM));
+    assert.equal(resolveG(fx), LM);
+    writeClientAt(fx.W, urlJson(LW));
+    assert.equal(resolveG(fx), LW);
+    writeClientAt(fx.W, urlJson('http://evil.example:4205'));
+    assert.equal(resolveG(fx), LM);
+    assert.equal(resolveG(fx), LM);
+  } finally {
+    cleanupF(fx);
+  }
+});
+
+// ---- 4e15b651 A1 probes ----
+
+test('4e15b651 A1 probe: main checkout client.json empty apiUrl, null apiUrl or absent all fall through to the user value', () => {
+  const variants = [['empty string', urlJson('')], ['null', urlJson(null)], ['empty file', ''], ['absent', undefined]];
+  for (const [label, content] of variants) {
+    const fx = fixtureG();
+    try {
+      writeClientAt(fx.H, urlJson(USER_URL));
+      if (content !== undefined) writeClientAt(fx.M, content);
+      assert.equal(resolveG(fx), USER_URL, label);
+    } finally {
+      cleanupF(fx);
+    }
+  }
+});
+
+test('4e15b651 A1 probe: a trailing separator on the ceiling and on the cwd does not change the fallback', () => {
+  const fx = fixtureG({ wtPath: 'main/wts/x' });
+  try {
+    writeClientAt(fx.H, urlJson(USER_URL));
+    writeClientAt(fx.M, urlJson(LM));
+    assert.equal(resolveG(fx, { ceiling: fx.M + sep }), USER_URL, 'ceiling M/');
+    assert.equal(resolveG(fx, { ceiling: fx.T + sep }), LM, 'ceiling T/');
+    assert.equal(resolveG(fx, { cwd: fx.cwd + sep, ceiling: fx.T }), LM, 'cwd with trailing separator');
+  } finally {
+    cleanupF(fx);
+  }
+});
+
+test('4e15b651 A1 probe: win32 case-differing ceiling and cwd spellings still give the same results',
+  { skip: process.platform !== 'win32' }, () => {
+    // Skip is a platform gate only: case-insensitive path equality is a win32 filesystem property.
+    const fx = fixtureG({ wtPath: 'main/wts/x' });
+    try {
+      writeClientAt(fx.H, urlJson(USER_URL));
+      writeClientAt(fx.M, urlJson(LM));
+      assert.equal(resolveG(fx, { ceiling: fx.M.toUpperCase() }), USER_URL, 'ceiling upper-cased equals M');
+      assert.equal(resolveG(fx, { cwd: fx.cwd.toUpperCase(), ceiling: fx.T }), LM, 'cwd upper-cased');
+    } finally {
+      cleanupF(fx);
+    }
+  });
+
+test('4e15b651 A1 probe: repeated calls with unchanged files agree', () => {
+  const fx = fixtureG();
+  try {
+    writeClientAt(fx.H, urlJson(USER_URL));
+    writeClientAt(fx.M, urlJson(LM));
+    const first = resolveG(fx);
+    assert.equal(first, LM);
+    for (let i = 0; i < 3; i += 1) assert.equal(resolveG(fx), first);
+  } finally {
+    cleanupF(fx);
+  }
+});

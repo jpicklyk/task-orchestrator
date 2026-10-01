@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, realpathSync, rmSync } from 'node:fs';
 import os, { tmpdir, homedir } from 'node:os';
 import { join, resolve, relative, sep, dirname, parse } from 'node:path';
-import { userHome, userConfigPath, userClientPath, locateConfig, projectClientPath } from '../config-locator.mjs';
+import { userHome, userConfigPath, userClientPath, locateConfig, projectClientPath, projectClientCandidates } from '../config-locator.mjs';
 import { existsSync } from 'node:fs';
 
 const made = [];
@@ -975,4 +975,209 @@ test('4e15b651 S20: cwd equal to TASK_ORCHESTRATOR_CEILING -> null; without the 
   assert.equal(projectClientPath({ cwd: A, env: { TASK_ORCHESTRATOR_HOME: E, TASK_ORCHESTRATOR_CEILING: A } }), null);
   const control = projectClientPath({ cwd: A, env: { TASK_ORCHESTRATOR_HOME: E } });
   assert.equal(norm(control), norm(join(A, '.taskorchestrator', 'client.json')));
+});
+
+// ---- 4e15b651 amendment A1: projectClientCandidates ----
+// Oracle: task-scope "Amendment A1" rules A1.1-A1.6; test-plan S29-S34. The list is the ordered
+// project-step files: [client.json beside the located config, <main>/.taskorchestrator/client.json
+// when that config sits in a linked worktree]; [] when the located scope is not 'project'. Every case
+// also asserts the invariant projectClientPath(args) === (list[0] ?? null) (A1.6).
+// Fixture G: T = ceiling (fresh); M = T/main (.git directory, worktrees/w/commondir); W = T/<wtPath>
+// a linked worktree (.git file -> M/.git/worktrees/w) with its own config unless told otherwise.
+
+function fixtureGL({ wtPath = 'wt', wtConfig = true, mainConfig = false, gitdirAbsolute = true, commondir = '../..' } = {}) {
+  const T = tmp('gT');
+  const M = join(T, 'main');
+  mkdirSync(join(M, '.git', 'worktrees', 'w'), { recursive: true });
+  if (commondir !== null) writeFileSync(join(M, '.git', 'worktrees', 'w', 'commondir'), commondir);
+  if (mainConfig) writeCfg(M, projectCfg('main-root', 'Main'));
+  const W = join(T, ...wtPath.split('/'));
+  mkdirSync(W, { recursive: true });
+  const gitdirAbs = join(M, '.git', 'worktrees', 'w');
+  writeFileSync(join(W, '.git'), `gitdir: ${gitdirAbsolute ? gitdirAbs : relative(W, gitdirAbs)}\n`);
+  if (wtConfig) writeCfg(W, projectCfg('wt-root', 'Wt'));
+  const E = tmp('E');
+  mkdirSync(join(W, 'sub'), { recursive: true });
+  return { T, M, W, E, sub: join(W, 'sub') };
+}
+
+const clientOf = (dir) => join(dir, '.taskorchestrator', 'client.json');
+
+function listOf(cwd, env) {
+  const list = projectClientCandidates({ cwd, env });
+  assert.ok(Array.isArray(list));
+  assert.equal(projectClientPath({ cwd, env }), list.length ? list[0] : null, 'projectClientPath is the first entry, or null for an empty list');
+  return list;
+}
+
+function assertList(list, expected, label) {
+  assert.deepEqual(list.map(norm), expected.map(norm), label);
+  for (const p of list) assert.equal(resolve(p), p, `${label} absolute`);
+}
+
+test('4e15b651 S29: linked worktree with its own config, main checkout without .taskorchestrator -> [worktree file, main file], absolute, neither exists', () => {
+  for (const gitdirAbsolute of [true, false]) {
+    const { T, M, W, E, sub } = fixtureGL({ gitdirAbsolute });
+    const list = listOf(sub, { TASK_ORCHESTRATOR_HOME: E, TASK_ORCHESTRATOR_CEILING: T });
+    assertList(list, [clientOf(W), clientOf(M)], `gitdirAbsolute=${gitdirAbsolute}`);
+    assert.equal(list.length, 2);
+    for (const p of list) assert.equal(existsSync(p), false);
+  }
+});
+
+test('4e15b651 S30: single-file and empty results - walk-up config without a linked-worktree main, user scope, no config, AGENT_CONFIG_DIR at the user home, worktree without a config', () => {
+  const E = tmp('E');
+  const T = tmp('pT');
+  const P = join(T, 'p');
+  writeCfg(P, projectCfg('p-root', 'P'));
+  const nested = join(P, 'a', 'b');
+  mkdirSync(nested, { recursive: true });
+  const env = { TASK_ORCHESTRATOR_HOME: E, TASK_ORCHESTRATOR_CEILING: T };
+  assertList(listOf(nested, env), [clientOf(P)], 'no .git anywhere');
+  mkdirSync(join(P, '.git'), { recursive: true });
+  assertList(listOf(nested, env), [clientOf(P)], '.git directory at P');
+
+  const userHome = tmp('uhome');
+  writeCfg(userHome, projectCfg('user-root', 'User'));
+  const cwd = join(T, 'plain');
+  mkdirSync(cwd, { recursive: true });
+  assert.deepEqual(listOf(cwd, { TASK_ORCHESTRATOR_HOME: userHome, TASK_ORCHESTRATOR_CEILING: T }), [], 'user scope');
+  assert.deepEqual(listOf(cwd, { TASK_ORCHESTRATOR_HOME: E, TASK_ORCHESTRATOR_CEILING: T }), [], 'no config');
+  assert.deepEqual(
+    listOf(cwd, { TASK_ORCHESTRATOR_HOME: userHome, TASK_ORCHESTRATOR_CEILING: T, AGENT_CONFIG_DIR: userHome }),
+    [],
+    'AGENT_CONFIG_DIR at the user home',
+  );
+
+  const g = fixtureGL({ wtConfig: false, mainConfig: true });
+  assertList(listOf(g.sub, { TASK_ORCHESTRATOR_HOME: g.E, TASK_ORCHESTRATOR_CEILING: g.T }), [clientOf(g.M)], 'worktree without a config -> main only');
+});
+
+test('4e15b651 S31: the ceiling bounds the main-checkout entry only when it is the cwd or an ancestor and the main checkout is at or above it', () => {
+  // W inside M: ceiling M/wts or M drops the main entry; ceiling T keeps it.
+  {
+    const fx = fixtureGL({ wtPath: 'main/wts/x' });
+    const base = { TASK_ORCHESTRATOR_HOME: fx.E };
+    assertList(listOf(fx.sub, { ...base, TASK_ORCHESTRATOR_CEILING: join(fx.M, 'wts') }), [clientOf(fx.W)], 'ceiling M/wts');
+    assertList(listOf(fx.sub, { ...base, TASK_ORCHESTRATOR_CEILING: fx.M }), [clientOf(fx.W)], 'ceiling M');
+    assertList(listOf(fx.sub, { ...base, TASK_ORCHESTRATOR_CEILING: fx.T }), [clientOf(fx.W), clientOf(fx.M)], 'ceiling T');
+  }
+  // W outside M: a ceiling at M or inside M is not an ancestor of the cwd -> no effect.
+  {
+    const fx = fixtureGL();
+    mkdirSync(join(fx.M, 'sub'), { recursive: true });
+    for (const ceiling of [fx.T, fx.M, join(fx.M, 'sub')]) {
+      assertList(
+        listOf(fx.sub, { TASK_ORCHESTRATOR_HOME: fx.E, TASK_ORCHESTRATOR_CEILING: ceiling }),
+        [clientOf(fx.W), clientOf(fx.M)],
+        `ceiling ${ceiling}`,
+      );
+    }
+  }
+  // Config in a subdirectory W/pkg of the worktree, cwd below it: the .git search starts at W/pkg.
+  {
+    const fx = fixtureGL({ wtConfig: false });
+    const pkg = join(fx.W, 'pkg');
+    writeCfg(pkg, projectCfg('pkg-root', 'Pkg'));
+    const deep = join(pkg, 'x');
+    mkdirSync(deep, { recursive: true });
+    assertList(listOf(deep, { TASK_ORCHESTRATOR_HOME: fx.E, TASK_ORCHESTRATOR_CEILING: fx.W }), [clientOf(pkg)], 'ceiling W stops the .git search before W');
+    assertList(listOf(deep, { TASK_ORCHESTRATOR_HOME: fx.E, TASK_ORCHESTRATOR_CEILING: fx.T }), [clientOf(pkg), clientOf(fx.M)], 'ceiling T');
+  }
+});
+
+test('4e15b651 S32: a main checkout that is a home-level directory (env home or override home) is dropped; otherwise kept', () => {
+  const fx = fixtureGL({ mainConfig: true });
+  const wFirst = [clientOf(fx.W)];
+  withHomes({ envHome: fx.M, fn: () => {
+    assertList(listOf(fx.sub, { TASK_ORCHESTRATOR_HOME: fx.E, TASK_ORCHESTRATOR_CEILING: fx.T }), wFirst, 'M is the USERPROFILE/HOME home');
+  } });
+  assertList(listOf(fx.sub, { TASK_ORCHESTRATOR_HOME: fx.M, TASK_ORCHESTRATOR_CEILING: fx.T }), wFirst, 'M is the override home');
+  assertList(
+    listOf(fx.sub, { TASK_ORCHESTRATOR_HOME: fx.E, TASK_ORCHESTRATOR_CEILING: fx.T }),
+    [clientOf(fx.W), clientOf(fx.M)],
+    'neither',
+  );
+});
+
+test('4e15b651 S33: AGENT_CONFIG_DIR naming the located config pins the list to one file; a dir without a config leaves the fallback on', () => {
+  const fx = fixtureGL();
+  const env = { TASK_ORCHESTRATOR_HOME: fx.E, TASK_ORCHESTRATOR_CEILING: fx.T };
+  assertList(listOf(fx.sub, { ...env, AGENT_CONFIG_DIR: fx.W }), [clientOf(fx.W)], 'absolute AGENT_CONFIG_DIR = W');
+  assertList(listOf(fx.W, { ...env, AGENT_CONFIG_DIR: '.' }), [clientOf(fx.W)], 'AGENT_CONFIG_DIR = . with cwd W');
+  const empty = join(fx.T, 'emptycfg');
+  mkdirSync(empty, { recursive: true });
+  assertList(listOf(fx.sub, { ...env, AGENT_CONFIG_DIR: empty }), [clientOf(fx.W), clientOf(fx.M)], 'AGENT_CONFIG_DIR at a dir with no config, walk-up hit at W');
+});
+
+test('4e15b651 S34: no derivable main checkout, or one equal to the config dir -> only the file beside the config, no throw', () => {
+  const envOf = (fx) => ({ TASK_ORCHESTRATOR_HOME: fx.E, TASK_ORCHESTRATOR_CEILING: fx.T });
+  {
+    const fx = fixtureGL({ commondir: null });
+    assertList(listOf(fx.sub, envOf(fx)), [clientOf(fx.W)], '.git file without commondir');
+  }
+  {
+    const fx = fixtureGL({ commondir: '..' });
+    assertList(listOf(fx.sub, envOf(fx)), [clientOf(fx.W)], 'common dir basename is not .git');
+  }
+  {
+    const fx = fixtureGL();
+    writeFileSync(join(fx.W, '.git'), 'this is not a gitdir pointer\n');
+    assertList(listOf(fx.sub, envOf(fx)), [clientOf(fx.W)], '.git file without gitdir:');
+  }
+  {
+    const fx = fixtureGL();
+    const N = join(fx.W, 'clone');
+    mkdirSync(join(N, '.git'), { recursive: true });
+    writeCfg(N, projectCfg('clone-root', 'Clone'));
+    mkdirSync(join(N, 'sub'), { recursive: true });
+    assertList(listOf(join(N, 'sub'), envOf(fx)), [clientOf(N)], 'clone nested in a linked worktree');
+  }
+  {
+    const fx = fixtureGL({ wtPath: 'p/w', wtConfig: false });
+    const P = join(fx.T, 'p');
+    writeCfg(P, projectCfg('p-root', 'P'));
+    assertList(listOf(fx.sub, envOf(fx)), [clientOf(P)], 'config in a non-git parent of the worktree');
+  }
+  {
+    const fx = fixtureGL();
+    const gd = join(fx.T, 'gd');
+    mkdirSync(gd, { recursive: true });
+    writeFileSync(join(gd, 'commondir'), join(fx.W, '.git'));
+    writeFileSync(join(fx.W, '.git'), `gitdir: ${gd}\n`);
+    assertList(listOf(fx.sub, envOf(fx)), [clientOf(fx.W)], 'commondir resolves to the config dir own .git (duplicate dropped)');
+  }
+});
+
+// ---- 4e15b651 A1 probes ----
+
+test('4e15b651 A1 probe: a commondir file with a trailing newline still resolves the main checkout', () => {
+  const fx = fixtureGL({ commondir: '../..\n' });
+  assertList(listOf(fx.sub, { TASK_ORCHESTRATOR_HOME: fx.E, TASK_ORCHESTRATOR_CEILING: fx.T }), [clientOf(fx.W), clientOf(fx.M)], 'trailing LF');
+  const fx2 = fixtureGL({ commondir: '../..\r\n' });
+  assertList(listOf(fx2.sub, { TASK_ORCHESTRATOR_HOME: fx2.E, TASK_ORCHESTRATOR_CEILING: fx2.T }), [clientOf(fx2.W), clientOf(fx2.M)], 'trailing CRLF');
+});
+
+test('4e15b651 A1 probe: a trailing separator on the ceiling and on the cwd does not change the list', () => {
+  const fx = fixtureGL({ wtPath: 'main/wts/x' });
+  assertList(listOf(fx.sub, { TASK_ORCHESTRATOR_HOME: fx.E, TASK_ORCHESTRATOR_CEILING: fx.M + sep }), [clientOf(fx.W)], 'ceiling M/');
+  assertList(listOf(fx.sub, { TASK_ORCHESTRATOR_HOME: fx.E, TASK_ORCHESTRATOR_CEILING: fx.T + sep }), [clientOf(fx.W), clientOf(fx.M)], 'ceiling T/');
+  assertList(listOf(fx.sub + sep, { TASK_ORCHESTRATOR_HOME: fx.E, TASK_ORCHESTRATOR_CEILING: fx.T }), [clientOf(fx.W), clientOf(fx.M)], 'cwd with trailing separator');
+});
+
+test('4e15b651 A1 probe: win32 case-differing ceiling and cwd spellings give the same list',
+  { skip: process.platform !== 'win32' }, () => {
+    // Skip is a platform gate only: case-insensitive path equality is a win32 filesystem property.
+    const fx = fixtureGL({ wtPath: 'main/wts/x' });
+    assertList(listOf(fx.sub, { TASK_ORCHESTRATOR_HOME: fx.E, TASK_ORCHESTRATOR_CEILING: fx.M.toUpperCase() }), [clientOf(fx.W)], 'ceiling upper-cased');
+    assertList(listOf(fx.sub.toUpperCase(), { TASK_ORCHESTRATOR_HOME: fx.E, TASK_ORCHESTRATOR_CEILING: fx.T }), [clientOf(fx.W), clientOf(fx.M)], 'cwd upper-cased');
+  });
+
+test('4e15b651 A1 probe: repeated calls agree and the list is stable', () => {
+  const fx = fixtureGL();
+  const env = { TASK_ORCHESTRATOR_HOME: fx.E, TASK_ORCHESTRATOR_CEILING: fx.T };
+  const a = listOf(fx.sub, env);
+  const b = listOf(fx.sub, env);
+  assert.deepEqual(a, b);
+  assert.equal(a.length, 2);
 });
