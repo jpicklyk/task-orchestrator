@@ -880,3 +880,45 @@ test('b2d81d68 probe: a ceiling at the filesystem root does not throw and does n
   assert.equal(r.scope, 'project');
   assert.equal(norm(r.path), norm(aFile));
 });
+
+// ---- b2d81d68 review fix B1: a ceiling that is not an ancestor of the cwd has no effect ----
+// Oracle: AM "A ceiling that is not an ancestor of the cwd has no effect on that lookup" (task-scope C5).
+
+function gitMain(parent, name) {
+  const M = join(parent, name);
+  mkdirSync(join(M, '.git'), { recursive: true });
+  return M;
+}
+
+test('b2d81d68 S31: linked worktree outside the main checkout; ceiling at M or inside M is not an ancestor of cwd -> project at M', () => {
+  const M = tmp('main');
+  mkdirSync(join(M, '.git'), { recursive: true });
+  const mFile = writeCfg(M, projectCfg('main-root', 'Main'));
+  mkdirSync(join(M, 'sub'), { recursive: true });
+  const W = worktreeOf(M);
+  const E = tmp('E');
+  for (const ceiling of [undefined, M, join(M, 'sub')]) {
+    const env = { TASK_ORCHESTRATOR_HOME: E };
+    if (ceiling !== undefined) env.TASK_ORCHESTRATOR_CEILING = ceiling;
+    const r = locateConfig({ cwd: W, env });
+    assert.equal(r.scope, 'project', String(ceiling));
+    assert.equal(norm(r.path), norm(mFile), String(ceiling));
+    assert.equal(r.rootId, 'main-root', String(ceiling));
+  }
+});
+
+test('b2d81d68 S32: ceiling at the common parent of the main checkout and the worktree -> project at M', () => {
+  const P = tmp('P');
+  const M = gitMain(P, 'm');
+  const mFile = writeCfg(M, projectCfg('main-root', 'Main'));
+  mkdirSync(join(M, '.git', 'worktrees', 'w'), { recursive: true });
+  writeFileSync(join(M, '.git', 'worktrees', 'w', 'commondir'), '../..');
+  const W = join(P, 'w');
+  mkdirSync(W, { recursive: true });
+  writeFileSync(join(W, '.git'), `gitdir: ${join(M, '.git', 'worktrees', 'w')}\n`);
+  const E = tmp('E');
+  const r = locateConfig({ cwd: W, env: { TASK_ORCHESTRATOR_HOME: E, TASK_ORCHESTRATOR_CEILING: P } });
+  assert.equal(r.scope, 'project');
+  assert.equal(norm(r.path), norm(mFile));
+  assert.equal(r.rootId, 'main-root');
+});
