@@ -85,7 +85,7 @@ function stopStub(server) {
 
 function runHook(payload, tempDir, apiUrl) {
   return new Promise((resolvePromise, rejectPromise) => {
-    const env = { ...process.env, TEMP: tempDir, TMP: tempDir, TMPDIR: tempDir };
+    const env = { ...process.env, TEMP: tempDir, TMP: tempDir, TMPDIR: tempDir, TASK_ORCHESTRATOR_HOME: join(tempDir, 'to-home-empty') };
     delete env.TASK_ORCHESTRATOR_API_URL;
     delete env.TASK_ORCHESTRATOR_MODE;
     if (apiUrl) env.TASK_ORCHESTRATOR_API_URL = apiUrl;

@@ -36,7 +36,7 @@ function freshTempDir() {
 }
 
 function spawnHook(payload, tempDir, apiUrl, modeOverride) {
-  const env = { ...process.env, TEMP: tempDir, TMP: tempDir, TMPDIR: tempDir };
+  const env = { ...process.env, TEMP: tempDir, TMP: tempDir, TMPDIR: tempDir, TASK_ORCHESTRATOR_HOME: join(tempDir, 'to-home-empty') };
   delete env.TASK_ORCHESTRATOR_API_URL;
   delete env.TASK_ORCHESTRATOR_MODE;
   if (apiUrl) env.TASK_ORCHESTRATOR_API_URL = apiUrl;
@@ -45,7 +45,7 @@ function spawnHook(payload, tempDir, apiUrl, modeOverride) {
 }
 
 function spawnHookRaw(rawInput, tempDir, apiUrl = UNREACHABLE_API_URL) {
-  const env = { ...process.env, TEMP: tempDir, TMP: tempDir, TMPDIR: tempDir };
+  const env = { ...process.env, TEMP: tempDir, TMP: tempDir, TMPDIR: tempDir, TASK_ORCHESTRATOR_HOME: join(tempDir, 'to-home-empty') };
   if (apiUrl) env.TASK_ORCHESTRATOR_API_URL = apiUrl;
   return spawnSync(process.execPath, [HOOK], { input: rawInput, env, encoding: 'utf-8' });
 }
