@@ -3,7 +3,9 @@
 // no side effects at import time, no top-level I/O — safe to import from anywhere.
 //
 // Requires (all optional — absent = the caller no-ops):
-//   TASK_ORCHESTRATOR_API_URL    base URL of the REST API, e.g. http://localhost:3001
+//   TASK_ORCHESTRATOR_API_URL    base URL of the REST API, e.g. http://localhost:3001. Falls back to
+//                                `apiUrl` in <home>/.taskorchestrator/client.json (home =
+//                                TASK_ORCHESTRATOR_HOME else os.homedir()) when unset/empty.
 //   TASK_ORCHESTRATOR_API_TOKEN  bearer token. Capability requirements are per-endpoint (e.g.
 //                                config-sync needs WRITE_CONFIG, the phase guard needs READ) —
 //                                this module has no opinion on which. Optional: an
@@ -11,16 +13,29 @@
 //                                API_ALLOW_UNAUTHENTICATED=true) needs no token at all — when
 //                                absent, requests are sent with no Authorization header.
 
+import { readFileSync } from 'fs';
+import { join } from 'path';
+import { userHome } from './config-locator.mjs';
+
 const DEFAULT_TIMEOUT_MS = 2000;
 
 /**
- * Base URL from TASK_ORCHESTRATOR_API_URL with any trailing slash(es) stripped, or `null` when
- * the env var is unset/empty — callers treat `null` as "no REST API configured, no-op".
+ * Base URL with any trailing slash(es) stripped: a non-empty TASK_ORCHESTRATOR_API_URL wins, else
+ * `apiUrl` from <home>/.taskorchestrator/client.json. `null` when neither yields a non-empty string
+ * (missing/invalid client.json included) — callers treat `null` as "no REST API configured, no-op".
+ * Never throws. The token is env-only; client.json is never read for a token.
  */
 export function apiBaseUrl() {
   const raw = process.env.TASK_ORCHESTRATOR_API_URL;
-  if (!raw) return null;
-  return raw.replace(/\/+$/, '');
+  if (raw) return raw.replace(/\/+$/, '');
+  try {
+    const parsed = JSON.parse(readFileSync(join(userHome(), '.taskorchestrator', 'client.json'), 'utf8'));
+    const url = parsed && typeof parsed === 'object' ? parsed.apiUrl : null;
+    if (typeof url === 'string' && url) return url.replace(/\/+$/, '');
+  } catch {
+    // missing or invalid client.json
+  }
+  return null;
 }
 
 /** `{Authorization: 'Bearer <token>'}` when TASK_ORCHESTRATOR_API_TOKEN is set, else `{}`. */
