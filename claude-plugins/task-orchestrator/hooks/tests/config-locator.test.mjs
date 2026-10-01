@@ -7,7 +7,7 @@ import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, realpathSync, rmSync } from 'node:fs';
 import os, { tmpdir, homedir } from 'node:os';
-import { join, resolve, relative, sep, dirname } from 'node:path';
+import { join, resolve, relative, sep, dirname, parse } from 'node:path';
 import { userHome, userConfigPath, userClientPath, locateConfig } from '../config-locator.mjs';
 
 const made = [];
@@ -366,23 +366,23 @@ test('probe: locateConfig defaults (no args) do not throw and return a well-form
 // Oracle: decision.md Ruling 1 (b) table + task-scope planner decisions; labels per test-plan.
 // R = simulated env home (USERPROFILE and HOME set in-process) holding a config; E empty; E2 with config.
 
-// Runs fn with the env home pinned to envHome (undefined = leave process env alone) and
-// os.userInfo() mocked: a path string returns that homedir, 'throw' throws, '' returns an empty homedir.
-// Everything is restored in finally.
+// Runs fn with the env home pinned to envHome (undefined = leave process env alone). os.userInfo()
+// is mocked only when `account` is given: a path string returns that homedir, 'throw' throws, ''
+// returns an empty homedir. With `account` undefined NO mock is installed, so the machine's real
+// account home stays in the locator's home set. Everything is restored in finally.
 function withHomes({ envHome, account, fn }) {
   const keys = ['USERPROFILE', 'HOME'];
   const saved = {};
   for (const k of keys) saved[k] = process.env[k];
-  const acct = account === undefined ? tmp('acct') : account;
-  const m = mock.method(os, 'userInfo', () => {
-    if (acct === 'throw') throw new Error('no passwd entry');
-    return { homedir: acct };
+  const m = account === undefined ? null : mock.method(os, 'userInfo', () => {
+    if (account === 'throw') throw new Error('no passwd entry');
+    return { homedir: account };
   });
   try {
     if (envHome !== undefined) for (const k of keys) process.env[k] = envHome;
     return fn();
   } finally {
-    m.mock.restore();
+    if (m) m.mock.restore();
     for (const k of keys) {
       if (saved[k] === undefined) delete process.env[k];
       else process.env[k] = saved[k];
@@ -491,22 +491,22 @@ test('b2d81d68 S7: override E, nested project config under R -> project at the n
 });
 
 test('b2d81d68 S8: env home Y empty, userInfo homedir = R (config), override E, cwd R/sub -> none', () => {
-  const { R, sub } = simulatedHome();
+  const { T, R, sub } = simulatedHome();
   const Y = tmp('Y');
   const E = tmp('E');
   withHomes({ envHome: Y, account: R, fn: () => {
-    const r = locateConfig({ cwd: sub, env: { TASK_ORCHESTRATOR_HOME: E } });
+    const r = locateConfig({ cwd: sub, env: { TASK_ORCHESTRATOR_HOME: E, TASK_ORCHESTRATOR_CEILING: T } });
     assert.equal(r.scope, 'none');
     assert.equal(r.path, null);
   } });
 });
 
 test('b2d81d68 S9: env home Y holds config, userInfo homedir = R (config), override unset, cwd R/sub -> user at Y', () => {
-  const { R, sub } = simulatedHome();
+  const { T, R, sub } = simulatedHome();
   const Y = tmp('Y');
   const yFile = writeCfg(Y, projectCfg('y-root', 'Y'));
   withHomes({ envHome: Y, account: R, fn: () => {
-    const r = locateConfig({ cwd: sub, env: {} });
+    const r = locateConfig({ cwd: sub, env: { TASK_ORCHESTRATOR_CEILING: T } });
     assert.equal(r.scope, 'user');
     assert.equal(norm(r.path), norm(yFile));
     assert.equal(r.rootId, 'y-root');
@@ -514,16 +514,16 @@ test('b2d81d68 S9: env home Y holds config, userInfo homedir = R (config), overr
 });
 
 test('b2d81d68 S10: os.userInfo() throwing never throws out of locateConfig; S1-S3 results unchanged', () => {
-  const { R, cfg, sub } = simulatedHome();
+  const { T, R, cfg, sub } = simulatedHome();
   const E = tmp('E');
   const E2 = tmp('E2');
   const e2File = writeCfg(E2, projectCfg('e2-root', 'E2'));
   withHomes({ envHome: R, account: 'throw', fn: () => {
-    assert.equal(locateConfig({ cwd: sub, env: { TASK_ORCHESTRATOR_HOME: E } }).scope, 'none');
-    const two = locateConfig({ cwd: sub, env: { TASK_ORCHESTRATOR_HOME: E2 } });
+    assert.equal(locateConfig({ cwd: sub, env: { TASK_ORCHESTRATOR_HOME: E, TASK_ORCHESTRATOR_CEILING: T } }).scope, 'none');
+    const two = locateConfig({ cwd: sub, env: { TASK_ORCHESTRATOR_HOME: E2, TASK_ORCHESTRATOR_CEILING: T } });
     assert.equal(two.scope, 'user');
     assert.equal(norm(two.path), norm(e2File));
-    const three = locateConfig({ cwd: sub, env: {} });
+    const three = locateConfig({ cwd: sub, env: { TASK_ORCHESTRATOR_CEILING: T } });
     assert.equal(three.scope, 'user');
     assert.equal(norm(three.path), norm(cfg));
   } });
@@ -666,13 +666,13 @@ test('b2d81d68 probe: trailing separator on the env home still filters the real-
 });
 
 test('b2d81d68 probe: os.userInfo() homedir empty string is ignored, not treated as a home', () => {
-  const { R, sub } = simulatedHome();
+  const { T, R, sub } = simulatedHome();
   const E = tmp('E');
   const P = tmp('proj');
   const pFile = writeCfg(P, projectCfg('p-root', 'P'));
   withHomes({ envHome: R, account: '', fn: () => {
-    assert.equal(locateConfig({ cwd: sub, env: { TASK_ORCHESTRATOR_HOME: E } }).scope, 'none');
-    const r = locateConfig({ cwd: P, env: { TASK_ORCHESTRATOR_HOME: E } });
+    assert.equal(locateConfig({ cwd: sub, env: { TASK_ORCHESTRATOR_HOME: E, TASK_ORCHESTRATOR_CEILING: T } }).scope, 'none');
+    const r = locateConfig({ cwd: P, env: { TASK_ORCHESTRATOR_HOME: E, TASK_ORCHESTRATOR_CEILING: T } });
     assert.equal(r.scope, 'project');
     assert.equal(norm(r.path), norm(pFile));
   } });
@@ -715,4 +715,168 @@ test('b2d81d68 probe: BOM + CRLF config.yaml at the override still yields user s
     assert.equal(r.rootId, 'bom-root');
     assert.equal(r.name, 'Bom');
   } });
+});
+
+// ---- b2d81d68 amendment: opt-in walk ceiling TASK_ORCHESTRATOR_CEILING (amendment-ceiling.md; task-scope C1-C5) ----
+// Oracle: AM s1 "stop BEFORE examining that directory" (ceiling dir and above never checked by the
+// walk-up and the .git search; steps 1 and 4 unaffected; non-ancestor ceiling has no effect;
+// unset/empty = no ceiling) + task-scope D-a (cwd == ceiling -> nothing examined) and D-b (a resolved
+// main checkout at/above the ceiling is discarded; a sibling is not). Fixture K: T fresh with a config
+// at T (t-root) and at T/a (a-root), dirs T/a/b/c; override E (empty) in every env.
+
+function ceilingFixture() {
+  const T = tmp('cT');
+  const tFile = writeCfg(T, projectCfg('t-root', 'T'));
+  const A = join(T, 'a');
+  const aFile = writeCfg(A, projectCfg('a-root', 'A'));
+  const B = join(A, 'b');
+  const C = join(B, 'c');
+  mkdirSync(C, { recursive: true });
+  const E = tmp('E');
+  return { T, tFile, A, aFile, B, C, E };
+}
+
+const NONE = { scope: 'none', path: null, bytes: null, text: null, rootId: null, name: null };
+
+test('b2d81d68 S21: ceiling T/a, cwd T/a/b -> none (the ceiling directory and above are never checked)', () => {
+  const { A, B, E } = ceilingFixture();
+  const r = locateConfig({ cwd: B, env: { TASK_ORCHESTRATOR_HOME: E, TASK_ORCHESTRATOR_CEILING: A } });
+  assert.deepEqual(r, NONE);
+});
+
+test('b2d81d68 S22: ceiling T/a, config at T/a/b, cwd T/a/b/c -> project at T/a/b (directories below the ceiling are examined)', () => {
+  const { A, B, C, E } = ceilingFixture();
+  const bFile = writeCfg(B, projectCfg('b-root', 'B'));
+  const r = locateConfig({ cwd: C, env: { TASK_ORCHESTRATOR_HOME: E, TASK_ORCHESTRATOR_CEILING: A } });
+  assert.equal(r.scope, 'project');
+  assert.equal(norm(r.path), norm(bFile));
+  assert.equal(r.rootId, 'b-root');
+});
+
+test('b2d81d68 S23: ceiling unset, cwd T/a/b -> project at T/a', () => {
+  const { aFile, B, E } = ceilingFixture();
+  const r = locateConfig({ cwd: B, env: { TASK_ORCHESTRATOR_HOME: E } });
+  assert.equal(r.scope, 'project');
+  assert.equal(norm(r.path), norm(aFile));
+  assert.equal(r.rootId, 'a-root');
+});
+
+test('b2d81d68 S24: ceiling empty string behaves as unset -> project at T/a', () => {
+  const { aFile, B, E } = ceilingFixture();
+  const r = locateConfig({ cwd: B, env: { TASK_ORCHESTRATOR_HOME: E, TASK_ORCHESTRATOR_CEILING: '' } });
+  assert.equal(r.scope, 'project');
+  assert.equal(norm(r.path), norm(aFile));
+  assert.equal(r.rootId, 'a-root');
+});
+
+test('b2d81d68 S25: a ceiling that is not an ancestor of the cwd has no effect', () => {
+  const { aFile, B, C, E } = ceilingFixture();
+  const Z = tmp('Z');
+  const sibling = locateConfig({ cwd: B, env: { TASK_ORCHESTRATOR_HOME: E, TASK_ORCHESTRATOR_CEILING: Z } });
+  assert.equal(sibling.scope, 'project');
+  assert.equal(norm(sibling.path), norm(aFile));
+  // A ceiling BELOW the cwd (a descendant) is never met by the upward walk either.
+  const below = locateConfig({ cwd: B, env: { TASK_ORCHESTRATOR_HOME: E, TASK_ORCHESTRATOR_CEILING: C } });
+  assert.equal(below.scope, 'project');
+  assert.equal(norm(below.path), norm(aFile));
+});
+
+test('b2d81d68 S26: cwd equal to the ceiling -> none (nothing at or above cwd is examined)', () => {
+  const { A, E } = ceilingFixture();
+  const r = locateConfig({ cwd: A, env: { TASK_ORCHESTRATOR_HOME: E, TASK_ORCHESTRATOR_CEILING: A } });
+  assert.deepEqual(r, NONE);
+});
+
+test('b2d81d68 S27: the ceiling does not bound step 1 (AGENT_CONFIG_DIR) or step 4 (user-level path)', () => {
+  const { T, tFile, A, B, E } = ceilingFixture();
+  const viaAgentDir = locateConfig({
+    cwd: B, env: { TASK_ORCHESTRATOR_HOME: E, AGENT_CONFIG_DIR: T, TASK_ORCHESTRATOR_CEILING: A },
+  });
+  assert.equal(viaAgentDir.scope, 'project');
+  assert.equal(norm(viaAgentDir.path), norm(tFile));
+  assert.equal(viaAgentDir.rootId, 't-root');
+  const E2 = tmp('E2');
+  const e2File = writeCfg(E2, projectCfg('e2-root', 'E2'));
+  const viaUser = locateConfig({ cwd: B, env: { TASK_ORCHESTRATOR_HOME: E2, TASK_ORCHESTRATOR_CEILING: A } });
+  assert.equal(viaUser.scope, 'user');
+  assert.equal(norm(viaUser.path), norm(e2File));
+  assert.equal(viaUser.rootId, 'e2-root');
+});
+
+test('b2d81d68 S28: step 3 stops before a .git file in the ceiling directory (no config in the T tree; control without ceiling finds the main checkout)', () => {
+  const T = tmp('cT');
+  const A = join(T, 'a');
+  const B = join(A, 'b');
+  mkdirSync(B, { recursive: true });
+  const M = tmp('main');
+  mkdirSync(join(M, '.git', 'worktrees', 'w'), { recursive: true });
+  writeFileSync(join(M, '.git', 'worktrees', 'w', 'commondir'), '../..');
+  const mFile = writeCfg(M, projectCfg('main-root', 'Main'));
+  writeFileSync(join(A, '.git'), `gitdir: ${join(M, '.git', 'worktrees', 'w')}\n`);
+  const E = tmp('E');
+  const control = locateConfig({ cwd: B, env: { TASK_ORCHESTRATOR_HOME: E } });
+  assert.equal(control.scope, 'project');
+  assert.equal(norm(control.path), norm(mFile));
+  assert.equal(control.rootId, 'main-root');
+  const r = locateConfig({ cwd: B, env: { TASK_ORCHESTRATOR_HOME: E, TASK_ORCHESTRATOR_CEILING: A } });
+  assert.deepEqual(r, NONE);
+});
+
+test('b2d81d68 S29: a resolved main checkout at or above the ceiling is discarded', () => {
+  const M = tmp('main');
+  mkdirSync(join(M, '.git', 'worktrees', 'w'), { recursive: true });
+  writeFileSync(join(M, '.git', 'worktrees', 'w', 'commondir'), '../..');
+  writeCfg(M, projectCfg('main-root', 'Main'));
+  const wtDir = join(M, 'wt');
+  const W = join(wtDir, 'x');
+  mkdirSync(W, { recursive: true });
+  writeFileSync(join(W, '.git'), `gitdir: ${join(M, '.git', 'worktrees', 'w')}\n`);
+  const E = tmp('E');
+  const r = locateConfig({ cwd: W, env: { TASK_ORCHESTRATOR_HOME: E, TASK_ORCHESTRATOR_CEILING: wtDir } });
+  assert.deepEqual(r, NONE);
+});
+
+test('b2d81d68 S30: step 3 below the ceiling still resolves a sibling main checkout', () => {
+  const T2 = tmp('cT2');
+  const W = join(T2, 'x');
+  mkdirSync(W, { recursive: true });
+  const M = tmp('main');
+  mkdirSync(join(M, '.git', 'worktrees', 'w'), { recursive: true });
+  writeFileSync(join(M, '.git', 'worktrees', 'w', 'commondir'), '../..');
+  const mFile = writeCfg(M, projectCfg('main-root', 'Main'));
+  writeFileSync(join(W, '.git'), `gitdir: ${join(M, '.git', 'worktrees', 'w')}\n`);
+  const E = tmp('E');
+  const r = locateConfig({ cwd: W, env: { TASK_ORCHESTRATOR_HOME: E, TASK_ORCHESTRATOR_CEILING: T2 } });
+  assert.equal(r.scope, 'project');
+  assert.equal(norm(r.path), norm(mFile));
+  assert.equal(r.rootId, 'main-root');
+});
+
+// ---- b2d81d68 ceiling probes ----
+
+test('b2d81d68 probe: trailing separator on the ceiling still bounds the walk', () => {
+  const { A, B, E } = ceilingFixture();
+  const r = locateConfig({ cwd: B, env: { TASK_ORCHESTRATOR_HOME: E, TASK_ORCHESTRATOR_CEILING: A + sep } });
+  assert.deepEqual(r, NONE);
+});
+
+test('b2d81d68 probe: win32 case-differing ceiling spelling still bounds the walk',
+  { skip: process.platform !== 'win32' }, () => {
+    // Skip is a platform gate only: case-insensitive path equality is a win32 filesystem property.
+    const { A, B, E } = ceilingFixture();
+    const r = locateConfig({ cwd: B, env: { TASK_ORCHESTRATOR_HOME: E, TASK_ORCHESTRATOR_CEILING: A.toUpperCase() } });
+    assert.deepEqual(r, NONE);
+  });
+
+test('b2d81d68 probe: a relative ceiling resolves against the cwd argument (.. from T/a/b is T/a)', () => {
+  const { B, E } = ceilingFixture();
+  const r = locateConfig({ cwd: B, env: { TASK_ORCHESTRATOR_HOME: E, TASK_ORCHESTRATOR_CEILING: '..' } });
+  assert.deepEqual(r, NONE);
+});
+
+test('b2d81d68 probe: a ceiling at the filesystem root does not throw and does not hide T/a', () => {
+  const { aFile, B, E } = ceilingFixture();
+  const r = locateConfig({ cwd: B, env: { TASK_ORCHESTRATOR_HOME: E, TASK_ORCHESTRATOR_CEILING: parse(B).root } });
+  assert.equal(r.scope, 'project');
+  assert.equal(norm(r.path), norm(aFile));
 });
