@@ -5,10 +5,11 @@ kotlinCoroutines = "1.10.2"
 kotlinSerialization = "1.11.0"
 
 # MCP SDK
-mcpSdk = "0.12.0"
+mcpSdk = "0.13.0"
 
-# Ktor (pinned to match MCP SDK 0.12.0's bundled version; 3.4.x broke SSE routing API)
-ktor = "3.3.3"
+# Ktor (pinned to match MCP SDK 0.13.0's bundled version; keep the two in step — the SDK's SSE
+# routing is compiled against one Ktor minor. >= 3.4.1 closes CVE-2026-68762.)
+ktor = "3.4.3"
 
 # Database
 sqlite = "3.53.4.0"
@@ -26,7 +27,7 @@ logback = "1.5.32"
 # time to suppress its System.out startup banner. Must track whatever version the MCP SDK
 # actually resolves (see `:current:dependencies --configuration runtimeClasspath`); does not
 # add a new runtime artifact since it's already on the runtime classpath transitively.
-kotlinLogging = "8.0.01"
+kotlinLogging = "8.0.03"
 
 # Testing
 mockk = "1.14.3"

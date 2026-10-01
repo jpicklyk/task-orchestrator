@@ -282,6 +282,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `DATABASE_BUSY_TIMEOUT_MS` instead of failing immediately when another connection commits a write
   after its snapshot started. The JDBC URL is unchanged.
 
+### Security
+
+- Bumped Ktor 3.3.3 to 3.4.3 and the MCP Kotlin SDK 0.12.0 to 0.13.0 (the SDK is compiled against
+  one Ktor minor, so the two move together). This closes CVE-2026-68762 (JetBrains Ktor before
+  3.4.1, potential denial of service via WebSocket decompression; fixed upstream in 3.4.1): the
+  server jar previously bundled `ktor-websockets` and `ktor-server-websockets` 3.3.3, pulled in
+  transitively by the SDK, and now bundles 3.4.3. The server never installs the Ktor WebSockets
+  plugin, so the vulnerable path is not believed to have been reachable. SDK 0.13.0 adds its own
+  DNS-rebinding guard on `/mcp`, on by default and loopback-only; it is turned off in favour of the
+  server's existing Host allowlist (`MCP_ALLOWED_HOSTS`), which stays the single Host authority for
+  `/mcp`, `/api/v1` and `/.well-known`. No behaviour change for clients.
+
 ### Removed
 
 - **BREAKING (REST): `?include=proof` and `API_REDACT_ACTOR_PROOF`**, deprecated in 3.15.0.
