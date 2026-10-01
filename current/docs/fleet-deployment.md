@@ -233,7 +233,7 @@ This is different from the MCP actor `reject` policy, which governs MCP tool cal
 
 In a shared HTTP deployment, per-project config lives in the DB per root (hot-reloaded, no restart), while the mounted global `.taskorchestrator/config.yaml` is only a fallback. The plugin's `config-sync.mjs` SessionStart hook keeps a project's DB config in sync with its workspace file: on session start it fingerprints the local file and, if it differs from the server's stored config, PUTs it to `PUT /api/v1/roots/{rootId}/config`. **The file is the source of truth; the DB row is a synced replica** (a byte-identical file is a no-op via `If-Match`/fingerprint).
 
-The hook is **fail-open and opt-in** — it no-ops silently (exit 0) unless an API URL resolves (in order: `TASK_ORCHESTRATOR_API_URL`, `apiUrl` in a project-level `client.json` beside the located config (or in the main checkout for a linked worktree), then `apiUrl` in the user-level `client.json`). The project-level file, written by project-mode `/task-orchestrator:init`, is honoured only for a loopback host, so a fleet (non-loopback) server needs the env var or the user-level file that `/task-orchestrator:init --user` writes. Stdio/local deployments (which read the file directly) are unaffected:
+The hook is **fail-open and opt-in** — it no-ops silently (exit 0) unless an API URL resolves (in order: `TASK_ORCHESTRATOR_API_URL`, `apiUrl` in a project-level `client.json` beside the located config (or in the main checkout for a linked worktree), then `apiUrl` in the user-level `client.json`). The project-level file, written by project-mode `/task-orchestrator:init`, is honoured only as a bare loopback origin (no path, query or fragment), so a fleet (non-loopback) server, or one behind a path prefix, needs the env var or the user-level file that `/task-orchestrator:init --user` writes. The project-level `client.json` assumes a single-user machine: any directory above the working directory that holds a `config.yaml` and a `client.json` can point the hooks, with the bearer token, at a loopback port. On a shared host, set `TASK_ORCHESTRATOR_API_URL`, which wins over every file, and do not work under a directory another user can write. Stdio/local deployments (which read the file directly) are unaffected:
 
 | Variable | Required for sync | Description |
 |----------|-------------------|-------------|
@@ -262,7 +262,7 @@ back to when the DB itself is transiently unreachable.
 **HTTP-first policy.** New plugin-side infrastructure features — `config-sync.mjs`, SSE event
 streaming, the `plan-capture.mjs` hook (which stashes an approved plan as a `plan_document` via
 `PUT /roots/{rootId}/plans/{slug}`), and the SubagentStop phase guard below — are built HTTP-only, each fail-opening to a silent no-op when
-no API URL resolves (the `TASK_ORCHESTRATOR_API_URL` env var, then a project-level or the user-level `client.json`, in that order; the project-level file is honoured only for a loopback host). STDIO deployments keep full MCP tool
+no API URL resolves (the `TASK_ORCHESTRATOR_API_URL` env var, then a project-level or the user-level `client.json`, in that order; the project-level file is honoured only as a bare loopback origin). STDIO deployments keep full MCP tool
 functionality but do not gain these convenience features; STDIO is positioned as the local/evaluation
 transport, while a persistent HTTP daemon with the REST API enabled is the recommended path for
 ongoing fleet or multi-project work.
