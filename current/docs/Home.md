@@ -49,7 +49,7 @@ Register it in `.mcp.json` (HTTP shape — not an args array):
 }
 ```
 
-And export the client-side env so `config-sync` can find the server (without this it silently no-ops):
+And export the client-side env so `config-sync` can find the server (without this it silently no-ops, unless `/task-orchestrator:init --user` has already written the URL to your user-level `client.json`):
 
 ```bash
 export TASK_ORCHESTRATOR_API_URL=http://localhost:3001

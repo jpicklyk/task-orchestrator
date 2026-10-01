@@ -39,9 +39,9 @@ Hooks fire automatically — no invocation needed after installation.
 
 **Event:** `SessionStart` — every new Claude Code session.
 
-**What it injects:** The 13-tool surface (`manage_items`, `query_items`, `manage_notes`, `query_notes`, `manage_dependencies`, `query_dependencies`, `advance_item`, `get_next_item`, `get_blocked_items`, `get_next_status`, `create_work_tree`, `complete_tree`, `get_context`), the role lifecycle (queue → work → review → terminal), and a session tip to call `get_context()` to see active and stalled items.
+**What it injects:** Short workflow guidance: use `advance_item` for role transitions rather than raw status edits; items nest by `parentId` to any depth; call `get_context()` with no arguments to see active and stalled items.
 
-**Effect:** The agent knows the MCP tool names and workflow conventions from the first prompt, without any CLAUDE.md instructions.
+**Effect:** The agent knows the workflow conventions from the first prompt, without any CLAUDE.md instructions.
 
 **Setup status:** the hook also reports one of four states, always with the `Config:` path the skills should read and edit:
 
