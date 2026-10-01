@@ -47,20 +47,33 @@ function tmpConfigDir() {
 // hitting a real server — lets tests observe "did main() attempt the sync" without a live API.
 const UNREACHABLE_API_URL = 'http://127.0.0.1:1';
 
+// Hermetic env for a spawned hook (decision.md Ruling 2): TASK_ORCHESTRATOR_HOME pinned to its OWN
+// fresh empty temp dir (never the fixture dir), inherited AGENT_CONFIG_DIR / API URL / token
+// scrubbed, then only what the case needs set back. Returns { env, home } — the caller removes home.
+function hermeticEnv(extra) {
+  const home = mkdtempSync(join(tmpdir(), 'to-config-sync-home-'));
+  const env = { ...process.env };
+  delete env.AGENT_CONFIG_DIR;
+  delete env.TASK_ORCHESTRATOR_API_URL;
+  delete env.TASK_ORCHESTRATOR_API_TOKEN;
+  return { env: { ...env, TASK_ORCHESTRATOR_HOME: home, ...extra }, home };
+}
+
 function spawnHook(dir, { stdin, hookEventName, filePath } = {}) {
   const input = stdin !== undefined
     ? stdin
     : JSON.stringify(hookEventName ? { hook_event_name: hookEventName, file_path: filePath } : {});
-  return spawnSync(process.execPath, [HOOK], {
-    input,
-    env: {
-      ...process.env,
-      AGENT_CONFIG_DIR: dir,
-      TASK_ORCHESTRATOR_API_URL: UNREACHABLE_API_URL,
-    },
-    encoding: 'utf-8',
-    cwd: dir, // avoid the cwd-walk fallback finding this repo's real config.yaml
-  });
+  const { env, home } = hermeticEnv({ AGENT_CONFIG_DIR: dir, TASK_ORCHESTRATOR_API_URL: UNREACHABLE_API_URL });
+  try {
+    return spawnSync(process.execPath, [HOOK], {
+      input,
+      env,
+      encoding: 'utf-8',
+      cwd: dir, // avoid the cwd-walk fallback finding this repo's real config.yaml
+    });
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
 }
 
 test('isValidRuleKey: accepts the server grammar, rejects spaces/uppercase/leading dot', () => {
@@ -135,6 +148,17 @@ function sha256Hex(buf) {
   return createHash('sha256').update(buf).digest('hex');
 }
 
+// The plugin's bundled rules (bundled-rules/manifest.json keys), listed at their current hash —
+// merged into a server listing so a test's PUT count covers only its workspace rules.
+const BUNDLED_DIR = fileURLToPath(new URL('../../bundled-rules/', import.meta.url));
+function bundledAtCurrentHash() {
+  const manifest = JSON.parse(readFileSync(join(BUNDLED_DIR, 'manifest.json'), 'utf-8'));
+  return Object.keys(manifest).map((key) => ({
+    key,
+    rulesVersion: sha256Hex(normalizeForFingerprint(readFileSync(join(BUNDLED_DIR, `${key}.md`)))),
+  }));
+}
+
 function writeRuleFile(dir, filename, content) {
   const rulesDir = join(dir, '.taskorchestrator', 'rules');
   mkdirSync(rulesDir, { recursive: true });
@@ -193,15 +217,9 @@ function spawnHookAgainst(dir, apiUrl, { stdin, hookEventName, filePath } = {}) 
   const input = stdin !== undefined
     ? stdin
     : JSON.stringify(hookEventName ? { hook_event_name: hookEventName, file_path: filePath } : {});
+  const { env, home } = hermeticEnv({ AGENT_CONFIG_DIR: dir, TASK_ORCHESTRATOR_API_URL: apiUrl });
   return new Promise((resolvePromise, rejectPromise) => {
-    const child = spawn(process.execPath, [HOOK], {
-      env: {
-        ...process.env,
-        AGENT_CONFIG_DIR: dir,
-        TASK_ORCHESTRATOR_API_URL: apiUrl,
-      },
-      cwd: dir,
-    });
+    const child = spawn(process.execPath, [HOOK], { env, cwd: dir });
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (d) => {
@@ -210,8 +228,14 @@ function spawnHookAgainst(dir, apiUrl, { stdin, hookEventName, filePath } = {}) 
     child.stderr.on('data', (d) => {
       stderr += d;
     });
-    child.on('error', rejectPromise);
-    child.on('close', (status) => resolvePromise({ status, stdout, stderr }));
+    child.on('error', (err) => {
+      rmSync(home, { recursive: true, force: true });
+      rejectPromise(err);
+    });
+    child.on('close', (status) => {
+      rmSync(home, { recursive: true, force: true });
+      resolvePromise({ status, stdout, stderr });
+    });
     child.stdin.end(input);
   });
 }
@@ -226,6 +250,7 @@ test('T1: steady state — every local rule already matches the server, zero PUT
     key: filename.slice(0, -3),
     rulesVersion: sha256Hex(normalizeForFingerprint(Buffer.from(content))),
   }));
+  rules.push(...bundledAtCurrentHash());
   const server = await startFakeServer(makeFakeApiHandler({ requests, rulesBody: { rules } }));
   try {
     const { port } = server.address();
@@ -234,7 +259,7 @@ test('T1: steady state — every local rule already matches the server, zero PUT
     const out = JSON.parse(res.stdout);
     const line = out.hookSpecificOutput.additionalContext;
     assert.ok(line.includes('already in sync for root root-t1'));
-    assert.ok(line.includes('Rules: 2 in sync.'));
+    assert.ok(line.includes('Rules: 7 in sync.')); // 2 workspace + 5 bundled
     assert.ok(!requests.some((r) => r.method === 'PUT'));
   } finally {
     await stopServer(server);
@@ -253,6 +278,7 @@ test('T2: changed + missing rule — exactly two PUTs to the %2F-encoded plan pa
     { key: 'changed', rulesVersion: 'stale-hash-does-not-match' },
     { key: 'unchanged', rulesVersion: sha256Hex(normalizeForFingerprint(Buffer.from('Steady rule.\n'))) },
     // 'missing' intentionally absent from the server listing
+    ...bundledAtCurrentHash(),
   ];
   const server = await startFakeServer(makeFakeApiHandler({ requests, rulesBody: { rules } }));
   try {
@@ -287,7 +313,7 @@ test('T3: invalid key and oversized body are both skipped client-side, valid sib
   writeRuleFile(dir, 'toobig.md', 'x'.repeat(16385));
   writeRuleFile(dir, 'valid-key.md', 'Fine.\n');
   writeConfig(dir, 'project:\n  rootId: "root-t3"\n');
-  const server = await startFakeServer(makeFakeApiHandler({ requests, rulesBody: { rules: [] } }));
+  const server = await startFakeServer(makeFakeApiHandler({ requests, rulesBody: { rules: bundledAtCurrentHash() } }));
   try {
     const { port } = server.address();
     const res = await spawnHookAgainst(dir, `http://127.0.0.1:${port}`, { hookEventName: 'SessionStart' });
@@ -315,14 +341,14 @@ test('T4: CRLF body normalizes to LF before hashing and PUTting', async () => {
   const lfHash = sha256Hex(normalizeForFingerprint(Buffer.from(crlfContent)));
   // Server already has the LF-normalized hash on file — expect NO PUT, proving the hook compares
   // (and would send) the same normalized bytes it hashes.
-  const rules = [{ key: 'crlf', rulesVersion: lfHash }];
+  const rules = [{ key: 'crlf', rulesVersion: lfHash }, ...bundledAtCurrentHash()];
   const server = await startFakeServer(makeFakeApiHandler({ requests, rulesBody: { rules } }));
   try {
     const { port } = server.address();
     const res = await spawnHookAgainst(dir, `http://127.0.0.1:${port}`, { hookEventName: 'SessionStart' });
     assert.equal(res.status, 0);
     const out = JSON.parse(res.stdout);
-    assert.ok(out.hookSpecificOutput.additionalContext.includes('1 in sync.'));
+    assert.ok(out.hookSpecificOutput.additionalContext.includes('6 in sync.')); // 1 workspace + 5 bundled
     assert.ok(!requests.some((r) => r.method === 'PUT'));
   } finally {
     await stopServer(server);
@@ -344,7 +370,7 @@ test('T5: GET rules returns 404 — no PUTs, skip line present, config line stil
     const line = out.hookSpecificOutput.additionalContext;
     assert.ok(line.includes('already in sync for root root-t5'));
     assert.ok(line.includes('Rules:'));
-    assert.ok(line.includes('404'));
+    assert.ok(line.includes('root root-t5 not found on this server'));
     assert.ok(!requests.some((r) => r.method === 'PUT'));
   } finally {
     await stopServer(server);
@@ -352,20 +378,20 @@ test('T5: GET rules returns 404 — no PUTs, skip line present, config line stil
   }
 });
 
-test('T6: no rules/ dir — output identical in shape to the pre-feature output (no "Rules:" text)', async () => {
+test('T6: no rules/ dir on SessionStart — bundled rules still listed; all current, zero PUTs', async () => {
   const dir = tmpConfigDir();
   const requests = [];
   writeConfig(dir, 'project:\n  rootId: "root-t6"\n');
-  const server = await startFakeServer(makeFakeApiHandler({ requests }));
+  const server = await startFakeServer(makeFakeApiHandler({ requests, rulesBody: { rules: bundledAtCurrentHash() } }));
   try {
     const { port } = server.address();
     const res = await spawnHookAgainst(dir, `http://127.0.0.1:${port}`, { hookEventName: 'SessionStart' });
     assert.equal(res.status, 0);
     const out = JSON.parse(res.stdout);
     const line = out.hookSpecificOutput.additionalContext;
-    assert.equal(line, 'Task Orchestrator: project config already in sync for root root-t6.');
-    assert.ok(!line.includes('Rules:'));
-    assert.ok(!requests.some((r) => r.url.endsWith('/rules')));
+    assert.equal(line, 'Task Orchestrator: project config already in sync for root root-t6. Rules: 5 in sync.');
+    assert.equal(requests.filter((r) => r.method === 'GET' && r.url.endsWith('/rules')).length, 1);
+    assert.ok(!requests.some((r) => r.method === 'PUT'));
   } finally {
     await stopServer(server);
     rmSync(dir, { recursive: true, force: true });
@@ -378,7 +404,7 @@ test('T7: a PUT returning 409 is reported as failed, exit code stays 0', async (
   writeRuleFile(dir, 'conflict.md', 'content\n');
   writeConfig(dir, 'project:\n  rootId: "root-t7"\n');
   const server = await startFakeServer(
-    makeFakeApiHandler({ requests, rulesBody: { rules: [] }, putStatus: () => 409 }),
+    makeFakeApiHandler({ requests, rulesBody: { rules: bundledAtCurrentHash() }, putStatus: () => 409 }),
   );
   try {
     const { port } = server.address();
@@ -567,7 +593,7 @@ test('S3: rule PUTs are sent one at a time \u2014 max in-flight is 1, all three 
     }
     if (req.method === 'GET' && req.url.endsWith('/rules')) {
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ rules: [] }));
+      res.end(JSON.stringify({ rules: bundledAtCurrentHash() }));
       return;
     }
     if (req.method === 'PUT' && req.url.includes('/plans/')) {
