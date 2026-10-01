@@ -22,6 +22,8 @@
 // or beside the ceiling is kept. A ceiling that is not cwd or an ancestor of it has no effect on the
 // lookup. Steps 1 and 4 are never bounded. Exists mainly as a test seam; leave unset in normal use.
 //
+// project.rootId is returned only when isValidRootId accepts it (a rejected value is no rootId).
+//
 // projectClientCandidates() lists the PROJECT-level client.json files to try, in order: beside the located
 // project config, then (linked worktree only) <main checkout>/.taskorchestrator/client.json.
 // projectClientPath() is its first entry, or null.
@@ -132,11 +134,25 @@ function atOrAboveCeiling(main, ceiling) {
   }
 }
 
+/**
+ * True only for a plain-token root id: 1-64 ASCII letters, digits or hyphens, the first not a hyphen.
+ * Anything else (separators, dots, escapes, query/fragment characters, whitespace, non-strings) is
+ * rejected, so a config-supplied value can never reshape a request path. Never throws.
+ */
+export function isValidRootId(value) {
+  try {
+    return typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9-]{0,63}$/.test(value);
+  } catch {
+    return false;
+  }
+}
+
 function parseProject(text) {
   try {
     const section = readSection(text, 'project', { blockOnly: true });
     if (!section) return { rootId: null, name: null };
-    return { rootId: scalar(section.lines, 'rootId') || null, name: scalar(section.lines, 'name') || null };
+    const rawRootId = scalar(section.lines, 'rootId');
+    return { rootId: isValidRootId(rawRootId) ? rawRootId : null, name: scalar(section.lines, 'name') || null };
   } catch {
     return { rootId: null, name: null };
   }

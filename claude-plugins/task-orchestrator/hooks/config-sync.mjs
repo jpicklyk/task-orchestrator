@@ -28,7 +28,7 @@ import { fileURLToPath } from 'url';
 import { createHash } from 'crypto';
 import { readSection, scalar } from './yaml-lite.mjs';
 import { apiBaseUrl, authHeader as buildAuthHeader, fetchWithTimeout } from './api-client.mjs';
-import { locateConfig } from './config-locator.mjs';
+import { locateConfig, isValidRootId } from './config-locator.mjs';
 
 // Mirrors RuleService.KEY_PATTERN (current/.../application/service/RuleService.kt) exactly — a rule
 // key must match this server-side grammar or the PUT would be rejected anyway; validated client-side
@@ -120,11 +120,12 @@ export function configFingerprint(buf) {
   return createHash('sha256').update(normalizeForFingerprint(buf)).digest('hex');
 }
 
-/** Extract project.rootId from the config text (mirrors session-start.mjs's parser). */
+/** Extract project.rootId from the config text; null when absent or not a plain token (isValidRootId). */
 export function parseRootId(text) {
   const section = readSection(text, 'project', { blockOnly: true });
   if (!section) return null;
-  return scalar(section.lines, 'rootId');
+  const id = scalar(section.lines, 'rootId');
+  return isValidRootId(id) ? id : null;
 }
 
 /**
@@ -452,7 +453,7 @@ async function main() {
   const found = locateConfig();
   if (found.scope === 'none') return; // no config file → nothing to sync
   const { path: configPath, bytes } = found;
-  const rootId = parseRootId(bytes.toString('utf-8'));
+  const rootId = found.rootId;
   if (!rootId) return; // not project-scoped → nothing to sync
   // Project-scope wording is unchanged; a user-level config is named "user config" instead.
   const configNoun = found.scope === 'user' ? 'user config' : 'project config';

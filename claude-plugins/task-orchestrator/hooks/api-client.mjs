@@ -35,16 +35,20 @@ function readApiUrl(path) {
 }
 
 /**
- * True only for an http(s) URL without credentials whose host, per the WHATWG URL parser, is
- * `localhost`, `[::1]`, or an IPv4 literal in 127.0.0.0/8. Never throws. The slash is appended
- * because callers request `${base}/api/...`, so the authority is parsed as those requests see it.
+ * True only for a bare loopback ORIGIN: an http(s) URL without credentials whose host, per the WHATWG
+ * URL parser, is `localhost`, `[::1]`, or an IPv4 literal in 127.0.0.0/8, with an empty query and
+ * fragment and the path `/`. Never throws. The trailing slash run is removed and one slash appended
+ * before parsing because callers request `${base}/api/...`: the parser then sees the authority, and
+ * any query, fragment or path, exactly as those requests present them.
  */
 export function isLoopbackApiUrl(base) {
   try {
     if (typeof base !== 'string') return false;
-    const u = new URL(base + '/');
+    const b = base.replace(/\/+$/, '');
+    const u = new URL(b + '/');
     if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
     if (u.username !== '' || u.password !== '') return false;
+    if (u.search !== '' || u.hash !== '' || u.pathname !== '/') return false;
     const h = u.hostname;
     if (h === 'localhost' || h === '[::1]') return true;
     return /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h);
@@ -57,7 +61,8 @@ export function isLoopbackApiUrl(base) {
  * Base URL with trailing slash(es) stripped. Order: non-empty TASK_ORCHESTRATOR_API_URL; `apiUrl` in
  * the project-level client.json files from projectClientCandidates (beside the located project config,
  * then the main checkout's for a linked worktree; each honoured only when isLoopbackApiUrl, else the
- * next is tried — a repo file must not redirect the token to a remote host); `apiUrl` in the
+ * next is tried; a bare origin only, no path, query or fragment — a repo file must not redirect the
+ * token to a remote host or shape the request target); `apiUrl` in the
  * user-level client.json. `null` when none yields a value — callers treat `null` as "no REST API
  * configured, no-op". Never throws. The token is env-only; client.json is never read for a token.
  */
