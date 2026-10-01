@@ -660,3 +660,553 @@ test('config-sync notice: absent for stdio registration, API URL set, or none st
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// ─────────────────────────────────────────────────────────────────────────
+// d90dccd3: exact-text assertions, per-day marker, suppressed runs, notice scoping.
+// Oracle: frozen-texts blocks BASE, T1..T8 (planner, frozen before implementation).
+// ─────────────────────────────────────────────────────────────────────────
+
+const BASE = [
+  '## Task Orchestrator — Session Context',
+  '',
+  '- Use `advance_item` for role transitions — not raw status edits.',
+  '- Hierarchy: items have parentId and depth; trees nest to any depth.',
+  '- To resume: call `get_context()` with no args to see active and stalled items.',
+].join('\n');
+
+const T1 = [
+  '## Setup Status',
+  '',
+  'No Task Orchestrator config was found for this directory. Run `/task-orchestrator:init` to set up this project, or `/task-orchestrator:init --user` for a personal root that serves every unconfigured directory.',
+].join('\n');
+
+const t2a = (p) => [
+  '## Setup Status',
+  '',
+  'This workspace is not project-scoped — no `project.rootId` in `' + p + '`.',
+  'Run `/task-orchestrator:init` to set one up.',
+].join('\n');
+
+const t2b = (p) => [
+  '## Setup Status',
+  '',
+  'This workspace is not project-scoped — no `project.rootId` in `' + p + '`.',
+  'Run `/task-orchestrator:init --user` to create a personal root.',
+].join('\n');
+
+const label = (r, n) => (n ? n + ' (`' + r + '`)' : '`' + r + '`');
+
+const t3 = (r, n, p) => [
+  '## Personal Scope',
+  '',
+  'Personal root: ' + label(r, n),
+  'Config: ' + p,
+  '',
+  '- Anchor new root-level items under the personal root by setting `parentId: "' + r + '"`.',
+  "- Do NOT pass `ancestorId` on reads (`query_items`, `get_next_item`, `get_context`, `get_blocked_items`) — the personal root is a global store, so reads stay unscoped and may return other projects' items.",
+  '- Process-global items stay OUTSIDE the personal root at depth 0: the Session Retrospectives and Improvement Proposals containers, and standalone agent-observation items.',
+].join('\n');
+
+const t4 = (r, n, p) => [
+  '## Project Scope',
+  '',
+  'Active project: ' + label(r, n),
+  'Config: ' + p,
+  '',
+  '- Pass `ancestorId: "' + r + '"` on `query_items` (list mode), `get_next_item`, `get_context`, and `get_blocked_items` to scope results to this project.',
+  '- Anchor new root-level items under this project by setting `parentId: "' + r + '"`.',
+  '- Process-global items stay OUTSIDE the project root at depth 0: the Session Retrospectives and Improvement Proposals containers, and standalone agent-observation items — do not anchor any of them under `' + r + '`.',
+].join('\n');
+
+const T5 = 'Task Orchestrator is not set up for this directory — run /task-orchestrator:init to configure it.';
+const t6Project = (p) => 'Task Orchestrator config at ' + p + ' has no project.rootId — run /task-orchestrator:init to finish setup.';
+const t6User = (p) => 'Task Orchestrator config at ' + p + ' has no project.rootId — run /task-orchestrator:init --user to finish setup.';
+
+const T7_PROJECT = [
+  '## Config Sync',
+  '',
+  'Config-sync cannot push this config because no REST API URL resolves. Set `TASK_ORCHESTRATOR_API_URL` or run `/task-orchestrator:init` (writes `client.json`).',
+].join('\n');
+const T7_USER = [
+  '## Config Sync',
+  '',
+  'Config-sync cannot push this config because no REST API URL resolves. Set `TASK_ORCHESTRATOR_API_URL` or run `/task-orchestrator:init --user` (writes `client.json`).',
+].join('\n');
+
+const cfgPath = (base) => join(base, '.taskorchestrator', 'config.yaml');
+const ctxOf = (res) => parse(res).hookSpecificOutput.additionalContext;
+
+function writeClientJson(base, content) {
+  const d = join(base, '.taskorchestrator');
+  mkdirSync(d, { recursive: true });
+  writeFileSync(join(d, 'client.json'), typeof content === 'string' ? content : JSON.stringify(content), 'utf-8');
+}
+
+function localDate(d) {
+  const p = (n) => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+}
+
+function markerHash(dir) {
+  let cwd = realpathSync(dir);
+  if (process.platform === 'win32') cwd = cwd.toLowerCase();
+  return createHash('sha256').update(cwd).digest('hex').slice(0, 16);
+}
+
+function markerDir(tmpDir) {
+  return join(tmpDir, 'task-orchestrator');
+}
+
+// ── Four state sections, exact text ──────────────────────────────────────
+
+test('S1 none state -> additionalContext is exactly BASE + Setup Status (T1), no systemMessage', () => {
+  const dir = tmpConfigDir();
+  try {
+    const out = parse(runHook(dir));
+    assert.equal(out.hookSpecificOutput.additionalContext, BASE + '\n\n' + T1);
+    assert.ok(!('systemMessage' in out));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('S2 no-root state, project file -> exactly BASE + T2a', () => {
+  const dir = tmpConfigDir();
+  try {
+    writeConfig(dir, 'retrospective:\n  mode: nudge\n');
+    assert.equal(ctxOf(runHook(dir)), BASE + '\n\n' + t2a(cfgPath(dir)));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('S3 no-root state, user file -> exactly BASE + T2b; watchPaths = [user path]', () => {
+  const dir = tmpConfigDir();
+  const toHome = tmpConfigDir();
+  try {
+    writeConfig(toHome, 'retrospective:\n  mode: nudge\n');
+    const out = parse(runHook(dir, { toHome }));
+    assert.equal(out.hookSpecificOutput.additionalContext, BASE + '\n\n' + t2b(cfgPath(toHome)));
+    assert.deepEqual(out.hookSpecificOutput.watchPaths, [cfgPath(toHome)]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(toHome, { recursive: true, force: true });
+  }
+});
+
+test('S4 project state with name -> exactly BASE + T4', () => {
+  const dir = tmpConfigDir();
+  try {
+    writeConfig(dir, 'project:\n  rootId: proj-exact-1\n  name: "Exact One"\n');
+    assert.equal(ctxOf(runHook(dir)), BASE + '\n\n' + t4('proj-exact-1', 'Exact One', cfgPath(dir)));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('S4b project state without name -> label is just the backticked rootId', () => {
+  const dir = tmpConfigDir();
+  try {
+    writeConfig(dir, 'project:\n  rootId: proj-exact-2\n');
+    assert.equal(ctxOf(runHook(dir)), BASE + '\n\n' + t4('proj-exact-2', null, cfgPath(dir)));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('S5 user state -> exactly BASE + T3', () => {
+  const dir = tmpConfigDir();
+  const toHome = tmpConfigDir();
+  try {
+    writeConfig(toHome, 'project:\n  rootId: personal-exact-1\n  name: "Me"\n');
+    assert.equal(ctxOf(runHook(dir, { toHome })), BASE + '\n\n' + t3('personal-exact-1', 'Me', cfgPath(toHome)));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(toHome, { recursive: true, force: true });
+  }
+});
+
+// ── systemMessage hint, exact text ───────────────────────────────────────
+
+test('S6 hint, none state + registration -> systemMessage is exactly T5', () => {
+  const dir = tmpConfigDir();
+  try {
+    writeUserClaudeJson(dir, COMPLIANT_STDIO);
+    assert.equal(parse(runHook(dir)).systemMessage, T5);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('S7 hint, no-root project file -> systemMessage is exactly T6 (project wording)', () => {
+  const dir = tmpConfigDir();
+  try {
+    writeUserClaudeJson(dir, COMPLIANT_STDIO);
+    writeConfig(dir, 'retrospective:\n  mode: nudge\n');
+    assert.equal(parse(runHook(dir)).systemMessage, t6Project(cfgPath(dir)));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('S8 hint, no-root USER file -> systemMessage names init --user, agreeing with the context section', () => {
+  const dir = tmpConfigDir();
+  const toHome = tmpConfigDir();
+  try {
+    writeUserClaudeJson(dir, COMPLIANT_STDIO);
+    writeConfig(toHome, 'retrospective:\n  mode: nudge\n');
+    const out = parse(runHook(dir, { toHome }));
+    assert.equal(out.systemMessage, t6User(cfgPath(toHome)));
+    assert.equal(out.hookSpecificOutput.additionalContext, BASE + '\n\n' + t2b(cfgPath(toHome)));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(toHome, { recursive: true, force: true });
+  }
+});
+
+// ── Config Sync notice, exact text and gating ────────────────────────────
+
+test('S9 project state + http registration, no API URL -> BASE + T4 + T7 (project command)', () => {
+  const dir = tmpConfigDir();
+  try {
+    writeConfig(dir, 'project:\n  rootId: proj-sync-1\n  name: "Sync One"\n');
+    writeUserClaudeJson(dir, HTTP_REG);
+    assert.equal(
+      ctxOf(runHook(dir)),
+      BASE + '\n\n' + t4('proj-sync-1', 'Sync One', cfgPath(dir)) + '\n\n' + T7_PROJECT,
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('S10 user state + http registration, no API URL -> BASE + T3 + T7 naming init --user', () => {
+  const dir = tmpConfigDir();
+  const toHome = tmpConfigDir();
+  try {
+    writeConfig(toHome, 'project:\n  rootId: personal-sync-1\n  name: "Me"\n');
+    writeUserClaudeJson(dir, HTTP_REG);
+    assert.equal(
+      ctxOf(runHook(dir, { toHome })),
+      BASE + '\n\n' + t3('personal-sync-1', 'Me', cfgPath(toHome)) + '\n\n' + T7_USER,
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(toHome, { recursive: true, force: true });
+  }
+});
+
+test('S11a notice absent when a loopback project client.json resolves the URL', () => {
+  const dir = tmpConfigDir();
+  try {
+    writeConfig(dir, 'project:\n  rootId: proj-sync-2\n  name: "Sync Two"\n');
+    writeUserClaudeJson(dir, HTTP_REG);
+    writeClientJson(dir, { apiUrl: 'http://127.0.0.1:3001' });
+    assert.equal(ctxOf(runHook(dir)), BASE + '\n\n' + t4('proj-sync-2', 'Sync Two', cfgPath(dir)));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('S11b notice absent in project state when a user client.json resolves the URL', () => {
+  const dir = tmpConfigDir();
+  const toHome = tmpConfigDir();
+  try {
+    writeConfig(dir, 'project:\n  rootId: proj-sync-3\n  name: "Sync Three"\n');
+    writeUserClaudeJson(dir, HTTP_REG);
+    writeClientJson(toHome, { apiUrl: 'http://127.0.0.1:3001' });
+    assert.equal(ctxOf(runHook(dir, { toHome })), BASE + '\n\n' + t4('proj-sync-3', 'Sync Three', cfgPath(dir)));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(toHome, { recursive: true, force: true });
+  }
+});
+
+test('S11c notice absent in user state when a user client.json resolves the URL', () => {
+  const dir = tmpConfigDir();
+  const toHome = tmpConfigDir();
+  try {
+    writeConfig(toHome, 'project:\n  rootId: personal-sync-2\n  name: "Me"\n');
+    writeUserClaudeJson(dir, HTTP_REG);
+    writeClientJson(toHome, { apiUrl: 'http://127.0.0.1:3001' });
+    assert.equal(ctxOf(runHook(dir, { toHome })), BASE + '\n\n' + t3('personal-sync-2', 'Me', cfgPath(toHome)));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(toHome, { recursive: true, force: true });
+  }
+});
+
+test('S12 non-loopback or malformed project client.json does not resolve -> notice (project text) present', () => {
+  for (const content of [JSON.stringify({ apiUrl: 'http://example.com:3001' }), '{ not valid json']) {
+    const dir = tmpConfigDir();
+    try {
+      writeConfig(dir, 'project:\n  rootId: proj-sync-4\n  name: "Sync Four"\n');
+      writeUserClaudeJson(dir, HTTP_REG);
+      writeClientJson(dir, content);
+      assert.equal(
+        ctxOf(runHook(dir)),
+        BASE + '\n\n' + t4('proj-sync-4', 'Sync Four', cfgPath(dir)) + '\n\n' + T7_PROJECT,
+        'client.json content: ' + content,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});
+
+test('S13 none and no-root states + http registration -> no Config Sync section', () => {
+  const dir = tmpConfigDir();
+  try {
+    writeUserClaudeJson(dir, HTTP_REG);
+    assert.equal(ctxOf(runHook(dir)), BASE + '\n\n' + T1);
+    writeConfig(dir, 'retrospective:\n  mode: nudge\n');
+    assert.equal(ctxOf(runHook(dir)), BASE + '\n\n' + t2a(cfgPath(dir)));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// ── Once per directory per DAY marker ────────────────────────────────────
+
+test("S14 marker from a previous day lets the hint through, creates today's marker, keeps the stale one", () => {
+  const dir = tmpConfigDir();
+  const tmpDir = tmpConfigDir();
+  try {
+    writeUserClaudeJson(dir, COMPLIANT_STDIO);
+    const h = markerHash(dir);
+    mkdirSync(markerDir(tmpDir), { recursive: true });
+    const stale = join(markerDir(tmpDir), 'setup-hint-' + h + '-2000-01-01');
+    writeFileSync(stale, '');
+    const before = localDate(new Date());
+    const out = parse(runHook(dir, { tmpDir }));
+    const after = localDate(new Date());
+    assert.equal(out.systemMessage, T5);
+    assert.ok(existsSync(stale), 'stale marker must be left in place');
+    assert.ok(
+      existsSync(join(markerDir(tmpDir), 'setup-hint-' + h + '-' + before)) ||
+        existsSync(join(markerDir(tmpDir), 'setup-hint-' + h + '-' + after)),
+      "today's marker must be created",
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('S15 a marker from today suppresses the hint', () => {
+  const dir = tmpConfigDir();
+  const tmpDir = tmpConfigDir();
+  try {
+    writeUserClaudeJson(dir, COMPLIANT_STDIO);
+    const h = markerHash(dir);
+    mkdirSync(markerDir(tmpDir), { recursive: true });
+    // Markers for the date before AND after the spawn so a midnight rollover cannot flip the outcome.
+    const beforeDate = localDate(new Date());
+    writeFileSync(join(markerDir(tmpDir), 'setup-hint-' + h + '-' + beforeDate), '');
+    const afterDate = localDate(new Date(Date.now() + 5000));
+    if (afterDate !== beforeDate) writeFileSync(join(markerDir(tmpDir), 'setup-hint-' + h + '-' + afterDate), '');
+    const out = parse(runHook(dir, { tmpDir }));
+    assert.ok(!('systemMessage' in out));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('S16 a date-less marker setup-hint-<h> does not suppress (once per day, not once ever)', () => {
+  const dir = tmpConfigDir();
+  const tmpDir = tmpConfigDir();
+  try {
+    writeUserClaudeJson(dir, COMPLIANT_STDIO);
+    const h = markerHash(dir);
+    mkdirSync(markerDir(tmpDir), { recursive: true });
+    const legacy = join(markerDir(tmpDir), 'setup-hint-' + h);
+    writeFileSync(legacy, '');
+    assert.equal(parse(runHook(dir, { tmpDir })).systemMessage, T5);
+    assert.ok(existsSync(legacy), 'date-less marker must be left in place');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('S17 a malformed-date marker setup-hint-<h>-garbage does not suppress', () => {
+  const dir = tmpConfigDir();
+  const tmpDir = tmpConfigDir();
+  try {
+    writeUserClaudeJson(dir, COMPLIANT_STDIO);
+    const h = markerHash(dir);
+    mkdirSync(markerDir(tmpDir), { recursive: true });
+    const bad = join(markerDir(tmpDir), 'setup-hint-' + h + '-garbage');
+    writeFileSync(bad, '');
+    assert.equal(parse(runHook(dir, { tmpDir })).systemMessage, T5);
+    assert.ok(existsSync(bad), 'malformed marker must be left in place');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+// ── A suppressed run never consumes the marker ───────────────────────────
+
+test('S18 SETUP_HINT=off: no marker created, hint still shows once the opt-out is lifted', () => {
+  const dir = tmpConfigDir();
+  const tmpDir = tmpConfigDir();
+  try {
+    writeUserClaudeJson(dir, COMPLIANT_STDIO);
+    const first = parse(runHook(dir, { tmpDir, env: { TASK_ORCHESTRATOR_SETUP_HINT: 'off' } }));
+    assert.ok(!('systemMessage' in first));
+    assert.ok(!existsSync(markerDir(tmpDir)));
+    assert.equal(parse(runHook(dir, { tmpDir })).systemMessage, T5);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('S19 no registration: no marker created, hint shows once a registration exists', () => {
+  const dir = tmpConfigDir();
+  const tmpDir = tmpConfigDir();
+  try {
+    const first = parse(runHook(dir, { tmpDir }));
+    assert.ok(!('systemMessage' in first));
+    assert.ok(!existsSync(markerDir(tmpDir)));
+    writeUserClaudeJson(dir, COMPLIANT_STDIO);
+    assert.equal(parse(runHook(dir, { tmpDir })).systemMessage, T5);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('S20 project state: no marker created, hint shows once the project config is gone', () => {
+  const dir = tmpConfigDir();
+  const tmpDir = tmpConfigDir();
+  try {
+    writeUserClaudeJson(dir, COMPLIANT_STDIO);
+    writeConfig(dir, 'project:\n  rootId: proj-marker-1\n');
+    const first = parse(runHook(dir, { tmpDir }));
+    assert.ok(!('systemMessage' in first));
+    assert.ok(!existsSync(markerDir(tmpDir)));
+    rmSync(join(dir, '.taskorchestrator'), { recursive: true, force: true });
+    assert.equal(parse(runHook(dir, { tmpDir })).systemMessage, T5);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('S21 user state: no marker created, hint shows once the user config is gone', () => {
+  const dir = tmpConfigDir();
+  const toHome = tmpConfigDir();
+  const tmpDir = tmpConfigDir();
+  try {
+    writeUserClaudeJson(dir, COMPLIANT_STDIO);
+    writeConfig(toHome, 'project:\n  rootId: personal-marker-1\n');
+    const first = parse(runHook(dir, { tmpDir, toHome }));
+    assert.ok(!('systemMessage' in first));
+    assert.ok(!existsSync(markerDir(tmpDir)));
+    rmSync(join(toHome, '.taskorchestrator'), { recursive: true, force: true });
+    assert.equal(parse(runHook(dir, { tmpDir, toHome })).systemMessage, T5);
+  } finally {
+    for (const d of [dir, toHome, tmpDir]) rmSync(d, { recursive: true, force: true });
+  }
+});
+
+// ── Adversarial probes ───────────────────────────────────────────────────
+
+test('probe: SETUP_HINT " Off " (padded, mixed case) suppresses the hint', () => {
+  const dir = tmpConfigDir();
+  const tmpDir = tmpConfigDir();
+  try {
+    writeUserClaudeJson(dir, COMPLIANT_STDIO);
+    const out = parse(runHook(dir, { tmpDir, env: { TASK_ORCHESTRATOR_SETUP_HINT: ' Off ' } }));
+    assert.ok(!('systemMessage' in out));
+    assert.ok(!existsSync(markerDir(tmpDir)));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test('probe: empty or blank apiUrl in a project client.json does not resolve -> notice present', () => {
+  for (const apiUrl of ['', '   ']) {
+    const dir = tmpConfigDir();
+    try {
+      writeConfig(dir, 'project:\n  rootId: proj-probe-1\n  name: "Probe"\n');
+      writeUserClaudeJson(dir, HTTP_REG);
+      writeClientJson(dir, { apiUrl });
+      assert.equal(
+        ctxOf(runHook(dir)),
+        BASE + '\n\n' + t4('proj-probe-1', 'Probe', cfgPath(dir)) + '\n\n' + T7_PROJECT,
+        'apiUrl: ' + JSON.stringify(apiUrl),
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});
+
+test('probe: BOM-prefixed loopback client.json still resolves -> notice absent', () => {
+  const dir = tmpConfigDir();
+  try {
+    writeConfig(dir, 'project:\n  rootId: proj-probe-2\n  name: "Probe"\n');
+    writeUserClaudeJson(dir, HTTP_REG);
+    writeClientJson(dir, '﻿' + JSON.stringify({ apiUrl: 'http://127.0.0.1:3001' }));
+    assert.equal(ctxOf(runHook(dir)), BASE + '\n\n' + t4('proj-probe-2', 'Probe', cfgPath(dir)));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('probe: loopback variants 127.0.0.2 and [::1] resolve; localhost.evil.com does not', () => {
+  const cases = [
+    ['http://127.0.0.2:3001', false],
+    ['http://[::1]:3001', false],
+    ['http://localhost.evil.com:3001', true],
+  ];
+  for (const [apiUrl, expectNotice] of cases) {
+    const dir = tmpConfigDir();
+    try {
+      writeConfig(dir, 'project:\n  rootId: proj-probe-3\n  name: "Probe"\n');
+      writeUserClaudeJson(dir, HTTP_REG);
+      writeClientJson(dir, { apiUrl });
+      const expected = BASE + '\n\n' + t4('proj-probe-3', 'Probe', cfgPath(dir)) + (expectNotice ? '\n\n' + T7_PROJECT : '');
+      assert.equal(ctxOf(runHook(dir)), expected, 'apiUrl: ' + apiUrl);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});
+
+test('probe: replay with the same cwd and tmp -> second run is suppressed', () => {
+  const dir = tmpConfigDir();
+  const tmpDir = tmpConfigDir();
+  try {
+    writeUserClaudeJson(dir, COMPLIANT_STDIO);
+    assert.equal(parse(runHook(dir, { tmpDir })).systemMessage, T5);
+    assert.ok(!('systemMessage' in parse(runHook(dir, { tmpDir }))));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test("probe: today's marker path is a directory -> exit 0, no systemMessage", () => {
+  const dir = tmpConfigDir();
+  const tmpDir = tmpConfigDir();
+  try {
+    writeUserClaudeJson(dir, COMPLIANT_STDIO);
+    const h = markerHash(dir);
+    mkdirSync(markerDir(tmpDir), { recursive: true });
+    const d1 = localDate(new Date());
+    mkdirSync(join(markerDir(tmpDir), 'setup-hint-' + h + '-' + d1));
+    const d2 = localDate(new Date(Date.now() + 5000));
+    if (d2 !== d1) mkdirSync(join(markerDir(tmpDir), 'setup-hint-' + h + '-' + d2));
+    const out = parse(runHook(dir, { tmpDir }));
+    assert.ok(!('systemMessage' in out));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
