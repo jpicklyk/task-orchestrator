@@ -3,15 +3,20 @@
 //
 // Lookup order (first readable regular file wins):
 //   1. $AGENT_CONFIG_DIR/.taskorchestrator/config.yaml
-//   2. walk up from cwd checking <dir>/.taskorchestrator/config.yaml (skipping the user-level path)
-//   3. the main checkout of the nearest .git *file* (linked worktree): gitdir -> commondir -> parent
+//   2. walk up from cwd checking <dir>/.taskorchestrator/config.yaml; a home-level path is never
+//      yielded here and the walk keeps climbing past it
+//   3. the main checkout of the nearest .git *file* (linked worktree): gitdir -> commondir -> parent;
+//      only when the common dir's basename is `.git` (a bare repo yields nothing); never a home-level path
 //   4. the user-level <home>/.taskorchestrator/config.yaml (home = TASK_ORCHESTRATOR_HOME else os.homedir())
 //
-// A hit at the user-level path is always scope 'user', whichever step found it.
+// The home set is TASK_ORCHESTRATOR_HOME (when non-empty), os.homedir() and os.userInfo().homedir, each
+// read in its own try/catch (a source that throws or is empty is left out). TASK_ORCHESTRATOR_HOME
+// replaces the home, it does not overlay it: the real-home config is never a project hit. Step 1 is
+// not filtered. Scope is 'user' only when the hit equals the user-level path, otherwise 'project'.
 
 import { readFileSync, statSync } from 'fs';
-import { homedir } from 'os';
-import { join, resolve, dirname, isAbsolute } from 'path';
+import os from 'os';
+import { join, resolve, dirname, isAbsolute, basename } from 'path';
 import { readSection, scalar } from './yaml-lite.mjs';
 
 const CONFIG_REL = join('.taskorchestrator', 'config.yaml');
@@ -19,12 +24,32 @@ const CONFIG_REL = join('.taskorchestrator', 'config.yaml');
 /** TASK_ORCHESTRATOR_HOME when non-empty, else os.homedir(). */
 export function userHome(env = process.env) {
   const h = env.TASK_ORCHESTRATOR_HOME;
-  return h ? h : homedir();
+  return h ? h : os.homedir();
 }
 
 /** Absolute path of the user-level config file. */
 export function userConfigPath(env = process.env) {
   return resolve(userHome(env), CONFIG_REL);
+}
+
+/** Absolute path of the user-level client.json (REST API connection settings). */
+export function userClientPath(env = process.env) {
+  return resolve(userHome(env), '.taskorchestrator', 'client.json');
+}
+
+/** Normalised home-level config paths for every home source that yields a non-empty value. */
+function homeLevelPaths(env) {
+  const set = new Set();
+  const readers = [() => env.TASK_ORCHESTRATOR_HOME, () => os.homedir(), () => os.userInfo().homedir];
+  for (const read of readers) {
+    try {
+      const h = read();
+      if (typeof h === 'string' && h) set.add(norm(join(h, CONFIG_REL)));
+    } catch {
+      // source unavailable
+    }
+  }
+  return set;
 }
 
 function norm(p) {
@@ -71,7 +96,10 @@ function mainCheckoutFromGit(cwd) {
       const common = readTrim(join(gitdir, 'commondir'));
       if (!common) return null;
       const commonDir = isAbsolute(common) ? common : resolve(gitdir, common);
-      return dirname(commonDir);
+      const commonResolved = resolve(commonDir);
+      const base = basename(commonResolved);
+      if ((process.platform === 'win32' ? base.toLowerCase() : base) !== '.git') return null;
+      return dirname(commonResolved);
     }
     const parent = dirname(dir);
     if (parent === dir) return null;
@@ -89,19 +117,22 @@ function parseProject(text) {
   }
 }
 
-function* candidates(cwd, env, userPath) {
-  if (env.AGENT_CONFIG_DIR) yield resolve(env.AGENT_CONFIG_DIR, CONFIG_REL);
+function* candidates(cwd, env, userPath, homePaths) {
+  if (env.AGENT_CONFIG_DIR) yield resolve(cwd, env.AGENT_CONFIG_DIR, CONFIG_REL);
   let dir = resolve(cwd);
   for (;;) {
     const c = join(dir, CONFIG_REL);
-    if (norm(c) !== norm(userPath)) yield c;
+    if (!homePaths.has(norm(c))) yield c;
     const parent = dirname(dir);
     if (parent === dir) break;
     dir = parent;
   }
   const main = mainCheckoutFromGit(cwd);
-  if (main) yield join(main, CONFIG_REL);
-  yield userPath;
+  if (main) {
+    const c = join(main, CONFIG_REL);
+    if (!homePaths.has(norm(c))) yield c;
+  }
+  if (userPath) yield userPath;
 }
 
 /**
@@ -111,8 +142,14 @@ function* candidates(cwd, env, userPath) {
 export function locateConfig({ cwd = process.cwd(), env = process.env } = {}) {
   const none = { scope: 'none', path: null, bytes: null, text: null, rootId: null, name: null };
   try {
-    const userPath = userConfigPath(env);
-    for (const p of candidates(cwd, env, userPath)) {
+    let userPath = null;
+    try {
+      userPath = userConfigPath(env);
+    } catch {
+      // home unresolvable: skip the user-level step, every hit is a project hit
+    }
+    const homePaths = homeLevelPaths(env);
+    for (const p of candidates(cwd, env, userPath, homePaths)) {
       if (!isFile(p)) continue;
       let bytes;
       try {
@@ -123,7 +160,7 @@ export function locateConfig({ cwd = process.cwd(), env = process.env } = {}) {
       const text = bytes.toString('utf8');
       const { rootId, name } = parseProject(text);
       const abs = resolve(p);
-      return { scope: norm(abs) === norm(userPath) ? 'user' : 'project', path: abs, bytes, text, rootId, name };
+      return { scope: userPath && norm(abs) === norm(userPath) ? 'user' : 'project', path: abs, bytes, text, rootId, name };
     }
   } catch {
     // fall through

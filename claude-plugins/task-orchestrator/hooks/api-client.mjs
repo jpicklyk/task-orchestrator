@@ -14,14 +14,13 @@
 //                                absent, requests are sent with no Authorization header.
 
 import { readFileSync } from 'fs';
-import { join } from 'path';
-import { userHome } from './config-locator.mjs';
+import { userClientPath } from './config-locator.mjs';
 
 const DEFAULT_TIMEOUT_MS = 2000;
 
 /**
  * Base URL with any trailing slash(es) stripped: a non-empty TASK_ORCHESTRATOR_API_URL wins, else
- * `apiUrl` from <home>/.taskorchestrator/client.json. `null` when neither yields a non-empty string
+ * `apiUrl` (UTF-8 BOM tolerated, trimmed, whitespace-only = absent) from the file at userClientPath(). `null` when neither yields a non-empty string
  * (missing/invalid client.json included) — callers treat `null` as "no REST API configured, no-op".
  * Never throws. The token is env-only; client.json is never read for a token.
  */
@@ -29,9 +28,11 @@ export function apiBaseUrl() {
   const raw = process.env.TASK_ORCHESTRATOR_API_URL;
   if (raw) return raw.replace(/\/+$/, '');
   try {
-    const parsed = JSON.parse(readFileSync(join(userHome(), '.taskorchestrator', 'client.json'), 'utf8'));
-    const url = parsed && typeof parsed === 'object' ? parsed.apiUrl : null;
-    if (typeof url === 'string' && url) return url.replace(/\/+$/, '');
+    let text = readFileSync(userClientPath(), 'utf8');
+    if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
+    const parsed = JSON.parse(text);
+    const url = parsed && typeof parsed === 'object' && typeof parsed.apiUrl === 'string' ? parsed.apiUrl.trim() : '';
+    if (url) return url.replace(/\/+$/, '');
   } catch {
     // missing or invalid client.json
   }
