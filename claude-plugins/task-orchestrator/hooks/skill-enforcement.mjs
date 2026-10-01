@@ -9,8 +9,9 @@
 // re-trigger the same suggestion forever.
 
 import { readFileSync, writeFileSync, mkdirSync } from 'fs';
-import { resolve, join, dirname } from 'path';
+import { join, dirname } from 'path';
 import os from 'os';
+import { locateConfig } from './config-locator.mjs';
 
 // Read hook input from stdin
 let input = '';
@@ -67,31 +68,7 @@ function writeMarker(path, obj) {
 const marker = markerPath(hookInput.session_id);
 const warnedPairs = readMarker(marker);
 
-// Locate config.yaml — check AGENT_CONFIG_DIR, then walk up from cwd to find
-// the project root containing .taskorchestrator/. This handles worktrees where
-// cwd is nested under .claude/worktrees/<name>/ but config is at the repo root.
-function findConfigPath() {
-  const candidates = [];
-  if (process.env.AGENT_CONFIG_DIR) {
-    candidates.push(resolve(process.env.AGENT_CONFIG_DIR, '.taskorchestrator', 'config.yaml'));
-  }
-  let dir = process.cwd();
-  const root = resolve(dir, '/');
-  while (dir !== root) {
-    candidates.push(resolve(dir, '.taskorchestrator', 'config.yaml'));
-    dir = resolve(dir, '..');
-  }
-  for (const candidate of candidates) {
-    try {
-      return readFileSync(candidate, 'utf-8');
-    } catch {
-      continue;
-    }
-  }
-  return null;
-}
-
-const configContent = findConfigPath();
+const configContent = locateConfig().text;
 if (!configContent) {
   // No config file found — no skill requirements to enforce
   process.exit(0);

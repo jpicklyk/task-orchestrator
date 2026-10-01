@@ -29,8 +29,8 @@
 // null actor, timeout or any error.
 
 import { readFileSync } from 'fs';
-import { resolve } from 'path';
 import { readSection, scalar, inlineScalar } from './yaml-lite.mjs';
+import { locateConfig } from './config-locator.mjs';
 import { apiBaseUrl, authHeader, fetchWithTimeout } from './api-client.mjs';
 
 let input = '';
@@ -54,29 +54,6 @@ const toolInput = hookInput.tool_input || {};
 const isAdvance = toolName.includes('advance_item');
 const isNoteUpsert = toolName.includes('manage_notes') && toolInput.operation === 'upsert';
 if (!isAdvance && !isNoteUpsert) process.exit(0);
-
-// Locate and read config.yaml — check AGENT_CONFIG_DIR, then walk up from cwd.
-// Handles worktrees where cwd is nested under .claude/worktrees/<name>/.
-function readConfigContent() {
-  const candidates = [];
-  if (process.env.AGENT_CONFIG_DIR) {
-    candidates.push(resolve(process.env.AGENT_CONFIG_DIR, '.taskorchestrator', 'config.yaml'));
-  }
-  let dir = process.cwd();
-  const root = resolve(dir, '/');
-  while (dir !== root) {
-    candidates.push(resolve(dir, '.taskorchestrator', 'config.yaml'));
-    dir = resolve(dir, '..');
-  }
-  for (const candidate of candidates) {
-    try {
-      return readFileSync(candidate, 'utf-8');
-    } catch {
-      continue;
-    }
-  }
-  return null;
-}
 
 // Returns true only when actor_authentication.enabled is explicitly set to true.
 // Handles both block YAML and inline forms, strips trailing comments.
@@ -110,7 +87,7 @@ function isActorAttributionRequired(configContent) {
   return raw !== null && raw.toLowerCase() === 'true';
 }
 
-const configContent = readConfigContent();
+const configContent = locateConfig().text;
 const enforced = isActorAuthenticationEnabled(configContent) || isActorAttributionRequired(configContent);
 
 let missing = false;

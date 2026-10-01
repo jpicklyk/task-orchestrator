@@ -25,27 +25,46 @@
 // Narrowest-revert recipe per test-plan: revert the protocol-text edit and this file goes red
 // (the old text still says "no errorCode" and lacks the "Any other errorCode" paragraph).
 
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HOOK = fileURLToPath(new URL('../subagent-start.mjs', import.meta.url));
 
-function runHook(payload = {}, envOverrides = {}) {
-  // Explicitly delete TASK_ORCHESTRATOR_MODE by default so a stray value in the developer's own
-  // shell can never flip a test that expects interactive behavior (see execution-mode.mjs's
-  // headless gate and the item's risk-flag note on spawn-based test env hygiene).
-  const env = { ...process.env, ...envOverrides };
-  delete env.TASK_ORCHESTRATOR_MODE;
-  if (envOverrides.TASK_ORCHESTRATOR_MODE !== undefined) {
-    env.TASK_ORCHESTRATOR_MODE = envOverrides.TASK_ORCHESTRATOR_MODE;
+// Hermeticity recipe (Ruling 2): every spawn pins TASK_ORCHESTRATOR_HOME to its OWN empty temp
+// dir, runs with cwd = a fixture dir (never the repo), and drops inherited config/mode env.
+const tempDirs = [];
+after(() => {
+  for (const d of tempDirs) rmSync(d, { recursive: true, force: true });
+});
+function mkTemp(prefix) {
+  const d = mkdtempSync(join(tmpdir(), `ss-${prefix}-`));
+  tempDirs.push(d);
+  return d;
+}
+function writeConfig(dir, text = 'project:\n  rootId: "00000000-0000-0000-0000-000000000001"\n') {
+  mkdirSync(join(dir, '.taskorchestrator'), { recursive: true });
+  writeFileSync(join(dir, '.taskorchestrator', 'config.yaml'), text);
+}
+// Default fixture: a project config reachable via cwd (walk-up).
+const PROJECT_FIXTURE = mkTemp('project');
+writeConfig(PROJECT_FIXTURE);
+
+function spawnHook(inputText, { cwd = PROJECT_FIXTURE, home, env: envOverrides = {} } = {}) {
+  const pinnedHome = home ?? mkTemp('home');
+  const env = { ...process.env, TASK_ORCHESTRATOR_HOME: pinnedHome, ...envOverrides };
+  for (const k of ['AGENT_CONFIG_DIR', 'TASK_ORCHESTRATOR_MODE', 'TASK_ORCHESTRATOR_API_URL', 'TASK_ORCHESTRATOR_API_TOKEN']) {
+    if (!(k in envOverrides)) delete env[k];
   }
-  return spawnSync(process.execPath, [HOOK], {
-    input: JSON.stringify(payload),
-    env,
-    encoding: 'utf-8',
-  });
+  return spawnSync(process.execPath, [HOOK], { input: inputText, env, cwd, encoding: 'utf-8' });
+}
+
+function runHook(payload = {}, envOverrides = {}, opts = {}) {
+  return spawnHook(JSON.stringify(payload), { ...opts, env: envOverrides });
 }
 
 function protocolText(payload = { session_id: 'test-session', agent_id: 'test-agent', agent_type: 'task-orchestrator:implementer' }) {
@@ -179,29 +198,13 @@ test('workflow-subagent skip is unconditional on any other field in the payload'
 });
 
 test('invalid JSON on stdin fails open: proceeds as if no agent_type were given (no crash, exit 0, no output)', () => {
-  const malformed = spawnSync(process.execPath, [HOOK], {
-    input: '{not valid json',
-    env: (() => {
-      const env = { ...process.env };
-      delete env.TASK_ORCHESTRATOR_MODE;
-      return env;
-    })(),
-    encoding: 'utf-8',
-  });
+  const malformed = spawnHook('{not valid json');
   assert.equal(malformed.status, 0, `hook exited non-zero on invalid stdin: ${malformed.stderr}`);
   assert.equal(malformed.stdout, '', 'invalid stdin has no agent_type, so no phase-owner match, so no output');
 });
 
 test('empty stdin fails open the same way: exit 0, no output', () => {
-  const res = spawnSync(process.execPath, [HOOK], {
-    input: '',
-    env: (() => {
-      const env = { ...process.env };
-      delete env.TASK_ORCHESTRATOR_MODE;
-      return env;
-    })(),
-    encoding: 'utf-8',
-  });
+  const res = spawnHook('');
   assert.equal(res.status, 0, `hook exited non-zero on empty stdin: ${res.stderr}`);
   assert.equal(res.stdout, '');
 });
@@ -221,4 +224,51 @@ test('protocol text conditions advance_item(start) on being the entry seat, not 
       (/read-only/i.test(text) && /never calls `advance_item`/.test(text)),
     'expected the text to say a read-only agent never calls advance_item'
   );
+});
+
+// ── project-init locator gate (66d8f971) ─────────────────────────────────────────────────────
+
+const IMPL = { session_id: 's', agent_id: 'a', agent_type: 'task-orchestrator:implementer' };
+
+test('locator gate (a): project config via AGENT_CONFIG_DIR with an unrelated cwd injects the protocol', () => {
+  const cfgDir = mkTemp('cfg');
+  writeConfig(cfgDir);
+  const res = runHook(IMPL, { AGENT_CONFIG_DIR: cfgDir }, { cwd: mkTemp('empty') });
+  assert.equal(res.status, 0, res.stderr);
+  assert.ok(JSON.parse(res.stdout).hookSpecificOutput.additionalContext.includes('Agent-Owned-Phase Protocol'));
+});
+
+test('locator gate (b): user-scope config only (pinned home) injects the protocol', () => {
+  const home = mkTemp('home');
+  writeConfig(home);
+  const res = runHook(IMPL, {}, { home, cwd: mkTemp('empty') });
+  assert.equal(res.status, 0, res.stderr);
+  assert.ok(JSON.parse(res.stdout).hookSpecificOutput.additionalContext.includes('Agent-Owned-Phase Protocol'));
+});
+
+test('locator gate (c): no config anywhere -> empty stdout, exit 0', () => {
+  const res = runHook(IMPL, {}, { cwd: mkTemp('empty') });
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(res.stdout, '');
+});
+
+test('locator gate (d): pinned home holding only deploy.env (no config.yaml) -> empty stdout', () => {
+  const home = mkTemp('home');
+  mkdirSync(join(home, '.taskorchestrator'), { recursive: true });
+  writeFileSync(join(home, '.taskorchestrator', 'deploy.env'), 'X=1\n');
+  const res = runHook(IMPL, {}, { home, cwd: mkTemp('empty') });
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(res.stdout, '');
+});
+
+test('locator gate (e): cwd with an empty .taskorchestrator/ dir and no config.yaml -> empty stdout', () => {
+  const cwd = mkTemp('emptydir');
+  mkdirSync(join(cwd, '.taskorchestrator'), { recursive: true });
+  const res = runHook(IMPL, {}, { cwd });
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(res.stdout, '');
+});
+
+test('locator gate (f): hook source keeps the literal workflow-subagent string (run-planner-lib detects it by text)', () => {
+  assert.ok(readFileSync(HOOK, 'utf-8').includes('workflow-subagent'));
 });

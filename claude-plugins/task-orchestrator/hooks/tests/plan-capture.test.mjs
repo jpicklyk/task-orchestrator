@@ -1,32 +1,125 @@
-// Direct unit coverage for plan-capture.mjs's parseRootId — previously only inferable through
-// session-start.mjs's subprocess tests (the two parsers are textually identical). Importing the
-// module must NOT trigger a synchronous stdin read as a side effect — plan-capture.mjs guards
-// its `main()` invocation behind an entrypoint check (`process.argv[1] === this file`)
-// specifically so importing `parseRootId` here stays side-effect free.
+// plan-capture.mjs on the config locator: project scope only. Spawned as a subprocess against an
+// in-process stub REST server. Hermeticity recipe (Ruling 2): every spawn pins
+// TASK_ORCHESTRATOR_HOME to its OWN empty temp dir, drops inherited config/API env, and runs with
+// cwd = a fixture dir (never the repo).
 
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseRootId } from '../plan-capture.mjs';
+import { spawn } from 'node:child_process';
+import { createServer } from 'node:http';
+import { fileURLToPath } from 'node:url';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
-test('parseRootId: resolves rootId from a project: block', () => {
-  const content = 'project:\n  rootId: "abc-123"\n  name: "X"\n';
-  assert.equal(parseRootId(content), 'abc-123');
+const HOOK = fileURLToPath(new URL('../plan-capture.mjs', import.meta.url));
+const ROOT_ID = '11111111-2222-3333-4444-555555555555';
+const NL = String.fromCharCode(10);
+const PROJECT_CONFIG = ['project:', `  rootId: "${ROOT_ID}"`, '  name: "X"', ''].join(NL);
+const PLAN = { tool_input: { plan: '# My Great Plan' + NL + NL + 'body' + NL } };
+
+const temps = [];
+after(() => {
+  for (const d of temps) rmSync(d, { recursive: true, force: true });
+});
+function mkTemp(prefix) {
+  const d = mkdtempSync(join(tmpdir(), `pc-${prefix}-`));
+  temps.push(d);
+  return d;
+}
+function writeConfig(dir, text) {
+  mkdirSync(join(dir, '.taskorchestrator'), { recursive: true });
+  writeFileSync(join(dir, '.taskorchestrator', 'config.yaml'), text);
+}
+
+async function withStub(fn) {
+  const requests = [];
+  const server = createServer((req, res) => {
+    requests.push({ method: req.method, url: req.url });
+    req.resume();
+    req.on('end', () => {
+      res.statusCode = 200;
+      res.end('{}');
+    });
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const url = `http://127.0.0.1:${server.address().port}`;
+  try {
+    return await fn(url, requests);
+  } finally {
+    await new Promise((r) => server.close(r));
+  }
+}
+
+function run({ cwd, home, url }) {
+  return new Promise((resolveP) => {
+    const env = { ...process.env, TASK_ORCHESTRATOR_HOME: home, TASK_ORCHESTRATOR_API_URL: url };
+    for (const k of ['AGENT_CONFIG_DIR', 'TASK_ORCHESTRATOR_MODE', 'TASK_ORCHESTRATOR_API_TOKEN']) delete env[k];
+    const child = spawn(process.execPath, [HOOK], { env, cwd });
+    let stdout = '';
+    child.stdout.on('data', (d) => { stdout += d; });
+    child.on('close', (status) => resolveP({ status, stdout }));
+    child.stdin.end(JSON.stringify(PLAN));
+  });
+}
+
+test('project config with project.rootId -> exactly one PUT to /api/v1/roots/<rootId>/plans/<slug>', async () => {
+  const cwd = mkTemp('proj');
+  writeConfig(cwd, PROJECT_CONFIG);
+  await withStub(async (url, requests) => {
+    const res = await run({ cwd, home: mkTemp('home'), url });
+    assert.equal(res.status, 0);
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].method, 'PUT');
+    assert.equal(requests[0].url, `/api/v1/roots/${ROOT_ID}/plans/my-great-plan`);
+    const ctx = JSON.parse(res.stdout).hookSpecificOutput.additionalContext;
+    assert.ok(ctx.includes('my-great-plan'), ctx);
+  });
 });
 
-test('parseRootId: tolerates a column-0 comment above rootId', () => {
-  const content = [
-    'project:',
-    '# a stray column-0 comment sitting right above rootId',
-    '  rootId: "root-comment-check"',
-  ].join('\n');
-  assert.equal(parseRootId(content), 'root-comment-check');
+test('user scope (config only in pinned home) -> no request, silent, exit 0', async () => {
+  const home = mkTemp('uhome');
+  writeConfig(home, PROJECT_CONFIG);
+  await withStub(async (url, requests) => {
+    const res = await run({ cwd: mkTemp('empty'), home, url });
+    assert.equal(res.status, 0);
+    assert.equal(requests.length, 0);
+    assert.equal(res.stdout, '');
+  });
 });
 
-test('parseRootId: null when project: block is absent', () => {
-  assert.equal(parseRootId('retrospective:\n  mode: nudge\n'), null);
-  assert.equal(parseRootId(null), null);
+test('project config without a project block -> no request, silent', async () => {
+  const cwd = mkTemp('noproj');
+  writeConfig(cwd, 'retrospective:' + NL + '  mode: nudge' + NL);
+  await withStub(async (url, requests) => {
+    const res = await run({ cwd, home: mkTemp('home'), url });
+    assert.equal(res.status, 0);
+    assert.equal(requests.length, 0);
+    assert.equal(res.stdout, '');
+  });
 });
 
-test('parseRootId: block-only — ignores an inline project: { ... } form', () => {
-  assert.equal(parseRootId('project: { rootId: abc }\n'), null);
+test('inline project: { rootId: abc } is block-only -> no request, silent', async () => {
+  const cwd = mkTemp('inline');
+  writeConfig(cwd, 'project: { rootId: abc }' + NL);
+  await withStub(async (url, requests) => {
+    const res = await run({ cwd, home: mkTemp('home'), url });
+    assert.equal(res.status, 0);
+    assert.equal(requests.length, 0);
+    assert.equal(res.stdout, '');
+  });
+});
+
+test('no config anywhere -> no request, silent', async () => {
+  await withStub(async (url, requests) => {
+    const res = await run({ cwd: mkTemp('empty'), home: mkTemp('home'), url });
+    assert.equal(res.status, 0);
+    assert.equal(requests.length, 0);
+    assert.equal(res.stdout, '');
+  });
+});
+
+test('importing the module performs no stdin read and exports no config parser', async () => {
+  const mod = await import('../plan-capture.mjs');
+  assert.equal(mod.parseRootId, undefined);
 });

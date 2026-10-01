@@ -3,8 +3,9 @@
 // Early exits, checked in order (headless first, then the pre-existing guards):
 //   1. Headless ralph iteration (TASK_ORCHESTRATOR_MODE=headless-iteration) — ralph iterations
 //      never dispatch subagents, but exit silently anyway rather than assume that holds forever.
-//   2. No .taskorchestrator/ directory exists at or above cwd (or AGENT_CONFIG_DIR) — the
-//      project is not orchestrated, so non-orchestrated projects pay no context cost.
+//   2. No config file is found by the locator (project or user scope) — the project is not
+//      orchestrated, so non-orchestrated projects pay no context cost. A bare .taskorchestrator/
+//      dir (e.g. ~/.taskorchestrator/ holding only deploy.env) no longer counts.
 //   3. Stdin is parsed as JSON; empty or invalid stdin fails open (proceeds as today) rather than
 //      blocking the agent.
 //   4. The subagent's `agent_type` is exactly `workflow-subagent` — Claude workflow agents follow
@@ -20,36 +21,15 @@
 // it tells the agent to defer to whatever seat its OWN dispatch prompt assigned it (only an
 // entry seat, or a single-phase owner with no seat named, advances the item; a non-entry or
 // read-only seat never does), since this hook cannot see the dispatch prompt's seat assignment.
-import { readFileSync, statSync } from 'fs';
-import { resolve } from 'path';
+import { readFileSync } from 'fs';
 import { isHeadlessIteration, isPhaseOwnerAgentType } from './execution-mode.mjs';
-
-function isOrchestratedProject() {
-  const candidates = [];
-  if (process.env.AGENT_CONFIG_DIR) {
-    candidates.push(resolve(process.env.AGENT_CONFIG_DIR, '.taskorchestrator'));
-  }
-  let dir = process.cwd();
-  const root = resolve(dir, '/');
-  while (dir !== root) {
-    candidates.push(resolve(dir, '.taskorchestrator'));
-    dir = resolve(dir, '..');
-  }
-  for (const candidate of candidates) {
-    try {
-      if (statSync(candidate).isDirectory()) return true;
-    } catch {
-      continue;
-    }
-  }
-  return false;
-}
+import { locateConfig } from './config-locator.mjs';
 
 if (isHeadlessIteration()) {
   process.exit(0);
 }
 
-if (!isOrchestratedProject()) {
+if (locateConfig().scope === 'none') {
   process.exit(0);
 }
 
