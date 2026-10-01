@@ -59,3 +59,40 @@ test('.gitattributes pins bundled-rules/*.md to LF', () => {
   );
   assert.match(out.trim(), /eol: lf$/);
 });
+
+// ---- 75f0e354 (O9, O10) ----
+
+const MAX_RULE_BODY_BYTES = 16384; // the server's per-rule limit (rule PUT rejects larger bodies)
+const MANIFEST_REL = 'claude-plugins/task-orchestrator/bundled-rules/manifest.json';
+
+for (const key of KEYS) {
+  test(`75f0e354 S16: bundled ${key} normalized body is within the ${MAX_RULE_BODY_BYTES}-byte rule limit`, () => {
+    const bytes = normalizeForFingerprint(readFileSync(join(BUNDLED_DIR, `${key}.md`)));
+    assert.ok(bytes.length <= MAX_RULE_BODY_BYTES, `${key} is ${bytes.length} bytes`);
+  });
+}
+
+test('75f0e354 S17: manifest.json is append-only across its git history — every historical hash list is a prefix of the current one', () => {
+  const commits = execFileSync('git', ['log', '--format=%H', '--', MANIFEST_REL], { cwd: REPO_ROOT, encoding: 'utf-8' })
+    .split('\n')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  assert.ok(commits.length > 0, 'manifest.json must have git history (fixture precondition)');
+  for (const sha of commits) {
+    let past;
+    try {
+      past = JSON.parse(execFileSync('git', ['show', `${sha}:${MANIFEST_REL}`], { cwd: REPO_ROOT, encoding: 'utf-8' }));
+    } catch {
+      continue; // the file did not exist (or was removed) in that commit
+    }
+    for (const [key, hashes] of Object.entries(past)) {
+      const now = manifest[key];
+      assert.ok(Array.isArray(now), `key ${key} (present in ${sha.slice(0, 8)}) was dropped from the manifest`);
+      assert.deepEqual(
+        now.slice(0, hashes.length),
+        hashes,
+        `history of ${key} at ${sha.slice(0, 8)} is not a prefix of the current list (a hash was dropped or reordered)`,
+      );
+    }
+  }
+});

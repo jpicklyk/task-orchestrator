@@ -7,6 +7,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
+import { spawn } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
@@ -376,5 +377,114 @@ test('fetchWithTimeout: passes through caller-supplied headers (e.g. Authorizati
     assert.equal(seenAuth, 'Bearer tok-abc');
   } finally {
     await stopServer(server);
+  }
+});
+
+// ---- 75f0e354 (O4): the timeout also bounds the response-body read ----
+
+function stopServerNow(server) {
+  if (typeof server.closeAllConnections === 'function') server.closeAllConnections();
+  return stopServer(server);
+}
+
+test('75f0e354 S8: headers arrive but the body stalls — res.json() rejects with AbortError within the timeout', async () => {
+  const server = await startServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.write('{"rules":['); // partial body, never finished
+  });
+  try {
+    const { port } = server.address();
+    const started = Date.now();
+    const res = await fetchWithTimeout(`http://127.0.0.1:${port}/`, {}, 300);
+    assert.equal(res.status, 200);
+    let guardTimer;
+    const guard = new Promise((resolveGuard) => {
+      guardTimer = setTimeout(() => resolveGuard('guard-expired'), 3000);
+    });
+    const outcome = await Promise.race([
+      res.json().then(
+        (value) => ({ resolved: value }),
+        (err) => ({ rejected: err }),
+      ),
+      guard,
+    ]);
+    clearTimeout(guardTimer);
+    const elapsed = Date.now() - started;
+    assert.notEqual(outcome, 'guard-expired', 'the stalled body read must be aborted by the request timeout, not hang');
+    assert.ok(outcome.rejected, 'a stalled body must reject, never resolve');
+    assert.equal(outcome.rejected.name, 'AbortError');
+    assert.ok(elapsed < 1500, `body read ended after ${elapsed}ms; must be bounded by the 300ms timeout`);
+  } finally {
+    await stopServerNow(server);
+  }
+});
+
+test('75f0e354 S8 probe: same stall read through res.text() is also bounded', async () => {
+  const server = await startServer((req, res) => {
+    res.writeHead(200);
+    res.write('partial');
+  });
+  try {
+    const { port } = server.address();
+    const res = await fetchWithTimeout(`http://127.0.0.1:${port}/`, {}, 300);
+    let guardTimer;
+    const guard = new Promise((resolveGuard) => {
+      guardTimer = setTimeout(() => resolveGuard('guard-expired'), 3000);
+    });
+    const outcome = await Promise.race([
+      res.text().then(
+        () => 'resolved',
+        (err) => err,
+      ),
+      guard,
+    ]);
+    clearTimeout(guardTimer);
+    assert.notEqual(outcome, 'guard-expired');
+    assert.notEqual(outcome, 'resolved');
+    assert.equal(outcome.name, 'AbortError');
+  } finally {
+    await stopServerNow(server);
+  }
+});
+
+test('75f0e354 S8 probe: a body that completes within the timeout still reads normally', async () => {
+  const server = await startServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.write('{"a":');
+    setTimeout(() => res.end('1}'), 100);
+  });
+  try {
+    const { port } = server.address();
+    const res = await fetchWithTimeout(`http://127.0.0.1:${port}/`, {}, 2000);
+    assert.deepEqual(await res.json(), { a: 1 });
+  } finally {
+    await stopServerNow(server);
+  }
+});
+
+test('75f0e354 probe: a finished fetch with a long timeout does not keep the process alive', async () => {
+  const server = await startServer((req, res) => {
+    res.writeHead(200);
+    res.end('ok');
+  });
+  try {
+    const { port } = server.address();
+    const moduleUrl = new URL('../api-client.mjs', import.meta.url).href;
+    const code =
+      `import { fetchWithTimeout } from ${JSON.stringify(moduleUrl)};` +
+      `const r = await fetchWithTimeout(process.argv[1], {}, 10000); await r.text();`;
+    const started = Date.now();
+    const status = await new Promise((resolveExit, rejectExit) => {
+      const child = spawn(process.execPath, ['--input-type=module', '-e', code, `http://127.0.0.1:${port}/`], {
+        stdio: 'ignore',
+      });
+      child.on('error', rejectExit);
+      child.on('close', resolveExit);
+    });
+    const elapsed = Date.now() - started;
+    assert.equal(status, 0);
+    assert.ok(elapsed < 5000, `process lingered ${elapsed}ms after finishing; the armed timeout must not hold it open`);
+  } finally {
+    await stopServerNow(server);
   }
 });
