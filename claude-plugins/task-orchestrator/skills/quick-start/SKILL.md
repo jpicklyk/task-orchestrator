@@ -10,7 +10,7 @@ Interactive onboarding that teaches by doing. Detects your workspace state and a
 
 ## Step 1: Detect Workspace State
 
-Resolve the project rootId first: check session context for a rootId injected by the SessionStart hook, or read `.taskorchestrator/config.yaml`'s top-level `project.rootId` (a file read, not an MCP call).
+Resolve the project rootId first: check session context for the SessionStart hook's "Config:" path and rootId; otherwise use the located config (`locateConfig()` in `hooks/config-locator.mjs`), not a cwd-relative file read. A user-level or personal-root config counts.
 
 Call the health check to determine which path to follow:
 
@@ -25,39 +25,13 @@ When a rootId is known, pass it to scope the check to this project: `get_context
 
 ---
 
-## Step 1.5: Project Anchor Bootstrap (if needed)
+## Step 1.5: Project Setup (delegated to init)
 
-Before following either path, check whether this workspace has a project anchor yet:
+Before following either path, check whether this workspace has a project anchor yet. Use the rootId resolved in Step 1: if it is known, the workspace is set up and nothing more is needed here.
 
-- If `.taskorchestrator/config.yaml` does not exist at all, skip this step — that's the truly fresh workspace covered by the Fresh-Start Path below. Bootstrap can happen on a later run once a config file exists (e.g., after `/manage-schemas` creates one).
-- If `.taskorchestrator/config.yaml` exists and already has a top-level `project:` block, read its `rootId` and use it for scoping throughout this session — no bootstrap needed.
-- If `.taskorchestrator/config.yaml` exists but has **no** `project:` block, offer to create one via `AskUserQuestion`: *"This workspace doesn't have a project anchor yet — want me to create one? It lets `/work-summary`, `/create-item`, and other skills scope to just this project if multiple projects ever share the same database."*
+If no `project.rootId` is known, offer setup via `AskUserQuestion`: *"This workspace isn't set up for Task Orchestrator yet. Run `/task-orchestrator:init` to create a project anchor (or `/task-orchestrator:init --user` for a personal root that serves every unconfigured directory)?"* `/task-orchestrator:init` owns the anchor, the `config.yaml` `project:` block, the server push and the bundled-rule seeding; this skill does none of that itself. If the user accepts, run it (or tell them to) and then continue here.
 
-If the user accepts:
-
-1. Determine a project name — from `$ARGUMENTS`, conversation context, or by asking.
-2. Create the anchor item at depth 0:
-   ```
-   manage_items(operation="create", items=[{title: "<project name>", type: "project", priority: "low"}])
-   ```
-3. Write the canonical block into `.taskorchestrator/config.yaml`:
-   ```yaml
-   project:
-     rootId: "<created-item-uuid>"
-     name: "<project name>"
-   ```
-4. Older servers may not expose it, so check the tool list before calling — if a `manage_project_config` tool is available, push the full current file text (not just the `project:` block — pushing the whole file also carries the `project:` block, which IS honored per-root; see `references/config-format.md` → Project Scoping) so per-root schema resolution picks it up immediately without waiting on a config reload:
-   ```
-   manage_project_config(operation="push", rootId="<created-item-uuid>", configYaml="<full current file text from step 3>")
-   ```
-   - Success → the returned `fingerprint` confirms the push landed; re-pushing identical content later returns the same fingerprint (idempotent).
-   - `VALIDATION_ERROR` → surface the parse error to the user; the config.yaml write from step 3 is already saved locally, so nothing is lost — tell them to fix the file and retry the push (or run `/manage-schemas validate`).
-   - `CONFLICT_ERROR` (superseded) → the local file is older than the server's stored config (rare during onboarding — usually means another checkout already synced a newer version). Fetch the server's copy with `manage_project_config(operation="get", ...)` and reconcile, or pass `force: true` if overwriting is intentional.
-   - A `warning` field → relay it to the user (non-fatal).
-
-   If the tool isn't available, note this and skip — the config.yaml write from step 3 is authoritative on its own; the server will pick it up on its normal config read path.
-
-If the user declines, proceed unscoped — nothing else in this skill requires an anchor.
+If the user declines, proceed unscoped. Nothing else in this skill requires an anchor.
 
 ---
 

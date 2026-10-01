@@ -1,6 +1,6 @@
 ---
 name: configure-server
-description: "Configures how the MCP Task Orchestrator SERVER runs and is reached — transport (HTTP vs STDIO), the REST API, port publishing, config mounts, and config-sync. Use when a user says: run the server, register the image, set up the Docker container, enable the REST API, set up config-sync, reconfigure the server, change transport, expose the API, reconnect to a different endpoint, or allow a hostname. NOT for first-time onboarding (that's quick-start) and NOT for note schemas / gates / traits / actor_authentication policy (that's manage-schemas) — this skill only decides how the container is launched and reached."
+description: "Configures how the MCP Task Orchestrator SERVER runs and is reached — transport (HTTP vs STDIO), the REST API, port publishing, config mounts, and config-sync. Use when a user says: run the server, register the image, set up the Docker container, enable the REST API, set up config-sync, reconfigure the server, change transport, expose the API, reconnect to a different endpoint, or allow a hostname. NOT for first-time onboarding (that's quick-start), NOT for project/personal setup (that's init), and NOT for note schemas / gates / traits / actor_authentication policy (that's manage-schemas) — this skill only decides how the container is launched and reached."
 argument-hint: "[optional: 'recommended', 'http', 'stdio', 'bearer', or a change request e.g. 'enable REST']"
 ---
 
@@ -168,6 +168,8 @@ No REST, no port, no config-sync — say so.
    TASK_ORCHESTRATOR_API_URL=http://localhost:3001
    ```
 
+   A persistent alternative to this env var: `/task-orchestrator:init --user` writes `client.json` (`apiUrl` only, never a token) under the user-level `.taskorchestrator/` directory after checking `/api/v1/health`. The token still comes from the environment only, and when both are set the env var wins.
+
    Add `TASK_ORCHESTRATOR_API_TOKEN=<token>` only when the REST API requires authentication (bearer or jwks mode). **Omitting this env var is the
    single most common way config-sync silently no-ops** (`config-sync.mjs` returns early when `apiBaseUrl()` in
    `hooks/api-client.mjs` finds no URL) —
@@ -202,6 +204,8 @@ For any HTTP render, walk through:
 5. A 403, `host_not_allowed`, or a JSON-RPC error (code -32000) on `/mcp` means the request's `Host`
    header is not allowlisted — see `references/runtime-config.md` → "Host allowlist
    (MCP_ALLOWED_HOSTS)".
+
+Next: run `/task-orchestrator:init` in each project (or `/task-orchestrator:init --user` once for a personal root).
 
 ---
 
