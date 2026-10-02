@@ -53,7 +53,7 @@ This project is governed by our [Code of Conduct](CODE_OF_CONDUCT.md). By partic
 
 When you clone this repository, two things are pre-configured for development:
 
-- **Plugin auto-discovery**: The `.claude-plugin/marketplace.json` at the repo root is automatically discovered by Claude Code. Install the plugin via `/plugin` and it provides skills, hooks, and an output style — without bundling an MCP server (developers run their own).
+- **Plugin auto-discovery**: The `.claude-plugin/marketplace.json` at the repo root is automatically discovered by Claude Code. Install the plugin via `/plugin` and it provides skills, hooks, and an orchestration context — without bundling an MCP server (developers run their own).
 
 - **Dev MCP server**: The `.mcp.json` at the repo root configures the MCP server to use your locally-built Docker image (`task-orchestrator:dev`). Claude Code reads this automatically on startup.
 

@@ -10,7 +10,7 @@ MCP Task Orchestrator can be integrated at different levels of sophistication. T
 | 2 | [CLAUDE.md-Driven](claude-md-driven.md) | Claude Code users | Consistent agent behavior via project instructions |
 | 3 | [Note Schemas](note-schemas.md) | Schema configurers | Phase gate enforcement, required documentation |
 | 4 | [Plugin: Skills and Hooks](plugin-skills-hooks.md) | Claude Code + plugin | Automated workflows, plan-mode pipeline, subagent protocols |
-| 5 | [Output Styles](output-styles.md) | Power users | Full orchestrator mode with delegation |
+| 5 | [Orchestration Mode](orchestration-mode.md) | Power users | Full orchestrator mode with delegation, delivered by the plugin |
 | 6 | [Self-Improving Workflow](self-improving-workflow.md) | Self-optimizers | Feedback loop, observation logging, auto-memory correction |
 
 ## Which Guide Is Right for Me?
@@ -24,4 +24,4 @@ MCP Task Orchestrator can be integrated at different levels of sophistication. T
 
 ## Layering
 
-Each tier adds on top of the previous. Note schemas (Tier 3) can be added independently at any tier — they require only a `.taskorchestrator/config.yaml` file and no plugin or CLAUDE.md changes. The self-improving workflow (Tier 6) is also relatively standalone — it can be adapted with or without the full output style.
+Each tier adds on top of the previous. Note schemas (Tier 3) can be added independently at any tier — they require only a `.taskorchestrator/config.yaml` file and no plugin or CLAUDE.md changes. The self-improving workflow (Tier 6) is also relatively standalone — it can be adapted with or without the full orchestration mode.

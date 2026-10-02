@@ -147,7 +147,7 @@ select{font:400 14px/1.2 var(--body);padding:8px 10px;border:1.5px solid var(--i
 
 <section>
   <h2>Size the work first</h2>
-  <p class="sub">The Workflow Orchestrator output style classifies every request into a tier before anything else. Describe a request and see the process it gets. This is a simplified reading of the style's rules.</p>
+  <p class="sub">The orchestration context classifies every request into a tier before anything else, using the orchestrate skill. Describe a request and see the process it gets. This is a simplified reading of those rules.</p>
   <div class="grid2">
     <div class="panel">
       <label class="ctl" for="files"><span>Files it will touch</span>
@@ -183,7 +183,7 @@ select{font:400 14px/1.2 var(--body);padding:8px 10px;border:1.5px solid var(--i
 <section>
   <h2>One feature, start to finish</h2>
   <ol class="steps">
-    <li><div class="what"><h3>Request</h3><span class="by">Workflow Orchestrator style</span></div><span class="then">Classifies the tier. Larger work goes to plan mode.</span><span class="holds">Nothing yet.</span></li>
+    <li><div class="what"><h3>Request</h3><span class="by">Orchestration context</span></div><span class="then">Classifies the tier. Larger work goes to plan mode.</span><span class="holds">Nothing yet.</span></li>
     <li><div class="what"><h3>Enter plan mode</h3><span class="by">hook on EnterPlanMode → pre-plan-workflow</span></div><span class="then">Reads existing items and the schemas' required notes, so the plan covers what the gates will ask for.</span><span class="holds">Nothing new. Creating items before approval is forbidden.</span></li>
     <li><div class="what"><h3>Approve the plan</h3><span class="by">hook on ExitPlanMode → plan-capture</span></div><span class="then">Stores the approved plan text on the server. Skipped silently when no REST API is configured.</span><span class="holds">A plan document under the project root.</span></li>
     <li><div class="what"><h3>Materialize</h3><span class="by">post-plan-workflow</span></div><span class="then">Creates the work tree, wires dependency edges and fills the queue notes.</span><span class="holds">Every item, edge and queue note, before any code is written.</span></li>
@@ -311,11 +311,14 @@ query_rules(operation="list", rootId)</pre>
   <h2>What else ships in the plugin</h2>
   <div class="grid2">
     <div class="tscroll"><table>
-      <thead><tr><th>Output style</th><th>Behaviour</th></tr></thead>
+      <thead><tr><th>Channel</th><th>Behaviour</th></tr></thead>
       <tbody>
-        <tr><td>Workflow Orchestrator</td><td>Tier-aware. Plans, delegates, tracks and reports. Small fixes are done inline.</td></tr>
-        <tr><td>Schema Orchestrator</td><td>No tiers and no model policy. The item's schema alone sets the process.</td></tr>
-        <tr><td>Ralph Iteration</td><td>The terse single-item mode each headless iteration runs in.</td></tr>
+        <tr><td>Orchestration context</td><td>A session-start hook delivers the orchestration core, including after a compact. Plans, delegates, tracks and reports.</td></tr>
+        <tr><td>Orchestrate skill</td><td>On-demand tier table, delegation table and phase-owner dispatch rules.</td></tr>
+        <tr><td>Ralph iteration prompt</td><td>The terse single-item rules each headless iteration runs under, appended to its system prompt.</td></tr>
+        <tr><td><code>orchestration.mode: workflow</code></td><td>The default. Tier-aware, with a model policy. Small fixes are done inline.</td></tr>
+        <tr><td><code>orchestration.mode: schema</code></td><td>No tiers and no model policy. The item's schema alone sets the process.</td></tr>
+        <tr><td><code>orchestration.mode: off</code></td><td>The orchestration hooks stay silent.</td></tr>
       </tbody>
     </table></div>
     <div class="tscroll"><table>

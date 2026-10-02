@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Plugin
+
+- **Breaking: output styles removed.** The plugin no longer ships the `Workflow Orchestrator`, `Schema Orchestrator` or `Ralph Iteration` output styles, and the `outputStyles` key is gone from `plugin.json`. A `"outputStyle": "task-orchestrator:..."` setting now falls back to the default style, so remove it from your settings. If you copied the plugin's Zone 1 into a personal output style, trim it: the orchestration core now arrives from the plugin, so the personal style keeps only Zones 2 and 3. A personal style in `~/.claude/output-styles/` remains valid.
+- **Added: `orchestration-context` SessionStart hook.** Delivers the orchestration core on every session start, including after `/compact`, with nothing to select. It stays inert in headless ralph iterations, when no config is located, and when `orchestration.mode` is `off`.
+- **Added: `task-orchestrator:orchestrate` skill.** On-demand tier classification, delegation model table and phase-owner dispatch rules, invoked from the orchestration context.
+- **Added: `orchestration.mode` config key** (`workflow` default, `schema`, `off`), read client-side by the plugin hooks. See `skills/manage-schemas/references/config-format.md`.
+- **Changed: Tier 5 guide renamed** from `integration-guides/output-styles.md` to `orchestration-mode.md` and rewritten for hook delivery; docs, skills and the field guide no longer describe output styles as a plugin component.
+- **Fixed: ralph iterations resolved to the Default style.** Ralph passed a style file stem that Claude Code resolved to Default (obs a6f6086c); iterations now append `skills/ralph/iteration-system-prompt.md` and pin the default style.
+- **Fixed: tier fragment surfaced as a bogus style.** The tier-classification fragment under `output-styles/` appeared as a selectable style (obs 9275379c); it now lives in `_fragments/`.
+
 ## [3.16.0] - 2026-10-02
 
 ### Plugin

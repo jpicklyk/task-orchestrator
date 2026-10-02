@@ -60,6 +60,16 @@ When the state is "no config" or "config without rootId" and an orchestrator MCP
 
 **Plugin version freshness check:** dev-checkout only. Session Start walks up from `AGENT_CONFIG_DIR` (if set) then `cwd` looking for a checked-out `claude-plugins/task-orchestrator/.claude-plugin/plugin.json` — a walk of its own (the config itself is found by the locator described above), so worktrees under `.claude/worktrees/<name>/` still find the checkout root. If found, it compares that file's `version` against the `plugin.json` of the plugin actually running the hook (resolved via `CLAUDE_PLUGIN_ROOT` when the harness sets it, else relative to the hook script's own file location). A mismatch appends a `## Plugin Version Drift` section naming both versions and pointing to `claude-plugins/CLAUDE.md` → "Plugin Discovery and Cache Refresh". Silent when no dev checkout is found, when either `plugin.json` can't be read or parsed, or when the versions match — like the registration self-check, this is purely diagnostic and never blocks session start.
 
+### Orchestration Context
+
+**Event:** `SessionStart` — every source, including `compact`, so the core survives `/compact` and `/clear`.
+
+**What it injects:** the always-on orchestration core as `additionalContext`: workflow principles (materialize before implement, agent-owned phases, an explicit `model` on every dispatch), skill routing, retrospective handling, action items and visual conventions. It points at the `task-orchestrator:orchestrate` skill for the tier table, the delegation model table and phase-owner dispatch rules. It is a separate hook from Session Start so it has its own context budget.
+
+**Inert when:** the session is a headless ralph iteration (those get `skills/ralph/iteration-system-prompt.md` instead), no `.taskorchestrator/config.yaml` can be located, or `orchestration.mode` is `off`. `orchestration.mode: schema` swaps in a variant with no tiers and no model table. See [Tier 5: Orchestration Mode](orchestration-mode.md) and [config-format.md → Orchestration](../../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#orchestration).
+
+**Effect:** the agent orchestrates from the first prompt without any output style or CLAUDE.md instructions. It fails open: any error emits `{}`.
+
 ### Config Sync
 
 **Events:** `SessionStart` and `FileChanged` on the located `config.yaml` (and the user-level one).
@@ -143,6 +153,7 @@ now built on (`implementer`/`reviewer`/`null`), and `isTestAuthorAgentType(agent
 
 | Hook | Headless ralph iteration | Interactive subagent (`agent_id` present) |
 |---|---|---|
+| Orchestration Context | exits silently, no output (iterations get the appended iteration system prompt instead) | unaffected — this hook only fires at session start |
 | Subagent Start | exits silently, no output | injects the protocol only for `implementer`/`reviewer` agent types; every other type gets no output |
 | Retro Trigger | emits `{}` before reading/writing the retrospective marker — a headless iteration's tool calls never pollute the interactive session's marker | never emits a nudge/dispatch directive itself; a would-be parent-completion is recorded like a lone-terminal signal so the interactive main session's Stop backstop surfaces it once control returns |
 | Retro Backstop | emits `{}` before reading the marker | unaffected — this hook only fires for the main session's own turn |
@@ -150,7 +161,7 @@ now built on (`implementer`/`reviewer`/`null`), and `isTestAuthorAgentType(agent
 | Phase Guard (SubagentStop) | emits `{}` before any gate fetch | unaffected |
 
 Ralph iterations never dispatch subagents in the first place (see the `ralph` skill and the
-`ralph-iteration` output style), so the SubagentStart/Phase-Guard rows are belt-and-suspenders —
+appended `skills/ralph/iteration-system-prompt.md`), so the SubagentStart/Phase-Guard rows are belt-and-suspenders —
 the headless gate exists so that invariant is not silently load-bearing.
 
 Hooks intentionally NOT gated by execution mode: Session Start (informational, including the
@@ -185,13 +196,14 @@ Skills are invoked as slash commands in any Claude Code session:
 
 ## Internal Skills
 
-These are triggered by hooks and output styles, not invoked directly by users:
+These are triggered by hooks and the orchestration context, not invoked directly by users:
 
 | Skill | Triggered by | Purpose |
 |-------|-------------|---------|
 | `pre-plan-workflow` | Pre-plan hook (EnterPlanMode) | Gather MCP state, check schemas, set definition floor before plan is written |
 | `post-plan-workflow` | Post-plan hook (ExitPlanMode) | Materialize items from approved plan — work trees, dependencies, queue-phase notes |
-| `schema-workflow` | Output styles | Guide items through schema-defined note gates during implementation |
+| `schema-workflow` | Orchestration context | Guide items through schema-defined note gates during implementation |
+| `orchestrate` | Orchestration context | On-demand tier classification, delegation model table and phase-owner dispatch rules |
 
 ---
 
@@ -374,4 +386,4 @@ See [Note Schemas](note-schemas.md) for schema setup.
 
 **Signal:** You want Claude to operate as a full workflow orchestrator — planning, delegating, tracking, and reporting — rather than implementing directly.
 
-**Next:** [Output Styles](output-styles.md) — activate Workflow Orchestrator mode for tier-aware, delegation-based operation.
+**Next:** [Orchestration Mode](orchestration-mode.md) — the tier-aware, delegation-based operation the plugin's orchestration context delivers.

@@ -32,7 +32,7 @@ before relying on it — `gh pr view <n> --json state,mergeCommit` plus `git log
 and confirm the working tree is current (Step 2, base-freshness precondition) before any pass
 that checks whether a change is present in the codebase.
 
-**Execution tier** — classify by this table (canonical source shared with the Workflow Orchestrator output style; edit the fragment, not this copy):
+**Execution tier** — classify by this table (canonical source shared with the `task-orchestrator:orchestrate` skill; edit the fragment, not this copy):
 
 <!-- BEGIN GENERATED:tier-classification | source: claude-plugins/task-orchestrator/_fragments/tier-classification.md · regen: node claude-plugins/task-orchestrator/_fragments/generate.mjs -->
 | Criteria | Tier | Pipeline |
@@ -403,7 +403,7 @@ results. Advance to review:
 
 **Delegated and Parallel tiers:** Use `get_context(itemId=...)` to see work-phase
 `expectedNotes` and `guidancePointer` values. Fill each required note following its
-guidance. Follow the delegation model from your output style (model selection, return
+guidance. Follow `/task-orchestrator:orchestrate` (model table, return
 formats, UUID inclusion). The key decisions at this step are:
 
 - **Single item (Delegated):** delegate to one implementation subagent or implement

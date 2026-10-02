@@ -412,7 +412,7 @@ for the contention/retry model and the full guarantees-vs-non-guarantees stateme
 ## Dispatch (Trait Dimension)
 
 A trait can declare `dispatch:` — a map of workflow phase → **dispatch profile**, read by an
-orchestrator (this plugin's shipped output styles, and orchestrator workflows such as a project's
+orchestrator (this plugin's orchestration context and `orchestrate` skill, and orchestrator workflows such as a project's
 implementation skill) to decide which agent type, model, and thinking effort to dispatch for the
 phase owner. Like `resources:`, this is
 independent of the note-requirement dimension — a trait can carry `notes`, `resources`, `dispatch`,
@@ -538,9 +538,9 @@ way — `task-orchestrator:implementer` (`effort: medium`) and `task-orchestrato
 (`effort: high`) — both using `model: inherit` in their own frontmatter, which is exactly why the
 caller must still pass `model` explicitly on every dispatch of the phase owner — `dispatch.model`
 when the profile sets one, otherwise its own model choice. See
-[`output-styles/workflow-orchestrator.md`](../../../output-styles/workflow-orchestrator.md) →
-Delegation for the consumer-side rule, followed identically by `schema-orchestrator.md`,
-`schema-workflow`, and orchestrator workflows such as a project's implementation skill outside
+[`orchestrate`](../../orchestrate/SKILL.md) → Dispatching an item's phase owner for the
+consumer-side rule, which applies in both orchestration modes and is followed identically by
+`schema-workflow` and orchestrator workflows such as a project's implementation skill outside
 this plugin.
 
 ---
