@@ -45,11 +45,11 @@ All role transitions use `advance_item(trigger=...)`. There is no direct role as
 | `start`    | `queue`                   | `work`                   | Queue-phase required notes must be filled.         |
 | `start`    | `work`                    | `review` or `terminal`   | Work-phase required notes must be filled.          |
 | `start`    | `review`                  | `terminal`               | Review-phase required notes must be filled.        |
-| `complete` | Any non-terminal          | `terminal`               | Enforces gates: all required notes across ALL phases must be filled. |
-| `block`    | Any non-terminal          | `blocked`                | Saves `previousRole` for resume.                   |
-| `hold`     | Any non-terminal          | `blocked`                | Alias for `block`.                                 |
+| `complete` | `queue`, `work`, `review` | `terminal`               | Enforces gates: all required notes across ALL phases must be filled. Rejected from `blocked` — `resume` first. |
+| `block`    | `queue`, `work`, `review` | `blocked`                | Saves `previousRole` for resume.                   |
+| `hold`     | `queue`, `work`, `review` | `blocked`                | Alias for `block`.                                 |
 | `resume`   | `blocked`                 | Previous role            | Restores role saved at block time.                 |
-| `cancel`   | Any non-terminal          | `terminal`               | Sets `statusLabel = "cancelled"`.                  |
+| `cancel`   | Any non-terminal (including `blocked`) | `terminal`  | Sets `statusLabel = "cancelled"`. Does not enforce gates. |
 | `reopen`   | `terminal`                | `queue`                  | Clears statusLabel, bypasses gates. Parent cascades TERMINAL → WORK. |
 
 ### Example: Advance a Work Item
@@ -112,7 +112,7 @@ work_item_schemas:
         required: <true|false>
         description: "<Short description of what this note should contain.>"
         guidance: "<Optional longer guidance shown to agents filling the note.>"
-    traits:                    # optional — composable trait keys applied to this schema
+    default_traits:            # optional — trait keys applied to every item matching this schema
       - <trait-key>
 
 # Legacy format (still works)
@@ -131,8 +131,8 @@ note_schemas:
 |---------------|---------|----------|--------------------------------------------------------------------------------------|
 | `key`         | string  | yes      | Unique identifier for this note within the schema. Used in `manage_notes`.           |
 | `role`        | string  | yes      | Phase this note belongs to: `queue`, `work`, or `review`.                            |
-| `required`    | boolean | yes      | Whether this note must be filled before advancing past this phase.                   |
-| `description` | string  | yes      | Short description of expected content. Shown in `get_context` gate status.           |
+| `required`    | boolean | no       | Whether this note must be filled before advancing past this phase. Defaults to `false` if omitted — set it explicitly. |
+| `description` | string  | no       | Short description of expected content (defaults to `""`; recommended). Fetch via `query_items(operation="schema")`. |
 | `guidance`    | string  | no       | Longer authoring guidance for agents. Shown in `get_context` as `guidancePointer`.   |
 | `skill`       | string  | no       | Skill to invoke when filling this note. Shown in `get_context` as `skillPointer`.    |
 
@@ -190,7 +190,7 @@ work_item_schemas:
         guidance: "Verify what was built aligns with the feature-summary, tests cover the test strategy, and any /simplify changes have test coverage."
 ```
 
-> The legacy `note_schemas:` flat-list format is still accepted. New configs should prefer `work_item_schemas:` for access to the `lifecycle:` and `traits:` fields.
+> The legacy `note_schemas:` flat-list format is still accepted. New configs should prefer `work_item_schemas:` for access to the `lifecycle:` and `default_traits:` fields.
 
 ### Phase Flow with Gates
 
@@ -831,14 +831,12 @@ The full schema for `.taskorchestrator/config.yaml`:
 ### Top-Level Structure
 
 ```yaml
-# Preferred — supports lifecycle, traits, default_traits
+# Preferred — supports lifecycle and default_traits
 work_item_schemas:
   <schema-key>:
     lifecycle: <AUTO|MANUAL|PERMANENT>   # optional
     notes:
       - <note-entry>
-    traits:                    # optional list of trait keys to apply
-      - <trait-key>
     default_traits:            # optional — traits added to every item matching this schema
       - <trait-key>
 
@@ -847,15 +845,18 @@ note_schemas:
   <schema-key>:
     - <note-entry>
 
-# Composable traits (reusable note bundles)
+# Composable traits — referenced by default_traits or by an item's own traits
 traits:
   <trait-key>:
-    - key: <note-key>
-      role: <queue|work|review>
-      required: <true|false>
-      description: "<description>"
-      guidance: "<guidance>"
+    notes:                     # the trait's notes go under a notes: key, not directly under the trait
+      - key: <note-key>
+        role: <queue|work|review>
+        required: <true|false>
+        description: "<description>"
+        guidance: "<guidance>"
 ```
+
+There is no schema-level `traits:` key — a schema names its traits with `default_traits:`, and the parser warns on and ignores any other key. Traits can also carry `resources:`, `dispatch:`, and `seats:`; see [config-format.md](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md) for the full format.
 
 Additional top-level keys (workflows, status, cascade) are supported but not covered in this guide.
 
@@ -865,15 +866,15 @@ Additional top-level keys (workflows, status, cascade) are supported but not cov
 |---------------|---------|----------|---------------------------|--------------------------------------------------------------------|
 | `key`         | string  | yes      | Any non-empty string      | Note identifier. Must be unique within the schema.                 |
 | `role`        | string  | yes      | `queue`, `work`, `review` | Phase gate this note belongs to.                                   |
-| `required`    | boolean | yes      | `true`, `false`           | If true, must be filled before `start` advances past this phase.   |
-| `description` | string  | yes      | Any string                | Short description. Shown in `get_context` gate status output.      |
+| `required`    | boolean | no       | `true`, `false`           | If true, must be filled before `start` advances past this phase. Defaults to `false` if omitted — set it explicitly. |
+| `description` | string  | no       | Any string                | Short description (defaults to `""`; recommended). Fetch via `query_items(operation="schema")`. |
 | `guidance`    | string  | no       | Any string                | Longer authoring hint. Shown as `guidancePointer` in gate status.  |
 | `skill`       | string  | no       | Skill name                | Skill to invoke before filling. Shown as `skillPointer`.           |
 
 ### Matching Rules
 
 1. **Type-first lookup** — the item's `type` field is looked up directly in `work_item_schemas`. If found, that schema is used.
-2. **Tag fallback** — if no type match, the item's tags are checked against schema keys. First matching tag wins. Tags are matched as exact substrings within the comma-separated tags string.
+2. **Tag fallback** — if no type match, the item's tags are checked against schema keys. First matching tag wins. Each tag in the comma-separated tags string is compared whole against the schema keys — the match is exact and case-sensitive, never a substring match.
 3. **Default schema** — if neither type nor tags match, the `default` schema is used (if defined). Items with no match at all advance freely.
 
 ### Minimal Config Example

@@ -9,7 +9,9 @@ YAML format and field rules for `.taskorchestrator/config.yaml`.
 - Path: `.taskorchestrator/config.yaml` in the project root (alongside `.claude/`, `.git/`, etc.)
 - Create the directory if it doesn't exist: `.taskorchestrator/`
 - Commit this file (`/task-orchestrator:init` advises it); keep `.taskorchestrator/client.json`, which holds a machine-specific URL, out of git
-- The server reads and caches this file on first schema access — changes require MCP reconnect (`/mcp`)
+- How an edit takes effect depends on how the file reaches the server (see "Global vs Per-Project Config" below):
+  - **Per-root (config-sync)** — the `config-sync` hook pushes the file to the server for this project's root at SessionStart and again whenever the file changes; a pushed config is hot-reloaded, with no restart or reconnect
+  - **Global (mounted via `AGENT_CONFIG_DIR`)** — the server reads the file once at startup and caches it for the life of the process, so a change needs a server restart. Under STDIO transport an MCP reconnect (`/mcp`) starts a fresh server process and so reloads it; under HTTP transport the container itself must be restarted
 
 ### Config discovery (plugin hooks and skills)
 

@@ -175,6 +175,11 @@ Skills are invoked as slash commands in any Claude Code session:
 | `/task-orchestrator:dependency-manager` | Visualize, create, and diagnose dependency graphs between work items |
 | `/task-orchestrator:batch-complete` | Complete or cancel multiple items at once — close out features or workstreams |
 | `/task-orchestrator:run-wave` | Plan and run a multi-item wave over a run plan (Method A via the `implement-wave` Workflow, or Method B direct-Agent fallback) |
+| `/task-orchestrator:ralph` | Emit the `ralph-loop.mjs` invocation for a headless queue drain — one `claude -p --worktree` per iteration |
+| `/task-orchestrator:session-retrospective` | Analyze an implementation run, record cross-session trends, and graduate recurring patterns into improvement proposals |
+| `/task-orchestrator:review-proposals` | Triage pending improvement proposals — accept, reject, or defer each and carry out the disposition |
+| `/task-orchestrator:adopt-project-scope` | Migrate an already-populated, unscoped database in place to the project-scoping convention |
+| `/task-orchestrator:configure-server` | Configure how the server runs and is reached — transport, REST API, port publishing, config mounts, config-sync |
 
 ---
 
@@ -369,4 +374,4 @@ See [Note Schemas](note-schemas.md) for schema setup.
 
 **Signal:** You want Claude to operate as a full workflow orchestrator — planning, delegating, tracking, and reporting — rather than implementing directly.
 
-**Next:** [Output Styles](output-styles.md) — activate Workflow Analyst mode for delegation-based operation.
+**Next:** [Output Styles](output-styles.md) — activate Workflow Orchestrator mode for tier-aware, delegation-based operation.
