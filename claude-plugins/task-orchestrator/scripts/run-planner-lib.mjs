@@ -196,11 +196,11 @@ export function chooseEntry(probe, requested = 'auto') {
  */
 export const ORCHESTRATOR_PROVENANCE_NOTE = 'delegation-metadata';
 
-/** Keys of `keys` whose schema entry is not required (`required !== true`), in `keys` order. */
+/** Keys of `keys` whose schema entry is explicitly optional (`required === false`), in `keys` order. A note with no `required` field stays audited as before. */
 function optionalOf(keys, notes) {
   return keys.filter((k) => {
     const n = notes.find((x) => x.key === k);
-    return n && n.required !== true;
+    return !!n && n.required === false;
   });
 }
 

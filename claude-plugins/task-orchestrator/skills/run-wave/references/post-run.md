@@ -68,8 +68,8 @@ discrepancy to wave through.
 
 An **optional** note (a stage's `optionalNotes`; the expected-actors table marks it `optional:
 true`) that was never written is **not** `missing` and does not fail the item — but if it was
-written under another actor it is still `mismatched`. `delegation-metadata` is never a seat's
-note: in a seat-less plan the planner lists it under the item's `orchestratorNotes`, no seat
+written under another actor it is still `mismatched`. In a seat-less plan `delegation-metadata` is not a seat's
+note: the planner lists it under the item's `orchestratorNotes`, no seat
 prompt may write it, and the orchestrator records it in Step 3.
 
 ---

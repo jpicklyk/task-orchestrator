@@ -1736,3 +1736,33 @@ test("1f00ae1e: schema-free item is unchanged (no optionalNotes, no orchestrator
     assert.equal(result.stages.some((st) => "optionalNotes" in st), false);
     assert.deepEqual(result.orchestratorNotes || [], []);
 });
+
+test("1f00ae1e: seat-less planner stage lists an optional queue note in optionalNotes", () => {
+    const schemaEntry = {
+        status: "ok", type: "plugin-change", configFingerprint: "fp1", configSource: "per-root",
+        notes: [
+            { key: "specification", role: "queue", required: true },
+            { key: "queue-extra", role: "queue", required: false },
+            { key: "session-tracking", role: "work", required: true },
+        ],
+    };
+    const result = deriveStages(optionalNotesCandidate(), schemaEntry, optionalNotesCtx());
+    const planner = result.stages.find((s) => s.seat === "planner");
+    assert.deepEqual(planner.notes, ["specification", "queue-extra"]);
+    assert.deepEqual(planner.optionalNotes, ["queue-extra"]);
+});
+
+test("1f00ae1e: a note with no required field is NOT optional (stays audited)", () => {
+    const schemaEntry = {
+        status: "ok", type: "plugin-change", configFingerprint: "fp1", configSource: "per-root",
+        notes: [
+            { key: "specification", role: "queue", required: true },
+            { key: "session-tracking", role: "work", required: true },
+            { key: "no-flag", role: "work" },
+        ],
+    };
+    const result = deriveStages(optionalNotesCandidate(), schemaEntry, optionalNotesCtx());
+    const impl = result.stages.find((s) => s.seat === "implementer");
+    assert.deepEqual(impl.notes, ["session-tracking", "no-flag"]);
+    assert.equal("optionalNotes" in impl, false);
+});
