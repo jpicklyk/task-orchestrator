@@ -2,6 +2,12 @@ project:
   rootId: "ce064d2c-7c03-4eac-ae7d-89a14c2ba273"
   name: "TaskOrchestrator"
 
+# Hook-local (read by the plugin's orchestration-context, dispatch-model-guard and dispatch-hint
+# hooks, ignored by the server): workflow (default) | schema | off. Explicit here as the dogfood
+# example; omitting the block is equivalent to `workflow`.
+orchestration:
+  mode: workflow
+
 retrospective:
   mode: dispatch
   dispatchThreshold: 3
