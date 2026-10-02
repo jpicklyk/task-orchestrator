@@ -196,7 +196,7 @@ traits:
         required: true
         description: "Assessment of plugin skill and hook changes needed."
         skill: "plugin-impact-review"
-        guidance: "Check: (1) which skills reference the changed behavior (grep skill files for affected tool names, config keys, or concepts), (2) which hooks inject context that references the changed behavior, (3) whether config-format.md needs updating, (4) whether output style references need updating. List specific files and sections that need changes. Plugin content is cached — note if /mcp reconnect is needed."
+        guidance: "Check: (1) which skills reference the changed behavior (grep skill files for affected tool names, config keys, or concepts), (2) which hooks inject context that references the changed behavior, (3) whether config-format.md needs updating, (4) whether the orchestration-context hook or the orchestrate skill need updating. List specific files and sections that need changes. Plugin content is cached — note if /mcp reconnect is needed."
 
   needs-security-review:
     notes:

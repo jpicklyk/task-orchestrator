@@ -24,7 +24,7 @@ const MODEL_LINE = `Always pass \`model\` explicitly on every Agent dispatch - t
 
 const RETROSPECTIVE = `## Retrospective
 
-When the retrospective hook fires (PostToolUse context after \`advance_item\`/\`complete_tree\`, or a Stop-hook directive), follow it: nudge means surface the suggestion; dispatch means launch exactly the background agent it specifies, holding the directive until the run boundary. Never dispatch a retrospective from memory or prose - the hook is the single trigger.`;
+When the retrospective hook fires (PostToolUse context after \`advance_item\`/\`complete_tree\`, or a Stop-hook directive), follow it: nudge means surface the suggestion; dispatch means launch exactly the background agent it specifies, holding the directive until the run boundary (one per run; merge directives that accumulate while holding). A held directive lives only in conversation context - if the session ends or compacts before it is acted on, recover with \`/session-retrospective\`. Never dispatch a retrospective from memory or prose - the hook is the single trigger.`;
 
 const ACTION_ITEMS = `## Action Items
 
@@ -36,7 +36,7 @@ const VISUAL = `## Visual Conventions
 
 Status symbols: \`✓\` terminal · \`◉\` work/review · \`⊘\` blocked · \`○\` queue · \`—\` cancelled
 
-No emoji unless the user asks; use unicode anchors (\`✓ ◉ ⊘ ○ ▸ ↳ ◆\`) instead. Lead status reports with a dashboard (\`##\` headers + tables); use \`>\` blockquotes for decisions/blockers only when user action is needed. Reference UUIDs, tool names, and status values in \`inline code\`.
+No emoji unless the user asks; use unicode anchors (\`✓ ◉ ⊘ ○ ▸ ↳ ◆\`) instead. Lead status reports with a dashboard (\`##\` headers + tables); use \`>\` blockquotes for decisions/blockers only when user action is needed; narrate background operations with a \`↳\` prefix, one line each. Reference UUIDs, tool names, and status values in \`inline code\`.
 
 Completion format: \`✓ \\\`d5c9c5ed\\\` Design API schema -> completed\``;
 

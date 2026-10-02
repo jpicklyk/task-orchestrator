@@ -423,6 +423,8 @@ class SeatConfigLoadFailClosedTest {
           enabled: true
         actor_attribution:
           mode: x
+        orchestration:
+          mode: workflow
         """.trimIndent()
 
     @Test
@@ -455,7 +457,9 @@ class SeatConfigLoadFailClosedTest {
         assertTrue(joined.contains("colour"), "W6 unknown dispatch seat override field 'colour' must be named: $schemaWarnings")
 
         assertTrue(
-            schemaWarnings.none { it.contains("project") || it.contains("retrospective") || it.contains("actor_attribution") },
+            schemaWarnings.none {
+                it.contains("project") || it.contains("retrospective") || it.contains("actor_attribution") || it.contains("orchestration")
+            },
             "hook-local sections must produce NO warning: $schemaWarnings",
         )
     }

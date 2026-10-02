@@ -45,7 +45,7 @@ orchestration:
 | `schema` | No tiers and no model table. The item's resolved note schema alone sets the process; phase-owner dispatch rules still apply. |
 | `off` | The orchestration hooks exit silently, including `dispatch-model-guard` and `dispatch-hint`. |
 
-The key is read client-side by the hooks and takes effect at the next session start, `/clear`, or `/compact`. See [config-format.md → Orchestration](../../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#orchestration) for the full field reference.
+The key is read client-side by the hooks. The context hook re-reads it at the next session start, `/clear`, or `/compact`; `dispatch-model-guard` and `dispatch-hint` re-read it on every call, so `off` silences them immediately. See [config-format.md → Orchestration](../../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#orchestration) for the full field reference.
 
 ### Layering a personal output style
 
@@ -101,7 +101,7 @@ The orchestrator always sets the `model` parameter explicitly on every agent dis
 | Code reading, implementation, test writing | `sonnet` | Strong coding, good cost/quality balance |
 | Architecture, complex tradeoffs, multi-file synthesis | `opus` | Deep reasoning for cross-file synthesis |
 
-Omitting `model` causes the agent to inherit the orchestrator's model — typically opus — wasting tokens on sonnet-eligible work.
+Omitting `model` would make the agent inherit the orchestrator's model — typically opus — wasting tokens on sonnet-eligible work. The `dispatch-model-guard` hook denies such a dispatch with a reason naming this table, so the call is retried with `model` set.
 
 **Rule: Never make 3+ MCP write calls in a single orchestrator turn.** Delegate bulk MCP write work (multiple item/dependency/note creates) to a haiku agent to keep the orchestrator context clean. Parallelized reads (e.g., `get_context` + `query_items overview`) are fine and encouraged.
 

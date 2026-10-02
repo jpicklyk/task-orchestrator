@@ -75,7 +75,7 @@ For a **seat-aware** item (its schema declares `seats:`), read every seat's prof
 
 ### Batching and prompts
 
-**Project convention: avoid 3+ MCP write calls in a single turn.** Parallelized reads (e.g., `get_context` + `query_items` overview) are fine and encouraged. Delegate bulk MCP write work to the Agent tool with `model: "haiku"` to keep the orchestrator context clean.
+**Project convention (workflow mode only; in `schema` mode batch by ordinary judgment): avoid 3+ MCP write calls in a single turn.** Parallelized reads (e.g., `get_context` + `query_items` overview) are fine and encouraged. Delegate bulk MCP write work to the Agent tool with `model: "haiku"` to keep the orchestrator context clean.
 
 Delegation prompts must include entity IDs and full context — subagents start fresh.
 

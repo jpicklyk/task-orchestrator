@@ -64,12 +64,12 @@ work_item_schemas:
         role: queue
         required: true
         description: "Qualitative workflow assessment across all evaluation dimensions."
-        guidance: "Evaluate: (1) schema usefulness — per schema note, was content quality good? Was guidance followed? (2) delegation alignment — model assignments vs output style table (use delegation-metadata notes if present), (3) note effectiveness — did downstream agents benefit from upstream notes? (4) plan-to-execution alignment — ad-hoc items, skipped items, scope changes, (5) friction synthesis — themes from session-tracking friction entries and agent-observation items. Score each dimension."
+        guidance: "Evaluate: (1) schema usefulness — per schema note, was content quality good? Was guidance followed? (2) delegation alignment — model assignments vs the delegation table in the orchestrate skill (use delegation-metadata notes if present), (3) note effectiveness — did downstream agents benefit from upstream notes? (4) plan-to-execution alignment — ad-hoc items, skipped items, scope changes, (5) friction synthesis — themes from session-tracking friction entries and agent-observation items. Score each dimension."
       - key: improvement-signals
         role: queue
         required: true
         description: "Trends, proposals, and extension promotions."
-        guidance: "List patterns seen in 2+ sessions. Reference prior retrospective item IDs. For each trend at threshold: propose a concrete change (schema modification with exact YAML, new hook with event/matcher, skill update with section reference, output style adjustment with zone). Classify each proposal's scope: **global** (server floor config, plugin skills/hooks, process containers) vs **project-specific** (one project's workflow or per-root config) — name the target rootId for project-specific proposals."
+        guidance: "List patterns seen in 2+ sessions. Reference prior retrospective item IDs. For each trend at threshold: propose a concrete change (schema modification with exact YAML, new hook with event/matcher, skill update with section reference, orchestration-context hook or orchestrate-skill adjustment with section reference). Classify each proposal's scope: **global** (server floor config, plugin skills/hooks, process containers) vs **project-specific** (one project's workflow or per-root config) — name the target rootId for project-specific proposals."
       - key: actions-taken
         role: work
         required: true
