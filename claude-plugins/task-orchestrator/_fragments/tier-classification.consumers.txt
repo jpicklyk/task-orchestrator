@@ -6,3 +6,4 @@
 # Paths are repo-root-relative, one per line. Blank lines and lines starting with '#' are ignored.
 # To add a new consumer: add the marker block to the file, then add its path here — nowhere else.
 .claude/skills/implement/SKILL.md
+claude-plugins/task-orchestrator/skills/orchestrate/SKILL.md

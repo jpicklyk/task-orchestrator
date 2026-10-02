@@ -1,6 +1,6 @@
 ---
 name: schema-workflow
-description: "Internal, hook-triggered: drives a schema-typed MCP item through its gate-enforced phases, filling required notes."
+description: "Internal, invoked from the orchestration context: drives a schema-typed MCP item through its gate-enforced phases, filling required notes."
 user-invocable: false
 ---
 
