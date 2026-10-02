@@ -191,6 +191,20 @@ export function chooseEntry(probe, requested = 'auto') {
 }
 
 /**
+ * The provenance note the orchestrator itself records after a run. In a seat-less schema the
+ * implicit implementer must never own it (it is orchestrator-owned, never a seat's note).
+ */
+export const ORCHESTRATOR_PROVENANCE_NOTE = 'delegation-metadata';
+
+/** Keys of `keys` whose schema entry is not required (`required !== true`), in `keys` order. */
+function optionalOf(keys, notes) {
+  return keys.filter((k) => {
+    const n = notes.find((x) => x.key === k);
+    return n && n.required !== true;
+  });
+}
+
+/**
  * ownership(schema, phases) -> {unowned:string[], orchestratorNotes:string[]}
  * In schema note order (notes scoped to `phases`); `unowned` lists only REQUIRED notes whose
  * seat is null, names an undeclared seat, or names a seat declared for a different phase.
@@ -352,7 +366,11 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
     // Seat-less deviation (S5): without any declared seat, the server says nothing about
     // ownership, so the implicit phase owner (planner/implementer) takes EVERY note in its
     // phase regardless of the note's own `seat` annotation. No note is orchestrator-owned here.
-    orchestratorNotes = [];
+    // The one exception is the orchestrator's own provenance note (ORCHESTRATOR_PROVENANCE_NOTE):
+    // it is never a seat's note, so it is pulled out of the stage notes and recorded here.
+    orchestratorNotes = notes
+      .filter((n) => phases.includes(n.role) && n.key === ORCHESTRATOR_PROVENANCE_NOTE)
+      .map((n) => n.key);
   }
 
   const defaults = profile.defaultModels || { queue: 'opus', work: 'sonnet', extractor: { model: 'sonnet', effort: 'low' } };
@@ -424,6 +442,8 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
         dispatch,
         output
       };
+      const seatOptional = optionalOf(seatNotes, notes);
+      if (seatOptional.length) stage.optionalNotes = seatOptional;
       if (enters) stage.enters = true;
       if (s.readsExclude) stage.readsExclude = s.readsExclude;
       if (s.extraLockKeys) stage.extraLockKeys = s.extraLockKeys;
@@ -431,9 +451,11 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
     }
   } else {
     if (phases.includes('queue') && !isResumed) {
-      const queueNotes = notes.filter((n) => n.role === 'queue').map((n) => n.key);
+      const queueNotes = notes
+        .filter((n) => n.role === 'queue' && n.key !== ORCHESTRATOR_PROVENANCE_NOTE)
+        .map((n) => n.key);
       const rulesSkills = deriveRulesSkills(queueNotes, notes, servedKeys);
-      stages.push({
+      const plannerStage = {
         seat: 'planner',
         phase: 'queue',
         notes: queueNotes,
@@ -442,11 +464,16 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
         writes: false,
         dispatch: resolveDispatch(schema, 'planner', 'queue', { enters: false, implicitOwner: true }, defaults),
         output: 'planner-v1'
-      });
+      };
+      const plannerOptional = optionalOf(queueNotes, notes);
+      if (plannerOptional.length) plannerStage.optionalNotes = plannerOptional;
+      stages.push(plannerStage);
     }
-    const workNotes = notes.filter((n) => n.role === 'work').map((n) => n.key);
+    const workNotes = notes
+      .filter((n) => n.role === 'work' && n.key !== ORCHESTRATOR_PROVENANCE_NOTE)
+      .map((n) => n.key);
     const rulesSkillsW = deriveRulesSkills(workNotes, notes, servedKeys);
-    stages.push({
+    const implementerStage = {
       seat: 'implementer',
       phase: 'work',
       enters: true,
@@ -457,7 +484,10 @@ export function deriveStages(candidate, schemaEntry, ctx = {}) {
       writes: true,
       dispatch: resolveDispatch(schema, 'implementer', 'work', { enters: true, implicitOwner: true }, defaults),
       output: 'implementer-v1'
-    });
+    };
+    const implementerOptional = optionalOf(workNotes, notes);
+    if (implementerOptional.length) implementerStage.optionalNotes = implementerOptional;
+    stages.push(implementerStage);
   }
 
   // A resumed item whose seats are all already done derives zero stages. It must be EXCLUDED

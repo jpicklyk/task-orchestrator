@@ -875,8 +875,11 @@ export function expectedActors(doc) {
   const out = []
   for (const item of doc.args.items) {
     for (const stage of item.stages) {
+      const optional = new Set(stage.optionalNotes || [])
       for (const key of stage.notes || []) {
-        out.push({ itemId: item.id, key, actorId: `${stage.seat}:${item.short}:${doc.args.runId}` })
+        const row = { itemId: item.id, key, actorId: `${stage.seat}:${item.short}:${doc.args.runId}` }
+        if (optional.has(key)) row.optional = true
+        out.push(row)
       }
     }
   }
@@ -907,8 +910,9 @@ export function auditActors(doc, observed, itemIds, opts) {
         const mismatched = []
         for (const e of expectedForItem) {
           const found = observedForItem.find((o) => o.key === e.key)
-          if (!found) missing.push(e.key)
-          else if (found.actorId !== e.actorId) mismatched.push({ key: e.key, expected: e.actorId, actual: found.actorId })
+          if (!found) {
+            if (!e.optional) missing.push(e.key)
+          } else if (found.actorId !== e.actorId) mismatched.push({ key: e.key, expected: e.actorId, actual: found.actorId })
         }
         return { itemId: item.id, short: item.short, ok: missing.length === 0 && mismatched.length === 0, missing, mismatched }
       })
@@ -924,8 +928,11 @@ export function auditActors(doc, observed, itemIds, opts) {
       const expectedForItem = []
       for (const stage of item.stages) {
         if (!doneSeats.has(stage.seat)) continue
+        const optional = new Set(stage.optionalNotes || [])
         for (const key of stage.notes || []) {
-          expectedForItem.push({ key, actorId: `${stage.seat}:${item.short}:${doc.args.runId}` })
+          const row = { key, actorId: `${stage.seat}:${item.short}:${doc.args.runId}` }
+          if (optional.has(key)) row.optional = true
+          expectedForItem.push(row)
         }
       }
       if (!resItem || expectedForItem.length === 0) {
@@ -936,8 +943,9 @@ export function auditActors(doc, observed, itemIds, opts) {
       const mismatched = []
       for (const e of expectedForItem) {
         const found = observedForItem.find((o) => o.key === e.key)
-        if (!found) missing.push(e.key)
-        else if (found.actorId !== e.actorId) mismatched.push({ key: e.key, expected: e.actorId, actual: found.actorId })
+        if (!found) {
+          if (!e.optional) missing.push(e.key)
+        } else if (found.actorId !== e.actorId) mismatched.push({ key: e.key, expected: e.actorId, actual: found.actorId })
       }
       return { itemId: item.id, short: item.short, ok: missing.length === 0 && mismatched.length === 0, missing, mismatched }
     })

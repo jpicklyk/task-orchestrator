@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Plugin
+
+- **`run-wave` actors audit no longer fails on optional notes.** The planner now marks each stage's
+  optional notes (`optionalNotes`), and `actors` treats an absent optional note as neither missing nor
+  a failure (one written under the wrong actor is still a `mismatched` lane violation). In seat-less
+  schemas `delegation-metadata` is no longer assigned to the implicit implementer: it moves to the
+  item's `orchestratorNotes`, the seat prompt says never to write it, and the orchestrator records it.
+  Plans without `optionalNotes` audit exactly as before.
+
 ## [3.16.0] - 2026-10-02
 
 ### Plugin

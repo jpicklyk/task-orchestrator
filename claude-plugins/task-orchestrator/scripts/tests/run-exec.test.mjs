@@ -1631,3 +1631,91 @@ test('#393: live-shape conformance - recorded Method B hand-backs from run r-202
   const impl = stageResult(core, doc, state, '22222222', 'implementer', read('implementer-envelope.json'))
   assert.equal(impl.status, 'done')
 })
+
+// ---- 1f00ae1e: optional notes do not fail the actors audit; prompt names orchestrator notes ----
+
+function optionalAuditFixture({ withOptional = true } = {}) {
+  const implStage = {
+    seat: 'implementer', phase: 'work', enters: true, writes: true,
+    notes: ['session-tracking', 'extra-observations'],
+    dispatch: {}, output: 'implementer-v1',
+  }
+  if (withOptional) implStage.optionalNotes = ['extra-observations']
+  const item = itemFixture({ short: 'bbbbbbbb', stages: [implStage] })
+  const args = planFixture({ items: [item], runId: 'r-test-opt1' })
+  const doc = { contract: 'run-wave/plan-doc-v1', args, meta: {} }
+  const result = {
+    contract: 'implement-wave/result-v1', started: true, runId: 'r-test-opt1', planDocSlug: 'run/x',
+    items: [{ id: item.id, short: 'bbbbbbbb', status: 'done', stages: [{ seat: 'implementer', status: 'done' }], outputs: {} }],
+    refused: [], deferred: [],
+  }
+  return { doc, item, result }
+}
+const OPT_ACTOR = 'implementer:bbbbbbbb:r-test-opt1'
+
+test('1f00ae1e: expectedActors marks optional rows; non-optional rows keep their exact shape', () => {
+  const { doc, item } = optionalAuditFixture()
+  assert.deepEqual(expectedActors(doc), [
+    { itemId: item.id, key: 'session-tracking', actorId: OPT_ACTOR },
+    { itemId: item.id, key: 'extra-observations', actorId: OPT_ACTOR, optional: true },
+  ])
+})
+
+test('1f00ae1e: auditActors - an absent optional note is not missing (no-result and result branches)', () => {
+  const { doc, item, result } = optionalAuditFixture()
+  const observed = [{ itemId: item.id, key: 'session-tracking', actorId: OPT_ACTOR }]
+  for (const audit of [auditActors(doc, observed), auditActors(doc, observed, undefined, { result })]) {
+    assert.equal(audit.ok, true)
+    assert.deepEqual(audit.items[0].missing, [])
+    assert.deepEqual(audit.items[0].mismatched, [])
+  }
+})
+
+test('1f00ae1e: auditActors - an optional note present under the wrong actor is still mismatched', () => {
+  const { doc, item, result } = optionalAuditFixture()
+  const observed = [
+    { itemId: item.id, key: 'session-tracking', actorId: OPT_ACTOR },
+    { itemId: item.id, key: 'extra-observations', actorId: 'orchestrator:xx' },
+  ]
+  for (const audit of [auditActors(doc, observed), auditActors(doc, observed, undefined, { result })]) {
+    assert.equal(audit.ok, false)
+    assert.deepEqual(audit.items[0].mismatched, [{ key: 'extra-observations', expected: OPT_ACTOR, actual: 'orchestrator:xx' }])
+  }
+})
+
+test('1f00ae1e: auditActors - an absent required note is still missing', () => {
+  const { doc, item, result } = optionalAuditFixture()
+  const observed = [{ itemId: item.id, key: 'extra-observations', actorId: OPT_ACTOR }]
+  for (const audit of [auditActors(doc, observed), auditActors(doc, observed, undefined, { result })]) {
+    assert.equal(audit.ok, false)
+    assert.deepEqual(audit.items[0].missing, ['session-tracking'])
+  }
+})
+
+test('1f00ae1e: auditActors - a legacy plan without optionalNotes still reports every absent note as missing', () => {
+  const { doc, item } = optionalAuditFixture({ withOptional: false })
+  const audit = auditActors(doc, [{ itemId: item.id, key: 'session-tracking', actorId: OPT_ACTOR }])
+  assert.equal(audit.ok, false)
+  assert.deepEqual(audit.items[0].missing, ['extra-observations'])
+})
+
+test('1f00ae1e: implementer prompt names orchestrator-owned notes as never-write and does not list them as owned', () => {
+  const harnessCore = harnessLoadCore(IMPLEMENT_WAVE)
+  const implStage = {
+    seat: 'implementer', phase: 'work', enters: true, writes: true,
+    notes: ['session-tracking', 'extra-observations'], optionalNotes: ['extra-observations'],
+    dispatch: { agent: 'task-orchestrator:implementer' }, output: 'implementer-v1',
+  }
+  const item = itemFixture({ short: 'cccccccc', stages: [implStage], orchestratorNotes: ['delegation-metadata'] })
+  const plan = planFixture({ items: [item] })
+  const prompt = harnessCore.seatPrompt(plan, item, implStage, {})
+  assert.ok(prompt.includes('you own [session-tracking, extra-observations]'))
+  assert.ok(prompt.includes('Orchestrator-owned notes [delegation-metadata]: never write them'))
+  assert.ok(prompt.includes('Optional among yours: [extra-observations]'))
+  assert.equal(prompt.includes('you own [session-tracking, delegation-metadata'), false)
+
+  const plainItem = itemFixture({ short: 'dddddddd', stages: [implStage] })
+  const plainPrompt = harnessCore.seatPrompt(planFixture({ items: [plainItem] }), plainItem, { ...implStage, optionalNotes: undefined }, {})
+  assert.equal(plainPrompt.includes('Orchestrator-owned notes'), false)
+  assert.equal(plainPrompt.includes('Optional among yours'), false)
+})

@@ -66,6 +66,12 @@ a Step 1 verify failure — do not advance it. The rule this enforces: only the 
 note may (re-)write it; a mismatch is evidence something wrote outside its lane, not a cosmetic
 discrepancy to wave through.
 
+An **optional** note (a stage's `optionalNotes`; the expected-actors table marks it `optional:
+true`) that was never written is **not** `missing` and does not fail the item — but if it was
+written under another actor it is still `mismatched`. `delegation-metadata` is never a seat's
+note: in a seat-less plan the planner lists it under the item's `orchestratorNotes`, no seat
+prompt may write it, and the orchestrator records it in Step 3.
+
 ---
 
 ## Step 3 — Orchestrator notes
