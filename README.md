@@ -11,6 +11,8 @@ Prompt-based frameworks hope the LLM follows instructions. This one blocks the c
 
 Task Orchestrator is an [MCP server](https://modelcontextprotocol.io) that gives AI coding agents a persistent work item graph with quality gates enforced by the server, not the prompt. It is built for developers running multi-agent or multi-session coding workflows: an orchestrator dispatching sub-agents, a fresh session picking up yesterday's work, or an autonomous loop draining a backlog. It ships as a Docker image, works with any MCP client, and has an optional [Claude Code plugin](#claude-code-plugin) that adds skills and hooks on top.
 
+> **New here? Start with the [illustrated field guide](https://jpicklyk.github.io/task-orchestrator/field-guide/).** It explains the ideas on this page in short visual pages, several of them interactive: fire triggers at a phase gate, click a work breakdown through its dependencies, and watch a schema resolve.
+
 ---
 
 ## The Problem
@@ -152,6 +154,8 @@ Prefer to run without Docker? [CONTRIBUTING.md](CONTRIBUTING.md) covers building
 
 Every work item has a **role**: `queue` (not started), `work` (in progress), `review` (optional, opt-in per schema), `blocked` (an upstream dependency is unmet), and `terminal` (done or cancelled). Each role maps to one or more configurable statuses. Agents move items with `advance_item(trigger=...)` rather than editing status directly, and that call is where every gate is checked. Schemas attach note requirements to roles: a note declared with `role: queue` must exist before the item can leave the queue phase.
 
+Illustrated: [Phase Gates](https://jpicklyk.github.io/task-orchestrator/field-guide/phase-gates.html) draws the roles and triggers as a track and includes a gate simulator.
+
 ### Workflow Enforcement
 
 Schemas define what agents must produce at each phase, and the server blocks progression until it's done. They also set a **planning floor**: when an agent enters plan mode, the schema tells it what documentation must exist before implementation can start, shaping the plan itself.
@@ -201,6 +205,8 @@ work_item_schemas:
 
 Every `feature-task` item automatically inherits the `security-assessment` requirement. Traits can also be applied per item via the `traits` parameter on `manage_items`, so a task touching authentication gets `needs-security-review` while a CSS cleanup doesn't.
 
+Illustrated: [Schemas and Traits](https://jpicklyk.github.io/task-orchestrator/field-guide/schemas-and-traits.html) shows how a type, its default traits and per-item traits resolve into one gate. [Seats](https://jpicklyk.github.io/task-orchestrator/field-guide/seats.html) covers splitting a phase between several agents.
+
 ### Persistent Work Item Graph
 
 Everything is a **WorkItem** in a hierarchical graph. Items nest to any depth and are connected by typed dependency edges. Create an entire work breakdown atomically:
@@ -221,6 +227,8 @@ create_work_tree(
 ```
 
 When `schema` reaches terminal, `api` is automatically unblocked. When all children complete, the parent cascades to terminal. Dependency ordering is enforced by the server, structurally, not by convention.
+
+Illustrated: [Work Graph](https://jpicklyk.github.io/task-orchestrator/field-guide/work-graph.html) has a clickable version of this tree that shows blocking, unblocking and parent cascades.
 
 ### Actor Attribution
 
@@ -257,6 +265,8 @@ get_context(since="2025-01-15T09:00:00Z", includeAncestors=true)
 
 Returns active items, recent transitions with actor attribution, blocked items, stalled items with their missing notes, and full ancestor chains. A new session has complete state in a single response.
 
+Illustrated: [Finding Work](https://jpicklyk.github.io/task-orchestrator/field-guide/finding-work.html) maps each question a session has to the read call that answers it, and shows how the next item is ranked.
+
 ### Notes as Structured Context
 
 Notes are phase-specific documentation attached to work items. An implementation agent reads a concise requirements note scoped to its task instead of scanning broader project context.
@@ -283,6 +293,8 @@ Search can be scoped to a subtree and filtered by role, tag, or priority, or run
 ### REST API
 
 An optional HTTP layer (`API_ENABLED=true`) exposes items, notes, dependencies, transitions, config, and real-time SSE events to dashboards, CI systems, and operators. It supports static bearer tokens, JWKS JWT auth, and the unauthenticated loopback mode shown in the Quick Start. It also powers `config-sync`, so one server can serve many projects with per-project schemas. See the [REST API Reference](current/docs/api-rest.md).
+
+Illustrated: [Runtime Map](https://jpicklyk.github.io/task-orchestrator/field-guide/runtime-map.html) covers the server's layers, both deployment shapes, the REST API, claims and actor identity.
 
 ### Design Philosophy
 
@@ -311,6 +323,8 @@ The plugin adds workflow automation on top of the MCP server: skills, hooks, and
 
 The MCP server works without the plugin. The plugin makes it seamless with Claude Code.
 
+Illustrated: [Orchestrating a Run](https://jpicklyk.github.io/task-orchestrator/field-guide/orchestrating-a-run.html) follows one feature from request to finished items. [Improvement Loop](https://jpicklyk.github.io/task-orchestrator/field-guide/improvement-loop.html) shows how friction noticed during work becomes a reviewed config change.
+
 ---
 
 ## MCP Tools
@@ -331,6 +345,7 @@ Item IDs accept short hex prefixes: `itemId="a3f2"` works in place of a full UUI
 
 | Resource | What's there |
 |----------|-------------|
+| **[Field Guide](https://jpicklyk.github.io/task-orchestrator/field-guide/)** | Illustrated, partly interactive walkthrough of the core ideas. The best first read. |
 | **[Quick Start Guide](https://github.com/jpicklyk/task-orchestrator/wiki/quick-start)** | Full setup walkthrough with first work item |
 | **[API Reference](https://github.com/jpicklyk/task-orchestrator/wiki/api-reference)** | Every MCP tool: parameters, response shapes, actor attribution |
 | **[REST API Reference](current/docs/api-rest.md)** | HTTP REST endpoints, DTOs, SSE, auth, merge-patch, ETag |
