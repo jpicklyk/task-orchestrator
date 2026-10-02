@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>:root{color-scheme:light}[hidden]{display:none!important}img{max-width:100%}</style>
+<title>Task Orchestrator Phase Gates</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>/* layout: a numbered plate. Heavy top rule, one thesis, figures drawn as signal-track schematics, notes in columns, series index at the foot. */
+:root{
+  --bg:#F1F3F6; --surface:#FFFFFF; --sunk:#E5E9EE; --ink:#152232; --muted:#556375; --line:#C8D0DA;
+  --queue:#5F6F85; --work:#1565D8; --review:#7A47CF; --terminal:#0C8259; --blocked:#C93434; --gate:#A86200;
+  --queue-bg:#E3E8EE; --work-bg:#DCE9FB; --review-bg:#ECE3FA; --terminal-bg:#D8F0E5; --blocked-bg:#FADEDE; --gate-bg:#FAE9CB;
+  --display:"Barlow Condensed","Arial Narrow",sans-serif;
+  --body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Consolas,"Courier New",monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0E151E; --surface:#16202C; --sunk:#0A1017; --ink:#E4EAF2; --muted:#96A4B6; --line:#2B3A4C;
+    --queue:#96A6BA; --work:#62A6FF; --review:#B692FF; --terminal:#45CF95; --blocked:#FF7272; --gate:#F2AE42;
+    --queue-bg:#1E2A38; --work-bg:#13294A; --review-bg:#2A1F47; --terminal-bg:#0F3326; --blocked-bg:#421B1B; --gate-bg:#3D2C0C;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0E151E; --surface:#16202C; --sunk:#0A1017; --ink:#E4EAF2; --muted:#96A4B6; --line:#2B3A4C;
+  --queue:#96A6BA; --work:#62A6FF; --review:#B692FF; --terminal:#45CF95; --blocked:#FF7272; --gate:#F2AE42;
+  --queue-bg:#1E2A38; --work-bg:#13294A; --review-bg:#2A1F47; --terminal-bg:#0F3326; --blocked-bg:#421B1B; --gate-bg:#3D2C0C;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:400 16px/1.55 var(--body)}
+.wrap{max-width:1060px;margin:0 auto;padding-inline:20px;padding-block:28px 48px;display:flex;flex-direction:column;gap:44px}
+.plate-head{border-top:6px solid var(--ink);padding-top:14px;display:grid;gap:12px}
+.series{font:500 12px/1.3 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:0;max-width:none}
+h1{font:700 clamp(40px,7.2vw,70px)/.95 var(--display);text-transform:uppercase;margin:0;text-wrap:balance;max-width:16ch}
+.lede{font-size:19px;line-height:1.45;max-width:60ch}
+h2{font:600 30px/1.05 var(--display);text-transform:uppercase;letter-spacing:.02em;margin:0;text-wrap:balance}
+h3{font:600 15px/1.3 var(--body);margin:0}
+section{display:grid;gap:16px;min-width:0}
+p{margin:0;max-width:68ch}
+.sub{color:var(--muted)}
+.small{font-size:14px}
+code,.mono{font-family:var(--mono);font-size:.88em}
+a{color:var(--work)}
+figure{margin:0;display:grid;gap:10px;min-width:0}
+figcaption{font-size:14px;color:var(--muted);max-width:76ch}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:4px;padding:16px;min-width:0;display:grid;gap:12px;align-content:start}
+.scroll{overflow-x:auto}
+.scroll>svg{min-width:700px}
+svg.d{display:block;width:100%;height:auto}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,330px),1fr));gap:16px}
+.grid3{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,250px),1fr));gap:16px}
+.grid2>*,.grid3>*{min-width:0}
+pre{margin:0;font:400 13px/1.5 var(--mono);background:var(--sunk);border-radius:4px;padding:12px 14px;overflow-x:auto;white-space:pre}
+.tscroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:8px 12px 8px 0;border-bottom:1px solid var(--line);vertical-align:top}
+th{font:500 11px/1.3 var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.chip{display:inline-block;font:500 12px/1 var(--mono);padding:4px 8px;border-radius:999px;border:1.5px solid;white-space:nowrap}
+.chip.queue{color:var(--queue);background:var(--queue-bg)}
+.chip.work{color:var(--work);background:var(--work-bg)}
+.chip.review{color:var(--review);background:var(--review-bg)}
+.chip.terminal{color:var(--terminal);background:var(--terminal-bg)}
+.chip.blocked{color:var(--blocked);background:var(--blocked-bg)}
+.chip.gate{color:var(--gate);background:var(--gate-bg)}
+button{font:500 13px/1 var(--mono);padding:9px 12px;border:1.5px solid var(--ink);background:var(--surface);color:var(--ink);border-radius:4px;cursor:pointer}
+button:hover{background:var(--sunk)}
+button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
+button:focus-visible,[tabindex]:focus-visible,a:focus-visible,input:focus-visible{outline:3px solid var(--work);outline-offset:2px}
+.btns{display:flex;flex-wrap:wrap;gap:8px}
+.log{font:400 13px/1.5 var(--mono);background:var(--sunk);border-radius:4px;padding:12px 14px;height:260px;overflow:auto;overflow-wrap:anywhere}
+.log .ok{color:var(--terminal)} .log .err{color:var(--blocked)} .log .call{color:var(--muted);margin-top:6px} .log .sys{color:var(--gate)}
+.rule{border-top:2px solid var(--ink);padding-top:10px;display:grid;gap:6px;align-content:start}
+.series-nav{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,170px),1fr));column-gap:20px;border-top:6px solid var(--ink);padding-top:6px}
+.series-nav .item{display:grid;gap:4px;padding-block:10px;text-decoration:none;color:var(--ink);border-bottom:1px solid var(--line);align-content:start}
+.series-nav .n{font:500 11px/1.3 var(--mono);letter-spacing:.08em;color:var(--muted)}
+.series-nav .t{font:600 21px/1 var(--display);text-transform:uppercase}
+.series-nav .cur .t{color:var(--work)}
+.series-nav a.item:hover .t{text-decoration:underline}
+.foot{font-size:13px;color:var(--muted);display:flex;flex-wrap:wrap;gap:6px 18px;justify-content:space-between}
+/* diagram vocabulary */
+.d text{font-family:var(--body);font-size:13px;fill:var(--ink)}
+.d .m{font-family:var(--mono);font-size:11.5px}
+.d .s{font-size:11.5px}
+.d .b{font-weight:600}
+.d .mu{fill:var(--muted)}
+.d .hd{font-family:var(--display);font-weight:600;font-size:18px;text-transform:uppercase;letter-spacing:.03em}
+.d .bx{fill:var(--surface);stroke:var(--ink);stroke-width:1.5}
+.d .bx2{fill:var(--sunk);stroke:var(--line);stroke-width:1.5}
+.d .fr{fill:none;stroke:var(--muted);stroke-width:1.5;stroke-dasharray:5 4}
+.d .l{stroke:var(--ink);stroke-width:1.5;fill:none}
+.d .lm{stroke:var(--muted);stroke-width:1.5;fill:none}
+.d .dash{stroke-dasharray:5 4}
+.d .ah{fill:var(--ink)} .d .ahm{fill:var(--muted)}
+.d .r-queue{fill:var(--queue-bg);stroke:var(--queue);stroke-width:2}
+.d .r-work{fill:var(--work-bg);stroke:var(--work);stroke-width:2}
+.d .r-review{fill:var(--review-bg);stroke:var(--review);stroke-width:2}
+.d .r-terminal{fill:var(--terminal-bg);stroke:var(--terminal);stroke-width:2}
+.d .r-blocked{fill:var(--blocked-bg);stroke:var(--blocked);stroke-width:2}
+.d .r-gate{fill:var(--gate-bg);stroke:var(--gate);stroke-width:2}
+.d .c-queue{fill:var(--queue)} .d .c-work{fill:var(--work)} .d .c-review{fill:var(--review)}
+.d .c-terminal{fill:var(--terminal)} .d .c-blocked{fill:var(--blocked)} .d .c-gate{fill:var(--gate)}
+.d .k-work{stroke:var(--work);stroke-width:1.5;fill:none} .d .k-terminal{stroke:var(--terminal);stroke-width:1.5;fill:none}
+.d .k-blocked{stroke:var(--blocked);stroke-width:1.5;fill:none} .d .k-gate{stroke:var(--gate);stroke-width:1.5;fill:none}
+@media (prefers-reduced-motion:no-preference){.d rect,.d path,.d line{transition:fill .2s,stroke .2s,opacity .2s}}
+</style>
+<style>
+.d .trk{stroke:var(--ink);stroke-width:4;fill:none}
+.d .gatebar{fill:var(--gate)}
+.d .st.on{stroke-width:6}
+.simhead{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.simhead h3{font:600 24px/1 var(--display);text-transform:uppercase}
+fieldset{border:1px solid var(--line);border-radius:4px;margin:0;padding:10px 12px;display:grid;gap:8px;min-width:0}
+legend{font:500 11px/1.3 var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--muted);padding-inline:6px}
+.note{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font:400 13px/1.3 var(--mono)}
+.note input,.opt input{width:16px;height:16px;accent-color:var(--work);margin:0}
+.note.off{opacity:.4}
+.opt{display:flex;gap:8px;align-items:center;font-size:14px}
+</style>
+</head>
+<body>
+<svg class="d" width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs>
+<marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah"/></marker>
+<marker id="ahm" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ahm"/></marker>
+<marker id="ahw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="c-work"/></marker>
+<marker id="aht" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="c-terminal"/></marker>
+<marker id="ahb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="c-blocked"/></marker>
+<marker id="ahg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="c-gate"/></marker>
+</defs></svg>
+
+<div class="wrap">
+<header class="plate-head">
+  <p class="series"><span>MCP Task Orchestrator · Field guide</span><span>Plate 2 of 9</span></p>
+  <h1>One call moves an item. The gate decides.</h1>
+  <p class="lede">Every work item sits in one of five roles. Agents never edit status directly. They call <code>advance_item</code> with a trigger, and that call is where the server checks required notes.</p>
+</header>
+
+<section>
+  <h2>The line an item travels</h2>
+  <figure>
+    <div class="panel scroll">
+      <svg class="d" viewBox="0 0 940 316" role="img" aria-label="Track diagram of the five roles. Items travel queue to work to review to terminal using the start trigger, with a gate before each move. Start skips review when the schema has no review-phase notes. Block or hold moves any non-terminal item to blocked and resume returns it. Reopen sends a terminal item back to queue.">
+        <path d="M350,98 C350,24 830,24 830,98" class="k-work dash" marker-end="url(#ahw)"/>
+        <text x="590" y="22" text-anchor="middle" class="s c-work">start skips review when the schema has no review-phase notes</text>
+        <line x1="170" y1="120" x2="286" y2="120" class="trk" marker-end="url(#ah)"/>
+        <line x1="410" y1="120" x2="526" y2="120" class="trk" marker-end="url(#ah)"/>
+        <line x1="650" y1="120" x2="766" y2="120" class="trk" marker-end="url(#ah)"/>
+        <rect x="223" y="104" width="10" height="32" class="gatebar"/>
+        <rect x="463" y="104" width="10" height="32" class="gatebar"/>
+        <rect x="703" y="104" width="10" height="32" class="gatebar"/>
+        <text x="228" y="94" text-anchor="middle" class="m c-gate">start</text>
+        <text x="468" y="94" text-anchor="middle" class="m c-gate">start</text>
+        <text x="708" y="94" text-anchor="middle" class="m c-gate">start</text>
+        <text x="228" y="154" text-anchor="middle" class="s c-gate">queue notes</text>
+        <text x="468" y="154" text-anchor="middle" class="s c-gate">work notes</text>
+        <text x="708" y="154" text-anchor="middle" class="s c-gate">review notes</text>
+        <rect id="st-queue" x="50" y="98" width="120" height="44" rx="22" class="st r-queue"/>
+        <text x="110" y="126" text-anchor="middle" class="hd">queue</text>
+        <rect id="st-work" x="290" y="98" width="120" height="44" rx="22" class="st r-work"/>
+        <text x="350" y="126" text-anchor="middle" class="hd">work</text>
+        <rect id="st-review" x="530" y="98" width="120" height="44" rx="22" class="st r-review"/>
+        <text x="590" y="126" text-anchor="middle" class="hd">review</text>
+        <rect id="st-terminal" x="770" y="98" width="120" height="44" rx="22" class="st r-terminal"/>
+        <text x="830" y="126" text-anchor="middle" class="hd">terminal</text>
+        <path d="M130,142 V200 H570 V142" class="k-blocked"/>
+        <line x1="350" y1="146" x2="350" y2="224" class="k-blocked" marker-start="url(#ahb)" marker-end="url(#ahb)"/>
+        <text x="142" y="192" class="s c-blocked">block · hold</text>
+        <rect id="st-blocked" x="290" y="228" width="120" height="44" rx="22" class="st r-blocked"/>
+        <text x="350" y="256" text-anchor="middle" class="hd">blocked</text>
+        <text x="424" y="246" class="s c-blocked">resume returns the item</text>
+        <text x="424" y="262" class="s c-blocked">to the role it was blocked from</text>
+        <path d="M830,142 V300 H90 V147" class="lm dash" marker-end="url(#ahm)"/>
+        <text x="640" y="292" text-anchor="middle" class="s mu">reopen: terminal back to queue, gates bypassed</text>
+      </svg>
+    </div>
+    <figcaption>Amber bars are gates: the notes named under each bar must be filled before <code>start</code> passes it. Two triggers are not drawn: <code>complete</code> jumps from queue, work or review straight to terminal and checks the required notes of every phase, and <code>cancel</code> jumps to terminal from any role that is not terminal, blocked included, with no check at all.</figcaption>
+  </figure>
+</section>
+
+<section>
+  <h2>Try the gate</h2>
+  <p class="sub">A simplified model of the server's rules for one item, using the server's own error wording. Fire triggers in any order and read what comes back. The highlighted station above follows along.</p>
+  <div class="grid2">
+    <div class="panel">
+      <div class="simhead"><h3>Login API</h3><span id="roleChip" class="chip queue">queue</span></div>
+      <p class="small sub">type <code>feature-task</code> · <span id="labelTxt">no status label</span></p>
+      <fieldset>
+        <legend>Notes · tick to upsert</legend>
+        <label class="note"><input type="checkbox" id="n-requirements"> requirements <span class="chip queue">queue</span> required</label>
+        <label class="note"><input type="checkbox" id="n-implementation-notes"> implementation-notes <span class="chip work">work</span> required</label>
+        <label class="note" id="row-review"><input type="checkbox" id="n-review-checklist"> review-checklist <span class="chip review">review</span> required</label>
+      </fieldset>
+      <label class="opt"><input type="checkbox" id="hasReview" checked> Schema declares review-phase notes</label>
+      <div class="btns" id="triggers">
+        <button type="button" data-t="start">start</button>
+        <button type="button" data-t="complete">complete</button>
+        <button type="button" data-t="block">block</button>
+        <button type="button" data-t="resume">resume</button>
+        <button type="button" data-t="cancel">cancel</button>
+        <button type="button" data-t="reopen">reopen</button>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="simhead"><h3>Server says</h3><button type="button" id="reset">Reset</button></div>
+      <div id="log" class="log" role="log" aria-live="polite"></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Every trigger</h2>
+  <div class="tscroll"><table>
+    <thead><tr><th>Trigger</th><th>From</th><th>To</th><th>Gate</th></tr></thead>
+    <tbody>
+      <tr><td><code>start</code></td><td>queue, work or review</td><td>the next role on the line</td><td>Required notes of the current phase</td></tr>
+      <tr><td><code>complete</code></td><td>queue, work or review</td><td>terminal</td><td>Required notes of every phase. A blocked item must resume first.</td></tr>
+      <tr><td><code>block</code> / <code>hold</code></td><td>any non-terminal</td><td>blocked</td><td>None. Saves the previous role.</td></tr>
+      <tr><td><code>resume</code></td><td>blocked</td><td>the saved role</td><td>None</td></tr>
+      <tr><td><code>cancel</code></td><td>any non-terminal</td><td>terminal</td><td>None. Sets the status label to cancelled.</td></tr>
+      <tr><td><code>reopen</code></td><td>terminal</td><td>queue</td><td>Bypassed. A terminal parent goes back to work.</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <h2>Roles are fixed, labels are yours</h2>
+  <p>The role is what the server reasons about. Alongside it, each transition sets a <strong>status label</strong>: display text for people and dashboards. The five roles never change. The labels can be renamed per project.</p>
+  <div class="grid2">
+    <div class="tscroll"><table>
+      <thead><tr><th>Trigger</th><th>Default label</th></tr></thead>
+      <tbody>
+        <tr><td><code>start</code></td><td><code>in-progress</code></td></tr>
+        <tr><td><code>complete</code></td><td><code>done</code></td></tr>
+        <tr><td><code>block</code></td><td><code>blocked</code></td></tr>
+        <tr><td><code>cancel</code></td><td><code>cancelled</code>, always</td></tr>
+        <tr><td>a cascade</td><td><code>done</code></td></tr>
+        <tr><td><code>resume</code></td><td>the label from before the block</td></tr>
+        <tr><td><code>reopen</code></td><td>cleared, always</td></tr>
+      </tbody>
+    </table></div>
+    <div style="display:grid;gap:12px;align-content:start">
+      <pre>status_labels:
+  start: "working"
+  complete: "finished"
+  block: "on-hold"
+  cascade: "auto-completed"</pre>
+      <p class="small sub">The label comes back on every transition result and on item queries. Filter and gate on the role. Show the label.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>When a call fails</h2>
+  <p>Every failure carries a <code>kind</code> that says whether retrying can help, and a <code>code</code> to branch on. An agent never has to parse the message text.</p>
+  <figure>
+    <div class="panel scroll">
+      <svg class="d" viewBox="0 0 900 236" role="img" aria-label="A failed call is one of three kinds. Transient: back off and retry with a fresh requestId. Permanent: do not retry, fix the request. Shedding: wait the stated time, then retry.">
+        <rect x="10" y="88" width="150" height="60" rx="4" class="bx"/>
+        <text x="85" y="114" text-anchor="middle" class="b">A call fails</text>
+        <text x="85" y="132" text-anchor="middle" class="s mu">read error.kind</text>
+        <line x1="160" y1="108" x2="226" y2="40" class="l" marker-end="url(#ah)"/>
+        <line x1="160" y1="118" x2="226" y2="118" class="l" marker-end="url(#ah)"/>
+        <line x1="160" y1="128" x2="226" y2="196" class="l" marker-end="url(#ah)"/>
+        <rect x="230" y="10" width="150" height="60" rx="4" class="r-gate"/>
+        <text x="305" y="46" text-anchor="middle" class="hd">transient</text>
+        <line x1="380" y1="40" x2="416" y2="40" class="l" marker-end="url(#ah)"/>
+        <rect x="420" y="10" width="470" height="60" rx="4" class="bx"/>
+        <text x="434" y="35" class="b">Back off, then retry with a fresh requestId</text>
+        <text x="434" y="55" class="s mu">A contended lease or claim, a busy database. Or pick another item.</text>
+        <rect x="230" y="88" width="150" height="60" rx="4" class="r-blocked"/>
+        <text x="305" y="124" text-anchor="middle" class="hd">permanent</text>
+        <line x1="380" y1="118" x2="416" y2="118" class="l" marker-end="url(#ah)"/>
+        <rect x="420" y="88" width="470" height="60" rx="4" class="bx"/>
+        <text x="434" y="113" class="b">Do not retry. Fix the request.</text>
+        <text x="434" y="133" class="s mu">Validation errors, not found, not authorized.</text>
+        <rect x="230" y="166" width="150" height="60" rx="4" class="r-review"/>
+        <text x="305" y="202" text-anchor="middle" class="hd">shedding</text>
+        <line x1="380" y1="196" x2="416" y2="196" class="l" marker-end="url(#ah)"/>
+        <rect x="420" y="166" width="470" height="60" rx="4" class="bx"/>
+        <text x="434" y="191" class="b">Wait retryAfterMs, then retry</text>
+        <text x="434" y="211" class="s mu">The server is over capacity. Poll less often if it persists.</text>
+      </svg>
+    </div>
+    <figcaption>The envelope also carries <code>details</code>, such as a gate's missing notes or the blockers of a dependency, and <code>contendedItemId</code> when another agent got there first.</figcaption>
+  </figure>
+  <div class="grid2">
+    <pre>{
+  "error": {
+    "kind": "transient",
+    "code": "claim_contention",
+    "message": "Item already claimed by another agent",
+    "retryAfterMs": 420000,
+    "contendedItemId": "550e8400-…"
+  }
+}</pre>
+    <div style="display:grid;gap:16px;align-content:start">
+      <div class="rule"><h3>A requestId makes a write safe to resend</h3><p class="small">Write tools accept a <code>requestId</code>. The server remembers the response for that actor and id for about ten minutes and returns it again instead of running the call twice. <code>claim_item</code> requires one.</p></div>
+      <div class="rule"><h3>Same id or a fresh one</h3><p class="small">No response arrived, such as a timeout: resend with the same id. A response arrived, even a failure: use a fresh id, because the remembered failure would be replayed.</p></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Schemas and notes never touch until the gate</h2>
+  <figure>
+    <div class="panel scroll">
+      <svg class="d" viewBox="0 0 760 124" role="img" aria-label="A schema in config.yaml states which notes are required. Notes are content stored in the database. The two meet only inside the gate check of advance_item.">
+        <rect x="10" y="22" width="220" height="80" rx="4" class="bx"/>
+        <text x="120" y="50" text-anchor="middle" class="hd">Schema</text>
+        <text x="120" y="70" text-anchor="middle" class="s">rules in config.yaml</text>
+        <text x="120" y="88" text-anchor="middle" class="s mu">never stored in the database</text>
+        <line x1="230" y1="62" x2="286" y2="62" class="l" marker-end="url(#ah)"/>
+        <text x="258" y="52" text-anchor="middle" class="s mu">requires</text>
+        <rect x="290" y="22" width="180" height="80" rx="4" class="r-gate"/>
+        <text x="380" y="58" text-anchor="middle" class="hd">Gate check</text>
+        <text x="380" y="78" text-anchor="middle" class="m">advance_item</text>
+        <line x1="530" y1="62" x2="474" y2="62" class="l" marker-end="url(#ah)"/>
+        <text x="502" y="52" text-anchor="middle" class="s mu">provides</text>
+        <rect x="530" y="22" width="220" height="80" rx="4" class="bx"/>
+        <text x="640" y="50" text-anchor="middle" class="hd">Notes</text>
+        <text x="640" y="70" text-anchor="middle" class="s">content written by agents</text>
+        <text x="640" y="88" text-anchor="middle" class="s mu">stored with no schema reference</text>
+      </svg>
+    </div>
+    <figcaption>Changing a schema changes what the next transition demands. It never rewrites existing notes. An item that matches no schema advances freely.</figcaption>
+  </figure>
+</section>
+
+<footer style="display:grid;gap:14px"><nav class="series-nav" aria-label="Field guide plates">
+<a class="item" href="index.html"><span class="n">PLATE 1</span><span class="t">At a Glance</span><span class="small sub">What it is and why the rule lives in the server</span></a>
+<span class="item cur" aria-current="page"><span class="n">PLATE 2</span><span class="t">Phase Gates</span><span class="small sub">Roles, triggers and a gate you can try</span></span>
+<a class="item" href="work-graph.html"><span class="n">PLATE 3</span><span class="t">Work Graph</span><span class="small sub">Hierarchy, dependencies and cascades</span></a>
+<a class="item" href="schemas-and-traits.html"><span class="n">PLATE 4</span><span class="t">Schemas and Traits</span><span class="small sub">How YAML becomes an enforced gate</span></a>
+<a class="item" href="runtime-map.html"><span class="n">PLATE 5</span><span class="t">Runtime Map</span><span class="small sub">Architecture, deployment and fleets</span></a>
+<a class="item" href="seats.html"><span class="n">PLATE 6</span><span class="t">Seats</span><span class="small sub">Who does what inside a phase</span></a>
+<a class="item" href="finding-work.html"><span class="n">PLATE 7</span><span class="t">Finding Work</span><span class="small sub">The read calls and how the next item is chosen</span></a>
+<a class="item" href="orchestrating-a-run.html"><span class="n">PLATE 8</span><span class="t">Orchestrating a Run</span><span class="small sub">From a request to finished items</span></a>
+<a class="item" href="improvement-loop.html"><span class="n">PLATE 9</span><span class="t">Improvement Loop</span><span class="small sub">From friction to an adopted change</span></a>
+</nav>
+<p class="foot"><span>MCP Task Orchestrator field guide. MIT licensed, open source.</span><a href="https://github.com/jpicklyk/task-orchestrator">github.com/jpicklyk/task-orchestrator</a></p></footer>
+</div>
+<script>
+(function(){
+  var NOTES=[{key:'requirements',role:'queue'},{key:'implementation-notes',role:'work'},{key:'review-checklist',role:'review'}];
+  var ROLES=['queue','work','review','terminal','blocked'];
+  var s;
+  function $(id){return document.getElementById(id);}
+  function hasReview(){return $('hasReview').checked;}
+  function active(){return NOTES.filter(function(n){return n.role!=='review'||hasReview();});}
+  function missing(roles){return active().filter(function(n){return roles.indexOf(n.role)>-1&&!$('n-'+n.key).checked;}).map(function(n){return n.key;});}
+  function log(cls,txt){var d=document.createElement('div');d.className=cls;d.textContent=txt;var l=$('log');l.appendChild(d);l.scrollTop=l.scrollHeight;}
+  function move(to,why){var from=s.role;s.role=to;log('ok','✓ '+from+' → '+to+(why?' · '+why:''));render();}
+  function bad(t){
+    var r=s.role,m;
+    if(t==='resume')m='Cannot resume: item is not blocked (current role: '+r+')';
+    else if(t==='reopen')m='Cannot reopen: item is not terminal (current role: '+r+')';
+    else if(r==='terminal')m='Cannot '+t+': item is already terminal';
+    else if(t==='block')m='Cannot block: item is already blocked';
+    else m='Cannot '+t+": item is blocked. Use 'resume' trigger first";
+    log('err','✗ '+m);
+  }
+  function fire(t){
+    log('call','advance_item(trigger="'+t+'")');
+    var r=s.role,open=r!=='terminal',m;
+    if(t==='start'){
+      if(r==='terminal'||r==='blocked')return bad(t);
+      m=missing([r]);
+      if(m.length)return log('err','✗ Gate check failed: required notes not filled for '+r+' phase: '+m.join(', '));
+      if(r==='queue')return move('work');
+      if(r==='work')return hasReview()?move('review'):move('terminal','no review-phase notes, review skipped');
+      return move('terminal');
+    }
+    if(t==='complete'){
+      if(!open||r==='blocked')return bad(t);
+      m=missing(['queue','work','review']);
+      if(m.length)return log('err','✗ Gate check failed: required notes not filled: '+m.join(', '));
+      return move('terminal','every phase checked');
+    }
+    if(t==='block'){if(!open||r==='blocked')return bad(t);s.prev=r;return move('blocked','saved previous role '+r);}
+    if(t==='resume'){if(r!=='blocked')return bad(t);return move(s.prev,'restored');}
+    if(t==='cancel'){if(!open)return bad(t);s.label='cancelled';return move('terminal','no gate check');}
+    if(t==='reopen'){if(r!=='terminal')return bad(t);s.label=null;return move('queue','gates bypassed, notes kept');}
+  }
+  function render(){
+    var chip=$('roleChip');chip.className='chip '+s.role;chip.textContent=s.role;
+    $('labelTxt').textContent=s.label?'status label "'+s.label+'"':'no status label';
+    ROLES.forEach(function(r){$('st-'+r).classList.toggle('on',r===s.role);});
+    $('row-review').classList.toggle('off',!hasReview());
+    $('n-review-checklist').disabled=!hasReview();
+  }
+  function reset(){
+    s={role:'queue',prev:null,label:null};
+    NOTES.forEach(function(n){$('n-'+n.key).checked=false;});
+    $('log').textContent='';
+    render();
+    fire('start');
+  }
+  $('triggers').addEventListener('click',function(e){var t=e.target.getAttribute&&e.target.getAttribute('data-t');if(t)fire(t);});
+  NOTES.forEach(function(n){$('n-'+n.key).addEventListener('change',function(e){
+    if(e.target.checked){log('call','manage_notes(operation="upsert", key="'+n.key+'")');log('ok','✓ upserted');}
+    else{log('sys','note '+n.key+' cleared');}
+  });});
+  $('hasReview').addEventListener('change',function(){log('sys','schema changed: review-phase notes '+(hasReview()?'declared':'removed'));render();});
+  $('reset').addEventListener('click',reset);
+  reset();
+})();
+</script>
+</body>
+</html>

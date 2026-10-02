@@ -1,0 +1,316 @@
+<title>Task Orchestrator Schemas and Traits</title>
+<!--FONTS-->
+<style>/*SHARED*/</style>
+<style>
+.merge{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);gap:16px;align-items:center}
+.merge .src{display:grid;gap:10px}
+.merge .arrow{font:600 34px/1 var(--display);color:var(--muted)}
+@media (max-width:760px){.merge{grid-template-columns:minmax(0,1fr)}.merge .arrow{transform:rotate(90deg);justify-self:center}}
+.tag{font:500 11px/1.3 var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.resolved{display:grid;gap:0}
+.resolved .ph{display:grid;grid-template-columns:5.5rem minmax(0,1fr);gap:10px;padding-block:10px;border-top:1px solid var(--line);align-items:start}
+.resolved .ph:first-of-type{border-top:0}
+.resolved ul{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.resolved li{font:400 13px/1.4 var(--mono);overflow-wrap:anywhere}
+.resolved .from{display:block;font:400 12.5px/1.4 var(--body);color:var(--muted)}
+.dims{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,190px),1fr));gap:20px}
+.dims pre{font-size:12px;padding:10px}
+.order{display:grid;grid-template-columns:auto repeat(2,minmax(0,1fr));gap:8px;align-items:stretch}
+.order .h{font:500 11px/1.3 var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--muted);align-self:center}
+.cell{border:1.5px solid var(--line);border-radius:4px;padding:10px 12px;display:flex;gap:10px;align-items:center;background:var(--surface);min-width:0}
+.cell .num{font:700 30px/1 var(--display);color:var(--work);min-width:1.2ch}
+.cell.never{opacity:.45;border-style:dashed}
+.cell.never .num{color:var(--muted)}
+.cell .what{font-size:13.5px}
+.d .gatebar{fill:var(--gate)}
+.d .m10{font-family:var(--mono);font-size:10.5px}
+</style>
+<!--DEFS-->
+<div class="wrap">
+<header class="plate-head">
+  <p class="series"><span>MCP Task Orchestrator · Field guide</span><span>Plate 4 of 5</span></p>
+  <h1>The rules are YAML, and they compose</h1>
+  <p class="lede">A schema says which notes an item type must carry at each phase. Traits add cross-cutting requirements to any type. Both live in <code>.taskorchestrator/config.yaml</code>, so changing the process never means changing code or prompts.</p>
+</header>
+
+<section>
+  <h2>From config to the gate an item actually faces</h2>
+  <div class="merge">
+    <div class="src">
+      <div><p class="tag">The item</p><pre>type: feature-task
+traits: needs-migration-review</pre></div>
+      <div><p class="tag">Its schema</p><pre>work_item_schemas:
+  feature-task:
+    default_traits: [needs-security-review]
+    notes:
+      - { key: requirements, role: queue, required: true }
+      - { key: implementation-notes, role: work, required: true }</pre></div>
+      <div><p class="tag">Traits</p><pre>traits:
+  needs-security-review:
+    notes:
+      - { key: security-assessment, role: review,
+          required: true, skill: security-review }
+  needs-migration-review:
+    notes:
+      - { key: migration-assessment, role: queue,
+          required: true, skill: migration-review }</pre></div>
+    </div>
+    <div class="arrow" aria-hidden="true">→</div>
+    <div class="panel">
+      <p class="tag">Resolved schema for this item</p>
+      <div class="resolved">
+        <div class="ph"><span class="chip queue">queue</span><ul>
+          <li>requirements<span class="from">from the base schema</span></li>
+          <li>migration-assessment<span class="from">from the per-item trait. Routes the author to the <code>migration-review</code> skill.</span></li></ul></div>
+        <div class="ph"><span class="chip work">work</span><ul>
+          <li>implementation-notes<span class="from">from the base schema</span></li></ul></div>
+        <div class="ph"><span class="chip review">review</span><ul>
+          <li>security-assessment<span class="from">from the default trait. Because a review-phase note now exists, the item passes through review.</span></li></ul></div>
+      </div>
+    </div>
+  </div>
+  <div class="grid3">
+    <div class="rule"><h3>Type first, then tags, then default</h3><p class="small">The item's <code>type</code> selects a schema. With no type match, its first matching tag does. Failing both, the <code>default</code> schema applies. With no default, the item advances freely.</p></div>
+    <div class="rule"><h3>Default traits, then per-item traits</h3><p class="small">A schema's <code>default_traits</code> apply to every item of the type. Traits set on a single item layer on after. The first trait to declare a key keeps it.</p></div>
+    <div class="rule"><h3>Traits add, they never relax</h3><p class="small">A trait note whose key already exists in the base schema is dropped. A trait cannot make a required note optional or move it to another phase.</p></div>
+  </div>
+</section>
+
+<section>
+  <h2>A trait carries six signals</h2>
+  <p class="sub">Traits are orchestration signals. Note requirements are only the first of them.</p>
+  <div class="dims">
+    <div class="rule"><h3>Notes</h3><p class="small">Which notes must exist, in which phase. Enforced at the gate.</p><pre>notes:
+  - key: migration-assessment
+    role: queue
+    required: true</pre></div>
+    <div class="rule"><h3>Guidance</h3><p class="small">How to write the note. Handed to the agent at the moment it is about to fill it.</p><pre>guidance: "Cover table
+  recreation and data
+  migration strategy."</pre></div>
+    <div class="rule"><h3>Skill routing</h3><p class="small">Names a skill to run first, so the note follows a defined evaluation framework.</p><pre>skill: "migration-review"</pre></div>
+    <div class="rule"><h3>Resources</h3><p class="small">Shared resources the item needs. An exclusive one is leased when the item enters work, and a second item's start is rejected until it frees.</p><pre>resources:
+  - staging-db
+  - key: deploy-token
+    mode: advisory</pre></div>
+    <div class="rule"><h3>Dispatch</h3><p class="small">Which agent, model and effort should pick up each phase. Returned to the orchestrator with the transition.</p><pre>dispatch:
+  review:
+    agent: reviewer
+    effort: high</pre></div>
+    <div class="rule"><h3>Seats</h3><p class="small">Named roles inside a phase. A trait can add a seat to any type it is applied to. See the next figure.</p><pre>seats:
+  - name: test-author
+    phase: work</pre></div>
+  </div>
+</section>
+
+<section>
+  <h2>Keeping notes short</h2>
+  <p>A note is what the next agent reads in place of the whole conversation, so its value depends on staying small. A schema can cap each note, and the server can warn or refuse when a body runs over.</p>
+  <div class="grid2">
+    <pre>note_limits:
+  mode: reject            # warn (default) | reject
+
+work_item_schemas:
+  bug-fix:
+    notes:
+      - key: diagnosis
+        role: queue
+        required: true
+        maxLength: 6000   # characters</pre>
+    <div style="display:grid;gap:16px;align-content:start">
+      <div class="rule"><h3>A cap per note</h3><p class="small"><code>maxLength</code> is a backstop on one note. Guidance text usually names a much smaller target.</p></div>
+      <div class="rule"><h3>Warn or reject</h3><p class="small">In <code>warn</code> mode an over-long note is stored with a warning on the result. In <code>reject</code> mode that note fails with <code>NOTE_BODY_TOO_LONG</code> and the rest of the batch is still written. A project can set its own mode.</p></div>
+      <div class="rule"><h3>Long artifacts go by file</h3><p class="small">For test output, diffs and logs, an agent passes <code>bodyFromFile</code> and the server reads the file itself. The text never passes through the model's context.</p></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Seats split a phase between agents</h2>
+  <p>A phase is often more than one agent's job. A schema or trait can name the seats inside each phase: which seat enters the phase, which seat owns each required note, and in what order they work.</p>
+  <figure>
+    <div class="panel scroll">
+      <svg class="d" viewBox="0 0 900 318" role="img" aria-label="Seats for a bug-fix item. In queue, the planner owns the diagnosis and test-plan notes. In work, the implementer enters the phase and owns implementation-notes, a test-author seat added by a trait works after it and owns test-manifest, and the orchestrator owns session-tracking. In review, the reviewer owns review-checklist and test-independence-audit. A dashed bracket marks that test-manifest must be written by a different actor than the implementer.">
+        <text x="100" y="28" text-anchor="middle" class="hd c-queue">queue</text>
+        <text x="440" y="28" text-anchor="middle" class="hd c-work">work</text>
+        <text x="790" y="28" text-anchor="middle" class="hd c-review">review</text>
+        <rect x="10" y="40" width="180" height="266" rx="6" class="fr"/>
+        <rect x="210" y="40" width="460" height="266" rx="6" class="fr"/>
+        <rect x="690" y="40" width="200" height="266" rx="6" class="fr"/>
+        <rect x="195" y="150" width="10" height="40" class="gatebar"/>
+        <rect x="675" y="150" width="10" height="40" class="gatebar"/>
+        <rect x="22" y="84" width="156" height="80" rx="4" class="r-queue"/>
+        <text x="34" y="106" class="b">planner</text>
+        <text x="34" y="130" class="m10">diagnosis</text>
+        <text x="34" y="148" class="m10">test-plan</text>
+        <path d="M314,84 V72 H566 V84" class="k-blocked dash"/>
+        <text x="440" y="60" text-anchor="middle" class="s c-blocked">independent_of: a different actor must write test-manifest</text>
+        <rect x="224" y="84" width="180" height="80" rx="4" class="r-work"/>
+        <text x="236" y="106" class="b">implementer</text>
+        <text x="236" y="124" class="s c-work">enters the phase</text>
+        <text x="236" y="148" class="m10">implementation-notes</text>
+        <line x1="404" y1="124" x2="472" y2="124" class="l" marker-end="url(#ah)"/>
+        <text x="438" y="116" text-anchor="middle" class="s mu">after</text>
+        <rect x="476" y="84" width="180" height="80" rx="4" class="r-work"/>
+        <text x="488" y="106" class="b">test-author</text>
+        <text x="488" y="124" class="s mu">added by a trait</text>
+        <text x="488" y="148" class="m10">test-manifest</text>
+        <line x1="314" y1="164" x2="314" y2="212" class="l" marker-end="url(#ah)"/>
+        <text x="322" y="194" class="s mu">after</text>
+        <rect x="224" y="216" width="180" height="80" rx="4" class="r-work"/>
+        <text x="236" y="238" class="b">orchestrator</text>
+        <text x="236" y="262" class="m10">session-tracking</text>
+        <text x="476" y="236" class="s mu">reads_exclude: the test author</text>
+        <text x="476" y="252" class="s mu">is told not to read</text>
+        <text x="476" y="268" class="s mu">implementation-notes or</text>
+        <text x="476" y="284" class="s mu">session-tracking.</text>
+        <rect x="702" y="84" width="176" height="80" rx="4" class="r-review"/>
+        <text x="714" y="106" class="b">reviewer</text>
+        <text x="714" y="130" class="m10">review-checklist</text>
+        <text x="714" y="148" class="m10">test-independence-audit</text>
+      </svg>
+    </div>
+    <figcaption>Each box is a seat with the notes it owns. The seat layout is this project's own <code>bug-fix</code> schema with the <code>needs-test-author</code> trait. The <code>independent_of</code> bracket follows the reference example in the config documentation.</figcaption>
+  </figure>
+  <p>The server serves seats to the orchestrator as signals, reports missing notes grouped by the seat that owns them, and can check that an <code>independent_of</code> note was written by a different actor. Plate 6 covers seats in full.</p>
+  <p class="sub small">A config with no <code>seats</code> anywhere behaves exactly as before. Seats are optional at every level.</p>
+</section>
+
+<section>
+  <h2>Resource leases: a gate on shared things</h2>
+  <p>Some work needs something only one item can use at a time: a staging slot, a test database, a deploy window. A trait can declare that resource, and the server holds a lease on it for as long as the item is in work. There is no acquire or release call. The lease rides on <code>advance_item</code>.</p>
+  <figure>
+    <div class="panel scroll">
+      <svg class="d" viewBox="0 0 900 206" role="img" aria-label="Timeline of two items that both need the staging-db resource. Item A starts and holds the lease while in work. Item B's start during that time is rejected with resource_unavailable. After Item A completes and the lease is released, Item B's start succeeds.">
+        <text x="20" y="60" class="b">Item A</text>
+        <text x="20" y="130" class="b">Item B</text>
+        <line x1="90" y1="55" x2="190" y2="55" class="lm"/>
+        <text x="190" y="32" text-anchor="middle" class="m c-gate">start</text>
+        <rect x="190" y="40" width="370" height="30" rx="3" class="r-work"/>
+        <text x="375" y="60" text-anchor="middle" class="s">in work · holds the lease on staging-db</text>
+        <text x="560" y="32" text-anchor="middle" class="m c-gate">complete</text>
+        <text x="572" y="60" class="s c-terminal">lease released</text>
+        <line x1="90" y1="125" x2="620" y2="125" class="lm"/>
+        <rect x="326" y="110" width="8" height="30" class="c-blocked"/>
+        <text x="330" y="102" text-anchor="middle" class="m c-gate">start</text>
+        <text x="344" y="146" class="s c-blocked">rejected: resource_unavailable, retry after 30 s</text>
+        <text x="620" y="102" text-anchor="middle" class="m c-gate">start</text>
+        <rect x="620" y="110" width="250" height="30" rx="3" class="r-work"/>
+        <text x="745" y="130" text-anchor="middle" class="s">in work · holds the lease</text>
+        <line x1="90" y1="180" x2="872" y2="180" class="lm" marker-end="url(#ahm)"/>
+        <text x="872" y="198" text-anchor="end" class="s mu">time</text>
+      </svg>
+    </div>
+    <figcaption>The rejection is transient, not a gate failure: Item B's notes are fine. The agent should work on something else and try again later. The response names the contended key and never says who holds it.</figcaption>
+  </figure>
+  <div class="grid2">
+    <pre>resources:                  # optional registry
+  staging-db:
+    description: "Shared staging database"
+    defaultTtlSeconds: 1800
+
+traits:
+  needs-staging:
+    resources:
+      - staging-db          # exclusive by default
+      - key: deploy-token
+        mode: advisory      # recorded, never locked</pre>
+    <div style="display:grid;gap:16px;align-content:start">
+      <div class="rule"><h3>Exclusive or advisory</h3><p class="small"><code>exclusive</code> admits one item at a time. <code>advisory</code> takes no lock and only records that the item used the resource. Reserve exclusive for things that cannot be shared. A credential several agents can use at once should be advisory.</p></div>
+      <div class="rule"><h3>Held for the whole work phase</h3><p class="small">Taken on <code>start</code> or <code>resume</code> into work. Released on any exit: complete, cancel, block or reopen. It expires after an hour by default (24 hours at most) and cannot be renewed. Nothing sweeps an expired lease. The next contender simply gets it.</p></div>
+    </div>
+  </div>
+  <div class="grid3">
+    <div class="rule"><h3>Task-level items only</h3><p class="small">Put exclusive resources on leaf task types. A feature container can sit in work for days and would hold the lock the whole time.</p></div>
+    <div class="rule"><h3>One namespace per server</h3><p class="small">Keys are server-wide, so on a clash the global registry entry beats a project's. This is the one place the global layer wins. Prefix keys per project to avoid accidents.</p></div>
+    <div class="rule"><h3>Operator controls</h3><p class="small">The REST API lists active leases and their history, and an admin can force-release one. <code>RESOURCE_LEASES_ENFORCED=false</code> switches acquisition off.</p></div>
+  </div>
+  <p class="sub small">There is no queue and no fairness: whoever retries first after release gets the lease. A lease is checked on entry to work only. It is a coordination aid for cooperating agents.</p>
+</section>
+
+<section>
+  <h2>One server, many projects, two layers</h2>
+  <figure>
+    <div class="panel scroll">
+      <svg class="d" viewBox="0 0 900 300" role="img" aria-label="Each project's config.yaml is pushed by the config-sync hook into a per-root store in the server's database, which hot-reloads. A single global config file is mounted and read once at startup. The schema resolver picks the per-root layer by the item's rootId and falls back to the global layer.">
+        <rect x="336" y="10" width="554" height="280" rx="6" class="fr"/>
+        <text x="352" y="32" class="s mu">Task Orchestrator server</text>
+        <rect x="10" y="74" width="250" height="40" rx="4" class="bx"/>
+        <text x="24" y="99" class="m">project-a / config.yaml</text>
+        <rect x="10" y="122" width="250" height="40" rx="4" class="bx"/>
+        <text x="24" y="147" class="m">project-b / config.yaml</text>
+        <line x1="260" y1="94" x2="356" y2="94" class="l" marker-end="url(#ah)"/>
+        <line x1="260" y1="142" x2="356" y2="142" class="l" marker-end="url(#ah)"/>
+        <text x="308" y="86" text-anchor="middle" class="s mu">config-sync</text>
+        <rect x="360" y="44" width="210" height="150" rx="4" class="bx"/>
+        <text x="374" y="66" class="b">Per-root config (database)</text>
+        <rect x="372" y="76" width="186" height="36" rx="3" class="bx2"/>
+        <text x="384" y="99" class="m">root A · schemas, traits</text>
+        <rect x="372" y="124" width="186" height="36" rx="3" class="bx2"/>
+        <text x="384" y="147" class="m">root B · schemas, traits</text>
+        <text x="374" y="182" class="s mu">hot-reloads, no restart</text>
+        <rect x="10" y="226" width="250" height="44" rx="4" class="bx"/>
+        <text x="24" y="246" class="m">global config.yaml</text>
+        <text x="24" y="262" class="s mu">located by AGENT_CONFIG_DIR</text>
+        <line x1="260" y1="248" x2="356" y2="248" class="l" marker-end="url(#ah)"/>
+        <text x="308" y="240" text-anchor="middle" class="s mu">mounted</text>
+        <rect x="360" y="222" width="210" height="52" rx="4" class="bx"/>
+        <text x="374" y="244" class="b">Global layer</text>
+        <text x="374" y="262" class="s mu">the floor · read once at startup</text>
+        <line x1="570" y1="120" x2="656" y2="150" class="l" marker-end="url(#ah)"/>
+        <text x="614" y="122" text-anchor="middle" class="s mu">project rules</text>
+        <line x1="570" y1="248" x2="656" y2="192" class="l dash" marker-end="url(#ah)"/>
+        <text x="622" y="244" class="s mu">fallback</text>
+        <rect x="660" y="120" width="214" height="96" rx="4" class="r-gate"/>
+        <text x="767" y="148" text-anchor="middle" class="hd">Schema resolver</text>
+        <text x="767" y="170" text-anchor="middle" class="s">picks a project by item.rootId</text>
+        <text x="767" y="188" text-anchor="middle" class="s">then type, tag, default</text>
+      </svg>
+    </div>
+    <figcaption>The workspace file is the source of truth. The plugin's <code>config-sync</code> hook pushes it at session start and whenever it changes, and the server rejects a push from a stale checkout. A solo developer gets this too: one persistent server serves every repository with its own rules.</figcaption>
+  </figure>
+
+  <div class="panel">
+    <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:center">
+      <h3>Lookup order for an item's type, by <code>schema_resolution</code> mode</h3>
+      <div class="btns" id="modes" role="group" aria-label="schema_resolution mode">
+        <button type="button" data-m="legacy" aria-pressed="true">legacy</button>
+        <button type="button" data-m="layered" aria-pressed="false">layered</button>
+        <button type="button" data-m="isolated" aria-pressed="false">isolated</button>
+      </div>
+    </div>
+    <div class="order">
+      <span></span><span class="h">Exact match on type</span><span class="h">The layer's default schema</span>
+      <span class="h">Per-root</span>
+      <div class="cell" id="c-pe"><span class="num"></span><span class="what">Project schema named for the type</span></div>
+      <div class="cell" id="c-pd"><span class="num"></span><span class="what">Project <code>default</code></span></div>
+      <span class="h">Global</span>
+      <div class="cell" id="c-ge"><span class="num"></span><span class="what">Global schema named for the type</span></div>
+      <div class="cell" id="c-gd"><span class="num"></span><span class="what">Global <code>default</code></span></div>
+    </div>
+    <p class="small sub" id="modeNote"></p>
+  </div>
+</section>
+
+<!--NAV-->
+</div>
+<script>
+(function(){
+  var MODES={
+    legacy:{o:{pe:1,pd:2,ge:3,gd:4},n:'The default when the key is absent. The project layer runs to completion first, so a project default beats a global exact match. A pushed project config is treated as the project\'s full self-description.'},
+    layered:{o:{pe:1,ge:2,pd:3,gd:4},n:'Exact matches in both layers are tried before either default, so a global schema named for the type beats a project default.'},
+    isolated:{o:{pe:1,pd:2,ge:0,gd:0},n:'Only the project layer is consulted. Use it for a project that should not inherit the global floor at all.'}
+  };
+  function set(m){
+    var c=MODES[m];
+    ['pe','pd','ge','gd'].forEach(function(k){
+      var el=document.getElementById('c-'+k),n=c.o[k];
+      el.classList.toggle('never',!n);
+      el.querySelector('.num').textContent=n?n:'–';
+    });
+    document.getElementById('modeNote').textContent=c.n;
+    Array.prototype.forEach.call(document.querySelectorAll('#modes button'),function(b){b.setAttribute('aria-pressed',b.getAttribute('data-m')===m?'true':'false');});
+  }
+  document.getElementById('modes').addEventListener('click',function(e){var m=e.target.getAttribute&&e.target.getAttribute('data-m');if(m)set(m);});
+  set('legacy');
+})();
+</script>

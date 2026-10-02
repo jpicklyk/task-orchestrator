@@ -1,0 +1,466 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>:root{color-scheme:light}[hidden]{display:none!important}img{max-width:100%}</style>
+<title>Task Orchestrator Runtime Map</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>/* layout: a numbered plate. Heavy top rule, one thesis, figures drawn as signal-track schematics, notes in columns, series index at the foot. */
+:root{
+  --bg:#F1F3F6; --surface:#FFFFFF; --sunk:#E5E9EE; --ink:#152232; --muted:#556375; --line:#C8D0DA;
+  --queue:#5F6F85; --work:#1565D8; --review:#7A47CF; --terminal:#0C8259; --blocked:#C93434; --gate:#A86200;
+  --queue-bg:#E3E8EE; --work-bg:#DCE9FB; --review-bg:#ECE3FA; --terminal-bg:#D8F0E5; --blocked-bg:#FADEDE; --gate-bg:#FAE9CB;
+  --display:"Barlow Condensed","Arial Narrow",sans-serif;
+  --body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Consolas,"Courier New",monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0E151E; --surface:#16202C; --sunk:#0A1017; --ink:#E4EAF2; --muted:#96A4B6; --line:#2B3A4C;
+    --queue:#96A6BA; --work:#62A6FF; --review:#B692FF; --terminal:#45CF95; --blocked:#FF7272; --gate:#F2AE42;
+    --queue-bg:#1E2A38; --work-bg:#13294A; --review-bg:#2A1F47; --terminal-bg:#0F3326; --blocked-bg:#421B1B; --gate-bg:#3D2C0C;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0E151E; --surface:#16202C; --sunk:#0A1017; --ink:#E4EAF2; --muted:#96A4B6; --line:#2B3A4C;
+  --queue:#96A6BA; --work:#62A6FF; --review:#B692FF; --terminal:#45CF95; --blocked:#FF7272; --gate:#F2AE42;
+  --queue-bg:#1E2A38; --work-bg:#13294A; --review-bg:#2A1F47; --terminal-bg:#0F3326; --blocked-bg:#421B1B; --gate-bg:#3D2C0C;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:400 16px/1.55 var(--body)}
+.wrap{max-width:1060px;margin:0 auto;padding-inline:20px;padding-block:28px 48px;display:flex;flex-direction:column;gap:44px}
+.plate-head{border-top:6px solid var(--ink);padding-top:14px;display:grid;gap:12px}
+.series{font:500 12px/1.3 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:0;max-width:none}
+h1{font:700 clamp(40px,7.2vw,70px)/.95 var(--display);text-transform:uppercase;margin:0;text-wrap:balance;max-width:16ch}
+.lede{font-size:19px;line-height:1.45;max-width:60ch}
+h2{font:600 30px/1.05 var(--display);text-transform:uppercase;letter-spacing:.02em;margin:0;text-wrap:balance}
+h3{font:600 15px/1.3 var(--body);margin:0}
+section{display:grid;gap:16px;min-width:0}
+p{margin:0;max-width:68ch}
+.sub{color:var(--muted)}
+.small{font-size:14px}
+code,.mono{font-family:var(--mono);font-size:.88em}
+a{color:var(--work)}
+figure{margin:0;display:grid;gap:10px;min-width:0}
+figcaption{font-size:14px;color:var(--muted);max-width:76ch}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:4px;padding:16px;min-width:0;display:grid;gap:12px;align-content:start}
+.scroll{overflow-x:auto}
+.scroll>svg{min-width:700px}
+svg.d{display:block;width:100%;height:auto}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,330px),1fr));gap:16px}
+.grid3{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,250px),1fr));gap:16px}
+.grid2>*,.grid3>*{min-width:0}
+pre{margin:0;font:400 13px/1.5 var(--mono);background:var(--sunk);border-radius:4px;padding:12px 14px;overflow-x:auto;white-space:pre}
+.tscroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:8px 12px 8px 0;border-bottom:1px solid var(--line);vertical-align:top}
+th{font:500 11px/1.3 var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.chip{display:inline-block;font:500 12px/1 var(--mono);padding:4px 8px;border-radius:999px;border:1.5px solid;white-space:nowrap}
+.chip.queue{color:var(--queue);background:var(--queue-bg)}
+.chip.work{color:var(--work);background:var(--work-bg)}
+.chip.review{color:var(--review);background:var(--review-bg)}
+.chip.terminal{color:var(--terminal);background:var(--terminal-bg)}
+.chip.blocked{color:var(--blocked);background:var(--blocked-bg)}
+.chip.gate{color:var(--gate);background:var(--gate-bg)}
+button{font:500 13px/1 var(--mono);padding:9px 12px;border:1.5px solid var(--ink);background:var(--surface);color:var(--ink);border-radius:4px;cursor:pointer}
+button:hover{background:var(--sunk)}
+button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
+button:focus-visible,[tabindex]:focus-visible,a:focus-visible,input:focus-visible{outline:3px solid var(--work);outline-offset:2px}
+.btns{display:flex;flex-wrap:wrap;gap:8px}
+.log{font:400 13px/1.5 var(--mono);background:var(--sunk);border-radius:4px;padding:12px 14px;height:260px;overflow:auto;overflow-wrap:anywhere}
+.log .ok{color:var(--terminal)} .log .err{color:var(--blocked)} .log .call{color:var(--muted);margin-top:6px} .log .sys{color:var(--gate)}
+.rule{border-top:2px solid var(--ink);padding-top:10px;display:grid;gap:6px;align-content:start}
+.series-nav{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,170px),1fr));column-gap:20px;border-top:6px solid var(--ink);padding-top:6px}
+.series-nav .item{display:grid;gap:4px;padding-block:10px;text-decoration:none;color:var(--ink);border-bottom:1px solid var(--line);align-content:start}
+.series-nav .n{font:500 11px/1.3 var(--mono);letter-spacing:.08em;color:var(--muted)}
+.series-nav .t{font:600 21px/1 var(--display);text-transform:uppercase}
+.series-nav .cur .t{color:var(--work)}
+.series-nav a.item:hover .t{text-decoration:underline}
+.foot{font-size:13px;color:var(--muted);display:flex;flex-wrap:wrap;gap:6px 18px;justify-content:space-between}
+/* diagram vocabulary */
+.d text{font-family:var(--body);font-size:13px;fill:var(--ink)}
+.d .m{font-family:var(--mono);font-size:11.5px}
+.d .s{font-size:11.5px}
+.d .b{font-weight:600}
+.d .mu{fill:var(--muted)}
+.d .hd{font-family:var(--display);font-weight:600;font-size:18px;text-transform:uppercase;letter-spacing:.03em}
+.d .bx{fill:var(--surface);stroke:var(--ink);stroke-width:1.5}
+.d .bx2{fill:var(--sunk);stroke:var(--line);stroke-width:1.5}
+.d .fr{fill:none;stroke:var(--muted);stroke-width:1.5;stroke-dasharray:5 4}
+.d .l{stroke:var(--ink);stroke-width:1.5;fill:none}
+.d .lm{stroke:var(--muted);stroke-width:1.5;fill:none}
+.d .dash{stroke-dasharray:5 4}
+.d .ah{fill:var(--ink)} .d .ahm{fill:var(--muted)}
+.d .r-queue{fill:var(--queue-bg);stroke:var(--queue);stroke-width:2}
+.d .r-work{fill:var(--work-bg);stroke:var(--work);stroke-width:2}
+.d .r-review{fill:var(--review-bg);stroke:var(--review);stroke-width:2}
+.d .r-terminal{fill:var(--terminal-bg);stroke:var(--terminal);stroke-width:2}
+.d .r-blocked{fill:var(--blocked-bg);stroke:var(--blocked);stroke-width:2}
+.d .r-gate{fill:var(--gate-bg);stroke:var(--gate);stroke-width:2}
+.d .c-queue{fill:var(--queue)} .d .c-work{fill:var(--work)} .d .c-review{fill:var(--review)}
+.d .c-terminal{fill:var(--terminal)} .d .c-blocked{fill:var(--blocked)} .d .c-gate{fill:var(--gate)}
+.d .k-work{stroke:var(--work);stroke-width:1.5;fill:none} .d .k-terminal{stroke:var(--terminal);stroke-width:1.5;fill:none}
+.d .k-blocked{stroke:var(--blocked);stroke-width:1.5;fill:none} .d .k-gate{stroke:var(--gate);stroke-width:1.5;fill:none}
+@media (prefers-reduced-motion:no-preference){.d rect,.d path,.d line{transition:fill .2s,stroke .2s,opacity .2s}}
+</style>
+<style>
+.d .band{fill:var(--surface);stroke:var(--ink);stroke-width:1.5}
+.d .vol{fill:var(--sunk);stroke:var(--ink);stroke-width:1.5}
+.hooks{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,150px),1fr));gap:0 16px;counter-reset:h}
+.hooks li{counter-increment:h;border-top:4px solid var(--ink);padding-block:10px 14px;display:grid;gap:6px;align-content:start}
+.hooks li::before{content:counter(h);font:600 22px/1 var(--display);color:var(--muted)}
+.hooks .ev{font:500 12.5px/1.3 var(--mono);overflow-wrap:anywhere}
+.hooks .do{font-size:13.5px}
+.modes3{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,250px),1fr));gap:16px}
+</style>
+</head>
+<body>
+<svg class="d" width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs>
+<marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah"/></marker>
+<marker id="ahm" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ahm"/></marker>
+<marker id="ahw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="c-work"/></marker>
+<marker id="aht" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="c-terminal"/></marker>
+<marker id="ahb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="c-blocked"/></marker>
+<marker id="ahg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="c-gate"/></marker>
+</defs></svg>
+
+<div class="wrap">
+<header class="plate-head">
+  <p class="series"><span>MCP Task Orchestrator · Field guide</span><span>Plate 5 of 9</span></p>
+  <h1>Where it runs and who talks to it</h1>
+  <p class="lede">One Docker image, one SQLite file. It runs as a throwaway container per session or as a persistent local server shared by every project, and the same gate logic answers both the MCP tools and the REST API.</p>
+</header>
+
+<section>
+  <h2>Inside the server</h2>
+  <figure>
+    <div class="panel scroll">
+      <svg class="d" viewBox="0 0 900 344" role="img" aria-label="Clients reach the server through two interfaces: MCP tools over STDIO or Streamable HTTP, and an optional REST API with server-sent events. Inside, four layers depend only inward: interfaces, infrastructure, application, domain.">
+        <rect x="20" y="10" width="260" height="46" rx="4" class="bx"/>
+        <text x="150" y="38" text-anchor="middle" class="b">Claude Code + plugin</text>
+        <rect x="320" y="10" width="260" height="46" rx="4" class="bx"/>
+        <text x="450" y="38" text-anchor="middle" class="b">Any MCP client</text>
+        <rect x="620" y="10" width="260" height="46" rx="4" class="bx"/>
+        <text x="750" y="38" text-anchor="middle" class="b">Dashboards · CI · hooks</text>
+        <line x1="150" y1="56" x2="150" y2="116" class="l" marker-end="url(#ah)"/>
+        <line x1="450" y1="56" x2="450" y2="116" class="l" marker-end="url(#ah)"/>
+        <line x1="750" y1="56" x2="750" y2="116" class="l" marker-end="url(#ah)"/>
+        <text x="300" y="90" text-anchor="middle" class="s mu">MCP over STDIO or Streamable HTTP</text>
+        <text x="762" y="90" class="s mu">REST + SSE</text>
+        <rect x="20" y="120" width="560" height="44" rx="4" class="band"/>
+        <text x="36" y="147" class="b">Interfaces · MCP tools</text>
+        <text x="564" y="147" text-anchor="end" class="s mu">items, notes, dependencies, workflow, config</text>
+        <rect x="600" y="120" width="280" height="44" rx="4" class="band"/>
+        <text x="616" y="147" class="b">Interfaces · REST API</text>
+        <text x="864" y="147" text-anchor="end" class="s mu">optional</text>
+        <rect x="20" y="174" width="860" height="44" rx="4" class="band"/>
+        <text x="36" y="201" class="b">Infrastructure</text>
+        <text x="864" y="201" text-anchor="end" class="s mu">SQLite + FTS5 · Exposed ORM · Flyway migrations · YAML config · JWKS</text>
+        <rect x="20" y="228" width="860" height="44" rx="4" class="r-gate"/>
+        <text x="36" y="255" class="b">Application</text>
+        <text x="864" y="255" text-anchor="end" class="s">gate checks, cascades, schema and trait resolution, claims</text>
+        <rect x="20" y="282" width="860" height="44" rx="4" class="band"/>
+        <text x="36" y="309" class="b">Domain</text>
+        <text x="864" y="309" text-anchor="end" class="s mu">WorkItem · Note · Dependency · roles · dispatch profiles</text>
+      </svg>
+    </div>
+    <figcaption>Each layer may depend only on the layers below it, and an architecture test fails the build on a new violation. The gate logic sits in the application layer and is built in one place, so an MCP call and a REST call to advance an item get the same answer.</figcaption>
+  </figure>
+</section>
+
+<section>
+  <h2>Two ways to run it</h2>
+  <div class="grid2">
+    <figure class="panel">
+      <h3>Per-session container (STDIO)</h3>
+      <svg class="d" viewBox="0 0 440 232" role="img" aria-label="The MCP client spawns a docker container for the session and talks to it over stdin and stdout. The container stores its SQLite database on a named volume and can read a mounted config folder.">
+        <rect x="14" y="20" width="150" height="56" rx="4" class="bx"/>
+        <text x="89" y="44" text-anchor="middle" class="b">MCP client</text>
+        <text x="89" y="62" text-anchor="middle" class="s mu">one session</text>
+        <line x1="164" y1="48" x2="272" y2="48" class="l" marker-start="url(#ah)" marker-end="url(#ah)"/>
+        <text x="218" y="38" text-anchor="middle" class="s mu">stdin / stdout</text>
+        <rect x="276" y="20" width="150" height="56" rx="4" class="r-work"/>
+        <text x="351" y="44" text-anchor="middle" class="b">Container</text>
+        <text x="351" y="62" text-anchor="middle" class="m">docker run --rm -i</text>
+        <line x1="351" y1="76" x2="351" y2="136" class="l" marker-end="url(#ah)"/>
+        <text x="361" y="110" class="s mu">reads, writes</text>
+        <rect x="276" y="140" width="150" height="50" rx="4" class="vol"/>
+        <text x="351" y="162" text-anchor="middle" class="b">mcp-task-data</text>
+        <text x="351" y="180" text-anchor="middle" class="s mu">SQLite volume</text>
+        <rect x="14" y="140" width="190" height="50" rx="4" class="vol"/>
+        <text x="109" y="162" text-anchor="middle" class="m">.taskorchestrator/</text>
+        <text x="109" y="180" text-anchor="middle" class="s mu">optional read-only mount</text>
+        <path d="M204,152 H240 V70 H272" class="l dash" marker-end="url(#ah)"/>
+        <text x="14" y="218" class="s mu">No port, no daemon. The data outlives the container.</text>
+      </svg>
+      <figcaption>The simplest setup. Schemas come from the mounted folder, or the server runs schema-free with no gates.</figcaption>
+    </figure>
+    <figure class="panel">
+      <h3>Persistent server (HTTP + config-sync)</h3>
+      <svg class="d" viewBox="0 0 440 232" role="img" aria-label="Three project sessions connect to one persistent container on a loopback port. Each uses the MCP endpoint and pushes its own config through the REST API. The container stores data on one volume.">
+        <rect x="14" y="14" width="130" height="36" rx="4" class="bx"/><text x="79" y="37" text-anchor="middle" class="s b">project A session</text>
+        <rect x="14" y="62" width="130" height="36" rx="4" class="bx"/><text x="79" y="85" text-anchor="middle" class="s b">project B session</text>
+        <rect x="14" y="110" width="130" height="36" rx="4" class="bx"/><text x="79" y="133" text-anchor="middle" class="s b">project C session</text>
+        <line x1="144" y1="32" x2="272" y2="60" class="l" marker-end="url(#ah)"/>
+        <line x1="144" y1="80" x2="272" y2="80" class="l" marker-end="url(#ah)"/>
+        <line x1="144" y1="128" x2="272" y2="100" class="l" marker-end="url(#ah)"/>
+        <text x="208" y="24" text-anchor="middle" class="s mu">/mcp for tools</text>
+        <text x="212" y="140" text-anchor="middle" class="s mu">/api/v1 for config-sync</text>
+        <rect x="276" y="36" width="150" height="88" rx="4" class="r-work"/>
+        <text x="351" y="62" text-anchor="middle" class="b">One container</text>
+        <text x="351" y="82" text-anchor="middle" class="m">127.0.0.1:3001</text>
+        <text x="351" y="102" text-anchor="middle" class="s">per-root config store</text>
+        <line x1="351" y1="124" x2="351" y2="152" class="l" marker-end="url(#ah)"/>
+        <rect x="276" y="156" width="150" height="40" rx="4" class="vol"/>
+        <text x="351" y="181" text-anchor="middle" class="b">mcp-task-data</text>
+        <text x="14" y="176" class="s mu">Each session's hook pushes its</text>
+        <text x="14" y="192" class="s mu">project's config.yaml on start.</text>
+        <text x="14" y="220" class="s c-blocked">Unauthenticated mode is for loopback only.</text>
+      </svg>
+      <figcaption>One server for every repository, each with its own schemas, reloaded without a restart. Bearer tokens or JWKS protect the REST API on shared hosts. The <code>/mcp</code> endpoint itself is never authenticated, so keep it on loopback or behind your own network controls.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section>
+  <h2>The REST API, for everything that is not an agent</h2>
+  <p>Dashboards, CI jobs and the plugin's own hooks use HTTP under <code>/api/v1</code>, switched on with <code>API_ENABLED=true</code>. An advance over REST runs the same gate logic as the MCP tool.</p>
+  <div class="grid2">
+    <div class="tscroll"><table>
+      <thead><tr><th>Auth mode</th><th>How a caller proves itself</th></tr></thead>
+      <tbody>
+        <tr><td><code>bearer</code></td><td>Static tokens from a secrets file. Each has its own capabilities, scope and expiry. Loaded at startup.</td></tr>
+        <tr><td><code>jwks</code></td><td>Signed JWTs checked against a key set, issuer and audience. Capabilities and scope travel as claims.</td></tr>
+        <tr><td><code>none</code></td><td>An explicit double opt-in. Every request acts as admin. For a loopback port only.</td></tr>
+      </tbody>
+    </table></div>
+    <div class="tscroll"><table>
+      <thead><tr><th>Capability</th><th>Allows</th></tr></thead>
+      <tbody>
+        <tr><td><code>read</code></td><td>Every GET, and the event stream</td></tr>
+        <tr><td><code>write-items</code>, <code>write-notes</code></td><td>Creating, editing and deleting items and notes</td></tr>
+        <tr><td><code>advance</code></td><td>Role transitions</td></tr>
+        <tr><td><code>manage-dependencies</code></td><td>Adding and removing edges</td></tr>
+        <tr><td><code>write-config</code></td><td>Pushing per-project config, plans and rules</td></tr>
+        <tr><td><code>admin</code></td><td>All of the above, plus attribution fields and lease overrides</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+  <p class="sub small">A token can also be limited to certain project roots and tags. A single item outside that scope returns 403, and lists are filtered.</p>
+
+  <div class="tscroll"><table>
+    <thead><tr><th>To do this</th><th>Route under /api/v1</th></tr></thead>
+    <tbody>
+      <tr><td>Read or change items</td><td><code>GET /items/{id}</code> · <code>POST /items</code> · <code>PATCH /items/{id}</code></td></tr>
+      <tr><td>Write a note</td><td><code>PUT /items/{id}/notes/{key}</code></td></tr>
+      <tr><td>Move an item, or ask what blocks it</td><td><code>POST /items/{id}/advance</code> · <code>GET /items/{id}/gate</code></td></tr>
+      <tr><td>Search</td><td><code>GET /search</code> · <code>GET /notes/search</code></td></tr>
+      <tr><td>Push or inspect project config</td><td><code>PUT /roots/{rootId}/config</code> · <code>GET /roots/{rootId}/config/effective</code></td></tr>
+      <tr><td>Audit who did what</td><td><code>GET /transitions?since=…</code></td></tr>
+      <tr><td>Inspect or release leases</td><td><code>GET /resources/leases</code> · <code>DELETE /resources/leases/{key}</code></td></tr>
+      <tr><td>Check liveness, with no auth</td><td><code>GET /health</code></td></tr>
+      <tr><td>Follow changes live</td><td><code>GET /events</code></td></tr>
+    </tbody>
+  </table></div>
+
+  <figure>
+    <div class="panel scroll">
+      <svg class="d" viewBox="0 0 760 236" role="img" aria-label="A dashboard opens the event stream and receives events as items change. After the connection drops it reconnects with the Last-Event-ID header and the server replays the events it missed from a buffer.">
+        <rect x="40" y="10" width="160" height="34" rx="4" class="bx"/><text x="120" y="32" text-anchor="middle" class="b">Dashboard</text>
+        <rect x="560" y="10" width="160" height="34" rx="4" class="bx"/><text x="640" y="32" text-anchor="middle" class="b">Server</text>
+        <line x1="120" y1="44" x2="120" y2="204" class="lm dash"/>
+        <line x1="640" y1="44" x2="640" y2="204" class="lm dash"/>
+        <line x1="120" y1="74" x2="636" y2="74" class="l" marker-end="url(#ah)"/>
+        <text x="380" y="66" text-anchor="middle" class="m">GET /api/v1/events?types=item.advanced,note.upserted</text>
+        <line x1="640" y1="106" x2="124" y2="106" class="k-work" marker-end="url(#ahw)"/>
+        <text x="380" y="98" text-anchor="middle" class="s c-work">an event for each matching change, each with an id</text>
+        <text x="380" y="134" text-anchor="middle" class="s c-blocked">connection drops</text>
+        <line x1="120" y1="162" x2="636" y2="162" class="l" marker-end="url(#ah)"/>
+        <text x="380" y="154" text-anchor="middle" class="m">reconnect with Last-Event-ID: 4812</text>
+        <line x1="640" y1="194" x2="124" y2="194" class="k-work" marker-end="url(#ahw)"/>
+        <text x="380" y="186" text-anchor="middle" class="s c-work">the missed events, replayed from a buffer</text>
+        <text x="380" y="226" text-anchor="middle" class="s mu">If the buffer no longer holds them, the first event is sync.lost and the client refetches.</text>
+      </svg>
+    </div>
+    <figcaption>Event types: <code>item.created</code>, <code>item.updated</code>, <code>item.deleted</code>, <code>item.advanced</code>, <code>note.upserted</code>, <code>note.deleted</code>, <code>dependency.added</code>, <code>dependency.removed</code>, <code>scope.entered</code>, <code>scope.left</code>. Two control events always arrive: <code>sync.lost</code> and <code>auth.expired</code>.</figcaption>
+  </figure>
+
+  <div class="grid3">
+    <div class="rule"><h3>Writes are guarded</h3><p class="small">Editing an item requires <code>If-Match</code> with its current ETag, so a stale client gets a 412 and cannot overwrite. Edits are JSON merge-patch. An <code>Idempotency-Key</code> makes a retried write replay its first result.</p></div>
+    <div class="rule"><h3>Errors say what to do</h3><p class="small">Every error is <code>{ error, message, details }</code>. A failed gate is 422 <code>gate_blocked</code> with the missing notes. A contended lease is 409 <code>resource_unavailable</code> with a <code>Retry-After</code> header.</p></div>
+    <div class="rule"><h3>Where REST differs from MCP</h3><p class="small">The actor is always the token's identity, and one supplied in the body is dropped. A REST advance is not bound by claim ownership, though it is logged, and is still bound by leases. Lease administration and the event stream exist only here.</p></div>
+  </div>
+</section>
+
+<section>
+  <h2>What the Claude Code plugin adds</h2>
+  <p class="sub">The server works with any MCP client. The plugin wires it into a Claude Code session through hooks, in the order a feature normally unfolds.</p>
+  <ol class="hooks">
+    <li><span class="ev">SessionStart</span><span class="do">Injects workflow conventions and project scope. Syncs the project config to the server.</span></li>
+    <li><span class="ev">EnterPlanMode</span><span class="do">Reads existing items and schema gates first, so the plan covers what the gates will ask for.</span></li>
+    <li><span class="ev">ExitPlanMode</span><span class="do">Turns the approved plan into items, dependency edges and queue notes before any code is written.</span></li>
+    <li><span class="ev">SubagentStart</span><span class="do">Hands an implementer or reviewer its protocol: enter your phase, fill its notes, return.</span></li>
+    <li><span class="ev">advance_item</span><span class="do">Can require an actor on every write. Records which phase a sub-agent entered. Can trigger a retrospective.</span></li>
+    <li><span class="ev">SubagentStop</span><span class="do">Sends a sub-agent back if the phase it entered still has required notes missing.</span></li>
+  </ol>
+  <div class="tscroll"><table>
+    <thead><tr><th>Three more hooks</th><th>What each does</th></tr></thead>
+    <tbody>
+      <tr><td>Before a note is written</td><td>If the note's schema names a skill and the body looks thin, suggests running that skill first. Advisory only.</td></tr>
+      <tr><td>When <code>config.yaml</code> changes</td><td>Re-syncs the project config to the server mid-session.</td></tr>
+      <tr><td>When a turn ends</td><td>Nudges a retrospective if an item finished on its own and nothing else prompted one.</td></tr>
+    </tbody>
+  </table></div>
+  <div class="tscroll"><table>
+    <thead><tr><th>Skills, by purpose</th><th>Slash commands under <code>/task-orchestrator:</code></th></tr></thead>
+    <tbody>
+      <tr><td>Get set up</td><td><code>quick-start</code> (guided onboarding) · <code>init</code> (project or personal root) · <code>configure-server</code> (transport, REST, config-sync) · <code>adopt-project-scope</code> (migrate an existing database)</td></tr>
+      <tr><td>Shape the rules</td><td><code>manage-schemas</code> (create, edit and validate schemas, traits and identity policy)</td></tr>
+      <tr><td>Day-to-day work</td><td><code>work-summary</code> (dashboard) · <code>create-item</code> · <code>status-progression</code> (which trigger, what is missing) · <code>dependency-manager</code> · <code>batch-complete</code></td></tr>
+      <tr><td>Run many items</td><td><code>run-wave</code> (attended) · <code>ralph</code> (unattended queue drain)</td></tr>
+      <tr><td>Improve the process</td><td><code>session-retrospective</code> · <code>review-proposals</code></td></tr>
+    </tbody>
+  </table></div>
+  <p class="small sub">Also shipped: agent definitions for implementer, reviewer, planner and test author, three output styles and four workflow scripts. Plate 8 covers how they run a feature.</p>
+  <p class="small sub">When a schema declares seats (plate 4), <code>run-wave</code> reads them to build each item's stages and picks the agent and model for each seat. The stop guard is seat-aware too: it only sends a sub-agent back for notes its own seat owns.</p>
+</section>
+
+<section>
+  <h2>Push or pull</h2>
+  <div class="grid2">
+    <figure class="panel">
+      <h3>Orchestration, the default</h3>
+      <svg class="d" viewBox="0 0 440 216" role="img" aria-label="One orchestrator advances three child items in dependency order and dispatches a sub-agent for each.">
+        <rect x="140" y="12" width="160" height="46" rx="4" class="r-work"/>
+        <text x="220" y="40" text-anchor="middle" class="b">Orchestrator</text>
+        <line x1="180" y1="58" x2="80" y2="126" class="l" marker-end="url(#ah)"/>
+        <line x1="220" y1="58" x2="220" y2="126" class="l" marker-end="url(#ah)"/>
+        <line x1="260" y1="58" x2="360" y2="126" class="l" marker-end="url(#ah)"/>
+        <text x="232" y="112" class="m mu">advance_item</text>
+        <rect x="20" y="130" width="120" height="44" rx="4" class="bx"/><text x="80" y="150" text-anchor="middle" class="s b">item 1</text><text x="80" y="166" text-anchor="middle" class="s mu">sub-agent</text>
+        <rect x="160" y="130" width="120" height="44" rx="4" class="bx"/><text x="220" y="150" text-anchor="middle" class="s b">item 2</text><text x="220" y="166" text-anchor="middle" class="s mu">sub-agent</text>
+        <rect x="300" y="130" width="120" height="44" rx="4" class="bx"/><text x="360" y="150" text-anchor="middle" class="s b">item 3</text><text x="360" y="166" text-anchor="middle" class="s mu">sub-agent</text>
+        <text x="220" y="202" text-anchor="middle" class="s mu">One dispatcher, so no two agents race for an item.</text>
+      </svg>
+      <figcaption>The orchestrator pushes items through phases. No identity setup. Fits a single developer or a sequential pipeline.</figcaption>
+    </figure>
+    <figure class="panel">
+      <h3>Claim at the parent, opt-in</h3>
+      <svg class="d" viewBox="0 0 440 216" role="img" aria-label="Two fleet agents each claim a different feature with a time-limited claim, then orchestrate that feature's children themselves. A second agent's selector does not see children under a feature another agent has claimed.">
+        <rect x="30" y="12" width="150" height="40" rx="4" class="r-work"/><text x="105" y="37" text-anchor="middle" class="b">Agent 1</text>
+        <rect x="260" y="12" width="150" height="40" rx="4" class="r-review"/><text x="335" y="37" text-anchor="middle" class="b">Agent 2</text>
+        <line x1="105" y1="52" x2="105" y2="96" class="l" marker-end="url(#ah)"/>
+        <line x1="335" y1="52" x2="335" y2="96" class="l" marker-end="url(#ah)"/>
+        <text x="115" y="78" class="m mu">claim_item</text>
+        <text x="345" y="78" class="m mu">claim_item</text>
+        <rect x="30" y="100" width="150" height="36" rx="4" class="r-work"/><text x="105" y="123" text-anchor="middle" class="s b">Feature X · TTL 900 s</text>
+        <rect x="260" y="100" width="150" height="36" rx="4" class="r-review"/><text x="335" y="123" text-anchor="middle" class="s b">Feature Y · TTL 900 s</text>
+        <rect x="30" y="150" width="70" height="28" rx="3" class="bx"/><text x="65" y="169" text-anchor="middle" class="s">child</text>
+        <rect x="110" y="150" width="70" height="28" rx="3" class="bx"/><text x="145" y="169" text-anchor="middle" class="s">child</text>
+        <rect x="260" y="150" width="70" height="28" rx="3" class="bx"/><text x="295" y="169" text-anchor="middle" class="s">child</text>
+        <rect x="340" y="150" width="70" height="28" rx="3" class="bx"/><text x="375" y="169" text-anchor="middle" class="s">child</text>
+        <line x1="258" y1="48" x2="186" y2="156" class="k-blocked dash"/>
+        <text x="220" y="169" text-anchor="middle" class="s c-blocked">hidden</text>
+        <text x="220" y="204" text-anchor="middle" class="s mu">Children are advanced by the agent holding the parent claim.</text>
+      </svg>
+      <figcaption>Many agents pull work. A claim is a lease that expires on its own if its holder crashes, and a heartbeat at half the TTL keeps it alive. The recommended fleet shape.</figcaption>
+    </figure>
+  </div>
+  <div class="tscroll"><table>
+    <thead><tr><th>Topology</th><th>Claims</th><th>Fits</th></tr></thead>
+    <tbody>
+      <tr><td>Pure orchestration</td><td>None</td><td>Single developer, sequential pipelines</td></tr>
+      <tr><td>Pure claim, flat items</td><td>Every item</td><td>Independent parallel work with no hierarchy</td></tr>
+      <tr><td>Pure claim, chains</td><td>Every item</td><td>Rarely. When a blocker completes, every agent races for the next link.</td></tr>
+      <tr><td>Hybrid: claim the parent, orchestrate the sub-tree</td><td>Feature level only</td><td>Feature-based development with many agents</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <h2>Claims in practice</h2>
+  <div class="grid3">
+    <div class="rule"><h3>Four answers to a claim</h3><p class="small"><code>success</code>, <code>already_claimed</code> (pick another item), <code>queue_empty</code> (nothing matches, stop or wait) and <code>none_eligible</code> (matches exist but none can be claimed now, retry later). One claim per call, and a <code>requestId</code> is required.</p></div>
+    <div class="rule"><h3>Claims clean up after themselves</h3><p class="small">Any transition into terminal clears the claim, and a reopened item starts unclaimed. A crashed agent's claim simply expires. There is no background sweeper.</p></div>
+    <div class="rule"><h3>Who holds it stays private</h3><p class="small">Lists and searches show only whether an item is claimed. The holder's identity appears in one place: <code>get_context</code> for that item.</p></div>
+  </div>
+</section>
+
+<section>
+  <h2>How much the server trusts an actor</h2>
+  <figure>
+    <div class="panel scroll">
+      <svg class="d" viewBox="0 0 900 236" role="img" aria-label="Four levels of identity assurance, each a step higher. No actor: nothing recorded. Self-reported: an actor on each write, which a plugin hook can require. Verified: a signed proof per call checked against a key set. Fail-closed: with the reject policy, unverified actors cannot claim.">
+        <rect x="10" y="150" width="214" height="76" class="bx2"/>
+        <text x="24" y="178" class="hd">No actor</text>
+        <text x="24" y="198" class="s mu">nothing is recorded</text>
+        <text x="24" y="214" class="s mu">the default</text>
+        <rect x="232" y="110" width="214" height="116" class="bx"/>
+        <text x="246" y="138" class="hd">Self-reported</text>
+        <text x="246" y="158" class="s">an actor on each write</text>
+        <text x="246" y="174" class="s mu">a plugin hook can require it</text>
+        <rect x="454" y="70" width="214" height="156" class="r-work"/>
+        <text x="468" y="98" class="hd">Verified</text>
+        <text x="468" y="118" class="s">a signed proof with each call,</text>
+        <text x="468" y="134" class="s">checked against a key set</text>
+        <rect x="676" y="30" width="214" height="196" class="r-terminal"/>
+        <text x="690" y="58" class="hd">Fail-closed</text>
+        <text x="690" y="78" class="s">policy: reject</text>
+        <text x="690" y="94" class="s">unverified actors cannot claim</text>
+        <text x="690" y="110" class="s">or advance claimed items</text>
+      </svg>
+    </div>
+    <figcaption>Each step is a config change, and none is required. The recorded actor is the same shape at every level: <code>{ id, kind, parent }</code>. What changes is whether anyone checked it.</figcaption>
+  </figure>
+  <div class="grid2">
+    <pre>actor_authentication:
+  enabled: true                  # the hook requires an actor
+  degraded_mode_policy: reject   # what to do when unverified
+  verifier:
+    type: jwks
+    oidc_discovery: "https://idp.example/.well-known/openid-configuration"
+    audience: "task-orchestrator"
+    algorithms: ["EdDSA", "RS256"]</pre>
+    <div class="tscroll"><table>
+      <thead><tr><th>Policy when a proof cannot be verified</th><th>Identity the server uses</th></tr></thead>
+      <tbody>
+        <tr><td><code>accept-cached</code>, the default</td><td>The verified id when only the key fetch failed and cached keys still validate it. Otherwise the self-reported id, with a warning logged.</td></tr>
+        <tr><td><code>accept-self-reported</code></td><td>Always the id the caller sent. For local development.</td></tr>
+        <tr><td><code>reject</code></td><td>None. Claims return <code>rejected_by_policy</code>.</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+  <div class="grid3">
+    <div class="rule"><h3>Two separate settings</h3><p class="small"><code>enabled</code> makes the plugin's hook refuse a write with no actor. <code>verifier</code> makes the server validate the proof. A call can pass the first and fail the second.</p></div>
+    <div class="rule"><h3>Where keys come from</h3><p class="small">An OIDC discovery URL, a JWKS URL, a local key file for air-gapped hosts, or per-agent decentralized identifiers from an allowlist. Proofs must expire, within 24 hours by default.</p></div>
+    <div class="rule"><h3>Set once, server-wide</h3><p class="small">Identity settings live only in the global config. A project cannot loosen them. The <code>DEGRADED_MODE_POLICY</code> environment variable overrides the file, and an unknown value stops the server from starting.</p></div>
+  </div>
+</section>
+
+<section>
+  <h2>Three independent switches</h2>
+  <div class="modes3">
+    <div class="rule"><h3>Orchestration</h3><p class="small">Always on. Transitions, gates, dependencies and cascades work with no further setup.</p></div>
+    <div class="rule"><h3>Claims</h3><p class="small">Opt-in. Agents take time-limited ownership of an item with <code>claim_item</code>, and the server then requires the holder's identity on its transitions.</p></div>
+    <div class="rule"><h3>Actor authentication</h3><p class="small">Opt-in and separate from claims. Verifies the actor on each write against a JWKS key set, so attribution is proven and no longer self-reported.</p></div>
+  </div>
+</section>
+
+<footer style="display:grid;gap:14px"><nav class="series-nav" aria-label="Field guide plates">
+<a class="item" href="index.html"><span class="n">PLATE 1</span><span class="t">At a Glance</span><span class="small sub">What it is and why the rule lives in the server</span></a>
+<a class="item" href="phase-gates.html"><span class="n">PLATE 2</span><span class="t">Phase Gates</span><span class="small sub">Roles, triggers and a gate you can try</span></a>
+<a class="item" href="work-graph.html"><span class="n">PLATE 3</span><span class="t">Work Graph</span><span class="small sub">Hierarchy, dependencies and cascades</span></a>
+<a class="item" href="schemas-and-traits.html"><span class="n">PLATE 4</span><span class="t">Schemas and Traits</span><span class="small sub">How YAML becomes an enforced gate</span></a>
+<span class="item cur" aria-current="page"><span class="n">PLATE 5</span><span class="t">Runtime Map</span><span class="small sub">Architecture, deployment and fleets</span></span>
+<a class="item" href="seats.html"><span class="n">PLATE 6</span><span class="t">Seats</span><span class="small sub">Who does what inside a phase</span></a>
+<a class="item" href="finding-work.html"><span class="n">PLATE 7</span><span class="t">Finding Work</span><span class="small sub">The read calls and how the next item is chosen</span></a>
+<a class="item" href="orchestrating-a-run.html"><span class="n">PLATE 8</span><span class="t">Orchestrating a Run</span><span class="small sub">From a request to finished items</span></a>
+<a class="item" href="improvement-loop.html"><span class="n">PLATE 9</span><span class="t">Improvement Loop</span><span class="small sub">From friction to an adopted change</span></a>
+</nav>
+<p class="foot"><span>MCP Task Orchestrator field guide. MIT licensed, open source.</span><a href="https://github.com/jpicklyk/task-orchestrator">github.com/jpicklyk/task-orchestrator</a></p></footer>
+</div>
+</body>
+</html>
