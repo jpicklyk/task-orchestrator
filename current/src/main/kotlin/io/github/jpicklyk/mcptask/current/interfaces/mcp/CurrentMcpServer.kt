@@ -534,10 +534,20 @@ internal fun buildMcpTools(): List<ToolDefinition> =
  * 2. [CORS] — env-driven allowlist, locked-down default (empty = no cross-origin). With Host
  *    already pinned to the allowlist by step 0, a same-origin request here implies an allowlisted
  *    host too.
- * 3. [mcpStreamableHttp] mounts `/mcp` and **installs the Ktor `SSE` plugin itself** (SDK 0.12.0).
+ * 3. [mcpStreamableHttp] mounts `/mcp` and **installs the Ktor `SSE` plugin itself** (SDK 0.12.0+).
  *    Therefore callers MUST NOT `install(SSE)` separately: a second install throws
  *    `DuplicatePluginException` at startup and the HTTP server never comes up. The SSE plugin
  *    installed here is reused by the `/api/v1/events` route in [installRestApiRoutes].
+ *
+ * **One Host guard, not two.** Since SDK 0.13.0 `mcpStreamableHttp` ships its own route-scoped
+ * DNS-rebinding guard, on by default with a loopback-only allowlist. It is turned off here
+ * (`enableDnsRebindingProtection = false`) because [installHostAllowlist] in step 0 is this
+ * server's single Host authority: it honours `MCP_ALLOWED_HOSTS`, covers `/api/v1` and
+ * `/.well-known` as well as `/mcp`, and its semantics are pinned by `DnsRebindingHostAllowlistTest`.
+ * Leaving the SDK guard on would reject requests that allowlist admits: any configured
+ * non-loopback host, a request with no `Host` header, and a host with one trailing dot. No
+ * `Origin` protection is given up: in its default form (`allowedOrigins = null`) the SDK guard
+ * checks `Host` only. A foreign `Origin` is rejected by [CORS] in step 2, on every request.
  *
  * Extracted from [CurrentMcpServer.runHttpTransport] so the exact production wiring is testable.
  */
@@ -552,7 +562,7 @@ internal fun Application.installMcpStreamableHttp(
     install(CORS) {
         configureCors(appConfig)
     }
-    mcpStreamableHttp {
+    mcpStreamableHttp(enableDnsRebindingProtection = false) {
         server
     }
 }
