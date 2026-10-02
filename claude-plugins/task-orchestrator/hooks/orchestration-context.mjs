@@ -98,6 +98,7 @@ ${SHARED_SCHEMA_WORKFLOW}
 | When | Invoke |
 |------|--------|
 | Driving a schema-typed item through its phases | \`task-orchestrator:schema-workflow\` |
+| Dispatching an item's phase owner - reading its \`dispatch\` / \`dispatchBySeat\` profile for \`subagent_type\` and \`model\` | \`task-orchestrator:orchestrate\` (phase-owner section only; skip its tiers and model table in schema mode) |
 | A plan materialized two or more unblocked leaf items (post-plan hand-off condition) | \`task-orchestrator:run-wave\` |
 | A bug, idea, tech debt, or observation worth tracking across sessions | \`task-orchestrator:create-item\` |
 | An \`advance_item\` is blocked or you need the next trigger | \`task-orchestrator:status-progression\` |

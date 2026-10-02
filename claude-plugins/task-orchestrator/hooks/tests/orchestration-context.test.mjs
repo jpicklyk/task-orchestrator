@@ -83,11 +83,14 @@ test('config without project.rootId still injects', () => {
   assert.match(ctxOf(run('orchestration:\n  mode: workflow\n')), /task-orchestrator:orchestrate/);
 });
 
-test('schema variant differs and omits orchestrate routing', () => {
+test('schema variant differs: no tier sizing route, but phase-owner dispatch still routes to orchestrate', () => {
   const schema = ctxOf(run(`${BASE}orchestration:\n  mode: schema\n`));
   const workflow = ctxOf(run(BASE));
   assert.match(schema, /task-orchestrator:schema-workflow/);
-  assert.ok(!schema.includes('task-orchestrator:orchestrate'));
+  assert.ok(!schema.includes('Before sizing or dispatching implementation work'));
+  assert.ok(!schema.includes('Direct work you implement yourself'));
+  assert.match(schema, /phase owner[^\n]*`task-orchestrator:orchestrate`/);
+  assert.match(workflow, /Before sizing or dispatching implementation work \| `task-orchestrator:orchestrate`/);
   assert.notEqual(schema, workflow);
 });
 
