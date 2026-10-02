@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "field-guide",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["docs/field-guide/src/serve.mjs", "4173"],
+      "port": 4173
+    }
+  ]
+}

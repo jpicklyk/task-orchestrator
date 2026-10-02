@@ -1,0 +1,133 @@
+<title>Task Orchestrator at a Glance</title>
+<!--FONTS-->
+<style>/*SHARED*/</style>
+<style>
+.xchg{list-style:none;margin:0;padding:0;display:grid;gap:0;border-top:1px solid var(--line)}
+.xchg li{display:grid;grid-template-columns:2.2rem minmax(0,1fr) minmax(0,1fr);gap:6px 16px;padding-block:12px;border-bottom:1px solid var(--line);align-items:start}
+.xchg .n{font:600 22px/1 var(--display);color:var(--muted)}
+.xchg .call{font:400 13px/1.5 var(--mono);overflow-wrap:anywhere}
+.xchg .resp{font:400 13px/1.5 var(--mono);overflow-wrap:anywhere;padding-left:12px;border-left:3px solid var(--line)}
+.xchg .resp.err{color:var(--blocked);border-color:var(--blocked)}
+.xchg .resp.ok{color:var(--terminal);border-color:var(--terminal)}
+.xchg .why{grid-column:2/-1;font-size:14px;color:var(--muted)}
+@media (max-width:640px){.xchg li{grid-template-columns:2.2rem minmax(0,1fr)}.xchg .resp,.xchg .why{grid-column:2}}
+.owns{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:22px 24px}
+.owns .tools{font:400 12.5px/1.5 var(--mono);color:var(--muted);overflow-wrap:anywhere}
+.ladder{list-style:none;margin:0;padding:0;display:grid;gap:0;counter-reset:t}
+.ladder li{counter-increment:t;display:grid;grid-template-columns:3rem minmax(0,11rem) minmax(0,1fr);gap:4px 16px;padding-block:10px;border-bottom:1px solid var(--line);align-items:baseline}
+.ladder li::before{content:counter(t);font:600 26px/1 var(--display);color:var(--work)}
+.ladder .who{font-size:14px;color:var(--muted)}
+@media (max-width:640px){.ladder li{grid-template-columns:3rem minmax(0,1fr)}.ladder .who{grid-column:2}}
+.stack{display:flex;flex-wrap:wrap;gap:8px}
+.stack span{font:400 13px/1 var(--mono);padding:7px 10px;border:1px solid var(--line);border-radius:4px;background:var(--surface)}
+</style>
+<!--DEFS-->
+<div class="wrap">
+<header class="plate-head">
+  <p class="series"><span>MCP Task Orchestrator · Field guide</span><span>Plate 1 of 5</span></p>
+  <h1>Workflow rules the server enforces</h1>
+  <p class="lede">Task Orchestrator is an MCP server that gives AI coding agents a persistent work item graph with quality gates. Prompt-based frameworks hope the model follows instructions. This server blocks the call when it doesn't.</p>
+</header>
+
+<section>
+  <h2>Where the rule lives</h2>
+  <div class="grid2">
+    <figure class="panel">
+      <h3>In the prompt</h3>
+      <svg class="d" viewBox="0 0 500 200" role="img" aria-label="An agent told by its prompt to write a design note first skips the note and updates the tracker anyway. The write succeeds.">
+        <rect x="16" y="14" width="250" height="34" rx="4" class="fr"/>
+        <text x="28" y="36" class="s mu">Prompt: “write the design note first”</text>
+        <line x1="68" y1="48" x2="68" y2="70" class="lm dash"/>
+        <rect x="16" y="70" width="104" height="56" rx="4" class="bx"/>
+        <text x="68" y="103" text-anchor="middle" class="b">Agent</text>
+        <line x1="120" y1="98" x2="368" y2="98" class="l" marker-end="url(#ah)"/>
+        <text x="244" y="88" text-anchor="middle" class="m">set status = in progress</text>
+        <rect x="372" y="70" width="112" height="56" rx="4" class="bx"/>
+        <text x="428" y="94" text-anchor="middle" class="b">Task tracker</text>
+        <text x="428" y="112" text-anchor="middle" class="s mu">accepts any write</text>
+        <text x="250" y="162" text-anchor="middle" class="b c-blocked">The note was never written.</text>
+        <text x="250" y="182" text-anchor="middle" class="s mu">Nothing checked, so the skipped step still succeeds.</text>
+      </svg>
+      <figcaption>The instruction is advice. A long session, a fresh sub-agent or a compacted context can drop it, and no one finds out.</figcaption>
+    </figure>
+    <figure class="panel">
+      <h3>In the server</h3>
+      <svg class="d" viewBox="0 0 500 200" role="img" aria-label="The agent calls advance_item. A gate inside the server checks required notes, dependencies and leases. It returns an error naming the missing note, or passes the transition and records the actor.">
+        <rect x="16" y="70" width="100" height="56" rx="4" class="bx"/>
+        <text x="66" y="103" text-anchor="middle" class="b">Agent</text>
+        <line x1="116" y1="86" x2="216" y2="86" class="l" marker-end="url(#ah)"/>
+        <text x="166" y="76" text-anchor="middle" class="m">advance_item</text>
+        <line x1="220" y1="112" x2="120" y2="112" class="k-blocked" marker-end="url(#ahb)"/>
+        <text x="168" y="130" text-anchor="middle" class="s c-blocked">names the note</text>
+        <rect x="220" y="58" width="96" height="80" rx="4" class="r-gate"/>
+        <text x="268" y="84" text-anchor="middle" class="hd">Gate</text>
+        <text x="268" y="104" text-anchor="middle" class="s">notes filled?</text>
+        <text x="268" y="122" text-anchor="middle" class="s">blockers done?</text>
+        <line x1="316" y1="98" x2="392" y2="98" class="k-terminal" marker-end="url(#aht)"/>
+        <text x="354" y="88" text-anchor="middle" class="s c-terminal">pass</text>
+        <rect x="396" y="70" width="96" height="56" rx="4" class="bx"/>
+        <text x="444" y="94" text-anchor="middle" class="b">Work item</text>
+        <text x="444" y="112" text-anchor="middle" class="m mu">queue → work</text>
+        <text x="250" y="166" text-anchor="middle" class="s mu">Every transition goes through the same call, and each one records who made it.</text>
+      </svg>
+      <figcaption>The rule is structure. An agent that skips the note gets an error that names it, fills it, and tries again.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section>
+  <h2>One gate, seen from the agent</h2>
+  <p class="sub">A new session with no memory of yesterday picks up an item and runs into the gate.</p>
+  <ol class="xchg">
+    <li><span class="n">1</span>
+      <div class="call">get_context(since="2025-01-14T17:00:00Z")</div>
+      <div class="resp">2 items in work, 1 blocked, 1 stalled (missing implementation-notes)</div>
+      <div class="why">One call recovers the full state: active items, recent transitions with their actors, and ancestor chains.</div></li>
+    <li><span class="n">2</span>
+      <div class="call">advance_item(itemId="a3f2", trigger="start")</div>
+      <div class="resp err">Gate check failed: required notes not filled for queue phase: requirements</div>
+      <div class="why">The item's schema requires a <code>requirements</code> note before work starts.</div></li>
+    <li><span class="n">3</span>
+      <div class="call">manage_notes(operation="upsert", key="requirements", body="Validate email format…")</div>
+      <div class="resp ok">Upserted. noteProgress: { filled: 1, remaining: 0, total: 1 }</div>
+      <div class="why">The agent writes the note the error named.</div></li>
+    <li><span class="n">4</span>
+      <div class="call">advance_item(itemId="a3f2", trigger="start")</div>
+      <div class="resp ok">queue → work. Actor recorded.</div>
+      <div class="why">Same call, now it passes. Nothing was rebuilt from conversation history.</div></li>
+  </ol>
+</section>
+
+<section>
+  <h2>What the server owns</h2>
+  <div class="owns">
+    <div class="rule"><h3>A work item graph</h3><p class="small">Everything is a WorkItem. Items nest to any depth and connect with typed dependency edges.</p><p class="tools">create_work_tree · manage_items · query_items · complete_tree</p></div>
+    <div class="rule"><h3>Phase gates</h3><p class="small">Schemas declare which notes must exist at each phase. Transitions fail until they do.</p><p class="tools">advance_item · get_next_status · manage_notes</p></div>
+    <div class="rule"><h3>Dependency ordering</h3><p class="small">A blocked item cannot start until its blocker reaches the agreed phase. Finishing a blocker reports what it unblocked.</p><p class="tools">manage_dependencies · get_blocked_items</p></div>
+    <div class="rule"><h3>Actor attribution</h3><p class="small">Transitions and notes record who made them, including which orchestrator dispatched which sub-agent. JWKS verification is optional.</p><p class="tools">actor: { id, kind, parent }</p></div>
+    <div class="rule"><h3>Session continuity</h3><p class="small">A fresh session reads active, blocked and stalled items in one response instead of replaying a conversation.</p><p class="tools">get_context · get_next_item</p></div>
+    <div class="rule"><h3>Scoped, searchable notes</h3><p class="small">Notes are keyed by phase. Agents read only the note they need, or search items and notes by keyword.</p><p class="tools">query_notes · query_items(operation="search")</p></div>
+  </div>
+  <p class="sub small">The server owns these guardrails and nothing else. It has no opinion on how agents plan or write code, and every enforcement layer is opt-in through a YAML file.</p>
+</section>
+
+<section>
+  <h2>Adopt it one tier at a time</h2>
+  <p class="sub">Each tier builds on the one before. Note schemas (tier 3) can be added at any point.</p>
+  <ol class="ladder">
+    <li><h3>Bare MCP</h3><span class="who">Any MCP client</span><span class="small" style="grid-column:2/-1">The full tool surface, a persistent SQLite store and the role-based workflow.</span></li>
+    <li><h3>CLAUDE.md-driven</h3><span class="who">Claude Code users</span><span class="small" style="grid-column:2/-1">Consistent agent behaviour from project instructions.</span></li>
+    <li><h3>Note schemas</h3><span class="who">Anyone who wants gates</span><span class="small" style="grid-column:2/-1">Required documentation per phase, enforced on every transition.</span></li>
+    <li><h3>Plugin: skills and hooks</h3><span class="who">Claude Code with the plugin</span><span class="small" style="grid-column:2/-1">Plan-mode integration, sub-agent protocols and per-project config sync.</span></li>
+    <li><h3>Output styles</h3><span class="who">Power users</span><span class="small" style="grid-column:2/-1">Claude plans, delegates to sub-agents and tracks progress as an orchestrator.</span></li>
+    <li><h3>Self-improving workflow</h3><span class="who">Teams tuning their process</span><span class="small" style="grid-column:2/-1">Observations and retrospectives feed proposals that change the schemas.</span></li>
+  </ol>
+</section>
+
+<section>
+  <h2>Built with</h2>
+  <div class="stack"><span>Kotlin + coroutines</span><span>SQLite · Exposed ORM · FTS5</span><span>Flyway migrations</span><span>MCP Kotlin SDK (STDIO, Streamable HTTP)</span><span>Ktor REST + SSE</span><span>Docker image on ghcr.io</span></div>
+</section>
+
+<!--NAV-->
+</div>

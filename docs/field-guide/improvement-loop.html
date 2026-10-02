@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>:root{color-scheme:light}[hidden]{display:none!important}img{max-width:100%}</style>
+<title>Task Orchestrator Improvement Loop</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>/* layout: a numbered plate. Heavy top rule, one thesis, figures drawn as signal-track schematics, notes in columns, series index at the foot. */
+:root{
+  --bg:#F1F3F6; --surface:#FFFFFF; --sunk:#E5E9EE; --ink:#152232; --muted:#556375; --line:#C8D0DA;
+  --queue:#5F6F85; --work:#1565D8; --review:#7A47CF; --terminal:#0C8259; --blocked:#C93434; --gate:#A86200;
+  --queue-bg:#E3E8EE; --work-bg:#DCE9FB; --review-bg:#ECE3FA; --terminal-bg:#D8F0E5; --blocked-bg:#FADEDE; --gate-bg:#FAE9CB;
+  --display:"Barlow Condensed","Arial Narrow",sans-serif;
+  --body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Consolas,"Courier New",monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0E151E; --surface:#16202C; --sunk:#0A1017; --ink:#E4EAF2; --muted:#96A4B6; --line:#2B3A4C;
+    --queue:#96A6BA; --work:#62A6FF; --review:#B692FF; --terminal:#45CF95; --blocked:#FF7272; --gate:#F2AE42;
+    --queue-bg:#1E2A38; --work-bg:#13294A; --review-bg:#2A1F47; --terminal-bg:#0F3326; --blocked-bg:#421B1B; --gate-bg:#3D2C0C;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0E151E; --surface:#16202C; --sunk:#0A1017; --ink:#E4EAF2; --muted:#96A4B6; --line:#2B3A4C;
+  --queue:#96A6BA; --work:#62A6FF; --review:#B692FF; --terminal:#45CF95; --blocked:#FF7272; --gate:#F2AE42;
+  --queue-bg:#1E2A38; --work-bg:#13294A; --review-bg:#2A1F47; --terminal-bg:#0F3326; --blocked-bg:#421B1B; --gate-bg:#3D2C0C;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:400 16px/1.55 var(--body)}
+.wrap{max-width:1060px;margin:0 auto;padding-inline:20px;padding-block:28px 48px;display:flex;flex-direction:column;gap:44px}
+.plate-head{border-top:6px solid var(--ink);padding-top:14px;display:grid;gap:12px}
+.series{font:500 12px/1.3 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:0;max-width:none}
+h1{font:700 clamp(40px,7.2vw,70px)/.95 var(--display);text-transform:uppercase;margin:0;text-wrap:balance;max-width:16ch}
+.lede{font-size:19px;line-height:1.45;max-width:60ch}
+h2{font:600 30px/1.05 var(--display);text-transform:uppercase;letter-spacing:.02em;margin:0;text-wrap:balance}
+h3{font:600 15px/1.3 var(--body);margin:0}
+section{display:grid;gap:16px;min-width:0}
+p{margin:0;max-width:68ch}
+.sub{color:var(--muted)}
+.small{font-size:14px}
+code,.mono{font-family:var(--mono);font-size:.88em}
+a{color:var(--work)}
+figure{margin:0;display:grid;gap:10px;min-width:0}
+figcaption{font-size:14px;color:var(--muted);max-width:76ch}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:4px;padding:16px;min-width:0;display:grid;gap:12px;align-content:start}
+.scroll{overflow-x:auto}
+.scroll>svg{min-width:700px}
+svg.d{display:block;width:100%;height:auto}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,330px),1fr));gap:16px}
+.grid3{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,250px),1fr));gap:16px}
+.grid2>*,.grid3>*{min-width:0}
+pre{margin:0;font:400 13px/1.5 var(--mono);background:var(--sunk);border-radius:4px;padding:12px 14px;overflow-x:auto;white-space:pre}
+.tscroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:8px 12px 8px 0;border-bottom:1px solid var(--line);vertical-align:top}
+th{font:500 11px/1.3 var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.chip{display:inline-block;font:500 12px/1 var(--mono);padding:4px 8px;border-radius:999px;border:1.5px solid;white-space:nowrap}
+.chip.queue{color:var(--queue);background:var(--queue-bg)}
+.chip.work{color:var(--work);background:var(--work-bg)}
+.chip.review{color:var(--review);background:var(--review-bg)}
+.chip.terminal{color:var(--terminal);background:var(--terminal-bg)}
+.chip.blocked{color:var(--blocked);background:var(--blocked-bg)}
+.chip.gate{color:var(--gate);background:var(--gate-bg)}
+button{font:500 13px/1 var(--mono);padding:9px 12px;border:1.5px solid var(--ink);background:var(--surface);color:var(--ink);border-radius:4px;cursor:pointer}
+button:hover{background:var(--sunk)}
+button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
+button:focus-visible,[tabindex]:focus-visible,a:focus-visible,input:focus-visible{outline:3px solid var(--work);outline-offset:2px}
+.btns{display:flex;flex-wrap:wrap;gap:8px}
+.log{font:400 13px/1.5 var(--mono);background:var(--sunk);border-radius:4px;padding:12px 14px;height:260px;overflow:auto;overflow-wrap:anywhere}
+.log .ok{color:var(--terminal)} .log .err{color:var(--blocked)} .log .call{color:var(--muted);margin-top:6px} .log .sys{color:var(--gate)}
+.rule{border-top:2px solid var(--ink);padding-top:10px;display:grid;gap:6px;align-content:start}
+.series-nav{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,170px),1fr));column-gap:20px;border-top:6px solid var(--ink);padding-top:6px}
+.series-nav .item{display:grid;gap:4px;padding-block:10px;text-decoration:none;color:var(--ink);border-bottom:1px solid var(--line);align-content:start}
+.series-nav .n{font:500 11px/1.3 var(--mono);letter-spacing:.08em;color:var(--muted)}
+.series-nav .t{font:600 21px/1 var(--display);text-transform:uppercase}
+.series-nav .cur .t{color:var(--work)}
+.series-nav a.item:hover .t{text-decoration:underline}
+.foot{font-size:13px;color:var(--muted);display:flex;flex-wrap:wrap;gap:6px 18px;justify-content:space-between}
+/* diagram vocabulary */
+.d text{font-family:var(--body);font-size:13px;fill:var(--ink)}
+.d .m{font-family:var(--mono);font-size:11.5px}
+.d .s{font-size:11.5px}
+.d .b{font-weight:600}
+.d .mu{fill:var(--muted)}
+.d .hd{font-family:var(--display);font-weight:600;font-size:18px;text-transform:uppercase;letter-spacing:.03em}
+.d .bx{fill:var(--surface);stroke:var(--ink);stroke-width:1.5}
+.d .bx2{fill:var(--sunk);stroke:var(--line);stroke-width:1.5}
+.d .fr{fill:none;stroke:var(--muted);stroke-width:1.5;stroke-dasharray:5 4}
+.d .l{stroke:var(--ink);stroke-width:1.5;fill:none}
+.d .lm{stroke:var(--muted);stroke-width:1.5;fill:none}
+.d .dash{stroke-dasharray:5 4}
+.d .ah{fill:var(--ink)} .d .ahm{fill:var(--muted)}
+.d .r-queue{fill:var(--queue-bg);stroke:var(--queue);stroke-width:2}
+.d .r-work{fill:var(--work-bg);stroke:var(--work);stroke-width:2}
+.d .r-review{fill:var(--review-bg);stroke:var(--review);stroke-width:2}
+.d .r-terminal{fill:var(--terminal-bg);stroke:var(--terminal);stroke-width:2}
+.d .r-blocked{fill:var(--blocked-bg);stroke:var(--blocked);stroke-width:2}
+.d .r-gate{fill:var(--gate-bg);stroke:var(--gate);stroke-width:2}
+.d .c-queue{fill:var(--queue)} .d .c-work{fill:var(--work)} .d .c-review{fill:var(--review)}
+.d .c-terminal{fill:var(--terminal)} .d .c-blocked{fill:var(--blocked)} .d .c-gate{fill:var(--gate)}
+.d .k-work{stroke:var(--work);stroke-width:1.5;fill:none} .d .k-terminal{stroke:var(--terminal);stroke-width:1.5;fill:none}
+.d .k-blocked{stroke:var(--blocked);stroke-width:1.5;fill:none} .d .k-gate{stroke:var(--gate);stroke-width:1.5;fill:none}
+@media (prefers-reduced-motion:no-preference){.d rect,.d path,.d line{transition:fill .2s,stroke .2s,opacity .2s}}
+</style>
+<style>
+.ctl{display:grid;gap:6px}
+.ctl>span{font:500 11px/1.3 var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.track{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+.track div{border:2px solid var(--line);border-radius:999px;padding:8px 6px;text-align:center;font:600 16px/1 var(--display);text-transform:uppercase;color:var(--muted)}
+.track div.on.queue{border-color:var(--queue);background:var(--queue-bg);color:var(--ink)}
+.track div.on.review{border-color:var(--review);background:var(--review-bg);color:var(--ink)}
+.track div.on.terminal{border-color:var(--terminal);background:var(--terminal-bg);color:var(--ink)}
+.out ol{margin:0;padding-left:1.2rem;display:grid;gap:6px;font-size:14px}
+.out .end{font-size:14px;color:var(--muted)}
+.dims{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,170px),1fr));gap:16px}
+.dims li{border-top:2px solid var(--ink);padding-top:8px;display:grid;gap:4px;align-content:start}
+.dims .q{font-size:13.5px;color:var(--muted)}
+</style>
+</head>
+<body>
+<svg class="d" width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs>
+<marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah"/></marker>
+<marker id="ahm" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ahm"/></marker>
+<marker id="ahw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="c-work"/></marker>
+<marker id="aht" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="c-terminal"/></marker>
+<marker id="ahb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="c-blocked"/></marker>
+<marker id="ahg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="c-gate"/></marker>
+</defs></svg>
+
+<div class="wrap">
+<header class="plate-head">
+  <p class="series"><span>MCP Task Orchestrator · Field guide</span><span>Plate 9 of 9</span></p>
+  <h1>A process that proposes its own fixes</h1>
+  <p class="lede">Friction noticed during work becomes a tracked item. Friction that recurs becomes a trend. A trend seen twice becomes a concrete proposal to change the config, and a person decides whether to adopt it.</p>
+</header>
+
+<section>
+  <h2>The loop</h2>
+  <figure>
+    <div class="panel scroll">
+      <svg class="d" viewBox="0 0 900 286" role="img" aria-label="A cycle of six stages. A run finishes. A retrospective scores it. Findings are matched to trends. A trend seen in two sessions graduates to a proposal. A person reviews the proposal. An accepted proposal changes the config, which gates the next run.">
+        <rect x="20" y="30" width="200" height="70" rx="4" class="r-work"/>
+        <text x="120" y="60" text-anchor="middle" class="hd">A run finishes</text>
+        <text x="120" y="82" text-anchor="middle" class="s">items reach terminal</text>
+        <line x1="220" y1="65" x2="346" y2="65" class="l" marker-end="url(#ah)"/>
+        <text x="285" y="55" text-anchor="middle" class="s mu">notes, observations</text>
+        <rect x="350" y="30" width="200" height="70" rx="4" class="bx"/>
+        <text x="450" y="60" text-anchor="middle" class="hd">Retrospective</text>
+        <text x="450" y="82" text-anchor="middle" class="s mu">scores the run on five dimensions</text>
+        <line x1="550" y1="65" x2="676" y2="65" class="l" marker-end="url(#ah)"/>
+        <text x="615" y="55" text-anchor="middle" class="s mu">findings, by key</text>
+        <rect x="680" y="30" width="200" height="70" rx="4" class="bx"/>
+        <text x="780" y="60" text-anchor="middle" class="hd">Trend</text>
+        <text x="780" y="82" text-anchor="middle" class="s mu">one item per recurring finding</text>
+        <line x1="780" y1="100" x2="780" y2="186" class="l" marker-end="url(#ah)"/>
+        <text x="790" y="148" class="s c-gate">Sessions ≥ 2</text>
+        <rect x="680" y="190" width="200" height="70" rx="4" class="r-gate"/>
+        <text x="780" y="220" text-anchor="middle" class="hd">Proposal</text>
+        <text x="780" y="242" text-anchor="middle" class="s">the exact change to make</text>
+        <line x1="680" y1="225" x2="554" y2="225" class="l" marker-end="url(#ah)"/>
+        <text x="617" y="215" text-anchor="middle" class="m mu">/review-proposals</text>
+        <rect x="350" y="190" width="200" height="70" rx="4" class="r-review"/>
+        <text x="450" y="220" text-anchor="middle" class="hd">A person decides</text>
+        <text x="450" y="242" text-anchor="middle" class="s">accept, reject or defer</text>
+        <line x1="350" y1="225" x2="224" y2="225" class="l" marker-end="url(#ah)"/>
+        <text x="287" y="215" text-anchor="middle" class="s mu">accept</text>
+        <rect x="20" y="190" width="200" height="70" rx="4" class="r-terminal"/>
+        <text x="120" y="220" text-anchor="middle" class="hd">Config changes</text>
+        <text x="120" y="242" text-anchor="middle" class="s">edited and pushed per project</text>
+        <line x1="120" y1="190" x2="120" y2="104" class="l" marker-end="url(#ah)"/>
+        <text x="130" y="150" class="s mu">gates the next run</text>
+      </svg>
+    </div>
+    <figcaption>Every stage is an ordinary work item with its own schema and gates, so the loop is tracked, attributed and resumable like any other work. Nothing changes the config without the human step.</figcaption>
+  </figure>
+</section>
+
+<section>
+  <h2>What starts a retrospective</h2>
+  <p>A plugin hook watches <code>advance_item</code> and <code>complete_tree</code>. A run counts as finished when a parent reaches terminal by cascade, or <code>complete_tree</code> completes at least one item. What happens next is set by <code>retrospective.mode</code> in the project config.</p>
+  <div class="grid3">
+    <div class="rule"><h3><code>nudge</code>, the default</h3><p class="small">The session is told a retrospective is suggested and given the command to run. The user decides.</p></div>
+    <div class="rule"><h3><code>dispatch</code></h3><p class="small">Once at least <code>dispatchThreshold</code> items (default 3) have reached terminal, the orchestrator launches one background retrospective agent at the next pause in the run. Smaller runs still get a nudge.</p></div>
+    <div class="rule"><h3><code>off</code></h3><p class="small">Nothing is emitted. Retrospectives run only when someone invokes <code>/task-orchestrator:session-retrospective</code>.</p></div>
+  </div>
+  <p class="sub small">A single item finishing on its own does not trigger straight away. It is recorded, and a hook at the end of the turn nudges once. After a retrospective runs, a cooldown (default 30 minutes) stops repeat prompts for the same work.</p>
+</section>
+
+<section>
+  <h2>What the retrospective reads and scores</h2>
+  <p>It reads the <code>session-tracking</code> note on each item of the run (up to 20), plus the optional <code>delegation-metadata</code> note recording which model did the work. Then it scores five things.</p>
+  <ul class="dims">
+    <li><h3>Schema effectiveness</h3><span class="q">Do the required notes exist at a sensible size? Under about 50 tokens is flagged as sparse.</span></li>
+    <li><h3>Delegation alignment</h3><span class="q">Did each task run on the model the delegation table expects?</span></li>
+    <li><h3>Note effectiveness</h3><span class="q">Did the specs hold up? Work notes that say "deviated" or "assumption was wrong" flag a spec gap.</span></li>
+    <li><h3>Plan-to-execution alignment</h3><span class="q">What share of planned items finished, and how many were added mid-run?</span></li>
+    <li><h3>Friction synthesis</h3><span class="q">Tool errors, excess round-trips, workarounds and confusing calls.</span></li>
+  </ul>
+  <p class="sub small">The result is a retrospective item under the Session Retrospectives container, with queue notes <code>session-metrics</code>, <code>workflow-evaluation</code> and <code>improvement-signals</code>, and a work note <code>actions-taken</code> written last.</p>
+</section>
+
+<section>
+  <h2>A trend is a counter with evidence</h2>
+  <div class="grid2">
+    <pre>title:   trend: thin-review-checklist — review notes
+         restate the plan instead of checking it
+summary: Reviewers copy acceptance criteria without
+         evidence. Sessions: 2. Last seen: 2026-09-30.
+tags:    retrospective-trend,note-quality
+
+notes:   evidence-2026-09-24-4c1e   (work)
+         evidence-2026-09-30-b07a   (work)</pre>
+    <div style="display:grid;gap:16px;align-content:start">
+      <div class="rule"><h3>Matched by key</h3><p class="small">The short key in the title is the trend's identity. A new finding is matched to an existing key first, then by search when the match is uncertain.</p></div>
+      <div class="rule"><h3>Recurrence adds evidence</h3><p class="small">Each session that sees the finding again adds one evidence note and increments the count. The summary is rewritten to stay short.</p></div>
+      <div class="rule"><h3>Two sessions make a proposal</h3><p class="small">A trend at <code>Sessions: 2</code> or more graduates. Trend items are never started or completed. They are cancelled when archived.</p></div>
+    </div>
+  </div>
+  <p class="sub small">The example values are illustrative. The format is the skill's own.</p>
+</section>
+
+<section>
+  <h2>Deciding a proposal</h2>
+  <p class="sub">A proposal is a work item with three required notes, one per phase: <code>proposal</code>, <code>adoption-decision</code> and <code>outcome-verification</code>. Pick a scope and a decision to see where it ends up.</p>
+  <div class="grid2">
+    <div class="panel">
+      <div class="ctl"><span>Scope of the proposal</span>
+        <div class="btns" id="scope" role="group" aria-label="proposal scope">
+          <button type="button" data-v="project" aria-pressed="true">this project</button>
+          <button type="button" data-v="global" aria-pressed="false">global</button>
+        </div></div>
+      <div class="ctl"><span>Decision</span>
+        <div class="btns" id="dec" role="group" aria-label="decision">
+          <button type="button" data-v="accept" aria-pressed="true">accept</button>
+          <button type="button" data-v="reject" aria-pressed="false">reject</button>
+          <button type="button" data-v="defer" aria-pressed="false">defer</button>
+        </div></div>
+      <p class="small sub">A project proposal changes one project's schemas or workflow. A global proposal changes the shared server config or the plugin itself.</p>
+    </div>
+    <div class="panel out" aria-live="polite">
+      <div class="track" aria-hidden="true">
+        <div id="tk-queue" class="queue">queue</div><div id="tk-work">work</div><div id="tk-review" class="review">review</div><div id="tk-terminal" class="terminal">terminal</div>
+      </div>
+      <ol id="o-steps"></ol>
+      <p class="end" id="o-end"></p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Observations: the raw material</h2>
+  <div class="grid2">
+    <div style="display:grid;gap:12px;align-content:start">
+      <p>An observation is a small item recording something the tooling got wrong or made hard. Each is its own root, low priority, tagged <code>agent-observation</code> plus one kind.</p>
+      <div class="btns" aria-label="observation kinds">
+        <span class="chip gate">optimization</span><span class="chip gate">friction</span><span class="chip blocked">bug</span><span class="chip review">missing-capability</span>
+      </div>
+      <p class="small sub">Before one is created, the backlog is searched for the same issue, so repeats add context to an existing item. They stay outside every project because tool friction is not specific to one codebase.</p>
+    </div>
+    <div class="tscroll"><table>
+      <thead><tr><th>Process schema</th><th>Notes, by phase</th></tr></thead>
+      <tbody>
+        <tr><td><code>agent-observation</code></td><td><span class="chip queue">queue</span> observation-detail · <span class="chip work">work</span> resolution (optional)</td></tr>
+        <tr><td><code>session-retrospective</code></td><td><span class="chip queue">queue</span> session-metrics, workflow-evaluation, improvement-signals · <span class="chip work">work</span> actions-taken</td></tr>
+        <tr><td><code>improvement-proposal</code></td><td><span class="chip queue">queue</span> proposal · <span class="chip work">work</span> adoption-decision · <span class="chip review">review</span> outcome-verification</td></tr>
+        <tr><td><code>container</code></td><td>Manual lifecycle, so a container never closes when its children do.</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+  <p class="sub small">These four schemas are this project's global config: the floor every project sharing the server inherits. That is how the loop works across repositories with no per-project setup.</p>
+</section>
+
+<footer style="display:grid;gap:14px"><nav class="series-nav" aria-label="Field guide plates">
+<a class="item" href="index.html"><span class="n">PLATE 1</span><span class="t">At a Glance</span><span class="small sub">What it is and why the rule lives in the server</span></a>
+<a class="item" href="phase-gates.html"><span class="n">PLATE 2</span><span class="t">Phase Gates</span><span class="small sub">Roles, triggers and a gate you can try</span></a>
+<a class="item" href="work-graph.html"><span class="n">PLATE 3</span><span class="t">Work Graph</span><span class="small sub">Hierarchy, dependencies and cascades</span></a>
+<a class="item" href="schemas-and-traits.html"><span class="n">PLATE 4</span><span class="t">Schemas and Traits</span><span class="small sub">How YAML becomes an enforced gate</span></a>
+<a class="item" href="runtime-map.html"><span class="n">PLATE 5</span><span class="t">Runtime Map</span><span class="small sub">Architecture, deployment and fleets</span></a>
+<a class="item" href="seats.html"><span class="n">PLATE 6</span><span class="t">Seats</span><span class="small sub">Who does what inside a phase</span></a>
+<a class="item" href="finding-work.html"><span class="n">PLATE 7</span><span class="t">Finding Work</span><span class="small sub">The read calls and how the next item is chosen</span></a>
+<a class="item" href="orchestrating-a-run.html"><span class="n">PLATE 8</span><span class="t">Orchestrating a Run</span><span class="small sub">From a request to finished items</span></a>
+<span class="item cur" aria-current="page"><span class="n">PLATE 9</span><span class="t">Improvement Loop</span><span class="small sub">From friction to an adopted change</span></span>
+</nav>
+<p class="foot"><span>MCP Task Orchestrator field guide. MIT licensed, open source.</span><a href="https://github.com/jpicklyk/task-orchestrator">github.com/jpicklyk/task-orchestrator</a></p></footer>
+</div>
+<script>
+(function(){
+  var scope='project',dec='accept';
+  var OUT={
+    'project:accept':{end:'review',steps:['The proposal\'s YAML is applied to the project\'s .taskorchestrator/config.yaml and validated.','The config is pushed to the server for this project. It takes effect without a restart.','The adoption-decision note records what was accepted and when.','The item advances to review and waits there.'],note:'It stays in review until a later retrospective fills outcome-verification with a verdict: effective, ineffective or inconclusive. The source trend is archived.'},
+    'global:accept':{end:'review',steps:['A GitHub issue is filed or linked, if GitHub feedback is enabled and the gh CLI is signed in.','The adoption-decision note records the acceptance and the issue link.','A maintainer of the repository keeps the item in review until the change ships and is verified.'],note:'Someone without write access hands the proposal upstream instead: both remaining notes are written and the item completes. The trend stays active on the maintainer path.'},
+    'project:reject':{end:'terminal',steps:['The adoption-decision note records the rejection and the reason.','The item is cancelled. No outcome-verification is needed.','The source trend is marked so it does not graduate again.'],note:'The reasoning stays on the item, so the same idea is not re-proposed blind.'},
+    'project:defer':{end:'queue',steps:['The adoption-decision note records what would make this worth revisiting.','The item is not advanced.'],note:'It stays in queue and shows up as deferred on the next review. The trend stays active and keeps counting.'}
+  };
+  OUT['global:reject']=OUT['project:reject'];OUT['global:defer']=OUT['project:defer'];
+  function press(group,val){Array.prototype.forEach.call(document.querySelectorAll('#'+group+' button'),function(b){b.setAttribute('aria-pressed',b.getAttribute('data-v')===val?'true':'false');});}
+  function show(){
+    var o=OUT[scope+':'+dec],ol=document.getElementById('o-steps');
+    ol.textContent='';
+    o.steps.forEach(function(s){var li=document.createElement('li');li.textContent=s;ol.appendChild(li);});
+    document.getElementById('o-end').textContent=o.note;
+    ['queue','work','review','terminal'].forEach(function(r){document.getElementById('tk-'+r).classList.toggle('on',r===o.end);});
+    press('scope',scope);press('dec',dec);
+  }
+  document.getElementById('scope').addEventListener('click',function(e){var v=e.target.getAttribute&&e.target.getAttribute('data-v');if(v){scope=v;show();}});
+  document.getElementById('dec').addEventListener('click',function(e){var v=e.target.getAttribute&&e.target.getAttribute('data-v');if(v){dec=v;show();}});
+  show();
+})();
+</script>
+</body>
+</html>

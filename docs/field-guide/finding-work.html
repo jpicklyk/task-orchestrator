@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>:root{color-scheme:light}[hidden]{display:none!important}img{max-width:100%}</style>
+<title>Task Orchestrator Finding Work</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>/* layout: a numbered plate. Heavy top rule, one thesis, figures drawn as signal-track schematics, notes in columns, series index at the foot. */
+:root{
+  --bg:#F1F3F6; --surface:#FFFFFF; --sunk:#E5E9EE; --ink:#152232; --muted:#556375; --line:#C8D0DA;
+  --queue:#5F6F85; --work:#1565D8; --review:#7A47CF; --terminal:#0C8259; --blocked:#C93434; --gate:#A86200;
+  --queue-bg:#E3E8EE; --work-bg:#DCE9FB; --review-bg:#ECE3FA; --terminal-bg:#D8F0E5; --blocked-bg:#FADEDE; --gate-bg:#FAE9CB;
+  --display:"Barlow Condensed","Arial Narrow",sans-serif;
+  --body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Consolas,"Courier New",monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0E151E; --surface:#16202C; --sunk:#0A1017; --ink:#E4EAF2; --muted:#96A4B6; --line:#2B3A4C;
+    --queue:#96A6BA; --work:#62A6FF; --review:#B692FF; --terminal:#45CF95; --blocked:#FF7272; --gate:#F2AE42;
+    --queue-bg:#1E2A38; --work-bg:#13294A; --review-bg:#2A1F47; --terminal-bg:#0F3326; --blocked-bg:#421B1B; --gate-bg:#3D2C0C;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0E151E; --surface:#16202C; --sunk:#0A1017; --ink:#E4EAF2; --muted:#96A4B6; --line:#2B3A4C;
+  --queue:#96A6BA; --work:#62A6FF; --review:#B692FF; --terminal:#45CF95; --blocked:#FF7272; --gate:#F2AE42;
+  --queue-bg:#1E2A38; --work-bg:#13294A; --review-bg:#2A1F47; --terminal-bg:#0F3326; --blocked-bg:#421B1B; --gate-bg:#3D2C0C;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:400 16px/1.55 var(--body)}
+.wrap{max-width:1060px;margin:0 auto;padding-inline:20px;padding-block:28px 48px;display:flex;flex-direction:column;gap:44px}
+.plate-head{border-top:6px solid var(--ink);padding-top:14px;display:grid;gap:12px}
+.series{font:500 12px/1.3 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:0;max-width:none}
+h1{font:700 clamp(40px,7.2vw,70px)/.95 var(--display);text-transform:uppercase;margin:0;text-wrap:balance;max-width:16ch}
+.lede{font-size:19px;line-height:1.45;max-width:60ch}
+h2{font:600 30px/1.05 var(--display);text-transform:uppercase;letter-spacing:.02em;margin:0;text-wrap:balance}
+h3{font:600 15px/1.3 var(--body);margin:0}
+section{display:grid;gap:16px;min-width:0}
+p{margin:0;max-width:68ch}
+.sub{color:var(--muted)}
+.small{font-size:14px}
+code,.mono{font-family:var(--mono);font-size:.88em}
+a{color:var(--work)}
+figure{margin:0;display:grid;gap:10px;min-width:0}
+figcaption{font-size:14px;color:var(--muted);max-width:76ch}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:4px;padding:16px;min-width:0;display:grid;gap:12px;align-content:start}
+.scroll{overflow-x:auto}
+.scroll>svg{min-width:700px}
+svg.d{display:block;width:100%;height:auto}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,330px),1fr));gap:16px}
+.grid3{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,250px),1fr));gap:16px}
+.grid2>*,.grid3>*{min-width:0}
+pre{margin:0;font:400 13px/1.5 var(--mono);background:var(--sunk);border-radius:4px;padding:12px 14px;overflow-x:auto;white-space:pre}
+.tscroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:8px 12px 8px 0;border-bottom:1px solid var(--line);vertical-align:top}
+th{font:500 11px/1.3 var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.chip{display:inline-block;font:500 12px/1 var(--mono);padding:4px 8px;border-radius:999px;border:1.5px solid;white-space:nowrap}
+.chip.queue{color:var(--queue);background:var(--queue-bg)}
+.chip.work{color:var(--work);background:var(--work-bg)}
+.chip.review{color:var(--review);background:var(--review-bg)}
+.chip.terminal{color:var(--terminal);background:var(--terminal-bg)}
+.chip.blocked{color:var(--blocked);background:var(--blocked-bg)}
+.chip.gate{color:var(--gate);background:var(--gate-bg)}
+button{font:500 13px/1 var(--mono);padding:9px 12px;border:1.5px solid var(--ink);background:var(--surface);color:var(--ink);border-radius:4px;cursor:pointer}
+button:hover{background:var(--sunk)}
+button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
+button:focus-visible,[tabindex]:focus-visible,a:focus-visible,input:focus-visible{outline:3px solid var(--work);outline-offset:2px}
+.btns{display:flex;flex-wrap:wrap;gap:8px}
+.log{font:400 13px/1.5 var(--mono);background:var(--sunk);border-radius:4px;padding:12px 14px;height:260px;overflow:auto;overflow-wrap:anywhere}
+.log .ok{color:var(--terminal)} .log .err{color:var(--blocked)} .log .call{color:var(--muted);margin-top:6px} .log .sys{color:var(--gate)}
+.rule{border-top:2px solid var(--ink);padding-top:10px;display:grid;gap:6px;align-content:start}
+.series-nav{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,170px),1fr));column-gap:20px;border-top:6px solid var(--ink);padding-top:6px}
+.series-nav .item{display:grid;gap:4px;padding-block:10px;text-decoration:none;color:var(--ink);border-bottom:1px solid var(--line);align-content:start}
+.series-nav .n{font:500 11px/1.3 var(--mono);letter-spacing:.08em;color:var(--muted)}
+.series-nav .t{font:600 21px/1 var(--display);text-transform:uppercase}
+.series-nav .cur .t{color:var(--work)}
+.series-nav a.item:hover .t{text-decoration:underline}
+.foot{font-size:13px;color:var(--muted);display:flex;flex-wrap:wrap;gap:6px 18px;justify-content:space-between}
+/* diagram vocabulary */
+.d text{font-family:var(--body);font-size:13px;fill:var(--ink)}
+.d .m{font-family:var(--mono);font-size:11.5px}
+.d .s{font-size:11.5px}
+.d .b{font-weight:600}
+.d .mu{fill:var(--muted)}
+.d .hd{font-family:var(--display);font-weight:600;font-size:18px;text-transform:uppercase;letter-spacing:.03em}
+.d .bx{fill:var(--surface);stroke:var(--ink);stroke-width:1.5}
+.d .bx2{fill:var(--sunk);stroke:var(--line);stroke-width:1.5}
+.d .fr{fill:none;stroke:var(--muted);stroke-width:1.5;stroke-dasharray:5 4}
+.d .l{stroke:var(--ink);stroke-width:1.5;fill:none}
+.d .lm{stroke:var(--muted);stroke-width:1.5;fill:none}
+.d .dash{stroke-dasharray:5 4}
+.d .ah{fill:var(--ink)} .d .ahm{fill:var(--muted)}
+.d .r-queue{fill:var(--queue-bg);stroke:var(--queue);stroke-width:2}
+.d .r-work{fill:var(--work-bg);stroke:var(--work);stroke-width:2}
+.d .r-review{fill:var(--review-bg);stroke:var(--review);stroke-width:2}
+.d .r-terminal{fill:var(--terminal-bg);stroke:var(--terminal);stroke-width:2}
+.d .r-blocked{fill:var(--blocked-bg);stroke:var(--blocked);stroke-width:2}
+.d .r-gate{fill:var(--gate-bg);stroke:var(--gate);stroke-width:2}
+.d .c-queue{fill:var(--queue)} .d .c-work{fill:var(--work)} .d .c-review{fill:var(--review)}
+.d .c-terminal{fill:var(--terminal)} .d .c-blocked{fill:var(--blocked)} .d .c-gate{fill:var(--gate)}
+.d .k-work{stroke:var(--work);stroke-width:1.5;fill:none} .d .k-terminal{stroke:var(--terminal);stroke-width:1.5;fill:none}
+.d .k-blocked{stroke:var(--blocked);stroke-width:1.5;fill:none} .d .k-gate{stroke:var(--gate);stroke-width:1.5;fill:none}
+@media (prefers-reduced-motion:no-preference){.d rect,.d path,.d line{transition:fill .2s,stroke .2s,opacity .2s}}
+</style>
+<style>
+.qa td:first-child{font-weight:600;min-width:11rem}
+.qa td:nth-child(2){font:400 12.5px/1.5 var(--mono);min-width:13rem}
+.ctl{display:grid;gap:6px}
+.ctl>span{font:500 11px/1.3 var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.ctls{display:flex;flex-wrap:wrap;gap:16px 24px;align-items:end}
+select{font:400 14px/1.2 var(--body);padding:8px 10px;border:1.5px solid var(--ink);border-radius:4px;background:var(--surface);color:var(--ink);max-width:100%}
+.opt{display:flex;gap:8px;align-items:center;font-size:14px}
+.opt input{width:16px;height:16px;accent-color:var(--work);margin:0;flex:none}
+.rank td{vertical-align:middle}
+.rank .n{font:700 24px/1 var(--display);color:var(--work);width:2.4rem}
+.rank tr.out{color:var(--muted)}
+.rank tr.out .n{color:var(--muted);font-size:16px}
+.rank tr.hit td{background:var(--work-bg)}
+.rank tr.hit td:first-child{box-shadow:inset 4px 0 0 var(--work)}
+.rank td:first-child{padding-left:10px}
+.rank .why{font-size:13px}
+.d .k-work.dash{stroke-dasharray:6 4}
+</style>
+</head>
+<body>
+<svg class="d" width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs>
+<marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah"/></marker>
+<marker id="ahm" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ahm"/></marker>
+<marker id="ahw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="c-work"/></marker>
+<marker id="aht" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="c-terminal"/></marker>
+<marker id="ahb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="c-blocked"/></marker>
+<marker id="ahg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="c-gate"/></marker>
+</defs></svg>
+
+<div class="wrap">
+<header class="plate-head">
+  <p class="series"><span>MCP Task Orchestrator · Field guide</span><span>Plate 7 of 9</span></p>
+  <h1>Ask the graph what to do next</h1>
+  <p class="lede">Agents read state far more often than they change it. A handful of read calls answer the questions a session actually has: where was I, what is next, why is this stuck, and what does this item need.</p>
+</header>
+
+<section>
+  <h2>Which call answers which question</h2>
+  <div class="tscroll"><table class="qa">
+    <thead><tr><th>The question</th><th>The call</th><th>What comes back</th></tr></thead>
+    <tbody>
+      <tr><td>Where did we leave off?</td><td>get_context(since="…")</td><td>Active items, recent transitions with their actors, and stalled items.</td></tr>
+      <tr><td>Is anything unhealthy?</td><td>get_context()</td><td>Active, blocked and stalled items, plus a count of live and expired claims.</td></tr>
+      <tr><td>What does this item need?</td><td>get_context(itemId="a3f2")</td><td>Its gate status: which required notes exist, which are missing, and the guidance or skill for the next one.</td></tr>
+      <tr><td>What should I pick up?</td><td>get_next_item()</td><td>Ranked items that can start right now.</td></tr>
+      <tr><td>Why can't this start?</td><td>get_blocked_items()<br>get_next_status(itemId)</td><td>Each blocker, the role it must reach, and whether that is satisfied. Or a one-item verdict: Ready, Blocked or Terminal.</td></tr>
+      <tr><td>What is under this feature?</td><td>query_items(operation="overview", itemId)</td><td>The item, its direct children, and a count of children per role.</td></tr>
+      <tr><td>Have we seen this before?</td><td>query_items(operation="search", query="…")<br>query_notes(operation="search", query="…")</td><td>Relevance-ranked hits with snippets, across items or note bodies.</td></tr>
+      <tr><td>What must this note contain?</td><td>query_items(operation="schema", itemId)</td><td>The resolved schema with full description, guidance and skill for every note.</td></tr>
+    </tbody>
+  </table></div>
+  <p class="sub small">An item is <strong>stalled</strong> when it is in work or review and a required note for its current phase is still missing.</p>
+</section>
+
+<section>
+  <h2>How the next item is chosen</h2>
+  <p class="sub">A sample backlog, listed oldest first. Change the call and watch which items qualify and in what order.</p>
+  <div class="panel">
+    <div class="ctls">
+      <label class="ctl" for="ob"><span>orderBy</span>
+        <select id="ob"><option value="priority">priority (default)</option><option value="oldest">oldest</option><option value="newest">newest</option></select></label>
+      <label class="ctl" for="cx"><span>complexityMax</span>
+        <select id="cx"><option value="10">not set</option><option value="5">5</option><option value="3">3</option><option value="2">2</option></select></label>
+      <label class="ctl" for="lim"><span>limit</span>
+        <select id="lim"><option value="1">1 (default)</option><option value="3">3</option><option value="20">20</option></select></label>
+      <label class="opt"><input type="checkbox" id="ic"> includeClaimed</label>
+    </div>
+    <pre id="call"></pre>
+    <div class="tscroll"><table class="rank">
+      <thead><tr><th>Rank</th><th>Item</th><th>Priority</th><th>Complexity</th><th>Outcome</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table></div>
+  </div>
+  <div class="grid3">
+    <div class="rule"><h3>Ranking</h3><p class="small">By default: high, then medium, then low priority. Within a priority, lowest complexity first, with unset complexity last. <code>oldest</code> gives fair first-in, first-out draining.</p></div>
+    <div class="rule"><h3>What never appears</h3><p class="small">Items whose blockers have not reached their threshold, items another agent has claimed, and items under a claimed ancestor. <code>includeClaimed</code> lifts the two claim filters for operators.</p></div>
+    <div class="rule"><h3>Other roles</h3><p class="small">The default role is queue. A review fleet asks with <code>role="review"</code>, a triage agent with <code>role="blocked"</code>.</p></div>
+  </div>
+</section>
+
+<section>
+  <h2>The fields on every item</h2>
+  <div class="tscroll"><table>
+    <thead><tr><th>Field</th><th>Values</th><th>What it drives</th></tr></thead>
+    <tbody>
+      <tr><td><code>title</code>, <code>summary</code></td><td>Up to 500 and 2000 characters</td><td>What agents see in lists and search.</td></tr>
+      <tr><td><code>type</code></td><td>One schema key, such as <code>bug-fix</code></td><td>Selects the schema, so the gates and the lifecycle mode.</td></tr>
+      <tr><td><code>tags</code></td><td>Comma-separated, lowercase with hyphens</td><td>Filtering, and schema selection when no type matches.</td></tr>
+      <tr><td><code>priority</code></td><td><code>high</code>, <code>medium</code> (default), <code>low</code></td><td>First key of the next-item ranking.</td></tr>
+      <tr><td><code>complexity</code></td><td>1 to 10, optional</td><td>Second key of the ranking, and the <code>complexityMax</code> filter.</td></tr>
+      <tr><td><code>traits</code></td><td>Comma-separated trait names</td><td>Extra notes, seats, resources and dispatch for this one item.</td></tr>
+      <tr><td><code>parentId</code></td><td>An item id, or none for a root</td><td>The hierarchy. Depth is computed and has no fixed limit.</td></tr>
+    </tbody>
+  </table></div>
+  <p class="sub small">The role is not among them: it only changes through <code>advance_item</code>. Ids accept a prefix of four or more hex characters. An ambiguous prefix is an error. The server never guesses.</p>
+</section>
+
+<section>
+  <h2>Read cheaply</h2>
+  <div class="grid3">
+    <div class="rule"><h3>Overview before detail</h3><p class="small">One <code>overview</code> call returns a feature, its children and per-role counts. That replaces a get per item plus their notes when all you need is status.</p></div>
+    <div class="rule"><h3>Note metadata first</h3><p class="small"><code>query_notes</code> lists notes without bodies by default and returns each body's length. Fetch a body only for the note you will read, filtered by <code>role</code>.</p></div>
+    <div class="rule"><h3>Search is ranked, not exact</h3><p class="small">Full-text search runs a substring index and a word-stem index and fuses the two rankings. Several words mean all of them. Scope it to a subtree, a role or tags.</p></div>
+  </div>
+</section>
+
+<section>
+  <h2>One database, several projects</h2>
+  <figure>
+    <div class="panel scroll">
+      <svg class="d" viewBox="0 0 900 296" role="img" aria-label="Items at depth zero in one database. Project A and Project B are project roots with their own trees. A read scoped with ancestorId equal to root A sees only that tree. A personal root anchors new items but does not scope reads. Session retrospectives, improvement proposals, retrospective trends and observation items sit outside every project.">
+        <rect x="10" y="28" width="200" height="236" rx="6" class="k-work dash"/>
+        <rect x="20" y="40" width="180" height="44" rx="4" class="bx"/>
+        <text x="110" y="59" text-anchor="middle" class="b">Project A</text><text x="110" y="75" text-anchor="middle" class="s mu">type: project</text>
+        <line x1="110" y1="84" x2="62" y2="124" class="lm"/><line x1="110" y1="84" x2="158" y2="124" class="lm"/>
+        <rect x="20" y="124" width="84" height="36" rx="4" class="bx2"/><text x="62" y="147" text-anchor="middle" class="s">feature</text>
+        <rect x="116" y="124" width="84" height="36" rx="4" class="bx2"/><text x="158" y="147" text-anchor="middle" class="s">bugs</text>
+        <line x1="62" y1="160" x2="39" y2="196" class="lm"/><line x1="62" y1="160" x2="85" y2="196" class="lm"/><line x1="158" y1="160" x2="158" y2="196" class="lm"/>
+        <rect x="20" y="196" width="38" height="30" rx="3" class="bx2"/><text x="39" y="215" text-anchor="middle" class="s">task</text>
+        <rect x="66" y="196" width="38" height="30" rx="3" class="bx2"/><text x="85" y="215" text-anchor="middle" class="s">task</text>
+        <rect x="139" y="196" width="38" height="30" rx="3" class="bx2"/><text x="158" y="215" text-anchor="middle" class="s">bug</text>
+        <text x="110" y="284" text-anchor="middle" class="s c-work">a project read: ancestorId = root A</text>
+
+        <rect x="230" y="40" width="180" height="44" rx="4" class="bx"/>
+        <text x="320" y="59" text-anchor="middle" class="b">Project B</text><text x="320" y="75" text-anchor="middle" class="s mu">type: project</text>
+        <line x1="320" y1="84" x2="272" y2="124" class="lm"/><line x1="320" y1="84" x2="368" y2="124" class="lm"/>
+        <rect x="230" y="124" width="84" height="36" rx="4" class="bx2"/><text x="272" y="147" text-anchor="middle" class="s">feature</text>
+        <rect x="326" y="124" width="84" height="36" rx="4" class="bx2"/><text x="368" y="147" text-anchor="middle" class="s">tech debt</text>
+
+        <rect x="440" y="40" width="180" height="44" rx="4" class="bx"/>
+        <text x="530" y="59" text-anchor="middle" class="b">Personal</text><text x="530" y="75" text-anchor="middle" class="s mu">tag: personal-root</text>
+        <line x1="530" y1="84" x2="530" y2="124" class="lm"/>
+        <rect x="488" y="124" width="84" height="36" rx="4" class="bx2"/><text x="530" y="147" text-anchor="middle" class="s">quick task</text>
+        <text x="530" y="284" text-anchor="middle" class="s mu">anchors new items, reads stay unscoped</text>
+
+        <rect x="650" y="28" width="240" height="236" rx="6" class="fr"/>
+        <rect x="662" y="40" width="216" height="44" rx="4" class="bx"/><text x="770" y="59" text-anchor="middle" class="b">Session Retrospectives</text><text x="770" y="75" text-anchor="middle" class="s mu">container</text>
+        <rect x="662" y="96" width="216" height="44" rx="4" class="bx"/><text x="770" y="115" text-anchor="middle" class="b">Improvement Proposals</text><text x="770" y="131" text-anchor="middle" class="s mu">container</text>
+        <rect x="662" y="152" width="216" height="44" rx="4" class="bx"/><text x="770" y="171" text-anchor="middle" class="b">Retrospective Trends</text><text x="770" y="187" text-anchor="middle" class="s mu">container</text>
+        <rect x="662" y="208" width="216" height="44" rx="4" class="bx"/><text x="770" y="227" text-anchor="middle" class="b">agent-observation items</text><text x="770" y="243" text-anchor="middle" class="s mu">each its own root</text>
+        <text x="770" y="284" text-anchor="middle" class="s mu">process-wide, outside every project</text>
+      </svg>
+    </div>
+    <figcaption>Every box in the top row is a root item at depth 0. A project root is an ordinary item of type <code>project</code>. Its id is the <code>rootId</code> that per-project config, plan documents and rules are stored under.</figcaption>
+  </figure>
+  <div class="grid3">
+    <div class="rule"><h3>Set up a project</h3><p class="small"><code>/task-orchestrator:init</code> finds or creates the project root, writes <code>project: { rootId, name }</code> into the repo's <code>.taskorchestrator/config.yaml</code>, pushes the config and seeds the bundled rules.</p></div>
+    <div class="rule"><h3>Set up a personal root</h3><p class="small"><code>init --user</code> creates one root for every directory that has no config of its own. It gives new items a home. It does not narrow what reads return.</p></div>
+    <div class="rule"><h3>Scope every read</h3><p class="small">With a project root, agents pass <code>ancestorId</code> on <code>query_items</code>, <code>get_next_item</code>, <code>get_context</code> and <code>get_blocked_items</code>, and parent new top-level items under the root.</p></div>
+  </div>
+</section>
+
+<footer style="display:grid;gap:14px"><nav class="series-nav" aria-label="Field guide plates">
+<a class="item" href="index.html"><span class="n">PLATE 1</span><span class="t">At a Glance</span><span class="small sub">What it is and why the rule lives in the server</span></a>
+<a class="item" href="phase-gates.html"><span class="n">PLATE 2</span><span class="t">Phase Gates</span><span class="small sub">Roles, triggers and a gate you can try</span></a>
+<a class="item" href="work-graph.html"><span class="n">PLATE 3</span><span class="t">Work Graph</span><span class="small sub">Hierarchy, dependencies and cascades</span></a>
+<a class="item" href="schemas-and-traits.html"><span class="n">PLATE 4</span><span class="t">Schemas and Traits</span><span class="small sub">How YAML becomes an enforced gate</span></a>
+<a class="item" href="runtime-map.html"><span class="n">PLATE 5</span><span class="t">Runtime Map</span><span class="small sub">Architecture, deployment and fleets</span></a>
+<a class="item" href="seats.html"><span class="n">PLATE 6</span><span class="t">Seats</span><span class="small sub">Who does what inside a phase</span></a>
+<span class="item cur" aria-current="page"><span class="n">PLATE 7</span><span class="t">Finding Work</span><span class="small sub">The read calls and how the next item is chosen</span></span>
+<a class="item" href="orchestrating-a-run.html"><span class="n">PLATE 8</span><span class="t">Orchestrating a Run</span><span class="small sub">From a request to finished items</span></a>
+<a class="item" href="improvement-loop.html"><span class="n">PLATE 9</span><span class="t">Improvement Loop</span><span class="small sub">From friction to an adopted change</span></a>
+</nav>
+<p class="foot"><span>MCP Task Orchestrator field guide. MIT licensed, open source.</span><a href="https://github.com/jpicklyk/task-orchestrator">github.com/jpicklyk/task-orchestrator</a></p></footer>
+</div>
+<script>
+(function(){
+  var ITEMS=[
+    {t:'Fix token refresh race',p:'high',c:5,role:'queue'},
+    {t:'Add rate-limit headers',p:'medium',c:2,role:'queue'},
+    {t:'Migrate sessions table',p:'high',c:3,role:'queue',waits:'Design session schema'},
+    {t:'Document login API',p:'low',c:1,role:'queue'},
+    {t:'Design session schema',p:'high',c:4,role:'work'},
+    {t:'Harden password reset',p:'high',c:2,role:'queue',claimed:true},
+    {t:'Audit log export',p:'medium',c:null,role:'queue'},
+    {t:'CSV export endpoint',p:'medium',c:6,role:'queue',ancestor:true}
+  ];
+  var PR={high:0,medium:1,low:2};
+  function $(id){return document.getElementById(id);}
+  function td(tr,txt,cls){var d=document.createElement('td');if(cls)d.className=cls;d.textContent=txt;tr.appendChild(d);return d;}
+  function run(){
+    var ob=$('ob').value,cx=+$('cx').value,lim=+$('lim').value,ic=$('ic').checked;
+    var rows=ITEMS.map(function(it,i){
+      var why=null;
+      if(it.role!=='queue')why='Not in queue: role is '+it.role;
+      else if(it.waits)why='Blocked by "'+it.waits+'"';
+      else if(it.claimed&&!ic)why='Claimed by another agent';
+      else if(it.ancestor&&!ic)why='An ancestor is claimed';
+      else if(it.c!==null&&it.c>cx)why='Complexity above complexityMax';
+      return {it:it,i:i,why:why};
+    });
+    var ok=rows.filter(function(r){return !r.why;});
+    ok.sort(function(a,b){
+      if(ob==='oldest')return a.i-b.i;
+      if(ob==='newest')return b.i-a.i;
+      if(PR[a.it.p]!==PR[b.it.p])return PR[a.it.p]-PR[b.it.p];
+      var ac=a.it.c===null?99:a.it.c,bc=b.it.c===null?99:b.it.c;
+      return ac-bc||a.i-b.i;
+    });
+    ok.forEach(function(r,k){r.rank=k+1;});
+    var out=rows.filter(function(r){return r.why;});
+    var body=$('rows');body.textContent='';
+    ok.concat(out).forEach(function(r){
+      var tr=document.createElement('tr'),hit=r.rank&&r.rank<=lim;
+      tr.className=r.why?'out':(hit?'hit':'');
+      td(tr,r.rank?String(r.rank):'–','n');
+      td(tr,r.it.t);
+      td(tr,r.it.p);
+      td(tr,r.it.c===null?'not set':String(r.it.c));
+      td(tr,r.why?r.why:(hit?'Returned'+((r.it.claimed||r.it.ancestor)?', isClaimed: true':''):'Eligible, beyond limit'),'why');
+      body.appendChild(tr);
+    });
+    var args=[];
+    if(ob!=='priority')args.push('orderBy="'+ob+'"');
+    if(cx<10)args.push('complexityMax='+cx);
+    if(lim>1)args.push('limit='+lim);
+    if(ic)args.push('includeClaimed=true');
+    $('call').textContent='get_next_item('+args.join(', ')+')';
+  }
+  ['ob','cx','lim','ic'].forEach(function(id){$(id).addEventListener('change',run);});
+  run();
+})();
+</script>
+</body>
+</html>

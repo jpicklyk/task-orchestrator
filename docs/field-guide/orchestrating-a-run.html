@@ -1,0 +1,378 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>:root{color-scheme:light}[hidden]{display:none!important}img{max-width:100%}</style>
+<title>Task Orchestrator Orchestrating a Run</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>/* layout: a numbered plate. Heavy top rule, one thesis, figures drawn as signal-track schematics, notes in columns, series index at the foot. */
+:root{
+  --bg:#F1F3F6; --surface:#FFFFFF; --sunk:#E5E9EE; --ink:#152232; --muted:#556375; --line:#C8D0DA;
+  --queue:#5F6F85; --work:#1565D8; --review:#7A47CF; --terminal:#0C8259; --blocked:#C93434; --gate:#A86200;
+  --queue-bg:#E3E8EE; --work-bg:#DCE9FB; --review-bg:#ECE3FA; --terminal-bg:#D8F0E5; --blocked-bg:#FADEDE; --gate-bg:#FAE9CB;
+  --display:"Barlow Condensed","Arial Narrow",sans-serif;
+  --body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Consolas,"Courier New",monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0E151E; --surface:#16202C; --sunk:#0A1017; --ink:#E4EAF2; --muted:#96A4B6; --line:#2B3A4C;
+    --queue:#96A6BA; --work:#62A6FF; --review:#B692FF; --terminal:#45CF95; --blocked:#FF7272; --gate:#F2AE42;
+    --queue-bg:#1E2A38; --work-bg:#13294A; --review-bg:#2A1F47; --terminal-bg:#0F3326; --blocked-bg:#421B1B; --gate-bg:#3D2C0C;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0E151E; --surface:#16202C; --sunk:#0A1017; --ink:#E4EAF2; --muted:#96A4B6; --line:#2B3A4C;
+  --queue:#96A6BA; --work:#62A6FF; --review:#B692FF; --terminal:#45CF95; --blocked:#FF7272; --gate:#F2AE42;
+  --queue-bg:#1E2A38; --work-bg:#13294A; --review-bg:#2A1F47; --terminal-bg:#0F3326; --blocked-bg:#421B1B; --gate-bg:#3D2C0C;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:400 16px/1.55 var(--body)}
+.wrap{max-width:1060px;margin:0 auto;padding-inline:20px;padding-block:28px 48px;display:flex;flex-direction:column;gap:44px}
+.plate-head{border-top:6px solid var(--ink);padding-top:14px;display:grid;gap:12px}
+.series{font:500 12px/1.3 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:0;max-width:none}
+h1{font:700 clamp(40px,7.2vw,70px)/.95 var(--display);text-transform:uppercase;margin:0;text-wrap:balance;max-width:16ch}
+.lede{font-size:19px;line-height:1.45;max-width:60ch}
+h2{font:600 30px/1.05 var(--display);text-transform:uppercase;letter-spacing:.02em;margin:0;text-wrap:balance}
+h3{font:600 15px/1.3 var(--body);margin:0}
+section{display:grid;gap:16px;min-width:0}
+p{margin:0;max-width:68ch}
+.sub{color:var(--muted)}
+.small{font-size:14px}
+code,.mono{font-family:var(--mono);font-size:.88em}
+a{color:var(--work)}
+figure{margin:0;display:grid;gap:10px;min-width:0}
+figcaption{font-size:14px;color:var(--muted);max-width:76ch}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:4px;padding:16px;min-width:0;display:grid;gap:12px;align-content:start}
+.scroll{overflow-x:auto}
+.scroll>svg{min-width:700px}
+svg.d{display:block;width:100%;height:auto}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,330px),1fr));gap:16px}
+.grid3{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,250px),1fr));gap:16px}
+.grid2>*,.grid3>*{min-width:0}
+pre{margin:0;font:400 13px/1.5 var(--mono);background:var(--sunk);border-radius:4px;padding:12px 14px;overflow-x:auto;white-space:pre}
+.tscroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:8px 12px 8px 0;border-bottom:1px solid var(--line);vertical-align:top}
+th{font:500 11px/1.3 var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.chip{display:inline-block;font:500 12px/1 var(--mono);padding:4px 8px;border-radius:999px;border:1.5px solid;white-space:nowrap}
+.chip.queue{color:var(--queue);background:var(--queue-bg)}
+.chip.work{color:var(--work);background:var(--work-bg)}
+.chip.review{color:var(--review);background:var(--review-bg)}
+.chip.terminal{color:var(--terminal);background:var(--terminal-bg)}
+.chip.blocked{color:var(--blocked);background:var(--blocked-bg)}
+.chip.gate{color:var(--gate);background:var(--gate-bg)}
+button{font:500 13px/1 var(--mono);padding:9px 12px;border:1.5px solid var(--ink);background:var(--surface);color:var(--ink);border-radius:4px;cursor:pointer}
+button:hover{background:var(--sunk)}
+button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
+button:focus-visible,[tabindex]:focus-visible,a:focus-visible,input:focus-visible{outline:3px solid var(--work);outline-offset:2px}
+.btns{display:flex;flex-wrap:wrap;gap:8px}
+.log{font:400 13px/1.5 var(--mono);background:var(--sunk);border-radius:4px;padding:12px 14px;height:260px;overflow:auto;overflow-wrap:anywhere}
+.log .ok{color:var(--terminal)} .log .err{color:var(--blocked)} .log .call{color:var(--muted);margin-top:6px} .log .sys{color:var(--gate)}
+.rule{border-top:2px solid var(--ink);padding-top:10px;display:grid;gap:6px;align-content:start}
+.series-nav{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,170px),1fr));column-gap:20px;border-top:6px solid var(--ink);padding-top:6px}
+.series-nav .item{display:grid;gap:4px;padding-block:10px;text-decoration:none;color:var(--ink);border-bottom:1px solid var(--line);align-content:start}
+.series-nav .n{font:500 11px/1.3 var(--mono);letter-spacing:.08em;color:var(--muted)}
+.series-nav .t{font:600 21px/1 var(--display);text-transform:uppercase}
+.series-nav .cur .t{color:var(--work)}
+.series-nav a.item:hover .t{text-decoration:underline}
+.foot{font-size:13px;color:var(--muted);display:flex;flex-wrap:wrap;gap:6px 18px;justify-content:space-between}
+/* diagram vocabulary */
+.d text{font-family:var(--body);font-size:13px;fill:var(--ink)}
+.d .m{font-family:var(--mono);font-size:11.5px}
+.d .s{font-size:11.5px}
+.d .b{font-weight:600}
+.d .mu{fill:var(--muted)}
+.d .hd{font-family:var(--display);font-weight:600;font-size:18px;text-transform:uppercase;letter-spacing:.03em}
+.d .bx{fill:var(--surface);stroke:var(--ink);stroke-width:1.5}
+.d .bx2{fill:var(--sunk);stroke:var(--line);stroke-width:1.5}
+.d .fr{fill:none;stroke:var(--muted);stroke-width:1.5;stroke-dasharray:5 4}
+.d .l{stroke:var(--ink);stroke-width:1.5;fill:none}
+.d .lm{stroke:var(--muted);stroke-width:1.5;fill:none}
+.d .dash{stroke-dasharray:5 4}
+.d .ah{fill:var(--ink)} .d .ahm{fill:var(--muted)}
+.d .r-queue{fill:var(--queue-bg);stroke:var(--queue);stroke-width:2}
+.d .r-work{fill:var(--work-bg);stroke:var(--work);stroke-width:2}
+.d .r-review{fill:var(--review-bg);stroke:var(--review);stroke-width:2}
+.d .r-terminal{fill:var(--terminal-bg);stroke:var(--terminal);stroke-width:2}
+.d .r-blocked{fill:var(--blocked-bg);stroke:var(--blocked);stroke-width:2}
+.d .r-gate{fill:var(--gate-bg);stroke:var(--gate);stroke-width:2}
+.d .c-queue{fill:var(--queue)} .d .c-work{fill:var(--work)} .d .c-review{fill:var(--review)}
+.d .c-terminal{fill:var(--terminal)} .d .c-blocked{fill:var(--blocked)} .d .c-gate{fill:var(--gate)}
+.d .k-work{stroke:var(--work);stroke-width:1.5;fill:none} .d .k-terminal{stroke:var(--terminal);stroke-width:1.5;fill:none}
+.d .k-blocked{stroke:var(--blocked);stroke-width:1.5;fill:none} .d .k-gate{stroke:var(--gate);stroke-width:1.5;fill:none}
+@media (prefers-reduced-motion:no-preference){.d rect,.d path,.d line{transition:fill .2s,stroke .2s,opacity .2s}}
+</style>
+<style>
+.ctl{display:grid;gap:6px}
+.ctl>span{font:500 11px/1.3 var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+select{font:400 14px/1.2 var(--body);padding:8px 10px;border:1.5px solid var(--ink);border-radius:4px;background:var(--surface);color:var(--ink);max-width:100%}
+.opt{display:flex;gap:8px;align-items:flex-start;font-size:14px}
+.opt input{width:16px;height:16px;accent-color:var(--work);margin:3px 0 0;flex:none}
+.tier{display:grid;gap:10px;align-content:start}
+.tier .name{font:700 44px/1 var(--display);text-transform:uppercase;color:var(--work)}
+.tier dl{margin:0;display:grid;grid-template-columns:8rem minmax(0,1fr)}
+.tier dt,.tier dd{margin:0;padding-block:7px;border-top:1px solid var(--line);font-size:14px}
+.tier dt{font:500 11px/1.6 var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.steps{list-style:none;margin:0;padding:0;display:grid;gap:0;counter-reset:s}
+.steps li{counter-increment:s;display:grid;grid-template-columns:2.6rem minmax(0,12rem) minmax(0,1fr) minmax(0,1fr);gap:4px 18px;padding-block:12px;border-top:1px solid var(--line);align-items:start}
+.steps li::before{content:counter(s);font:600 26px/1 var(--display);color:var(--work)}
+.steps .by{font:400 12.5px/1.5 var(--mono);color:var(--muted);overflow-wrap:anywhere}
+.steps .what{display:grid;gap:4px}
+.steps .then{font-size:14px}
+.steps .holds{font-size:14px;color:var(--muted)}
+.steps .hd4{font:500 11px/1.3 var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+@media (max-width:760px){.steps li{grid-template-columns:2.6rem minmax(0,1fr)}.steps li>*{grid-column:2}}
+</style>
+</head>
+<body>
+<svg class="d" width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs>
+<marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah"/></marker>
+<marker id="ahm" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ahm"/></marker>
+<marker id="ahw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="c-work"/></marker>
+<marker id="aht" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="c-terminal"/></marker>
+<marker id="ahb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="c-blocked"/></marker>
+<marker id="ahg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="c-gate"/></marker>
+</defs></svg>
+
+<div class="wrap">
+<header class="plate-head">
+  <p class="series"><span>MCP Task Orchestrator · Field guide</span><span>Plate 8 of 9</span></p>
+  <h1>From a request to finished items</h1>
+  <p class="lede">The Claude Code plugin turns one request into a plan, a tree of gated items, a set of dispatched agents and a verified result. How much of that process runs depends on the size of the work.</p>
+</header>
+
+<section>
+  <h2>Size the work first</h2>
+  <p class="sub">The Workflow Orchestrator output style classifies every request into a tier before anything else. Describe a request and see the process it gets. This is a simplified reading of the style's rules.</p>
+  <div class="grid2">
+    <div class="panel">
+      <label class="ctl" for="files"><span>Files it will touch</span>
+        <select id="files"><option value="1">1 to 2, a known fix</option><option value="2" selected>3 to 10, one logical unit</option><option value="3">11 or more</option></select></label>
+      <label class="opt"><input type="checkbox" id="s-mig"> <span>Needs a database migration</span></label>
+      <label class="opt"><input type="checkbox" id="s-api"> <span>Adds public API surface</span></label>
+      <label class="opt"><input type="checkbox" id="s-streams"> <span>Has several independent work streams</span></label>
+      <label class="opt"><input type="checkbox" id="s-plan"> <span>The user said "let's plan"</span></label>
+      <label class="opt"><input type="checkbox" id="s-quick"> <span>The user said "just fix it"</span></label>
+    </div>
+    <div class="panel tier" aria-live="polite">
+      <div class="name" id="t-name"></div>
+      <p class="small" id="t-why"></p>
+      <dl>
+        <dt>Plan mode</dt><dd id="t-plan"></dd>
+        <dt>Queue notes</dt><dd id="t-notes"></dd>
+        <dt>Build</dt><dd id="t-build"></dd>
+        <dt>Review</dt><dd id="t-review"></dd>
+      </dl>
+    </div>
+  </div>
+  <div class="tscroll"><table>
+    <thead><tr><th>Kind of task</th><th>Model</th></tr></thead>
+    <tbody>
+      <tr><td>Bulk item operations, materialization, simple queries</td><td><code>haiku</code></td></tr>
+      <tr><td>Reading code, implementation, writing tests</td><td><code>sonnet</code></td></tr>
+      <tr><td>Architecture, hard trade-offs, synthesis across many files</td><td><code>opus</code></td></tr>
+    </tbody>
+  </table></div>
+  <p class="sub small">The model table is the style's default, flagged as a project convention. A schema's <code>dispatch</code> block overrides it per phase or per seat (plates 4 and 6). The orchestrator always names the model on a dispatch.</p>
+</section>
+
+<section>
+  <h2>One feature, start to finish</h2>
+  <ol class="steps">
+    <li><div class="what"><h3>Request</h3><span class="by">Workflow Orchestrator style</span></div><span class="then">Classifies the tier. Larger work goes to plan mode.</span><span class="holds">Nothing yet.</span></li>
+    <li><div class="what"><h3>Enter plan mode</h3><span class="by">hook on EnterPlanMode → pre-plan-workflow</span></div><span class="then">Reads existing items and the schemas' required notes, so the plan covers what the gates will ask for.</span><span class="holds">Nothing new. Creating items before approval is forbidden.</span></li>
+    <li><div class="what"><h3>Approve the plan</h3><span class="by">hook on ExitPlanMode → plan-capture</span></div><span class="then">Stores the approved plan text on the server. Skipped silently when no REST API is configured.</span><span class="holds">A plan document under the project root.</span></li>
+    <li><div class="what"><h3>Materialize</h3><span class="by">post-plan-workflow</span></div><span class="then">Creates the work tree, wires dependency edges and fills the queue notes.</span><span class="holds">Every item, edge and queue note, before any code is written.</span></li>
+    <li><div class="what"><h3>Dispatch</h3><span class="by">run-wave, or hand dispatch</span></div><span class="then">Sends agents to items. Each entering agent calls <code>advance_item(start)</code> once, fills its notes and returns.</span><span class="holds">Items in work, with actors on every transition and note.</span></li>
+    <li><div class="what"><h3>Verify and advance</h3><span class="by">orchestrator</span></div><span class="then">Checks the commits, audits the actors, writes its own tracking notes, then advances the items in one batch.</span><span class="holds">Items in review, or terminal when the schema has no review notes.</span></li>
+    <li><div class="what"><h3>Review</h3><span class="by">reviewer agent</span></div><span class="then">Verifies the work against the plan and fills the review notes. The orchestrator completes the items.</span><span class="holds">Terminal items. The parent completes by cascade.</span></li>
+    <li><div class="what"><h3>Retrospective</h3><span class="by">hook on advance_item</span></div><span class="then">A finished run triggers a nudge or a background retrospective. Plate 9 follows it from there.</span><span class="holds">A retrospective item.</span></li>
+  </ol>
+  <p class="sub small">Columns: the step, what drives it, what happens, and what the server holds afterwards.</p>
+</section>
+
+<section>
+  <h2>The plan becomes the queue notes</h2>
+  <p>The approved plan is already written. Retyping it into notes would cost tokens and invite drift. So <code>create_work_tree</code> can point at the stored plan document and name which heading feeds which note.</p>
+  <figure>
+    <div class="panel scroll">
+      <svg class="d" viewBox="0 0 900 200" role="img" aria-label="A stored plan document with three headings. Each heading's section is sliced out and becomes a queue note on a different work item: the overview becomes the feature summary, and each task section becomes that task's scope note.">
+        <rect x="10" y="10" width="250" height="180" rx="4" class="bx"/>
+        <text x="24" y="34" class="b">Plan document: my-plan</text>
+        <text x="24" y="66" class="m"># Overview</text>
+        <text x="24" y="84" class="s mu">goal, non-goals, risks…</text>
+        <text x="24" y="112" class="m">## Task 1</text>
+        <text x="24" y="130" class="s mu">scope, acceptance criteria…</text>
+        <text x="24" y="158" class="m">## Task 2</text>
+        <text x="24" y="176" class="s mu">scope, acceptance criteria…</text>
+        <line x1="260" y1="62" x2="516" y2="62" class="l" marker-end="url(#ah)"/>
+        <line x1="260" y1="108" x2="516" y2="108" class="l" marker-end="url(#ah)"/>
+        <line x1="260" y1="154" x2="516" y2="154" class="l" marker-end="url(#ah)"/>
+        <text x="388" y="54" text-anchor="middle" class="m mu">anchor: overview</text>
+        <text x="388" y="100" text-anchor="middle" class="m mu">anchor: task-1</text>
+        <text x="388" y="146" text-anchor="middle" class="m mu">anchor: task-2</text>
+        <rect x="520" y="40" width="370" height="44" rx="4" class="r-queue"/>
+        <text x="534" y="59" class="b">Feature X</text><text x="534" y="76" class="m">note feature-summary, queue</text>
+        <rect x="520" y="86" width="370" height="44" rx="4" class="r-queue"/>
+        <text x="534" y="105" class="b">Task 1</text><text x="534" y="122" class="m">note task-scope, queue</text>
+        <rect x="520" y="132" width="370" height="44" rx="4" class="r-queue"/>
+        <text x="534" y="151" class="b">Task 2</text><text x="534" y="168" class="m">note task-scope, queue</text>
+      </svg>
+    </div>
+    <figcaption>The server slices each section by its heading and writes it as the note body. Items, edges, notes and the document's adopted mark are one transaction: a missing anchor fails the whole call and creates nothing.</figcaption>
+  </figure>
+</section>
+
+<section>
+  <h2>Running many items as one wave</h2>
+  <figure>
+    <div class="panel scroll">
+      <svg class="d" viewBox="0 0 900 214" role="img" aria-label="run-wave resolves a frontier of ready items, derives a run plan of seat stages for each item, executes it through Method A, the implement-wave workflow, or Method B, direct agent dispatch, and then runs post-run checks before advancing items.">
+        <rect x="10" y="62" width="170" height="64" rx="4" class="bx"/>
+        <text x="95" y="88" text-anchor="middle" class="hd">Frontier</text>
+        <text x="95" y="108" text-anchor="middle" class="s mu">ready and resumable items</text>
+        <line x1="180" y1="94" x2="216" y2="94" class="l" marker-end="url(#ah)"/>
+        <rect x="220" y="62" width="190" height="64" rx="4" class="bx"/>
+        <text x="315" y="88" text-anchor="middle" class="hd">Run plan</text>
+        <text x="315" y="108" text-anchor="middle" class="s mu">seat stages for each item</text>
+        <line x1="410" y1="82" x2="466" y2="50" class="l" marker-end="url(#ah)"/>
+        <line x1="410" y1="106" x2="466" y2="138" class="l dash" marker-end="url(#ah)"/>
+        <rect x="470" y="12" width="220" height="64" rx="4" class="r-work"/>
+        <text x="580" y="38" text-anchor="middle" class="hd">Method A</text>
+        <text x="580" y="58" text-anchor="middle" class="s">the implement-wave workflow</text>
+        <rect x="470" y="112" width="220" height="64" rx="4" class="bx"/>
+        <text x="580" y="138" text-anchor="middle" class="hd">Method B</text>
+        <text x="580" y="158" text-anchor="middle" class="s mu">direct agent dispatch, the fallback</text>
+        <line x1="690" y1="50" x2="736" y2="82" class="l" marker-end="url(#ah)"/>
+        <line x1="690" y1="138" x2="736" y2="106" class="l" marker-end="url(#ah)"/>
+        <rect x="740" y="62" width="150" height="64" rx="4" class="r-gate"/>
+        <text x="815" y="88" text-anchor="middle" class="hd">Post-run</text>
+        <text x="815" y="108" text-anchor="middle" class="s">verify, then advance</text>
+        <text x="10" y="204" class="s mu">Both methods execute the same plan. Run state is saved as plan documents under run/&lt;runId&gt;, so an interrupted run can resume.</text>
+      </svg>
+    </div>
+    <figcaption>The plan comes from each item's resolved schema: its seats decide which agents run, in what order, on which model. Method B takes over when the Workflow tool is missing or the server does not serve seats.</figcaption>
+  </figure>
+  <div class="grid3">
+    <div class="rule"><h3>When the plan routes here</h3><p class="small">After materializing, the plugin hands off to <code>run-wave</code> only if at least two leaf items are unblocked, a project root resolves, their queue notes are filled, and the three protocol rules are served. Otherwise it dispatches by hand and says which condition failed.</p></div>
+    <div class="rule"><h3>What post-run checks</h3><p class="small">That each commit exists and stays inside the files its seat owns, that every note carries the actor of the seat that should have written it, and that the orchestrator's own notes are filled. Items that fail are left out of the batch advance.</p></div>
+    <div class="rule"><h3>Four agents, four jobs</h3><p class="small">The planner verifies the plan against source and cannot edit files. The implementer builds. The test author writes tests without opening the production files. The reviewer reports findings and never advances the item.</p></div>
+  </div>
+</section>
+
+<section>
+  <h2>Rules: operating text the server hands out</h2>
+  <p>A rule is a short piece of operating text stored per project and served verbatim by <code>query_rules</code>. Agents fetch a rule by key when they need it, so a dispatch prompt can name a rule and leave the text out.</p>
+  <div class="grid2">
+    <div class="tscroll"><table>
+      <thead><tr><th>Bundled rule</th><th>What it tells an agent</th></tr></thead>
+      <tbody>
+        <tr><td><code>protocol.entry-seat</code></td><td>Enter the phase once with <code>start</code>. Never complete. Stop on a real failure.</td></tr>
+        <tr><td><code>protocol.in-phase-seat</code></td><td>Never enter or advance. Fill only your own seat's notes.</td></tr>
+        <tr><td><code>protocol.read-only-agent</code></td><td>Never transition. Put findings in your own note.</td></tr>
+        <tr><td><code>commit-discipline</code></td><td>Commit only your own paths, by path, and check the file list.</td></tr>
+        <tr><td><code>review-scoping</code></td><td>Review the diff of the files an agent owns. Edits outside them are a breach.</td></tr>
+      </tbody>
+    </table></div>
+    <div style="display:grid;gap:16px;align-content:start">
+      <div class="rule"><h3>Where rule text comes from</h3><p class="small">Your own rules live in <code>.taskorchestrator/rules/&lt;key&gt;.md</code>. The plugin ships the five on the left. Both are synced to the server at session start, and a workspace file with the same key wins.</p></div>
+      <div class="rule"><h3>Safe updates</h3><p class="small">A bundled rule overwrites the server copy only when that copy matches a version the plugin shipped before. A copy someone customized is left alone and reported.</p></div>
+      <pre>query_rules(operation="get", rootId, key="commit-discipline")
+query_rules(operation="get", itemId, noteKey="test-manifest")
+query_rules(operation="list", rootId)</pre>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Attended or unattended</h2>
+  <div class="tscroll"><table>
+    <thead><tr><th></th><th><code>run-wave</code></th><th><code>ralph</code></th></tr></thead>
+    <tbody>
+      <tr><td>Where it runs</td><td>In your interactive session</td><td>A detached script that starts a fresh headless Claude process and worktree per item</td></tr>
+      <tr><td>How work is chosen</td><td>A frontier of ready items under a feature</td><td>Each iteration claims one item from the queue with <code>claim_item</code></td></tr>
+      <tr><td>Planning</td><td>A run plan of seat stages</td><td>None. The claimed item's schema is the contract.</td></tr>
+      <tr><td>Agents</td><td>One per seat, dispatched by the orchestrator</td><td>No sub-agents. One process does the item.</td></tr>
+      <tr><td>How it stops</td><td>The frontier is done, or a human checkpoint</td><td>The queue is empty, or a limit trips</td></tr>
+    </tbody>
+  </table></div>
+  <div class="grid3">
+    <div class="rule"><h3>Ralph's limits</h3><p class="small">Defaults: 10 iterations, 5 US dollars per iteration, a 30-minute claim. The loop stops after 3 gate failures in a row, 2 errors in a row or 3 idle results.</p></div>
+    <div class="rule"><h3>Each iteration reports</h3><p class="small">One outcome line: <code>terminal</code>, <code>gate-blocked</code>, <code>error</code>, <code>skip</code>, <code>idle</code> or <code>no-item</code>. The loop reads it to decide whether to continue.</p></div>
+    <div class="rule"><h3>Run it on work you trust</h3><p class="small">Iterations run with permission prompts bypassed, each in its own temporary worktree. The budget and the claim expiry are the hard stops.</p></div>
+  </div>
+</section>
+
+<section>
+  <h2>What else ships in the plugin</h2>
+  <div class="grid2">
+    <div class="tscroll"><table>
+      <thead><tr><th>Output style</th><th>Behaviour</th></tr></thead>
+      <tbody>
+        <tr><td>Workflow Orchestrator</td><td>Tier-aware. Plans, delegates, tracks and reports. Small fixes are done inline.</td></tr>
+        <tr><td>Schema Orchestrator</td><td>No tiers and no model policy. The item's schema alone sets the process.</td></tr>
+        <tr><td>Ralph Iteration</td><td>The terse single-item mode each headless iteration runs in.</td></tr>
+      </tbody>
+    </table></div>
+    <div class="tscroll"><table>
+      <thead><tr><th>Workflow script</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td><code>implement-wave</code></td><td>Schedules queue and work seats across a wave, with per-file locks and safe replay.</td></tr>
+        <tr><td><code>review-wave</code></td><td>Independent review lanes over items in review, combined into one verdict.</td></tr>
+        <tr><td><code>audit</code></td><td>A read-only code audit in <code>quick</code>, <code>standard</code> or <code>full</code> size that ends in a findings proposal.</td></tr>
+        <tr><td><code>retro-analysis</code></td><td>Matches retrospective findings against known trends. Read-only.</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</section>
+
+<footer style="display:grid;gap:14px"><nav class="series-nav" aria-label="Field guide plates">
+<a class="item" href="index.html"><span class="n">PLATE 1</span><span class="t">At a Glance</span><span class="small sub">What it is and why the rule lives in the server</span></a>
+<a class="item" href="phase-gates.html"><span class="n">PLATE 2</span><span class="t">Phase Gates</span><span class="small sub">Roles, triggers and a gate you can try</span></a>
+<a class="item" href="work-graph.html"><span class="n">PLATE 3</span><span class="t">Work Graph</span><span class="small sub">Hierarchy, dependencies and cascades</span></a>
+<a class="item" href="schemas-and-traits.html"><span class="n">PLATE 4</span><span class="t">Schemas and Traits</span><span class="small sub">How YAML becomes an enforced gate</span></a>
+<a class="item" href="runtime-map.html"><span class="n">PLATE 5</span><span class="t">Runtime Map</span><span class="small sub">Architecture, deployment and fleets</span></a>
+<a class="item" href="seats.html"><span class="n">PLATE 6</span><span class="t">Seats</span><span class="small sub">Who does what inside a phase</span></a>
+<a class="item" href="finding-work.html"><span class="n">PLATE 7</span><span class="t">Finding Work</span><span class="small sub">The read calls and how the next item is chosen</span></a>
+<span class="item cur" aria-current="page"><span class="n">PLATE 8</span><span class="t">Orchestrating a Run</span><span class="small sub">From a request to finished items</span></span>
+<a class="item" href="improvement-loop.html"><span class="n">PLATE 9</span><span class="t">Improvement Loop</span><span class="small sub">From friction to an adopted change</span></a>
+</nav>
+<p class="foot"><span>MCP Task Orchestrator field guide. MIT licensed, open source.</span><a href="https://github.com/jpicklyk/task-orchestrator">github.com/jpicklyk/task-orchestrator</a></p></footer>
+</div>
+<script>
+(function(){
+  var T={
+    Direct:{plan:'Skipped',notes:'None required',build:'The orchestrator edits, tests and reviews inline',review:'Inline, by the orchestrator'},
+    Delegated:{plan:'Optional',notes:'Filled per schema',build:'One sub-agent',review:'A separate review agent'},
+    Parallel:{plan:'Required',notes:'Filled per schema',build:'Parallel agents in isolated worktrees',review:'A separate review agent'}
+  };
+  var ORDER=['Direct','Delegated','Parallel'];
+  function $(id){return document.getElementById(id);}
+  function on(id){return $(id).checked;}
+  function run(){
+    var tier=+$('files').value-1,why=['File count puts this at '+ORDER[tier]+'.'];
+    var up=[];
+    if(on('s-mig'))up.push('a migration');
+    if(on('s-api'))up.push('new public API');
+    if(on('s-plan'))up.push('collaborative planning language');
+    if(up.length&&tier<1){tier=1;why.push('Raised to Delegated: '+up.join(', ')+'.');}
+    if(on('s-streams')&&tier<2){tier=2;why.push('Raised to Parallel: several independent streams.');}
+    if(on('s-quick')){
+      if(!up.length&&!on('s-streams')&&+$('files').value<3){if(tier>0)why.push('Lowered to Direct: the user asked for a quick fix.');tier=0;}
+      else why.push('"Just fix it" is ignored here: the complexity contradicts it.');
+    }
+    var name=ORDER[tier],t=T[name];
+    $('t-name').textContent=name;
+    $('t-why').textContent=why.join(' ');
+    $('t-plan').textContent=t.plan;$('t-notes').textContent=t.notes;$('t-build').textContent=t.build;$('t-review').textContent=t.review;
+  }
+  ['files','s-mig','s-api','s-streams','s-plan','s-quick'].forEach(function(id){$(id).addEventListener('change',run);});
+  run();
+})();
+</script>
+</body>
+</html>

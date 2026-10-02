@@ -1,0 +1,334 @@
+<title>Task Orchestrator Seats</title>
+<!--FONTS-->
+<style>/*SHARED*/</style>
+<style>
+.d .gatebar{fill:var(--gate)}
+.d .m10{font-family:var(--mono);font-size:10.5px}
+.d .seat{cursor:pointer}
+.d .seat:hover rect{stroke-width:4}
+.d .seat.on rect{stroke-width:5}
+.insp h3{font:600 26px/1 var(--display);text-transform:uppercase}
+.insp dl{margin:0;display:grid;grid-template-columns:8.5rem minmax(0,1fr);gap:0}
+.insp dt,.insp dd{margin:0;padding-block:7px;border-top:1px solid var(--line);font-size:14px}
+.insp dt{font:500 11px/1.6 var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.insp dd{overflow-wrap:anywhere}
+.insp dd code{font-size:12.5px}
+.insp .why{color:var(--muted);font-size:13px;display:block}
+.opt{display:flex;gap:8px;align-items:flex-start;font-size:14px}
+.opt input{width:16px;height:16px;accent-color:var(--work);margin:3px 0 0;flex:none}
+.ctl{display:grid;gap:6px}
+.ctl>span{font:500 11px/1.3 var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+select{font:400 14px/1.2 var(--body);padding:8px 10px;border:1.5px solid var(--ink);border-radius:4px;background:var(--surface);color:var(--ink);max-width:100%}
+.verdict{border-left:5px solid var(--line);padding:10px 14px;background:var(--sunk);border-radius:0 4px 4px 0;display:grid;gap:6px}
+.verdict.pass{border-color:var(--terminal)} .verdict.warn{border-color:var(--gate)} .verdict.block{border-color:var(--blocked)}
+.verdict .head{font:600 24px/1 var(--display);text-transform:uppercase}
+.verdict.pass .head{color:var(--terminal)} .verdict.warn .head{color:var(--gate)} .verdict.block .head{color:var(--blocked)}
+.verdict pre{background:var(--surface);font-size:12.5px}
+.steps{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,150px),1fr));gap:0 16px;counter-reset:s}
+.steps li{counter-increment:s;border-top:4px solid var(--ink);padding-block:10px 14px;display:grid;gap:6px;align-content:start}
+.steps li.q{border-color:var(--queue)} .steps li.w{border-color:var(--work)} .steps li.r{border-color:var(--review)} .steps li.t{border-color:var(--terminal)}
+.steps li::before{content:counter(s);font:600 22px/1 var(--display);color:var(--muted)}
+.steps .who{font:500 12.5px/1.3 var(--mono)}
+.steps .do{font-size:13.5px}
+</style>
+<!--DEFS-->
+<div class="wrap">
+<header class="plate-head">
+  <p class="series"><span>MCP Task Orchestrator · Field guide</span><span>Plate 6 of 6</span></p>
+  <h1>Who does what inside a phase</h1>
+  <p class="lede">A phase is often several jobs: plan, build, test, record. Seats name those jobs in config. The orchestrator learns which agent to send, the gate reports missing notes by owner, and the server can check that the tests and the code were written by different actors.</p>
+</header>
+
+<section>
+  <h2>The seats of a bug fix</h2>
+  <p class="sub">This project's own <code>bug-fix</code> schema with its default traits. Select a seat to see what the server serves for it.</p>
+  <div class="grid2" style="grid-template-columns:minmax(0,1fr)">
+    <figure>
+      <div class="panel scroll">
+        <svg class="d" viewBox="0 0 900 318" role="group" aria-label="Seat map for a bug-fix item across the queue, work and review phases. Each seat is a button.">
+          <text x="100" y="28" text-anchor="middle" class="hd c-queue">queue</text>
+          <text x="440" y="28" text-anchor="middle" class="hd c-work">work</text>
+          <text x="790" y="28" text-anchor="middle" class="hd c-review">review</text>
+          <rect x="10" y="40" width="180" height="266" rx="6" class="fr"/>
+          <rect x="210" y="40" width="460" height="266" rx="6" class="fr"/>
+          <rect x="690" y="40" width="200" height="266" rx="6" class="fr"/>
+          <rect x="195" y="150" width="10" height="40" class="gatebar"/>
+          <rect x="675" y="150" width="10" height="40" class="gatebar"/>
+          <line x1="404" y1="124" x2="472" y2="124" class="l" marker-end="url(#ah)"/>
+          <text x="438" y="116" text-anchor="middle" class="s mu">after</text>
+          <line x1="314" y1="164" x2="314" y2="212" class="l" marker-end="url(#ah)"/>
+          <text x="322" y="194" class="s mu">after</text>
+          <g class="seat" data-seat="planner" tabindex="0" role="button" aria-label="planner seat, queue phase">
+            <rect x="22" y="84" width="156" height="80" rx="4" class="r-queue"/>
+            <text x="34" y="106" class="b">planner</text>
+            <text x="34" y="130" class="m10">diagnosis</text>
+            <text x="34" y="148" class="m10">test-plan</text>
+          </g>
+          <g class="seat" data-seat="implementer" tabindex="0" role="button" aria-label="implementer seat, work phase, enters the phase">
+            <rect x="224" y="84" width="180" height="80" rx="4" class="r-work"/>
+            <text x="236" y="106" class="b">implementer</text>
+            <text x="236" y="124" class="s c-work">enters the phase</text>
+            <text x="236" y="148" class="m10">implementation-notes</text>
+          </g>
+          <g class="seat" data-seat="test-author" tabindex="0" role="button" aria-label="test-author seat, work phase, added by a trait">
+            <rect x="476" y="84" width="180" height="80" rx="4" class="r-work"/>
+            <text x="488" y="106" class="b">test-author</text>
+            <text x="488" y="124" class="s mu">added by a trait</text>
+            <text x="488" y="148" class="m10">test-manifest</text>
+          </g>
+          <g class="seat" data-seat="orchestrator" tabindex="0" role="button" aria-label="orchestrator seat, work phase">
+            <rect x="224" y="216" width="180" height="80" rx="4" class="r-work"/>
+            <text x="236" y="238" class="b">orchestrator</text>
+            <text x="236" y="256" class="s mu">the main session</text>
+            <text x="236" y="280" class="m10">session-tracking</text>
+          </g>
+          <text x="476" y="236" class="s mu">Arrows are after hints: an order</text>
+          <text x="476" y="252" class="s mu">the orchestrator follows. The</text>
+          <text x="476" y="268" class="s mu">server serves them and does</text>
+          <text x="476" y="284" class="s mu">not enforce them.</text>
+          <g class="seat" data-seat="reviewer" tabindex="0" role="button" aria-label="reviewer seat, review phase">
+            <rect x="702" y="84" width="176" height="80" rx="4" class="r-review"/>
+            <text x="714" y="106" class="b">reviewer</text>
+            <text x="714" y="130" class="m10">review-checklist</text>
+            <text x="714" y="148" class="m10">test-independence-audit</text>
+          </g>
+        </svg>
+      </div>
+      <figcaption>Each box is a seat with the required notes it owns. Amber bars are the phase gates from plate 2. The gate checks the notes of every seat in the phase it guards.</figcaption>
+    </figure>
+    <div class="panel insp">
+      <h3 id="i-name">implementer</h3>
+      <dl>
+        <dt>Phase</dt><dd id="i-phase"></dd>
+        <dt>Enters phase</dt><dd id="i-enters"></dd>
+        <dt>Works after</dt><dd id="i-after"></dd>
+        <dt>Told not to read</dt><dd id="i-ex"></dd>
+        <dt>Owns notes</dt><dd id="i-notes"></dd>
+        <dt>Declared by</dt><dd id="i-src"></dd>
+        <dt>Dispatch</dt><dd id="i-disp"></dd>
+      </dl>
+      <div style="display:grid;gap:8px">
+        <span class="small sub">Apply a per-item trait to this item:</span>
+        <label class="opt"><input type="checkbox" id="tr-complex"> <span><code>complex-implementation</code>, for architecture-heavy work</span></label>
+        <label class="opt"><input type="checkbox" id="tr-stakes"> <span><code>high-stakes</code>, where a wrong plan or a missed review is expensive</span></label>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>What a seat declares</h2>
+  <div class="grid2">
+    <pre>work_item_schemas:
+  bug-fix:
+    default_traits: [delegated, needs-test-author]
+    seats:
+      - { name: planner,      phase: queue }
+      - { name: implementer,  phase: work, enters: true }
+      - { name: orchestrator, phase: work, after: [implementer] }
+      - { name: reviewer,     phase: review }
+    notes:
+      - { key: implementation-notes, role: work,
+          required: true, seat: implementer }
+
+traits:
+  needs-test-author:
+    seats:
+      - { name: test-author, phase: work,
+          after: [implementer],
+          reads_exclude: [implementation-notes] }
+    notes:
+      - { key: test-manifest, role: work, required: true,
+          seat: test-author,
+          independent_of: [implementer] }
+  delegated:
+    dispatch:
+      work:
+        agent: task-orchestrator:implementer
+        seats:
+          implementer: { model: sonnet }
+          test-author: { agent: null, model: sonnet }</pre>
+    <div class="tscroll"><table>
+      <thead><tr><th>Field</th><th>Meaning</th><th>Server's part</th></tr></thead>
+      <tbody>
+        <tr><td><code>name</code>, <code>phase</code></td><td>A named role in queue, work or review. The name means nothing to the server.</td><td>Validates and serves</td></tr>
+        <tr><td><code>enters</code></td><td>This seat makes the transition into the phase.</td><td>Allows one per phase</td></tr>
+        <tr><td><code>after</code></td><td>Seats whose work this one follows.</td><td>Serves as a hint</td></tr>
+        <tr><td><code>reads_exclude</code></td><td>Note keys this seat should not read. Keeps a test author blind to the implementation.</td><td>Serves as a hint</td></tr>
+        <tr><td>note <code>seat</code></td><td>The seat that owns a note.</td><td>Groups missing notes by owner</td></tr>
+        <tr><td>note <code>independent_of</code></td><td>Seats whose author must differ from this note's author.</td><td>Checks at the gate</td></tr>
+        <tr><td><code>dispatch.&lt;phase&gt;.seats</code></td><td>Agent, model and effort for one seat. <code>null</code> clears a field inherited from the phase.</td><td>Resolves and serves</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+  <p class="sub small">The YAML is abridged from this project's config, and its <code>independent_of</code> line follows the reference example in the config documentation. A config with no <code>seats</code> anywhere is unaffected: every seat field is left out of every response.</p>
+</section>
+
+<section>
+  <h2>The gate answers by owner</h2>
+  <div class="grid2">
+    <div style="display:grid;gap:8px;align-content:start">
+      <h3>Without seats</h3>
+      <pre>"missingNotes": [
+  { "key": "implementation-notes", … },
+  { "key": "test-manifest", … },
+  { "key": "session-tracking", … }
+]</pre>
+      <p class="small sub">A flat list. The orchestrator has to know, from somewhere outside the config, whose job each note is.</p>
+    </div>
+    <div style="display:grid;gap:8px;align-content:start">
+      <h3>With seats</h3>
+      <pre>"missingNotes": [ … ],
+"missingBySeat": {
+  "implementer":  ["implementation-notes"],
+  "test-author":  ["test-manifest"],
+  "orchestrator": ["session-tracking"]
+}</pre>
+      <p class="small sub">The same failure, routed. A required note that no seat owns is listed under <code>unowned</code>, last.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Independence is the one thing the server checks</h2>
+  <p>When a note declares <code>independent_of</code>, the gate compares the actor who wrote it with the actors who wrote the named seat's notes. Here the implementer's note was written by <code>impl-agent-1</code>, and <code>test-manifest</code> declares <code>independent_of: [implementer]</code>.</p>
+  <div class="grid2">
+    <div class="panel">
+      <label class="ctl" for="ind-who"><span>Who wrote test-manifest</span>
+        <select id="ind-who">
+          <option value="other">test-agent-7, a different actor</option>
+          <option value="same" selected>impl-agent-1, the same actor</option>
+          <option value="none">No actor recorded on the note</option>
+        </select></label>
+      <div class="ctl"><span>independence.mode</span>
+        <div class="btns" id="ind-mode" role="group" aria-label="independence mode">
+          <button type="button" data-m="off" aria-pressed="false">off</button>
+          <button type="button" data-m="warn" aria-pressed="false">warn</button>
+          <button type="button" data-m="reject" aria-pressed="true">reject</button>
+        </div></div>
+      <label class="opt"><input type="checkbox" id="ind-waive"> <span>The note's first line is <code>independence: temporal-only</code>, and it was written after the implementer's note</span></label>
+    </div>
+    <div id="ind-out" class="verdict" aria-live="polite">
+      <div class="head" id="ind-head"></div>
+      <p class="small" id="ind-text"></p>
+      <pre id="ind-json"></pre>
+    </div>
+  </div>
+  <div class="grid3">
+    <div class="rule"><h3>Self-reported unless verified</h3><p class="small">The actor is whatever string the caller sent. Pair the check with actor authentication and <code>require_verified: true</code> to compare proven identities.</p></div>
+    <div class="rule"><h3>Last writer wins</h3><p class="small">Re-upserting a note replaces its actor. No history is kept, so the plugin's orchestrator never rewrites a note a seat owns.</p></div>
+    <div class="rule"><h3>The waiver is self-service</h3><p class="small">Whoever writes the note can add the waiver line. Treat <code>reject</code> as a discipline aid for cooperating agents. It is not a security control.</p></div>
+  </div>
+</section>
+
+<section>
+  <h2>A bug fix, seat by seat</h2>
+  <p class="sub">How the Claude Code plugin's four agent definitions (planner, implementer, test author, reviewer) and the main session take these seats.</p>
+  <ol class="steps">
+    <li class="q"><span class="who">planner · queue</span><span class="do">Writes <code>diagnosis</code> and <code>test-plan</code>. The expected results for the tests are fixed before any code exists.</span></li>
+    <li class="w"><span class="who">implementer · enters work</span><span class="do">Calls <code>advance_item(start)</code>. The queue gate checks the planner's notes. Then it writes the fix and its note.</span></li>
+    <li class="w"><span class="who">test-author · work</span><span class="do">Writes tests from the test plan without reading the implementer's note. Fills <code>test-manifest</code>.</span></li>
+    <li class="w"><span class="who">orchestrator · work</span><span class="do">Fills <code>session-tracking</code> and advances the item. The work gate checks all three seats' notes.</span></li>
+    <li class="r"><span class="who">reviewer · review</span><span class="do">Fills <code>review-checklist</code> and <code>test-independence-audit</code>.</span></li>
+    <li class="t"><span class="who">orchestrator</span><span class="do">Advances the item to terminal. The review gate checks the reviewer's notes.</span></li>
+  </ol>
+  <p class="small sub">Only the entry seat calls <code>advance_item</code>. Every other seat fills its own notes and returns, and the orchestrator owns each later transition. For several items at once, the <code>run-wave</code> skill builds these stages from each item's seats.</p>
+</section>
+
+<section>
+  <h2>How seats combine, and what fails the load</h2>
+  <div class="grid2">
+    <div style="display:grid;gap:16px;align-content:start">
+      <div class="rule"><h3>Traits add seats, they never redefine one</h3><p class="small">A trait seat whose name already exists on the schema is dropped with a warning. Across traits, the first to declare a name keeps it.</p></div>
+      <div class="rule"><h3>Dispatch resolves the other way round</h3><p class="small">For a seat's agent, model and effort, per-item traits are read before default traits. That is how one item can raise its implementer to a stronger model, as the trait toggles above show.</p></div>
+      <div class="rule"><h3>A late second entry seat is demoted</h3><p class="small">If merging traits at resolve time yields two entry seats in one phase, the first keeps the role and the later one is served with <code>enters: false</code>.</p></div>
+    </div>
+    <div class="tscroll"><table>
+      <thead><tr><th>In one config document</th><th>Result</th></tr></thead>
+      <tbody>
+        <tr><td>Two seats with <code>enters: true</code> in the same phase</td><td rowspan="4">The load fails. A global config stops server startup. A per-project push is rejected and nothing is stored.</td></tr>
+        <tr><td>Two seats with the same name</td></tr>
+        <tr><td>A seat named <code>unowned</code></td></tr>
+        <tr><td>A cycle in <code>after</code></td></tr>
+        <tr><td>A required note with no seat, in a schema that has seats</td><td>A warning. The note is served under <code>unowned</code>.</td></tr>
+        <tr><td>A malformed seat entry or dispatch override</td><td>A warning. That entry is skipped.</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</section>
+
+<!--NAV-->
+</div>
+<script>
+(function(){
+  var SEATS={
+    planner:{phase:'queue',enters:false,after:[],ex:[],notes:['diagnosis','test-plan'],src:'the bug-fix schema',d:{model:'opus'}},
+    implementer:{phase:'work',enters:true,after:[],ex:[],notes:['implementation-notes'],src:'the bug-fix schema',d:{agent:'task-orchestrator:implementer',model:'sonnet'}},
+    'test-author':{phase:'work',enters:false,after:['implementer'],ex:['implementation-notes','session-tracking'],notes:['test-manifest'],src:'the needs-test-author trait',d:{model:'sonnet'},why:'The phase agent is cleared for this seat, so the test author is not the implementer agent.'},
+    orchestrator:{phase:'work',enters:false,after:['implementer'],ex:[],notes:['session-tracking'],src:'the bug-fix schema',d:{},why:'The phase agent is cleared. This seat is the main session and is never dispatched.'},
+    reviewer:{phase:'review',enters:false,after:[],ex:[],notes:['review-checklist','test-independence-audit'],src:'the bug-fix schema',d:{agent:'task-orchestrator:reviewer',effort:'high',model:'opus'}}
+  };
+  var OVER={complex:{implementer:{model:'opus'}},stakes:{planner:{model:'fable'},reviewer:{model:'fable'}}};
+  var LABEL={complex:'complex-implementation',stakes:'high-stakes'};
+  var cur='implementer';
+  function $(id){return document.getElementById(id);}
+  function codes(el,arr,empty){
+    el.textContent='';
+    if(!arr.length){el.textContent=empty;return;}
+    arr.forEach(function(k,i){if(i)el.appendChild(document.createTextNode(', '));var c=document.createElement('code');c.textContent=k;el.appendChild(c);});
+  }
+  function show(){
+    var s=SEATS[cur],d={},from={},k,t;
+    for(k in s.d)d[k]=s.d[k];
+    ['complex','stakes'].forEach(function(t){
+      if($('tr-'+t).checked&&OVER[t][cur])for(k in OVER[t][cur]){d[k]=OVER[t][cur][k];from[k]=LABEL[t];}
+    });
+    $('i-name').textContent=cur;
+    $('i-phase').textContent=s.phase;
+    $('i-enters').textContent=s.enters?'Yes. This seat calls advance_item(start).':'No';
+    codes($('i-after'),s.after,'No ordering hint');
+    codes($('i-ex'),s.ex,'Nothing excluded');
+    codes($('i-notes'),s.notes,'None');
+    $('i-src').textContent=s.src;
+    var dd=$('i-disp');dd.textContent='';
+    var keys=['agent','model','effort'].filter(function(x){return d[x];});
+    if(!keys.length)dd.appendChild(document.createTextNode('No profile'));
+    keys.forEach(function(x,i){
+      if(i)dd.appendChild(document.createElement('br'));
+      var c=document.createElement('code');c.textContent=x+': '+d[x];dd.appendChild(c);
+      if(from[x])dd.appendChild(document.createTextNode(' from trait '+from[x]));
+    });
+    if(s.why){var w=document.createElement('span');w.className='why';w.textContent=s.why;dd.appendChild(w);}
+    Array.prototype.forEach.call(document.querySelectorAll('.seat'),function(g){g.classList.toggle('on',g.getAttribute('data-seat')===cur);});
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('.seat'),function(g){
+    function pick(){cur=g.getAttribute('data-seat');show();}
+    g.addEventListener('click',pick);
+    g.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();pick();}});
+  });
+  $('tr-complex').addEventListener('change',show);
+  $('tr-stakes').addEventListener('change',show);
+  show();
+
+  var mode='reject';
+  function verdict(){
+    var who=$('ind-who').value,waive=$('ind-waive').checked,out=$('ind-out'),cls,head,text,json;
+    if(mode==='off'){cls='pass';head='Transition passes';text='The check is never evaluated. No violations field appears on any response.';json='(no violations field)';}
+    else if(who==='other'){cls='pass';head='Transition passes';text='The two notes carry different actor ids, so there is nothing to report.';json='"violations": []';}
+    else{
+      var kind=who==='same'?'same_actor':'missing_actor';
+      var waived=who==='same'&&waive;
+      json='"violations": [\n  { "key": "test-manifest", "seat": "test-author",\n    "constraint": "'+kind+'"'+(who==='same'?', "conflictingSeat": "implementer"':'')+(waived?',\n    "waived": true':'')+' }\n]';
+      if(waived){cls='warn';head='Passes, finding waived';text='The same actor wrote both notes, but the declaring note attests it was written afterwards. A waived finding never blocks, in any mode.';}
+      else if(mode==='warn'){cls='warn';head='Passes with a finding';text=(who==='same'?'The same actor wrote both notes.':'A note with no actor is never assumed independent.')+' In warn mode the finding is reported and the transition still applies.';}
+      else{cls='block';head='Transition blocked';text=(who==='same'?'The same actor wrote both notes.':'A note with no actor is never assumed independent'+(waive?', and the waiver does not cover a missing actor.':'.'))+' In reject mode the item cannot advance until '+(who==='same'?'a different actor writes the note.':'the note carries an actor that differs from the implementer.');}
+    }
+    out.className='verdict '+cls;$('ind-head').textContent=head;$('ind-text').textContent=text;$('ind-json').textContent=json;
+    Array.prototype.forEach.call(document.querySelectorAll('#ind-mode button'),function(b){b.setAttribute('aria-pressed',b.getAttribute('data-m')===mode?'true':'false');});
+  }
+  $('ind-mode').addEventListener('click',function(e){var m=e.target.getAttribute&&e.target.getAttribute('data-m');if(m){mode=m;verdict();}});
+  $('ind-who').addEventListener('change',verdict);
+  $('ind-waive').addEventListener('change',verdict);
+  verdict();
+})();
+</script>
