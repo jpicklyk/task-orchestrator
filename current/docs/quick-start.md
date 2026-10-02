@@ -139,7 +139,7 @@ Hooks run automatically — no invocation required:
 
 ### Output style
 
-The plugin includes a **Workflow Analyst** output style. When active, Claude Code acts as a project management orchestrator — it plans, delegates implementation to subagents, and tracks progress in the WorkItem graph without writing code directly. Useful for complex multi-step features. Select it from the output style menu (`/output-style`) after installing the plugin.
+The plugin includes a **Workflow Orchestrator** output style. When active, Claude Code acts as a project management orchestrator — it plans, tracks progress in the WorkItem graph, and scales process to the size of the work: small known fixes it implements inline, larger work it delegates to subagents. Useful for complex multi-step features. Select it from the output style menu (`/output-style`) after installing the plugin.
 
 ### Initialize
 
@@ -392,10 +392,10 @@ After adding or editing this file, reconnect the MCP server:
 
 | Concept | Description |
 |---------|-------------|
-| `WorkItem` | The core entity. Has a `role` (queue/work/review/terminal/blocked), `type` (e.g. `feature`, `task`, `bug`), `priority`, `tags`, `depth` (0-3), optional `parentId`, and a `properties` map for custom metadata. |
+| `WorkItem` | The core entity. Has a `role` (queue/work/review/terminal/blocked), `type` (e.g. `feature`, `task`, `bug`), `priority`, `tags`, `depth` (0 for a root, parent's depth + 1 otherwise — nesting is unbounded), optional `parentId`, and a `properties` map for custom metadata. |
 | `Note` | Key-value text attached to an item. Has a `role` indicating which workflow phase it belongs to. |
 | `Dependency` | Directed edge between items: `BLOCKS`, `IS_BLOCKED_BY`, or `RELATES_TO`. |
-| Role progression | Items advance via triggers: `start` (queue→work, work→review), `complete` (any→terminal), `block`/`hold` (any→blocked), `resume` (blocked→previous). |
+| Role progression | Items advance via triggers: `start` (queue→work, work→review), `complete` (queue/work/review→terminal — not from blocked; `resume` first), `block`/`hold` (queue/work/review→blocked), `resume` (blocked→previous), `cancel` (any non-terminal→terminal, including blocked). |
 | Note schema gating | When enabled, `advance_item` checks required notes exist and are non-empty before allowing phase transitions. Schema is resolved by `type` first, then tags, then the `default` schema. |
 
 ---

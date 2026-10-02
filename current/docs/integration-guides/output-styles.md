@@ -8,7 +8,7 @@
 
 ## What You Get
 
-- Claude never implements directly — it plans, delegates, tracks, and reports
+- Tier-aware orchestration — Claude plans, delegates, tracks, and reports; small known fixes (Direct tier) it implements inline, larger work goes to subagents
 - Structured delegation model: haiku for bulk MCP ops, sonnet for implementation, opus for architecture
 - Worktree isolation for parallel implementation without file conflicts
 - Agent-owned phase transitions with orchestrator-controlled terminal advancement
@@ -50,9 +50,17 @@ Then select `Workflow Orchestrator` from the list.
 
 ## Key Behavioral Changes
 
-### Never Implement Directly
+### Process Proportional to Tier
 
-The orchestrator delegates all coding and file changes to subagents. It reads files, plans, reviews diffs, and coordinates — but never edits code itself.
+The orchestrator classifies every piece of work into a tier before starting, and the tier decides who implements it:
+
+| Tier | Typical shape | Implementation | Review |
+|------|---------------|----------------|--------|
+| **Direct** | 1-2 files, known fix, no migration or new API | Orchestrator edits, tests, and reviews inline — no subagent | Inline |
+| **Delegated** | 3-10 files, single logical unit | Single subagent | Separate review agent |
+| **Parallel** | 11+ files, multiple independent work streams | Parallel worktree agents | Separate review agent |
+
+A database migration or a new public API surface bumps work to at least Delegated regardless of file count. Review applies only when the item's schema declares review-phase notes. The rest of this guide describes the Delegated and Parallel tiers, where the orchestrator reads files, plans, reviews diffs, and coordinates while subagents make the changes.
 
 ### Plan Before Acting
 
@@ -176,13 +184,21 @@ Narration uses the `↳` prefix for background operations — one line each, ski
 
 ## Retrospective
 
-When items reach terminal after an implementation run — whether via `advance_item`, `complete_tree`, or auto-cascade — the orchestrator nudges:
+The plugin's retrospective hooks — not the output style's own judgment — are the trigger. When items reach terminal after an implementation run (via `advance_item`, `complete_tree`, or auto-cascade), the hook fires and the orchestrator follows it according to `retrospective.mode` in `.taskorchestrator/config.yaml`:
+
+| Mode | What the orchestrator does |
+|------|----------------------------|
+| `nudge` (default) | Surfaces a suggestion to run `/session-retrospective`; the user opts in |
+| `dispatch` | Launches the background retrospective agent the hook specifies, at the next run boundary — one per run. A run below the configured `dispatchThreshold` still arrives as a nudge |
+| `off` | Nothing |
+
+In `nudge` mode the suggestion looks like:
 
 ```
 ↳ Implementation run complete. Consider running `/session-retrospective` to capture learnings.
 ```
 
-The nudge appears at most once per run and is never auto-invoked.
+See [config-format.md → Retrospective](../../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#retrospective) for the full field reference.
 
 ---
 

@@ -29,7 +29,7 @@ Per detection   Observation log  → agent-observation MCP items (Channel 1)
                        ↓
 Per session     Retrospective    → aggregates session-tracking notes
                        ↓
-Cross-session   Trend memory     → patterns graduate into proposals (3+ recurrences)
+Cross-session   Trend memory     → patterns graduate into proposals (seen in 2+ sessions)
                        ↓
 Next session    Loaded as context → behavior corrects automatically
 ```
@@ -273,13 +273,13 @@ Loops 1 and 2 fire continuously during work. Loop 3 fires at session boundaries,
 Two trigger paths:
 
 1. **Manual** — user invokes `/session-retrospective` (optionally with a root item UUID)
-2. **Nudge** — when work items reach terminal during an `/implement` run, the orchestrator output style suggests running it:
+2. **Hook-driven** — when work items reach terminal during an implementation run, the plugin's retrospective hooks fire. In the default `nudge` mode the orchestrator suggests running it:
 
 ```
 ↳ Implementation run complete. Consider running `/session-retrospective` to capture learnings.
 ```
 
-The nudge appears at most once per implementation run and never auto-invokes the skill — the user always opts in.
+In `nudge` mode the suggestion appears at most once per implementation run and the user opts in. With `retrospective.mode: dispatch`, the hook instead directs the orchestrator to launch the retrospective as a background agent at the next run boundary — see option 6b under [Setup](#setup) for the modes.
 
 ### What It Evaluates
 
@@ -293,25 +293,21 @@ The skill scores the run across **five dimensions**:
 | Plan-to-execution | Items created >1h after the root = ad-hoc additions; items still in queue under the root = skipped | Fraction reaching terminal |
 | Friction synthesis | Groups friction entries by type (tool-error, excessive-roundtrips, workaround, api-confusion); identifies themes | Count + theme summary |
 
-### Trend Memory File
+### Trend Memory
 
-The skill maintains `memory/retrospectives.md` in the auto-memory directory. Each finding is recorded with a session counter:
+Trend memory lives in MCP, not in a file: each recurring pattern is a work item tagged `retrospective-trend` under a process-global `Retrospective Trends` container (created lazily, outside any project root — the same model as the `Session Retrospectives` and `Improvement Proposals` containers). The item's title carries a stable kebab-case key, its `summary` carries the distilled observation plus a session counter, and each recurrence adds one evidence note:
 
-```markdown
-## Schema Effectiveness
-- session-tracking: implementation agents fill it briefly (<50 tokens) when delegating in parallel.
-  Sessions: 3. Last seen: 2026-04-25
-
-## Delegation Patterns
-- Bulk MCP work dispatched without model param defaults to opus (waste).
-  Sessions: 7. Last seen: 2026-04-29
-
-## Note Quality
-- review-checklist filled by implementing agent rather than separate reviewer.
-  Sessions: 2. Last seen: 2026-04-22
+```
+title:   trend: model-param-omitted — bulk MCP work dispatched without model param
+summary: Bulk MCP work dispatched without model param defaults to opus (waste).
+         Sessions: 7. Last seen: 2026-04-29.
+tags:    retrospective-trend,delegation
+notes:   evidence-2026-04-29-<retro-short-id>  (role: work — one per recurrence)
 ```
 
-This file is the cross-session memory of recurring patterns. Findings that match an existing trend increment the counter; new findings start at 1.
+The dimension tag is one of `schema-effectiveness`, `delegation`, `note-quality`, `friction`, or `extension-candidate`. Findings that match an existing trend increment `Sessions: N` and add an evidence note; new findings create a trend item at `Sessions: 1`. A trend that is addressed or obsolete is retired with `advance_item(trigger="cancel")`, which drops it out of the active listing.
+
+> **Legacy layout.** Earlier plugin versions kept trends in `memory/retrospectives.md` in the auto-memory directory. If that file still holds trend entries and the Trends container is absent or empty, the skill migrates them into MCP items once, automatically, then rewrites the file to a pointer stub.
 
 ### Proposal Graduation
 
@@ -339,7 +335,7 @@ Meta-findings append to the current retrospective's `improvement-signals` note.
 A retrospective run produces:
 
 1. One `session-retrospective` MCP item under a `Session Retrospectives` container (with three queue-phase notes filled)
-2. Updated `memory/retrospectives.md` (new trends, incremented counters)
+2. New or updated `retrospective-trend` MCP items under the `Retrospective Trends` container (new trends, incremented counters, evidence notes)
 3. Zero or more `improvement-proposal` MCP items under an `Improvement Proposals` container (one per graduated trend)
 4. A dashboard rendered to the user with dimension scores, trends, and any proposals created
 
@@ -493,14 +489,14 @@ Place the file in `~/.claude/output-styles/` (personal, gitignored) and activate
 - Gather scope (root item or recently terminal items)
 - Collect distributed `session-tracking` notes
 - Aggregate and evaluate across five dimensions
-- Compare against `memory/retrospectives.md` trend file
+- Compare against the active trend items under the `Retrospective Trends` container
 - Persist a `session-retrospective` MCP item with three queue-phase notes
-- Update the trend file
+- Create or update trend items
 - Create `improvement-proposal` items for trends that hit `Sessions >= 2`
 - Run meta-evaluation if 3+ prior retrospectives exist
 - Render a dashboard
 
-> **Reference implementation:** The plugin carries this skill at `claude-plugins/task-orchestrator/skills/session-retrospective/SKILL.md`. If you prefer a project-local variant (no plugin activation required), copy that file into your own project's `.claude/skills/session-retrospective/SKILL.md` and adapt as needed — schema names, trend file paths, dimension definitions, and graduation thresholds may differ in your setup. After plugin updates, remove and re-add the marketplace to pick up skill changes (content is cached).
+> **Reference implementation:** The plugin carries this skill at `claude-plugins/task-orchestrator/skills/session-retrospective/SKILL.md`. If you prefer a project-local variant (no plugin activation required), copy that file into your own project's `.claude/skills/session-retrospective/SKILL.md` and adapt as needed — schema names, trend container and tag names, dimension definitions, and graduation thresholds may differ in your setup. After plugin updates, remove and re-add the marketplace to pick up skill changes (content is cached).
 
 **6.** Wire a retrospective nudge so the agent suggests `/session-retrospective` after implementation runs end. Two layered options — pick one or use both:
 
@@ -540,7 +536,7 @@ After the first implementation run with the full pipeline:
 
 1. Confirm `session-tracking` notes were filled on each item: `query_notes(itemId="<uuid>", role="work")`
 2. Run `/session-retrospective` and check the dashboard renders dimension scores
-3. Inspect `memory/retrospectives.md` — it should now exist with the first trend entries
+3. List the trend items — `query_items(operation="search", tags="retrospective-trend", role="queue")` — the first trend entries should now exist under a `Retrospective Trends` container
 4. After a second similar run, check whether any trends graduated into `improvement-proposal` items
 
 If `session-tracking` notes are missing, the gate enforcement is not configured — re-check Step 2.
@@ -573,20 +569,20 @@ haiku for MCP bulk ops, sonnet for implementation, opus for architecture."
 
 It also logs an `agent-observation` MCP item (Loop 1) tagged `optimization`. The implementation item's `session-tracking` note records the friction entry: `friction: api-confusion — model param defaulted unexpectedly`.
 
-`/session-retrospective` runs at end of session. The trend memory file gets a new entry:
+`/session-retrospective` runs at end of session. A new trend item is created, with this summary:
 
 ```
-- Bulk delegations dispatched without model param. Sessions: 1. Last seen: 2026-04-22
+Bulk delegations dispatched without model param. Sessions: 1. Last seen: 2026-04-22.
 ```
 
 Below threshold — no proposal yet.
 
 **Session 2.** Memory loaded the correction. The orchestrator sets `model="sonnet"` on the first dispatch automatically. But on a second dispatch later in the session, the model param is omitted again — under different conditions the memory entry didn't catch.
 
-Retrospective runs. Trend file updates:
+Retrospective runs. The trend item's summary is updated and a second evidence note is added:
 
 ```
-- Bulk delegations dispatched without model param. Sessions: 2. Last seen: 2026-04-25
+Bulk delegations dispatched without model param. Sessions: 2. Last seen: 2026-04-25.
 ```
 
 **Threshold reached.** The skill creates an `improvement-proposal` MCP item:
@@ -611,7 +607,7 @@ The pattern moved from `inline detection → memory correction → MCP observati
 
 After several sessions, three places hold the accumulated learning:
 
-**MCP — observations and proposals:**
+**MCP — observations, proposals, and retrospectives:**
 
 ```
 query_items(operation="search", tags="agent-observation")
@@ -625,13 +621,13 @@ Group observations by type tag to see patterns:
 - Multiple `friction` observations about the same parameter → docs or error message improvement
 - A recurring `bug` observation → escalate priority (add `action-item` tag)
 
-**Auto-memory — trend file:**
+**MCP — trend items:**
 
 ```
-~/.claude/projects/<project-key>/memory/retrospectives.md
+query_items(operation="search", tags="retrospective-trend", role="queue", limit=100)
 ```
 
-Lists current trends with session counts. Trends with `Sessions >= 2` should already have proposals. Trends with high session counts but no proposals indicate the graduation step missed (skill bug or schema gap).
+Lists the active trends (id, title, tags); fetch one with `query_items(operation="get", itemId="<trend-uuid>")` to read its summary and session count, and `query_notes(operation="list", itemId="<trend-uuid>")` for its per-session evidence. Trends with `Sessions >= 2` should already have proposals — their summary carries a `GRADUATED -> proposal <short-id>` pointer. Trends with high session counts but no pointer indicate the graduation step missed (skill bug or schema gap).
 
 **Auto-memory — self-corrections:**
 

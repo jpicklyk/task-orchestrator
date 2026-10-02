@@ -611,7 +611,8 @@ attribution-bearing here to redact; the same body is served to every caller rega
 ```
 
 Response DTO for `GET /items/{id}/gate` (§9) — field-for-field identical to `get_context` item
-mode's `gateStatus`/`guidanceKey`/`skillPointer` (see `api-reference.md:1458-1475`). `guidanceKey`
+mode's `gateStatus`/`guidanceKey`/`skillPointer` (see
+[api-reference.md → get_context](api-reference.md#get_context), "Response (item mode)"). `guidanceKey`
 and `skillPointer` are the FIRST missing required note's guidance key / skill pointer for the
 current phase — omitted from JSON (not `null`) when there is none, same `explicitNulls=false` rule
 as every other DTO in this document.
@@ -1037,7 +1038,7 @@ candidate window; see §3's pagination caveat) — `totalItems` is the filtered 
 
 Gate status for the item's current phase — field-for-field identical to the MCP `get_context`
 item mode's `gateStatus`/`guidanceKey`/`skillPointer` (see
-[api-reference.md](api-reference.md):1458-1475), computed via the same `resolveSchema` +
+[api-reference.md → get_context](api-reference.md#get_context), "Response (item mode)"), computed via the same `resolveSchema` +
 `computePhaseNoteContext` path. No dependency/blocker info and no dispatch field. Consumed by the
 plugin's SubagentStop phase guard (see
 [integration-guides/plugin-skills-hooks.md](integration-guides/plugin-skills-hooks.md)).

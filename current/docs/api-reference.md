@@ -2189,6 +2189,7 @@ so a push is never silently partial:
 | `status_labels` | Yes | `ToolExecutionContext.resolveStatusLabel()` |
 | `resources` | Yes | `ToolExecutionContext.resolveResourceRegistry()` |
 | `schema_resolution` | Yes | `LayeredConfig.effectiveMode` (AR-39) — see [config-format.md](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md) → "Global vs Per-Project Config" |
+| `independence` | Yes | `EffectiveConfigResolver.resolveIndependencePolicy()` (A2) — a per-root block replaces the global one wholesale; see [config-format.md](../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#independence-a2) → "Independence (A2)" |
 | `actor_authentication` | No — global-only | n/a |
 | any other key | No | n/a |
 
