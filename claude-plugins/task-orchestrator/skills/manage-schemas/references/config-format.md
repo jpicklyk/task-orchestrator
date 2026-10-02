@@ -1068,6 +1068,41 @@ Default: `nudge` — applied when the `retrospective:` block or `mode` key is ab
 
 ---
 
+## Orchestration
+
+The `orchestration:` section is a top-level key alongside `work_item_schemas`, `traits`, `retrospective`, and `project`. It selects how much orchestration behavior the plugin hooks inject into a session.
+
+```yaml
+orchestration:
+  mode: workflow   # workflow (default) | schema | off
+```
+
+Default: `workflow` - applied when the `orchestration:` block or `mode` key is absent, or the value is unrecognized.
+
+### Fields
+
+| Field | Required | Type | Notes |
+|-------|----------|------|-------|
+| `mode` | no | string | `workflow`, `schema`, or `off` (case-insensitive, quotes optional). Defaults to `workflow`; any other value falls back to the default. |
+
+### Modes
+
+| Mode | Behavior |
+|------|----------|
+| `workflow` (default) | Full behavior: tier classification, delegation table, and dispatch rules. |
+| `schema` | No tiers and no model table; the item's resolved note schema alone drives the process. |
+| `off` | Every orchestration hook exits silently. |
+
+### Behavior
+
+- **Client-side only.** Read directly from the workspace file by the plugin hooks `orchestration-context.mjs` (SessionStart), `dispatch-model-guard.mjs` (PreToolUse on Agent), and `dispatch-hint.mjs` (PostToolUse on `advance_item`). The MCP server never interprets it; a per-root push reports `orchestration` under `ignoredSections` and never rejects it, so older servers accept the block too.
+- **Also inert** when no config is located, and in headless ralph iterations (ralph receives its rules through `--append-system-prompt-file`).
+- **Read fresh on every hook fire**, but the SessionStart context only changes at the next session start, `/clear`, or `/compact`.
+- **`off` is a plain string.** The plugin reads it as text, so YAML 1.1 boolean coercion does not apply; quoting is optional.
+- **manage-schemas write operations must preserve this block untouched.**
+
+---
+
 ## Global vs Per-Project Config
 
 Config resolves in **two layers**, chosen per work item by its `rootId`:
