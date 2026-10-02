@@ -92,10 +92,12 @@ import kotlin.test.fail
  *
  * GOLDEN MECHANISM: [normalizeGolden] normalizes exactly two field families (full rationale on the
  * function itself) and nothing else:
- * 1. `metadata.timestamp` — every MCP tool envelope (`ResponseUtil.createSuccessResponse`/
+ * 1. `metadata.timestamp` and `metadata.version` — every MCP tool envelope (`ResponseUtil.createSuccessResponse`/
  *    `createErrorResponse`) always attaches `metadata: {timestamp, version}`
  *    (`ResponseUtilTest` "createMetadata includes timestamp and version"); the wall-clock
- *    `timestamp` varies every run, `version` does not and is left untouched. An earlier version of
+ *    `timestamp` varies every run, and `version` is the build version, which changes at every
+ *    release: the recorded captures pinned `3.15.0` and the 3.16.0 version bump failed all nine
+ *    MCP captures, so it is normalized as well. An earlier version of
  *    this test assumed no timestamp appeared in any of these response shapes — WRONG: that held
  *    for `data`, not for the MCP envelope wrapping it. Caught by the orchestrator's record+compare
  *    run against the untouched base, which failed on effectively all 9 MCP captures until this was
@@ -315,8 +317,8 @@ class SeatlessResponseGoldenTest {
      * 1. `metadata.timestamp` — EVERY MCP tool envelope is built by `ResponseUtil.createSuccessResponse`
      *    / `createErrorResponse`, which always attaches `metadata: {timestamp, version}`
      *    (`ResponseUtilTest` "createMetadata includes timestamp and version": an ISO-8601
-     *    wall-clock capture time). `metadata.version` (the build version) is left untouched — only
-     *    `timestamp` varies run-to-run. Confirmed absent from the REST `/gate` and REST
+     *    wall-clock capture time). `metadata.version` (the build version) is normalized in the same
+     *    step: it does not vary run-to-run, but it changes at every release. Confirmed absent from the REST `/gate` and REST
      *    advance-422 response bodies captured here (their fields are `itemId`/`title`/`role`/
      *    `gateStatus`/... and `error`/`details`/... respectively, per `ItemGateRouteTest` /
      *    `ItemWriteRoutesFailurePathTest`'s existing field-shape assertions — no `metadata` key),
@@ -334,7 +336,10 @@ class SeatlessResponseGoldenTest {
 
         val metadata = result["metadata"] as? JsonObject
         if (metadata != null && metadata.containsKey("timestamp")) {
-            val patchedMetadata = JsonObject(metadata + ("timestamp" to JsonPrimitive("<A1-T0-NORMALIZED-TIMESTAMP>")))
+            var patchedMetadata = JsonObject(metadata + ("timestamp" to JsonPrimitive("<A1-T0-NORMALIZED-TIMESTAMP>")))
+            if (patchedMetadata.containsKey("version")) {
+                patchedMetadata = JsonObject(patchedMetadata + ("version" to JsonPrimitive("<A1-T0-NORMALIZED-VERSION>")))
+            }
             result = JsonObject(result + ("metadata" to patchedMetadata))
         }
 

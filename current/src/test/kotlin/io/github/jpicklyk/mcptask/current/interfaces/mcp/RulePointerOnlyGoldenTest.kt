@@ -199,7 +199,10 @@ class RulePointerOnlyGoldenTest {
 
         val metadata = result["metadata"] as? JsonObject
         if (metadata != null && metadata.containsKey("timestamp")) {
-            val patchedMetadata = JsonObject(metadata + ("timestamp" to JsonPrimitive("<A1-T0-NORMALIZED-TIMESTAMP>")))
+            var patchedMetadata = JsonObject(metadata + ("timestamp" to JsonPrimitive("<A1-T0-NORMALIZED-TIMESTAMP>")))
+            if (patchedMetadata.containsKey("version")) {
+                patchedMetadata = JsonObject(patchedMetadata + ("version" to JsonPrimitive("<A1-T0-NORMALIZED-VERSION>")))
+            }
             result = JsonObject(result + ("metadata" to patchedMetadata))
         }
 
