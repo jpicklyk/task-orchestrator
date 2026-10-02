@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 // Regenerates the shared tier-classification block in every consumer file from the
-// single canonical fragment (_fragments/tier-classification.md). Run this after
+// single canonical fragment (tier-classification.md). Run this after
 // editing the fragment — the copies must never be hand-edited.
 //
-//   node claude-plugins/task-orchestrator/output-styles/generate.mjs            # rewrite copies in place
-//   node claude-plugins/task-orchestrator/output-styles/generate.mjs --check    # verify only, non-zero exit on drift (CI)
+//   node claude-plugins/task-orchestrator/_fragments/generate.mjs            # rewrite copies in place
+//   node claude-plugins/task-orchestrator/_fragments/generate.mjs --check    # verify only, non-zero exit on drift (CI)
 //   node .../generate.mjs <extra-file> [...]                                    # also sync extra targets, e.g. a home-dir style
 //
 // The Kotlin test TierClassificationConsistencyTest enforces the in-repo copies in CI;
@@ -23,13 +23,13 @@ const repoRoot = resolve(scriptDir, '../../..');
 const norm = (s) => s.replace(/\r\n/g, '\n');
 
 // Canonical content, normalized to exactly one trailing newline.
-const fragment = norm(readFileSync(resolve(scriptDir, '_fragments/tier-classification.md'), 'utf8')).replace(/\n*$/, '\n');
+const fragment = norm(readFileSync(resolve(scriptDir, 'tier-classification.md'), 'utf8')).replace(/\n*$/, '\n');
 
 const check = process.argv.includes('--check');
 const extra = process.argv.slice(2).filter((a) => !a.startsWith('--'));
 // The in-repo consumer set is defined ONCE in the manifest and shared by TierClassificationConsistencyTest
 // and current/build.gradle.kts inputs.files, so the three enforcement sites can never diverge.
-const manifestPath = resolve(scriptDir, '_fragments/tier-classification.consumers.txt');
+const manifestPath = resolve(scriptDir, 'tier-classification.consumers.txt');
 const manifestTargets = norm(readFileSync(manifestPath, 'utf8'))
   .split('\n')
   .map((line) => line.trim())
@@ -68,7 +68,7 @@ for (const path of targets) {
   const rebuilt = text.slice(0, beginLineEnd + 1) + fragment + text.slice(ei);
   if (rebuilt === text) continue; // already in sync
   if (check) {
-    console.error(`OUT OF SYNC: ${path} — run: node claude-plugins/task-orchestrator/output-styles/generate.mjs`);
+    console.error(`OUT OF SYNC: ${path} — run: node claude-plugins/task-orchestrator/_fragments/generate.mjs`);
     failures++;
   } else {
     // Preserve the file's original line-ending style — only the marked region changed, so a

@@ -34,7 +34,7 @@ that checks whether a change is present in the codebase.
 
 **Execution tier** — classify by this table (canonical source shared with the Workflow Orchestrator output style; edit the fragment, not this copy):
 
-<!-- BEGIN GENERATED:tier-classification | source: claude-plugins/task-orchestrator/output-styles/_fragments/tier-classification.md · regen: node claude-plugins/task-orchestrator/output-styles/generate.mjs -->
+<!-- BEGIN GENERATED:tier-classification | source: claude-plugins/task-orchestrator/_fragments/tier-classification.md · regen: node claude-plugins/task-orchestrator/_fragments/generate.mjs -->
 | Criteria | Tier | Pipeline |
 |----------|------|----------|
 | 1-2 files, known fix, no migration/new API | **Direct** | Orchestrator edits, tests, reviews inline |
