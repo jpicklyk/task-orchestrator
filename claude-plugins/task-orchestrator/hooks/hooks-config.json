@@ -111,6 +111,16 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "matcher": "^mcp__.*task-orchestrator.*__advance_item$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/dispatch-hint.mjs",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "SubagentStart": [

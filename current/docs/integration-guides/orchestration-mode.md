@@ -24,9 +24,11 @@ The plugin delivers the orchestration core through a SessionStart hook, not an o
 |---------|-----------------|------|
 | `orchestration-context` SessionStart hook | The always-on core: workflow principles, skill routing, retrospective handling, action items, visual conventions | Every session start, including after `/compact` and `/clear` |
 | `task-orchestrator:orchestrate` skill | On-demand depth: the tier table, the delegation model table, and phase-owner dispatch rules | Invoked from the orchestration context before sizing or dispatching work |
+| `dispatch-model-guard` PreToolUse hook (matcher `Agent`) | Denies an `Agent` dispatch that omits `model`; the deny reason names the retry (the delegation table in `workflow` mode, the dispatch profile in `schema` mode) | Every `Agent` call |
+| `dispatch-hint` PostToolUse hook (matcher `advance_item`) | One line per transition into `work` or `review` naming the item's dispatch profile (`agent`, `model`, optional `effort`) | After each `advance_item`, main session only |
 | `skills/ralph/iteration-system-prompt.md` | The rules for a headless ralph iteration | Appended to the system prompt of each `claude -p` iteration; the orchestration context stays inert there |
 
-The hook is inert when the session is a headless ralph iteration, when no `.taskorchestrator/config.yaml` can be located, or when `orchestration.mode` is `off`.
+The hooks are inert when the session is a headless ralph iteration, when no `.taskorchestrator/config.yaml` can be located, or when `orchestration.mode` is `off`. That covers both enforcement hooks too.
 
 ### The `orchestration.mode` key
 
@@ -41,7 +43,7 @@ orchestration:
 |------|-----------|
 | `workflow` (default) | Tier-aware. Plans, delegates, tracks and reports. Small fixes are done inline. |
 | `schema` | No tiers and no model table. The item's resolved note schema alone sets the process; phase-owner dispatch rules still apply. |
-| `off` | The orchestration hooks exit silently. |
+| `off` | The orchestration hooks exit silently, including `dispatch-model-guard` and `dispatch-hint`. |
 
 The key is read client-side by the hooks and takes effect at the next session start, `/clear`, or `/compact`. See [config-format.md → Orchestration](../../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#orchestration) for the full field reference.
 
