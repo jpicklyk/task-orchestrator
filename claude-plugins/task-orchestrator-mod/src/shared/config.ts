@@ -1,26 +1,16 @@
-// Project config access. Reads `.taskorchestrator/config.yaml` relative to the session's working
-// directory with the same minimal YAML reader the TO command hooks use (src/lib/yaml-lite.mjs is a
-// copy of claude-plugins/task-orchestrator/hooks/yaml-lite.mjs — keep the two in sync).
-import type { EngineInterface } from 'claude-code'
-
+// Project config parsing. Pure: the caller reads the file itself with `$.fs.read(CONFIG_PATH)` in
+// the module that owns `$` — the plugin validator follows `$` only within one file, so a helper
+// that takes `$` across an import is refused. src/lib/yaml-lite.mjs is a copy of
+// claude-plugins/task-orchestrator/hooks/yaml-lite.mjs — keep the two in sync.
 import { readSection, scalar } from '../lib/yaml-lite.mjs'
 
+/** The project config, relative to the session's working directory. */
 export const CONFIG_PATH = '.taskorchestrator/config.yaml'
 
-/** The raw config text, or null when the file is absent or unreadable. */
-export async function readConfig($: EngineInterface): Promise<string | null> {
-  try {
-    return await $.fs.read(CONFIG_PATH)
-  } catch {
-    return null
-  }
-}
-
-/** `project.rootId` from the project config, or null when there is none. */
-export async function readProjectRootId($: EngineInterface): Promise<string | null> {
-  const cfg = await readConfig($)
-  if (cfg === null) return null
-  const section = readSection(cfg, 'project', { blockOnly: true })
+/** `project.rootId` from config text, or null when there is none. */
+export function parseProjectRootId(configText: string | null): string | null {
+  if (!configText) return null
+  const section = readSection(configText, 'project', { blockOnly: true })
   const rootId = section ? scalar(section.lines, 'rootId') : null
 
   return typeof rootId === 'string' && rootId.length > 0 ? rootId : null

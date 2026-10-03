@@ -1,15 +1,12 @@
-// Read access to the TO MCP server through the engine's own connection.
+// Parsing of TO MCP tool results. Pure: the caller makes the `$.mcp.call(TO_SERVER, ...)` itself in
+// the module that owns `$` (the plugin validator refuses `$` passed across an import).
 //
 // A `$.mcp.call` raises `tool.call` and `classic.PostToolUse` like a model's call does, so the
-// TO command hooks run on it too. Features must keep their own calls read-only, and a hook that
-// reacts to TO tool calls must skip dispatches whose `next.origin.plugin` is PLUGIN.
-import type { EngineInterface } from 'claude-code'
+// TO command hooks run on it too. Keep the mod's own calls read-only, and skip dispatches whose
+// `next.origin.plugin` is PLUGIN in any hook that reacts to TO tool calls.
 
-import { TO_SERVER } from './constants.ts'
-
-/** Calls a TO tool and parses its JSON text result; throws on an MCP error result or bad JSON. */
-export async function callTo<T>($: EngineInterface, tool: string, args: Record<string, unknown> = {}): Promise<T> {
-  const result = await $.mcp.call(TO_SERVER, tool, args)
+/** The JSON text result of a TO tool call, parsed; throws on an MCP error result or bad JSON. */
+export function parseToResult<T>(tool: string, result: { content: readonly unknown[]; isError?: boolean }): T {
   let text = ''
   for (const block of result.content) {
     const b = block as { type?: string; text?: string }
@@ -18,7 +15,7 @@ export async function callTo<T>($: EngineInterface, tool: string, args: Record<s
       break
     }
   }
-  if (result.isError) throw new Error(`${tool}: ${text || 'error result'}`)
+  if (result.isError === true) throw new Error(`${tool}: ${text || 'error result'}`)
 
   return JSON.parse(text) as T
 }
