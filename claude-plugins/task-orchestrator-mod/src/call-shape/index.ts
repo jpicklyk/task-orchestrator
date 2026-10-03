@@ -7,23 +7,20 @@
 import type { On } from 'claude-code'
 
 import { PLUGIN, toToolName } from '../shared/constants.ts'
-import { CONFIG_PATH } from '../shared/config.ts'
-import { readSection, scalar } from '../lib/yaml-lite.mjs'
+import { CONFIG_PATH, parseProjectRootId } from '../shared/config.ts'
 import { isOwnCall, rewriteCall } from './rewrite.ts'
 
+/** The TO tools whose input this feature can repair; other TO calls never reach the hook. */
+const REPAIRED_TOOLS = /^mcp__.*task-orchestrator.*__(?:query_items|get_next_item|get_blocked_items|get_context|manage_notes)$/
+
 export function registerCallShape(on: On): void {
-  on('tool.call', async ($, e, next) => {
+  on('tool.call', { tool: REPAIRED_TOOLS }, async ($, e, next) => {
     const tool = toToolName(e.tool)
     if (tool === null || isOwnCall(next.origin?.plugin, PLUGIN)) return next(e)
 
     let rootId: string | null = null
     try {
-      // Same lookup as shared/readProjectRootId, inlined: the validator follows `$` only into
-      // functions declared in the same file, never across an import.
-      const cfg = await $.fs.read(CONFIG_PATH)
-      const section = readSection(cfg, 'project', { blockOnly: true })
-      const id = section ? scalar(section.lines, 'rootId') : null
-      rootId = typeof id === 'string' && id.length > 0 ? id : null
+      rootId = parseProjectRootId(await $.fs.read(CONFIG_PATH))
     } catch {
       rootId = null
     }

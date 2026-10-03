@@ -11,7 +11,7 @@ const unchanged = (tool: string, input: Record<string, unknown>, root: string | 
 
 test('rule A: injects ancestorId on the four scoped shapes', () => {
   for (const [tool, input] of [
-    ['query_items', { operation: 'search', tags: 'bug' }],
+    ['query_items', { operation: 'search' }],
     ['get_next_item', {}],
     ['get_blocked_items', {}],
     ['get_context', { mode: 'health-check' }],
@@ -32,15 +32,36 @@ test('rule A: skip conditions leave input untouched', () => {
   unchanged('query_items', { operation: 'search', ancestorId: null })
   unchanged('query_items', { operation: 'search', parentId: 'p' })
   unchanged('query_items', { operation: 'search', depth: 0 })
-  unchanged('query_items', { operation: 'search', tags: 'agent-observation' })
-  unchanged('query_items', { operation: 'search', tags: 'bug, session-retrospective' })
-  unchanged('query_items', { operation: 'search', type: 'improvement-proposal' })
+  unchanged('query_items', { operation: 'search', tags: 'retrospective-trend' })
+  unchanged('query_items', { operation: 'search', tags: 'container' })
+  unchanged('query_items', { operation: 'search', tags: 'bug, anything' })
+  unchanged('query_items', { operation: 'search', type: 'agent-observation' })
+  unchanged('query_items', { operation: 'search', type: 'feature-task' })
   unchanged('get_next_item', { tags: 'improvement-proposal' })
+  unchanged('get_blocked_items', { type: 'x' })
+  unchanged('get_context', { mode: 'health-check', tags: 'container' })
+  unchanged('query_items', { operation: 'search', ancestorId: '' })
   unchanged('get_context', { itemId: 'abcd' })
   unchanged('get_context', { mode: 'item' })
   unchanged('query_items', { operation: 'search' }, null)
   unchanged('get_blocked_items', {}, null)
   unchanged('advance_item', {})
+})
+
+test('rule A: parentId null counts as absent, so ancestorId is injected', () => {
+  const r = rewriteCall('query_items', { operation: 'search', parentId: null }, ROOT)
+  expect(r.input.ancestorId).toBe(ROOT)
+})
+
+test('rule B: reserved agentId/tool_use_id survive a rewrite', () => {
+  const r = rewriteCall('get_next_item', { agentId: 'ag1', tool_use_id: 'tu1' }, ROOT)
+  expect(r.input.agentId).toBe('ag1')
+  expect(r.input.tool_use_id).toBe('tu1')
+  expect(r.input.ancestorId).toBe(ROOT)
+  const actor = { id: 'a', kind: 'user' }
+  const n = rewriteCall('manage_notes', { operation: 'upsert', actor, agentId: 'ag1', tool_use_id: 'tu1', notes: [{ key: 'k' }] }, null)
+  expect(n.input.agentId).toBe('ag1')
+  expect(n.input.tool_use_id).toBe('tu1')
 })
 
 test('rule B: copies the actor only into actor-less elements, keeps top-level', () => {
@@ -90,7 +111,7 @@ test('integration: tool.call repairs input beneath to the command hooks and logs
     return { ref: 'r', result: 'ok', text: 'ok' } as never
   })
 
-  await $.tool.call({ tool: 'mcp__mcp-task-orchestrator__query_items', operation: 'search', tags: 'bug' } as never)
+  await $.tool.call({ tool: 'mcp__mcp-task-orchestrator__query_items', operation: 'search' } as never)
   await $.tool.call({
     tool: 'mcp__mcp-task-orchestrator__manage_notes',
     operation: 'upsert',
@@ -117,4 +138,27 @@ test('integration: unscoped when the config is unreadable', async ($, on) => {
 
   await $.tool.call({ tool: 'mcp__mcp-task-orchestrator__query_items', operation: 'search' } as never)
   expect(seen[0]?.ancestorId).toBeUndefined()
+})
+
+test('integration: nothing logged when nothing changed; tagged listings stay unscoped', async ($, on) => {
+  const seen: Record<string, unknown>[] = []
+  const logs: string[] = []
+  on('fs.read', async () => ({ value: CONFIG }) as never)
+  on('ui.log', async (_$, e) => {
+    logs.push(e.text)
+
+    return { value: undefined } as never
+  })
+  on('tool.call', async (_$, e) => {
+    seen.push(e as unknown as Record<string, unknown>)
+
+    return { ref: 'r', result: 'ok', text: 'ok' } as never
+  })
+
+  await $.tool.call({ tool: 'mcp__mcp-task-orchestrator__query_items', operation: 'search', tags: 'retrospective-trend' } as never)
+  await $.tool.call({ tool: 'mcp__mcp-task-orchestrator__query_items', operation: 'search', ancestorId: '' } as never)
+
+  expect(seen[0]?.ancestorId).toBeUndefined()
+  expect(seen[1]?.ancestorId).toBe('')
+  expect(logs.filter(l => l.includes('call-shape'))).toEqual([])
 })

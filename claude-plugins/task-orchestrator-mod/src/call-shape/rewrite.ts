@@ -1,19 +1,20 @@
 // Pure call-shape repair for TO tool calls (T7). No `$`, so it is unit-testable: the caller reads
 // the project rootId and hands it in.
 
-/** Names of the process-global schemas (deploy/global-config); calls naming one stay unscoped. */
-export const PROCESS_GLOBAL_NAMES: readonly string[] = ['agent-observation', 'session-retrospective', 'improvement-proposal']
-
 export type Rewrite = { input: Record<string, unknown>; changes: string[] }
 
 type Input = Record<string, unknown>
 
 const absent = (v: unknown): boolean => v === undefined || v === null
 
-function isProcessGlobal(input: Input): boolean {
-  const tags = typeof input.tags === 'string' ? input.tags.split(',').map(t => t.trim()) : []
-
-  return tags.some(t => PROCESS_GLOBAL_NAMES.includes(t)) || (typeof input.type === 'string' && PROCESS_GLOBAL_NAMES.includes(input.type))
+/**
+ * A `tags` or `type` filter of any value means the caller is looking up a specific kind of item
+ * (process-global containers, trends, observations, retrospectives, proposals, personal roots),
+ * which may live outside the project root; such listings stay unscoped. An explicit
+ * `ancestorId: ""` also passes through untouched (the server reads blank as unscoped).
+ */
+function hasKindFilter(input: Input): boolean {
+  return !absent(input.tags) || !absent(input.type)
 }
 
 /** Whether rule A (inject `ancestorId`) is in play for this tool and input, before the skip conditions. */
@@ -44,7 +45,7 @@ export function rewriteCall(tool: string, input: Input, rootId: string | null): 
   const changes: string[] = []
   let out = input
 
-  if (rootId !== null && isScopable(tool, input) && input.ancestorId === undefined && absent(input.parentId) && !isProcessGlobal(input)) {
+  if (rootId !== null && isScopable(tool, input) && input.ancestorId === undefined && absent(input.parentId) && !hasKindFilter(input)) {
     out = { ...out, ancestorId: rootId }
     changes.push(`${tool} +ancestorId=${rootId.slice(0, 8)}`)
   }
