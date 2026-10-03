@@ -59,6 +59,26 @@ export interface GraphStatus {
 }
 // ── band (T4 ec1e2f91) types ──
 // ── retro (T5 0f4fe024) types ──
+/** What the retrospective feature remembers for the session: the in-process form of the retro-<key>.json marker, plus the queued dispatch. */
+export interface RetroState {
+  /** A lone terminal was seen and no run boundary has surfaced it yet (the Stop backstop reads it). */
+  sawTerminal?: boolean
+  lastTerminalAt?: number
+  /** Roots recorded by lone terminals, for the backstop nudge. */
+  pendingRoots?: string[]
+  /** Items that reached terminal since the last directive; the substance gate. */
+  terminalCount?: number
+  /** When the last directive (nudge or dispatch) was issued or acked. */
+  handledAt?: number
+  /** Roots already surfaced, newest last, capped. */
+  rootUuids?: string[]
+  /** Roots of a queued dispatch the mod spawns at the next clear Stop; null/absent when none. */
+  pendingDispatch?: string[] | null
+  /** The last retrospective agent the mod spawned. */
+  dispatched?: { agentId?: string; roots: string[]; at: number }
+  /** Ids of agents the mod spawned for a retrospective; their TO calls never count. */
+  retroAgents?: string[]
+}
 // ── phase-guard (T6 26246238) types ──
 /** What the phase guard remembers about one subagent: the items it entered, the role it entered each in, and its SubagentStop block count. */
 export interface PhaseGuardEntry {
@@ -82,6 +102,8 @@ declare module 'claude-code' {
       graphRefreshRequest: number
       // ── band (T4 ec1e2f91) state ──
       // ── retro (T5 0f4fe024) state ──
+      /** Session-scoped retrospective bookkeeping; replaces the tmpdir retro-<key>.json marker while the mod owns retro handling. */
+      retro: RetroState
       // ── phase-guard (T6 26246238) state ──
       /** Per subagent (keyed by agent id): replaces the tmpdir `phase-guard-*.json` marker files. */
       phaseGuardAgents: StateFamily<PhaseGuardEntry>

@@ -62,6 +62,10 @@ try {
     emitEmpty();
   }
 
+  // The task-orchestrator-mod plugin owns retrospective handling for this event (it forwards
+  // `to_mod_retro` on the event): step aside before any config or marker I/O.
+  if (hookInput?.to_mod_retro === true) emitEmpty();
+
   if (hookInput.stop_hook_active === true) emitEmpty();
 
   // Headless ralph iteration: emit empty before any marker read/write — Stop backstops fire for

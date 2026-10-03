@@ -578,3 +578,48 @@ test('S8 no config anywhere (pinned empty home, empty cwd) nudges and exits 0', 
     rmSync(markerPath(sid), { force: true });
   }
 });
+
+// ── to_mod_retro: the task-orchestrator-mod plugin owns the event ──────────────────────
+
+test('to_mod_retro flag: emits {} and writes no marker, even when a directive would fire', () => {
+  const dir = tmpConfigDir();
+  writeConfig(dir, 'retrospective:\n  mode: dispatch\n  dispatchThreshold: 1\n');
+  const sessionId = `test-trigger-modflag-${randomUUID()}`;
+  const marker = markerPath(sessionId);
+  try {
+    const res = spawnHook(dir, {
+      session_id: sessionId,
+      to_mod_retro: true,
+      tool_name: 'mcp__mcp-task-orchestrator__complete_tree',
+      tool_input: { rootId: 'aaaaaaaa-0000-0000-0000-000000000001' },
+      tool_response: { summary: { completed: 5 } },
+    });
+    assert.equal(res.status, 0);
+    assert.equal(res.stdout.trim(), '{}');
+    assert.deepEqual(readMarker(marker), {});
+  } finally {
+    rmSync(marker, { force: true });
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('to_mod_retro flag absent or not true: the hook acts as before', () => {
+  const dir = tmpConfigDir();
+  writeConfig(dir, 'retrospective:\n  mode: nudge\n');
+  const sessionId = `test-trigger-modflag-false-${randomUUID()}`;
+  const marker = markerPath(sessionId);
+  try {
+    const res = spawnHook(dir, {
+      session_id: sessionId,
+      to_mod_retro: false,
+      tool_name: 'mcp__mcp-task-orchestrator__complete_tree',
+      tool_input: { rootId: 'aaaaaaaa-0000-0000-0000-000000000001' },
+      tool_response: { summary: { completed: 1 } },
+    });
+    assert.equal(res.status, 0);
+    assert.ok(JSON.parse(res.stdout).hookSpecificOutput.additionalContext.includes('Retrospective suggested'));
+  } finally {
+    rmSync(marker, { force: true });
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

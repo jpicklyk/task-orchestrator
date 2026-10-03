@@ -68,6 +68,10 @@ try {
     emitEmpty();
   }
 
+  // The task-orchestrator-mod plugin owns retrospective handling for this event (it forwards
+  // `to_mod_retro` on the event): step aside before any config or marker I/O.
+  if (hookInput?.to_mod_retro === true) emitEmpty();
+
   // Headless ralph iteration: emit empty BEFORE any marker read/write, so a headless iteration's
   // tool calls never pollute the per-rootId marker the interactive session's Stop backstop
   // (retro-backstop.mjs) relies on.
