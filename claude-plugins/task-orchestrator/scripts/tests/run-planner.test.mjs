@@ -32,6 +32,7 @@ import {
     lockSourceDeferrals,
     buildPlanDoc,
     validatePlanDoc,
+    ORCHESTRATOR_PROVENANCE_NOTE,
 } from "../run-planner-lib.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -1660,4 +1661,108 @@ test("S6: CLI plan on the unchanged independent-two.json fixture (which already 
     const snap = loadFixture("independent-two.json");
     const res = runCli(["plan", "--now", NOW], { input: JSON.stringify(snap) });
     assert.equal(res.status, 0, res.stderr);
+});
+
+// ── 1f00ae1e: optional notes + orchestrator-owned delegation-metadata in seat-less schemas ──
+
+function optionalNotesCandidate() {
+    return { id: "dddddddd-1111-4111-8111-111111111111", short: "dddddddd", title: "D", priority: "high", complexity: 1, type: "plugin-change", role: "queue", parentId: null, traits: [], hasChildren: false, source: "ready" };
+}
+function optionalNotesCtx() {
+    const snap = loadFixture("independent-two.json");
+    return { rulesServed: snap.rulesServed, noteActors: [], profile: snap.profile };
+}
+
+test("1f00ae1e: seat-less schema - delegation-metadata leaves implementer notes and lands in orchestratorNotes", () => {
+    const schemaEntry = {
+        status: "ok", type: "plugin-change", configFingerprint: "fp1", configSource: "per-root",
+        notes: [
+            { key: "specification", role: "queue", required: true, seat: null },
+            { key: "session-tracking", role: "work", required: true, seat: null },
+            { key: "delegation-metadata", role: "work", required: false, seat: null },
+        ],
+    };
+    const result = deriveStages(optionalNotesCandidate(), schemaEntry, optionalNotesCtx());
+    const impl = result.stages.find((s) => s.seat === "implementer");
+    assert.deepEqual(impl.notes, ["session-tracking"]);
+    assert.equal("optionalNotes" in impl, false);
+    assert.deepEqual(result.orchestratorNotes, ["delegation-metadata"]);
+    assert.equal(ORCHESTRATOR_PROVENANCE_NOTE, "delegation-metadata");
+});
+
+test("1f00ae1e: seat-less schema - another optional work note stays in notes and is listed in optionalNotes", () => {
+    const schemaEntry = {
+        status: "ok", type: "plugin-change", configFingerprint: "fp1", configSource: "per-root",
+        notes: [
+            { key: "specification", role: "queue", required: true, seat: null },
+            { key: "session-tracking", role: "work", required: true, seat: null },
+            { key: "extra-observations", role: "work", required: false, seat: null },
+        ],
+    };
+    const result = deriveStages(optionalNotesCandidate(), schemaEntry, optionalNotesCtx());
+    const impl = result.stages.find((s) => s.seat === "implementer");
+    assert.deepEqual(impl.notes, ["session-tracking", "extra-observations"]);
+    assert.deepEqual(impl.optionalNotes, ["extra-observations"]);
+    const planner = result.stages.find((s) => s.seat === "planner");
+    assert.equal("optionalNotes" in planner, false);
+    assert.deepEqual(result.orchestratorNotes, []);
+});
+
+test("1f00ae1e: seat-aware schema - an optional seat-owned note sets optionalNotes on that stage, ownership unchanged", () => {
+    const schemaEntry = {
+        status: "ok", type: "plugin-change", configFingerprint: "fp1", configSource: "per-root",
+        seats: [
+            { name: "planner", phase: "queue" },
+            { name: "implementer", phase: "work", enters: true },
+        ],
+        notes: [
+            { key: "specification", role: "queue", required: true, seat: "planner" },
+            { key: "session-tracking", role: "work", required: true, seat: "implementer" },
+            { key: "extra-observations", role: "work", required: false, seat: "implementer" },
+        ],
+    };
+    const result = deriveStages(optionalNotesCandidate(), schemaEntry, optionalNotesCtx());
+    const impl = result.stages.find((s) => s.seat === "implementer");
+    assert.deepEqual(impl.notes, ["session-tracking", "extra-observations"]);
+    assert.deepEqual(impl.optionalNotes, ["extra-observations"]);
+    assert.equal("optionalNotes" in result.stages.find((s) => s.seat === "planner"), false);
+});
+
+test("1f00ae1e: schema-free item is unchanged (no optionalNotes, no orchestratorNotes)", () => {
+    const snap = loadFixture("schema-free.json");
+    const candidate = snap.candidates[0];
+    const result = deriveStages(candidate, snap.schemas[candidate.id], { rulesServed: snap.rulesServed, noteActors: [], profile: snap.profile });
+    assert.equal(result.schemaFree, true);
+    assert.equal(result.stages.some((st) => "optionalNotes" in st), false);
+    assert.deepEqual(result.orchestratorNotes || [], []);
+});
+
+test("1f00ae1e: seat-less planner stage lists an optional queue note in optionalNotes", () => {
+    const schemaEntry = {
+        status: "ok", type: "plugin-change", configFingerprint: "fp1", configSource: "per-root",
+        notes: [
+            { key: "specification", role: "queue", required: true },
+            { key: "queue-extra", role: "queue", required: false },
+            { key: "session-tracking", role: "work", required: true },
+        ],
+    };
+    const result = deriveStages(optionalNotesCandidate(), schemaEntry, optionalNotesCtx());
+    const planner = result.stages.find((s) => s.seat === "planner");
+    assert.deepEqual(planner.notes, ["specification", "queue-extra"]);
+    assert.deepEqual(planner.optionalNotes, ["queue-extra"]);
+});
+
+test("1f00ae1e: a note with no required field is NOT optional (stays audited)", () => {
+    const schemaEntry = {
+        status: "ok", type: "plugin-change", configFingerprint: "fp1", configSource: "per-root",
+        notes: [
+            { key: "specification", role: "queue", required: true },
+            { key: "session-tracking", role: "work", required: true },
+            { key: "no-flag", role: "work" },
+        ],
+    };
+    const result = deriveStages(optionalNotesCandidate(), schemaEntry, optionalNotesCtx());
+    const impl = result.stages.find((s) => s.seat === "implementer");
+    assert.deepEqual(impl.notes, ["session-tracking", "no-flag"]);
+    assert.equal("optionalNotes" in impl, false);
 });

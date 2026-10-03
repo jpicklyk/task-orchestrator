@@ -688,14 +688,22 @@ function promptActor(stage, item, plan) {
 }
 
 /** Part 5: owned notes / excluded reads. */
-function promptOwnedNotes(stage) {
+function promptOwnedNotes(stage, item) {
   const owned = (stage.notes || []).join(', ') || 'none'
   const excluded = (stage.readsExclude || []).join(', ') || 'none'
-  return (
+  let out =
     `NOTES: you own [${owned}]. The phase's other required notes belong to other seats — ` +
     `do not fill them. Excluded from your reads: [${excluded}]. Always pass keys= on every ` +
     'query_notes call.'
-  )
+  const optional = (stage.optionalNotes || []).filter((k) => (stage.notes || []).includes(k))
+  if (optional.length) {
+    out += ` Optional among yours: [${optional.join(', ')}] — fill only with real content, never a placeholder.`
+  }
+  const orch = (item && item.orchestratorNotes) || []
+  if (orch.length) {
+    out += ` Orchestrator-owned notes [${orch.join(', ')}]: never write them - the orchestrator records them after you return.`
+  }
+  return out
 }
 
 /** Part 6: rule fetch by key. */
@@ -891,7 +899,7 @@ function seatPrompt(plan, item, stage, outs) {
     promptScope(plan, item),
     promptTools(plan, stage),
     promptActor(stage, item, plan),
-    promptOwnedNotes(stage),
+    promptOwnedNotes(stage, item),
     promptRules(plan, stage),
     promptDriftPin(item, stage),
     promptConfigRetry(),

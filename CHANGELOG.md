@@ -19,6 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Changed: Tier 5 guide renamed** from `integration-guides/output-styles.md` to `orchestration-mode.md` and rewritten for hook delivery; docs, skills and the field guide no longer describe output styles as a plugin component.
 - **Fixed: ralph iterations resolved to the Default style.** Ralph passed a style file stem that Claude Code resolved to Default (obs a6f6086c); iterations now append `skills/ralph/iteration-system-prompt.md` and pin the default style.
 - **Fixed: tier fragment surfaced as a bogus style.** The tier-classification fragment under `output-styles/` appeared as a selectable style (obs 9275379c); it now lives in `_fragments/`.
+- **`run-wave` actors audit no longer fails on optional notes.** The planner now marks each stage's
+  optional notes (`optionalNotes`), and `actors` treats an absent optional note as neither missing nor
+  a failure (one written under the wrong actor is still a `mismatched` lane violation). In seat-less
+  schemas `delegation-metadata` is no longer assigned to the implicit implementer: it moves to the
+  item's `orchestratorNotes`, the seat prompt says never to write it, and the orchestrator records it.
+  Plans without `optionalNotes` audit exactly as before.
 
 ## [3.16.0] - 2026-10-02
 

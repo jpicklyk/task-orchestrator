@@ -71,6 +71,7 @@
                 "implicitOwner": { "type": "boolean" },
                 "notes": { "type": "array", "items": { "type": "string" } },
                 "readsExclude": { "type": "array", "items": { "type": "string" } },
+                "optionalNotes": { "type": "array", "items": { "type": "string" } },
                 "rules": { "type": "array", "items": { "type": "string" } },
                 "skills": { "type": "array", "items": { "type": "string" } },
                 "writes": { "type": "boolean" },
