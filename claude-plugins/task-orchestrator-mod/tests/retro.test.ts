@@ -16,6 +16,7 @@ import {
   classifyCall,
   extractResponseJson,
   holdsForTasks,
+  isAckCommand,
   parseRetrospectiveConfig,
   QUEUED_NOTICE,
 } from '../src/retro/logic.ts'
@@ -193,7 +194,7 @@ type Rig = {
 const retroState = (rig: Rig): RetroState => (rig.state.get('task-orchestrator-mod/retro/')?.value ?? {}) as RetroState
 
 /** In-memory `$.state`, `$.env`, `$.fs`, `$.clock` and `$.agent` on the test's `on`. */
-function rig(on: On, opts: { config?: string | null; env?: Record<string, string>; agents?: Agent[] } = {}): Rig {
+function rig(on: On, opts: { config?: string | null; env?: Record<string, string>; agents?: Agent[]; files?: Record<string, string> } = {}): Rig {
   const r: Rig = { state: new Map(), spawns: [], seen: [], now: { t: 1_000_000 }, agents: opts.agents ?? [], spawnMode: {}, reply: () => ({ ref: 'r', result: 'ok', text: 'ok' }), stopReply: {}, stops: [], post: [] }
   const config = opts.config === undefined ? `project:\n  rootId: ${ROOT}\n\nretrospective:\n  mode: dispatch\n  dispatchThreshold: 3\n` : opts.config
   const slot = (e: { plugin: string; key: string; id?: string }) => `${e.plugin}/${e.key}/${e.id ?? ''}`
@@ -208,7 +209,10 @@ function rig(on: On, opts: { config?: string | null; env?: Record<string, string
     return { value: { isSet: true, version: cur + 1 } } as never
   })
   on('env.get', async (_$, e) => ({ value: opts.env?.[e.name] }) as never)
-  on('fs.read', async () => {
+  on('fs.read', async (_$, e) => {
+    const byPath = opts.files?.[(e as { path: string }).path]
+    if (byPath !== undefined) return { value: byPath } as never
+    if (opts.files !== undefined && (e as { path: string }).path !== '.taskorchestrator/config.yaml') throw new Error('ENOENT')
     if (config === null) throw new Error('ENOENT')
 
     return { value: config } as never
@@ -436,4 +440,55 @@ test('integration: a subagent loop queues a dispatch at threshold in dispatch mo
   const r = await $.tool.call({ ...(advanceCall as object), agentId: 'impl-1' } as never)
   expect(r.context).toEqual([QUEUED_NOTICE])
   expect(retroState(g).pendingDispatch).toEqual([A])
+})
+
+test('ack command: only the exact retro-ack.mjs invocation counts', () => {
+  for (const ok of [
+    'node ${CLAUDE_PLUGIN_ROOT}/hooks/retro-ack.mjs',
+    'node "/p/skills/session-retrospective/../../hooks/retro-ack.mjs"',
+    "node 'C:\\a b\\hooks\\retro-ack.mjs'",
+    'node retro-ack.mjs',
+    '  node ./hooks/retro-ack.mjs  ',
+  ]) expect(isAckCommand(ok)).toBe(true)
+  for (const bad of [
+    'git diff hooks/retro-ack.mjs',
+    'cat hooks/retro-ack.mjs',
+    'node hooks/retro-ack.mjs.bak',
+    'node hooks/my-retro-ack.mjs',
+    'node hooks/retro-ack.mjs && rm -rf x',
+    'node x.mjs; node hooks/retro-ack.mjs',
+    'grep retro-ack.mjs hooks/*.mjs',
+    'node --check hooks/retro-ack.mjs',
+    '',
+  ]) expect(isAckCommand(bad)).toBe(false)
+  expect(isAckCommand(undefined)).toBe(false)
+})
+
+test('integration: a near-miss Bash command (git diff of retro-ack.mjs) does not ack', async ($, on) => {
+  const g = rig(on)
+  g.reply = () => advanceText([{ itemId: B, newRole: 'terminal' }])
+  await $.tool.call(advanceCall)
+  const before = JSON.stringify(retroState(g))
+  g.now.t += 1000
+  g.reply = () => ({ ref: 'r', result: 'ok', text: 'ok' })
+  await $.tool.call({ tool: 'Bash', command: 'git diff hooks/retro-ack.mjs' } as never)
+  expect(JSON.stringify(retroState(g))).toBe(before)
+})
+
+test('integration: a failed ack run does not ack the mod state', async ($, on) => {
+  const g = rig(on)
+  g.reply = () => advanceText([{ itemId: B, newRole: 'terminal' }])
+  await $.tool.call(advanceCall)
+  const before = JSON.stringify(retroState(g))
+  g.reply = () => ({ ref: 'r', result: 'boom', text: 'boom', isError: true })
+  await $.tool.call({ tool: 'Bash', command: 'node ${CLAUDE_PLUGIN_ROOT}/hooks/retro-ack.mjs' } as never)
+  expect(JSON.stringify(retroState(g))).toBe(before)
+})
+
+test('integration: AGENT_CONFIG_DIR config is read first (mode off there leaves the events to the command hooks)', async ($, on) => {
+  const cfg = (mode: string) => `project:\n  rootId: ${ROOT}\n\nretrospective:\n  mode: ${mode}\n`
+  const g = rig(on, { env: { AGENT_CONFIG_DIR: '/cfg/' }, files: { '/cfg/.taskorchestrator/config.yaml': cfg('off'), '.taskorchestrator/config.yaml': cfg('dispatch') } })
+  g.reply = () => advanceText([{ itemId: B, newRole: 'terminal' }])
+  await $.tool.call(advanceCall)
+  expect(retroState(g).sawTerminal).toBeUndefined()
 })

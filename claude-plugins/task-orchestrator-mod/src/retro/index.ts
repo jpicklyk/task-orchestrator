@@ -38,6 +38,7 @@ import {
   classifyCall,
   extractResponseJson,
   holdsForTasks,
+  isAckCommand,
   normalizeState,
   parseRetrospectiveConfig,
   QUEUED_NOTICE,
@@ -58,11 +59,24 @@ type Held = { state: RetroState; version: number }
 async function ownership($: EngineInterface): Promise<Ownership> {
   const none: Ownership = { owned: false, cfg: parseRetrospectiveConfig(null), ancestorId: null }
   if ((await $.env.get('TASK_ORCHESTRATOR_MODE')) === 'headless-iteration') return none
-  let text: string
-  try {
-    text = await $.fs.read(CONFIG_PATH)
-  } catch {
-    return none
+  // Same first step as the command hooks' config-locator: $AGENT_CONFIG_DIR's config wins when readable.
+  // The rest of the locator (walk-up, main checkout of a worktree, user-level config) is not mirrored:
+  // the mod reads only the cwd-relative config, so ownership is claimed only for what it can see.
+  let text: string | null = null
+  const dir = await $.env.get('AGENT_CONFIG_DIR')
+  if (typeof dir === 'string' && dir.length > 0) {
+    try {
+      text = await $.fs.read(`${dir.replace(/[\\/]+$/, '')}/${CONFIG_PATH}`)
+    } catch {
+      text = null
+    }
+  }
+  if (text === null) {
+    try {
+      text = await $.fs.read(CONFIG_PATH)
+    } catch {
+      return none
+    }
   }
   const cfg = parseRetrospectiveConfig(text)
   const section = readSection(text, 'project', { blockOnly: true })
@@ -130,7 +144,7 @@ export function registerRetro(on: On): void {
     if (next.origin?.plugin === PLUGIN) return next(e)
     const name = toToolName(e.tool)
     const command = e.tool === 'Bash' ? (e as unknown as { command?: unknown }).command : undefined
-    const isAck = typeof command === 'string' && command.includes('retro-ack.mjs')
+    const isAck = isAckCommand(command)
     if (name !== 'advance_item' && name !== 'complete_tree' && !isAck) return next(e)
 
     let own: Ownership
@@ -147,6 +161,8 @@ export function registerRetro(on: On): void {
 
     if (isAck) {
       const r = await next(e)
+      // A failed or denied ack run changed nothing on the command side; do not ack the mod's state.
+      if (r.deny !== undefined || r.isError === true) return r
       try {
         const now = await $.clock.now()
         const cur = await load($)

@@ -14,6 +14,17 @@ export interface RetroConfig {
 }
 
 /** The `retrospective:` block (block or inline form); an absent or invalid key takes its default. */
+/**
+ * True for the exact command the session-retrospective skill runs to ack: `node` followed by one
+ * path (bare, or quoted) that ends in `retro-ack.mjs`, and nothing else. Anything that merely
+ * mentions the script (`git diff`, `cat`, a chained command) is not an ack.
+ */
+const ACK_COMMAND = /^\s*node\s+(?:"(?:[^"]*[\\/])?retro-ack\.mjs"|'(?:[^']*[\\/])?retro-ack\.mjs'|(?:[^\s"'|;&<>]*[\\/])?retro-ack\.mjs)\s*$/
+
+export function isAckCommand(command: unknown): boolean {
+  return typeof command === 'string' && ACK_COMMAND.test(command)
+}
+
 export function parseRetrospectiveConfig(text: string | null | undefined): RetroConfig {
   const result: RetroConfig = { mode: 'nudge', dispatchThreshold: 3, cooldownMinutes: 30 }
   if (!text) return result
