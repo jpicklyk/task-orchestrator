@@ -57,6 +57,13 @@ export interface GraphStatus {
   lastError?: string
   liveSource: 'sse' | 'poll' | 'none'
 }
+// ── graph-pane (T3 a47dcd6f) types ──
+/** What the /to-graph detail section shows: the read-only get_context summary of one node, as plain lines. */
+export interface GraphDetail {
+  itemId: string
+  lines: string[]
+}
+
 // ── band (T4 ec1e2f91) types ──
 // ── retro (T5 0f4fe024) types ──
 /** What the retrospective feature remembers for the session: the in-process form of the retro-<key>.json marker, plus the queued dispatch. */
@@ -100,6 +107,11 @@ declare module 'claude-code' {
       graphSubscribers: number
       /** Bumped to ask for a debounced re-snapshot. */
       graphRefreshRequest: number
+      // ── graph-pane (T3 a47dcd6f) state ──
+      /** The /to-graph pane has counted itself once in graphSubscribers; a repeat /to-graph neither double-counts nor leaks. */
+      graphPaneOpen: boolean
+      /** The node whose get_context summary the pane shows, or null. */
+      graphDetail: GraphDetail | null
       // ── band (T4 ec1e2f91) state ──
       /** Hide pressed (or /to-band toggled off) for this session; the status line stays on. */
       bandHidden: boolean
