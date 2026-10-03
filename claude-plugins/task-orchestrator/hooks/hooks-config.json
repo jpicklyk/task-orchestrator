@@ -6,17 +6,17 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/session-start.mjs",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.mjs\"",
             "timeout": 5
           },
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/orchestration-context.mjs",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/orchestration-context.mjs\"",
             "timeout": 5
           },
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/config-sync.mjs",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/config-sync.mjs\"",
             "timeout": 10
           }
         ]
@@ -28,7 +28,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/config-sync.mjs",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/config-sync.mjs\"",
             "timeout": 5
           }
         ]
@@ -40,7 +40,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/pre-plan.mjs",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/pre-plan.mjs\"",
             "timeout": 5
           }
         ]
@@ -50,7 +50,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/skill-enforcement.mjs",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/skill-enforcement.mjs\"",
             "timeout": 5
           }
         ]
@@ -60,7 +60,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/enforce-actor-attribution.mjs",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/enforce-actor-attribution.mjs\"",
             "timeout": 5
           }
         ]
@@ -70,7 +70,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/dispatch-model-guard.mjs",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/dispatch-model-guard.mjs\"",
             "timeout": 5
           }
         ]
@@ -82,12 +82,12 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/post-plan.mjs",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/post-plan.mjs\"",
             "timeout": 5
           },
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/plan-capture.mjs",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/plan-capture.mjs\"",
             "timeout": 5
           }
         ]
@@ -97,7 +97,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/retro-trigger.mjs",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/retro-trigger.mjs\"",
             "timeout": 5
           }
         ]
@@ -107,7 +107,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/phase-guard-record.mjs",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/phase-guard-record.mjs\"",
             "timeout": 5
           }
         ]
@@ -117,7 +117,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/dispatch-hint.mjs",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/dispatch-hint.mjs\"",
             "timeout": 5
           }
         ]
@@ -129,7 +129,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/subagent-start.mjs",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/subagent-start.mjs\"",
             "timeout": 3
           }
         ]
@@ -141,7 +141,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/phase-guard.mjs",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/phase-guard.mjs\"",
             "timeout": 5
           }
         ]
@@ -153,7 +153,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/retro-backstop.mjs",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/retro-backstop.mjs\"",
             "timeout": 5
           }
         ]
