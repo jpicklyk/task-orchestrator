@@ -1,6 +1,6 @@
-# Tier 5: Output Styles — Workflow Orchestrator Mode
+# Tier 5: Orchestration Mode
 
-**Prerequisites:** [Tier 4: Plugin: Skills and Hooks](plugin-skills-hooks.md) installed and working · Claude Code CLI with output style support
+**Prerequisites:** [Tier 4: Plugin: Skills and Hooks](plugin-skills-hooks.md) installed and working
 
 **Cross-references:** [Quick Start](../quick-start.md) · [API Reference](../api-reference.md) · [Workflow Guide](../workflow-guide.md) · [Self-Improving Workflow](self-improving-workflow.md)
 
@@ -16,35 +16,40 @@
 
 ---
 
-## What Output Styles Are
+## How It Is Delivered
 
-Output styles are persistent behavioral instructions that shape how Claude operates throughout a session. Unlike `CLAUDE.md` (which provides project context), output styles define Claude's working mode — how it approaches tasks, delegates work, and communicates.
+The plugin delivers the orchestration core through a SessionStart hook, not an output style. Nothing needs to be selected or activated.
 
-Output styles are personal — they live in `~/.claude/output-styles/` and are activated via `.claude/settings.local.json` (gitignored). They are not shared with the team.
+| Channel | What it carries | When |
+|---------|-----------------|------|
+| `orchestration-context` SessionStart hook | The always-on core: workflow principles, skill routing, retrospective handling, action items, visual conventions | Every session start, including after `/compact` and `/clear` |
+| `task-orchestrator:orchestrate` skill | On-demand depth: the tier table, the delegation model table, and phase-owner dispatch rules | Invoked from the orchestration context before sizing or dispatching work |
+| `dispatch-model-guard` PreToolUse hook (matcher `Agent`) | Denies an `Agent` dispatch that omits `model`; the deny reason names the retry (the delegation table in `workflow` mode, the dispatch profile in `schema` mode) | Every `Agent` call |
+| `dispatch-hint` PostToolUse hook (matcher `advance_item`) | One line per transition into `work` or `review` naming the item's dispatch profile (`agent`, `model`, optional `effort`) | After each `advance_item`, main session only |
+| `skills/ralph/iteration-system-prompt.md` | The rules for a headless ralph iteration | Appended to the system prompt of each `claude -p` iteration; the orchestration context stays inert there |
 
----
+The hooks are inert when the session is a headless ralph iteration, when no `.taskorchestrator/config.yaml` can be located, or when `orchestration.mode` is `off`. That covers both enforcement hooks too.
 
-## Activating the Workflow Orchestrator
+### The `orchestration.mode` key
 
-The plugin includes a `Workflow Orchestrator` output style. To activate it:
+Set it in `.taskorchestrator/config.yaml`:
 
-### Via settings file
-
-Add to `.claude/settings.local.json`:
-
-```json
-{
-  "outputStyle": "Workflow Orchestrator"
-}
+```yaml
+orchestration:
+  mode: workflow   # workflow (default) | schema | off
 ```
 
-### Via CLI
+| Mode | Behaviour |
+|------|-----------|
+| `workflow` (default) | Tier-aware. Plans, delegates, tracks and reports. Small fixes are done inline. |
+| `schema` | No tiers and no model table. The item's resolved note schema alone sets the process; phase-owner dispatch rules still apply. |
+| `off` | The orchestration hooks exit silently, including `dispatch-model-guard` and `dispatch-hint`. |
 
-```
-/output-style
-```
+The key is read client-side by the hooks. The context hook re-reads it at the next session start, `/clear`, or `/compact`; `dispatch-model-guard` and `dispatch-hint` re-read it on every call, so `off` silences them immediately. See [config-format.md → Orchestration](../../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#orchestration) for the full field reference.
 
-Then select `Workflow Orchestrator` from the list.
+### Layering a personal output style
+
+The plugin supplies the orchestration core, so a personal output style does not need to restate it. If you keep your own style in `~/.claude/output-styles/`, put only your own additions in it: tone, project conventions, and any extra retrospective or observation habits. Do not copy the delegation or tier rules into it, since the hook already delivers them and a copy drifts.
 
 ---
 
@@ -82,6 +87,8 @@ Phase transitions follow a strict ownership model:
 
 Implementation agents enter their assigned phase and fill its notes. The orchestrator owns all subsequent transitions — it advances the item and inspects `newRole` to determine the next phase. If the schema has review-phase notes, the item moves to review and a reviewer is dispatched. If not, the item moves directly to terminal.
 
+When an item's trait or schema resolves a `dispatch` profile for the phase being entered, the orchestrate skill's "Dispatching an item's phase owner" section tells the orchestrator to use that agent and to still pass `model` explicitly.
+
 ---
 
 ## The Delegation Model
@@ -94,7 +101,7 @@ The orchestrator always sets the `model` parameter explicitly on every agent dis
 | Code reading, implementation, test writing | `sonnet` | Strong coding, good cost/quality balance |
 | Architecture, complex tradeoffs, multi-file synthesis | `opus` | Deep reasoning for cross-file synthesis |
 
-Omitting `model` causes the agent to inherit the orchestrator's model — typically opus — wasting tokens on sonnet-eligible work.
+Omitting `model` would make the agent inherit the orchestrator's model — typically opus — wasting tokens on sonnet-eligible work. The `dispatch-model-guard` hook denies such a dispatch with a reason naming this table, so the call is retried with `model` set.
 
 **Rule: Never make 3+ MCP write calls in a single orchestrator turn.** Delegate bulk MCP write work (multiple item/dependency/note creates) to a haiku agent to keep the orchestrator context clean. Parallelized reads (e.g., `get_context` + `query_items overview`) are fine and encouraged.
 
@@ -161,7 +168,7 @@ Feature: "Refactor authentication into three components"
 
 ## Visual Conventions
 
-The output style uses unicode symbols for status:
+The orchestration context uses unicode symbols for status:
 
 | Symbol | Meaning |
 |--------|---------|
@@ -184,7 +191,7 @@ Narration uses the `↳` prefix for background operations — one line each, ski
 
 ## Retrospective
 
-The plugin's retrospective hooks — not the output style's own judgment — are the trigger. When items reach terminal after an implementation run (via `advance_item`, `complete_tree`, or auto-cascade), the hook fires and the orchestrator follows it according to `retrospective.mode` in `.taskorchestrator/config.yaml`:
+The plugin's retrospective hooks — not the orchestrator's own judgment — are the trigger. When items reach terminal after an implementation run (via `advance_item`, `complete_tree`, or auto-cascade), the hook fires and the orchestrator follows it according to `retrospective.mode` in `.taskorchestrator/config.yaml`:
 
 | Mode | What the orchestrator does |
 |------|----------------------------|

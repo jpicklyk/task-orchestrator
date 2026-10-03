@@ -13,10 +13,10 @@ import kotlin.test.fail
  * Guards the single-source-of-truth contract for the tier-classification block.
  *
  * The block is authored once in
- * `claude-plugins/task-orchestrator/output-styles/_fragments/tier-classification.md`
+ * `claude-plugins/task-orchestrator/_fragments/tier-classification.md`
  * and mirrored (verbatim) into each in-repo consumer between
  * `<!-- BEGIN GENERATED:tier-classification -->` / `<!-- END GENERATED:tier-classification -->`
- * markers. The mirror is produced by `output-styles/generate.mjs`; this test fails the
+ * markers. The mirror is produced by `_fragments/generate.mjs`; this test fails the
  * build if any consumer drifts from the fragment, so the copies can never silently diverge
  * (which is exactly what happened to the pre-refactor manual mirror).
  *
@@ -31,7 +31,7 @@ class TierClassificationConsistencyTest {
     // The in-repo consumer set is defined ONCE in this manifest, shared by generate.mjs and
     // current/build.gradle.kts inputs.files. Add a new consumer there, not here.
     private val consumersManifest =
-        "claude-plugins/task-orchestrator/output-styles/_fragments/tier-classification.consumers.txt"
+        "claude-plugins/task-orchestrator/_fragments/tier-classification.consumers.txt"
 
     @Test
     fun `every in-repo consumer mirrors the canonical fragment`() {
@@ -40,7 +40,7 @@ class TierClassificationConsistencyTest {
         // (the generator does `.replace(/\n*$/, '\n')`), so the test and generator stay byte-aligned.
         val fragment =
             root
-                .resolve("claude-plugins/task-orchestrator/output-styles/_fragments/tier-classification.md")
+                .resolve("claude-plugins/task-orchestrator/_fragments/tier-classification.md")
                 .let { Files.readString(it) }
                 .normalize()
                 .trimEnd('\n') + "\n"
@@ -60,7 +60,7 @@ class TierClassificationConsistencyTest {
                 fragment,
                 region,
                 "tier-classification block in $relativePath drifted from the canonical fragment. " +
-                    "Run: node claude-plugins/task-orchestrator/output-styles/generate.mjs",
+                    "Run: node claude-plugins/task-orchestrator/_fragments/generate.mjs",
             )
         }
     }

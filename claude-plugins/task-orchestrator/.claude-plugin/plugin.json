@@ -3,6 +3,5 @@
   "version": "3.9.0",
   "description": "Claude Code integration for MCP Task Orchestrator — schema-aware context, note-driven workflow",
   "skills": "./skills",
-  "hooks": "./hooks/hooks-config.json",
-  "outputStyles": "./output-styles"
+  "hooks": "./hooks/hooks-config.json"
 }

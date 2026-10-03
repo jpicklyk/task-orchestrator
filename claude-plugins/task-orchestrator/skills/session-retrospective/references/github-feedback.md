@@ -74,7 +74,7 @@ title.
 
 ## Proposed change
 
-<the concrete change: exact YAML, skill section + edit, output-style zone, hook event/matcher —
+<the concrete change: exact YAML, skill section + edit, orchestration-context or orchestrate-skill section, hook event/matcher —
 whatever the proposal specifies>
 
 ## Expected effect

@@ -1,6 +1,6 @@
 ---
 name: plugin-impact-review
-description: Assessment of plugin skill and hook changes needed after MCP or config changes. Evaluates skill references, hook context, config-format docs, and output style references. Invoked via skillPointer when filling plugin-impact notes.
+description: Assessment of plugin skill and hook changes needed after MCP or config changes. Evaluates skill references, hook context, config-format docs, and orchestration context references. Invoked via skillPointer when filling plugin-impact notes.
 user-invocable: false
 ---
 
@@ -41,17 +41,17 @@ Check `claude-plugins/task-orchestrator/skills/manage-schemas/references/config-
 - [ ] Field reference table has all current fields
 - [ ] Descriptions match current behavior
 
-## Step 4: Output Style References
+## Step 4: Orchestration Context References
 
-Check output styles for stale references:
-- [ ] `workflow-orchestrator.md` — any references to changed tools, fields, or workflows
-- [ ] Zone 1 (shared core) vs Zone 2/3 (extensions) — changes in Zone 1 must be synced to `workflow-analyst.md`
+Check the orchestration context for stale references:
+- [ ] `hooks/orchestration-context.mjs` — any references to changed tools, fields, or workflows in the injected core (both the `workflow` and `schema` variants)
+- [ ] `skills/orchestrate/SKILL.md` — tier table, delegation table, and phase-owner dispatch rules
 
 ## Step 5: Plugin Caching
 
 - [ ] Are hook scripts changed? If yes, `/plugin marketplace remove` + re-add required (content cached)
 - [ ] Are skill files changed? `/reload-plugins` sufficient (read at invocation)
-- [ ] Are output styles changed? `/reload-plugins` sufficient
+- [ ] Is the orchestration-context hook content changed? Needs a session restart (or the forced cache refresh in `claude-plugins/CLAUDE.md`), not `/reload-plugins`; the `orchestrate` skill is read at invocation
 
 ## Output
 

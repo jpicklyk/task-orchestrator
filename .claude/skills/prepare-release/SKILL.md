@@ -109,7 +109,7 @@ git diff <LAST_TAG>...HEAD --name-only -- current/src/ current/build.gradle.kts 
 Classify the release type:
 - **server** — server source changed, no plugin changes
 - **both** — server source and plugin content both changed
-- **plugin-only** — only plugin files changed (skills, hooks, output styles), no server source
+- **plugin-only** — only plugin files changed (skills, hooks, orchestration context), no server source
 
 **Read the current plugin version from the authoritative source** — do not assume it matches any
 git tag. The version in the repository files may have been bumped in a previous release:
@@ -123,8 +123,8 @@ to plugin content:
 
 | Condition | Plugin Bump |
 |-----------|-------------|
-| Breaking change to skill interface, hook behavior, or output style contract | **major** |
-| New skill, new hook, new output style added | **minor** |
+| Breaking change to skill interface, hook behavior, or orchestration context contract (including removing a shipped component) | **major** |
+| New skill, new hook, new orchestration component added | **minor** |
 | Content fixes, wording, skill adjustments, script tweaks | **patch** |
 
 Note the plugin bump level separately from the server bump level — they are independent.

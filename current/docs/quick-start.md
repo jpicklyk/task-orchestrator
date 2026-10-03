@@ -100,7 +100,7 @@ docker images ghcr.io/jpicklyk/task-orchestrator
 
 ## Step 4: Install the plugin
 
-The plugin adds workflow skills, automation hooks, and an orchestrator output style to Claude Code. It is the recommended experience layer for Claude Code users — the sections below describe a workflow shaped by what the plugin provides.
+The plugin adds workflow skills, automation hooks, and an orchestration context to Claude Code. It is the recommended experience layer for Claude Code users — the sections below describe a workflow shaped by what the plugin provides.
 
 ```
 /plugin marketplace add https://github.com/jpicklyk/task-orchestrator
@@ -137,9 +137,9 @@ Hooks run automatically — no invocation required:
 
 **Optional:** Enable actor authentication to require agents to identify themselves on every write operation — add an `actor_authentication` section with `enabled: true` to `.taskorchestrator/config.yaml`. See [Enforcing Actor Attribution](./api-reference.md#enforcing-actor-attribution) in the API reference.
 
-### Output style
+### Orchestration context
 
-The plugin includes a **Workflow Orchestrator** output style. When active, Claude Code acts as a project management orchestrator — it plans, tracks progress in the WorkItem graph, and scales process to the size of the work: small known fixes it implements inline, larger work it delegates to subagents. Useful for complex multi-step features. Select it from the output style menu (`/output-style`) after installing the plugin.
+The plugin injects an orchestration context at every session start, with nothing to select or activate. Claude Code acts as a project management orchestrator — it plans, tracks progress in the WorkItem graph, and scales process to the size of the work: small known fixes it implements inline, larger work it delegates to subagents. Useful for complex multi-step features. It applies once the project has a `.taskorchestrator/config.yaml`; set `orchestration: {mode: off}` there to turn it off. See [Tier 5: Orchestration Mode](integration-guides/orchestration-mode.md).
 
 ### Initialize
 

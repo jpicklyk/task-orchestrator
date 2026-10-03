@@ -290,7 +290,7 @@ This guide covers **server-side configuration**: identity policy, capacity tunin
 
 The plugin under `claude-plugins/task-orchestrator/` targets default-mode single-agent orchestration. Its skills and hooks teach the agent-owned phase-entry pattern (`advance_item` called directly by each agent) — not the claim-then-advance coordination required by fleet deployments. Do not rely on it as a fleet driver:
 
-- The bundled output style and skills do not reference `claim_item` and assume unclaimed items
+- The bundled orchestration context and skills do not reference `claim_item` and assume unclaimed items
 - The bundled `enforce-actor-attribution` hook checks for an `actor` field on writes but does not enforce claim ownership precedence
 - Subagent dispatch templates do not include claim acquisition steps
 
@@ -304,7 +304,7 @@ TO publishes the following as the integration seam — the surface fleet impleme
 - **Configuration** — `.taskorchestrator/config.yaml` `actor_authentication` block (server policy)
 - **Audit log** — actor claims persisted on every write when `actor_authentication.enabled: true`, queryable via `query_notes`
 
-Anything else (specific skill instructions, hook behavior, output-style conventions) is implementation detail of the bundled plugin and not part of the fleet contract.
+Anything else (specific skill instructions, hook behavior, orchestration-context conventions) is implementation detail of the bundled plugin and not part of the fleet contract.
 
 ---
 

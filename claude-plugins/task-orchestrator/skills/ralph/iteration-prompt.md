@@ -1,6 +1,6 @@
 # Ralph Iteration — Drain One TO Item
 
-This prompt is the per-iteration workflow. Operating principles, output discipline, and what NOT to do all live in the **Ralph Iteration** output style — read them there, not here. This document covers only the steps for *this specific* iteration.
+This prompt is the per-iteration workflow. Operating principles, output discipline, and what NOT to do all live in the iteration system prompt (`iteration-system-prompt.md`, appended to your system prompt) — read them there, not here. This document covers only the steps for *this specific* iteration.
 
 ## Per-iteration variables
 
