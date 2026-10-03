@@ -174,9 +174,12 @@ export function registerGraphPane(on: On): void {
     } else {
       const lines = renderText(view)
       const dag = dagOf(view)
-      const svg = e.surface === 'terminal' ? null : renderSvg(layout(dag.nodes, dag.edges), view, { theme: await themeOf($) })
+      const placed = layout(dag.nodes, dag.edges)
+      const svg = e.surface === 'terminal' ? null : renderSvg(placed, view, { theme: await themeOf($) })
       if (svg !== null) {
-        body.push(h(Svg, { key: 'graph', source: svg, alt: `Work graph of ${scopeTitle(view)}: ${summaryLine(view)}`, isInteractive: true }))
+        // Explicit size: without it the desktop fits the markup into a short default box, scaling the
+        // graph down and letterboxing the rest of the slot in white.
+        body.push(h(Svg, { key: 'graph', source: svg, alt: `Work graph of ${scopeTitle(view)}: ${summaryLine(view)}`, isInteractive: true, width: placed.width, height: placed.height }))
       } else {
         if (e.surface !== 'terminal') body.push(h(Text, { key: 'fallback', dimColor: true }, 'Too large to draw; showing the text tree.'))
         lines.forEach((line, i) => body.push(h(Text, { key: `line-${i}` }, line)))
