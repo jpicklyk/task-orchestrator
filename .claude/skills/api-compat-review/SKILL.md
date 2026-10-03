@@ -20,7 +20,7 @@ A single change (e.g., a domain model field rename) can touch both surfaces inde
 
 LLM clients re-read the `tools/list` schema every session — there is no persistent client binding to break. A pure parameter rename does NOT require keeping the old name working. Verify instead:
 - [ ] Every changed param's `parameterSchema` key and its arg-parsing read site stay in sync — no schema-says-X/code-reads-Y drift
-- [ ] ALL first-party callers update in lockstep: plugin skills, hooks, output styles, auto-memory references, and `api-reference.md`. This doc coordination is the real cost of an MCP change, not client breakage.
+- [ ] ALL first-party callers update in lockstep: plugin skills, hooks (including the `orchestration-context` hook's injected text), auto-memory references, and `api-reference.md`. This doc coordination is the real cost of an MCP change, not client breakage.
 - [ ] The tool `description` string accurately reflects the new behavior
 
 ## Step 3: REST Surface Assessment

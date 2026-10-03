@@ -141,7 +141,7 @@ traits:
         required: true
         description: "Compatibility assessment for API changes — the MCP tool surface (dynamically re-discovered) and the REST surface (hardcoded clients) have different compatibility models."
         skill: "api-compat-review"
-        guidance: "Assess by surface. **MCP tools:** clients re-read the tools/list schema each session, so parameter renames/additions are NOT breaking — verify instead that each changed param's schema key and its read site stay in sync, and that all first-party callers (skills, hooks, output styles, memory, api-reference.md) update in lockstep; a pure rename needn't keep the old name working. **REST API:** clients hardcode field/param names, so compatibility matters — keep response shapes additive, and renames/removals need a migration path or version bump. Update openapi.yaml + api-rest.md for REST changes."
+        guidance: "Assess by surface. **MCP tools:** clients re-read the tools/list schema each session, so parameter renames/additions are NOT breaking — verify instead that each changed param's schema key and its read site stay in sync, and that all first-party callers (skills, hooks and their injected context, memory, api-reference.md) update in lockstep; a pure rename needn't keep the old name working. **REST API:** clients hardcode field/param names, so compatibility matters — keep response shapes additive, and renames/removals need a migration path or version bump. Update openapi.yaml + api-rest.md for REST changes."
 
   needs-plugin-update:
     notes:
@@ -150,7 +150,7 @@ traits:
         required: true
         description: "Assessment of plugin skill and hook changes needed after a behavior change."
         skill: "plugin-impact-review"
-        guidance: "Identify which skills reference the changed behavior, which hooks inject affected context, and whether config-format docs or output styles need updating. List specific files/sections. Plugin content is cached — note if an /mcp reconnect is needed."
+        guidance: "Identify which skills reference the changed behavior, which hooks inject affected context, and whether config-format docs, the orchestration-context hook text or the orchestrate skill need updating. List specific files/sections. Plugin content is cached — note if an /mcp reconnect is needed."
 
   needs-security-review:
     notes:
