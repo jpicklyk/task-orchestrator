@@ -1,9 +1,10 @@
 // Builds a graph snapshot of a work-item subtree with read-only TO calls. Never throws: a failed
 // call is recorded in `error` and the snapshot comes back partial.
-import type { GateInfo, GraphEdge, GraphNode, GraphSnapshot } from '../../types'
+import type { GateInfo, GraphEdge, GraphNode, GraphSnapshot, SeatProgress } from '../../types'
 import { readSection, scalar } from '../lib/yaml-lite.mjs'
 import { CONFIG_PATH } from '../shared/config.ts'
 import type { GraphIo } from './io.ts'
+import { fetchLabels } from './labels.ts'
 
 /** Most nodes a snapshot keeps; past it the shallowest win and `truncated` is set. */
 export const NODE_CAP = 150
@@ -142,13 +143,32 @@ function toGate(raw: unknown, nodeRole: string): GateInfo | null {
     ? gate.missing.map(m => (typeof m === 'string' ? m : isObj(m) && typeof m.key === 'string' ? m.key : JSON.stringify(m)))
     : []
 
-  return {
+  const out: GateInfo = {
     canAdvance: gate.canAdvance === true,
     phase,
     missing,
     required: current.length,
     filled: current.filter(row => row.filled === true).length,
   }
+  const seats = seatsOf(current)
+  if (seats !== null) out.seats = seats
+
+  return out
+}
+
+/** Required current-phase rows grouped by seat in schema order (no seat: `other`); null when no row names a seat. */
+function seatsOf(current: Obj[]): SeatProgress[] | null {
+  if (!current.some(row => typeof row.seat === 'string')) return null
+  const bySeat = new Map<string, SeatProgress>()
+  for (const row of current) {
+    const seat = typeof row.seat === 'string' && row.seat !== '' ? row.seat : 'other'
+    const entry = bySeat.get(seat) ?? { seat, required: 0, filled: 0 }
+    entry.required += 1
+    if (row.filled === true) entry.filled += 1
+    bySeat.set(seat, entry)
+  }
+
+  return [...bySeat.values()]
 }
 
 /**
@@ -187,6 +207,7 @@ export async function snapshot(io: GraphIo, scopeId: string | null): Promise<Gra
       }
     })
     result.edges = [...edges.values()]
+    result.nodes = await fetchLabels(io, result.nodes, (ids, fn) => mapLimit(ids, LANES, fn))
 
     const active = result.nodes.filter(node => node.role === 'work' || node.role === 'review')
     await mapLimit(active, LANES, async node => {

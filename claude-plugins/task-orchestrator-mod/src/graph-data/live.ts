@@ -1,6 +1,7 @@
 // Cross-session invalidation: an SSE stream read through `curl` while a consumer is subscribed,
 // with a 15s poll when there is no API URL or curl keeps failing. Zero subscribers, no stream, no poll.
 import type { GraphIo } from './io.ts'
+import { invalidateLabels } from './labels.ts'
 import { refresh, refreshNow } from './refresh.ts'
 import { readRootId } from './snapshot.ts'
 
@@ -127,7 +128,10 @@ async function sseLoop(io: GraphIo, url: string, token: string | undefined, gen:
     try {
       iterator = io.spawn(request)
       void setLiveSource(io, 'sse')
-      const parse = createSseParser(name => void (name === 'sync.lost' ? refreshNow(io) : refresh(io)))
+      const parse = createSseParser(name => {
+        if (name === 'item.updated') invalidateLabels()
+        void (name === 'sync.lost' ? refreshNow(io) : refresh(io))
+      })
       for (;;) {
         const step = await iterator.next()
         if (step.done) break
@@ -191,6 +195,17 @@ export function syncLive(io: GraphIo, subscribers: number): void {
     stopLive = null
     void setLiveSource(io, 'none')
   }
+}
+
+/** Tears down a running live source and starts it again (a fresh spawn budget); nothing starts with no subscribers. */
+export function restartLive(io: GraphIo, subscribers: number): void {
+  if (running) {
+    running = false
+    generation++
+    stopLive?.()
+    stopLive = null
+  }
+  syncLive(io, subscribers)
 }
 
 /** Drops the live source and its state. For tests, which share this module across cases. */

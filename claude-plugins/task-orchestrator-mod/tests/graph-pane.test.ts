@@ -3,15 +3,15 @@
 import type { On } from 'claude-code'
 import { expect, test } from 'claude-code/testing'
 
-import type { GateInfo, GraphEdge, GraphNode, GraphSnapshot } from '../types'
+import type { GateInfo, GraphEdge, GraphNode, GraphSnapshot, GraphStatus } from '../types'
 import { READ_TOOLS } from '../src/graph-pane/index.ts'
 import { WRITE_TOOLS } from '../src/graph-data/index.ts'
 import { collapse } from '../src/graph-pane/collapse.ts'
 import { countCrossings, layout } from '../src/graph-pane/layout.ts'
-import { formatDetail, parseScopeArg, sideList } from '../src/graph-pane/pane-model.ts'
+import { formatDetail, isDegraded, parseScopeArg, sideLabel, sideList } from '../src/graph-pane/pane-model.ts'
 import { SVG_LIMIT, esc, renderSvg } from '../src/graph-pane/render-svg.ts'
 import { renderText } from '../src/graph-pane/render-text.ts'
-import { dagOf } from '../src/graph-pane/shared.ts'
+import { dagOf, phaseText } from '../src/graph-pane/shared.ts'
 import type { GraphView } from '../src/graph-pane/shared.ts'
 
 const PLUGIN = 'task-orchestrator-mod'
@@ -203,12 +203,64 @@ test('text: containment tree, gate suffix, and blocked-by only for live blockers
   })
   const lines = renderText(v)
   expect(lines[0]).toBe('◉ Feature [feat0000] work')
-  expect(lines).toContain('├─ ✓ Done task [aaaa1111] terminal')
-  expect(lines).toContain('├─ ◉ Work task [bbbb2222] work 2/3 work notes')
+  expect(lines).toContain('├─ ✓ Done task [aaaa1111] done')
+  expect(lines).toContain('├─ ◉ Work task [bbbb2222] work · 2/3 notes')
   expect(lines.some(l => l.endsWith('↳ blocked by ext99999 Elsewhere'))).toBe(true)
   expect(lines.some(l => l.endsWith('↳ blocked by bbbb2222 Work task'))).toBe(true)
   expect(lines.some(l => l.includes('blocked by aaaa1111'))).toBe(false)
   expect(lines.filter(l => l.includes('Queued task'))[0]).toMatch(/^└─ ○ Queued task/)
+})
+
+
+// ── phase text, plan labels, legend ─────────────────────────────────────────────────────
+
+test('S9: phaseText for every kind', () => {
+  const seats = (...entries: [string, number, number][]): GateInfo => gate({ seats: entries.map(([seat, required, filled]) => ({ seat, required, filled })) })
+  expect(phaseText(node('a', 'queue', 1, null), undefined)).toBe('queue')
+  expect(phaseText(node('a', 'blocked', 1, null), undefined)).toBe('blocked')
+  expect(phaseText(node('a', 'terminal', 1, null), undefined)).toBe('done')
+  expect(phaseText(node('a', 'terminal', 1, null, 't', 'cancelled'), undefined)).toBe('cancelled')
+  expect(phaseText(node('a', 'work', 1, null), seats(['implementer', 1, 1], ['orchestrator', 1, 0]))).toBe('work · implementer ✓, orchestrator 0/1')
+  expect(phaseText(node('a', 'work', 1, null), seats(['implementer', 2, 2]))).toBe('work · implementer ✓')
+  expect(phaseText(node('a', 'review', 1, null), seats(['reviewer', 2, 1]))).toBe('review · reviewer 1/2')
+  expect(phaseText(node('a', 'work', 1, null), gate())).toBe('work · 2/3 notes')
+  expect(phaseText(node('a', 'work', 1, null), gate({ required: 0, filled: 0 }))).toBe('work')
+  expect(phaseText(node('a', 'work', 1, null), undefined)).toBe('work')
+  expect(phaseText(node('a', 'review', 1, null), undefined)).toBe('review')
+})
+
+const labelled = (): GraphView =>
+  view([node('feat0000', 'work', 0, null, 'Feature'), { ...node('bbbb2222', 'work', 1, 'feat0000', 'Work task'), planLabel: 'T3' }, node('cccc3333', 'queue', 1, 'feat0000', 'Queued task')], [], {
+    gates: { bbbb2222: gate({ seats: [{ seat: 'implementer', required: 1, filled: 1 }, { seat: 'orchestrator', required: 1, filled: 0 }] }) },
+  })
+
+test('S10: the text line carries [label] before the title and the phase text after the id', () => {
+  const lines = renderText(labelled())
+  expect(lines).toContain('├─ ◉ [T3] Work task [bbbb2222] work · implementer ✓, orchestrator 0/1')
+  expect(lines).toContain('└─ ○ Queued task [cccc3333] queue')
+})
+
+test('S11: the svg badges a labelled node, draws the phase line, and escapes the label', () => {
+  const v = labelled()
+  const svg = renderSvg(lay(v), v) as string
+  expect(svg).toContain('>T3</text>')
+  expect(svg).toContain('fill-opacity="0.35"')
+  expect(svg).toContain('work · implementer ✓, orchestrator 0/1')
+  const plain = view([node('a', 'queue', 1, null, 'A')])
+  const plainSvg = renderSvg(lay(plain), plain) as string
+  expect(plainSvg).not.toContain('fill-opacity="0.35"')
+  expect(plainSvg).toContain('>queue</text>')
+  const evil = view([{ ...node('a', 'queue', 1, null, 'A'), planLabel: '<x>' }])
+  const evilSvg = renderSvg(lay(evil), evil) as string
+  expect(evilSvg).toContain('&lt;x&gt;')
+  expect(evilSvg).not.toContain('<x>')
+})
+
+test('S19: sideLabel carries the label and the phase', () => {
+  const v = labelled()
+  const n = v.nodes[1] as GraphNode
+  expect(sideLabel(n, v.gates[n.id])).toBe('◉ [T3] bbbb2222 Work task · work · implementer ✓, orchestrator 0/1')
+  expect(sideLabel(node('cccc3333', 'queue', 1, null, 'Queued'))).toBe('○ cccc3333 Queued · queue')
 })
 
 // ── pane model ──────────────────────────────────────────────────────────────────────────
@@ -284,7 +336,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
   test(`pane on ${surface}: with a snapshot it draws the graph (${surface === 'terminal' ? 'text, no Svg' : 'one interactive Svg'}) and a node Button`, async ($, on) => {
     rig(on, { graphSnapshot: snapshot(), graphScope: 'feat0000' })
     const ui = await $.ui.mount({ plugin: PLUGIN, surface, component: 'Pane', requestId: 'to-graph', props: paneProps() })
-    expect(await ui.find({ key: 'refresh' })).toBeDefined()
+    expect(await ui.find({ key: 'refresh' })).toBeUndefined()
     expect(await ui.find({ key: 'node:bbbb2222' })).toBeDefined()
     const svg = await ui.find({ type: 'Svg' })
     if (surface === 'terminal') {
@@ -312,13 +364,68 @@ for (const surface of ['terminal', 'desktop'] as const) {
   })
 }
 
-test('pane: Refresh bumps graphRefreshRequest and Project root clears the scope', async ($, on) => {
+test('S15: Reconnect bumps graphReconnectRequest; Project root clears the scope', async ($, on) => {
   const r = rig(on, { graphSnapshot: snapshot(), graphScope: 'feat0000' })
   const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: 'to-graph', props: paneProps() })
-  await ui.press({ key: 'refresh' })
-  expect(r.sets).toContainEqual({ key: 'graphRefreshRequest', value: 1 })
+  await ui.press({ key: 'reconnect' })
+  expect(r.sets).toContainEqual({ key: 'graphReconnectRequest', value: 1 })
   await ui.press({ key: 'root' })
   expect(r.sets).toContainEqual({ key: 'graphScope', value: null })
+  expect(r.sets.some(x => x.key === 'graphRefreshRequest')).toBe(false)
+  await ui.unmount()
+})
+
+test('S14: isDegraded is false only for sse with no error', () => {
+  const st = (over: Partial<GraphStatus>): GraphStatus => ({ refreshing: false, liveSource: 'sse', ...over })
+  expect(isDegraded(st({}))).toBe(false)
+  expect(isDegraded(st({ refreshing: true }))).toBe(false)
+  expect(isDegraded(st({ liveSource: 'poll' }))).toBe(true)
+  expect(isDegraded(st({ liveSource: 'none' }))).toBe(true)
+  expect(isDegraded(st({ lastError: 'boom' }))).toBe(true)
+})
+
+const DEGRADE_CASES: [string, GraphStatus, boolean][] = [
+  ['sse, clean', { refreshing: false, liveSource: 'sse' }, false],
+  ['poll', { refreshing: false, liveSource: 'poll' }, true],
+  ['none', { refreshing: false, liveSource: 'none' }, true],
+  ['sse with lastError', { refreshing: false, liveSource: 'sse', lastError: 'x' }, true],
+]
+
+for (const surface of ['terminal', 'desktop'] as const) {
+  for (const [name, status, shown] of DEGRADE_CASES) {
+    test(`S14/S13: ${surface}, ${name}: Reconnect ${shown ? 'shown' : 'hidden'}, never Refresh`, async ($, on) => {
+      rig(on, { graphSnapshot: snapshot(), graphScope: 'feat0000', graphStatus: status })
+      const ui = await $.ui.mount({ plugin: PLUGIN, surface, component: 'Pane', requestId: 'to-graph', props: paneProps() })
+      expect((await ui.find({ key: 'reconnect' })) !== undefined).toBe(shown)
+      expect(await ui.find({ key: 'refresh' })).toBeUndefined()
+      expect(await ui.find({ key: 'root' })).toBeDefined()
+      await ui.unmount()
+    })
+  }
+
+  test(`S12: ${surface} draws the legend, with no plan-label key when nothing is labelled`, async ($, on) => {
+    rig(on, { graphSnapshot: snapshot(), graphScope: 'feat0000' })
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface, component: 'Pane', requestId: 'to-graph', props: paneProps() })
+    expect(await ui.find({ key: 'legend' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: 'done' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: 'plan label' })).toBeUndefined()
+    await ui.unmount()
+  })
+
+  test(`S12: ${surface} adds the plan-label key when a node is labelled`, async ($, on) => {
+    const snap = snapshot()
+    snap.nodes[1] = { ...(snap.nodes[1] as GraphNode), planLabel: 'T3' }
+    rig(on, { graphSnapshot: snap, graphScope: 'feat0000' })
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface, component: 'Pane', requestId: 'to-graph', props: paneProps() })
+    expect(await ui.find({ type: 'Text', text: 'plan label' })).toBeDefined()
+    await ui.unmount()
+  })
+}
+
+test('S12: an empty scope has no legend', async ($, on) => {
+  rig(on, { graphSnapshot: { ...snapshot(), nodes: [], edges: [] } })
+  const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: 'to-graph', props: paneProps() })
+  expect(await ui.find({ key: 'legend' })).toBeUndefined()
   await ui.unmount()
 })
 

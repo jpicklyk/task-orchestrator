@@ -1,7 +1,7 @@
 // Pure model of the /to-graph pane: command arguments, the side list, scope titles and the
 // read-only get_context summary (T3 a47dcd6f). No `$` here.
-import type { GraphNode } from '../../types'
-import { glyphOf, id8, kindOf, truncate } from './shared.ts'
+import type { GateInfo, GraphNode, GraphStatus } from '../../types'
+import { glyphOf, id8, kindOf, labelPrefix, phaseText, truncate } from './shared.ts'
 import type { GraphView } from './shared.ts'
 
 /** Most node Buttons the side list draws. */
@@ -33,7 +33,10 @@ export function sideList(view: GraphView, cap = SIDE_LIST_CAP): GraphNode[] {
     .map(e => e.node)
 }
 
-export const sideLabel = (n: GraphNode): string => `${glyphOf(n)} ${id8(n.id)} ${truncate(n.title, 32)}`
+export const sideLabel = (n: GraphNode, gate?: GateInfo): string => `${glyphOf(n)} ${labelPrefix(n)}${id8(n.id)} ${truncate(n.title, 28)} · ${phaseText(n, gate)}`
+
+/** Whether the live feed is not healthy: no SSE stream, or the latest refresh failed. Reconnect shows only then. */
+export const isDegraded = (status: GraphStatus): boolean => status.liveSource !== 'sse' || status.lastError !== undefined
 
 /** Title for the pane header: the scope node's title, else the project root. */
 export function scopeTitle(view: GraphView): string {

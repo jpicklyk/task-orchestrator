@@ -16,6 +16,8 @@ export interface GraphNode {
   type?: string
   priority?: string
   depth: number
+  /** Short plan label (properties.planLabel, 1-12 chars), e.g. T3. */
+  planLabel?: string
 }
 
 /** A dependency, normalized so `from` blocks `to` (IS_BLOCKED_BY folded into BLOCKS with the ends swapped). */
@@ -27,6 +29,13 @@ export interface GraphEdge {
   unblockAt?: string
 }
 
+/** Required-note progress of one seat in the current phase. */
+export interface SeatProgress {
+  seat: string
+  required: number
+  filled: number
+}
+
 /** Gate status of a work/review node; `required`/`filled` count the current phase's required schema rows. */
 export interface GateInfo {
   canAdvance: boolean
@@ -34,6 +43,8 @@ export interface GateInfo {
   missing: string[]
   required: number
   filled: number
+  /** Per-seat progress of the current phase's required rows; absent when the schema has no seats. */
+  seats?: SeatProgress[]
 }
 
 export interface GraphSnapshot {
@@ -107,6 +118,8 @@ declare module 'claude-code' {
       graphSubscribers: number
       /** Bumped to ask for a debounced re-snapshot. */
       graphRefreshRequest: number
+      /** Bumped to restart the live source (SSE/poll) and re-snapshot. */
+      graphReconnectRequest: number
       // ── graph-pane (T3 a47dcd6f) state ──
       /** The /to-graph pane has counted itself once in graphSubscribers; a repeat /to-graph neither double-counts nor leaks. */
       graphPaneOpen: boolean

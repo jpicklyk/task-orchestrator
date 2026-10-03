@@ -15,11 +15,11 @@ import { parseToResult } from '../shared/to-client.ts'
 import { addSubscriber, bump, removeSubscriber, scopeTo } from '../graph-data/index.ts'
 import { collapse } from './collapse.ts'
 import { layout } from './layout.ts'
-import { formatDetail, parseScopeArg, scopeTitle, sideLabel, sideList, summaryLine } from './pane-model.ts'
+import { formatDetail, isDegraded, parseScopeArg, scopeTitle, sideLabel, sideList, summaryLine } from './pane-model.ts'
 import { renderSvg } from './render-svg.ts'
 import type { Theme } from './render-svg.ts'
 import { renderText } from './render-text.ts'
-import { dagOf } from './shared.ts'
+import { dagOf, legendItems } from './shared.ts'
 import type { GraphView } from './shared.ts'
 
 export const PANE_ID = 'to-graph'
@@ -31,7 +31,7 @@ const graphSnapshot = atom({ plugin: 'task-orchestrator-mod', key: 'graphSnapsho
 const graphStatus = atom({ plugin: 'task-orchestrator-mod', key: 'graphStatus' } as const, { refreshing: false, liveSource: 'none' } as GraphStatus)
 const graphScope = atom({ plugin: 'task-orchestrator-mod', key: 'graphScope' } as const, null as string | null)
 const graphSubscribers = atom({ plugin: 'task-orchestrator-mod', key: 'graphSubscribers' } as const, 0)
-const graphRefreshRequest = atom({ plugin: 'task-orchestrator-mod', key: 'graphRefreshRequest' } as const, 0)
+const graphReconnectRequest = atom({ plugin: 'task-orchestrator-mod', key: 'graphReconnectRequest' } as const, 0)
 const graphPaneOpen = atom({ plugin: 'task-orchestrator-mod', key: 'graphPaneOpen' } as const, false)
 const graphDetail = atom({ plugin: 'task-orchestrator-mod', key: 'graphDetail' } as const, null as GraphDetail | null)
 
@@ -152,11 +152,12 @@ export function registerGraphPane(on: On): void {
     const scope = await read($, graphScope)
     const detail = await read($, graphDetail)
 
+    // Refresh is automatic (SSE or poll); Reconnect restarts the live source and shows only while degraded.
     const controls = h(
       Box,
       { key: 'controls' },
-      h(Button, { key: 'refresh', label: 'Refresh', onPress: () => update($, graphRefreshRequest, bump) }),
       h(Button, { key: 'root', label: 'Project root', onPress: () => update($, graphScope, scopeTo(null)) }),
+      ...(isDegraded(status) ? [h(Button, { key: 'reconnect', label: 'Reconnect', onPress: () => update($, graphReconnectRequest, bump) })] : []),
     )
 
     if (snap === null) {
@@ -172,6 +173,14 @@ export function registerGraphPane(on: On): void {
     if (view.nodes.length === 0) {
       body.push(h(Text, { key: 'empty' }, 'No items in this scope.'))
     } else {
+      body.push(
+        h(
+          Box,
+          { key: 'legend', flexDirection: 'row' },
+          ...legendItems().map(item => h(Text, { key: `legend-${item.key}`, color: item.color }, `${item.text}  `)),
+          ...(view.nodes.some(n => n.planLabel !== undefined) ? [h(Text, { key: 'legend-label', dimColor: true }, 'Tn = plan label')] : []),
+        ),
+      )
       const lines = renderText(view)
       const dag = dagOf(view)
       const placed = layout(dag.nodes, dag.edges)
@@ -185,7 +194,7 @@ export function registerGraphPane(on: On): void {
         lines.forEach((line, i) => body.push(h(Text, { key: `line-${i}` }, line)))
       }
       for (const node of sideList(view)) {
-        body.push(h(Button, { key: `node:${node.id}`, label: sideLabel(node), onPress: () => openDetail($, node.id) }))
+        body.push(h(Button, { key: `node:${node.id}`, label: sideLabel(node, view.gates[node.id]), onPress: () => openDetail($, node.id) }))
       }
     }
 

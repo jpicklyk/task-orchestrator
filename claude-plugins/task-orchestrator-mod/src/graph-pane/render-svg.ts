@@ -4,7 +4,7 @@
 import type { GraphNode } from '../../types'
 import { GAP_X, NODE_H, NODE_W } from './layout.ts'
 import type { Layout } from './layout.ts'
-import { dagOf, containerIds, gateSuffix, glyphOf, id8, kindOf, rollupText, truncate } from './shared.ts'
+import { dagOf, containerIds, glyphOf, id8, KIND, kindOf, phaseText, rollupText, truncate } from './shared.ts'
 import type { GraphView, Kind } from './shared.ts'
 
 export const SVG_LIMIT = 131072
@@ -18,15 +18,6 @@ interface Palette {
   group: string
   groupText: string
   kind: Record<Kind, string>
-}
-
-const KIND: Record<Kind, string> = {
-  queue: '#6b7280',
-  work: '#b45309',
-  review: '#2563eb',
-  blocked: '#dc2626',
-  terminal: '#15803d',
-  cancelled: '#4b5563',
 }
 
 export const PALETTES: Record<Theme, Palette> = {
@@ -50,7 +41,7 @@ const f = (n: number): string => String(Math.round(n * 10) / 10)
 function tooltip(node: GraphNode, view: GraphView): string {
   const status = node.statusLabel !== undefined ? `${node.role}/${node.statusLabel}` : node.role
   const gate = view.gates[node.id]
-  const parts = [node.title, `${status} [${id8(node.id)}]`]
+  const parts = [node.title, `${status} [${id8(node.id)}]`, phaseText(node, view.gates[node.id])]
   if (gate !== undefined && gate.missing.length > 0) parts.push(`missing: ${gate.missing.join(', ')}`)
   const roll = view.rollups?.[node.id]
   if (roll !== undefined && roll.count > 0) {
@@ -131,12 +122,21 @@ function build(layout: Layout, view: GraphView, theme: Theme, withTooltips: bool
     if (node !== undefined) {
       const kind = kindOf(node)
       const roll = rollupText(view.rollups?.[id])
-      const sub = [id8(id), gateSuffix(view.gates[id]), roll].filter(s => s !== '').join('  ')
+      const sub = [id8(id), roll].filter(s => s !== '').join('  ')
+      const tag = node.planLabel
+      const badgeW = tag === undefined ? 0 : 8 + 7 * tag.length
+      const badge =
+        tag === undefined
+          ? ''
+          : `<rect x="${f(p.x + NODE_W - badgeW - 6)}" y="${f(p.y + 6)}" width="${badgeW}" height="16" rx="4" fill="#000000" fill-opacity="0.35"/>` +
+            label(tag, p.x + NODE_W - badgeW - 2, p.y + 18, true)
       out.push(
         `<g class="n">${withTooltips ? `<title>${esc(tooltip(node, view))}</title>` : ''}` +
           `<rect x="${f(p.x)}" y="${f(p.y)}" width="${NODE_W}" height="${NODE_H}" rx="6" fill="${pal.kind[kind]}"${kind === 'cancelled' ? ' opacity="0.6"' : ''}/>` +
-          label(`${glyphOf(node)} ${truncate(node.title, 24)}`, p.x + 8, p.y + 19, true) +
-          label(truncate(sub, 30), p.x + 8, p.y + 35) +
+          badge +
+          label(`${glyphOf(node)} ${truncate(node.title, tag === undefined ? 28 : 28 - (tag.length + 2))}`, p.x + 8, p.y + 19, true) +
+          label(truncate(sub, 34), p.x + 8, p.y + 35) +
+          label(truncate(phaseText(node, view.gates[id]), 34), p.x + 8, p.y + 51) +
           '</g>',
       )
       continue
@@ -147,7 +147,7 @@ function build(layout: Layout, view: GraphView, theme: Theme, withTooltips: bool
       `<g class="n">${withTooltips ? `<title>${esc(`${stub.title}\n${stub.role} [${id8(id)}] (outside this view)`)}</title>` : ''}` +
         `<rect x="${f(p.x)}" y="${f(p.y)}" width="${NODE_W}" height="${NODE_H}" rx="6" fill="none" stroke="${pal.edge}" stroke-dasharray="5 3"/>` +
         label(`${stub.label} ${id8(id)}`, p.x + 8, p.y + 19, true) +
-        label(truncate(stub.title, 30), p.x + 8, p.y + 35) +
+        label(truncate(stub.title, 34), p.x + 8, p.y + 35) +
         '</g>',
     )
   }

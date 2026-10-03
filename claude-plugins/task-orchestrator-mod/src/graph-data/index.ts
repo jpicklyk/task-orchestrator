@@ -12,7 +12,8 @@ import type { EngineInterface, On } from 'claude-code'
 import { PLUGIN, TO_SERVER, toToolName } from '../shared/constants.ts'
 import type { GraphSnapshot, GraphStatus } from '../../types'
 import type { GraphIo } from './io.ts'
-import { syncLive } from './live.ts'
+import { invalidateLabels } from './labels.ts'
+import { restartLive, syncLive } from './live.ts'
 import { refresh, refreshNow } from './refresh.ts'
 
 export type { GateInfo, GraphEdge, GraphNode, GraphSnapshot, GraphStatus } from '../../types'
@@ -44,6 +45,9 @@ export const graphSubscribers = atom({ plugin: 'task-orchestrator-mod', key: 'gr
 /** Bump it to request a debounced re-snapshot. */
 export const graphRefreshRequest = atom({ plugin: 'task-orchestrator-mod', key: 'graphRefreshRequest' } as const, 0)
 
+/** Bump it to restart the live source (SSE/poll) and re-snapshot. */
+export const graphReconnectRequest = atom({ plugin: 'task-orchestrator-mod', key: 'graphReconnectRequest' } as const, 0)
+
 /** Steps for `update($, atom, step)`. */
 export const addSubscriber = (n: number): number => n + 1
 export const removeSubscriber = (n: number): number => Math.max(0, n - 1)
@@ -55,6 +59,7 @@ export const scopeTo =
 
 export type { GraphIo } from './io.ts'
 export { snapshot } from './snapshot.ts'
+export { invalidateLabels } from './labels.ts'
 
 /** TO tools whose calls can change the graph; a successful call re-snapshots. */
 export const WRITE_TOOLS: ReadonlySet<string> = new Set([
@@ -119,7 +124,10 @@ export function registerGraphData(on: On): void {
     if (next.origin.plugin === PLUGIN) return next(e)
     const ran = await next(e)
     // Debounced and never awaited: the model's call is not slowed by the snapshot.
-    if (shouldRefresh(e.tool, next.origin.plugin, ran)) void refresh(graphIo($))
+    if (shouldRefresh(e.tool, next.origin.plugin, ran)) {
+      if (toToolName(e.tool) === 'manage_items') invalidateLabels()
+      void refresh(graphIo($))
+    }
 
     return ran
   })
@@ -142,6 +150,17 @@ export function registerGraphData(on: On): void {
   on('state.set', { plugin: PLUGIN, key: 'graphRefreshRequest' }, async ($, e, next) => {
     const wrote = await next(e)
     if (wrote.value?.isSet) void refresh(graphIo($))
+
+    return wrote
+  })
+
+  on('state.set', { plugin: PLUGIN, key: 'graphReconnectRequest' }, async ($, e, next) => {
+    const wrote = await next(e)
+    if (wrote.value?.isSet) {
+      invalidateLabels()
+      restartLive(graphIo($), await read($, graphSubscribers))
+      void refreshNow(graphIo($))
+    }
 
     return wrote
   })

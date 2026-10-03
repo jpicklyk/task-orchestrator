@@ -10,7 +10,8 @@ import { expect, mock, test } from 'claude-code/testing'
 
 import { WRITE_TOOLS, WRITE_TOOL_NAME, parseToolResult, shouldRefresh } from '../src/graph-data/index.ts'
 import type { GraphIo } from '../src/graph-data/io.ts'
-import { createSseParser, curlRequest, eventsUrl, isLoopbackApiUrl, resetLiveState, resolveApiUrl, syncLive } from '../src/graph-data/live.ts'
+import { invalidateLabels, resetLabelState } from '../src/graph-data/labels.ts'
+import { createSseParser, curlRequest, eventsUrl, isLoopbackApiUrl, resetLiveState, resolveApiUrl, restartLive, syncLive } from '../src/graph-data/live.ts'
 import { refresh, resetRefreshState } from '../src/graph-data/refresh.ts'
 import { NODE_CAP, snapshot } from '../src/graph-data/snapshot.ts'
 
@@ -18,7 +19,7 @@ const ROOT = '00000000-0000-4000-8000-000000000001'
 const TO = 'mcp__mcp-task-orchestrator__'
 const CONFIG = `project:\n  rootId: ${ROOT}\n`
 
-type Item = { id: string; parentId?: string; title: string; role: string; depth: number; type?: string; statusLabel?: string }
+type Item = { id: string; parentId?: string; title: string; role: string; depth: number; type?: string; statusLabel?: string; properties?: unknown }
 type Dep = { id: string; from: string; to: string; type: string; unblock?: string }
 type World = {
   items: Item[]
@@ -26,6 +27,7 @@ type World = {
   outside?: Record<string, { title: string; role: string }>
   context?: Record<string, unknown>
   failDepsFor?: string[]
+  failGetFor?: string[]
 }
 type Call = { tool: string; args: Record<string, unknown> }
 type McpResult = { content: { type: 'text'; text: string }[]; isError?: boolean }
@@ -39,6 +41,15 @@ function answer(world: World, tool: string, args: Record<string, unknown>): McpR
     const item = world.items.find(i => i.id === id)
 
     return item ? { title: item.title, role: item.role } : (world.outside?.[id] ?? { title: id, role: 'queue' })
+  }
+  if (tool === 'query_items' && args.operation === 'get') {
+    const id = String(args.itemId)
+    if (world.failGetFor?.includes(id)) return failure('get boom')
+    const item = world.items.find(i => i.id === id)
+    if (!item) return failure('not found')
+    const { properties, ...rest } = item
+
+    return text({ ...rest, ...(properties !== undefined && { properties }) })
   }
   if (tool === 'query_items') {
     const scope = String(args.ancestorId)
@@ -96,6 +107,7 @@ type SpawnScript = (request: { argv: readonly string[]; input?: string }) => Asy
 
 /** An in-memory GraphIo. Time moves only through `advance`. */
 function fake(opts: { world?: World; files?: Record<string, string>; env?: Record<string, string>; spawn?: SpawnScript } = {}) {
+  resetLabelState()
   const world = opts.world ?? threeLevels()
   const files = opts.files ?? { '.taskorchestrator/config.yaml': CONFIG }
   const calls: Call[] = []
@@ -170,9 +182,10 @@ function fake(opts: { world?: World; files?: Record<string, string>; env?: Recor
     now = target
     await flush()
   }
-  const searches = () => calls.filter(c => c.tool === 'query_items').length
+  const searches = () => calls.filter(c => c.tool === 'query_items' && c.args.operation === 'search').length
+  const gets = () => calls.filter(c => c.tool === 'query_items' && c.args.operation === 'get').length
 
-  return { io, calls, advance, searches, state }
+  return { io, calls, advance, searches, gets, state }
 }
 
 // ── snapshot ───────────────────────────────────────────────────────────────────────────
@@ -221,7 +234,7 @@ test('subtrees page in 100s and 151 items truncate to the 150 shallowest', async
   expect(items).toHaveLength(NODE_CAP + 1)
   const env = fake({ world: { items } })
   const s = await snapshot(env.io, 'root')
-  expect(env.calls.filter(c => c.tool === 'query_items').map(c => c.args.offset)).toEqual([0, 100])
+  expect(env.calls.filter(c => c.tool === 'query_items' && c.args.operation === 'search').map(c => c.args.offset)).toEqual([0, 100])
   expect(s.truncated).toBe(true)
   expect(s.nodes).toHaveLength(NODE_CAP)
   expect(s.nodes.some(n => n.id === 'deep')).toBe(false)
@@ -324,6 +337,108 @@ test('snapshot never calls a write tool', async () => {
   for (const c of env.calls) expect(['query_items', 'query_dependencies', 'get_context']).toContain(c.tool)
 })
 
+
+// ── plan labels ────────────────────────────────────────────────────────────────────────
+
+const withProps = (properties: unknown): World => {
+  const w = threeLevels()
+  ;(w.items.find(i => i.id === 't-work') as Item).properties = properties
+
+  return w
+}
+const labelOf = async (properties: unknown) => {
+  const s = await snapshot(fake({ world: withProps(properties) }).io, 'root')
+
+  return { label: s.nodes.find(n => n.id === 't-work')?.planLabel, error: s.error }
+}
+
+test('S1: properties.planLabel becomes node.planLabel (properties arrive as a JSON string)', async () => {
+  const r = await labelOf('{"traits":["x"],"planLabel":"T3"}')
+  expect(r.label).toBe('T3')
+  expect(r.error).toBe(undefined)
+})
+
+test('S2: missing, bad, wrong-typed, empty or too long labels give no label and no error', async () => {
+  for (const bad of [undefined, 'not json', '{"planLabel":5}', '{"planLabel":""}', '{"planLabel":"   "}', '{"planLabel":"1234567890123"}', '[1]', null, '{"other":1}']) {
+    const r = await labelOf(bad)
+    expect(r.label).toBe(undefined)
+    expect(r.error).toBe(undefined)
+  }
+  expect((await labelOf({ planLabel: 'T9' })).label).toBe('T9')
+  expect((await labelOf('{"planLabel":"123456789012"}')).label).toBe('123456789012')
+})
+
+test('S3: labels are fetched once per id; a second snapshot makes no get calls', async () => {
+  const env = fake({ world: withProps('{"planLabel":"T3"}') })
+  await snapshot(env.io, 'root')
+  expect(env.gets()).toBe(6)
+  const again = await snapshot(env.io, 'root')
+  expect(env.gets()).toBe(6)
+  expect(again.nodes.find(n => n.id === 't-work')?.planLabel).toBe('T3')
+})
+
+test('S4: invalidateLabels makes the next snapshot get again', async () => {
+  const env = fake({ world: withProps('{"planLabel":"T3"}') })
+  await snapshot(env.io, 'root')
+  invalidateLabels()
+  await snapshot(env.io, 'root')
+  expect(env.gets()).toBe(12)
+})
+
+test('S5: a failed get gives no label and no error, and is retried next snapshot', async () => {
+  const world = withProps('{"planLabel":"T3"}')
+  world.failGetFor = ['t-work']
+  const env = fake({ world })
+  const first = await snapshot(env.io, 'root')
+  expect(first.nodes.find(n => n.id === 't-work')?.planLabel).toBe(undefined)
+  expect(first.error).toBe(undefined)
+  expect(env.gets()).toBe(6)
+  world.failGetFor = []
+  const second = await snapshot(env.io, 'root')
+  expect(env.gets()).toBe(7)
+  expect(second.nodes.find(n => n.id === 't-work')?.planLabel).toBe('T3')
+})
+
+test('S17: a snapshot only reads: query_items is search or get', async () => {
+  const env = fake({ world: withProps('{"planLabel":"T3"}') })
+  await snapshot(env.io, 'root')
+  for (const c of env.calls.filter(x => x.tool === 'query_items')) expect(['search', 'get']).toContain(c.args.operation as string)
+})
+
+// ── seat progress ──────────────────────────────────────────────────────────────────────
+
+test('S7: gate seats group the current phase required rows by seat in schema order; null seat is other', async () => {
+  const world = threeLevels()
+  world.context = {
+    't-work': {
+      gateStatus: { canAdvance: false, phase: 'work', missing: [] },
+      schema: [
+        { key: 'task-scope', role: 'queue', required: true, filled: true, seat: 'planner' },
+        { key: 'implementation-notes', role: 'work', required: true, filled: true, seat: 'implementer' },
+        { key: 'test-manifest', role: 'work', required: true, filled: false, seat: 'test-author' },
+        { key: 'delegation-metadata', role: 'work', required: false, filled: false, seat: 'orchestrator' },
+        { key: 'extra', role: 'work', required: true, filled: false, seat: 'implementer' },
+        { key: 'session-tracking', role: 'work', required: true, filled: true, seat: 'orchestrator' },
+        { key: 'loose', role: 'work', required: true, filled: false, seat: null },
+      ],
+    },
+  }
+  const s = await snapshot(fake({ world }).io, 'root')
+  expect(s.gates['t-work']?.seats).toEqual([
+    { seat: 'implementer', required: 2, filled: 1 },
+    { seat: 'test-author', required: 1, filled: 0 },
+    { seat: 'orchestrator', required: 1, filled: 1 },
+    { seat: 'other', required: 1, filled: 0 },
+  ])
+})
+
+test('S8: rows without a seat leave the seats key out', async () => {
+  const world = threeLevels()
+  world.context = { 't-work': { gateStatus: { canAdvance: true, phase: 'work', missing: [] }, schema: [{ key: 'a', role: 'work', required: true, filled: true }] } }
+  const s = await snapshot(fake({ world }).io, 'root')
+  expect('seats' in (s.gates['t-work'] as object)).toBe(false)
+})
+
 // ── refresh ────────────────────────────────────────────────────────────────────────────
 
 test('refresh: 5 rapid calls give one snapshot 300ms after the last; atoms are written', async () => {
@@ -353,7 +468,7 @@ test('refresh is single-flight: a call during a run queues exactly one more', as
   const original = env.io.callTool
   let started = 0
   env.io.callTool = async (tool, args) => {
-    if (tool === 'query_items') {
+    if (tool === 'query_items' && args.operation === 'search') {
       started++
       if (started === 1) await gate
     }
@@ -528,6 +643,64 @@ test('SSE: three failed spawns back off 2s, 4s then fall back to polling', async
   syncLive(env.io, 0)
 })
 
+test('S16: restartLive cancels the permanent poll fallback and spawns again; with 0 subscribers it starts nothing', async () => {
+  resetRefreshState()
+  resetLiveState()
+  let spawns = 0
+  const env = fake({
+    env: { TASK_ORCHESTRATOR_API_URL: 'http://localhost:3001' },
+    // eslint-disable-next-line require-yield
+    spawn: async function* () {
+      spawns++
+      throw new Error('curl: not found')
+    },
+  })
+  env.state.scope = 'root'
+  syncLive(env.io, 1)
+  await env.advance(6_000)
+  expect(spawns).toBe(3)
+  expect(env.state.status.liveSource).toBe('poll')
+  restartLive(env.io, 1)
+  await env.advance(0)
+  expect(spawns).toBe(4)
+  // the first poll would have fired 15s after it started (~21s in); it was cancelled
+  await env.advance(15_500)
+  expect(env.searches()).toBe(0)
+  syncLive(env.io, 0)
+  await env.advance(0)
+  const before = spawns
+  restartLive(env.io, 0)
+  await env.advance(10_000)
+  expect(spawns).toBe(before)
+})
+
+test('S18: an SSE item.updated frame invalidates the label cache; other frames do not', async () => {
+  resetRefreshState()
+  resetLiveState()
+  let release: () => void = () => undefined
+  const gate = new Promise<void>(resolve => (release = resolve))
+  const env = fake({
+    world: withProps('{"planLabel":"T3"}'),
+    env: { TASK_ORCHESTRATOR_API_URL: 'http://localhost:3001' },
+    spawn: async function* () {
+      yield { stream: 'stdout' as const, text: 'event: item.created\ndata: {}\n\n' }
+      await gate
+      yield { stream: 'stdout' as const, text: 'event: item.updated\ndata: {}\n\n' }
+      await new Promise<void>(() => undefined)
+
+      return { code: 0, signal: null }
+    },
+  })
+  env.state.scope = 'root'
+  syncLive(env.io, 1)
+  await env.advance(300)
+  expect(env.gets()).toBe(6)
+  release()
+  await env.advance(300)
+  expect(env.gets()).toBe(12)
+  syncLive(env.io, 0)
+})
+
 test('SSE: no rootId means polling, never a stream', async () => {
   resetRefreshState()
   resetLiveState()
@@ -622,7 +795,8 @@ function serveHooks(on: On, world: World = threeLevels()): Call[] {
   return calls
 }
 
-const searchesOf = (calls: Call[]) => calls.filter(c => c.tool === 'query_items').length
+const searchesOf = (calls: Call[]) => calls.filter(c => c.tool === 'query_items' && c.args.operation === 'search').length
+const getsOf = (calls: Call[]) => calls.filter(c => c.tool === 'query_items' && c.args.operation === 'get').length
 const ok = { ref: 'r', result: { ok: true }, text: 'ok' }
 
 test('five rapid advance_item calls give one snapshot after 300ms; the result passes through', async ($, on) => {
@@ -673,4 +847,27 @@ test('each write tool in the trigger list refreshes', async ($, on) => {
     await clock.settle()
     expect(searchesOf(calls)).toBe(++expected)
   }
+})
+
+test('S6: a successful manage_items call re-reads plan labels on the next refresh; advance_item does not', async ($, on) => {
+  const world: World = { items: [{ id: ROOT, title: 'Project', role: 'work', depth: 0, properties: '{"planLabel":"T1"}' }] }
+  const calls = serveHooks(on, world)
+  const clock = mock.clock(on)
+  on('tool.call', async () => ok as never)
+  const settle = async () => {
+    await clock.advance(300)
+    await clock.settle()
+  }
+  await $.tool.call({ tool: `${TO}advance_item`, itemId: 'x', trigger: 'start' } as never)
+  await settle()
+  expect(searchesOf(calls)).toBe(1)
+  const warm = getsOf(calls)
+  await $.tool.call({ tool: `${TO}advance_item`, itemId: 'x', trigger: 'start' } as never)
+  await settle()
+  expect(searchesOf(calls)).toBe(2)
+  expect(getsOf(calls)).toBe(warm)
+  await $.tool.call({ tool: `${TO}manage_items`, operation: 'update' } as never)
+  await settle()
+  expect(searchesOf(calls)).toBe(3)
+  expect(getsOf(calls)).toBe(warm + 1)
 })

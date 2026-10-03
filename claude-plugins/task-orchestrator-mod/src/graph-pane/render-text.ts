@@ -1,7 +1,7 @@
 // Terminal renderer: a box-drawing tree of the containment hierarchy with blocker annotations
 // (T3 a47dcd6f). Pure: a view in, lines out.
 import type { GraphEdge } from '../../types'
-import { gateSuffix, glyphOf, id8, kindOf, rollupText } from './shared.ts'
+import { glyphOf, id8, labelPrefix, phaseText, rollupText } from './shared.ts'
 import type { GraphView } from './shared.ts'
 
 /** The lines of the tree, one per node plus one `↳ blocked by` line per live incoming BLOCKS edge. */
@@ -22,10 +22,8 @@ export function renderText(view: GraphView): string[] {
     const n = byId.get(id)
     if (n === undefined || seen.has(id)) return
     seen.add(id)
-    const kind = kindOf(n)
-    const role = kind === 'cancelled' ? 'cancelled' : n.role
-    const tail = [gateSuffix(view.gates[id]), rollupText(view.rollups?.[id])].filter(s => s !== '').join(' ')
-    lines.push(`${prefix}${connector}${glyphOf(n)} ${n.title} [${id8(id)}] ${role}${tail === '' ? '' : ` ${tail}`}`)
+    const tail = [phaseText(n, view.gates[id]), rollupText(view.rollups?.[id])].filter(s => s !== '').join(' ')
+    lines.push(`${prefix}${connector}${glyphOf(n)} ${labelPrefix(n)}${n.title} [${id8(id)}] ${tail}`)
 
     const children = kids.get(id) ?? []
     for (const e of incoming.get(id) ?? []) {

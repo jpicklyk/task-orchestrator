@@ -3,8 +3,8 @@
 // Containment (parent/child) is grouping only and never an edge; RELATES_TO edges do not layer.
 import type { GraphEdge } from '../../types'
 
-export const NODE_W = 188
-export const NODE_H = 46
+export const NODE_W = 220
+export const NODE_H = 62
 export const GAP_X = 56
 export const GAP_Y = 18
 export const MARGIN = 20

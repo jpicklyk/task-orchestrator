@@ -22,12 +22,44 @@ export function kindOf(node: { role: string; statusLabel?: string }): Kind {
   return 'queue'
 }
 
+/** Fill colour of each kind, shared by the SVG nodes and the legend. */
+export const KIND: Record<Kind, string> = {
+  queue: '#6b7280',
+  work: '#b45309',
+  review: '#2563eb',
+  blocked: '#dc2626',
+  terminal: '#15803d',
+  cancelled: '#4b5563',
+}
+
 const GLYPHS: Record<Kind, string> = { queue: '○', work: '◉', review: '◉', blocked: '⊘', terminal: '✓', cancelled: '—' }
 export const glyphOf = (node: { role: string; statusLabel?: string }): string => GLYPHS[kindOf(node)]
 
 /** `2/3 work notes` for a node with a gate entry that has required notes; '' otherwise. */
 export function gateSuffix(gate: GateInfo | undefined): string {
   return gate !== undefined && gate.required > 0 ? `${gate.filled}/${gate.required} ${gate.phase} notes` : ''
+}
+
+const PHASE_WORD: Record<Kind, string> = { queue: 'queue', work: 'work', review: 'review', blocked: 'blocked', terminal: 'done', cancelled: 'cancelled' }
+
+/** The phase line of a node: `queue`, `done`, or for work/review the seat progress, e.g. `work · implementer ✓, orchestrator 0/1`. */
+export function phaseText(node: { role: string; statusLabel?: string }, gate: GateInfo | undefined): string {
+  const kind = kindOf(node)
+  if (kind !== 'work' && kind !== 'review') return PHASE_WORD[kind]
+  if (gate !== undefined && gate.seats !== undefined && gate.seats.length > 0) {
+    return `${kind} · ${gate.seats.map(s => (s.filled >= s.required ? `${s.seat} ✓` : `${s.seat} ${s.filled}/${s.required}`)).join(', ')}`
+  }
+  if (gate !== undefined && gate.required > 0) return `${kind} · ${gate.filled}/${gate.required} notes`
+
+  return kind
+}
+
+/** The `[T3] ` prefix of a labelled node; '' without a label. */
+export const labelPrefix = (node: { planLabel?: string }): string => (node.planLabel !== undefined ? `[${node.planLabel}] ` : '')
+
+/** One legend entry per kind: glyph, phase word and the kind's colour. */
+export function legendItems(): { key: Kind; text: string; color: string }[] {
+  return (Object.keys(GLYPHS) as Kind[]).map(key => ({ key, text: `${GLYPHS[key]} ${PHASE_WORD[key]}`, color: KIND[key] }))
 }
 
 export function truncate(text: string, max: number): string {
