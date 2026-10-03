@@ -568,21 +568,3 @@ test('no config anywhere (empty pinned home, empty cwd) -> allowed, silent', () 
     rmSync(cwd, { recursive: true, force: true });
   }
 });
-
-test('to_mod_active on stdin: silent exit 0 where the same actor-less call would be denied', () => {
-  const dir = tmpConfigDir();
-  try {
-    writeConfig(dir, ['actor_attribution:', '  required: true', ''].join(String.fromCharCode(10)));
-    const payload = {
-      tool_name: 'mcp__mcp-task-orchestrator__advance_item',
-      tool_input: { transitions: [{ itemId: 'x', trigger: 'start' }] },
-    };
-    const res = runHook(dir, { ...payload, to_mod_active: true });
-    assert.equal(res.status, 0);
-    assert.equal(res.stdout, '');
-    const control = runHook(dir, payload);
-    assert.equal(JSON.parse(control.stdout).hookSpecificOutput.permissionDecision, 'deny');
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});

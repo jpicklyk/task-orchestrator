@@ -15,13 +15,10 @@
 // classic.PostToolUse; SubagentStop is unproven (if it does not reach stdin, the command phase-guard
 // finds no marker - recording was suppressed - and no-ops, so nothing is lost or doubled).
 //
-// The two PreToolUse ports are kept and tested but left unregistered: `classic.PreToolUse`'s `e` is a
-// ToolCallEnvelope, whose extra fields may be taken for the tool's arguments (the flag would then
-// reach the server), and flag propagation to stdin there is unverified. The command hooks stay
-// authoritative for those two until it is verified (the plugin test harness cannot raise
-// classic.PreToolUse to the plugin's hooks, so the wrapper is untested at engine level; the logic
-// beneath it, core.ts, is); wire `registerPreToolUse(on)` into
-// `registerPhaseGuard` then.
+// The two PreToolUse ports (actorAttribution, skillEnforcement in core.ts) are kept and unit-tested but
+// have NO registration here, deliberately: verified live, on classic.PreToolUse the flag a mod adds lands
+// INSIDE tool_input, so it would be forwarded to the tool and the TO server as an argument. A PreToolUse
+// wrapper therefore must not inject the flag; the command hooks stay authoritative for those two events.
 //
 // This is the only file here that touches `$` (the validator follows `$` only into functions declared
 // in the same file); `guardIo` turns `$` into the plain functions the rest takes.
@@ -101,32 +98,5 @@ export function registerPhaseGuard(on: On): void {
     if (reason !== null) return { block: reason }
 
     return next({ ...e, [MOD_ACTIVE_FLAG]: true } as never)
-  })
-}
-
-/**
- * skill-enforcement.mjs and enforce-actor-attribution.mjs as one `classic.PreToolUse` hook. Not called
- * by `registerPhaseGuard` yet (see the header); exported so it is tested and ready to wire.
- */
-export function registerPreToolUse(on: On): void {
-  on('classic.PreToolUse', async ($, e, next) => {
-    const tool = toToolName(e.tool)
-    if ((tool !== 'manage_notes' && tool !== 'advance_item') || next.origin?.plugin === PLUGIN) return next(e)
-    const input = e as unknown as Record<string, unknown>
-    const io = guardIo($)
-    try {
-      const attribution = await actorAttribution(io, tool, input)
-      if (attribution.deny !== undefined) return { deny: attribution.deny }
-      const skills = tool === 'manage_notes' ? await skillEnforcement(io, input) : { context: [] as string[], handled: true }
-      // A config the mod could not read leaves the command hooks authoritative (no flag).
-      const handled = attribution.handled && skills.handled
-      const context = [...attribution.context, ...skills.context]
-      const ran = await next(handled ? ({ ...e, [MOD_ACTIVE_FLAG]: true } as never) : e)
-      if (context.length === 0) return ran
-
-      return { ...ran, additionalContext: [...(ran.additionalContext ?? []), ...context] }
-    } catch {
-      return next(e)
-    }
   })
 }
