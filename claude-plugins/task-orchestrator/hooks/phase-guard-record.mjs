@@ -230,6 +230,10 @@ function main() {
       emitEmpty();
     }
 
+    // The task-orchestrator-mod plugin already handled this event in-process (it sets
+    // `to_mod_active` before forwarding); recording here too would write a redundant marker file.
+    if (hookInput?.to_mod_active === true) emitEmpty();
+
     // Headless ralph iteration: emit empty before recording anything — a ralph iteration never
     // dispatches subagents, so phase-guard.mjs (SubagentStop) would have nothing to check
     // anyway, but recording is skipped explicitly rather than relying on that always holding.

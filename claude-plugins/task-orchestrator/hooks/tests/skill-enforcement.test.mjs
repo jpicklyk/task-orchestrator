@@ -9,7 +9,7 @@ import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -367,5 +367,24 @@ test('user scope: FIXTURE_CONFIG only in pinned home, empty cwd -> advisory stil
     rmSync(marker, { force: true });
     rmSync(home, { recursive: true, force: true });
     rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test('to_mod_active on stdin: silent exit 0 and no marker, where the same input would warn', () => {
+  const dir = tmpConfigDir();
+  writeConfig(dir, FIXTURE_CONFIG);
+  const sessionId = `test-mod-${randomUUID()}`;
+  const marker = markerPath(sessionId);
+  const notes = [{ itemId: 'item-1', key: 'security-assessment', role: 'review', body: 'too short' }];
+  try {
+    const res = spawnHook(dir, { ...upsertPayload(sessionId, notes), to_mod_active: true });
+    assert.equal(res.status, 0);
+    assert.equal(res.stdout, '');
+    assert.equal(existsSync(marker), false);
+    const control = spawnHook(dir, upsertPayload(sessionId, notes));
+    assert.ok(JSON.parse(control.stdout).hookSpecificOutput.additionalContext.includes('SKILL SUGGESTED'));
+  } finally {
+    rmSync(marker, { force: true });
+    rmSync(dir, { recursive: true, force: true });
   }
 });

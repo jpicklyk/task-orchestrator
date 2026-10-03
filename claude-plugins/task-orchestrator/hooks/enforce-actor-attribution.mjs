@@ -47,6 +47,9 @@ try {
   process.exit(0);
 }
 
+// The task-orchestrator-mod plugin already handled this event in-process (it sets `to_mod_active`).
+if (hookInput?.to_mod_active === true) process.exit(0);
+
 const toolName = hookInput.tool_name || '';
 const toolInput = hookInput.tool_input || {};
 

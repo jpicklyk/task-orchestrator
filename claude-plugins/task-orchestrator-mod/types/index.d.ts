@@ -60,6 +60,12 @@ export interface GraphStatus {
 // ── band (T4 ec1e2f91) types ──
 // ── retro (T5 0f4fe024) types ──
 // ── phase-guard (T6 26246238) types ──
+/** What the phase guard remembers about one subagent: the items it entered, the role it entered each in, and its SubagentStop block count. */
+export interface PhaseGuardEntry {
+  items: string[]
+  blocks: number
+  enteredRoles: Record<string, string>
+}
 // ── call-shape (T7 cedcfc11) types ──
 
 declare module 'claude-code' {
@@ -77,6 +83,10 @@ declare module 'claude-code' {
       // ── band (T4 ec1e2f91) state ──
       // ── retro (T5 0f4fe024) state ──
       // ── phase-guard (T6 26246238) state ──
+      /** Per subagent (keyed by agent id): replaces the tmpdir `phase-guard-*.json` marker files. */
+      phaseGuardAgents: StateFamily<PhaseGuardEntry>
+      /** The `itemId::key` pairs skill-enforcement already warned about this session. */
+      skillWarned: string[]
       // ── call-shape (T7 cedcfc11) state ──
     }
   }

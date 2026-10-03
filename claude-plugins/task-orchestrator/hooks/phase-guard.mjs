@@ -141,6 +141,10 @@ async function main() {
       emitEmpty();
     }
 
+    // The task-orchestrator-mod plugin already guarded this stop in-process (it sets `to_mod_active`
+    // before forwarding), so this command hook stands down.
+    if (hookInput?.to_mod_active === true) emitEmpty();
+
     // Headless ralph iteration: emit empty before any fetch — a ralph iteration never dispatches
     // subagents, so this hook would find no recorded items anyway, but skip the network round
     // trip explicitly rather than relying on that always holding.
