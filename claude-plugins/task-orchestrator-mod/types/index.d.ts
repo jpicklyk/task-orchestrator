@@ -101,6 +101,10 @@ declare module 'claude-code' {
       /** Bumped to ask for a debounced re-snapshot. */
       graphRefreshRequest: number
       // ── band (T4 ec1e2f91) state ──
+      /** Hide pressed (or /to-band toggled off) for this session; the status line stays on. */
+      bandHidden: boolean
+      /** The band has counted itself once in graphSubscribers; survives a hot reload so it is not counted twice. */
+      bandSubscribed: boolean
       // ── retro (T5 0f4fe024) state ──
       /** Session-scoped retrospective bookkeeping; replaces the tmpdir retro-<key>.json marker while the mod owns retro handling. */
       retro: RetroState
