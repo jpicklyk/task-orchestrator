@@ -3,7 +3,7 @@
 Plugin versions are bumped by the `/prepare-release` skill — either alongside a project release
 or as a standalone plugin-only PR. They are **not** bumped per individual change during development.
 
-During development, plugin changes (skills, hooks, output styles, scripts) are picked up only after a
+During development, plugin changes (skills, hooks, scripts) are picked up only after a
 forced cache refresh — see "Plugin Discovery and Cache Refresh" below. No version bump is needed for local iteration.
 
 ## Current Plugin Versions

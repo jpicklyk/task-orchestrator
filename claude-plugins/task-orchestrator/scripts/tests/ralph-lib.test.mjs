@@ -6,6 +6,8 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 import {
     parseClaudeJson,
     extractLastBalancedJson,
@@ -15,6 +17,8 @@ import {
     updateSpend,
     decideContinuation,
     buildResumeArgs,
+    buildIterationArgs,
+    ITERATION_SYSTEM_PROMPT_PATH,
     MIN_CONTINUATION_BUDGET_USD,
     buildIterationEnv,
     HEADLESS_ITERATION_MODE,
@@ -256,9 +260,9 @@ test("S8: buildResumeArgs shape — resume flag, no --worktree, same settings/mo
 
     const settingsIdx = args.indexOf("--settings");
     assert.ok(settingsIdx >= 0);
-    assert.deepEqual(JSON.parse(args[settingsIdx + 1]), {
-        outputStyle: "task-orchestrator:ralph-iteration",
-    });
+    assert.deepEqual(JSON.parse(args[settingsIdx + 1]), { outputStyle: "default" });
+    assert.equal(args[args.indexOf("--append-system-prompt-file") + 1], ITERATION_SYSTEM_PROMPT_PATH);
+    assert.ok(!args.some((a) => String(a).includes("ralph-iteration")));
 
     const permIdx = args.indexOf("--permission-mode");
     assert.equal(args[permIdx + 1], "bypassPermissions");
@@ -273,6 +277,50 @@ test("S8: buildResumeArgs shape — resume flag, no --worktree, same settings/mo
     assert.equal(args[modelIdx + 1], "sonnet");
 
     assert.equal(args[args.length - 1], "keep going");
+});
+
+// ── buildIterationArgs ──────────────────────────────────────────────────────
+
+const iterCfg = { budget: 5, model: "sonnet" };
+const iterArgs = () => buildIterationArgs({ worktreeName: "wt-1", cfg: iterCfg, prompt: "do it" });
+const resumeArgs = () => buildResumeArgs({ sessionId: "s", cfg: iterCfg, remainingBudget: 2, message: "m" });
+const flagVal = (args, flag) => args[args.indexOf(flag) + 1];
+
+test("G1: buildIterationArgs shape", () => {
+    const args = iterArgs();
+    assert.equal(args[0], "-p");
+    assert.ok(args.includes("--worktree=wt-1"));
+    assert.deepEqual(JSON.parse(flagVal(args, "--settings")), { outputStyle: "default" });
+    const p = flagVal(args, "--append-system-prompt-file");
+    assert.ok(p.endsWith("iteration-system-prompt.md"));
+    assert.ok(fs.existsSync(p));
+    assert.ok(path.isAbsolute(p));
+    assert.equal(flagVal(args, "--max-budget-usd"), "5");
+    assert.equal(flagVal(args, "--model"), "sonnet");
+    assert.equal(flagVal(args, "--output-format"), "json");
+    assert.equal(flagVal(args, "--permission-mode"), "bypassPermissions");
+    assert.equal(args[args.length - 1], "do it");
+    assert.ok(!args.some((a) => String(a).includes("ralph-iteration")));
+});
+
+test("G3: initial and resume argv carry identical system-prompt and settings values", () => {
+    for (const flag of ["--append-system-prompt-file", "--settings"]) {
+        assert.equal(flagVal(iterArgs(), flag), flagVal(resumeArgs(), flag));
+    }
+});
+
+test("G4: supplied systemPromptPath is passed through verbatim", () => {
+    const a = buildIterationArgs({ worktreeName: "w", cfg: iterCfg, prompt: "p", systemPromptPath: "/x/y.md" });
+    const r = buildResumeArgs({ sessionId: "s", cfg: iterCfg, remainingBudget: 1, message: "m", systemPromptPath: "/x/y.md" });
+    assert.equal(flagVal(a, "--append-system-prompt-file"), "/x/y.md");
+    assert.equal(flagVal(r, "--append-system-prompt-file"), "/x/y.md");
+});
+
+test("G5: iteration-system-prompt.md has no frontmatter and carries the key rules", () => {
+    const body = fs.readFileSync(ITERATION_SYSTEM_PROMPT_PATH, "utf8");
+    assert.ok(!body.startsWith("---"));
+    assert.ok(body.includes("RALPH_OUTCOME"));
+    assert.ok(body.includes("How your turn ends"));
 });
 
 // ── 004d65fd S3: buildIterationEnv ────────────────────────────────────────────────────────────

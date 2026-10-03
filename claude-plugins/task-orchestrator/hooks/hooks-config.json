@@ -11,6 +11,11 @@
           },
           {
             "type": "command",
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/orchestration-context.mjs",
+            "timeout": 5
+          },
+          {
+            "type": "command",
             "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/config-sync.mjs",
             "timeout": 10
           }
@@ -59,6 +64,16 @@
             "timeout": 5
           }
         ]
+      },
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/dispatch-model-guard.mjs",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -93,6 +108,16 @@
           {
             "type": "command",
             "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/phase-guard-record.mjs",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "^mcp__.*task-orchestrator.*__advance_item$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ${CLAUDE_PLUGIN_ROOT}/hooks/dispatch-hint.mjs",
             "timeout": 5
           }
         ]

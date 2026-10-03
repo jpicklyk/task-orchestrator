@@ -9,6 +9,58 @@
 //
 // Stdlib-only. Node 18+.
 
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+/**
+ * Absolute path to the iteration system prompt appended to every iteration via
+ * `--append-system-prompt-file`. Resolved from this module's own location so it
+ * works from the plugin cache as well as the source tree.
+ */
+export const ITERATION_SYSTEM_PROMPT_PATH = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "../skills/ralph/iteration-system-prompt.md",
+);
+
+/**
+ * Settings JSON shared by the initial and resume spawns. Pins the output style
+ * to `default` so a user's own configured style never leaks into an iteration.
+ */
+const ITERATION_SETTINGS = JSON.stringify({ outputStyle: "default" });
+
+/**
+ * Build the argv for the initial iteration spawn. The prompt is the last element.
+ */
+export function buildIterationArgs({
+    worktreeName,
+    cfg,
+    prompt,
+    systemPromptPath = ITERATION_SYSTEM_PROMPT_PATH,
+}) {
+    return [
+        "-p",
+        `--worktree=${worktreeName}`,
+        "--append-system-prompt-file",
+        systemPromptPath,
+        "--settings",
+        ITERATION_SETTINGS,
+        // Ralph runs autonomously; in -p mode there's no interactive prompt for MCP/tool
+        // permissions, so unpermitted tools auto-deny and the iteration aborts. Bypass
+        // permission prompts so the iteration agent can complete its work. Risk surface is
+        // bounded by: the worktree boundary (file edits stay inside), the MCP server's own
+        // ACL, the --max-budget-usd cap, and the schema-driven scope of the iteration.
+        "--permission-mode",
+        "bypassPermissions",
+        "--max-budget-usd",
+        String(cfg.budget),
+        "--output-format",
+        "json",
+        "--model",
+        cfg.model,
+        prompt,
+    ];
+}
+
 /**
  * Parse claude's stdout (--output-format json) into the result envelope.
  * Tries a direct parse first (handles both compact and pretty-printed JSON),
@@ -236,8 +288,10 @@ export function decideContinuation({
 }
 
 /**
- * Build the argv for a resume continuation: same `--settings` / `--model` /
- * `--output-format` / `--permission-mode` as the initial iteration spawn,
+ * Build the argv for a resume continuation: same `--append-system-prompt-file` /
+ * `--settings` / `--model` / `--output-format` / `--permission-mode` as the initial
+ * iteration spawn (the system prompt is passed again because it is unverified whether
+ * a resumed session retains it),
  * `--resume <sessionId>` in place of `--worktree=<name>` — a resume must
  * NEVER pass `--worktree`, which would create a new worktree instead of
  * continuing in the existing one — and `--max-budget-usd` set to the
@@ -245,13 +299,21 @@ export function decideContinuation({
  * `updateSpend`). The follow-up message is the last argument, matching the
  * initial iteration's prompt-last convention.
  */
-export function buildResumeArgs({ sessionId, cfg, remainingBudget, message }) {
+export function buildResumeArgs({
+    sessionId,
+    cfg,
+    remainingBudget,
+    message,
+    systemPromptPath = ITERATION_SYSTEM_PROMPT_PATH,
+}) {
     return [
         "-p",
         "--resume",
         sessionId,
+        "--append-system-prompt-file",
+        systemPromptPath,
         "--settings",
-        JSON.stringify({ outputStyle: "task-orchestrator:ralph-iteration" }),
+        ITERATION_SETTINGS,
         "--permission-mode",
         "bypassPermissions",
         "--max-budget-usd",

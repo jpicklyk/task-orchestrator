@@ -10,7 +10,7 @@
 - [CLAUDE.md-Driven](integration-guides/claude-md-driven.md)
 - [Note Schemas](integration-guides/note-schemas.md)
 - [Plugin: Skills & Hooks](integration-guides/plugin-skills-hooks.md)
-- [Output Styles](integration-guides/output-styles.md)
+- [Orchestration Mode](integration-guides/orchestration-mode.md)
 - [Self-Improving Workflow](integration-guides/self-improving-workflow.md)
 
 **Reference**

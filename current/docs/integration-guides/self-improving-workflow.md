@@ -1,8 +1,8 @@
 # Tier 6: Self-Improving Workflow
 
-**Prerequisites:** [Tier 1: Bare MCP](bare-mcp.md) complete · [Tier 3: Note Schemas](note-schemas.md) complete · Claude Code auto-memory enabled · Recommended: [Tier 5: Output Styles](output-styles.md) for full orchestration context
+**Prerequisites:** [Tier 1: Bare MCP](bare-mcp.md) complete · [Tier 3: Note Schemas](note-schemas.md) complete · Claude Code auto-memory enabled · Recommended: [Tier 5: Orchestration Mode](orchestration-mode.md) for full orchestration context
 
-**Cross-references:** [Quick Start](../quick-start.md) · [API Reference](../api-reference.md) · [Workflow Guide](../workflow-guide.md) · [Output Styles](output-styles.md) · [Note Schemas](note-schemas.md)
+**Cross-references:** [Quick Start](../quick-start.md) · [API Reference](../api-reference.md) · [Workflow Guide](../workflow-guide.md) · [Orchestration Mode](orchestration-mode.md) · [Note Schemas](note-schemas.md)
 
 ---
 
@@ -315,7 +315,7 @@ When a trend reaches **`Sessions >= 2`**, the skill creates an `improvement-prop
 
 - **Schema gap** → exact YAML to add or modify
 - **Skill regression** → the section reference and the change to make
-- **Output style miss** → the zone and content to add
+- **Orchestration context / orchestrate skill miss** → the section and content to add (or, for a personal output style, the zone)
 - **Hook addition** → the event, matcher, and purpose
 
 The proposal is the deliverable — not a vague "this is a problem" item but a ready-to-apply patch. The user reviews and either accepts (apply) or rejects (close).
@@ -426,7 +426,7 @@ You now have persistent tool-issue tracking. Periodically run `query_items(opera
 
 ### Option B: CLAUDE.md Driven (lightweight active analysis)
 
-Adds inline analysis and self-correction without requiring a custom output style.
+Adds inline analysis and self-correction without requiring a personal output style.
 
 **1.** Complete Option A.
 
@@ -447,11 +447,11 @@ Append an analysis block at end of response:
 
 This buys you continuous monitoring without changing how you operate. Most of Loop 1 + all of Loop 2.
 
-### Option C: Full Pipeline (output style + retrospective)
+### Option C: Full Pipeline (personal output style + retrospective)
 
 The complete setup — all three loops including session-level aggregation and trend graduation.
 
-> **What the plugin ships vs. what you assemble.** Enabling the TO plugin gives you the orchestration core only — the `Workflow Orchestrator` output style and the orchestration skills (planning, materialization, advance, work-summary, etc.). The analysis layer described below is **not** packaged in the plugin marketplace and is **not installed when you enable the plugin**. The TO project repo carries reference implementations of these pieces as project-local source files (`.claude/skills/`, `.claude/hooks/`, `.taskorchestrator/config.yaml`). Adopters copy and adapt those files into their own projects. This keeps the self-improvement layer optional and per-project customizable rather than imposing one shape on every TO user.
+> **What the plugin ships vs. what you assemble.** Enabling the TO plugin gives you the orchestration core only — the `orchestration-context` SessionStart hook, the `orchestrate` skill, and the other orchestration skills (planning, materialization, advance, work-summary, etc.). The analysis layer described below is **not** packaged in the plugin marketplace and is **not installed when you enable the plugin**. The TO project repo carries reference implementations of these pieces as project-local source files (`.claude/skills/`, `.claude/hooks/`, `.taskorchestrator/config.yaml`). Adopters copy and adapt those files into their own projects. This keeps the self-improvement layer optional and per-project customizable rather than imposing one shape on every TO user.
 
 **1.** Complete Option A (observation schema).
 
@@ -468,13 +468,12 @@ This is the load-bearing change — without distributed `session-tracking` notes
 
 **3.** Add the `session-retrospective` schema (three queue-phase notes — see [Foundation](#foundation-schema-driven-data-collection)).
 
-**4.** Create a custom output style with three zones:
+**4.** Create a personal output style with two zones. The plugin already delivers the orchestration core (delegation rules, tier classification, phase transitions) through its SessionStart hook, so the style holds no Zone 1 and mirrors nothing from the plugin:
 
-- **Zone 1 — Orchestration core:** delegation rules, tier classification, phase transitions (mirror the `Workflow Orchestrator` output style shipped by the plugin)
 - **Zone 2 — Extended orchestration:** enhancements specific to your setup (parallel dispatch rules, retrospective nudge, etc.)
 - **Zone 3 — Workflow analysis layer:** detection patterns from [Loop 1](#loop-1-inline-analysis--observation-logging), self-correction protocol from [Loop 2](#loop-2-self-correction-via-auto-memory), analysis reporting format
 
-Place the file in `~/.claude/output-styles/` (personal, gitignored) and activate via `.claude/settings.local.json`:
+Place the file in `~/.claude/output-styles/` (a personal style is still a valid Claude Code feature) and activate via `.claude/settings.local.json`:
 
 ```json
 {
@@ -482,7 +481,7 @@ Place the file in `~/.claude/output-styles/` (personal, gitignored) and activate
 }
 ```
 
-> **Note on the analyst output style:** The plugin ships only the orchestration core (`workflow-orchestrator`) at `claude-plugins/task-orchestrator/output-styles/workflow-orchestrator.md`. The TO project repo does not ship a layered "analyst" variant — users assemble their own by copying the orchestration core into Zone 1 of a personal output style and layering Zones 2 and 3 on top. This keeps the analysis layer customizable per project rather than imposing a one-size shape.
+> **Note on the analyst output style:** The plugin ships no output style. It delivers the orchestration core through the `orchestration-context` SessionStart hook and the `orchestrate` skill. The TO project repo does not ship a layered "analyst" variant — users assemble their own personal output style holding Zones 2 and 3 only, which layers on top of the plugin's core. This keeps the analysis layer customizable per project rather than imposing a one-size shape.
 
 **5.** Enable the retrospective skill. It ships with the plugin at `claude-plugins/task-orchestrator/skills/session-retrospective/SKILL.md` (invoked as `/task-orchestrator:session-retrospective`), so plugin users get it automatically. It implements the pipeline documented in [Loop 3](#loop-3-session-retrospective--trend-graduation):
 
@@ -500,7 +499,7 @@ Place the file in `~/.claude/output-styles/` (personal, gitignored) and activate
 
 **6.** Wire a retrospective nudge so the agent suggests `/session-retrospective` after implementation runs end. Two layered options — pick one or use both:
 
-**Option 6a — Output-style prose (lightweight).** Add to Zone 2 of your output style:
+**Option 6a — Output-style prose (lightweight).** Add to Zone 2 of your personal output style:
 
 ```
 ## Retrospective Nudge
@@ -526,9 +525,9 @@ Both are registered automatically via the plugin's `hooks-config.json` — there
 
 Behavior is configured per workspace via `retrospective.mode` in `.taskorchestrator/config.yaml`: `nudge` (default, prints the suggestion) | `dispatch` (directs a background `/session-retrospective` automatically) | `off` (disabled) — `headless` is reserved for a future mode. See [config-format.md → Retrospective](../../../claude-plugins/task-orchestrator/skills/manage-schemas/references/config-format.md#retrospective) for the full field reference; edits to `retrospective.mode` take effect on the next hook trigger, no `/mcp` reconnect needed.
 
-Hooks fire deterministically on every matching tool call regardless of agent attention, so the nudge cannot be silently skipped. The TO repo uses both 6a and 6b together — the hook injects the nudge (or dispatch directive, in `dispatch` mode), the output-style prose tells the agent how to act on it.
+Hooks fire deterministically on every matching tool call regardless of agent attention, so the nudge cannot be silently skipped. The TO repo uses both 6a and 6b together — the hook injects the nudge (or dispatch directive, in `dispatch` mode), the personal output-style prose tells the agent how to act on it.
 
-**7.** Reload Claude Code so the schemas, skill, hooks, and output style are picked up. If you only edited `.taskorchestrator/config.yaml`, run `/mcp` to reconnect.
+**7.** Reload Claude Code so the schemas, skill, hooks, and personal output style are picked up. If you only edited `.taskorchestrator/config.yaml`, run `/mcp` to reconnect.
 
 ### Verifying the Loop Works
 
@@ -588,16 +587,16 @@ Bulk delegations dispatched without model param. Sessions: 2. Last seen: 2026-04
 **Threshold reached.** The skill creates an `improvement-proposal` MCP item:
 
 ```
-title: Proposal: Strengthen model-param requirement in output style
-summary: Pattern recurred across 2 sessions. Proposed change to Zone 1 of the
-         output style: "**always set `model` explicitly** on every Agent dispatch.
+title: Proposal: Strengthen model-param requirement in the orchestrate skill
+summary: Pattern recurred across 2 sessions. Proposed change to the
+         orchestrate skill's Delegation section (or your personal output style's Zone 2): "**always set `model` explicitly** on every Agent dispatch.
          Omitting it causes sonnet-eligible work to run on opus."
 tags: improvement-proposal
 ```
 
-**Session 3.** The user reviews the proposal, applies the suggested edit to their output style, and closes the proposal item.
+**Session 3.** The user reviews the proposal, applies the suggested edit to the orchestrate skill or their personal output style, and closes the proposal item.
 
-**Session 4.** The strengthened output style instruction prevents the omission entirely. The retrospective sees no new friction entries for this pattern. After 3 more sessions without recurrence, the meta-evaluation flags it as `addressed`.
+**Session 4.** The strengthened instruction prevents the omission entirely. The retrospective sees no new friction entries for this pattern. After 3 more sessions without recurrence, the meta-evaluation flags it as `addressed`.
 
 The pattern moved from `inline detection → memory correction → MCP observation → trend tracking → graduated proposal → applied fix → addressed`. No human had to remember to track or escalate it — the system did.
 

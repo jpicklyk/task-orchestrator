@@ -304,7 +304,7 @@ Task Orchestrator enforces workflow structure without imposing methodology. The 
 
 ## Claude Code Plugin
 
-The plugin adds workflow automation on top of the MCP server: skills, hooks, and an orchestrator output style.
+The plugin adds workflow automation on top of the MCP server: skills, hooks, and an orchestration context.
 
 **Install:**
 
@@ -319,7 +319,7 @@ The plugin adds workflow automation on top of the MCP server: skills, hooks, and
 |-------|-------------|
 | **Skills** | Slash commands for common workflows, including `/task-orchestrator:quick-start`, `/task-orchestrator:init`, `/task-orchestrator:configure-server`, `/task-orchestrator:manage-schemas`, and `/task-orchestrator:create-item` |
 | **Hooks** | Context injection at session start, plan-mode integration, sub-agent context handoff, per-project config sync, and actor-attribution enforcement |
-| **Output style** | Workflow Orchestrator mode: Claude plans, delegates to sub-agents, and tracks progress without writing code directly |
+| **Orchestration context** | A SessionStart hook delivers the orchestration core (with the `orchestrate` skill for tier and delegation detail): Claude plans, delegates to sub-agents, and tracks progress without writing code directly |
 
 The MCP server works without the plugin. The plugin makes it seamless with Claude Code.
 

@@ -20,6 +20,7 @@ import {
     updateSpend,
     decideContinuation,
     buildResumeArgs,
+    buildIterationArgs,
     decideIdleBackoff,
     buildIterationEnv,
 } from "./ralph-lib.mjs";
@@ -31,7 +32,7 @@ const PROMPT_PATH = path.resolve(HERE, "../skills/ralph/iteration-prompt.md");
 
 // Sent to a resumed iteration (`claude -p --resume <session_id>`) when the prior
 // run exited cleanly without a RALPH_OUTCOME marker. Keep in sync with the
-// "How your turn ends" operating principle in output-styles/ralph-iteration.md.
+// "How your turn ends" operating principle in skills/ralph/iteration-system-prompt.md.
 const RESUME_MESSAGE =
     "You ended your turn without a RALPH_OUTCOME marker, which ends this iteration. " +
     "Continue any outstanding work on the claimed item now. If something blocks you, emit " +
@@ -179,26 +180,11 @@ while (stats.iterations < cfg.max) {
         ttl: String(cfg.ttl),
     });
 
-    const args = [
-        "-p",
-        `--worktree=${tempWorktreeName}`,
-        "--settings",
-        JSON.stringify({ outputStyle: "task-orchestrator:ralph-iteration" }),
-        // Ralph runs autonomously; in -p mode there's no interactive prompt for MCP/tool
-        // permissions, so unpermitted tools auto-deny and the iteration aborts. Bypass
-        // permission prompts so the iteration agent can complete its work. Risk surface is
-        // bounded by: the worktree boundary (file edits stay inside), the MCP server's own
-        // ACL, the --max-budget-usd cap, and the schema-driven scope of the iteration.
-        "--permission-mode",
-        "bypassPermissions",
-        "--max-budget-usd",
-        String(cfg.budget),
-        "--output-format",
-        "json",
-        "--model",
-        cfg.model,
+    const args = buildIterationArgs({
+        worktreeName: tempWorktreeName,
+        cfg,
         prompt,
-    ];
+    });
 
     if (cfg.dryRun) {
         console.log(`\n[dry-run] iteration ${iterIndex}:`);
@@ -671,8 +657,9 @@ Options:
   --dry-run                  Print iteration command and exit
   -h, --help                 Show this message
 
-Each iteration runs under the 'task-orchestrator:ralph-iteration' output style
-(passed via 'claude --settings'). That style suppresses orchestrator-mode chrome
+Each iteration appends skills/ralph/iteration-system-prompt.md to its system prompt
+(via 'claude --append-system-prompt-file') and pins 'outputStyle' to 'default'
+(via 'claude --settings'). The system prompt suppresses orchestrator-mode chrome
 (tier classification, workflow-analyst footer, plan mode) and encodes iteration
 discipline (schema is contract, no auto-memory, no further dispatch).
 

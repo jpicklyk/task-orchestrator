@@ -412,7 +412,7 @@ for the contention/retry model and the full guarantees-vs-non-guarantees stateme
 ## Dispatch (Trait Dimension)
 
 A trait can declare `dispatch:` — a map of workflow phase → **dispatch profile**, read by an
-orchestrator (this plugin's shipped output styles, and orchestrator workflows such as a project's
+orchestrator (this plugin's orchestration context and `orchestrate` skill, and orchestrator workflows such as a project's
 implementation skill) to decide which agent type, model, and thinking effort to dispatch for the
 phase owner. Like `resources:`, this is
 independent of the note-requirement dimension — a trait can carry `notes`, `resources`, `dispatch`,
@@ -538,9 +538,9 @@ way — `task-orchestrator:implementer` (`effort: medium`) and `task-orchestrato
 (`effort: high`) — both using `model: inherit` in their own frontmatter, which is exactly why the
 caller must still pass `model` explicitly on every dispatch of the phase owner — `dispatch.model`
 when the profile sets one, otherwise its own model choice. See
-[`output-styles/workflow-orchestrator.md`](../../../output-styles/workflow-orchestrator.md) →
-Delegation for the consumer-side rule, followed identically by `schema-orchestrator.md`,
-`schema-workflow`, and orchestrator workflows such as a project's implementation skill outside
+[`orchestrate`](../../orchestrate/SKILL.md) → Dispatching an item's phase owner for the
+consumer-side rule, which applies in both orchestration modes and is followed identically by
+`schema-workflow` and orchestrator workflows such as a project's implementation skill outside
 this plugin.
 
 ---
@@ -1065,6 +1065,41 @@ Default: `nudge` — applied when the `retrospective:` block or `mode` key is ab
 - **`project.rootId` recommended.** The hooks key their dedup marker (which prevents a duplicate nudge or dispatch directive from firing twice for the same run) on `project.rootId` when present. This gives reliable self-suppression once the background retrospective subagent completes its own item and the run is recognized as closed out. Without a configured `rootId`, dedup falls back to a weaker session-local signal.
 - **`github_feedback` is skill-read, not hook-read.** Unlike `mode`, `dispatchThreshold`, and `cooldownMinutes` (read by the hooks as scalars), the nested `github_feedback` block is read by the skills (`session-retrospective`, `review-proposals`) as plain YAML — the hooks' scalar reads are unaffected by its presence.
 - **Held directives can be lost — known trade-off.** Because the dedup marker is stamped when a directive is *emitted* (not when it is acted on), a directive the orchestrator is holding for a run boundary exists only in conversation context. If the session is killed or the context compacts before the last background task completes, that retrospective is silently skipped — the `Stop` backstop cannot re-raise it. This is accepted by design (the alternative — re-raising from the marker — would recreate mid-run noise); recover by running `/session-retrospective` manually. Nothing is lost in fidelity by the delay itself: dispatched retrospectives work only from durable MCP state, never conversation context.
+
+---
+
+## Orchestration
+
+The `orchestration:` section is a top-level key alongside `work_item_schemas`, `traits`, `retrospective`, and `project`. It selects how much orchestration behavior the plugin hooks inject into a session.
+
+```yaml
+orchestration:
+  mode: workflow   # workflow (default) | schema | off
+```
+
+Default: `workflow` - applied when the `orchestration:` block or `mode` key is absent, or the value is unrecognized.
+
+### Fields
+
+| Field | Required | Type | Notes |
+|-------|----------|------|-------|
+| `mode` | no | string | `workflow`, `schema`, or `off` (case-insensitive, quotes optional). Defaults to `workflow`; any other value falls back to the default. |
+
+### Modes
+
+| Mode | Behavior |
+|------|----------|
+| `workflow` (default) | Full behavior: tier classification, delegation table, and dispatch rules. |
+| `schema` | No tiers and no model table; the item's resolved note schema alone drives the process. |
+| `off` | Every orchestration hook exits silently. |
+
+### Behavior
+
+- **Client-side only.** Read directly from the workspace file by the plugin hooks `orchestration-context.mjs` (SessionStart), `dispatch-model-guard.mjs` (PreToolUse on Agent), and `dispatch-hint.mjs` (PostToolUse on `advance_item`). The MCP server never interprets it; a per-root push reports `orchestration` under `ignoredSections` and never rejects it, so older servers accept the block too.
+- **Also inert** when no config is located, and in headless ralph iterations (ralph receives its rules through `--append-system-prompt-file`).
+- **Read fresh on every hook fire**, but the SessionStart context only changes at the next session start, `/clear`, or `/compact`.
+- **`off` is a plain string.** The plugin reads it as text, so YAML 1.1 boolean coercion does not apply; quoting is optional.
+- **manage-schemas write operations must preserve this block untouched.**
 
 ---
 

@@ -122,6 +122,7 @@ internal object YamlSchemaParser {
             "project",
             "retrospective",
             "actor_attribution",
+            "orchestration",
             "independence",
         )
 

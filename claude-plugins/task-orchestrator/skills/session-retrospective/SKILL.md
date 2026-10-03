@@ -1,6 +1,6 @@
 ---
 name: session-retrospective
-description: "Analyzes the current implementation run — evaluates schema effectiveness, delegation alignment, note quality, and plan-to-execution fit. Captures cross-session trends and proposes improvements when patterns repeat. Use after implementation runs, or when user says 'retrospective', 'session review', 'what did we learn', 'analyze this run', 'how did that go', 'evaluate our process', 'wrap up', 'end of session review'. Also use when the output style's retrospective nudge fires after complete_tree."
+description: "Analyzes the current implementation run — evaluates schema effectiveness, delegation alignment, note quality, and plan-to-execution fit. Captures cross-session trends and proposes improvements when patterns repeat. Use after implementation runs, or when user says 'retrospective', 'session review', 'what did we learn', 'analyze this run', 'how did that go', 'evaluate our process', 'wrap up', 'end of session review'. Also use when the retrospective nudge fires after complete_tree."
 argument-hint: "[optional: root item UUID] [--dry-run to preview without creating items]"
 ---
 
@@ -30,7 +30,7 @@ query_items(operation="overview", itemId="<root-uuid>")
 
 This returns the root item and its children. Collect all item UUIDs from the overview.
 
-A supplied root UUID is the **authoritative scope** — this covers dispatched mode, e.g. a background agent invoked with the root item ID (see the output style's hook-driven Retrospective dispatch, or the retro-trigger hook's background-agent directive). When a root UUID is supplied, run only this overview call and do **not** run the fallback scan below (neither the `get_context` calls nor the terminal-items search) — the fallback scan applies only when no UUID argument was provided.
+A supplied root UUID is the **authoritative scope** — this covers dispatched mode, e.g. a background agent invoked with the root item ID (see the orchestration context's hook-driven Retrospective dispatch, or the retro-trigger hook's background-agent directive). When a root UUID is supplied, run only this overview call and do **not** run the fallback scan below (neither the `get_context` calls nor the terminal-items search) — the fallback scan applies only when no UUID argument was provided.
 
 **If no root item ID provided:**
 
@@ -404,7 +404,7 @@ Create if missing (same pattern as 5a — include `type: "container"` and `tags:
 ### 7b. Create proposal items — scope-based anchoring
 
 For each graduating trend, first read the **scope** classification already captured in the
-`improvement-signals` note (steps 3/4): **global** (plugin skills/hooks, output styles, server floor
+`improvement-signals` note (steps 3/4): **global** (plugin skills/hooks, the orchestration context, server floor
 config) or **project-specific** (one project's schemas/traits/config). If the scope cannot be parsed
 from the classification, treat it as **global** — never guess and auto-anchor a proposal under a
 project on ambiguous evidence.
@@ -446,7 +446,7 @@ Then create the proposal item exactly as in the global case above, but with
 The proposal should include a **concrete suggestion** — not just "this is a problem" but the specific change:
 - Schema edits: include the exact YAML to add/modify
 - Skill updates: reference the section and describe the change
-- Output style adjustments: specify the zone and content
+- Orchestration context / orchestrate skill adjustments: specify the section and content
 - Hook additions: specify the event, matcher, and purpose
 
 ### 7c. File GitHub issues (global proposals only)
@@ -558,7 +558,7 @@ This stamps the hook dedup marker as handled, extending the suppression window s
 
 ## Step 9 — Report
 
-Render a dashboard using the output style visual conventions:
+Render a dashboard using these visual conventions (status symbols: `✓` terminal, `◉` work or review, `⊘` blocked, `○` queue, `—` cancelled):
 
 ```
 ## Session Retrospective — <root-item-title>

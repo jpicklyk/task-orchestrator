@@ -162,7 +162,7 @@ tasks.test {
     // result instead of reporting UP-TO-DATE — otherwise Gradle's incremental cache (and CI's
     // setup-gradle cache) would let tier-block drift slip through the guard. The consumer set is
     // read from the same manifest the test and generate.mjs use, so the three cannot diverge.
-    val tierFragmentsDir = rootProject.file("claude-plugins/task-orchestrator/output-styles/_fragments")
+    val tierFragmentsDir = rootProject.file("claude-plugins/task-orchestrator/_fragments")
     val tierConsumersManifest = tierFragmentsDir.resolve("tier-classification.consumers.txt")
     val tierConsumerFiles =
         tierConsumersManifest
