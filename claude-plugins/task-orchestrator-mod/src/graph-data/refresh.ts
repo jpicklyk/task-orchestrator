@@ -1,5 +1,6 @@
 // Debounced, single-flight refresh of the graph atoms. Module state is per load: a hot reload
 // starts it over, which only loses a pending debounce.
+import type { GraphSnapshot, GraphStatus } from '../../types'
 import type { GraphIo } from './io.ts'
 import { snapshot } from './snapshot.ts'
 
@@ -34,7 +35,6 @@ async function run(io: GraphIo): Promise<void> {
   const requested = pendingScope
   pendingScope = undefined
   try {
-    await io.updateStatus(s => ({ ...s, refreshing: true }))
     const scope = requested !== undefined ? requested : await io.readScope()
     const snap = await snapshot(io, scope)
     await io.setSnapshot(snap)
@@ -83,4 +83,21 @@ export function resetRefreshState(): void {
   rerunAfter = null
   pendingScope = undefined
   waiters = []
+}
+
+/**
+ * Whether two snapshots draw the same graph: everything but `takenAt`, which differs on every run.
+ * A write of an unchanged snapshot would redraw every reader (and flash the pane's Svg frame).
+ */
+export function sameSnapshot(a: GraphSnapshot | null, b: GraphSnapshot): boolean {
+  if (a === null) return false
+  const { takenAt: _a, ...restA } = a
+  const { takenAt: _b, ...restB } = b
+
+  return JSON.stringify(restA) === JSON.stringify(restB)
+}
+
+/** Whether two statuses are equal, so an unchanged status is never rewritten. */
+export function sameStatus(a: GraphStatus, b: GraphStatus): boolean {
+  return a.refreshing === b.refreshing && a.liveSource === b.liveSource && a.lastError === b.lastError
 }

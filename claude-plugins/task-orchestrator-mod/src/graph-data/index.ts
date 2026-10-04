@@ -14,7 +14,7 @@ import type { GraphSnapshot, GraphStatus } from '../../types'
 import type { GraphIo } from './io.ts'
 import { invalidateLabels } from './labels.ts'
 import { restartLive, syncLive } from './live.ts'
-import { refresh, refreshNow } from './refresh.ts'
+import { refresh, refreshNow, sameSnapshot, sameStatus } from './refresh.ts'
 
 export type { GateInfo, GraphEdge, GraphNode, GraphSnapshot, GraphStatus } from '../../types'
 // ── Atoms: the control and data surface for T3 (pane) and T4 (band) ──

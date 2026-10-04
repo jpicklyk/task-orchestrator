@@ -12,7 +12,7 @@ import { WRITE_TOOLS, WRITE_TOOL_NAME, parseToolResult, shouldRefresh } from '..
 import type { GraphIo } from '../src/graph-data/io.ts'
 import { invalidateLabels, resetLabelState } from '../src/graph-data/labels.ts'
 import { createSseParser, curlRequest, eventsUrl, isLoopbackApiUrl, resetLiveState, resolveApiUrl, restartLive, syncLive } from '../src/graph-data/live.ts'
-import { refresh, resetRefreshState } from '../src/graph-data/refresh.ts'
+import { refresh, resetRefreshState, sameSnapshot, sameStatus } from '../src/graph-data/refresh.ts'
 import { NODE_CAP, snapshot } from '../src/graph-data/snapshot.ts'
 
 const ROOT = '00000000-0000-4000-8000-000000000001'
@@ -870,4 +870,20 @@ test('S6: a successful manage_items call re-reads plan labels on the next refres
   await settle()
   expect(searchesOf(calls)).toBe(3)
   expect(getsOf(calls)).toBe(warm + 1)
+})
+
+// No-op write guards (flash fix 26f550b0): unchanged snapshots and statuses are never rewritten.
+test('sameSnapshot ignores takenAt and catches real changes', () => {
+  const base = { scopeId: 's', rootId: 'r', nodes: [], edges: [], external: {}, gates: {}, takenAt: 1, truncated: false } as unknown as GraphSnapshot
+  expect(sameSnapshot(base, { ...base, takenAt: 999 })).toBe(true)
+  expect(sameSnapshot(null, base)).toBe(false)
+  expect(sameSnapshot(base, { ...base, truncated: true })).toBe(false)
+  expect(sameSnapshot(base, { ...base, gates: { x: { canAdvance: true } } } as unknown as GraphSnapshot)).toBe(false)
+})
+
+test('sameStatus compares every field', () => {
+  const s = { refreshing: false, liveSource: 'sse' } as GraphStatus
+  expect(sameStatus(s, { ...s })).toBe(true)
+  expect(sameStatus(s, { ...s, liveSource: 'poll' })).toBe(false)
+  expect(sameStatus(s, { ...s, lastError: 'x' })).toBe(false)
 })
