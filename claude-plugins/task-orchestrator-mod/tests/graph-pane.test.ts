@@ -364,12 +364,12 @@ for (const surface of ['terminal', 'desktop'] as const) {
   })
 }
 
-test('S15: Reconnect bumps graphReconnectRequest; Project root clears the scope', async ($, on) => {
+test('S15: Reconnect bumps graphReconnectRequest; Whole project clears the scope', async ($, on) => {
   const r = rig(on, { graphSnapshot: snapshot(), graphScope: 'feat0000' })
   const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', requestId: 'to-graph', props: paneProps() })
   await ui.press({ key: 'reconnect' })
   expect(r.sets).toContainEqual({ key: 'graphReconnectRequest', value: 1 })
-  await ui.press({ key: 'root' })
+  await ui.press({ key: 'scope-project' })
   expect(r.sets).toContainEqual({ key: 'graphScope', value: null })
   expect(r.sets.some(x => x.key === 'graphRefreshRequest')).toBe(false)
   await ui.unmount()
@@ -398,7 +398,8 @@ for (const surface of ['terminal', 'desktop'] as const) {
       const ui = await $.ui.mount({ plugin: PLUGIN, surface, component: 'Pane', requestId: 'to-graph', props: paneProps() })
       expect((await ui.find({ key: 'reconnect' })) !== undefined).toBe(shown)
       expect(await ui.find({ key: 'refresh' })).toBeUndefined()
-      expect(await ui.find({ key: 'root' })).toBeDefined()
+      expect(await ui.find({ key: 'scope-project' })).toBeDefined()
+      expect(await ui.find({ key: 'scope-feature' })).toBeDefined()
       await ui.unmount()
     })
   }
@@ -435,3 +436,16 @@ test('the pane calls only read tools (the source is also grepped for write tool 
   expect(READ_TOOLS.length).toBeGreaterThan(0)
   for (const tool of READ_TOOLS) expect(WRITE_TOOLS.has(tool)).toBe(false)
 })
+
+// Scope toggle: the active scope draws as the primary button, the other as the default look.
+for (const surface of ['terminal', 'desktop'] as const) {
+  for (const [scope, active, inactive] of [['feat0000', 'scope-feature', 'scope-project'], [null, 'scope-project', 'scope-feature']] as const) {
+    test(`S20: ${surface}, scope ${scope ?? 'null'}: ${active} is primary`, async ($, on) => {
+      rig(on, { graphSnapshot: snapshot(), graphScope: scope })
+      const ui = await $.ui.mount({ plugin: PLUGIN, surface, component: 'Pane', requestId: 'to-graph', props: paneProps() })
+      expect((await ui.find({ key: active }))?.props.variant).toBe('primary')
+      expect((await ui.find({ key: inactive }))?.props.variant).toBeUndefined()
+      await ui.unmount()
+    })
+  }
+}

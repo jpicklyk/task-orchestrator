@@ -156,7 +156,18 @@ export function registerGraphPane(on: On): void {
     const controls = h(
       Box,
       { key: 'controls' },
-      h(Button, { key: 'root', label: 'Project root', onPress: () => update($, graphScope, scopeTo(null)) }),
+      // Two-state scope toggle; the active scope draws as the primary button.
+      h(Button, {
+        key: 'scope-feature',
+        label: 'This feature',
+        ...(scope !== null ? { variant: 'primary' } : {}),
+        onPress: async () => {
+          const feature = await activeFeature($)
+          if (feature === null) $.ui.toast('No active feature in this project.')
+          else await update($, graphScope, scopeTo(feature))
+        },
+      }),
+      h(Button, { key: 'scope-project', label: 'Whole project', ...(scope === null ? { variant: 'primary' } : {}), onPress: () => update($, graphScope, scopeTo(null)) }),
       ...(isDegraded(status) ? [h(Button, { key: 'reconnect', label: 'Reconnect', onPress: () => update($, graphReconnectRequest, bump) })] : []),
     )
 
@@ -165,7 +176,7 @@ export function registerGraphPane(on: On): void {
     }
 
     const view: GraphView = collapse(snap, scope === null)
-    const header = [scopeTitle(view), summaryLine(view), `live: ${status.liveSource}${status.refreshing ? ' · refreshing' : ''}`].join(' · ')
+    const header = [scope === null ? scopeTitle(view) : `Feature: ${scopeTitle(view)}`, summaryLine(view), `live: ${status.liveSource}${status.refreshing ? ' · refreshing' : ''}`].join(' · ')
     const body: unknown[] = []
     if (view.truncated) body.push(h(Text, { key: 'truncated', dimColor: true }, 'Large subtree: showing only the shallowest 150 items.'))
     if (view.error !== undefined) body.push(h(Text, { key: 'error', color: 'red' }, view.error))

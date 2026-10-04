@@ -40,7 +40,7 @@ export const isDegraded = (status: GraphStatus): boolean => status.liveSource !=
 
 /** Title for the pane header: the scope node's title, else the project root. */
 export function scopeTitle(view: GraphView): string {
-  if (view.scopeId === null) return 'Project root'
+  if (view.scopeId === null) return 'Whole project'
   const hit = view.nodes.find(n => n.id === view.scopeId)
 
   return hit?.title ?? view.nodes.find(n => n.parentId === null)?.title ?? id8(view.scopeId)
