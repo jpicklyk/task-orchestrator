@@ -1,5 +1,5 @@
 // Small pure helpers shared by the /to-graph collapse, layout and renderers (T3 a47dcd6f).
-import type { GateInfo, GraphEdge, GraphNode, GraphSnapshot } from '../../types'
+import type { GateInfo, GraphSnapshot } from '../../types'
 
 /** Descendants rolled up onto a visible ancestor when the project root is shown collapsed. */
 export interface Rollup {
@@ -22,15 +22,18 @@ export function kindOf(node: { role: string; statusLabel?: string }): Kind {
   return 'queue'
 }
 
-/** Fill colour of each kind, shared by the SVG nodes and the legend. */
+/** Fill colour of each kind (the approved probe's palette), shared by the boxes and the legend. */
 export const KIND: Record<Kind, string> = {
   queue: '#6b7280',
-  work: '#b45309',
-  review: '#2563eb',
-  blocked: '#dc2626',
+  work: '#c2410c',
+  review: '#1d4ed8',
+  blocked: '#b91c1c',
   terminal: '#15803d',
   cancelled: '#4b5563',
 }
+
+/** Fill of a queue item whose blockers are all satisfied: it can be picked up now. */
+export const READY = '#0f766e'
 
 const GLYPHS: Record<Kind, string> = { queue: '○', work: '◉', review: '◉', blocked: '⊘', terminal: '✓', cancelled: '—' }
 export const glyphOf = (node: { role: string; statusLabel?: string }): string => GLYPHS[kindOf(node)]
@@ -54,9 +57,6 @@ export function phaseText(node: { role: string; statusLabel?: string }, gate: Ga
   return kind
 }
 
-/** The `[T3] ` prefix of a labelled node; '' without a label. */
-export const labelPrefix = (node: { planLabel?: string }): string => (node.planLabel !== undefined ? `[${node.planLabel}] ` : '')
-
 /** One legend entry per kind: glyph, phase word and the kind's colour. */
 export function legendItems(): { key: Kind; text: string; color: string }[] {
   return (Object.keys(GLYPHS) as Kind[]).map(key => ({ key, text: `${GLYPHS[key]} ${PHASE_WORD[key]}`, color: KIND[key] }))
@@ -66,79 +66,5 @@ export function truncate(text: string, max: number): string {
   return text.length <= max ? text : `${text.slice(0, Math.max(0, max - 1))}…`
 }
 
-/** The ids that have at least one child in `nodes`: containers (groups), not DAG nodes. */
-export function containerIds(nodes: readonly GraphNode[]): Set<string> {
-  const ids = new Set(nodes.map(n => n.id))
-  const out = new Set<string>()
-  for (const n of nodes) if (n.parentId !== null && ids.has(n.parentId)) out.add(n.parentId)
-
-  return out
-}
-
-/** The visible nodes with no visible children: the nodes the DAG is laid out over. */
-export function leafNodes(nodes: readonly GraphNode[]): GraphNode[] {
-  const containers = containerIds(nodes)
-
-  return nodes.filter(n => !containers.has(n.id))
-}
-
 /** The "roll-up" suffix for a node hiding descendants, e.g. `+12`. */
 export const rollupText = (r: Rollup | undefined): string => (r !== undefined && r.count > 0 ? `+${r.count}` : '')
-
-/** An external endpoint (outside the node set) drawn as a dashed stub. */
-export interface Stub {
-  id: string
-  title: string
-  role: string
-  /** `blocked by` when it only blocks nodes here, `blocks` when it is only blocked by them, else `external`. */
-  label: 'blocked by' | 'blocks' | 'external'
-}
-
-/** What the DAG is laid out over: the leaf nodes plus the external stubs, and the edges between them. */
-export interface Dag {
-  nodes: { id: string; parentId: string | null; title: string }[]
-  edges: GraphEdge[]
-  stubs: Stub[]
-}
-
-/**
- * Leaves are the DAG nodes; containers are groups. An external endpoint of an edge whose other end is
- * a leaf becomes a stub, unless it is already terminal. RELATES_TO and BLOCKS edges both carry through
- * (layout ignores the former); edges touching a container are dropped.
- */
-export function dagOf(view: GraphView): Dag {
-  const leaves = leafNodes(view.nodes)
-  const leafIds = new Set(leaves.map(n => n.id))
-  const roles = new Map<string, { out: number; inn: number }>()
-  const edges: GraphEdge[] = []
-  const stubIds: string[] = []
-  const known = new Set(view.nodes.map(n => n.id))
-  for (const e of view.edges) {
-    const fromLeaf = leafIds.has(e.from)
-    const toLeaf = leafIds.has(e.to)
-    const fromExt = !known.has(e.from) && view.external[e.from] !== undefined && view.external[e.from]?.role !== 'terminal'
-    const toExt = !known.has(e.to) && view.external[e.to] !== undefined && view.external[e.to]?.role !== 'terminal'
-    if (!((fromLeaf && toLeaf) || (fromExt && toLeaf) || (fromLeaf && toExt))) continue
-    edges.push(e)
-    for (const [id, ext, dir] of [[e.from, fromExt, 'out'], [e.to, toExt, 'inn']] as const) {
-      if (!ext) continue
-      if (!roles.has(id)) {
-        roles.set(id, { out: 0, inn: 0 })
-        stubIds.push(id)
-      }
-      ;(roles.get(id) as { out: number; inn: number })[dir] += 1
-    }
-  }
-  const stubs: Stub[] = stubIds.map(id => {
-    const r = roles.get(id) as { out: number; inn: number }
-    const ext = view.external[id] as { title: string; role: string }
-
-    return { id, title: ext.title, role: ext.role, label: r.inn === 0 ? 'blocked by' : r.out === 0 ? 'blocks' : 'external' }
-  })
-
-  return {
-    nodes: [...leaves.map(n => ({ id: n.id, parentId: n.parentId, title: n.title })), ...stubs.map(s => ({ id: s.id, parentId: null, title: s.title }))],
-    edges,
-    stubs,
-  }
-}

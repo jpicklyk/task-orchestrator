@@ -3,5 +3,19 @@
   "version": "0.1.0",
   "description": "Opt-in Claude Code mod for MCP Task Orchestrator: live work graph, gate band, and in-process orchestration hooks (early-access function-hooks API)",
   "author": { "name": "Jeff Picklyk" },
-  "types": "./types/index.d.ts"
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "cellWidthPx": {
+      "type": "number",
+      "title": "Graph cell width (px)",
+      "description": "Width of one character cell in the desktop /to-graph pane; aligns the edge layer with the boxes.",
+      "default": 8.4
+    },
+    "cellHeightPx": {
+      "type": "number",
+      "title": "Graph cell height (px)",
+      "description": "Height of one character cell in the desktop /to-graph pane.",
+      "default": 18
+    }
+  }
 }

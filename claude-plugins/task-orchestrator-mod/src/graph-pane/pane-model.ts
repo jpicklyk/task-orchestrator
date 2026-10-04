@@ -1,11 +1,8 @@
-// Pure model of the /to-graph pane: command arguments, the side list, scope titles and the
-// read-only get_context summary (T3 a47dcd6f). No `$` here.
-import type { GateInfo, GraphNode, GraphStatus } from '../../types'
-import { glyphOf, id8, kindOf, labelPrefix, phaseText, truncate } from './shared.ts'
+// Pure model of the /to-graph pane: command arguments, scope titles and the read-only detail
+// lines (T3 a47dcd6f). No `$` here.
+import type { GraphStatus } from '../../types'
+import { id8, kindOf } from './shared.ts'
 import type { GraphView } from './shared.ts'
-
-/** Most node Buttons the side list draws. */
-export const SIDE_LIST_CAP = 40
 
 export type ScopeArg = { kind: 'active' } | { kind: 'root' } | { kind: 'id'; id: string } | { kind: 'invalid'; text: string }
 
@@ -18,22 +15,6 @@ export function parseScopeArg(args: string): ScopeArg {
 
   return { kind: 'invalid', text }
 }
-
-const ORDER: Record<string, number> = { work: 0, review: 0, blocked: 0, queue: 1, terminal: 2 }
-
-/** The nodes the side list offers: in-flight first (work/review/blocked), then queue, then terminal, capped. */
-export function sideList(view: GraphView, cap = SIDE_LIST_CAP): GraphNode[] {
-  const containers = new Set(view.nodes.map(n => n.parentId).filter((p): p is string => p !== null))
-
-  return view.nodes
-    .map((node, index) => ({ node, index }))
-    .filter(({ node }) => !containers.has(node.id))
-    .sort((a, b) => (ORDER[a.node.role] ?? 1) - (ORDER[b.node.role] ?? 1) || a.index - b.index)
-    .slice(0, cap)
-    .map(e => e.node)
-}
-
-export const sideLabel = (n: GraphNode, gate?: GateInfo): string => `${glyphOf(n)} ${labelPrefix(n)}${id8(n.id)} ${truncate(n.title, 28)} · ${phaseText(n, gate)}`
 
 /** Whether the live feed is not healthy: no SSE stream, or the latest refresh failed. Reconnect shows only then. */
 export const isDegraded = (status: GraphStatus): boolean => status.liveSource !== 'sse' || status.lastError !== undefined
@@ -74,15 +55,85 @@ export function formatDetail(ctx: unknown): string[] {
     : []
   lines.push(missing.length > 0 ? `missing notes: ${missing.join(', ')}` : 'missing notes: none')
 
+  lines.push(claimLine(ctx, item))
+
+  return lines
+}
+
+/** The claim line of a get_context result: `claimed by <who>[ (expired)][, expires <t>]` or `claim: none`. */
+function claimLine(ctx: Obj, item: Obj): string {
   const claim = isObj(ctx.claim) ? ctx.claim : isObj(item.claim) ? item.claim : isObj(ctx.claimDetail) ? ctx.claimDetail : { ...item, ...ctx }
   const claimedBy = claim.claimedBy
-  if (claimedBy !== undefined && claimedBy !== null) {
-    const who = isObj(claimedBy) ? String(claimedBy.id ?? JSON.stringify(claimedBy)) : String(claimedBy)
-    const expires = typeof claim.claimExpiresAt === 'string' ? `, expires ${claim.claimExpiresAt}` : ''
-    lines.push(`claimed by ${who}${claim.isExpired === true ? ' (expired)' : ''}${expires}`)
-  } else {
-    lines.push('claim: none')
+  if (claimedBy === undefined || claimedBy === null) return 'claim: none'
+  const who = isObj(claimedBy) ? String(claimedBy.id ?? JSON.stringify(claimedBy)) : String(claimedBy)
+  const expires = typeof claim.claimExpiresAt === 'string' ? `, expires ${claim.claimExpiresAt}` : ''
+
+  return `claimed by ${who}${claim.isExpired === true ? ' (expired)' : ''}${expires}`
+}
+
+/** `Xd Yh` / `Xh Ym` / `Xm`. */
+export function duration(ms: number): string {
+  const m = Math.max(0, Math.floor(ms / 60000))
+  if (m >= 1440) return `${Math.floor(m / 1440)}d ${Math.floor((m % 1440) / 60)}h`
+  if (m >= 60) return `${Math.floor(m / 60)}h ${m % 60}m`
+
+  return `${m}m`
+}
+
+export interface DetailInput {
+  itemId: string
+  /** The get_context result (item mode). */
+  ctx: unknown
+  /** The query_items get result, when it could be read. */
+  item?: unknown
+  /** The query_notes list result (bodies not needed), when it could be read. */
+  notes?: unknown
+  now: number
+  itemFailed?: boolean
+  notesFailed?: boolean
+}
+
+/**
+ * The click-through detail: title and type, phase and time in it, summary, one line per required note of
+ * the current phase with its author, can-advance and the claim. Read-only data in, plain lines out.
+ */
+export function detailLines(i: DetailInput): string[] {
+  const ctx = isObj(i.ctx) ? i.ctx : {}
+  const ctxItem = isObj(ctx.item) ? ctx.item : {}
+  const raw = isObj(i.item) ? i.item : {}
+  const item = isObj(raw.item) ? raw.item : raw
+  const gate = isObj(ctx.gateStatus) ? ctx.gateStatus : {}
+  const lines: string[] = []
+  const title = typeof item.title === 'string' ? item.title : typeof ctxItem.title === 'string' ? ctxItem.title : i.itemId
+  const type = typeof item.type === 'string' ? item.type : typeof ctxItem.type === 'string' ? ctxItem.type : undefined
+  lines.push(`${title} [${id8(i.itemId)}]${type !== undefined ? ` · ${type}` : ''}`)
+
+  const phase = typeof gate.phase === 'string' ? gate.phase : typeof ctxItem.role === 'string' ? ctxItem.role : typeof item.role === 'string' ? item.role : 'unknown'
+  const changedAt = typeof item.roleChangedAt === 'string' ? Date.parse(item.roleChangedAt) : Number.NaN
+  lines.push(`phase: ${phase}${Number.isFinite(changedAt) ? ` · in phase ${duration(i.now - changedAt)}` : ''}`)
+
+  if (typeof item.summary === 'string' && item.summary.length > 0) lines.push(item.summary.length > 600 ? `${item.summary.slice(0, 599)}…` : item.summary)
+  else if (i.itemFailed === true) lines.push('(summary unavailable)')
+
+  const authors = new Map<string, string>()
+  const noteList = isObj(i.notes) && Array.isArray(i.notes.notes) ? i.notes.notes : []
+  for (const n of noteList) {
+    if (isObj(n) && typeof n.key === 'string' && isObj(n.actor) && typeof n.actor.id === 'string') authors.set(n.key, n.actor.id)
   }
+  const rows = Array.isArray(ctx.schema) ? ctx.schema.filter(isObj) : []
+  for (const row of rows) {
+    if (row.role !== phase || row.required !== true || typeof row.key !== 'string') continue
+    const seat = typeof row.seat === 'string' && row.seat !== '' ? row.seat : 'other'
+    if (row.filled !== true) lines.push(`✗ ${row.key} · ${seat} · missing`)
+    else {
+      const by = authors.get(row.key)
+      lines.push(`✓ ${row.key} · ${seat}${by !== undefined ? ` · by ${by}` : ''}`)
+    }
+  }
+  if (i.notesFailed === true) lines.push('(authors unavailable)')
+
+  if (typeof gate.canAdvance === 'boolean') lines.push(`can advance: ${gate.canAdvance ? 'yes' : 'no'}`)
+  lines.push(claimLine(ctx, ctxItem))
 
   return lines
 }

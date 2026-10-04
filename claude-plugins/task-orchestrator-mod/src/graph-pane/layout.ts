@@ -1,186 +1,145 @@
-// Layered DAG layout (T3 a47dcd6f). Pure and deterministic: longest-path layering over BLOCKS
-// edges (cycles broken by DFS), then alternating barycenter sweeps to reduce crossings.
-// Containment (parent/child) is grouping only and never an edge; RELATES_TO edges do not layer.
-import type { GraphEdge } from '../../types'
+// Top-down geometry of the dependency graph, in whole character cells. Pure and deterministic:
+// the root box on row 0, then one row per dependency step; rows ordered by barycenter sweeps.
+import { num } from './model.ts'
+import type { Card, Steps } from './model.ts'
 
-export const NODE_W = 220
-export const NODE_H = 62
-export const GAP_X = 56
-export const GAP_Y = 18
-export const MARGIN = 20
+export const GAP = 3
+export const BH = 3
+export const RG = 3
 export const SWEEPS = 4
 
-/** What layout needs of a node: ordering keys, no rendering data. */
-export interface LayoutNode {
-  id: string
-  parentId: string | null
-  title: string
-}
-
-export interface Placed {
-  x: number
-  y: number
-  layer: number
-  order: number
-}
-
-export interface Layout {
-  layers: string[][]
-  pos: Record<string, Placed>
+export interface Rect {
+  left: number
+  top: number
   width: number
   height: number
-  /** BLOCKS edges dropped from layering to break a cycle (`from|to`). They still draw, dashed. */
-  backEdges: string[]
+}
+
+/** A fully finished step folded into one line. */
+export interface Chip {
+  step: number
+  rect: Rect
+  done: number
+  cancelled: number
+  /** Ids of the cards it stands for. */
+  ids: string[]
+}
+
+export interface Row {
+  step: number
+  chip: boolean
+  /** Card ids in left-to-right order (all of the step's cards, also when collapsed). */
+  ids: string[]
+  top: number
+  height: number
+}
+
+export interface TopDown {
+  root: Rect
+  hasRoot: boolean
+  cards: Map<string, Rect>
+  chips: Chip[]
+  rows: Row[]
+  cols: number
+  width: number
+  height: number
+  boxWidth: number
+  /** Steps whose cards are all terminal, collapsed or not. */
+  doneSteps: number[]
+  /** The widest row's extent when it exceeds `cols`, else null. */
+  tooWide: number | null
+}
+
+export interface LayoutOptions {
+  bodyColumns?: number
+  showDone: boolean
+  hasRoot: boolean
 }
 
 const cmp = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0)
 
-/**
- * Lays out `nodes` (the DAG nodes: leaves and external stubs) over the BLOCKS edges whose both ends
- * are in `nodes`. `from` sits in an earlier layer than `to`. Always terminates, cycle or not.
- */
-export function layout(nodes: readonly LayoutNode[], edges: readonly GraphEdge[]): Layout {
-  const ids = new Set(nodes.map(n => n.id))
-  const info = new Map(nodes.map(n => [n.id, n]))
-  const blocks = edges.filter(e => e.type === 'BLOCKS' && e.from !== e.to && ids.has(e.from) && ids.has(e.to))
+/** Row order per step: PROBE barycenter + 4 passes; ties by plan number, title, id. */
+export function orderRows(cards: readonly Card[], steps: Steps): string[][] {
+  const byId = new Map(cards.map(c => [c.id, c]))
+  const rows: Card[][] = Array.from({ length: steps.max }, () => [])
+  for (const c of cards) rows[(steps.step.get(c.id) ?? 1) - 1]?.push(c)
+  const slot = new Map<string, number>()
+  const tie = (a: Card, b: Card): number => num(a.label) - num(b.label) || cmp(a.title, b.title) || cmp(a.id, b.id)
+  const mean = (xs: (number | undefined)[]): number | undefined => {
+    const ok = xs.filter((x): x is number => x !== undefined)
 
-  // Adjacency in input order, for a deterministic DFS.
-  const out = new Map<string, string[]>(nodes.map(n => [n.id, []]))
-  for (const e of blocks) {
-    const list = out.get(e.from) as string[]
-    if (!list.includes(e.to)) list.push(e.to)
+    return ok.length > 0 ? ok.reduce((a, b) => a + b, 0) / ok.length : undefined
   }
-
-  // Cycle breaking: an edge to a node on the DFS stack is a back-edge. Iterative, so depth is no limit.
-  const back = new Set<string>()
-  const state = new Map<string, 1 | 2>()
-  for (const n of nodes) {
-    if (state.has(n.id)) continue
-    const stack: { id: string; i: number }[] = [{ id: n.id, i: 0 }]
-    state.set(n.id, 1)
-    while (stack.length > 0) {
-      const top = stack[stack.length - 1] as { id: string; i: number }
-      const next = (out.get(top.id) as string[])[top.i++]
-      if (next === undefined) {
-        state.set(top.id, 2)
-        stack.pop()
-      } else if (state.get(next) === 1) back.add(`${top.id}|${next}`)
-      else if (!state.has(next)) {
-        state.set(next, 1)
-        stack.push({ id: next, i: 0 })
-      }
-    }
-  }
-
-  // Longest path over the remaining DAG (Kahn order).
-  const preds = new Map<string, string[]>(nodes.map(n => [n.id, []]))
-  const indeg = new Map<string, number>(nodes.map(n => [n.id, 0]))
-  for (const [from, tos] of out) {
-    for (const to of tos) {
-      if (back.has(`${from}|${to}`)) continue
-      ;(preds.get(to) as string[]).push(from)
-      indeg.set(to, (indeg.get(to) as number) + 1)
-    }
-  }
-  const layerOf = new Map<string, number>()
-  const queue = nodes.filter(n => indeg.get(n.id) === 0).map(n => n.id)
-  for (let q = 0; q < queue.length; q++) {
-    const id = queue[q] as string
-    layerOf.set(id, Math.max(0, ...(preds.get(id) as string[]).map(p => (layerOf.get(p) as number) + 1)))
-    for (const to of out.get(id) as string[]) {
-      if (back.has(`${id}|${to}`)) continue
-      const left = (indeg.get(to) as number) - 1
-      indeg.set(to, left)
-      if (left === 0) queue.push(to)
-    }
-  }
-
-  const depth = Math.max(-1, ...layerOf.values())
-  const layers: string[][] = Array.from({ length: depth + 1 }, () => [])
-  for (const n of nodes) layers[layerOf.get(n.id) as number]?.push(n.id)
-
-  // Neighbours across adjacent layers, over layering edges only.
-  const up = new Map<string, string[]>(nodes.map(n => [n.id, []]))
-  const down = new Map<string, string[]>(nodes.map(n => [n.id, []]))
-  for (const [from, tos] of out) {
-    for (const to of tos) {
-      if (back.has(`${from}|${to}`)) continue
-      if ((layerOf.get(to) as number) - (layerOf.get(from) as number) !== 1) continue
-      ;(down.get(from) as string[]).push(to)
-      ;(up.get(to) as string[]).push(from)
-    }
-  }
-
-  // Start from a canonical order (parent, title, id) so siblings sit together and the input order is moot.
-  for (const layer of layers) {
-    layer.sort((a, b) => {
-      const x = info.get(a) as LayoutNode
-      const y = info.get(b) as LayoutNode
-
-      return cmp(x.parentId ?? '', y.parentId ?? '') || cmp(x.title, y.title) || cmp(a, b)
-    })
-  }
-  const index = new Map<string, number>()
-  const reindex = (): void => layers.forEach(layer => layer.forEach((id, i) => index.set(id, i)))
-  reindex()
-  const sweep = (layer: string[], neighbours: Map<string, string[]>): void => {
-    const keyed = layer.map(id => {
-      const ns = neighbours.get(id) as string[]
-      const bary = ns.length === 0 ? (index.get(id) as number) : ns.reduce((s, n) => s + (index.get(n) as number), 0) / ns.length
-      const node = info.get(id) as LayoutNode
-
-      return { id, bary, parent: node.parentId ?? '', title: node.title }
-    })
-    keyed.sort((a, b) => a.bary - b.bary || cmp(a.parent, b.parent) || cmp(a.title, b.title) || cmp(a.id, b.id))
-    keyed.forEach((k, i) => {
-      layer[i] = k.id
-    })
-    reindex()
-  }
-  for (let s = 0; s < SWEEPS; s++) {
-    if (s % 2 === 0) for (let l = 1; l < layers.length; l++) sweep(layers[l] as string[], up)
-    else for (let l = layers.length - 2; l >= 0; l--) sweep(layers[l] as string[], down)
-  }
-
-  const pos: Record<string, Placed> = {}
-  let rows = 0
-  layers.forEach((layer, l) => {
-    rows = Math.max(rows, layer.length)
-    layer.forEach((id, order) => {
-      pos[id] = { x: MARGIN + l * (NODE_W + GAP_X), y: MARGIN + order * (NODE_H + GAP_Y), layer: l, order }
-    })
+  rows.forEach(row => {
+    const key = (c: Card): number => mean(c.deps.map(d => slot.get(d.id))) ?? num(c.label) / 100
+    row.sort((a, b) => key(a) - key(b) || tie(a, b))
+    row.forEach((c, i) => slot.set(c.id, (i + 0.5) / row.length))
   })
-
-  return {
-    layers,
-    pos,
-    width: MARGIN * 2 + Math.max(1, layers.length) * NODE_W + Math.max(0, layers.length - 1) * GAP_X,
-    height: MARGIN * 2 + Math.max(1, rows) * NODE_H + Math.max(0, rows - 1) * GAP_Y,
-    backEdges: [...back],
+  const dependents = new Map<string, string[]>()
+  for (const c of cards) for (const d of c.deps) if (byId.has(d.id)) dependents.set(d.id, [...(dependents.get(d.id) ?? []), c.id])
+  const reorder = (row: Card[], neighbours: (c: Card) => string[]): void => {
+    const key = (c: Card): number => mean(neighbours(c).map(id => slot.get(id))) ?? slot.get(c.id) ?? 0.5
+    row.sort((a, b) => key(a) - key(b) || tie(a, b))
+    row.forEach((c, i) => slot.set(c.id, (i + 0.5) / row.length))
   }
+  for (let pass = 0; pass < SWEEPS; pass++) {
+    for (let i = rows.length - 2; i >= 0; i--) reorder(rows[i] as Card[], c => dependents.get(c.id) ?? [])
+    for (let i = 1; i < rows.length; i++) reorder(rows[i] as Card[], c => c.deps.map(d => d.id))
+  }
+
+  return rows.map(r => r.map(c => c.id))
 }
 
-/** Crossings among layering edges that join adjacent layers; the measure the sweeps reduce. */
-export function countCrossings(l: Layout, edges: readonly GraphEdge[]): number {
-  const adjacent = edges.filter(e => {
-    const a = l.pos[e.from]
-    const b = l.pos[e.to]
+export function layoutTD(cards: readonly Card[], steps: Steps, opts: LayoutOptions): TopDown {
+  const byId = new Map(cards.map(c => [c.id, c]))
+  const cols = Math.max(60, (opts.bodyColumns ?? 120) - 2)
+  const order = orderRows(cards, steps)
+  const isDone = (ids: string[]): boolean => ids.length > 0 && ids.every(id => byId.get(id)?.role === 'terminal')
+  const doneSteps = order.map((ids, i) => (isDone(ids) ? i + 1 : 0)).filter(s => s > 0)
+  const collapsed = (i: number): boolean => !opts.showDone && doneSteps.includes(i + 1)
 
-    return e.type === 'BLOCKS' && a !== undefined && b !== undefined && b.layer - a.layer === 1 && !l.backEdges.includes(`${e.from}|${e.to}`)
-  })
-  let n = 0
-  for (let i = 0; i < adjacent.length; i++) {
-    for (let j = i + 1; j < adjacent.length; j++) {
-      const a = adjacent[i] as GraphEdge
-      const b = adjacent[j] as GraphEdge
-      const pa = l.pos[a.from] as Placed
-      const pb = l.pos[b.from] as Placed
-      if (pa.layer !== pb.layer) continue
-      const d1 = (l.pos[a.to] as Placed).order - (l.pos[b.to] as Placed).order
-      const d0 = pa.order - pb.order
-      if (d0 * d1 < 0) n++
+  const maxN = Math.max(1, ...order.filter((_, i) => !collapsed(i)).map(r => r.length))
+  const BW = Math.max(16, Math.min(34, Math.floor((cols - (maxN - 1) * GAP) / maxN)))
+  const rects = new Map<string, Rect>()
+  const rows: Row[] = []
+  const chips: Chip[] = []
+  let y = BH + RG
+  let rightmost = cols
+  let widest = 0
+  order.forEach((ids, i) => {
+    const step = i + 1
+    if (collapsed(i)) {
+      const width = Math.min(cols, 40)
+      const rect = { left: Math.floor((cols - width) / 2), top: y, width, height: 1 }
+      const done = ids.filter(id => byId.get(id)?.kind === 'terminal').length
+      chips.push({ step, rect, done, cancelled: ids.length - done, ids })
+      rows.push({ step, chip: true, ids, top: y, height: 1 })
+      y += 1 + RG
+
+      return
     }
-  }
+    const total = ids.length * BW + (ids.length - 1) * GAP
+    const x0 = Math.max(0, Math.floor((cols - total) / 2))
+    ids.forEach((id, j) => rects.set(id, { left: x0 + j * (BW + GAP), top: y, width: BW, height: BH }))
+    rows.push({ step, chip: false, ids, top: y, height: BH })
+    rightmost = Math.max(rightmost, x0 + total)
+    widest = Math.max(widest, total)
+    y += BH + RG
+  })
+  const last = rows[rows.length - 1]
+  const RW = Math.min(cols, 56)
 
-  return n
+  return {
+    root: { left: Math.floor((cols - RW) / 2), top: 0, width: RW, height: BH },
+    hasRoot: opts.hasRoot,
+    cards: rects,
+    chips,
+    rows,
+    cols,
+    width: rightmost,
+    height: last !== undefined ? last.top + last.height : BH,
+    boxWidth: BW,
+    doneSteps,
+    tooWide: widest > cols ? widest : null,
+  }
 }

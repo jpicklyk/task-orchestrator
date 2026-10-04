@@ -10,9 +10,9 @@ import { registerGraphPane } from '../src/graph-pane/index.ts'
 import { registerPhaseGuard } from '../src/phase-guard/index.ts'
 import { registerRetro } from '../src/retro/index.ts'
 
-export const register: Register = on => {
+export const register: Register = (on, options) => {
   registerGraphData(on)
-  registerGraphPane(on)
+  registerGraphPane(on, options)
   registerBand(on)
   registerRetro(on)
   registerPhaseGuard(on)

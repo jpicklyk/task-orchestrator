@@ -75,6 +75,27 @@ export interface GraphDetail {
   lines: string[]
 }
 
+/** One agent seen calling a TO tool about an item: `agentId` is 'main' on the main loop. */
+export interface GraphWorker {
+  agentId: string
+  seat: string
+  model?: string
+  /** When this worker last touched the item (ms). */
+  at: number
+}
+
+/** Who is working on which item, and which items changed recently; both expire (activity.ts). */
+export interface GraphActivity {
+  working: Record<string, GraphWorker[]>
+  changed: Record<string, number>
+}
+
+/** What agent.spawn told us about a subagent, keyed by its agent id. */
+export interface GraphAgentInfo {
+  seat: string
+  model?: string
+}
+
 // ── band (T4 ec1e2f91) types ──
 // ── retro (T5 0f4fe024) types ──
 /** What the retrospective feature remembers for the session: the in-process form of the retro-<key>.json marker, plus the queued dispatch. */
@@ -125,6 +146,12 @@ declare module 'claude-code' {
       graphPaneOpen: boolean
       /** The node whose get_context summary the pane shows, or null. */
       graphDetail: GraphDetail | null
+      /** Live workers per item and recently-changed items; the render never reads the clock. */
+      graphActivity: GraphActivity
+      /** Subagent seat/model by agent id (capped), recorded at agent.spawn. */
+      graphAgents: Record<string, GraphAgentInfo>
+      /** The pane's single `Show done steps` toggle. */
+      graphShowDone: boolean
       // ── band (T4 ec1e2f91) state ──
       /** Hide pressed (or /to-band toggled off) for this session; the status line stays on. */
       bandHidden: boolean
