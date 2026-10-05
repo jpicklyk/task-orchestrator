@@ -772,13 +772,69 @@ function promptCommitForm(item, stage) {
   ].join('\n')
 }
 
-/** Part 11: verify commands whose seats include this seat, verbatim. */
-function promptVerify(plan, stage) {
+/**
+ * ownedTestsFor(item, stage, outsByOutput) -> string[]
+ * The test paths a writer seat owns, for the <ownedTests> verify placeholder. test-author-v1 and an
+ * implementer-v1 with no test-author stage own planner testFiles + existingTestEdits[].file; an
+ * implementer-v1 WITH a test-author stage owns existingTestEdits[].file only. Other seats own none.
+ */
+function ownedTestsFor(item, stage, outsByOutput) {
+  const p = outsByOutput['planner-v1']
+  if (!p) return []
+  const edits = []
+  for (const e of p.existingTestEdits || []) if (e && e.file) edits.push(e.file)
+  const files = (p.testFiles || []).concat(edits)
+  if (stage.output === 'test-author-v1') return files
+  if (stage.output === 'implementer-v1') {
+    const hasTestAuthorStage = item.stages.some((s) => s.output === 'test-author-v1')
+    return hasTestAuthorStage ? edits : files
+  }
+  return []
+}
+
+/** Part 11: verify commands whose seats include this seat; <ownedTests> is substituted per seat. */
+function promptVerify(plan, item, stage, outsByOutput) {
   const proj = plan.project || {}
   const entries = (proj.verify || []).filter((v) => Array.isArray(v.seats) && v.seats.includes(stage.seat))
   if (entries.length === 0) return ''
   const lines = ['VERIFY:']
-  for (const v of entries) lines.push(v.command || JSON.stringify(v))
+  for (const v of entries) {
+    const command = v.command || JSON.stringify(v)
+    if (!command.includes('<ownedTests>')) {
+      lines.push(command)
+      continue
+    }
+    let re = null
+    if (typeof v.ownedTestsPattern === 'string') {
+      try {
+        re = new RegExp(v.ownedTestsPattern)
+      } catch (e) {
+        re = null
+      }
+    }
+    const seen = new Set()
+    const owned = []
+    for (const raw of ownedTestsFor(item, stage, outsByOutput)) {
+      const n = normalizePath(raw)
+      if (re && !re.test(n)) continue
+      const full = isAbsolutePath(n) ? n : normalizePath(item.worktree) + '/' + n
+      if (seen.has(full)) continue
+      seen.add(full)
+      owned.push('"' + full + '"')
+    }
+    if (owned.length === 0) {
+      lines.push('SKIP ' + (v.name || 'verify') + ': no owned test files')
+    } else {
+      lines.push(command.split('<ownedTests>').join(owned.join(' ')))
+    }
+  }
+  if (plan.worktreeMode === 'shared') {
+    lines.push(
+      'Shared worktree: failures whose test paths are all owned by another item or seat are expected while ' +
+        'siblings are mid-wave. Record them (implementer: preExistingFailures; test-author: the verify[].summary), ' +
+        'never edit those files, and continue.'
+    )
+  }
   return lines.join('\n')
 }
 
@@ -905,7 +961,7 @@ function seatPrompt(plan, item, stage, outs) {
     promptConfigRetry(),
     promptInlineBodies(),
     promptCommitForm(item, stage),
-    promptVerify(plan, stage),
+    promptVerify(plan, item, stage, outsByOutput),
     handoff(stage, outsByOutput),
     promptRerunAndEntry(plan, item, stage, actor),
     promptReturn(stage),

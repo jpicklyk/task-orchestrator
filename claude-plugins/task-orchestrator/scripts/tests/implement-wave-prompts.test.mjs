@@ -444,3 +444,94 @@ test('O7d: an unconditional agent throw settles the milestone — runPlan resolv
   assert.ok(itemAResult.reason.startsWith('agent threw'))
   assert.equal(itemBResult.status, 'deferred', 'a dependent whose blocker stopped must be released, not hang')
 })
+
+// ---- <ownedTests> verify placeholder (#395): per-seat owned test files, shared-mode contract ----
+
+const OWNED_ENTRY = {
+  name: 'plugin-node-owned-tests',
+  command: 'node --test <ownedTests>',
+  ownedTestsPattern: '\.test\.mjs$',
+  seats: ['implementer', 'test-author'],
+}
+
+function ownedPrompt({ stageList, seat, planner, verify = [OWNED_ENTRY], planOverrides = {} }) {
+  const core = loadCore(SCRIPT_PATH)
+  const item = makeItem('0a0a0a0a', stageList)
+  const plan = makePlan([item], { project: { ...PROJECT, verify }, ...planOverrides })
+  const stage = item.stages.find((s) => s.seat === seat)
+  const outs = planner === undefined ? {} : { planner }
+  return core.seatPrompt(plan, item, stage, outs)
+}
+
+function verifyBlock(prompt) {
+  const i = prompt.indexOf('VERIFY:')
+  if (i === -1) return ''
+  const rest = prompt.slice(i)
+  const j = rest.indexOf('\n\n')
+  return j === -1 ? rest : rest.slice(0, j)
+}
+
+test('ownedTests: shared implementer with no test-author stage gets testFiles filtered by pattern, worktree-prefixed', () => {
+  const prompt = ownedPrompt({
+    stageList: stages.featureTaskLike(),
+    seat: 'implementer',
+    planner: { testFiles: ['scripts/tests/a.test.mjs', 'src/B.kt'], existingTestEdits: [] },
+  })
+  const block = verifyBlock(prompt)
+  assert.ok(block.includes('node --test "/tmp/wt-0a0a0a0a/scripts/tests/a.test.mjs"'), block)
+  assert.ok(!block.includes('B.kt'), 'pattern must drop non-matching paths')
+  assert.ok(!block.includes('<ownedTests>'))
+})
+
+test('ownedTests: absolute owned paths are kept as-is and duplicates collapse', () => {
+  const prompt = ownedPrompt({
+    stageList: stages.featureTaskLike(),
+    seat: 'implementer',
+    planner: {
+      testFiles: ['D:/x/a.test.mjs'],
+      existingTestEdits: [{ file: 'd:/x/a.test.mjs' }],
+    },
+  })
+  assert.ok(verifyBlock(prompt).includes('node --test "d:/x/a.test.mjs"'), verifyBlock(prompt))
+  assert.equal(verifyBlock(prompt).split('a.test.mjs').length - 1, 1)
+})
+
+test('ownedTests: empty owned set (or no planner output) renders SKIP and no node --test', () => {
+  for (const planner of [{ testFiles: ['src/B.kt'], existingTestEdits: [] }, undefined]) {
+    const prompt = ownedPrompt({ stageList: stages.featureTaskLike(), seat: 'implementer', planner })
+    const block = verifyBlock(prompt)
+    assert.ok(block.includes('SKIP plugin-node-owned-tests: no owned test files'), block)
+    assert.ok(!block.includes('node --test'), block)
+  }
+})
+
+test('ownedTests: implementer WITH a test-author stage owns only existingTestEdits; test-author owns both', () => {
+  const planner = { testFiles: ['new.test.mjs'], existingTestEdits: [{ file: 'old.test.mjs' }] }
+  const impl = verifyBlock(ownedPrompt({ stageList: stages.bugFixLike(), seat: 'implementer', planner }))
+  assert.ok(impl.includes('"/tmp/wt-0a0a0a0a/old.test.mjs"'), impl)
+  assert.ok(!impl.includes('new.test.mjs'), impl)
+  const ta = verifyBlock(ownedPrompt({ stageList: stages.bugFixLike(), seat: 'test-author', planner }))
+  assert.ok(ta.includes('new.test.mjs') && ta.includes('old.test.mjs'), ta)
+})
+
+test('ownedTests: shared-mode contract line present iff worktreeMode is shared and VERIFY is non-empty', () => {
+  const planner = { testFiles: ['a.test.mjs'], existingTestEdits: [] }
+  const shared = ownedPrompt({ stageList: stages.featureTaskLike(), seat: 'implementer', planner })
+  assert.ok(shared.includes('owned by another item or seat are expected'))
+  const perItem = ownedPrompt({
+    stageList: stages.featureTaskLike(), seat: 'implementer', planner, planOverrides: { worktreeMode: 'per-item' },
+  })
+  assert.ok(!perItem.includes('owned by another item or seat are expected'))
+  const none = ownedPrompt({ stageList: stages.featureTaskLike(), seat: 'implementer', planner, verify: [] })
+  assert.ok(!none.includes('VERIFY:') && !none.includes('are expected'))
+})
+
+test('ownedTests: entries without the placeholder render verbatim', () => {
+  const prompt = ownedPrompt({
+    stageList: stages.featureTaskLike(),
+    seat: 'implementer',
+    planner: { testFiles: ['a.test.mjs'], existingTestEdits: [] },
+    verify: [{ name: 'x', command: 'echo <worktree> hi', seats: ['implementer'] }],
+  })
+  assert.ok(verifyBlock(prompt).startsWith('VERIFY:\necho <worktree> hi'))
+})
