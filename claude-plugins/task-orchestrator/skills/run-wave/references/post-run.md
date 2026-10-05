@@ -197,7 +197,9 @@ seat's verdict into a self-confirmation. Any orchestrator confirmation goes unde
 
 **Recording out-of-run seats.** Every seat dispatched outside the run for an item (re-review,
 fix-cycle `<seat>-a<n>`, amendment planner) is recorded by re-running
-`node "<helper>" provenance ... --item <short> --extra-seats <seat>:<model>:<tokens>,...` and
+`node "<helper>" provenance ... --item <short> --extra-seats <seat>:<model>:<tokens>,...` — with the
+same flags as Step 3, including `--usage` under Method A (omitting it on the run's first item
+replaces the recorded run total with `tokens=unknown`) — and
 re-upserting that item's `delegation-metadata` (orchestrator-owned, so no actor flip) with the
 two-line output (grammar line, then `extra-seats=...`). The list is cumulative: each re-run passes
 every out-of-run seat so far. Take tokens from the Agent result's usage; use `unknown` if not

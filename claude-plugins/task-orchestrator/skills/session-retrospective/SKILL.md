@@ -105,8 +105,10 @@ adapter=claude-workflow run=r-20260928-b2d seats=planner:opus,implementer:sonnet
 ```
 
 `tokens=`/`duration=` may read `see:<short>`: the run total lives on that item, so count it once and
-never sum it per item. An optional second line `extra-seats=<seat>:<model>:<tokens>,...` lists seats
-dispatched outside the run; score each like a `seats=` pair.
+never sum it per item (in the per-run summary table, show the run's first-item value, never a
+`see:` reference). An optional second line `extra-seats=<seat>:<model>:<tokens>,...` lists seats
+dispatched outside the run; score each like a `seats=` pair, typing the seat after stripping a
+trailing fix-cycle suffix `-a<n>` (`reviewer-a1` scores as reviewer, `planner-a2` as planner).
 
 **Legacy form** (unchanged): free-form prose naming model and isolation, parsed as before. A run
 that mixes structured and legacy notes across its items scores both forms.
@@ -595,7 +597,7 @@ Render a dashboard using these visual conventions (status symbols: `✓` termina
 **Conditional prefix:**
 - Dry-run: `**Dry run** — no items created, no memory updated.`
 
-Omit sections with no data (e.g., no improvement proposals -> omit that table). If `delegation-metadata` notes were present, include a delegations count in the header line: delegation count = Σ seats (structured) + notes (legacy).
+Omit sections with no data (e.g., no improvement proposals -> omit that table). If `delegation-metadata` notes were present, include a delegations count in the header line: delegation count = Σ seats (structured) + Σ extra-seats entries + notes (legacy).
 
 ---
 
