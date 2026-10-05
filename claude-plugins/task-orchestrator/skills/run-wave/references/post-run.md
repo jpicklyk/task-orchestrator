@@ -155,6 +155,32 @@ carries no rule text inline (the reviewer fetches those itself).
 
 **Security-assessment items.** The review-prompt helper does not know the item's schema. When the item's resolved schema has a `security-assessment` note (check `get_context` expectedNotes or the plan's `review.requiredReviewNotes`), append to the generated review prompt a line naming the worktree path beside the diff command, plus: "Apply the /security-review method to this item's owned-file diff in its worktree — `git -C <worktree> diff <baseSha>..HEAD -- <owned files>` — not by invoking the built-in command, which diffs the session cwd and is empty for a worktree branch."
 
+**Fix cycle after a Fail.** When a review returns Fail, run the same four seats again, in order,
+each scoped to one numbered amendment `A<n>` (A1 for the first Fail, A2 for the next). There is no
+cap on cycles.
+
+1. **Planner amends, by name.** Resume the item's planner seat with the blocking findings (via
+   `SendMessage`). It appends a section `## Amendment A<n>` to its own planning note
+   (`specification` for plugin-change, `task-scope`/`diagnosis` where the schema carries those) —
+   never a rewrite of the frozen body above it, and never a separate note key, so the independence
+   audit can still check that the note's freeze timestamp (`modifiedAt`) predates the fix commit.
+   The amendment lists every existing test file it expects edited (planner-v1 `existingTestEdits`)
+   and the mutation red-proofs the fix must satisfy. Keep amendments terse: accumulated ones made a
+   50k `task-scope` in one run.
+2. **Implementer, then blind test author, by name**, each scoped to section `A<n>` only. The test
+   author appends its own `A<n>` section to `test-plan`/`test-manifest`; the planner does not touch
+   those keys, which the test-author seat owns.
+3. **Orchestrator runs the amendment's named mutation red-proofs** in a scratch copy, never the
+   shared tree (same rule as Step 1).
+4. **Original reviewer, by name**, scoped to `git diff <prevReviewedSha>..HEAD -- <owned files>`
+   plus the blocking findings — see "Re-review after fixes" below.
+
+**Fallback.** Resume-by-name works in Method B or when seats are dispatched by hand. Method A seats
+run inside the implement-wave Workflow and generally cannot be resumed after it ends; there, and for
+any seat that cannot be resumed, dispatch a fresh seat with id `<seat>-a<n>` (e.g. `planner-a1`)
+and the same scope, so the actor audit and audit trail distinguish the cycle. The helper and verify
+do not special-case `-a<n>` ids.
+
 **Re-review after fixes.** If the original reviewer seat cannot be resumed once fixes land, dispatch a
 fresh `task-orchestrator:reviewer` scoped to the fix commits (`git diff <prevReviewedSha>..HEAD -- <owned
 files>`) plus the original blocking findings. The orchestrator never appends to or re-upserts a note
