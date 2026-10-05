@@ -860,6 +860,65 @@ test('S13: run-exec-lib provenance() uses adapter=claude-agent for method B', ()
   assert.match(lines[item.id], /^adapter=claude-agent /)
 })
 
+function twoItemProvenance(runId) {
+  const mk = (short) => itemFixture({
+    short,
+    stages: [{ seat: 'implementer', phase: 'work', enters: true, writes: true, notes: [], dispatch: { model: 'sonnet' }, output: 'implementer-v1' }],
+    worktree: `/repo/.claude/worktrees/x-${short}`,
+  })
+  const a = mk('aaaaaaaa')
+  const b = mk('bbbbbbbb')
+  const doc = { contract: 'run-wave/plan-doc-v1', args: planFixture({ items: [a, b], runId }), meta: { inRunEdges: [] } }
+  const result = {
+    contract: 'implement-wave/result-v1', started: true, runId, planDocSlug: `run/${runId}`,
+    items: [a, b].map((it) => ({
+      id: it.id, short: it.short, status: 'done', reason: 'ok', outputs: {},
+      stages: [{ seat: 'implementer', status: 'done', reason: 'ok', modelReported: 'sonnet', notes: [], commits: { pre: '', post: '' }, files: [] }],
+    })),
+    refused: [], deferred: [],
+  }
+  return { doc, a, b, result }
+}
+
+test('P5 AC1: run-level usage is written once on the first item, see:<short> on the rest', () => {
+  const { doc, a, b, result } = twoItemProvenance('r-test-0101')
+  const lines = provenance({ core: realCore(), doc, result, method: 'A', turns: 1, usage: { tokens: 1000, duration: 60 } })
+  assert.match(lines[a.id], /\btokens=1000 duration=60\b/)
+  assert.match(lines[b.id], /\btokens=see:aaaaaaaa duration=see:aaaaaaaa\b/)
+})
+
+test('P5 AC2: usage.items[short] overrides the run-level value for a non-first item', () => {
+  const { doc, b, result } = twoItemProvenance('r-test-0102')
+  const usage = { tokens: 1000, duration: 60, items: { bbbbbbbb: { tokens: 7, duration: 8 } } }
+  const lines = provenance({ core: realCore(), doc, result, method: 'A', turns: 1, usage })
+  assert.match(lines[b.id], /\btokens=7 duration=8\b/)
+})
+
+test('P5 AC3: no usage keeps tokens/duration unknown on every item', () => {
+  const { doc, a, b, result } = twoItemProvenance('r-test-0103')
+  const lines = provenance({ core: realCore(), doc, result, method: 'B', turns: 1 })
+  for (const id of [a.id, b.id]) assert.match(lines[id], /\btokens=unknown duration=unknown\b/)
+})
+
+test('P5: tokens-only usage gives duration=unknown on every item', () => {
+  const { doc, a, b, result } = twoItemProvenance('r-test-0104')
+  const lines = provenance({ core: realCore(), doc, result, method: 'A', turns: 1, usage: { tokens: 5 } })
+  assert.match(lines[a.id], /\btokens=5 duration=unknown\b/)
+  assert.match(lines[b.id], /\btokens=see:aaaaaaaa duration=unknown\b/)
+})
+
+test('P5 AC6: extraSeats with a single item appends the extra-seats line; without an item it throws', () => {
+  const { doc, a, result } = twoItemProvenance('r-test-0105')
+  const extraSeats = [{ seat: 'reviewer-a1', model: 'opus', tokens: 359000 }, { seat: 'planner-a1', model: 'opus', tokens: 'unknown' }]
+  const out = provenance({ core: realCore(), doc, result, method: 'A', turns: 1, extraSeats, item: 'aaaaaaaa' })
+  assert.deepEqual(Object.keys(out), [a.id])
+  const [l1, l2, ...rest] = out[a.id].split('\n')
+  assert.match(l1, /^adapter=claude-workflow /)
+  assert.equal(l2, 'extra-seats=reviewer-a1:opus:359000,planner-a1:opus:unknown')
+  assert.equal(rest.length, 0)
+  assert.throws(() => provenance({ core: realCore(), doc, result, method: 'A', turns: 1, extraSeats }), /--item/)
+})
+
 // ── S14: CLI rows / exit codes ───────────────────────────────────────────────────────────────
 
 function writeCliDoc(dir) {

@@ -104,6 +104,10 @@ orchestrator-turns=`. Example:
 adapter=claude-workflow run=r-20260928-b2d seats=planner:opus,implementer:sonnet,declarations-extractor:sonnet,test-author:sonnet,reviewer:opus model=sonnet isolation=worktree:.claude/worktrees/feat-b2-front-door agents=5 tokens=412800 duration=1860000 deferred=0 in-run-edges=1 orchestrator-turns=3
 ```
 
+`tokens=`/`duration=` may read `see:<short>`: the run total lives on that item, so count it once and
+never sum it per item. An optional second line `extra-seats=<seat>:<model>:<tokens>,...` lists seats
+dispatched outside the run; score each like a `seats=` pair.
+
 **Legacy form** (unchanged): free-form prose naming model and isolation, parsed as before. A run
 that mixes structured and legacy notes across its items scores both forms.
 

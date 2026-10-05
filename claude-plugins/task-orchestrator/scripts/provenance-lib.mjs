@@ -1,5 +1,5 @@
-// provenance-lib.mjs — formats and parses the §8 provenance grammar (one line, first line of
-// a delegation-metadata note body). Pure: no Date, Math.random, fs, process, git. Shared by
+// provenance-lib.mjs — formats and parses the §8 provenance grammar (line 1 is the grammar line,
+// the first line of a delegation-metadata note body; an optional line 2 is 'extra-seats=...'). Pure: no Date, Math.random, fs, process, git. Shared by
 // run-exec-lib.mjs's provenance() and the session-retrospective doc-sync test.
 
 /** Field order for the structured line's key=value tokens (before any tail). */
@@ -170,7 +170,7 @@ export function parseProvenance(text) {
       default:
         if (key in NUMERIC_KEYS) {
           const outKey = NUMERIC_KEYS[key]
-          fields[outKey] = raw === 'unknown' ? 'unknown' : Number(raw)
+          fields[outKey] = (raw === 'unknown' || raw.startsWith('see:')) ? unescapeValue(raw) : Number(raw)
         } else {
           extra[key] = unescapeValue(raw)
         }
@@ -179,4 +179,48 @@ export function parseProvenance(text) {
   }
   if (Object.keys(extra).length > 0) fields.extra = extra
   return fields
+}
+
+/**
+ * formatExtraSeats(list) -> 'extra-seats=<seat>:<model>:<tokens>,...' ('' for an empty/absent
+ * list). list = [{seat, model, tokens}]; missing tokens -> 'unknown'. Goes on line 2 of a note.
+ */
+export function formatExtraSeats(list) {
+  if (!Array.isArray(list) || list.length === 0) return ''
+  return 'extra-seats=' + list
+    .map((s) => `${escapeValue(s.seat)}:${escapeValue(s.model)}:${numberOrUnknown(s.tokens)}`)
+    .join(',')
+}
+
+/**
+ * parseExtraSeats(text) -> [{seat, model, tokens}]. Scans the lines AFTER the first for one
+ * starting 'extra-seats='; [] when absent or text is not a string. tokens is a Number unless
+ * 'unknown'. seat = before the first ':', tokens = after the last ':', model = between.
+ */
+export function parseExtraSeats(text) {
+  if (typeof text !== 'string') return []
+  const lines = text.replace(/\r\n/g, '\n').split('\n').slice(1)
+  const line = lines.find((l) => l.startsWith('extra-seats='))
+  if (!line) return []
+  return line
+    .slice('extra-seats='.length)
+    .split(',')
+    .filter((s) => s.length > 0)
+    .map((s) => {
+      const first = s.indexOf(':')
+      const last = s.lastIndexOf(':')
+      if (first === -1 || first === last) {
+        return {
+          seat: unescapeValue(first === -1 ? s : s.slice(0, first)),
+          model: first === -1 ? undefined : unescapeValue(s.slice(first + 1)),
+          tokens: 'unknown',
+        }
+      }
+      const tok = s.slice(last + 1)
+      return {
+        seat: unescapeValue(s.slice(0, first)),
+        model: unescapeValue(s.slice(first + 1, last)),
+        tokens: tok === 'unknown' ? 'unknown' : Number(tok),
+      }
+    })
 }

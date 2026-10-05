@@ -11,7 +11,7 @@
 // per the frozen contract (Appendix D, dispatch contract for f8d3232e).
 
 import { extractLastBalancedJson } from './ralph-lib.mjs'
-import { formatProvenance } from './provenance-lib.mjs'
+import { formatProvenance, formatExtraSeats, parseExtraSeats } from './provenance-lib.mjs'
 
 export const STATE_CONTRACT = 'run-wave/state-v1'
 
@@ -1094,14 +1094,20 @@ export function auditActors(doc, observed, itemIds, opts) {
  * seats = result stages in order; model per seat from meta['<seat>:<short>'].model, else the
  * stage's modelReported, else its dispatch.model, else 'unknown'. model = the entry seat's
  * model (else the first work-stage seat's). isolation = 'worktree:<item.worktree>'. agents =
- * stage count. tokens/duration from usage.items[short] -> run-level usage -> 'unknown'.
+ * stage count. tokens/duration (each independently) from usage.items[short]; else run-level
+ * usage, written ONLY on the run's first item (doc.args.items[0]) with every other item getting
+ * 'see:<firstShort>'; else 'unknown'. Optional extraSeats=[{seat,model,tokens}] plus item
+ * (short|id) restricts the output to that item and appends the 'extra-seats=...' line 2.
  * deferred = result.deferred.length + args.deferred.length. in-run-edges =
  * doc.meta.inRunEdges.length. orchestrator-turns = turns. substituted lists seats whose meta
  * model differs from stage.dispatch.model. model-source is 'meta' only when every seat's
  * model came from meta, else 'self-report'.
  */
-export function provenance({ core, doc, result, method, turns, usage, meta, journal }) {
+export function provenance({ core, doc, result, method, turns, usage, meta, journal, extraSeats, item: onlyItem }) {
   const out = {}
+  if (extraSeats && extraSeats.length > 0 && !onlyItem) {
+    throw new Error('provenance: extraSeats requires a single item (--item)')
+  }
   const resultByItemId = new Map((result.items || []).map((r) => [r.id, r]))
 
   for (const item of doc.args.items) {
@@ -1139,8 +1145,11 @@ export function provenance({ core, doc, result, method, turns, usage, meta, jour
     const modelField = (entrySeatOut && entrySeatOut.model) || (firstWorkOut && firstWorkOut.model) || 'unknown'
 
     const usageItem = usage && usage.items && usage.items[item.short]
-    const tokens = usageItem && usageItem.tokens !== undefined ? usageItem.tokens : (usage && usage.tokens !== undefined ? usage.tokens : 'unknown')
-    const duration = usageItem && usageItem.duration !== undefined ? usageItem.duration : (usage && usage.duration !== undefined ? usage.duration : 'unknown')
+    const isFirstItem = item === doc.args.items[0]
+    const firstShort = doc.args.items[0].short
+    const runLevel = (v) => (v === undefined ? 'unknown' : (isFirstItem ? v : `see:${firstShort}`))
+    const tokens = usageItem && usageItem.tokens !== undefined ? usageItem.tokens : runLevel(usage && usage.tokens)
+    const duration = usageItem && usageItem.duration !== undefined ? usageItem.duration : runLevel(usage && usage.duration)
 
     const deferredCount = ((result.deferred && result.deferred.length) || 0) + ((doc.args.deferred && doc.args.deferred.length) || 0)
     const inRunEdges = (doc.meta && Array.isArray(doc.meta.inRunEdges)) ? doc.meta.inRunEdges.length : 0
@@ -1163,6 +1172,14 @@ export function provenance({ core, doc, result, method, turns, usage, meta, jour
     if (journal) fields.journal = journal
 
     out[item.id] = formatProvenance(fields)
+  }
+
+  if (onlyItem) {
+    const { plan } = resolvePlan(core, doc)
+    const target = findItem(plan, onlyItem)
+    const line = out[target.id]
+    const extraLine = formatExtraSeats(extraSeats)
+    return { [target.id]: extraLine ? `${line}\n${extraLine}` : line }
   }
 
   return out
@@ -1396,12 +1413,18 @@ function execProvenance(argv, io) {
       if (parsed && parsed.label) meta[parsed.label] = parsed
     }
   }
+  const extraFlag = flagValue(argv, '--extra-seats')
+  const itemFlag = flagValue(argv, '--item')
+  if (extraFlag !== undefined && !itemFlag) throw new Error('provenance: --extra-seats requires --item')
+  const extraSeats = extraFlag !== undefined ? parseExtraSeats(`x\nextra-seats=${extraFlag}`) : undefined
   const out = provenance({
     core, doc, result,
     method: flagValue(argv, '--method'),
     turns: Number(flagValue(argv, '--turns', '0')),
     usage, meta,
     journal: flagValue(argv, '--journal'),
+    extraSeats,
+    item: extraFlag !== undefined ? itemFlag : undefined,
   })
   io.writeOut(JSON.stringify(out))
   io.exit(0)

@@ -108,7 +108,13 @@ concrete results to report):
    have run, in confirmed past tense — not as a speculative "pending verification" draft you
    intend to edit later.
 2. **`delegation-metadata`** — the single provenance line, produced by
-   `node "<helper>" provenance --plan <plan> --result <result> --method A|B --turns <n> [--usage <usage-file>] [--meta-dir <dir>]`. Pass `--meta-dir` when per-seat `*.meta.json` files with
+   `node "<helper>" provenance --plan <plan> --result <result> --method A|B --turns <n> --usage <usage-file> [--meta-dir <dir>]`. **Method A: `--usage` is mandatory.**
+   Before running the helper, write the Workflow task notification's usage (total tokens, duration in
+   ms) to `<scratchpad>/run-wave/<runId>/usage.json` as `{"tokens": N, "duration": N}`; the helper
+   records that run total once, on the run's first item, and `tokens=see:<firstItemShort>` (likewise
+   `duration=`) on every other item, so per-item sums never multiply the run total. **Method B:** pass
+   `--usage` only if a per-item file exists (`{"items": {"<short>": {"tokens": N, "duration": N}}}`);
+   omit it otherwise (tokens/duration read `unknown`). Pass `--meta-dir` when per-seat `*.meta.json` files with
    the actually-reported model exist (gives `model-source` other than `self-report`); otherwise
    the line falls back to each stage's self-reported `modelReported`. This line is what the
    session-retrospective skill's structured-provenance parser reads — do not hand-write it, and
@@ -188,6 +194,14 @@ whose stored actor is a seat (`review-checklist`, `test-manifest`, `test-plan`,
 `test-independence-audit`, or any other seat-owned key) — that flips its stored actor and turns the
 seat's verdict into a self-confirmation. Any orchestrator confirmation goes under its own key,
 `orchestrator-confirmation` (role review, optional; off-schema is fine).
+
+**Recording out-of-run seats.** Every seat dispatched outside the run for an item (re-review,
+fix-cycle `<seat>-a<n>`, amendment planner) is recorded by re-running
+`node "<helper>" provenance ... --item <short> --extra-seats <seat>:<model>:<tokens>,...` and
+re-upserting that item's `delegation-metadata` (orchestrator-owned, so no actor flip) with the
+two-line output (grammar line, then `extra-seats=...`). The list is cumulative: each re-run passes
+every out-of-run seat so far. Take tokens from the Agent result's usage; use `unknown` if not
+reported. `--extra-seats` requires `--item`.
 
 ---
 
