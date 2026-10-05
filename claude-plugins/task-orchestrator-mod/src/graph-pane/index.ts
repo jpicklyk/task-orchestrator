@@ -183,18 +183,35 @@ interface BoxSpec {
 }
 
 /** One state-filled box: a pure function of its spec (an id-derived key, nothing view-wide). */
-function boxOf(ui: Ui, s: BoxSpec, open: (id: string) => void): unknown {
+/** Up to this many boxes every line of a box is clickable; above it only the state line (tree budget). */
+export const WHOLE_CLICK_MAX = 100
+
+function boxOf(ui: Ui, s: BoxSpec, open: (id: string) => void, wholeClick = true): unknown {
   const { Box, Text, Button } = ui
   const n = s.rect.width - 2
-  const [first, second] = titleLines(s.line1, n)
-  const tone = s.recent ? { color: '#fde68a', underline: true } : { color: '#ffffff' }
+  // A recently changed item is marked in its title (a Button label takes no colour).
+  const [first, second] = titleLines(s.recent ? `✱ ${s.line1}` : s.line1, n)
+  const press = () => open(s.id)
 
+  const frame = { key: s.key, position: 'absolute', top: s.rect.top, left: s.rect.left, width: s.rect.width, height: s.rect.height, backgroundColor: s.fill, flexDirection: 'column', paddingX: 1 }
+  if (!wholeClick) {
+    return h(
+      Box,
+      frame,
+      h(Text, { color: '#ffffff', bold: true, wrap: 'truncate-end' }, first),
+      h(Text, { color: '#ffffff', wrap: 'truncate-end' }, second),
+      h(Button, { key: `open:${s.id}`, label: cut(s.line3, n) || ' ', plain: true, dimColor: true, onPress: press }),
+    )
+  }
+
+  // Box takes no onPress and a Button label is a single string, so every line of the box is a plain
+  // Button opening the same detail: a click anywhere on the box opens it.
   return h(
     Box,
-    { key: s.key, position: 'absolute', top: s.rect.top, left: s.rect.left, width: s.rect.width, height: s.rect.height, backgroundColor: s.fill, flexDirection: 'column', paddingX: 1 },
-    h(Text, { ...tone, bold: true, wrap: 'truncate-end' }, first),
-    h(Text, { ...tone, wrap: 'truncate-end' }, second),
-    h(Button, { key: `open:${s.id}`, label: cut(s.line3, n), plain: true, dimColor: true, onPress: () => open(s.id) }),
+    frame,
+    h(Button, { key: `open:${s.id}:1`, label: first || ' ', plain: true, onPress: press }),
+    h(Button, { key: `open:${s.id}:2`, label: second || ' ', plain: true, onPress: press }),
+    h(Button, { key: `open:${s.id}`, label: cut(s.line3, n) || ' ', plain: true, dimColor: true, onPress: press }),
   )
 }
 
@@ -253,7 +270,7 @@ function canvasOf(ui: Ui, i: CanvasInput): unknown[] {
   if (root !== undefined) {
     const words = root.kind === 'terminal' ? 'done' : root.kind
     boxes.push(
-      boxOf(ui, { key: `card:${root.id}`, id: root.id, rect: lay.root, fill: KIND[root.kind], line1: `${root.glyph} [${root.label}] ${root.title}`, line3: i.overview ? `${words} · ${model.cards.length} children` : `${words} · ${model.cards.length} items · ${i.steps} steps`, recent: false }, i.open),
+      boxOf(ui, { key: `card:${root.id}`, id: root.id, rect: lay.root, fill: KIND[root.kind], line1: `${root.glyph} [${root.label}] ${root.title}`, line3: i.overview ? `${words} · ${model.cards.length} children` : `${words} · ${model.cards.length} items · ${i.steps} steps`, recent: false }, i.open, model.cards.length < WHOLE_CLICK_MAX),
     )
   }
   for (const row of lay.rows) {
@@ -273,7 +290,7 @@ function canvasOf(ui: Ui, i: CanvasInput): unknown[] {
       const card = byId.get(id) as Card
       const rect = lay.cards.get(id)
       if (rect === undefined) continue
-      boxes.push(boxOf(ui, { key: `card:${id}`, id, rect, fill: card.ready ? READY : KIND[card.kind], line1: `${card.glyph} [${card.label}] ${card.title}`, line3: card.stateText, recent: card.recent }, i.open))
+      boxes.push(boxOf(ui, { key: `card:${id}`, id, rect, fill: card.ready ? READY : KIND[card.kind], line1: `${card.glyph} [${card.label}] ${card.title}`, line3: card.stateText, recent: card.recent }, i.open, model.cards.length < WHOLE_CLICK_MAX))
     }
   }
 
