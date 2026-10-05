@@ -27,7 +27,9 @@ export type { GateInfo, GraphEdge, GraphNode, GraphSnapshot, GraphStatus } from 
 //   - start/stop live:      update($, graphSubscribers, addSubscriber)    // on pane/band open
 //                           update($, graphSubscribers, removeSubscriber) // on close
 //   - ask for a refresh:    update($, graphRefreshRequest, bump)
-// The hooks below react to writes of those three keys. Plugin and key are literals so
+// The write alone does not reach this plugin's own state.set hooks reliably, so each write is followed by
+// the matching `$`-free request function below (requestRefresh, requestLiveSync, requestReconnect).
+// The state.set hooks further down remain a backstop. Plugin and key are literals so
 // `claude plugin validate` can list them.
 
 /** The item id in view; null means the project root. Writing it re-snapshots at once. */
@@ -203,6 +205,9 @@ export function registerGraphData(on: On, options: PluginOptions = {}): void {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
     sessionIo = graphIo($)
+    // A hot reload resets module state (the live source) but $.state survives, so resume live from the
+    // surviving subscriber count. A fresh session has 0, which makes this a no-op.
+    syncLive(sessionIo, await read($, graphSubscribers))
     void refresh(sessionIo)
 
     return started

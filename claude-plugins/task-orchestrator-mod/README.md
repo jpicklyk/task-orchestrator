@@ -162,7 +162,7 @@ Set these from the plugin's config menu rows, or in settings under `pluginConfig
 - The MCP server name is fixed to `mcp-task-orchestrator`.
 - `/to-graph` and `/to-band` are registered lazily, on the first band draw or snapshot.
 - Write actions (acting on items from the pane) are not available.
-- Known issues you may hit: the pane can open without live updates where no band draws; `/to-graph <prefix>` of the root id walks the subtree instead of showing the overview; Copy UUID on Linux may report unavailable; a critical path can drop the SVG layer; and a teardown error can replace a tool result.
+- Known issues you may hit: `/to-graph <prefix>` of the root id walks the subtree instead of showing the overview; Copy UUID on Linux may report unavailable; a critical path can drop the SVG layer; and a teardown error can replace a tool result.
 - Three task-orchestrator plugin skills assume global results from calls the mod narrows to the project (pass `ancestorId: ""` to opt out):
   - `work-summary`, Scoped Mode `get_context()`: a process-global scope such as Retrospective Trends, Observations or Proposals loses its active, blocked and stalled items.
   - `dependency-manager`, Path B `get_blocked_items(includeDetails=true)`: the broad view is narrowed to the project, so blocked process-global items vanish.
