@@ -1309,6 +1309,20 @@ test('S11: isLocalEcho: in flight, and up to 5s after the last local write ended
   expect(isLocalEcho({ inFlight: 0, lastEnd: end }, end + 5_001)).toBe(false)
 })
 
+test('withLocalWrite: a failing clock never replaces the write\'s result or error, and still closes the window', async () => {
+  resetRemoteState()
+  const noClock = async (): Promise<number> => Promise.reject(new Error('clock gone'))
+  expect(await withLocalWrite(async () => 'tool result', noClock)).toBe('tool result')
+  expect(localWindow()).toEqual({ inFlight: 0, lastEnd: null })
+  await expect(withLocalWrite(async () => Promise.reject(new Error('write failed')), noClock)).rejects.toThrow('write failed')
+  expect(localWindow()).toEqual({ inFlight: 0, lastEnd: null })
+  // An earlier end time survives a write whose end time cannot be read.
+  await withLocalWrite(async () => 'ok', async () => 4_000)
+  await withLocalWrite(async () => 'ok', noClock)
+  expect(localWindow()).toEqual({ inFlight: 0, lastEnd: 4_000 })
+  resetRemoteState()
+})
+
 test('S11: withLocalWrite holds the window open while the write runs and closes it at its end, even on a throw', async () => {
   resetRemoteState()
   let inside = -1
