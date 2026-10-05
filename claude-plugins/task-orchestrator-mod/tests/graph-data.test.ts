@@ -13,7 +13,7 @@ import type { GraphIo } from '../src/graph-data/io.ts'
 import { invalidateLabels, resetLabelState } from '../src/graph-data/labels.ts'
 import { createSseParser, curlRequest, eventsUrl, isLoopbackApiUrl, resetLiveState, resolveApiUrl, restartLive, syncLive } from '../src/graph-data/live.ts'
 import { REFRESH_TIMEOUT_MS, refresh, refreshNow, resetRefreshState, sameSnapshot, sameStatus } from '../src/graph-data/refresh.ts'
-import { NODE_CAP, snapshot } from '../src/graph-data/snapshot.ts'
+import { NODE_CAP, snapshot, trailOf } from '../src/graph-data/snapshot.ts'
 
 const ROOT = '00000000-0000-4000-8000-000000000001'
 const TO = 'mcp__mcp-task-orchestrator__'
@@ -195,7 +195,7 @@ function fake(opts: { world?: World; files?: Record<string, string>; env?: Recor
     await flush()
   }
   const searches = () => calls.filter(c => c.tool === 'query_items' && c.args.operation === 'search').length
-  const gets = () => calls.filter(c => c.tool === 'query_items' && c.args.operation === 'get').length
+  const gets = () => calls.filter(c => c.tool === 'query_items' && c.args.operation === 'get' && c.args.includeAncestors !== true).length
 
   return { io, calls, advance, searches, gets, state }
 }
@@ -890,7 +890,7 @@ function serveHooks(on: On, world: World = threeLevels()): Call[] {
 }
 
 const searchesOf = (calls: Call[]) => calls.filter(c => c.tool === 'query_items' && (c.args.operation === 'search' || c.args.operation === 'overview')).length
-const getsOf = (calls: Call[]) => calls.filter(c => c.tool === 'query_items' && c.args.operation === 'get').length
+const getsOf = (calls: Call[]) => calls.filter(c => c.tool === 'query_items' && c.args.operation === 'get' && c.args.includeAncestors !== true).length
 const ok = { ref: 'r', result: { ok: true }, text: 'ok' }
 
 test('five rapid advance_item calls give one snapshot after 300ms; the result passes through', async ($, on) => {
@@ -982,4 +982,11 @@ test('sameStatus compares every field', () => {
   expect(sameStatus(s, { ...s })).toBe(true)
   expect(sameStatus(s, { ...s, liveSource: 'poll' })).toBe(false)
   expect(sameStatus(s, { ...s, lastError: 'x' })).toBe(false)
+})
+
+test('trailOf: ancestors root first, then the item; tolerates missing titles and bad input', () => {
+  const raw = { id: 'feat', title: 'Feature X', ancestors: [{ id: 'root', title: 'Project', depth: 0 }, { id: 'cont', depth: 1 }] }
+  expect(trailOf(raw, 'feat')).toEqual([{ id: 'root', title: 'Project' }, { id: 'cont', title: 'cont' }, { id: 'feat', title: 'Feature X' }])
+  expect(trailOf({ id: 'solo', title: 'Solo' }, 'solo')).toEqual([{ id: 'solo', title: 'Solo' }])
+  expect(trailOf(null, 'x')).toBeUndefined()
 })

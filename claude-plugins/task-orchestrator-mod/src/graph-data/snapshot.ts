@@ -196,11 +196,25 @@ async function overviewSnapshot(io: GraphIo, result: GraphSnapshot, rootId: stri
     // The overview does not report the anchor's own role; a project anchor is drawn as in progress.
     out.nodes = [{ id: rootId, parentId: null, title: typeof anchor.title === 'string' ? anchor.title : rootId, role: 'work', depth: 0 }, ...children]
     out.truncated = isObj(page) && page.truncated === true
+    out.trail = [{ id: rootId, title: typeof anchor.title === 'string' ? anchor.title : rootId }]
   } catch (err) {
     out.error = message(err)
   }
 
   return out
+}
+
+/** The breadcrumb from a `query_items get` with `includeAncestors`: ancestors root first, then the item. */
+export function trailOf(raw: unknown, scope: string): { id: string; title: string }[] | undefined {
+  if (!isObj(raw)) return undefined
+  const ancestors = Array.isArray(raw.ancestors) ? raw.ancestors : []
+  const trail: { id: string; title: string }[] = []
+  for (const a of ancestors) {
+    if (isObj(a) && typeof a.id === 'string') trail.push({ id: a.id, title: typeof a.title === 'string' ? a.title : a.id.slice(0, 8) })
+  }
+  trail.push({ id: scope, title: typeof raw.title === 'string' ? raw.title : scope.slice(0, 8) })
+
+  return trail
 }
 
 /**
@@ -229,6 +243,13 @@ export async function snapshot(io: GraphIo, scopeId: string | null): Promise<Gra
     result.truncated = capped.truncated || total > NODE_CAP
     const ids = new Set(capped.nodes.map(node => node.id))
     result.nodes = capped.nodes.map(node => (node.parentId !== null && !ids.has(node.parentId) ? { ...node, parentId: null } : node))
+
+    // The breadcrumb: the scope's ancestors (root first) and the scope itself, in one read.
+    try {
+      result.trail = trailOf(await io.callTool('query_items', { operation: 'get', itemId: scope, includeAncestors: true }), scope)
+    } catch {
+      // no trail: the pane falls back to the plain header
+    }
 
     const edges = new Map<string, GraphEdge>()
     const seenDeps = new Set<string>()

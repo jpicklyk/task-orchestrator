@@ -445,7 +445,29 @@ export function registerGraphPane(on: On, options: PluginOptions = {}): void {
     // A scope switch is still loading: say so, and draw nothing of the old scope (the header would claim it).
     if (switching) return h(Box, { flexDirection: 'column' }, controls, h(Text, { key: 'switching' }, `Loading ${loadingTitle(scope, snap)}…`))
 
-    const header = [scopeHeader(view), summaryLine(view), `live: ${status.liveSource}${status.refreshing ? ' · refreshing' : ''}`].join(' · ')
+    // With a breadcrumb the scope is named there; the header keeps the counts and the live source.
+    const trail = view.trail ?? []
+    const header = [...(trail.length > 0 ? [] : [scopeHeader(view)]), summaryLine(view), `live: ${status.liveSource}${status.refreshing ? ' · refreshing' : ''}`].join(' · ')
+    const crumbs = trail.flatMap((c, i) => {
+      const last = i === trail.length - 1
+      const sep = i > 0 ? [h(Text, { key: `crumb-sep:${c.id}`, dimColor: true }, ' › ')] : []
+      if (last) return [...sep, h(Text, { key: `crumb:${c.id}`, bold: true }, cut(c.title, 40))]
+      const target = c.id === view.rootId ? null : c.id
+
+      return [
+        ...sep,
+        h(Button, {
+          key: `crumb:${c.id}`,
+          label: cut(c.title, 28),
+          plain: true,
+          onPress: async () => {
+            await update($, graphDetail, () => null)
+            await update($, graphScope, scopeTo(target))
+            requestRefresh()
+          },
+        }),
+      ]
+    })
     const body: unknown[] = []
     if (view.truncated) body.push(h(Text, { key: 'truncated', dimColor: true }, view.overview === true ? 'More children than shown.' : 'Large subtree: showing only the shallowest 150 items.'))
     if (view.error !== undefined) body.push(h(Text, { key: 'error', color: 'red' }, view.error))
@@ -524,7 +546,8 @@ export function registerGraphPane(on: On, options: PluginOptions = {}): void {
     return h(
       Box,
       { flexDirection: 'column', paddingX: 1 },
-      h(Box, { key: 'header', marginBottom: 1 }, h(Text, { bold: true }, header)),
+      ...(crumbs.length > 0 ? [h(Box, { key: 'trail', flexDirection: 'row', flexWrap: 'wrap' }, ...crumbs)] : []),
+      h(Box, { key: 'header', marginBottom: 1 }, h(Text, { bold: crumbs.length === 0, dimColor: crumbs.length > 0 }, header)),
       controls,
       ...body,
     )

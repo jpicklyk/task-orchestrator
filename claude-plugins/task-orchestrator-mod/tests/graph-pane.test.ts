@@ -785,6 +785,20 @@ for (const surface of SURFACES) {
     await ui.unmount()
   })
 
+  test(`breadcrumb: ${surface} ancestors are buttons that switch scope; the root crumb goes to the whole project`, async ($, on) => {
+    const trail = [{ id: 'proj0000-root', title: 'Project' }, { id: 'cont0000-feat', title: 'Features' }, { id: ROOT_ID, title: 'Root feature' }]
+    const r = rig(on, { graphSnapshot: { ...asSnapshot(f1()), rootId: 'proj0000-root', trail }, graphScope: ROOT_ID })
+    const ui = await mountAt($, surface)
+    expect(await ui.find({ key: 'crumb:cont0000-feat' })).toBeDefined()
+    // The current scope is plain text, not a button.
+    expect((await ui.find({ key: `crumb:${ROOT_ID}` }))?.type).not.toBe('Button')
+    await ui.press({ key: 'crumb:cont0000-feat' })
+    expect(r.sets).toContainEqual({ key: 'graphScope', value: 'cont0000-feat' })
+    await ui.press({ key: 'crumb:proj0000-root' })
+    expect(r.sets).toContainEqual({ key: 'graphScope', value: null })
+    await ui.unmount()
+  })
+
   test(`whole-box click: ${surface} pressing a title line opens the same detail as the state line`, async ($, on) => {
     const r = rig(on, { graphSnapshot: asSnapshot(f1()), graphScope: ROOT_ID })
     const s = serveTo(on)

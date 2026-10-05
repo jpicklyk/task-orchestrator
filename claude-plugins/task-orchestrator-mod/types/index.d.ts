@@ -63,6 +63,8 @@ export interface GraphSnapshot {
   truncated: boolean
   /** True for the cheap project-root snapshot: the root plus its direct children with roll-ups, no edges, gates or labels. */
   overview?: boolean
+  /** The scope's path from the project root to the scope itself (root first), for the breadcrumb. */
+  trail?: { id: string; title: string }[]
   /** Set when any call failed (the snapshot is then partial) or no scope could be resolved. */
   error?: string
 }
