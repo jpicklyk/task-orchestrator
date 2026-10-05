@@ -76,10 +76,15 @@ paths are prefixed with the item worktree; directory and glob entries pass throu
 - `ownedTestsPattern` (optional regex source string, per entry) drops owned paths that do not match, so a
   `node --test` entry never receives `.kt` files.
 - An empty owned set, or no planner output, renders `SKIP <name>: no owned test files` instead of a command.
+  An invalid `ownedTestsPattern` renders `SKIP <name>: invalid ownedTestsPattern "<pattern>"` — the filter
+  is never silently dropped.
 - In shared-worktree runs, a non-empty VERIFY block also carries a contract line: failures whose paths
   are all owned by another item or seat are expected mid-wave; record them and continue.
 - The whole-suite run belongs on `orchestrator`-seat entries (run after the wave, surfaced as
   `redProof.commands`). `<ownedTests>` is not supported on orchestrator entries.
 
-This repo's `run-profile.json` ships `plugin-node-owned-tests` (`node --test <ownedTests>`, pattern
-`\.test\.mjs$`, seats `implementer` and `test-author`) beside the orchestrator's `plugin-node-tests`.
+Add an `<ownedTests>` entry to a project's `run-profile.json` only once every installed plugin
+cache carries this `promptVerify`: an older cached `implement-wave.js` prints the command verbatim,
+so seats would see a literal `<ownedTests>`. For this repo, the intended entry is
+`{"name":"plugin-node-owned-tests","command":"node --test <ownedTests>","ownedTestsPattern":"\\.test\\.mjs$","seats":["implementer","test-author"]}`,
+beside the orchestrator's `plugin-node-tests`.
