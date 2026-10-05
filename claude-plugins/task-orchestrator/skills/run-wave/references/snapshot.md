@@ -67,7 +67,9 @@ plan: --scratchpad is required because the profile uses <scratchpad>
 A `profile.verify[].command` may carry `<ownedTests>`. Unlike `<worktree>` and `<scratchpad>`, `plan`
 never substitutes it: the planner has not run when `plan` builds `project.verify`, so the owned test
 files are unknown. The implement-wave seat prompt (`promptVerify`, shared by Method B through
-`wave-core.mjs`) substitutes it per seat, as a space-separated list of double-quoted paths (relative
+`wave-core.mjs`) substitutes it per seat, as a space-separated list of double-quoted paths (each path is
+first relativized against the item worktree and then `args.repoRoot`, so a main-checkout absolute
+path runs the worktree's copy; a path outside both roots stays absolute; relative
 paths are prefixed with the item worktree; directory and glob entries pass through).
 
 - Owned set: a `test-author` seat owns planner `testFiles` plus `existingTestEdits[].file`. An

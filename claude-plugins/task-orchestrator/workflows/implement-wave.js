@@ -135,6 +135,83 @@ function isAbsolutePath(p) {
 }
 
 /**
+ * relativizePath(p, roots) -> repo-relative POSIX path. Applies normalizePath, strips the longest
+ * matching root prefix (case-insensitive when the path is a drive-letter path), then a trailing '/'.
+ * A path outside every root is returned unchanged (still absolute, so it never matches).
+ * Kept byte-for-byte in parity with scripts/run-exec-lib.mjs's relativizePath (verify has no core).
+ */
+function relativizePath(p, roots) {
+  let s = normalizePath(p)
+  const normRoots = (roots || [])
+    .filter((r) => r)
+    .map((r) => normalizePath(r).replace(/\/+$/, ''))
+    .filter((r) => r)
+    .sort((a, b) => b.length - a.length)
+  const drive = /^[a-z]:\//i.test(s)
+  for (const r of normRoots) {
+    const head = s.slice(0, r.length)
+    const same = drive ? head.toLowerCase() === r.toLowerCase() : head === r
+    if (same && s.charAt(r.length) === '/') {
+      s = s.slice(r.length + 1)
+      break
+    }
+  }
+  return s.replace(/\/+$/, '')
+}
+
+function isGlobPath(entry) {
+  return entry.includes('*') || entry.includes('?')
+}
+
+/** The roots a declared path of this item is relativized against: its worktree, then the repo root. */
+function itemRoots(plan, item) {
+  return [item && item.worktree, plan && plan.repoRoot].filter((r) => typeof r === 'string' && r)
+}
+
+/**
+ * True when a relativized path cannot name a repo-relative location: empty, still absolute, or
+ * containing a '..' segment. Such an entry claims the whole worktree for locking (D3).
+ */
+function isUnrootedPath(rel) {
+  return !rel || isAbsolutePath(rel) || rel.split('/').includes('..')
+}
+
+/** Leading wildcard-free segments of a repo-relative path ('' for '*.md'). */
+function literalBase(rel) {
+  const segs = rel.split('/')
+  const out = []
+  for (const s of segs) {
+    if (isGlobPath(s)) break
+    out.push(s)
+  }
+  return out.join('/')
+}
+
+function basesOverlap(a, b) {
+  const x = a.toLowerCase()
+  const y = b.toLowerCase()
+  if (x === y || x === '' || y === '') return true
+  return y.startsWith(x + '/') || x.startsWith(y + '/')
+}
+
+/**
+ * lockKeysConflict(a, b) -> bool (D3). Two file: keys conflict iff their literal bases are equal or
+ * one is a segment-ancestor of the other (case-insensitive). A worktree: key conflicts with every
+ * file: key and with an equal worktree: key. Every other pair needs exact equality.
+ */
+function lockKeysConflict(a, b) {
+  const sa = String(a)
+  const sb = String(b)
+  const fa = sa.startsWith('file:')
+  const fb = sb.startsWith('file:')
+  const wa = sa.startsWith('worktree:')
+  const wb = sb.startsWith('worktree:')
+  if (fa && fb) return basesOverlap(literalBase(sa.slice(5)), literalBase(sb.slice(5)))
+  if ((wa && fb) || (fa && wb)) return true
+  return sa === sb
+}
+
+/**
  * normalizeArgs(raw) -> {ok:true, plan} | {ok:false, reason}
  * JSON-parses a string, validates the args-v1 schema plus itemTraits, and applies
  * the run-level guards. Reasons for schema/bare/bad-JSON failures start 'invalid args'.
@@ -173,6 +250,10 @@ function normalizeArgs(raw) {
   const caps = parsed.capabilities
   if (!caps || typeof caps !== 'object' || !Array.isArray(caps.features) || typeof caps.phase0Hooks !== 'boolean') {
     return { ok: false, reason: 'invalid args: bad capabilities' }
+  }
+  // repoRoot is optional and additive (the main checkout root, a second relativization root).
+  if (parsed.repoRoot !== undefined && parsed.repoRoot !== null && typeof parsed.repoRoot !== 'string') {
+    return { ok: false, reason: 'invalid args: bad repoRoot' }
   }
   if (!Array.isArray(parsed.items) || parsed.items.length < 1) {
     return { ok: false, reason: 'invalid args: items must be a non-empty array' }
@@ -353,32 +434,32 @@ function makeMilestones(items) {
 
 /**
  * makeLocks() -> {withLocks(keys, fn) -> fn's promise}
- * Per-key promise chains; sorted, deduped, all-or-wait acquisition; released
- * (success or rejection) once fn settles.
+ * Each call registers its sorted, deduped keys and waits on every earlier, still-unreleased
+ * registration holding a key that lockKeysConflict()s with one of its own (so a directory or glob
+ * contends with a file under it). FIFO and deadlock-free: a registration only ever waits on
+ * earlier ones. Released (success or rejection) once fn settles.
  */
 function makeLocks() {
-  const chains = new Map()
+  let active = []
   return {
     withLocks(keys, fn) {
       const sorted = Array.from(new Set(keys)).sort()
       if (sorted.length === 0) return fn()
-      const waits = sorted.map((k) => chains.get(k) || Promise.resolve())
-      const gate = Promise.all(waits)
+      const waits = active
+        .filter((reg) => reg.keys.some((held) => sorted.some((k) => lockKeysConflict(held, k))))
+        .map((reg) => reg.done)
       let releaseResolve
-      const releasePromise = new Promise((resolve) => {
+      const done = new Promise((resolve) => {
         releaseResolve = resolve
       })
-      for (const k of sorted) {
-        chains.set(
-          k,
-          gate.then(() => releasePromise).catch(() => {})
-        )
+      const reg = { keys: sorted, done }
+      active.push(reg)
+      const release = () => {
+        active = active.filter((r) => r !== reg)
+        releaseResolve()
       }
-      const run = gate.then(() => fn())
-      run.then(
-        () => releaseResolve(),
-        () => releaseResolve()
-      )
+      const run = Promise.all(waits).then(() => fn())
+      run.then(release, release)
       return run
     },
   }
@@ -423,39 +504,50 @@ function lockKeysFor(item, stage, outs, plan) {
         if (e && e.file) files.push(e.file)
       }
     }
+    const wholeTree = `worktree:${normalizePath(item.worktree)}`
     if (files.length === 0) {
-      keys.add(`worktree:${normalizePath(item.worktree)}`)
+      keys.add(wholeTree)
     } else {
-      for (const f of files) keys.add(`file:${normalizePath(f)}`)
+      const roots = itemRoots(plan, item)
+      for (const f of files) {
+        const rel = relativizePath(f, roots)
+        if (isUnrootedPath(rel)) keys.add(wholeTree)
+        else keys.add(`file:${rel}`)
+      }
     }
   }
   return Array.from(keys).sort()
 }
 
-function collectFiles(output) {
+function collectFiles(output, roots) {
   if (!output) return []
-  const files = []
-  for (const f of output.mainFiles || []) files.push(normalizePath(f))
-  for (const f of output.docFiles || []) files.push(normalizePath(f))
-  for (const f of output.testFiles || []) files.push(normalizePath(f))
+  const raw = [].concat(output.mainFiles || [], output.docFiles || [], output.testFiles || [])
   for (const e of output.existingTestEdits || []) {
-    if (e && e.file) files.push(normalizePath(e.file))
+    if (e && e.file) raw.push(e.file)
+  }
+  const files = []
+  for (const f of raw) {
+    const rel = relativizePath(f, roots || [])
+    if (rel) files.push(rel)
   }
   return files
 }
 
 /**
  * overlapDeferral(mine, higher, mode) -> null | {reason}
- * mine = {short, output}; higher = [{short, output|null}] in args order.
- * mode 'shared' -> always null. Else: first file intersection -> {reason:'overlap <short>'}.
+ * mine = {short, output, roots?}; higher = [{short, output|null, roots?}] in args order. Each
+ * entry's declared paths are relativized against its own roots (its worktree, then the repo root).
+ * mode 'shared' -> always null. Else: the first higher item with a file that overlaps one of mine
+ * under the lockKeysConflict predicate (equal, or a directory/glob base containing the other)
+ * -> {reason:'overlap <short>'}.
  */
 function overlapDeferral(mine, higher, mode) {
   if (mode === 'shared') return null
-  const mineFiles = collectFiles(mine.output)
+  const mineKeys = collectFiles(mine.output, mine.roots).map((f) => `file:${f}`)
   for (const h of higher) {
     if (!h.output) continue
-    const hFiles = collectFiles(h.output)
-    if (mineFiles.some((f) => hFiles.includes(f))) return { reason: `overlap ${h.short}` }
+    const hKeys = collectFiles(h.output, h.roots).map((f) => `file:${f}`)
+    if (mineKeys.some((a) => hKeys.some((b) => lockKeysConflict(a, b)))) return { reason: `overlap ${h.short}` }
   }
   return null
 }
@@ -817,7 +909,10 @@ function promptVerify(plan, item, stage, outsByOutput) {
     const seen = new Set()
     const owned = []
     for (const raw of ownedTestsFor(item, stage, outsByOutput)) {
-      const n = normalizePath(raw)
+      // Relativize against the worktree and the repo root, so a main-checkout absolute path runs
+      // the worktree's copy of the test rather than the main checkout's.
+      const n = relativizePath(raw, itemRoots(plan, item))
+      if (!n) continue
       if (re && !re.test(n)) continue
       const full = isAbsolutePath(n) ? n : normalizePath(item.worktree) + '/' + n
       if (seen.has(full)) continue
@@ -983,11 +1078,11 @@ async function higherPriorityOutputs(plan, item, milestones) {
   for (const h of higher) {
     const plannerStage = h.stages.find((s) => s.output === 'planner-v1')
     if (!plannerStage) {
-      results.push({ short: h.short, output: null })
+      results.push({ short: h.short, output: null, roots: itemRoots(plan, h) })
       continue
     }
     const v = await milestones.get(h.id, plannerStage.seat)
-    results.push({ short: h.short, output: v && v.status === 'done' ? v.output : null })
+    results.push({ short: h.short, output: v && v.status === 'done' ? v.output : null, roots: itemRoots(plan, h) })
   }
   return results
 }
@@ -1097,7 +1192,7 @@ async function runItem(plan, item, deps) {
 
       if (plan.worktreeMode === 'per-item' && stage.output === 'planner-v1') {
         const higher = await higherPriorityOutputs(plan, item, deps.milestones)
-        const overlap = overlapDeferral({ short: item.short, output: env.output }, higher, plan.worktreeMode)
+        const overlap = overlapDeferral({ short: item.short, output: env.output, roots: itemRoots(plan, item) }, higher, plan.worktreeMode)
         if (overlap) {
           result.status = 'deferred'
           result.reason = overlap.reason

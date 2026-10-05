@@ -933,6 +933,9 @@ export function assembleArgs(snap, planned, opts) {
     baseSha,
     worktreeMode: mode,
     entryMode,
+    // Main checkout root: the second root (after each item worktree) declared paths are relativized
+    // against for lock keys, overlap deferral, owned-test paths and review pathspecs. Optional, additive.
+    ...(repoRoot ? { repoRoot: normalizePath(repoRoot) } : {}),
     capabilities,
     project,
     items,
