@@ -121,7 +121,7 @@ The mod and the plugin's command hooks would otherwise act twice on the same eve
 
 | Area | Flag the mod sets | Command hooks that step aside |
 |------|-------------------|-------------------------------|
-| Retrospective | `to_mod_retro: true`, on `classic.PostToolUse` (Bash, `advance_item`, `complete_tree`) and `classic.Stop` | `retro-trigger` and `retro-backstop` |
+| Retrospective | `to_mod_retro: true`, on `classic.PostToolUse` (`advance_item`, `complete_tree`) and `classic.Stop` | `retro-trigger` and `retro-backstop` |
 | Phase guard | `to_mod_active: true`, after a clean run, on `classic.PostToolUse` and `classic.SubagentStop` | `phase-guard-record` and `phase-guard` |
 
 If the phase guard hits an internal error it sends no flag, and the command hook acts instead.
