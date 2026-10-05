@@ -9,7 +9,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, On } from 'claude-code'
 
 import type { GraphSnapshot } from '../../types'
-import { addSubscriber } from '../graph-data/index.ts'
+import { addSubscriber, requestLiveSync } from '../graph-data/index.ts'
 import { bandModel } from './model.ts'
 
 /** Below this many columns the band hides; the status line still carries the item. */
@@ -37,6 +37,7 @@ async function sync($: EngineInterface): Promise<void> {
   if (!(await read($, bandSubscribed))) {
     await update($, bandSubscribed, yes)
     await update($, graphSubscribers, addSubscriber)
+    requestLiveSync(await read($, graphSubscribers))
   }
   if (!commandRegistered) {
     commandRegistered = true

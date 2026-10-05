@@ -100,6 +100,31 @@ export function parseToolResult(tool: string, result: { content: readonly unknow
   return JSON.parse(text)
 }
 
+/**
+ * The IO bound when the session started. A plugin's own `$.state.set` does not reliably reach its own
+ * `state.set` hooks (verified live 2026-10-05: scope changes never refreshed), so consumers in this
+ * plugin call these `$`-free functions right after writing a control atom.
+ */
+let sessionIo: GraphIo | null = null
+
+/** Re-snapshot for the current scope now (a scope change) or after the debounce window. */
+export function requestRefresh(now = true): void {
+  if (sessionIo !== null) void (now ? refreshNow(sessionIo) : refresh(sessionIo))
+}
+
+/** Restart the live source and re-snapshot (the Reconnect button). */
+export function requestReconnect(subscribers: number): void {
+  if (sessionIo === null) return
+  invalidateLabels()
+  restartLive(sessionIo, subscribers)
+  void refreshNow(sessionIo)
+}
+
+/** Start or stop the live source for a new subscriber count (pane or band opened or closed). */
+export function requestLiveSync(subscribers: number): void {
+  if (sessionIo !== null) syncLive(sessionIo, subscribers)
+}
+
 function graphIo($: EngineInterface): GraphIo {
   return {
     callTool: async (tool, args) => parseToolResult(tool, await $.mcp.call(TO_SERVER, tool, args)),
@@ -135,7 +160,8 @@ export function registerGraphData(on: On): void {
 
   on('session.start', async ($, e, next) => {
     const started = await next(e)
-    void refresh(graphIo($))
+    sessionIo = graphIo($)
+    void refresh(sessionIo)
 
     return started
   })

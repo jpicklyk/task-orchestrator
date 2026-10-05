@@ -11,7 +11,7 @@ import type { GraphActivity, GraphAgentInfo, GraphDetail, GraphSnapshot, GraphSt
 import { CONFIG_PATH, parseProjectRootId } from '../shared/config.ts'
 import { PLUGIN, TO_SERVER } from '../shared/constants.ts'
 import { parseToResult } from '../shared/to-client.ts'
-import { addSubscriber, bump, removeSubscriber, scopeTo, shouldRefresh } from '../graph-data/index.ts'
+import { addSubscriber, bump, removeSubscriber, requestLiveSync, requestReconnect, requestRefresh, scopeTo, shouldRefresh } from '../graph-data/index.ts'
 import { WORKING_TTL_MS, RECENT_MS, pruneActivity, recordActivity, rememberAgent, resolveId, seatOf, touchedIds } from './activity.ts'
 import { edgePlan } from './budget.ts'
 import { cellSize } from './cell.ts'
@@ -310,11 +310,13 @@ export function registerGraphPane(on: On, options: PluginOptions = {}): void {
 
     await update($, graphDetail, () => null)
     await update($, graphScope, scopeTo(scope))
+    requestRefresh()
     await $.ui.open({ id: PANE_ID, title: 'TO graph' })
     // Counted once per open pane: a repeat /to-graph neither double-counts nor leaks a subscriber.
     if (!(await read($, graphPaneOpen))) {
       await update($, graphPaneOpen, yes)
       await update($, graphSubscribers, addSubscriber)
+      requestLiveSync(await read($, graphSubscribers))
     }
 
     return { text: scope === null ? 'Opened the work graph for the project root.' : `Opened the work graph for ${scope.slice(0, 8)}.` }
@@ -325,6 +327,7 @@ export function registerGraphPane(on: On, options: PluginOptions = {}): void {
     if (await read($, graphPaneOpen)) {
       await update($, graphPaneOpen, no)
       await update($, graphSubscribers, removeSubscriber)
+      requestLiveSync(await read($, graphSubscribers))
     }
 
     return closed
@@ -380,14 +383,23 @@ export function registerGraphPane(on: On, options: PluginOptions = {}): void {
         onPress: async () => {
           const feature = await activeFeature($)
           if (feature === null) $.ui.toast('No active feature in this project.')
-          else await update($, graphScope, scopeTo(feature))
+          else {
+            await update($, graphScope, scopeTo(feature))
+            requestRefresh()
+          }
         },
       }),
-      h(Button, { key: 'scope-project', label: 'Whole project', ...(scope === null ? { variant: 'primary' } : {}), onPress: () => update($, graphScope, scopeTo(null)) }),
+      h(Button, { key: 'scope-project', label: 'Whole project', ...(scope === null ? { variant: 'primary' } : {}), onPress: async () => {
+        await update($, graphScope, scopeTo(null))
+        requestRefresh()
+      } }),
       ...(lay !== null && view?.overview !== true && lay.doneSteps.length > 0
         ? [h(Button, { key: 'done-steps', label: showDone ? 'Hide done steps' : 'Show done steps', onPress: () => update($, graphShowDone, v => !v) })]
         : []),
-      ...(isDegraded(status) ? [h(Button, { key: 'reconnect', label: 'Reconnect', onPress: () => update($, graphReconnectRequest, bump) })] : []),
+      ...(isDegraded(status) ? [h(Button, { key: 'reconnect', label: 'Reconnect', onPress: async () => {
+        await update($, graphReconnectRequest, bump)
+        requestReconnect(await read($, graphSubscribers))
+      } })] : []),
     )
 
     if (view === null || model === null || steps === null || lay === null) {
@@ -447,6 +459,7 @@ export function registerGraphPane(on: On, options: PluginOptions = {}): void {
                 onPress: async () => {
                   await update($, graphDetail, () => null)
                   await update($, graphScope, scopeTo(detail.itemId))
+                  requestRefresh()
                 },
               }),
             ]
