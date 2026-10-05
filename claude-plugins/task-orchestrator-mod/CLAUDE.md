@@ -29,7 +29,8 @@ Rules for editing this plugin. They come from live and review findings on the ea
     - `claude plugin validate claude-plugins/task-orchestrator-mod`
     - The kit has no state, clock, fs or mcp nouns on the test `$`; use rigs.
     - `claude -p "/cmd"` does not dispatch mod commands.
-    - If `claude plugin test` refuses because hooks modules are switched off, record the exact message and fix it there. Do not flip it with an ad-hoc headless `claude -p` run (6a976f10 process note).
+    - If `claude plugin test` refuses with "hooks modules are turned off", the cause is the cached rollout flag `tengu_plugin_hooks_modules` saved off in `.claude.json`. Fix it with `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` or a fresh `CLAUDE_CONFIG_DIR`; `CLAUDE_CODE_ENABLE_FUNCTION_HOOKS` does not clear it. Do not flip it with an ad-hoc headless `claude -p` run (6a976f10 process note).
+    - CI runs `node scripts/ci/check-task-orchestrator-mod.mjs` (validate, the `=?` gate, a source scan of `on(` matchers, then the tests) with CLI 2.1.286, pinned in [`.github/workflows/task-orchestrator-mod.yml`](../../.github/workflows/task-orchestrator-mod.yml). The script sets the env above itself, so running it locally is the same run.
 
 ## Loading and refresh
 
