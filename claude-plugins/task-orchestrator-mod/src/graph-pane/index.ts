@@ -53,6 +53,25 @@ const no = (): boolean => false
 let commandRegistered = false
 
 /** The most recently modified feature-implementation in work under the project root, or null. */
+/**
+ * Copies `text` with the host's clipboard tool (`clip` on Windows, `pbcopy` on macOS, `wl-copy` or
+ * `xclip` on Linux). Used when `$.ui.copy` cannot reach the surface, as on the desktop app today.
+ */
+async function hostCopy($: EngineInterface, text: string): Promise<boolean> {
+  const windows = (await $.env.get('OS')) === 'Windows_NT'
+  const tools: string[][] = windows ? [['clip']] : [['pbcopy'], ['wl-copy'], ['xclip', '-selection', 'clipboard']]
+  for (const argv of tools) {
+    try {
+      const ran = await $.process.run(argv, { stdin: text, timeoutMs: 3000 })
+      if (ran.exitCode === 0) return true
+    } catch {
+      // that tool is not installed here; try the next
+    }
+  }
+
+  return false
+}
+
 async function activeFeature($: EngineInterface): Promise<string | null> {
   try {
     const rootId = parseProjectRootId(await $.fs.read(CONFIG_PATH))
@@ -452,7 +471,10 @@ export function registerGraphPane(on: On, options: PluginOptions = {}): void {
 
     if (detail !== null) {
       // The detail is its own bordered panel: title line bold, then facts, then a row of actions.
-      const facts = detail.lines.map((line, i) => h(Text, { key: `detail-${i}`, ...(i === 0 ? { bold: true } : {}) }, line))
+      const facts = [
+        ...detail.lines.map((line, i) => h(Text, { key: `detail-${i}`, ...(i === 0 ? { bold: true } : {}) }, line)),
+        h(Text, { key: 'detail-uuid', dimColor: true }, `uuid: ${detail.itemId}`),
+      ]
       const working = (activity.working[detail.itemId] ?? []).map(w =>
         h(Text, { key: `working-${w.agentId}` }, `working: ${w.seat}${w.model !== undefined ? ` · ${w.model}` : ''} · ${w.agentId === 'main' ? 'main loop' : id8(w.agentId)}`),
       )
@@ -461,12 +483,16 @@ export function registerGraphPane(on: On, options: PluginOptions = {}): void {
           key: 'detail-copy',
           label: 'Copy UUID',
           onPress: async press => {
+            let copied = false
             try {
-              const copied = await $.ui.copy({ text: detail.itemId, surface: press.surface })
-              $.ui.toast(copied.isCopied ? `Copied ${id8(detail.itemId)}` : 'Copy failed: the surface refused')
-            } catch (err) {
-              $.ui.toast(`Copy failed: ${message(err)}`)
+              const res = (await $.ui.copy({ text: detail.itemId, surface: press.surface })) as { isCopied?: boolean; value?: { isCopied?: boolean } }
+              copied = res.isCopied === true || res.value?.isCopied === true
+            } catch {
+              copied = false
             }
+            // $.ui.copy has no path on a remote surface (the desktop app) yet: fall back to the OS clipboard tool.
+            if (!copied) copied = await hostCopy($, detail.itemId)
+            $.ui.toast(copied ? `Copied ${detail.itemId}` : `Copy unavailable here. UUID: ${detail.itemId}`)
           },
         }),
         ...(detail.itemId !== view.scopeId

@@ -823,6 +823,24 @@ for (const surface of SURFACES) {
     await ui.unmount()
   })
 
+  test(`copy fallback: ${surface} when the surface refuses, the UUID goes to the host clipboard tool`, async ($, on) => {
+    rig(on, { graphSnapshot: asSnapshot(f1()), graphScope: ROOT_ID, graphDetail: { itemId: "aaaa1111-2222-3333-4444-555566667777", lines: ["x"] } })
+    on("ui.copy", async () => ({ value: { isCopied: false, reason: "remote" } }) as never)
+    mock.env(on, { OS: "Windows_NT" })
+    const runs: { argv: readonly string[]; stdin?: string }[] = []
+    on("process.run", async (_$, e) => {
+      const r = e as { argv: readonly string[]; init?: { stdin?: string }; stdin?: string }
+      runs.push({ argv: r.argv, stdin: r.init?.stdin ?? r.stdin })
+
+      return { value: { exitCode: 0, stdout: "", stderr: "" } } as never
+    })
+    const ui = await mountAt($, surface)
+    await ui.press({ key: "detail-copy" })
+    expect(runs.length).toBeGreaterThan(0)
+    expect(runs[0]?.stdin).toBe("aaaa1111-2222-3333-4444-555566667777")
+    await ui.unmount()
+  })
+
   test(`G12: ${surface} a live worker is listed under the open detail`, async ($, on) => {
     rig(on, {
       graphSnapshot: asSnapshot(f1()),
