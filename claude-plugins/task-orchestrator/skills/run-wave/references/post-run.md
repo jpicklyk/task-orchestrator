@@ -159,7 +159,7 @@ do not dispatch the generic reviewer yourself. The generic review prompt is deli
 seat line, the owned-file diff command, which notes to fill, and which rule keys apply — it
 carries no rule text inline (the reviewer fetches those itself).
 
-**Security-assessment items.** The review-prompt helper does not know the item's schema. When the item's resolved schema has a `security-assessment` note (check `get_context` expectedNotes or the plan's `review.requiredReviewNotes`), append to the generated review prompt a line naming the worktree path beside the diff command, plus: "Apply the /security-review method to this item's owned-file diff in its worktree — `git -C <worktree> diff <baseSha>..HEAD -- <owned files>` — not by invoking the built-in command, which diffs the session cwd and is empty for a worktree branch."
+**Security-assessment items.** The review-prompt helper does not know the item's schema. When the item's resolved schema has a `security-assessment` note (check `get_context` expectedNotes), append to the generated review prompt a line naming the worktree path beside the diff command, plus: "Apply the /security-review method to this item's owned-file diff in its worktree — `git -C <worktree> diff <baseSha>..HEAD -- <owned files>` — not by invoking the built-in command, which diffs the session cwd and is empty for a worktree branch."
 
 **Fix cycle after a Fail.** When a review returns Fail, run the same four seats again, in order,
 each scoped to one numbered amendment `A<n>` (A1 for the first Fail, A2 for the next). There is no
