@@ -12,6 +12,8 @@ const PAGE_SIZE = 100
 /** Never page past this many items, whatever `total` claims. */
 const FETCH_CEILING = 1000
 const LANES = 6
+/** Direct children of the project root the overview asks for in its one call. */
+const OVERVIEW_LIMIT = 100
 
 type Obj = Record<string, unknown>
 
@@ -57,6 +59,11 @@ function toNode(raw: unknown): GraphNode | null {
   if (type !== undefined) node.type = type
   const priority = str(raw.priority)
   if (priority !== undefined) node.priority = priority
+  if (isObj(raw.childCounts)) {
+    const counts: Record<string, number> = {}
+    for (const [role, n] of Object.entries(raw.childCounts)) if (typeof n === 'number' && n > 0) counts[role] = n
+    node.childCounts = counts
+  }
 
   return node
 }
@@ -172,8 +179,34 @@ function seatsOf(current: Obj[]): SeatProgress[] | null {
 }
 
 /**
+ * The cheap project-root snapshot: ONE `query_items overview anchorId=<root>` call. The anchor's direct
+ * children come back with full-subtree role counts; there are no dependency, label or gate reads.
+ */
+async function overviewSnapshot(io: GraphIo, result: GraphSnapshot, rootId: string): Promise<GraphSnapshot> {
+  const out: GraphSnapshot = { ...result, overview: true }
+  try {
+    const page = await io.callTool('query_items', { operation: 'overview', anchorId: rootId, limit: OVERVIEW_LIMIT })
+    const anchor = isObj(page) && isObj(page.anchor) ? page.anchor : {}
+    const rows = isObj(page) && Array.isArray(page.items) ? page.items : []
+    const children: GraphNode[] = []
+    for (const row of rows) {
+      const child = toNode(row)
+      if (child) children.push({ ...child, parentId: rootId, depth: 1 })
+    }
+    // The overview does not report the anchor's own role; a project anchor is drawn as in progress.
+    out.nodes = [{ id: rootId, parentId: null, title: typeof anchor.title === 'string' ? anchor.title : rootId, role: 'work', depth: 0 }, ...children]
+    out.truncated = isObj(page) && page.truncated === true
+  } catch (err) {
+    out.error = message(err)
+  }
+
+  return out
+}
+
+/**
  * The graph of `scopeId`'s subtree (null: the project root from config.yaml). Read-only: only
- * `query_items`, `query_dependencies` and `get_context` are ever called.
+ * `query_items`, `query_dependencies` and `get_context` are ever called. The project root (null, or its own
+ * id) gets the one-call overview instead of the subtree walk.
  */
 export async function snapshot(io: GraphIo, scopeId: string | null): Promise<GraphSnapshot> {
   const errors: string[] = []
@@ -187,6 +220,7 @@ export async function snapshot(io: GraphIo, scopeId: string | null): Promise<Gra
   const scope = scopeId ?? rootId
   const result: GraphSnapshot = { scopeId: scope, rootId, nodes: [], edges: [], external: {}, gates: {}, takenAt, truncated: false }
   if (scope === null) return { ...result, error: 'no project.rootId' }
+  if (rootId !== null && scope === rootId) return overviewSnapshot(io, result, rootId)
 
   try {
     const { items, total } = await fetchSubtree(io, scope, errors)

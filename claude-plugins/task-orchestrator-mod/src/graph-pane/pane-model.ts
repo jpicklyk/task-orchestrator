@@ -1,6 +1,6 @@
 // Pure model of the /to-graph pane: command arguments, scope titles and the read-only detail
 // lines (T3 a47dcd6f). No `$` here.
-import type { GraphStatus } from '../../types'
+import type { GraphSnapshot, GraphStatus } from '../../types'
 import { id8, kindOf } from './shared.ts'
 import type { GraphView } from './shared.ts'
 
@@ -25,6 +25,33 @@ export function scopeTitle(view: GraphView): string {
   const hit = view.nodes.find(n => n.id === view.scopeId)
 
   return hit?.title ?? view.nodes.find(n => n.parentId === null)?.title ?? id8(view.scopeId)
+}
+
+/** Breadcrumb for the pane header: `Project: <title>` at the root, `Feature: <title>` on a feature, else `Scope: <title>`. */
+export function scopeHeader(view: GraphView): string {
+  if (view.scopeId === null) return 'Whole project'
+  const hit = view.nodes.find(n => n.id === view.scopeId)
+  const title = scopeTitle(view)
+  if (view.scopeId === view.rootId) return `Project: ${title}`
+
+  return `${hit?.type === 'feature-implementation' ? 'Feature' : 'Scope'}: ${title}`
+}
+
+/** The scope id the pane is asked for: the atom, with null (the project root) read as the snapshot's root id. */
+export const wantedScope = (scope: string | null, snap: GraphSnapshot | null): string | null => scope ?? snap?.rootId ?? null
+
+/** Whether the loaded snapshot is for another scope than the one asked for (a switch is still loading). */
+export function isSwitching(scope: string | null, snap: GraphSnapshot | null): boolean {
+  const want = wantedScope(scope, snap)
+
+  return snap !== null && want !== null && snap.scopeId !== want
+}
+
+/** What the pane says it is loading: the wanted scope's title when the loaded snapshot knows it, else its short id. */
+export function loadingTitle(scope: string | null, snap: GraphSnapshot | null): string {
+  const want = wantedScope(scope, snap) ?? ''
+
+  return snap?.nodes.find(n => n.id === want)?.title ?? id8(want)
 }
 
 /** One-line counts by kind, e.g. `12 items: 3 work, 1 blocked`. */

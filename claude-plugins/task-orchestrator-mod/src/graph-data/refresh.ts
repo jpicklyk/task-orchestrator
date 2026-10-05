@@ -14,9 +14,21 @@ let rerunAfter: number | null = null
 let pendingScope: string | null | undefined
 let waiters: Array<() => void> = []
 
+/** A refresh running longer than this stops blocking the queue once another one is waiting. */
+export const REFRESH_TIMEOUT_MS = 10_000
+
+/** Bumped by every run; a run whose number is stale (abandoned, then overtaken) writes nothing. */
+let generation = 0
+/** The running refresh has passed REFRESH_TIMEOUT_MS. */
+let overdue = false
+/** Releases the single-flight queue from a running refresh. */
+let abandon: (() => void) | null = null
+
 function schedule(io: GraphIo, ms: number): void {
   if (running) {
     rerunAfter = rerunAfter === null ? ms : Math.min(rerunAfter, ms)
+    // A request that arrives behind an overdue refresh must not wait for it.
+    if (overdue) abandon?.()
 
     return
   }
@@ -29,24 +41,47 @@ function schedule(io: GraphIo, ms: number): void {
 
 async function run(io: GraphIo): Promise<void> {
   running = true
+  overdue = false
   rerunAfter = null
   const batch = waiters
   waiters = []
   const requested = pendingScope
   pendingScope = undefined
-  try {
-    const scope = requested !== undefined ? requested : await io.readScope()
-    const snap = await snapshot(io, scope)
-    await io.setSnapshot(snap)
-    await io.updateStatus(({ liveSource }) => ({ refreshing: false, liveSource, ...(snap.error !== undefined && { lastError: snap.error }) }))
-  } catch (err) {
-    const lastError = err instanceof Error ? err.message : String(err)
+  const mine = ++generation
+  let release: () => void = () => undefined
+  const released = new Promise<void>(resolve => {
+    release = resolve
+  })
+  abandon = release
+  const work = (async (): Promise<void> => {
     try {
-      await io.updateStatus(({ liveSource }) => ({ refreshing: false, liveSource, lastError }))
-    } catch {
-      // state itself failed; nothing more to record
+      const scope = requested !== undefined ? requested : await io.readScope()
+      const snap = await snapshot(io, scope)
+      if (mine !== generation) return
+      await io.setSnapshot(snap)
+      await io.updateStatus(({ liveSource }) => ({ refreshing: false, liveSource, ...(snap.error !== undefined && { lastError: snap.error }) }))
+    } catch (err) {
+      if (mine !== generation) return
+      const lastError = err instanceof Error ? err.message : String(err)
+      try {
+        await io.updateStatus(({ liveSource }) => ({ refreshing: false, liveSource, lastError }))
+      } catch {
+        // state itself failed; nothing more to record
+      }
     }
+  })()
+  // Past the timeout the run keeps going (its result still lands if nothing newer started) but a waiting
+  // or arriving request is let through, so one slow subtree never stalls a scope switch behind it.
+  const clock = io.after(REFRESH_TIMEOUT_MS, () => {
+    overdue = true
+    if (rerunAfter !== null) release()
+  })
+  try {
+    await Promise.race([work, released])
   } finally {
+    clock.cancel()
+    abandon = null
+    overdue = false
     running = false
     for (const resolve of batch) resolve()
     if (rerunAfter !== null) schedule(io, rerunAfter)
@@ -80,6 +115,9 @@ export function resetRefreshState(): void {
   timer?.cancel()
   timer = null
   running = false
+  overdue = false
+  abandon = null
+  generation += 1
   rerunAfter = null
   pendingScope = undefined
   waiters = []

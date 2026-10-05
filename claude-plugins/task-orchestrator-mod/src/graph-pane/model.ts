@@ -1,7 +1,7 @@
 // Pure card model of the top-down graph: one card per non-root node with its dependencies, open
 // blockers, readiness and state line; plus the cycle-broken longest-path step assignment.
 import type { GraphWorker } from '../../types'
-import { glyphOf, id8, kindOf, phaseText, rollupText } from './shared.ts'
+import { glyphOf, id8, kindOf, phaseText, rollupLine } from './shared.ts'
 import type { GraphView, Kind } from './shared.ts'
 import { shortModel } from './activity.ts'
 
@@ -79,11 +79,13 @@ export function cardsOf(view: GraphView, workers: Record<string, readonly GraphW
       if (ext !== undefined && e.from !== rootNode?.id && isOpen(ext.role, e.unblockAt)) open.push({ label: id8(e.from), n: 999 })
     }
     const openBlockers = [...new Set(open.sort((a, b) => a.n - b.n || cmp(a.label, b.label)).map(o => o.label))]
-    const ready = node.role === 'queue' && openBlockers.length === 0
+    // An overview draws each child in its own role colour: no ready tint, no blockers (it reads no edges).
+    const ready = view.overview !== true && node.role === 'queue' && openBlockers.length === 0
     const live = workers[node.id] ?? []
-    const rollup = rollupText(view.rollups?.[node.id])
-    const phase = `${phaseText(node, view.gates[node.id])}${rollup !== '' ? ` ${rollup}` : ''}`
-    const stateText = openBlockers.length > 0 ? `⊘ after ${openBlockers.join(', ')}` : live.length > 0 ? workerText(live) : ready ? 'ready' : phase
+    const rollup = view.overview === true ? rollupLine(node.childCounts) : ''
+    const stateText = view.overview === true
+      ? rollup !== '' ? rollup : phaseText(node, undefined)
+      : openBlockers.length > 0 ? `⊘ after ${openBlockers.join(', ')}` : live.length > 0 ? workerText(live) : ready ? 'ready' : phaseText(node, view.gates[node.id])
 
     return {
       id: node.id,

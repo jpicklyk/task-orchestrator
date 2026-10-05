@@ -1,14 +1,8 @@
-// Small pure helpers shared by the /to-graph collapse, layout and renderers (T3 a47dcd6f).
+// Small pure helpers shared by the /to-graph model, layout and renderers (T3 a47dcd6f).
 import type { GateInfo, GraphSnapshot } from '../../types'
 
-/** Descendants rolled up onto a visible ancestor when the project root is shown collapsed. */
-export interface Rollup {
-  count: number
-  byRole: Record<string, number>
-}
-
-/** A snapshot, optionally with roll-ups for the nodes that hide descendants (collapse's output). */
-export type GraphView = GraphSnapshot & { rollups?: Record<string, Rollup> }
+/** What the pane draws: a snapshot (the project-root overview or a subtree). */
+export type GraphView = GraphSnapshot
 
 /** The role a node reads as: a terminal node labelled `cancelled` is its own dim kind. */
 export type Kind = 'queue' | 'work' | 'review' | 'blocked' | 'terminal' | 'cancelled'
@@ -66,5 +60,19 @@ export function truncate(text: string, max: number): string {
   return text.length <= max ? text : `${text.slice(0, Math.max(0, max - 1))}…`
 }
 
-/** The "roll-up" suffix for a node hiding descendants, e.g. `+12`. */
-export const rollupText = (r: Rollup | undefined): string => (r !== undefined && r.count > 0 ? `+${r.count}` : '')
+const ROLLUP_ORDER: readonly [string, string][] = [
+  ['work', 'work'],
+  ['review', 'review'],
+  ['blocked', 'blocked'],
+  ['queue', 'queue'],
+  ['terminal', 'done'],
+]
+
+/** The roll-up line of an overview box, e.g. `9 work · 4 review · 63 done`; zero counts are left out, '' when none. */
+export function rollupLine(counts: Record<string, number> | undefined): string {
+  if (counts === undefined) return ''
+
+  return ROLLUP_ORDER.filter(([role]) => (counts[role] ?? 0) > 0)
+    .map(([role, word]) => `${counts[role]} ${word}`)
+    .join(' · ')
+}

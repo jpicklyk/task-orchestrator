@@ -12,14 +12,14 @@ import { WRITE_TOOLS, WRITE_TOOL_NAME, parseToolResult, shouldRefresh } from '..
 import type { GraphIo } from '../src/graph-data/io.ts'
 import { invalidateLabels, resetLabelState } from '../src/graph-data/labels.ts'
 import { createSseParser, curlRequest, eventsUrl, isLoopbackApiUrl, resetLiveState, resolveApiUrl, restartLive, syncLive } from '../src/graph-data/live.ts'
-import { refresh, resetRefreshState, sameSnapshot, sameStatus } from '../src/graph-data/refresh.ts'
+import { REFRESH_TIMEOUT_MS, refresh, refreshNow, resetRefreshState, sameSnapshot, sameStatus } from '../src/graph-data/refresh.ts'
 import { NODE_CAP, snapshot } from '../src/graph-data/snapshot.ts'
 
 const ROOT = '00000000-0000-4000-8000-000000000001'
 const TO = 'mcp__mcp-task-orchestrator__'
 const CONFIG = `project:\n  rootId: ${ROOT}\n`
 
-type Item = { id: string; parentId?: string; title: string; role: string; depth: number; type?: string; statusLabel?: string; properties?: unknown }
+type Item = { id: string; parentId?: string; title: string; role: string; depth: number; type?: string; statusLabel?: string; properties?: unknown; childCounts?: Record<string, number> }
 type Dep = { id: string; from: string; to: string; type: string; unblock?: string }
 type World = {
   items: Item[]
@@ -41,6 +41,18 @@ function answer(world: World, tool: string, args: Record<string, unknown>): McpR
     const item = world.items.find(i => i.id === id)
 
     return item ? { title: item.title, role: item.role } : (world.outside?.[id] ?? { title: id, role: 'queue' })
+  }
+  if (tool === 'query_items' && args.operation === 'overview') {
+    const anchor = String(args.anchorId)
+    const rows = world.items.filter(i => i.parentId === anchor)
+
+    return text({
+      anchor: { id: anchor, title: world.items.find(i => i.id === anchor)?.title ?? 'Project' },
+      items: rows.map(i => ({ ...i, priority: 'medium' })),
+      total: rows.length,
+      truncated: false,
+      offset: 0,
+    })
   }
   if (tool === 'query_items' && args.operation === 'get') {
     const id = String(args.itemId)
@@ -224,6 +236,59 @@ test('a null scope resolves to the project root; no rootId gives an empty snapsh
   expect(empty.nodes).toEqual([])
   expect(empty.error).toBe('no project.rootId')
   expect(none.calls).toHaveLength(0)
+})
+
+/** The project root with three children carrying role roll-ups, as the overview answers it. */
+function projectWorld(): World {
+  return {
+    items: [
+      { id: ROOT, title: 'TaskOrchestrator', role: 'work', depth: 0 },
+      { id: 'cont-features', parentId: ROOT, title: 'Features', role: 'work', depth: 1, type: 'container', childCounts: { work: 9, review: 4, terminal: 63, queue: 0, blocked: 0 } },
+      { id: 'cont-bugs', parentId: ROOT, title: 'Bugs', role: 'queue', depth: 1, childCounts: { queue: 2, work: 0 } },
+      { id: 'leaf', parentId: ROOT, title: 'Leaf', role: 'terminal', depth: 1 },
+      { id: 'deep', parentId: 'cont-features', title: 'Deep', role: 'work', depth: 2 },
+    ],
+    deps: [{ id: 'd1', from: 'cont-features', to: 'cont-bugs', type: 'BLOCKS' }],
+  }
+}
+
+test('overview: the project root is ONE query_items overview call; children carry roll-ups, nothing else is read', async () => {
+  for (const scope of [null, ROOT]) {
+    const env = fake({ world: projectWorld() })
+    const s = await snapshot(env.io, scope)
+    expect(env.calls).toEqual([{ tool: 'query_items', args: { operation: 'overview', anchorId: ROOT, limit: 100 } }])
+    expect(s.overview).toBe(true)
+    expect(s.scopeId).toBe(ROOT)
+    expect(s.error).toBe(undefined)
+    expect(s.nodes.map(n => [n.id, n.parentId, n.depth, n.title])).toEqual([
+      [ROOT, null, 0, 'TaskOrchestrator'],
+      ['cont-features', ROOT, 1, 'Features'],
+      ['cont-bugs', ROOT, 1, 'Bugs'],
+      ['leaf', ROOT, 1, 'Leaf'],
+    ])
+    // zero counts are dropped; a child without childCounts has none
+    expect(s.nodes[1]?.childCounts).toEqual({ work: 9, review: 4, terminal: 63 })
+    expect(s.nodes[2]?.childCounts).toEqual({ queue: 2 })
+    expect(s.nodes[3]?.childCounts).toBe(undefined)
+    expect(s.edges).toEqual([])
+    expect(s.gates).toEqual({})
+  }
+})
+
+test('overview: a failed call gives an empty-children snapshot with the error; a sub-scope still walks the subtree', async () => {
+  const env = fake({ world: projectWorld() })
+  const original = env.io.callTool
+  env.io.callTool = async (tool, args) => {
+    if (args.operation === 'overview') throw new Error('overview boom')
+
+    return original(tool, args)
+  }
+  const bad = await snapshot(env.io, null)
+  expect(bad.error).toBe('overview boom')
+  expect(bad.nodes).toEqual([])
+  const sub = await snapshot(fake({ world: projectWorld() }).io, 'cont-features')
+  expect(sub.overview).toBe(undefined)
+  expect(sub.nodes.map(n => n.id)).toEqual(['cont-features', 'deep'])
 })
 
 test('subtrees page in 100s and 151 items truncate to the 150 shallowest', async () => {
@@ -492,6 +557,35 @@ test('refresh is single-flight: a call during a run queues exactly one more', as
   expect(started).toBe(2)
   await env.advance(5_000)
   expect(started).toBe(2)
+})
+
+test('timeout: a refresh stuck past 10s lets the waiting scope switch run; the stale result is discarded', async () => {
+  resetRefreshState()
+  const env = fake({ world: projectWorld() })
+  let release: () => void = () => undefined
+  const gate = new Promise<void>(resolve => (release = resolve))
+  const original = env.io.callTool
+  env.io.callTool = async (tool, args) => {
+    if (tool === 'query_items' && args.operation === 'search') await gate
+
+    return original(tool, args)
+  }
+  env.state.scope = 'cont-features'
+  void refresh(env.io)
+  await env.advance(300)
+  // the switch to the project root queues behind the stuck run
+  env.state.scope = null
+  const switched = refreshNow(env.io)
+  await env.advance(REFRESH_TIMEOUT_MS - 1_000)
+  expect(env.state.snapshot).toBe(null)
+  await env.advance(1_000)
+  await switched
+  expect(env.state.snapshot?.overview).toBe(true)
+  expect(env.state.snapshot?.scopeId).toBe(ROOT)
+  // the abandoned run finishing late must not overwrite the newer snapshot
+  release()
+  await env.advance(1_000)
+  expect(env.state.snapshot?.scopeId).toBe(ROOT)
 })
 
 test('a failed snapshot lands in graphStatus.lastError', async () => {
@@ -795,7 +889,7 @@ function serveHooks(on: On, world: World = threeLevels()): Call[] {
   return calls
 }
 
-const searchesOf = (calls: Call[]) => calls.filter(c => c.tool === 'query_items' && c.args.operation === 'search').length
+const searchesOf = (calls: Call[]) => calls.filter(c => c.tool === 'query_items' && (c.args.operation === 'search' || c.args.operation === 'overview')).length
 const getsOf = (calls: Call[]) => calls.filter(c => c.tool === 'query_items' && c.args.operation === 'get').length
 const ok = { ref: 'r', result: { ok: true }, text: 'ok' }
 
@@ -850,8 +944,10 @@ test('each write tool in the trigger list refreshes', async ($, on) => {
 })
 
 test('S6: a successful manage_items call re-reads plan labels on the next refresh; advance_item does not', async ($, on) => {
-  const world: World = { items: [{ id: ROOT, title: 'Project', role: 'work', depth: 0, properties: '{"planLabel":"T1"}' }] }
+  // A feature scope: only the full subtree walk reads plan labels (the root overview does not).
+  const world: World = { items: [{ id: 'feat', title: 'Feature', role: 'work', depth: 1, properties: '{"planLabel":"T1"}' }] }
   const calls = serveHooks(on, world)
+  on('state.get', async (_$, e) => ({ value: { value: (e as { key: string }).key === 'graphScope' ? 'feat' : undefined, version: 1 } }) as never)
   const clock = mock.clock(on)
   on('tool.call', async () => ok as never)
   const settle = async () => {

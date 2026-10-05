@@ -10,14 +10,13 @@ import { WRITE_TOOLS } from '../src/graph-data/index.ts'
 import { emptyActivity, pruneActivity, recordActivity, rememberAgent, resolveId, seatOf, shortModel, touchedIds } from '../src/graph-pane/activity.ts'
 import { ELEMENT_BUDGET, TREE_CHAR_BUDGET, edgePlan } from '../src/graph-pane/budget.ts'
 import { cellSize } from '../src/graph-pane/cell.ts'
-import { collapse } from '../src/graph-pane/collapse.ts'
 import { layoutTD } from '../src/graph-pane/layout.ts'
 import { cardsOf, isOpen, num, stepsOf } from '../src/graph-pane/model.ts'
 import type { Card } from '../src/graph-pane/model.ts'
-import { detailLines, duration, formatDetail, isDegraded, parseScopeArg, summaryLine } from '../src/graph-pane/pane-model.ts'
+import { detailLines, duration, formatDetail, isDegraded, isSwitching, loadingTitle, parseScopeArg, scopeHeader, summaryLine } from '../src/graph-pane/pane-model.ts'
 import { raster, runs } from '../src/graph-pane/raster.ts'
 import { routes } from '../src/graph-pane/route.ts'
-import { phaseText } from '../src/graph-pane/shared.ts'
+import { phaseText, rollupLine } from '../src/graph-pane/shared.ts'
 import type { GraphView } from '../src/graph-pane/shared.ts'
 import { titleLines } from '../src/graph-pane/wrap.ts'
 import { SVG_LIMIT, SVG_PX_LIMIT, edgeSvg } from '../src/graph-pane/svg.ts'
@@ -44,37 +43,6 @@ const view = (nodes: GraphNode[], edges: GraphEdge[] = [], extra: Partial<GraphS
   takenAt: 1,
   truncated: false,
   ...extra,
-})
-
-// ── collapse ────────────────────────────────────────────────────────────────────────────
-
-const deep = (): GraphView => {
-  const nodes = [
-    node('root', 'work', 0, null, 'Root'),
-    node('cont', 'work', 1, 'root', 'Container'),
-    node('f1', 'work', 2, 'cont', 'Feature 1'),
-    node('f2', 'queue', 2, 'cont', 'Feature 2'),
-    node('t1', 'work', 3, 'f1'),
-    node('t2', 'queue', 3, 'f1'),
-    node('t3', 'queue', 3, 'f2'),
-    node('s1', 'queue', 4, 't1'),
-  ]
-
-  return view(nodes, [blocks('t1', 't3'), blocks('t2', 't3'), blocks('s1', 't3'), blocks('t1', 't2')])
-}
-
-test('collapse: root scope keeps depth <= 2 with roll-ups and lifted, deduped edges', () => {
-  const c = collapse(deep(), true)
-  expect(c.nodes.map(n => n.id)).toEqual(['root', 'cont', 'f1', 'f2'])
-  expect(c.rollups?.f1).toEqual({ count: 3, byRole: { work: 1, queue: 2 } })
-  expect(c.rollups?.f2).toEqual({ count: 1, byRole: { queue: 1 } })
-  // t1/t2/s1 -> t3 all lift to f1 -> f2 once; t1 -> t2 is a self loop and drops.
-  expect(c.edges).toEqual([blocks('f1', 'f2')])
-})
-
-test('collapse: a non-root scope passes through untouched', () => {
-  const v = deep()
-  expect(collapse(v, false)).toBe(v)
 })
 
 // ── phase text, plan labels, legend ─────────────────────────────────────────────────────
@@ -719,7 +687,7 @@ for (const surface of SURFACES) {
   })
 
   test(`pane on ${surface}: an empty scope says so`, async ($, on) => {
-    rig(on, { graphSnapshot: { ...asSnapshot(f1()), nodes: [], edges: [] } })
+    rig(on, { graphSnapshot: { ...asSnapshot(f1()), nodes: [], edges: [] }, graphScope: ROOT_ID })
     const ui = await mountAt($, surface)
     expect(await ui.find({ type: 'Text', text: 'No items' })).toBeDefined()
     expect(await ui.find({ key: 'legend' })).toBeUndefined()
@@ -1095,4 +1063,137 @@ for (const surface of SURFACES) {
       await ui.unmount()
     })
   }
+}
+
+// ── project-root overview, drill-down, pending switch ───────────────────────────────────
+
+/** The overview snapshot of the project root: three children with role roll-ups, no edges. */
+const ov = (): GraphSnapshot => ({
+  scopeId: ROOT_ID,
+  rootId: ROOT_ID,
+  overview: true,
+  nodes: [
+    node(ROOT_ID, 'work', 0, null, 'Root project'),
+    { ...node(A, 'work', 1, ROOT_ID, 'Features'), childCounts: { work: 9, review: 4, terminal: 63 } },
+    { ...node(B, 'queue', 1, ROOT_ID, 'Bugs'), childCounts: { queue: 2 } },
+    node(C, 'terminal', 1, ROOT_ID, 'Done leaf'),
+  ],
+  edges: [],
+  external: {},
+  gates: {},
+  takenAt: 1,
+  truncated: false,
+})
+
+test('overview: rollupLine omits zero counts, calls terminal done and orders work, review, blocked, queue, done', () => {
+  expect(rollupLine({ work: 9, review: 4, terminal: 63 })).toBe('9 work · 4 review · 63 done')
+  expect(rollupLine({ terminal: 1, queue: 3, blocked: 2, work: 0 })).toBe('2 blocked · 3 queue · 1 done')
+  expect(rollupLine({})).toBe('')
+  expect(rollupLine(undefined)).toBe('')
+})
+
+test('overview: cards take the roll-up as their state line, their own role colour (no ready tint) and no deps', () => {
+  const m = cardsOf(ov())
+  expect(m.root?.id).toBe(ROOT_ID)
+  expect(m.cards.map(c => [c.id, c.stateText, c.ready, c.deps.length])).toEqual([
+    [A, '9 work · 4 review · 63 done', false, 0],
+    [B, '2 queue', false, 0],
+    [C, 'done', false, 0],
+  ])
+})
+
+test('pending switch (unit): the wanted scope reads null as the root id; a mismatch with the loaded scope is a switch', () => {
+  const snap = ov()
+  expect(isSwitching(null, snap)).toBe(false)
+  expect(isSwitching(ROOT_ID, snap)).toBe(false)
+  expect(isSwitching(A, snap)).toBe(true)
+  expect(isSwitching(A, null)).toBe(false)
+  expect(isSwitching(null, { ...snap, rootId: null })).toBe(false)
+  expect(loadingTitle(A, snap)).toBe('Features')
+  expect(loadingTitle('ffff0000-aaaa', snap)).toBe('ffff0000')
+  expect(scopeHeader(snap)).toBe('Project: Root project')
+  expect(scopeHeader({ ...f1(), rootId: 'x' })).toBe('Scope: Root feature')
+})
+
+for (const surface of SURFACES) {
+  test(`overview: ${surface} root scope draws the root plus ONE row of roll-up boxes, no edges`, async ($, on) => {
+    rig(on, { graphSnapshot: ov(), graphScope: null })
+    const ui = await mountAt($, surface)
+    expect((await found(ui, `open:${A}`)).props.label).toBe('9 work · 4 review · 63 done')
+    expect((await found(ui, `open:${B}`)).props.label).toBe('2 queue')
+    expect((await found(ui, `open:${C}`)).props.label).toBe('done')
+    const a = await found(ui, `card:${A}`)
+    const b = await found(ui, `card:${B}`)
+    const c = await found(ui, `card:${C}`)
+    expect(a.props).toMatchObject({ backgroundColor: '#c2410c' })
+    expect(b.props).toMatchObject({ backgroundColor: '#6b7280' })
+    expect(c.props).toMatchObject({ backgroundColor: '#15803d' })
+    expect(new Set([a.props.top, b.props.top, c.props.top]).size).toBe(1)
+    expect(a.props.top).toBeGreaterThan(((await found(ui, `card:${ROOT_ID}`)).props.top as number) + 2)
+    expect(await ui.find({ key: 'done-steps' })).toBeUndefined()
+    expect(await ui.find({ type: 'Text', text: 'Project: Root project' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: 'Loading' })).toBeUndefined()
+    await ui.unmount()
+  })
+
+  test(`overview: ${surface} an all-terminal child row is not folded into a done chip`, async ($, on) => {
+    const done = { ...ov(), nodes: ov().nodes.map(n => (n.depth === 1 ? { ...n, role: 'terminal' } : n)) }
+    rig(on, { graphSnapshot: done, graphScope: null })
+    const ui = await mountAt($, surface)
+    expect(await ui.find({ key: `card:${A}` })).toBeDefined()
+    expect(await ui.find({ key: 'step:1' })).toBeUndefined()
+    await ui.unmount()
+  })
+
+  test(`drill-down: ${surface} clicking a box then Open graph scopes to that item and closes the detail`, async ($, on) => {
+    const r = rig(on, { graphSnapshot: ov(), graphScope: null })
+    const s = serveTo(on)
+    mock.clock(on, { now: s.now })
+    const ui = await mountAt($, surface)
+    await ui.press({ key: `open:${A}` })
+    await ui.redraw()
+    expect(await ui.find({ key: 'detail-open-graph' })).toBeDefined()
+    await ui.press({ key: 'detail-open-graph' })
+    await ui.redraw()
+    expect(r.sets).toContainEqual({ key: 'graphScope', value: A })
+    expect(detailOf(r)).toBeNull()
+    await ui.unmount()
+  })
+
+  test(`drill-down: ${surface} the detail of the scope's own box has no Open graph`, async ($, on) => {
+    const r = rig(on, { graphSnapshot: ov(), graphScope: null })
+    const s = serveTo(on)
+    mock.clock(on, { now: s.now })
+    const ui = await mountAt($, surface)
+    await ui.press({ key: `open:${ROOT_ID}` })
+    await ui.redraw()
+    expect(detailOf(r)?.itemId).toBe(ROOT_ID)
+    expect(await ui.find({ key: 'detail-open-graph' })).toBeUndefined()
+    await ui.unmount()
+  })
+
+  test(`pending switch: ${surface} shows Loading <title> and none of the old graph or its header`, async ($, on) => {
+    rig(on, { graphSnapshot: ov(), graphScope: A })
+    const ui = await mountAt($, surface)
+    expect(await ui.find({ type: 'Text', text: 'Loading Features…' })).toBeDefined()
+    expect(await ui.find({ key: 'canvas' })).toBeUndefined()
+    expect(await ui.find({ type: 'Text', text: 'Project: Root project' })).toBeUndefined()
+    expect(await ui.find({ key: 'scope-project' })).toBeDefined()
+    await ui.unmount()
+  })
+
+  test(`pending switch: ${surface} an unknown scope shows its short id`, async ($, on) => {
+    rig(on, { graphSnapshot: ov(), graphScope: 'ffff0000-1111-2222-3333-444444444444' })
+    const ui = await mountAt($, surface)
+    expect(await ui.find({ type: 'Text', text: 'Loading ffff0000…' })).toBeDefined()
+    await ui.unmount()
+  })
+
+  test(`pending switch: ${surface} a snapshot that matches the scope draws normally, no Loading line`, async ($, on) => {
+    rig(on, { graphSnapshot: f1(), graphScope: ROOT_ID })
+    const ui = await mountAt($, surface)
+    expect(await ui.find({ key: 'canvas' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: 'Loading' })).toBeUndefined()
+    await ui.unmount()
+  })
 }

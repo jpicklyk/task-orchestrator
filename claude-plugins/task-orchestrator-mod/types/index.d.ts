@@ -18,6 +18,8 @@ export interface GraphNode {
   depth: number
   /** Short plan label (properties.planLabel, 1-12 chars), e.g. T3. */
   planLabel?: string
+  /** Overview snapshots only: the node's full-subtree descendant counts by role (zero counts left out). */
+  childCounts?: Record<string, number>
 }
 
 /** A dependency, normalized so `from` blocks `to` (IS_BLOCKED_BY folded into BLOCKS with the ends swapped). */
@@ -59,6 +61,8 @@ export interface GraphSnapshot {
   takenAt: number
   /** True when the subtree had more items than the node cap and only the shallowest were kept. */
   truncated: boolean
+  /** True for the cheap project-root snapshot: the root plus its direct children with roll-ups, no edges, gates or labels. */
+  overview?: boolean
   /** Set when any call failed (the snapshot is then partial) or no scope could be resolved. */
   error?: string
 }

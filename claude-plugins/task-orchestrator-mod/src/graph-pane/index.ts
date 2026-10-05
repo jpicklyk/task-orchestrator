@@ -15,13 +15,12 @@ import { addSubscriber, bump, removeSubscriber, scopeTo, shouldRefresh } from '.
 import { WORKING_TTL_MS, RECENT_MS, pruneActivity, recordActivity, rememberAgent, resolveId, seatOf, touchedIds } from './activity.ts'
 import { edgePlan } from './budget.ts'
 import { cellSize } from './cell.ts'
-import { collapse } from './collapse.ts'
 import { layoutTD } from './layout.ts'
 import { cut, titleLines } from './wrap.ts'
 import type { TopDown } from './layout.ts'
 import { cardsOf, stepsOf } from './model.ts'
 import type { Card, Model } from './model.ts'
-import { detailLines, isDegraded, parseScopeArg, scopeTitle, summaryLine } from './pane-model.ts'
+import { detailLines, isDegraded, isSwitching, loadingTitle, parseScopeArg, scopeHeader, summaryLine } from './pane-model.ts'
 import { raster, runs } from './raster.ts'
 import { routes } from './route.ts'
 import { KIND, READY, id8, legendItems } from './shared.ts'
@@ -207,6 +206,8 @@ interface CanvasInput {
   steps: number
   open: (id: string) => void
   count: number
+  /** The project-root overview: the root plus one row of children, no steps. */
+  overview: boolean
 }
 
 /** The graph canvas (or a one-line notice when the tree would not fit). */
@@ -252,7 +253,7 @@ function canvasOf(ui: Ui, i: CanvasInput): unknown[] {
   if (root !== undefined) {
     const words = root.kind === 'terminal' ? 'done' : root.kind
     boxes.push(
-      boxOf(ui, { key: `card:${root.id}`, id: root.id, rect: lay.root, fill: KIND[root.kind], line1: `${root.glyph} [${root.label}] ${root.title}`, line3: `${words} · ${model.cards.length} items · ${i.steps} steps`, recent: false }, i.open),
+      boxOf(ui, { key: `card:${root.id}`, id: root.id, rect: lay.root, fill: KIND[root.kind], line1: `${root.glyph} [${root.label}] ${root.title}`, line3: i.overview ? `${words} · ${model.cards.length} children` : `${words} · ${model.cards.length} items · ${i.steps} steps`, recent: false }, i.open),
     )
   }
   for (const row of lay.rows) {
@@ -361,10 +362,11 @@ export function registerGraphPane(on: On, options: PluginOptions = {}): void {
     const showDone = await read($, graphShowDone)
     const open = (id: string): Promise<void> => openDetail($, id)
 
-    const view: GraphView | null = snap === null ? null : collapse(snap, scope === null)
+    const view: GraphView | null = snap
+    const switching = isSwitching(scope, snap)
     const model = view === null ? null : cardsOf(view, activity.working, activity.changed)
     const steps = model === null ? null : stepsOf(model.cards)
-    const lay = model === null || steps === null ? null : layoutTD(model.cards, steps, { bodyColumns: (e.props as { bodyColumns?: number }).bodyColumns, showDone, hasRoot: model.root !== undefined })
+    const lay = model === null || steps === null ? null : layoutTD(model.cards, steps, { bodyColumns: (e.props as { bodyColumns?: number }).bodyColumns, showDone: showDone || view?.overview === true, hasRoot: model.root !== undefined })
 
     // Refresh is automatic (SSE or poll); Reconnect restarts the live source and shows only while degraded.
     const controls = h(
@@ -382,7 +384,7 @@ export function registerGraphPane(on: On, options: PluginOptions = {}): void {
         },
       }),
       h(Button, { key: 'scope-project', label: 'Whole project', ...(scope === null ? { variant: 'primary' } : {}), onPress: () => update($, graphScope, scopeTo(null)) }),
-      ...(lay !== null && lay.doneSteps.length > 0
+      ...(lay !== null && view?.overview !== true && lay.doneSteps.length > 0
         ? [h(Button, { key: 'done-steps', label: showDone ? 'Hide done steps' : 'Show done steps', onPress: () => update($, graphShowDone, v => !v) })]
         : []),
       ...(isDegraded(status) ? [h(Button, { key: 'reconnect', label: 'Reconnect', onPress: () => update($, graphReconnectRequest, bump) })] : []),
@@ -392,9 +394,12 @@ export function registerGraphPane(on: On, options: PluginOptions = {}): void {
       return h(Box, { flexDirection: 'column' }, controls, h(Text, { key: 'loading' }, status.lastError ?? 'Loading the work graph…'))
     }
 
-    const header = [scope === null ? scopeTitle(view) : `Feature: ${scopeTitle(view)}`, summaryLine(view), `live: ${status.liveSource}${status.refreshing ? ' · refreshing' : ''}`].join(' · ')
+    // A scope switch is still loading: say so, and draw nothing of the old scope (the header would claim it).
+    if (switching) return h(Box, { flexDirection: 'column' }, controls, h(Text, { key: 'switching' }, `Loading ${loadingTitle(scope, snap)}…`))
+
+    const header = [scopeHeader(view), summaryLine(view), `live: ${status.liveSource}${status.refreshing ? ' · refreshing' : ''}`].join(' · ')
     const body: unknown[] = []
-    if (view.truncated) body.push(h(Text, { key: 'truncated', dimColor: true }, 'Large subtree: showing only the shallowest 150 items.'))
+    if (view.truncated) body.push(h(Text, { key: 'truncated', dimColor: true }, view.overview === true ? 'More children than shown.' : 'Large subtree: showing only the shallowest 150 items.'))
     if (view.error !== undefined) body.push(h(Text, { key: 'error', color: 'red' }, view.error))
 
     if (view.nodes.length === 0) {
@@ -413,7 +418,7 @@ export function registerGraphPane(on: On, options: PluginOptions = {}): void {
       if (lay.tooWide !== null) {
         body.push(h(Text, { key: 'too-wide', dimColor: true }, `Graph is ${lay.tooWide} columns wide; the pane shows ${lay.cols}. Widen the pane or open a smaller scope.`))
       }
-      body.push(...canvasOf(ui, { model, lay, desktop: e.surface !== 'terminal' && Svg !== undefined, cell, steps: steps.max, open, count: view.nodes.length }))
+      body.push(...canvasOf(ui, { model, lay, desktop: e.surface !== 'terminal' && Svg !== undefined, cell, steps: steps.max, open, count: view.nodes.length, overview: view.overview === true }))
     }
 
     if (detail !== null) {
@@ -434,6 +439,18 @@ export function registerGraphPane(on: On, options: PluginOptions = {}): void {
             }
           },
         }),
+        ...(detail.itemId !== view.scopeId
+          ? [
+              h(Button, {
+                key: 'detail-open-graph',
+                label: 'Open graph',
+                onPress: async () => {
+                  await update($, graphDetail, () => null)
+                  await update($, graphScope, scopeTo(detail.itemId))
+                },
+              }),
+            ]
+          : []),
         h(Button, { key: 'detail-close', label: 'Close detail', onPress: () => update($, graphDetail, () => null) }),
       )
     }
