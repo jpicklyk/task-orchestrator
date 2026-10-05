@@ -29,18 +29,29 @@ export function beginLocal(): void {
   local = { inFlight: local.inFlight + 1, lastEnd: local.lastEnd }
 }
 
-/** A local TO write ended at `now` (in the hook's finally, success or not). */
-export function endLocal(now: number): void {
-  local = { inFlight: Math.max(0, local.inFlight - 1), lastEnd: local.lastEnd === null ? now : Math.max(local.lastEnd, now) }
+/** A local TO write ended at `now` (in the hook's finally, success or not); null: no time could be read. */
+export function endLocal(now: number | null): void {
+  const lastEnd = now === null ? local.lastEnd : local.lastEnd === null ? now : Math.max(local.lastEnd, now)
+  local = { inFlight: Math.max(0, local.inFlight - 1), lastEnd }
 }
 
-/** Runs one local TO write inside the window: begun before `run`, ended at `now()` after it, even when it throws. */
+/**
+ * Runs one local TO write inside the window: begun before `run`, ended at `now()` after it, even when it throws.
+ * The window bookkeeping never changes the outcome: a failing `now()` (the clock goes away when the engine unloads
+ * or reloads the module) still closes the window, and `run`'s result or error passes through untouched.
+ */
 export async function withLocalWrite<R>(run: () => Promise<R>, now: () => Promise<number>): Promise<R> {
   beginLocal()
   try {
     return await run()
   } finally {
-    endLocal(await now())
+    let at: number | null = null
+    try {
+      at = await now()
+    } catch {
+      // no clock: close the window without a new end time
+    }
+    endLocal(at)
   }
 }
 
