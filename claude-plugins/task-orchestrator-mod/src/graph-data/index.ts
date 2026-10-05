@@ -135,8 +135,17 @@ function graphIo($: EngineInterface): GraphIo {
     sleep: (ms, signal) => $.clock.sleep(ms, { signal }),
     spawn: request => $.process.spawn(request),
     readScope: () => read($, graphScope),
-    setSnapshot: value => update($, graphSnapshot, () => value),
-    updateStatus: change => update($, graphStatus, change),
+    // Skip writes that change nothing: every write redraws the pane and band (and flashes the Svg frame).
+    setSnapshot: async value => {
+      if (sameSnapshot(await read($, graphSnapshot), value)) return
+      await update($, graphSnapshot, () => value)
+    },
+    updateStatus: async change => {
+      const current = await read($, graphStatus)
+      const next = change(current)
+      if (sameStatus(current, next)) return
+      await update($, graphStatus, () => next)
+    },
     envApiUrl: () => $.env.get('TASK_ORCHESTRATOR_API_URL'),
     envApiToken: () => $.env.get('TASK_ORCHESTRATOR_API_TOKEN'),
     homeDir: async () => (await $.env.get('TASK_ORCHESTRATOR_HOME')) || (await $.env.get('HOME')) || (await $.env.get('USERPROFILE')),

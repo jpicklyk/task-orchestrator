@@ -201,10 +201,10 @@ interface BoxSpec {
   recent: boolean
 }
 
-/** One state-filled box: a pure function of its spec (an id-derived key, nothing view-wide). */
-/** Up to this many boxes every line of a box is clickable; above it only the state line (tree budget). */
+/** Below this many boxes every line of a box is clickable; from it on only the state line (tree budget). */
 export const WHOLE_CLICK_MAX = 100
 
+/** One state-filled box: a pure function of its spec (an id-derived key, nothing view-wide). */
 function boxOf(ui: Ui, s: BoxSpec, open: (id: string) => void, wholeClick = true): unknown {
   const { Box, Text, Button } = ui
   const n = s.rect.width - 2
@@ -253,16 +253,17 @@ function canvasOf(ui: Ui, i: CanvasInput): unknown[] {
   const rs = routes(lay, model.cards, i.desktop ? 'px' : 'cell')
   let edges: unknown = null
   let plan: ReturnType<typeof edgePlan>
+  const wholeClick = model.cards.length < WHOLE_CLICK_MAX
   if (i.desktop) {
     const svg = edgeSvg(rs, i.cell, lay.width, lay.height)
-    plan = edgePlan({ desktop: true, cards: lay.cards.size + (model.root !== undefined ? 1 : 0), chips: lay.chips.length, cells: 0, runs: 0, svgChars: svg.length, svgWidth: px(lay.width, i.cell.w), svgHeight: px(lay.height, i.cell.h) })
+    plan = edgePlan({ desktop: true, wholeClick, cards: lay.cards.size + (model.root !== undefined ? 1 : 0), chips: lay.chips.length, cells: 0, runs: 0, svgChars: svg.length, svgWidth: px(lay.width, i.cell.w), svgHeight: px(lay.height, i.cell.h) })
     if (plan === 'full' && Svg !== undefined) {
       edges = h(Box, { key: 'edges', position: 'absolute', top: 0, left: 0 }, h(Svg, { source: svg, alt: 'dependency edges', width: px(lay.width, i.cell.w), height: px(lay.height, i.cell.h) }))
     }
   } else {
     const cells = raster(rs)
     const merged = runs(cells)
-    plan = edgePlan({ desktop: false, cards: lay.cards.size + (model.root !== undefined ? 1 : 0), chips: lay.chips.length, cells: cells.size, runs: merged.length, svgChars: 0, svgWidth: 0, svgHeight: 0 })
+    plan = edgePlan({ desktop: false, wholeClick, cards: lay.cards.size + (model.root !== undefined ? 1 : 0), chips: lay.chips.length, cells: cells.size, runs: merged.length, svgChars: 0, svgWidth: 0, svgHeight: 0 })
     if (plan === 'full') {
       edges = h(
         Box,

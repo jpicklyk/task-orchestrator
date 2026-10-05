@@ -11,6 +11,8 @@ export const COST = {
   baseChars: 3500,
   baseEls: 40,
   cardChars: 600,
+  /** A whole-click card draws every line as a plain Button (measured ~750 with UUID ids; kept with margin). */
+  wholeCardChars: 820,
   cardEls: 7,
   chipChars: 330,
   chipEls: 4,
@@ -27,6 +29,8 @@ export type EdgePlan = 'full' | 'runs' | 'omit' | 'too-large'
 export interface PlanInput {
   desktop: boolean
   cards: number
+  /** Every line of a card is a Button (see WHOLE_CLICK_MAX), which costs more per card. */
+  wholeClick?: boolean
   chips: number
   cells: number
   runs: number
@@ -43,7 +47,7 @@ const fits = (chars: number, els: number): boolean => chars <= TREE_CHAR_BUDGET 
  * Terminal: per-cell edges; else merged runs; else cards only; else too large.
  */
 export function edgePlan(i: PlanInput): EdgePlan {
-  const chars = COST.baseChars + i.cards * COST.cardChars + i.chips * COST.chipChars
+  const chars = COST.baseChars + i.cards * (i.wholeClick === true ? COST.wholeCardChars : COST.cardChars) + i.chips * COST.chipChars
   const els = COST.baseEls + i.cards * COST.cardEls + i.chips * COST.chipEls
   if (i.desktop) {
     if (i.svgChars <= SVG_LIMIT && i.svgWidth <= SVG_PX_LIMIT && i.svgHeight <= SVG_PX_LIMIT && fits(chars + Math.ceil(i.svgChars * COST.svgEscape), els + 2)) return 'full'

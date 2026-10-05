@@ -8,7 +8,7 @@ import type { GateInfo, GraphEdge, GraphNode, GraphSnapshot, GraphStatus } from 
 import { READ_TOOLS, trackToolCall } from '../src/graph-pane/index.ts'
 import { WRITE_TOOLS } from '../src/graph-data/index.ts'
 import { emptyActivity, pruneActivity, recordActivity, rememberAgent, resolveId, seatOf, shortModel, touchedIds } from '../src/graph-pane/activity.ts'
-import { ELEMENT_BUDGET, TREE_CHAR_BUDGET, edgePlan } from '../src/graph-pane/budget.ts'
+import { COST, ELEMENT_BUDGET, TREE_CHAR_BUDGET, edgePlan } from '../src/graph-pane/budget.ts'
 import { cellSize } from '../src/graph-pane/cell.ts'
 import { layoutTD } from '../src/graph-pane/layout.ts'
 import { cardsOf, isOpen, num, stepsOf } from '../src/graph-pane/model.ts'
@@ -1030,6 +1030,52 @@ for (const surface of SURFACES) {
     const ui = await mountBig($, on, surface, chain(149))
     expect(await ui.find({ type: 'Text', text: 'Too large to draw (150 items). Open a smaller scope.' })).toBeDefined()
     expect(await ui.find({ key: 'canvas' })).toBeUndefined()
+    await withinBudget(ui)
+    await ui.unmount()
+  })
+}
+
+// ── whole-click budget (T11 review B1) ──────────────────────────────────────────────────
+
+/** `layered` with UUID-length ids, the realistic worst case for the serialised tree. */
+const layeredUuid = (layers: number, width: number): GraphView => {
+  const id = (l: number, k: number) => `${String(l).padStart(4, "0")}${String(k).padStart(4, "0")}-1111-2222-3333-444455556666`
+  const ns: GraphNode[] = []
+  const es: GraphEdge[] = []
+  for (let l = 0; l < layers; l++) {
+    for (let k = 0; k < width; k++) ns.push(mk(id(l, k), "queue", `T${l * width + k + 1}`, `Node ${l} ${k} with a fairly long title`))
+    if (l > 0) for (let k = 0; k < width; k++) for (const a of [k, (k + 1) % width]) es.push(blocks(id(l - 1, a), id(l, k)))
+  }
+
+  return gview(ns, es)
+}
+
+test("B1: the edge plan charges whole-click cards more", () => {
+  expect(COST.wholeCardChars).toBeGreaterThan(COST.cardChars)
+  const at = (wholeClick: boolean) => edgePlan({ desktop: true, wholeClick, cards: 96, chips: 0, cells: 0, runs: 0, svgChars: 20000, svgWidth: 1000, svgHeight: 1000 })
+  expect(at(false)).toBe("full")
+  expect(at(true)).toBe("omit")
+})
+
+for (const [layers, width] of [[16, 6], [19, 5], [9, 10]] as const) {
+  test(`B1: desktop ${layers}x${width} whole-click cards with the detail open stay within the tree budget`, async ($, on) => {
+    const v = layeredUuid(layers, width)
+    const first = (v.nodes[1] as GraphNode).id
+    rig(on, { graphSnapshot: asSnapshot(v), graphScope: ROOT_ID, graphShowDone: true, graphDetail: { itemId: first, lines: Array.from({ length: 12 }, (_, i) => `detail line ${i} with some text`) } })
+    const ui = await mountAt($, "desktop", 140)
+    // Whole-click is on: the title line is a Button.
+    expect(await ui.find({ key: `open:${first}:1` })).toBeDefined()
+    await withinBudget(ui)
+    await ui.unmount()
+  })
+}
+
+for (const [n, whole] of [[99, true], [100, false]] as const) {
+  test(`B1: whole-click boundary: ${n} cards ${whole ? "are" : "are not"} whole-click`, async ($, on) => {
+    const ns = Array.from({ length: n }, (_, i) => mk(`b${String(i).padStart(3, "0")}-xxxx`, "queue", `T${i + 1}`))
+    rig(on, { graphSnapshot: asSnapshot(gview(ns)), graphScope: ROOT_ID, graphShowDone: true })
+    const ui = await mountAt($, "desktop", 140)
+    expect((await ui.find({ key: "open:b000-xxxx:1" })) !== undefined).toBe(whole)
     await withinBudget(ui)
     await ui.unmount()
   })

@@ -913,6 +913,25 @@ test('five rapid advance_item calls give one snapshot after 300ms; the result pa
   for (const c of calls) expect(['query_items', 'query_dependencies', 'get_context']).toContain(c.tool)
 })
 
+test('O1: a refresh that reads an unchanged graph does not rewrite the snapshot or status', async ($, on) => {
+  serveHooks(on)
+  const clock = mock.clock(on)
+  on('tool.call', async () => ok as never)
+  const writes: string[] = []
+  on('state.set', async (_$, e, next) => {
+    if (e.plugin === 'task-orchestrator-mod' && (e.key === 'graphSnapshot' || e.key === 'graphStatus')) writes.push(e.key)
+
+    return next(e)
+  })
+  for (let i = 0; i < 2; i++) {
+    await $.tool.call({ tool: `${TO}advance_item`, itemId: 'x', trigger: 'start' } as never)
+    await clock.advance(1_000)
+    await clock.settle()
+  }
+  expect(writes.filter(k => k === 'graphSnapshot')).toHaveLength(1)
+  expect(writes.filter(k => k === 'graphStatus').length).toBeLessThanOrEqual(1)
+})
+
 test('a read tool, a denied call and an errored call do not refresh', async ($, on) => {
   const calls = serveHooks(on)
   const clock = mock.clock(on)
