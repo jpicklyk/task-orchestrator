@@ -142,21 +142,21 @@ export function registerGraphData(on: On): void {
   // Consumer controls: they write these atoms, and the layer reacts once the write has landed.
   on('state.set', { plugin: PLUGIN, key: 'graphScope' }, async ($, e, next) => {
     const wrote = await next(e)
-    if (wrote.value?.isSet) void refreshNow(graphIo($))
+    if (wrote.isSet) void refreshNow(graphIo($))
 
     return wrote
   })
 
   on('state.set', { plugin: PLUGIN, key: 'graphRefreshRequest' }, async ($, e, next) => {
     const wrote = await next(e)
-    if (wrote.value?.isSet) void refresh(graphIo($))
+    if (wrote.isSet) void refresh(graphIo($))
 
     return wrote
   })
 
   on('state.set', { plugin: PLUGIN, key: 'graphReconnectRequest' }, async ($, e, next) => {
     const wrote = await next(e)
-    if (wrote.value?.isSet) {
+    if (wrote.isSet) {
       invalidateLabels()
       restartLive(graphIo($), await read($, graphSubscribers))
       void refreshNow(graphIo($))
@@ -167,7 +167,7 @@ export function registerGraphData(on: On): void {
 
   on('state.set', { plugin: PLUGIN, key: 'graphSubscribers' }, async ($, e, next) => {
     const wrote = await next(e)
-    if (wrote.value?.isSet) syncLive(graphIo($), typeof e.value === 'number' ? e.value : 0)
+    if (wrote.isSet) syncLive(graphIo($), typeof e.value === 'number' ? e.value : 0)
 
     return wrote
   })
