@@ -10,13 +10,17 @@ import type { EngineInterface, On } from 'claude-code'
 
 import type { GraphSnapshot } from '../../types'
 import { addSubscriber, requestLiveSync } from '../graph-data/index.ts'
-import { bandModel } from './model.ts'
+import { bandLine, bandModel } from './model.ts'
 
 /** Below this many columns the band hides; the status line still carries the item. */
 export const MIN_BAND_COLUMNS = 40
 
+/** The /to-graph pane's id (graph-pane PANE_ID); the band's text opens it. */
+const PANE_ID = 'to-graph'
+
 const graphSnapshot = atom({ plugin: 'task-orchestrator-mod', key: 'graphSnapshot' } as const, null as GraphSnapshot | null)
 const graphSubscribers = atom({ plugin: 'task-orchestrator-mod', key: 'graphSubscribers' } as const, 0)
+const graphPaneOpen = atom({ plugin: 'task-orchestrator-mod', key: 'graphPaneOpen' } as const, false)
 const bandHidden = atom({ plugin: 'task-orchestrator-mod', key: 'bandHidden' } as const, false)
 const bandSubscribed = atom({ plugin: 'task-orchestrator-mod', key: 'bandSubscribed' } as const, false)
 
@@ -42,6 +46,20 @@ async function sync($: EngineInterface): Promise<void> {
   if (!commandRegistered) {
     commandRegistered = true
     await $.command.register({ name: 'to-band', description: 'Show or hide the Task Orchestrator in-flight band' })
+  }
+}
+
+/**
+ * The band's text pressed: open the work graph pane on the current scope, and count it once as a
+ * subscriber, the same steps /to-graph runs (graph-pane index.ts). Run directly, not through a hook on
+ * our own state write (a plugin's own `$.state.set` does not reliably reach its own hooks).
+ */
+async function openPane($: EngineInterface): Promise<void> {
+  await $.ui.open({ id: PANE_ID, title: 'TO graph' })
+  if (!(await read($, graphPaneOpen))) {
+    await update($, graphPaneOpen, yes)
+    await update($, graphSubscribers, addSubscriber)
+    requestLiveSync(await read($, graphSubscribers))
   }
 }
 
@@ -80,15 +98,16 @@ export function registerBand(on: On): void {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey || e.props.bodyColumns < MIN_BAND_COLUMNS) return next(e)
     if (await read($, bandHidden)) return next(e)
-    const text = bandModel(await read($, graphSnapshot), false, e.props.bodyColumns).band
+    // The smart line while the graph is scoped to an item, else today's in-flight line (model.ts).
+    const text = bandLine(await read($, graphSnapshot), e.props.bodyColumns)
     if (text === undefined) return next(e)
 
-    const { Box, Text, Button } = $.ui.resolve(e)
+    const { Box, Button } = $.ui.resolve(e)
 
     return h(
       Box,
       null,
-      h(Text, null, text),
+      h(Button, { key: 'band-open', label: text, plain: true, onPress: () => openPane($) }),
       h(Button, { key: 'hide', label: 'Hide', onPress: () => update($, bandHidden, hide) }),
     )
   })

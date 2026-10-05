@@ -1765,3 +1765,157 @@ for (const surface of SURFACES) {
     })
   }
 }
+
+// ── T12b 6a976f10: cross-session marks, gate toasts, budget with every decoration ─────
+
+test('S14 (unit): cardsOf marks a card remote only when its id is in graphRemote', () => {
+  const m = cardsOf(f1(), {}, {}, {}, { [A]: 1, 'not-in-scope': 2 })
+  expect(m.cards.map(c => [c.id, c.remote])).toEqual([[A, true], [B, false], [C, false]])
+  expect(cardsOf(f1()).cards.every(c => c.remote === false)).toBe(true)
+})
+
+for (const surface of SURFACES) {
+  test(`S14: ${surface} a remote mark draws ⇄ on line 1 of its card only, after ✱; the other cards are unchanged`, async ($, on) => {
+    const r = rig(on, { graphSnapshot: asSnapshot(f1()), graphScope: ROOT_ID })
+    const ui = await mountAt($, surface)
+    const keys = [`card:${ROOT_ID}`, `card:${B}`, `card:${C}`]
+    const before = Object.fromEntries(await Promise.all(keys.map(async k => [k, await json(ui, k)])))
+    expect(JSON.stringify(await ui.find({ key: 'canvas' }))).not.toContain('⇄')
+    r.state.set(SLOT('graphRemote'), { value: { [A]: 1, 'ffffffff-not-in-snapshot': 2 }, version: 3 })
+    await ui.redraw()
+    expect(String((await found(ui, `open:${A}:1`)).props.label).startsWith('⇄ ◉ [T1] ')).toBe(true)
+    for (const k of keys) expect(await json(ui, k)).toBe(before[k])
+    // The drawn tree (ui.find adds a text digest that repeats each label): exactly one mark.
+    expect(JSON.stringify(await ui.drawn()).split('⇄')).toHaveLength(2)
+    // A recent change too: ✱ first, then ⇄.
+    r.state.set(SLOT('graphActivity'), { value: { working: {}, changed: { [A]: 1 } }, version: 4 })
+    await ui.redraw()
+    expect(String((await found(ui, `open:${A}:1`)).props.label).startsWith('✱ ⇄ ◉ [T1] ')).toBe(true)
+    // Cleared (a local write): the mark goes.
+    r.state.set(SLOT('graphRemote'), { value: {}, version: 5 })
+    await ui.redraw()
+    expect(JSON.stringify(await ui.find({ key: 'canvas' }))).not.toContain('⇄')
+    await ui.unmount()
+  })
+}
+
+const gateBlockedRig = (on: On) => {
+  const r = rig(on, { graphSnapshot: asSnapshot(f1()), graphScope: ROOT_ID })
+  mock.clock(on, { now: 1_000_000 })
+  on('mcp.call', async () => ({ value: failed('offline') }) as never)
+  on('fs.read', async () => {
+    throw new Error('ENOENT')
+  })
+  const out = { text: JSON.stringify({ results: [{ itemId: A, trigger: 'start', applied: false, errorCode: 'gate_blocked', missingNotes: [{ key: 'implementation-notes' }], targetRole: 'review' }], summary: { total: 1, succeeded: 0, failed: 1 } }) }
+  on('tool.call', async () => ({ ref: 'r', result: {}, text: out.text }) as never)
+  const toasts: string[] = []
+  on('ui.toast', async (_$, e) => {
+    toasts.push(e.text)
+
+    return { value: undefined } as never
+  })
+
+  return { toasts, out, r }
+}
+
+test('S8: with graphToasts on, a gate-blocked advance_item of this session toasts its label, target and missing notes', { options: { graphToasts: true } }, async ($, on) => {
+  const { toasts, out } = gateBlockedRig(on)
+  await $.tool.call({ tool: `${TO}advance_item`, transitions: [{ itemId: A, trigger: 'start' }] } as never)
+  expect(toasts).toEqual(['✗ Gate blocked: T1 -> review: implementation-notes'])
+  // An applied row raises none.
+  out.text = JSON.stringify({ results: [{ itemId: A, applied: true }] })
+  await $.tool.call({ tool: `${TO}advance_item`, transitions: [{ itemId: A, trigger: 'start' }] } as never)
+  expect(toasts).toHaveLength(1)
+})
+
+test('S8: with graphToasts at its default (off), a gate-blocked advance_item raises no toast but still marks the card', async ($, on) => {
+  const { toasts, r } = gateBlockedRig(on)
+  await $.tool.call({ tool: `${TO}advance_item`, transitions: [{ itemId: A, trigger: 'start' }] } as never)
+  expect(toasts).toEqual([])
+  expect((r.valueOf('graphActivity') as { blocked?: Record<string, unknown> }).blocked?.[A]).toBeDefined()
+})
+
+/** A chain of `n` open UUID cards with long titles: every decoration on at once is the worst case per card. */
+const decoratedChain = (n: number) => {
+  const id = (i: number) => `${String(i).padStart(8, '0')}-1111-2222-3333-444455556666`
+  const ns = Array.from({ length: n }, (_, i) => mk(id(i), 'work', `T${i + 1}`, `Node ${i} with a really quite long title that fills both title lines of the box and then runs on further`))
+  const es: GraphEdge[] = []
+  for (let i = 1; i < n; i++) es.push(blocks(id(i - 1), id(i)))
+  const ids = ns.map(x => x.id)
+  const stalled = Object.fromEntries(ids.map(x => [x, ['implementation-notes', 'session-tracking', 'delegation-metadata']]))
+
+  return {
+    ids,
+    seed: (detail: boolean) => ({
+      graphSnapshot: { ...asSnapshot(gview(ns, es)), trail: TRAIL4, stalled },
+      graphScope: ROOT_ID,
+      graphShowDone: true,
+      graphRemote: Object.fromEntries(ids.map(x => [x, 1])),
+      graphActivity: { working: {}, changed: Object.fromEntries(ids.map(x => [x, 1])), blocked: Object.fromEntries(ids.filter((_, i) => i % 2 === 0).map(x => [x, { at: 1, missing: ['review-checklist', 'implementation-notes'], target: 'review' }])) },
+      ...(detail ? { graphDetail: DETAIL(ids[1] as string) } : {}),
+    }),
+  }
+}
+
+for (const surface of SURFACES) {
+  for (const [n, whole] of [[40, true], [WHOLE_CLICK_MAX, false]] as const) {
+    test(`B5: ${surface} a fully decorated ${whole ? 'whole-click' : 'state-line-only'} card (✱ ⇄, warning, UUID, long title, path) stays within its per-card cost`, async ($, on) => {
+      const cost = whole ? COST.wholeCardChars : COST.cardChars
+      const d = decoratedChain(n)
+      rig(on, d.seed(true))
+      const ui = await mountAt($, surface, 200)
+      expect((await ui.find({ key: `open:${d.ids[0]}:1` })) !== undefined).toBe(whole)
+      // Measured in the drawn tree (what the host bounds), not ui.find's form, which adds a key and a text digest.
+      const drawn = (await ui.drawn()) as El
+      const byKey = new Map<string, unknown>()
+      const walk = (x: unknown): void => {
+        if (typeof x !== 'object' || x === null) return
+        const k = (x as El).props?.key
+        if (typeof k === 'string' && k.startsWith('card:')) byKey.set(k, x)
+        ;((x as El).children ?? []).forEach(walk)
+      }
+      walk(drawn)
+      const sizes = d.ids.map(x => JSON.stringify(byKey.get(`card:${x}`)).length)
+      const max = Math.max(...sizes)
+      expect(max).toBeLessThanOrEqual(cost)
+      expect(JSON.stringify(await ui.find({ key: `card:${d.ids[n - 1]}` }))).toContain('⇄')
+      await ui.unmount()
+    })
+  }
+
+  for (const n of [40, 89, 90]) {
+    test(`B5: ${surface} a ${n}-card fully decorated UUID chain with detail and trail stays within budget across redraws`, async ($, on) => {
+      rig(on, decoratedChain(n).seed(true))
+      const ui = await mountAt($, surface, 200)
+      for (let k = 0; k < 5; k++) await ui.redraw()
+      expect(await ui.find({ type: 'Text', text: 'Too large' })).toBeUndefined()
+      await withinBudget(ui)
+      await ui.unmount()
+    })
+  }
+
+  for (const open of [false, true]) {
+    test(`B5: ${surface} refusal cutoff unchanged with every decoration, detail ${open ? 'open' : 'closed'}: 122 draw, 123 refused`, async ($, on) => {
+      const r = rig(on, decoratedChain(122).seed(open))
+      const ui = await mountAt($, surface, 200)
+      expect(await ui.find({ type: 'Text', text: 'Too large' })).toBeUndefined()
+      expect(JSON.stringify(await ui.find({ key: `card:${String(121).padStart(8, '0')}-1111-2222-3333-444455556666` }))).toContain('⇄')
+      await withinBudget(ui)
+      const next = decoratedChain(123).seed(open)
+      for (const [key, value] of Object.entries(next)) r.state.set(SLOT(key), { value, version: 9 })
+      await ui.redraw()
+      expect(await ui.find({ type: 'Text', text: 'Too large to draw (124 items). Open a smaller scope.' })).toBeDefined()
+      await withinBudget(ui)
+      // Toggling the detail never flips the scope: 123 stays refused, 122 stays drawn.
+      r.state.set(SLOT('graphDetail'), { value: open ? null : DETAIL('x'), version: 10 })
+      await ui.redraw()
+      expect(await ui.find({ type: 'Text', text: 'Too large to draw (124 items). Open a smaller scope.' })).toBeDefined()
+      for (const [key, value] of Object.entries(decoratedChain(122).seed(!open))) r.state.set(SLOT(key), { value, version: 11 })
+      if (open) r.state.set(SLOT('graphDetail'), { value: null, version: 11 })
+      await ui.redraw()
+      expect(await ui.find({ type: 'Text', text: 'Too large' })).toBeUndefined()
+      await withinBudget(ui)
+      await ui.unmount()
+    })
+  }
+}

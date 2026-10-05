@@ -7,14 +7,17 @@
 // module takes that. Consumers control the layer through the atoms (see the atoms below), not by calling
 // helpers with their own `$`.
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, On } from 'claude-code'
+import type { EngineInterface, On, PluginOptions } from 'claude-code'
 
 import { PLUGIN, TO_SERVER, toToolName } from '../shared/constants.ts'
 import type { GraphSnapshot, GraphStatus } from '../../types'
+import { touchedIds } from '../graph-pane/activity.ts'
+import { snapshotEvents, toastLines } from './events.ts'
 import type { GraphIo } from './io.ts'
 import { invalidateLabels } from './labels.ts'
 import { restartLive, syncLive } from './live.ts'
 import { refresh, refreshNow, sameSnapshot, sameStatus } from './refresh.ts'
+import { clearRemote, resultItemIds, withLocalWrite } from './remote.ts'
 
 export type { GateInfo, GraphEdge, GraphNode, GraphSnapshot, GraphStatus } from '../../types'
 // ── Atoms: the control and data surface for T3 (pane) and T4 (band) ──
@@ -47,6 +50,9 @@ export const graphRefreshRequest = atom({ plugin: 'task-orchestrator-mod', key: 
 
 /** Bump it to restart the live source (SSE/poll) and re-snapshot. */
 export const graphReconnectRequest = atom({ plugin: 'task-orchestrator-mod', key: 'graphReconnectRequest' } as const, 0)
+
+/** Items whose last change came from another session (SSE, not our echo): id -> when (ms). Written through graphIo.updateRemote only. */
+export const graphRemote = atom({ plugin: 'task-orchestrator-mod', key: 'graphRemote' } as const, {} as Record<string, number>)
 
 /** Steps for `update($, atom, step)`. */
 export const addSubscriber = (n: number): number => n + 1
@@ -107,6 +113,9 @@ export function parseToolResult(tool: string, result: { content: readonly unknow
  */
 let sessionIo: GraphIo | null = null
 
+/** The `graphToasts` option (default off): set by registerGraphData, read when a snapshot lands. */
+let toastsOn = false
+
 /** Re-snapshot for the current scope now (a scope change) or after the debounce window. */
 export function requestRefresh(now = true): void {
   if (sessionIo !== null) void (now ? refreshNow(sessionIo) : refresh(sessionIo))
@@ -136,9 +145,18 @@ function graphIo($: EngineInterface): GraphIo {
     spawn: request => $.process.spawn(request),
     readScope: () => read($, graphScope),
     // Skip writes that change nothing: every write redraws the pane and band (and flashes the Svg frame).
+    // A real change may raise toasts (graphToasts on): only against the previous snapshot of the same
+    // scope, so the first snapshot after a load or a scope switch is quiet (events.ts).
     setSnapshot: async value => {
-      if (sameSnapshot(await read($, graphSnapshot), value)) return
+      const prev = await read($, graphSnapshot)
+      if (sameSnapshot(prev, value)) return
       await update($, graphSnapshot, () => value)
+      if (toastsOn) for (const line of toastLines(snapshotEvents(prev, value))) $.ui.toast(line)
+    },
+    updateRemote: async step => {
+      const current = await read($, graphRemote)
+      if (step(current) === current) return
+      await update($, graphRemote, step)
     },
     updateStatus: async change => {
       // Pre-check only: the write applies `change` to the value current at write time, so a
@@ -153,16 +171,30 @@ function graphIo($: EngineInterface): GraphIo {
   }
 }
 
-export function registerGraphData(on: On): void {
+/** A successful local write clears the remote marks of every item it named or cascaded to. Advisory. */
+async function clearLocalMarks($: EngineInterface, e: unknown, text: unknown): Promise<void> {
+  const ids = [...touchedIds(e).map(t => t.id), ...resultItemIds(text)]
+  if (ids.length === 0) return
+  try {
+    await graphIo($).updateRemote?.(map => clearRemote(map, ids))
+  } catch {
+    // marks are advisory
+  }
+}
+
+export function registerGraphData(on: On, options: PluginOptions = {}): void {
+  toastsOn = options.graphToasts === true
   // Matched (the validator refuses a second unmatched `tool.call`): same names as WRITE_TOOLS.
   // Matcher spelled as a literal: the engine resolves matchers from source, and an imported or exported constant stays unresolved (never matches).
   on('tool.call', { tool: /^mcp__.*task-orchestrator.*__(advance_item|manage_notes|create_work_tree|manage_items|manage_dependencies|complete_tree|claim_item)$/ }, async ($, e, next) => {
     if (next.origin.plugin === PLUGIN) return next(e)
-    const ran = await next(e)
+    // The local-write window: SSE events for this write (its echo) are not marked as remote (remote.ts).
+    const ran = await withLocalWrite(() => next(e), () => $.clock.now())
     // Debounced and never awaited: the model's call is not slowed by the snapshot.
     if (shouldRefresh(e.tool, next.origin.plugin, ran)) {
       if (toToolName(e.tool) === 'manage_items') invalidateLabels()
       void refresh(graphIo($))
+      void clearLocalMarks($, e, (ran as { text?: unknown }).text)
     }
 
     return ran

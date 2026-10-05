@@ -163,6 +163,8 @@ declare module 'claude-code' {
       graphRefreshRequest: number
       /** Bumped to restart the live source (SSE/poll) and re-snapshot. */
       graphReconnectRequest: number
+      /** Items whose last change came from another session over SSE (not this session's echo): id -> when (ms). Capped at 200. */
+      graphRemote: Record<string, number>
       // ── graph-pane (T3 a47dcd6f) state ──
       /** The /to-graph pane has counted itself once in graphSubscribers; a repeat /to-graph neither double-counts nor leaks. */
       graphPaneOpen: boolean

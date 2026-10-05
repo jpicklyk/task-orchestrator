@@ -1,6 +1,7 @@
 // Pure selection and text for the band and the status line (T4 ec1e2f91). No `$`, no atoms: the
 // hooks in index.ts feed it a snapshot and draw what it returns.
 import type { GateInfo, GraphNode, GraphSnapshot } from '../../types'
+import { cardsOf, num } from '../graph-pane/model.ts'
 
 export interface BandModel {
   /** The band's line; absent when hidden or nothing is in flight. */
@@ -52,6 +53,45 @@ export function truncate(title: string, room: number): string {
   if (room <= 1) return '…'
 
   return `${title.slice(0, room - 1)}…`
+}
+
+/** Most labels shown per segment of the smart line; the rest read ` +k`. */
+export const SEGMENT_MAX = 3
+
+const byPlanNumber = (a: string, b: string): number => num(a) - num(b) || (a < b ? -1 : a > b ? 1 : 0)
+
+function segment(name: string, labels: string[]): string | undefined {
+  if (labels.length === 0) return undefined
+  const sorted = [...labels].sort(byPlanNumber)
+  const more = sorted.length > SEGMENT_MAX ? ` +${sorted.length - SEGMENT_MAX}` : ''
+
+  return `${name}: ${sorted.slice(0, SEGMENT_MAX).join(', ')}${more}`
+}
+
+/**
+ * The band line while the graph is scoped to an item (D1 a): `◉ <id8> · <d>/<n> done · ready: … · waiting: …`.
+ * n counts the scope's cards (not the scope itself), d the terminal ones (cancelled counts as done);
+ * ready are queue cards with every blocker satisfied, waiting the open cards with an open blocker.
+ * Undefined on the root overview, with no snapshot, or with no cards (the in-flight line then shows).
+ */
+export function smartLine(snapshot: GraphSnapshot | null, bodyColumns = 80): string | undefined {
+  if (!snapshot || snapshot.overview === true || snapshot.scopeId === null) return undefined
+  const { cards } = cardsOf(snapshot)
+  if (cards.length === 0) return undefined
+  const done = cards.filter(c => c.role === 'terminal').length
+  const parts = [
+    `◉ ${snapshot.scopeId.slice(0, 8)}`,
+    `${done}/${cards.length} done`,
+    segment('ready', cards.filter(c => c.ready).map(c => c.label)),
+    segment('waiting', cards.filter(c => c.role !== 'terminal' && c.openBlockers.length > 0).map(c => c.label)),
+  ].filter((p): p is string => p !== undefined)
+
+  return truncate(parts.join(' · '), Math.max(MIN_TITLE, bodyColumns - BUTTON_COLUMNS))
+}
+
+/** What the band draws: the smart line when scoped to an item, else the in-flight line (undefined: nothing). */
+export function bandLine(snapshot: GraphSnapshot | null, bodyColumns = 80): string | undefined {
+  return smartLine(snapshot, bodyColumns) ?? bandModel(snapshot, false, bodyColumns).band
 }
 
 export function bandModel(snapshot: GraphSnapshot | null, hidden: boolean, bodyColumns = 80): BandModel {

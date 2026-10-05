@@ -16,6 +16,12 @@
       "title": "Graph cell height (px)",
       "description": "Height of one character cell in the desktop /to-graph pane.",
       "default": 18
+    },
+    "graphToasts": {
+      "type": "boolean",
+      "title": "Work graph toasts",
+      "description": "Show a toast when a graph item completes, becomes ready, is sent back from review to work, or one of this session's advances is gate-blocked. Off by default.",
+      "default": false
     }
   }
 }

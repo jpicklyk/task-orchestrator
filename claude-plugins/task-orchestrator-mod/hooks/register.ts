@@ -11,7 +11,7 @@ import { registerPhaseGuard } from '../src/phase-guard/index.ts'
 import { registerRetro } from '../src/retro/index.ts'
 
 export const register: Register = (on, options) => {
-  registerGraphData(on)
+  registerGraphData(on, options)
   registerGraphPane(on, options)
   registerBand(on)
   registerRetro(on)

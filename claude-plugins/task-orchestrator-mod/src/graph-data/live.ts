@@ -3,6 +3,7 @@
 import type { GraphIo } from './io.ts'
 import { invalidateLabels } from './labels.ts'
 import { refresh, refreshNow } from './refresh.ts'
+import { eventItemId, isLocalEcho, localWindow, markRemote } from './remote.ts'
 import { readRootId } from './snapshot.ts'
 
 export const POLL_MS = 15_000
@@ -58,8 +59,12 @@ export async function resolveApiUrl(io: GraphIo): Promise<string | null> {
   return readClientApiUrl(io, `${home.replace(/[\\/]+$/, '')}/.taskorchestrator/client.json`)
 }
 
-/** Feeds raw SSE text in; calls `onEvent(name)` once per complete frame that carries an `event:` line. */
-export function createSseParser(onEvent: (name: string) => void): (chunk: string) => void {
+/**
+ * Feeds raw SSE text in; calls `onEvent(name, data)` once per complete frame that carries an `event:`
+ * line. `data` is the frame's `data:` lines (joined by newlines) parsed as JSON; undefined when the frame
+ * has none or they are not JSON.
+ */
+export function createSseParser(onEvent: (name: string, data?: unknown) => void): (chunk: string) => void {
   let buffer = ''
 
   return chunk => {
@@ -68,11 +73,22 @@ export function createSseParser(onEvent: (name: string) => void): (chunk: string
     while (end >= 0) {
       const frame = buffer.slice(0, end)
       buffer = buffer.slice(end + 2)
+      let name: string | undefined
+      const dataLines: string[] = []
       for (const line of frame.split('\n')) {
-        if (line.startsWith('event:')) {
-          onEvent(line.slice(6).trim())
-          break
+        if (line.startsWith('event:') && name === undefined) name = line.slice(6).trim()
+        else if (line.startsWith('data:')) dataLines.push(line.slice(5).replace(/^ /, ''))
+      }
+      if (name !== undefined) {
+        let data: unknown
+        if (dataLines.length > 0) {
+          try {
+            data = JSON.parse(dataLines.join('\n'))
+          } catch {
+            data = undefined
+          }
         }
+        onEvent(name, data)
       }
       end = buffer.indexOf('\n\n')
     }
@@ -91,6 +107,22 @@ export function curlRequest(url: string, token: string | undefined): { argv: str
 
 export function eventsUrl(base: string, rootId: string): string {
   return `${base}/api/v1/events?root=${encodeURIComponent(rootId)}&types=${SSE_TYPES.join(',')}`
+}
+
+/**
+ * Marks an SSE event's item as changed elsewhere, unless it is this session's own echo (remote.ts).
+ * Only the SSE stream marks: a poll cannot tell whose change it saw. Advisory: a failure is ignored.
+ */
+async function noteRemote(io: GraphIo, data: unknown): Promise<void> {
+  const itemId = eventItemId(data)
+  if (itemId === undefined || io.updateRemote === undefined) return
+  try {
+    const now = await io.now()
+    if (isLocalEcho(localWindow(), now)) return
+    await io.updateRemote(map => markRemote(map, itemId, now))
+  } catch {
+    // marks are advisory
+  }
 }
 
 let running = false
@@ -128,8 +160,9 @@ async function sseLoop(io: GraphIo, url: string, token: string | undefined, gen:
     try {
       iterator = io.spawn(request)
       void setLiveSource(io, 'sse')
-      const parse = createSseParser(name => {
+      const parse = createSseParser((name, data) => {
         if (name === 'item.updated') invalidateLabels()
+        void noteRemote(io, data)
         void (name === 'sync.lost' ? refreshNow(io) : refresh(io))
       })
       for (;;) {

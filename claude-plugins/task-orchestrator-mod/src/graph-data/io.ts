@@ -21,6 +21,11 @@ export interface GraphIo {
   readScope(): Promise<string | null>
   setSnapshot(value: GraphSnapshot): Promise<unknown>
   updateStatus(change: (value: GraphStatus) => GraphStatus): Promise<unknown>
+  /**
+   * Applies a pure step to the cross-session marks (graphRemote: item id -> when it changed elsewhere);
+   * skips the write when the step returns the same object. Optional: fixtures may leave it out.
+   */
+  updateRemote?(step: (value: Record<string, number>) => Record<string, number>): Promise<unknown>
   /** `TASK_ORCHESTRATOR_API_URL`, when set. */
   envApiUrl(): Promise<string | undefined>
   /** `TASK_ORCHESTRATOR_API_TOKEN`, when set. */

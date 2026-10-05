@@ -14,6 +14,8 @@ import { invalidateLabels, resetLabelState } from '../src/graph-data/labels.ts'
 import { createSseParser, curlRequest, eventsUrl, isLoopbackApiUrl, resetLiveState, resolveApiUrl, restartLive, syncLive } from '../src/graph-data/live.ts'
 import { REFRESH_TIMEOUT_MS, refresh, refreshNow, resetRefreshState, sameSnapshot, sameStatus } from '../src/graph-data/refresh.ts'
 import { NODE_CAP, STALL_MS, TRANSITION_LIMIT, snapshot, stallsOf, trailOf } from '../src/graph-data/snapshot.ts'
+import { MAX_TOASTS, capToasts, gateToastLines, readyIds, snapshotEvents, toastLines } from '../src/graph-data/events.ts'
+import { LOCAL_ECHO_MS, REMOTE_CAP, clearRemote, isLocalEcho, localWindow, markRemote, resetRemoteState, resultItemIds, withLocalWrite } from '../src/graph-data/remote.ts'
 
 const ROOT = '00000000-0000-4000-8000-000000000001'
 const TO = 'mcp__mcp-task-orchestrator__'
@@ -1119,4 +1121,342 @@ test('S8: no recently moved listed item, no crossing timer', async () => {
   await env.advance(3 * 60 * MIN)
   expect(resumeCalls(env.calls)).toHaveLength(1)
   resetRefreshState()
+})
+
+// ── T12b 6a976f10: toasts (snapshot events) ─────────────────────────────────────────────
+
+type EvNode = import('../types').GraphNode
+const LBL: Record<string, string> = { a: 'T1', b: 'T2', c: 'T3', d: 'T4' }
+/** A feature scope: `roles` maps a..d to `role` or `role:statusLabel`; a BLOCKS b. */
+const evSnap = (roles: Record<string, string>, extra: Partial<GraphSnapshot> = {}): GraphSnapshot => ({
+  scopeId: 'feat',
+  rootId: ROOT,
+  nodes: [
+    { id: 'feat', parentId: null, title: 'Feature', role: 'work', depth: 0 },
+    ...Object.entries(roles).map(([id, r]): EvNode => {
+      const [role, statusLabel] = r.split(':') as [string, string | undefined]
+
+      return { id, parentId: 'feat', title: `Title ${id}`, role, depth: 1, planLabel: LBL[id], ...(statusLabel !== undefined ? { statusLabel } : {}) }
+    }),
+  ],
+  edges: [{ from: 'a', to: 'b', type: 'BLOCKS' }],
+  external: {},
+  gates: {},
+  takenAt: 1,
+  truncated: false,
+  ...extra,
+})
+
+test('S4: snapshotEvents: done, ready and back-to-work; a cancel raises nothing', () => {
+  const prev = evSnap({ a: 'work', b: 'queue', c: 'review', d: 'work' })
+  const next = evSnap({ a: 'terminal', b: 'queue', c: 'work', d: 'terminal:cancelled' })
+  expect(snapshotEvents(prev, next)).toEqual([
+    { kind: 'done', id: 'a', label: 'T1', title: 'Title a' },
+    { kind: 'ready', id: 'b', label: 'T2', title: 'Title b' },
+    { kind: 'back', id: 'c', label: 'T3', title: 'Title c' },
+  ])
+  // readiness is the pane's: queue with every blocker satisfied.
+  expect([...readyIds(prev)]).toEqual([])
+  expect([...readyIds(next)]).toEqual(['b'])
+})
+
+test('S4: snapshotEvents: no prev, another scope, an overview or a partial snapshot give nothing', () => {
+  const prev = evSnap({ a: 'work', b: 'queue', c: 'review' })
+  const next = evSnap({ a: 'terminal', b: 'queue', c: 'work' })
+  expect(snapshotEvents(null, next)).toEqual([])
+  expect(snapshotEvents({ ...prev, scopeId: 'other' }, next)).toEqual([])
+  expect(snapshotEvents(prev, { ...next, scopeId: 'other' })).toEqual([])
+  expect(snapshotEvents({ ...prev, overview: true }, next)).toEqual([])
+  expect(snapshotEvents(prev, { ...next, overview: true })).toEqual([])
+  expect(snapshotEvents(prev, { ...next, error: 'query_dependencies failed' })).toEqual([])
+  // Unchanged roles, and a node new in next, raise nothing.
+  expect(snapshotEvents(prev, prev)).toEqual([])
+  expect(snapshotEvents(evSnap({ a: 'work' }), evSnap({ a: 'work', d: 'terminal' }))).toEqual([])
+  // queue -> work is not "ready"; work -> review is not "back".
+  expect(snapshotEvents(evSnap({ a: 'terminal', b: 'queue', c: 'work' }), evSnap({ a: 'terminal', b: 'work', c: 'review' }))).toEqual([])
+})
+
+test('S7: five events give three toasts plus one +2 more graph changes; titles are cut to 60', () => {
+  const ev = (i: number) => ({ kind: 'done' as const, id: `i${i}`, label: `T${i}`, title: `Title ${i}` })
+  expect(toastLines([1, 2, 3, 4, 5].map(ev))).toEqual(['✓ Done: T1 Title 1', '✓ Done: T2 Title 2', '✓ Done: T3 Title 3', '+2 more graph changes'])
+  expect(MAX_TOASTS).toBe(3)
+  expect(toastLines([1, 2, 3].map(ev))).toHaveLength(3)
+  expect(capToasts([])).toEqual([])
+  const long = toastLines([{ kind: 'ready', id: 'x', label: 'T9', title: 'y'.repeat(80) }])[0] as string
+  expect(long).toBe(`○ Ready: T9 ${'y'.repeat(59)}…`)
+  expect(toastLines([{ kind: 'back', id: 'x', label: 'T9', title: 't' }])).toEqual(['↺ Back to work: T9 t'])
+})
+
+test('S8 (unit): gate toast lines use the snapshot label, else the id8; the target and missing keys', () => {
+  const snap = evSnap({ a: 'work' })
+  expect(gateToastLines([{ itemId: 'a', missing: ['implementation-notes', 'session-tracking'], targetRole: 'review' }], snap)).toEqual(['✗ Gate blocked: T1 -> review: implementation-notes, session-tracking'])
+  expect(gateToastLines([{ itemId: '0123456789abcdef', missing: ['x'] }], snap)).toEqual(['✗ Gate blocked: 01234567: x'])
+  expect(gateToastLines([{ itemId: 'a', missing: [] }], null)).toEqual(['✗ Gate blocked: a: required notes missing'])
+})
+
+/** In-memory `$.state` on the test's `on`, seeded; answers every key. */
+function stateRig(on: On, seed: Record<string, unknown> = {}) {
+  const slot = (e: { plugin: string; key: string; id?: string }) => `${e.plugin}/${e.key}/${e.id ?? ''}`
+  const state = new Map<string, { value: unknown; version: number }>()
+  for (const [key, value] of Object.entries(seed)) state.set(`task-orchestrator-mod/${key}/`, { value, version: 1 })
+  const sets: string[] = []
+  on('state.get', async (_$, e) => ({ value: state.get(slot(e as never)) ?? { value: undefined, version: 0 } }) as never)
+  on('state.set', async (_$, e) => {
+    const k = slot(e as never)
+    const cur = state.get(k)?.version ?? 0
+    state.set(k, { value: (e as { value: unknown }).value, version: cur + 1 })
+    sets.push((e as { key: string }).key)
+
+    return { value: { isSet: true, version: cur + 1 } } as never
+  })
+
+  const put = (key: string, value: unknown) => state.set(`task-orchestrator-mod/${key}/`, { value, version: (state.get(`task-orchestrator-mod/${key}/`)?.version ?? 0) + 1 })
+
+  return { sets, put, valueOf: (key: string) => state.get(`task-orchestrator-mod/${key}/`)?.value }
+}
+
+/** A feature-scoped plugin with the TO server, mocked time and toasts captured. */
+function toastRig(on: On) {
+  const world = threeLevels()
+  serveHooks(on, world)
+  const st = stateRig(on, { graphScope: 'feat' })
+  const clock = mock.clock(on)
+  on('tool.call', async () => ok as never)
+  const toasts: string[] = []
+  on('ui.toast', async (_$, e) => {
+    toasts.push(e.text)
+
+    return { value: undefined } as never
+  })
+
+  return { world, st, clock, toasts }
+}
+
+const writeAndSettle = async ($: Parameters<Parameters<typeof test>[1]>[0], clock: ReturnType<typeof mock.clock>) => {
+  await $.tool.call({ tool: `${TO}advance_item`, itemId: 'x', trigger: 'start' } as never)
+  await clock.advance(300)
+  await clock.settle()
+}
+
+test('S5/S9: graphToasts on: the first snapshot is quiet, a completion toasts once, an unchanged refresh does not', { options: { graphToasts: true } }, async ($, on) => {
+  const { world, st, clock, toasts } = toastRig(on)
+  await writeAndSettle($, clock)
+  expect((st.valueOf('graphSnapshot') as GraphSnapshot | undefined)?.scopeId).toBe('feat')
+  expect(toasts).toEqual([])
+  ;(world.items.find(i => i.id === 't-review') as Item).role = 'terminal'
+  await writeAndSettle($, clock)
+  expect(toasts).toEqual(['✓ Done: t-review Reviewed task'])
+  // The same graph again: the no-op guard skips the write, and no toast.
+  const writes = st.sets.filter(k => k === 'graphSnapshot').length
+  await writeAndSettle($, clock)
+  expect(st.sets.filter(k => k === 'graphSnapshot')).toHaveLength(writes)
+  expect(toasts).toHaveLength(1)
+})
+
+test('S6: graphToasts left at its default (off): a completion raises no toast', async ($, on) => {
+  const { world, st, clock, toasts } = toastRig(on)
+  await writeAndSettle($, clock)
+  ;(world.items.find(i => i.id === 't-review') as Item).role = 'terminal'
+  await writeAndSettle($, clock)
+  expect((st.valueOf('graphSnapshot') as GraphSnapshot).nodes.find(n => n.id === 't-review')?.role).toBe('terminal')
+  expect(toasts).toEqual([])
+})
+
+test('S5: graphToasts on: the first snapshot after a scope switch is quiet, both ways', { options: { graphToasts: true } }, async ($, on) => {
+  const { world, st, clock, toasts } = toastRig(on)
+  const item = (id: string) => world.items.find(i => i.id === id) as Item
+  item('sub').role = 'work'
+  await writeAndSettle($, clock)
+  // Switch to t-work's subtree while sub completes: the same node, another scope, no toast.
+  item('sub').role = 'terminal'
+  st.put('graphScope', 't-work')
+  await writeAndSettle($, clock)
+  expect((st.valueOf('graphSnapshot') as GraphSnapshot).scopeId).toBe('t-work')
+  expect(toasts).toEqual([])
+  // Back on feat while t-review completes: still quiet (the previous snapshot is t-work's).
+  item('t-review').role = 'terminal'
+  st.put('graphScope', 'feat')
+  await writeAndSettle($, clock)
+  expect(toasts).toEqual([])
+  // A completion within one scope does toast here.
+  item('t-queue').role = 'terminal'
+  await writeAndSettle($, clock)
+  expect(toasts).toEqual(['✓ Done: t-queue Queued task'])
+})
+
+// ── T12b 6a976f10: cross-session marks ──────────────────────────────────────────────────
+
+test('S10: createSseParser passes the parsed data; malformed or missing data gives undefined', () => {
+  const seen: [string, unknown][] = []
+  const feed = createSseParser((n, d) => seen.push([n, d]))
+  feed('event: item.advanced\ndata: {"id":3,"event":"item.advanced","itemId":"A","newRole":"work"}\n\n')
+  feed('event: item.updated\r\ndata: {not json\r\n\r\n')
+  feed('event: note.upserted\n\n')
+  feed('data: {"itemId":"orphan"}\n\n')
+  expect(seen).toEqual([
+    ['item.advanced', { id: 3, event: 'item.advanced', itemId: 'A', newRole: 'work' }],
+    ['item.updated', undefined],
+    ['note.upserted', undefined],
+  ])
+})
+
+test('S11: isLocalEcho: in flight, and up to 5s after the last local write ended', () => {
+  const end = 100_000
+  expect(LOCAL_ECHO_MS).toBe(5_000)
+  expect(isLocalEcho({ inFlight: 1, lastEnd: null }, end)).toBe(true)
+  expect(isLocalEcho({ inFlight: 0, lastEnd: null }, end)).toBe(false)
+  expect(isLocalEcho({ inFlight: 0, lastEnd: end }, end + 4_999)).toBe(true)
+  expect(isLocalEcho({ inFlight: 0, lastEnd: end }, end + 5_001)).toBe(false)
+})
+
+test('S11: withLocalWrite holds the window open while the write runs and closes it at its end, even on a throw', async () => {
+  resetRemoteState()
+  let inside = -1
+  const result = await withLocalWrite(async () => {
+    inside = localWindow().inFlight
+
+    return 'ran'
+  }, async () => 7_000)
+  expect(result).toBe('ran')
+  expect(inside).toBe(1)
+  expect(localWindow()).toEqual({ inFlight: 0, lastEnd: 7_000 })
+  let thrown = ''
+  try {
+    await withLocalWrite(async () => Promise.reject(new Error('boom')), async () => 9_000)
+  } catch (err) {
+    thrown = (err as Error).message
+  }
+  expect(thrown).toBe('boom')
+  expect(localWindow()).toEqual({ inFlight: 0, lastEnd: 9_000 })
+  resetRemoteState()
+})
+
+test('S12: markRemote and clearRemote keep identity when nothing changes; the oldest go past 200', () => {
+  const one = markRemote({}, 'A', 1)
+  expect(one).toEqual({ A: 1 })
+  expect(markRemote(one, 'A', 2)).toBe(one)
+  expect(clearRemote(one, ['B'])).toBe(one)
+  expect(clearRemote(one, [])).toBe(one)
+  expect(clearRemote({ 'abcd1234-ffff': 1, B: 2 }, ['abcd'])).toEqual({ B: 2 })
+  expect(clearRemote({ abcd: 1 }, ['abc'])).toEqual({ abcd: 1 })
+  let map: Record<string, number> = {}
+  for (let i = 0; i < REMOTE_CAP; i++) map = markRemote(map, `id${i}`, 1_000 + i)
+  expect(Object.keys(map)).toHaveLength(200)
+  map = markRemote(map, 'new', 5_000)
+  expect(Object.keys(map)).toHaveLength(200)
+  expect(map.id0).toBeUndefined()
+  expect(map.id1).toBe(1_001)
+  expect(map.new).toBe(5_000)
+})
+
+test('S12: resultItemIds reads each row id and its cascade ids; bad text gives []', () => {
+  const text = JSON.stringify({ results: [{ itemId: 'A', applied: true, cascadeEvents: [{ itemId: 'P', title: 'p' }] }, { itemId: 'B', applied: false }] })
+  expect(resultItemIds(text)).toEqual(['A', 'P', 'B'])
+  expect(resultItemIds('nope')).toEqual([])
+  expect(resultItemIds(undefined)).toEqual([])
+})
+
+test('S13: an SSE item event marks its item unless a local write is in flight or ended under 5s ago', async () => {
+  resetRefreshState()
+  resetLiveState()
+  resetRemoteState()
+  const queue: string[] = []
+  let wake: () => void = () => undefined
+  const push = (t: string) => {
+    queue.push(t)
+    wake()
+  }
+  const env = fake({
+    env: { TASK_ORCHESTRATOR_API_URL: 'http://localhost:3001' },
+    spawn: async function* () {
+      for (;;) {
+        while (queue.length === 0) await new Promise<void>(resolve => (wake = resolve))
+        yield { stream: 'stdout' as const, text: queue.shift() as string }
+      }
+    },
+  })
+  env.state.scope = 'root'
+  let marks: Record<string, number> = {}
+  let writes = 0
+  const io: GraphIo = {
+    ...env.io,
+    updateRemote: async step => {
+      const next = step(marks)
+      if (next !== marks) {
+        marks = next
+        writes++
+      }
+    },
+  }
+  const frame = (event: string, itemId: string) => `event: ${event}\ndata: ${JSON.stringify({ id: 1, event, itemId })}\n\n`
+  syncLive(io, 1)
+  await env.advance(0)
+  // Another session advanced A: marked.
+  push(frame('item.advanced', 'A'))
+  await env.advance(0)
+  expect(Object.keys(marks)).toEqual(['A'])
+  // The same event again writes nothing.
+  push(frame('item.advanced', 'A'))
+  await env.advance(0)
+  expect(writes).toBe(1)
+  // During a local manage_notes call, B's event is our echo.
+  await withLocalWrite(async () => {
+    push(frame('note.upserted', 'B'))
+    await env.advance(0)
+  }, () => io.now())
+  expect(marks.B).toBeUndefined()
+  // 4s after the write ended: still an echo. 6s after: another session's.
+  await env.advance(4_000)
+  push(frame('item.updated', 'C'))
+  await env.advance(0)
+  expect(marks.C).toBeUndefined()
+  await env.advance(2_000)
+  push(frame('item.updated', 'C'))
+  await env.advance(0)
+  expect(marks.C).toBeDefined()
+  // A bus-level event (no itemId) marks nothing.
+  push('event: sync.lost\ndata: {"id":9,"event":"sync.lost","reason":"queue_overflow"}\n\n')
+  await env.advance(0)
+  expect(Object.keys(marks).sort()).toEqual(['A', 'C'])
+  syncLive(io, 0)
+  await env.advance(0)
+  resetRemoteState()
+  resetRefreshState()
+})
+
+test('S13: polling marks nothing (no SSE, no updateRemote call)', async () => {
+  resetRefreshState()
+  resetLiveState()
+  resetRemoteState()
+  const env = fake()
+  let calls = 0
+  const io: GraphIo = { ...env.io, updateRemote: async () => void calls++ }
+  syncLive(io, 1)
+  await env.advance(0)
+  expect(env.state.status.liveSource).toBe('poll')
+  await env.advance(31_000)
+  expect(calls).toBe(0)
+  syncLive(io, 0)
+  resetRefreshState()
+})
+
+test('S13: a successful local write clears the marks of its items and cascades; an errored one does not', async ($, on) => {
+  serveHooks(on)
+  const st = stateRig(on, { graphRemote: { A: 1, P: 2, Q: 3 } })
+  const clock = mock.clock(on)
+  let fail = false
+  on('tool.call', async () => (fail ? { ...ok, isError: true } : { ref: 'r', result: {}, text: JSON.stringify({ results: [{ itemId: 'A', applied: true, cascadeEvents: [{ itemId: 'P' }] }] }) }) as never)
+  fail = true
+  await $.tool.call({ tool: `${TO}advance_item`, transitions: [{ itemId: 'Q', trigger: 'start' }] } as never)
+  await clock.settle()
+  expect(st.valueOf('graphRemote')).toEqual({ A: 1, P: 2, Q: 3 })
+  fail = false
+  await $.tool.call({ tool: `${TO}advance_item`, transitions: [{ itemId: 'A', trigger: 'complete' }] } as never)
+  await clock.settle()
+  expect(st.valueOf('graphRemote')).toEqual({ Q: 3 })
+  // Nothing marked among the touched ids: no write at all.
+  const writes = st.sets.filter(k => k === 'graphRemote').length
+  await $.tool.call({ tool: `${TO}manage_notes`, operation: 'upsert', notes: [{ itemId: 'Z', key: 'k', role: 'work' }] } as never)
+  await clock.settle()
+  expect(st.sets.filter(k => k === 'graphRemote')).toHaveLength(writes)
 })

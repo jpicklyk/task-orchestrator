@@ -5,7 +5,7 @@ import type { On } from 'claude-code'
 import { expect, test } from 'claude-code/testing'
 
 import type { GateInfo, GraphNode, GraphSnapshot } from '../types'
-import { bandModel, gateText, inFlight, truncate } from '../src/band/model.ts'
+import { bandLine, bandModel, gateText, inFlight, smartLine, truncate } from '../src/band/model.ts'
 
 const PLUGIN = 'task-orchestrator-mod'
 const ID = 'ec1e2f91-1d16-43dc-a9c9-f86aea28a050'
@@ -94,6 +94,54 @@ test('model: a long title is cut with an ellipsis to fit the width', () => {
   expect(truncate('abc', 4)).toBe('abc')
 })
 
+// ── smart line (T12b 6a976f10, D1 a) ─────────────────────────────────────────────────────
+
+const FEAT = '7d8acc15-0000-4000-8000-000000000001'
+const labelled = (id: string, role: string, label: string, statusLabel?: string): GraphNode => ({ ...node(id, role, 1, FEAT, `Task ${label}`), planLabel: label, ...(statusLabel !== undefined ? { statusLabel } : {}) })
+/** A feature scope: A done, B ready (T4), C waiting on B (T3), D in work. */
+const scoped = (extra: GraphNode[] = [], edges: GraphSnapshot['edges'] = []): GraphSnapshot => ({
+  ...snap([node(FEAT, 'work', 0, null, 'Feature'), labelled('a', 'terminal', 'T1'), labelled('b', 'queue', 'T4'), labelled('c', 'queue', 'T3'), labelled('d', 'work', 'T2'), ...extra]),
+  scopeId: FEAT,
+  edges: [{ from: 'b', to: 'c', type: 'BLOCKS' }, ...edges],
+})
+
+test('S1: smart line counts done, lists ready and waiting by plan number', () => {
+  expect(smartLine(scoped(), 120)).toBe(`◉ ${FEAT.slice(0, 8)} · 1/4 done · ready: T4 · waiting: T3`)
+  // Cancelled counts as done; an empty segment is left out.
+  const allDone = { ...snap([node(FEAT, 'work', 0, null), labelled('a', 'terminal', 'T1'), labelled('b', 'terminal', 'T2', 'cancelled')]), scopeId: FEAT }
+  expect(smartLine(allDone, 120)).toBe(`◉ ${FEAT.slice(0, 8)} · 2/2 done`)
+})
+
+test('S1: more than 3 labels in a segment read +k, in plan-number order (T2 before T11)', () => {
+  const extra = ['T11', 'T9', 'T2', 'T7', 'T5'].map(l => labelled(`r${l}`, 'queue', l))
+  const line = smartLine(scoped(extra), 200) as string
+  expect(line).toContain('ready: T2, T4, T5 +3')
+  const waits = ['T21', 'T20', 'T22', 'T23'].map(l => labelled(`w${l}`, 'queue', l))
+  const w = smartLine(scoped(waits, waits.map(n => ({ from: 'd', to: n.id, type: 'BLOCKS' as const }))), 200) as string
+  expect(w).toContain('waiting: T3, T20, T21 +2')
+})
+
+test('S1: the smart line is cut to the band width', () => {
+  const extra = Array.from({ length: 30 }, (_, i) => labelled(`x${i}`, 'queue', `T${100 + i}`))
+  const line = smartLine(scoped(extra), 40) as string
+  expect(line.length).toBeLessThanOrEqual(40 - 10)
+  expect(line.endsWith('…')).toBe(true)
+})
+
+test("S2: the root overview, a null snapshot or a scope without cards give today's in-flight line", () => {
+  const overview = { ...oneLeaf(), overview: true }
+  expect(smartLine(overview)).toBeUndefined()
+  expect(bandLine(overview, 100)).toBe(bandModel(overview, false, 100).band)
+  expect(bandLine(overview, 100)).toBe(`◉ ${ID.slice(0, 8)} Status line band — 2/3 work notes`)
+  expect(smartLine(null)).toBeUndefined()
+  expect(bandLine(null)).toBeUndefined()
+  const bare = { ...snap([node(FEAT, 'work', 0, null, 'Feature')]), scopeId: FEAT }
+  expect(smartLine(bare)).toBeUndefined()
+  expect(bandLine(bare, 100)).toBe(bandModel(bare, false, 100).band)
+  // The status line is unchanged on a scoped snapshot.
+  expect(bandModel(scoped(), true).status).toBe('TO ◉ d work')
+})
+
 // ── rendered band + hooks ───────────────────────────────────────────────────────────────
 
 type Slot = { value: unknown; version: number }
@@ -144,32 +192,76 @@ for (const surface of ['terminal', 'desktop'] as const) {
     const mount = (over: Record<string, unknown> = {}) => $.ui.mount({ plugin: PLUGIN, surface, component: 'AbovePrompt', props: props(over) })
 
     const ui = await mount()
-    expect((await ui.find({ type: 'Text', text: '◉' }))?.text).toBe(`◉ ${ID.slice(0, 8)} Status line band — 2/3 work notes`)
+    // oneLeaf is scoped to 'root' (not the overview): the band draws the smart line, as a press-to-open Button.
+    expect((await ui.find({ key: 'band-open' }))?.props.label).toBe('◉ root · 0/1 done')
     expect(await ui.find({ key: 'hide' })).toBeDefined()
     await ui.press({ key: 'hide' })
     expect(r.sets.filter(s => s.key === 'bandHidden')).toEqual([{ key: 'bandHidden', value: true }])
     await ui.unmount()
 
     const survey = await mount({ hasSurvey: true })
-    expect(await survey.find({ type: 'Text', text: '◉' })).toBeUndefined()
+    expect(await survey.find({ key: 'band-open' })).toBeUndefined()
     await survey.unmount()
 
     const narrow = await mount({ bodyColumns: 30 })
-    expect(await narrow.find({ type: 'Text', text: '◉' })).toBeUndefined()
+    expect(await narrow.find({ key: 'band-open' })).toBeUndefined()
     await narrow.unmount()
   })
 
   test(`band on ${surface}: no band once hidden`, async ($, on) => {
     rig(on, { graphSnapshot: oneLeaf(), bandHidden: true })
     const hidden = await $.ui.mount({ plugin: PLUGIN, surface, component: 'AbovePrompt', props: props() })
-    expect(await hidden.find({ type: 'Text', text: '◉' })).toBeUndefined()
+    expect(await hidden.find({ key: 'band-open' })).toBeUndefined()
     await hidden.unmount()
   })
 
   test(`band on ${surface}: nothing in flight draws nothing`, async ($, on) => {
     rig(on, { graphSnapshot: snap([node('q', 'queue', 0, null)]) })
     const ui = await $.ui.mount({ plugin: PLUGIN, surface, component: 'AbovePrompt', props: props() })
-    expect(await ui.find({ type: 'Text', text: '◉' })).toBeUndefined()
+    expect(await ui.find({ key: 'band-open' })).toBeUndefined()
+    await ui.unmount()
+  })
+
+  test(`S2: band on ${surface}: the root overview draws today's in-flight line`, async ($, on) => {
+    rig(on, { graphSnapshot: { ...oneLeaf(), overview: true } })
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface, component: 'AbovePrompt', props: props() })
+    expect((await ui.find({ key: 'band-open' }))?.props.label).toBe(`◉ ${ID.slice(0, 8)} Status line band — 2/3 work notes`)
+    await ui.unmount()
+  })
+
+  test(`S1: band on ${surface}: a feature scope draws the smart line`, async ($, on) => {
+    rig(on, { graphSnapshot: scoped() })
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface, component: 'AbovePrompt', props: props() })
+    expect((await ui.find({ key: 'band-open' }))?.props.label).toBe(`◉ ${FEAT.slice(0, 8)} · 1/4 done · ready: T4 · waiting: T3`)
+    await ui.unmount()
+  })
+
+  test(`S3: band on ${surface}: pressing the line opens the graph pane; two presses subscribe once`, async ($, on) => {
+    const r = rig(on, { graphSnapshot: scoped() })
+    const opened: unknown[] = []
+    on('ui.open', async (_$, e) => {
+      opened.push(e)
+
+      return { value: { isPlaced: true } } as never
+    })
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface, component: 'AbovePrompt', props: props() })
+    await ui.press({ key: 'band-open' })
+    expect(opened).toHaveLength(1)
+    expect(opened[0]).toMatchObject({ id: 'to-graph' })
+    expect(r.state.get(`${PLUGIN}/graphPaneOpen/`)?.value).toBe(true)
+    expect(r.sets.filter(s => s.key === 'graphSubscribers')).toEqual([{ key: 'graphSubscribers', value: 1 }])
+    await ui.press({ key: 'band-open' })
+    expect(opened).toHaveLength(2)
+    expect(r.sets.filter(s => s.key === 'graphSubscribers')).toHaveLength(1)
+    await ui.unmount()
+  })
+
+  test(`S3: band on ${surface}: a pane already open is not counted again`, async ($, on) => {
+    const r = rig(on, { graphSnapshot: scoped(), graphPaneOpen: true, graphSubscribers: 2 })
+    on('ui.open', async () => ({ value: { isPlaced: true } }) as never)
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface, component: 'AbovePrompt', props: props() })
+    await ui.press({ key: 'band-open' })
+    expect(r.sets.filter(s => s.key === 'graphSubscribers')).toHaveLength(0)
     await ui.unmount()
   })
 }

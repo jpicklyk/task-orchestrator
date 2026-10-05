@@ -22,6 +22,7 @@ import type { TopDown } from './layout.ts'
 import { cardsOf, criticalPath, stepsOf } from './model.ts'
 import type { Card, CriticalPath, Model } from './model.ts'
 import { recordFocusOrder, redirectFocus } from './focus.ts'
+import { gateToastLines } from '../graph-data/events.ts'
 import { detailLines, isDegraded, isSwitching, loadingTitle, parseScopeArg, scopeHeader, summaryLine } from './pane-model.ts'
 import { CRIT_COLOR, raster, runs } from './raster.ts'
 import { routes } from './route.ts'
@@ -44,6 +45,7 @@ const graphDetail = atom({ plugin: 'task-orchestrator-mod', key: 'graphDetail' }
 const graphActivity = atom({ plugin: 'task-orchestrator-mod', key: 'graphActivity' } as const, { working: {}, changed: {} } as GraphActivity)
 const graphAgents = atom({ plugin: 'task-orchestrator-mod', key: 'graphAgents' } as const, {} as Record<string, GraphAgentInfo>)
 const graphShowDone = atom({ plugin: 'task-orchestrator-mod', key: 'graphShowDone' } as const, false)
+const graphRemote = atom({ plugin: 'task-orchestrator-mod', key: 'graphRemote' } as const, {} as Record<string, number>)
 
 /** The engine's spelling of every TO tool (`mcp__<server>__<tool>`); reads count as "working on it". */
 const TO_TOOL = /^mcp__.*task-orchestrator.*__[a-z_]+$/
@@ -178,13 +180,25 @@ async function noteGateBlocks($: EngineInterface, rows: readonly GateBlockRow[])
   })
 }
 
+/** With the `graphToasts` option on: one toast per gate-blocked row of this session (capped; events.ts). */
+async function toastGateBlocks($: EngineInterface, rows: readonly GateBlockRow[]): Promise<void> {
+  for (const line of gateToastLines(rows, await read($, graphSnapshot))) $.ui.toast(line)
+}
+
 /** What the tool.call hook needs of the outside world: record one call's activity and its gate blocks. */
 export interface ActivityIo {
   note: (e: { tool: string; agentId?: string }, changed: boolean) => Promise<void>
   gate: (rows: readonly GateBlockRow[]) => Promise<void>
 }
 
-const activityIo = ($: EngineInterface): ActivityIo => ({ note: (e, changed) => noteActivity($, e, changed), gate: rows => noteGateBlocks($, rows) })
+/** The toast goes first: a block on an item outside the snapshot is still worth one, and marking it may throw. */
+const activityIo = ($: EngineInterface, toasts: boolean): ActivityIo => ({
+  note: (e, changed) => noteActivity($, e, changed),
+  gate: async rows => {
+    if (toasts) await toastGateBlocks($, rows)
+    await noteGateBlocks($, rows)
+  },
+})
 
 /**
  * The tool.call hook body: skips the pane's own calls, always returns the call's result untouched.
@@ -231,6 +245,8 @@ interface BoxSpec {
   /** The state line is a warning: drawn undimmed. */
   warn: boolean
   recent: boolean
+  /** Last changed by another session: `⇄ ` after the `✱ ` on line 1. */
+  remote: boolean
 }
 
 /**
@@ -244,8 +260,9 @@ export const WHOLE_CLICK_MAX = 90
 function boxOf(ui: Ui, s: BoxSpec, open: (id: string) => void, wholeClick = true): unknown {
   const { Box, Text, Button } = ui
   const n = s.rect.width - 2
-  // A recently changed item is marked in its title (a Button label takes no colour).
-  const [first, second] = titleLines(s.recent ? `✱ ${s.line1}` : s.line1, n)
+  // A recently changed item is marked in its title (a Button label takes no colour); a change made by
+  // another session adds `⇄ ` after it.
+  const [first, second] = titleLines(`${s.recent ? '✱ ' : ''}${s.remote ? '⇄ ' : ''}${s.line1}`, n)
   const press = () => open(s.id)
   const dim = s.warn ? {} : { dimColor: true }
 
@@ -343,7 +360,7 @@ function canvasOf(ui: Ui, i: CanvasInput): unknown[] {
   if (root !== undefined) {
     const words = root.kind === 'terminal' ? 'done' : root.kind
     boxes.push(
-      boxOf(ui, { key: `card:${root.id}`, id: root.id, rect: lay.root, fill: KIND[root.kind], line1: `${root.glyph} [${root.label}] ${root.title}`, line3: i.overview ? `${words} · ${model.cards.length} children` : `${words} · ${model.cards.length} items · ${i.steps} steps`, warn: false, recent: false }, i.open, wholeClick),
+      boxOf(ui, { key: `card:${root.id}`, id: root.id, rect: lay.root, fill: KIND[root.kind], line1: `${root.glyph} [${root.label}] ${root.title}`, line3: i.overview ? `${words} · ${model.cards.length} children` : `${words} · ${model.cards.length} items · ${i.steps} steps`, warn: false, recent: false, remote: false }, i.open, wholeClick),
     )
     order.push(root.id)
   }
@@ -364,7 +381,7 @@ function canvasOf(ui: Ui, i: CanvasInput): unknown[] {
       const card = byId.get(id) as Card
       const rect = lay.cards.get(id)
       if (rect === undefined) continue
-      boxes.push(boxOf(ui, { key: `card:${id}`, id, rect, fill: card.ready ? READY : KIND[card.kind], line1: `${card.glyph} [${card.label}] ${card.title}`, line3: card.stateText, warn: card.warn, recent: card.recent }, i.open, wholeClick))
+      boxes.push(boxOf(ui, { key: `card:${id}`, id, rect, fill: card.ready ? READY : KIND[card.kind], line1: `${card.glyph} [${card.label}] ${card.title}`, line3: card.stateText, warn: card.warn, recent: card.recent, remote: card.remote }, i.open, wholeClick))
       order.push(id)
       // A sibling stripe on the card's left column: the card's own subtree is untouched (G5 keys hold).
       if (stripes && critIds.has(id)) {
@@ -381,6 +398,7 @@ function canvasOf(ui: Ui, i: CanvasInput): unknown[] {
 
 export function registerGraphPane(on: On, options: PluginOptions = {}): void {
   const cell = cellSize(options as { cellWidthPx?: unknown; cellHeightPx?: unknown })
+  const toasts = options.graphToasts === true
 
   // Every unmatched hook of the session events is already taken (graph-data owns session.start, band
   // owns prompt.submit/turn.complete, and the validator refuses a second one), so the command is
@@ -449,7 +467,7 @@ export function registerGraphPane(on: On, options: PluginOptions = {}): void {
 
   // Who is working on which item, and what changed a moment ago. Matched (the mod's other tool.call hooks
   // are matched too); the pane's own reads are skipped; the result is always returned as it came.
-  on('tool.call', { tool: TO_TOOL }, ($, e, next) => trackToolCall(activityIo($), e, next))
+  on('tool.call', { tool: TO_TOOL }, ($, e, next) => trackToolCall(activityIo($, toasts), e, next))
 
   // One focus stop per box: a whole-click box's title lines hand the ring to its state line (focus.ts).
   // Matcher spelled as a literal (an imported constant stays unresolved and never matches).
@@ -464,11 +482,12 @@ export function registerGraphPane(on: On, options: PluginOptions = {}): void {
     const detail = await read($, graphDetail)
     const activity = await read($, graphActivity)
     const showDone = await read($, graphShowDone)
+    const remote = (await read($, graphRemote)) ?? {}
     const open = (id: string): Promise<void> => openDetail($, id)
 
     const view: GraphView | null = snap
     const switching = isSwitching(scope, snap)
-    const model = view === null ? null : cardsOf(view, activity.working, activity.changed, activity.blocked ?? {})
+    const model = view === null ? null : cardsOf(view, activity.working, activity.changed, activity.blocked ?? {}, remote)
     const steps = model === null ? null : stepsOf(model.cards)
     const crit: CriticalPath = model === null || steps === null || view?.overview === true ? { ids: [], edges: new Set() } : criticalPath(model.cards, steps)
     const lay = model === null || steps === null ? null : layoutTD(model.cards, steps, { bodyColumns: (e.props as { bodyColumns?: number }).bodyColumns, showDone: showDone || view?.overview === true, hasRoot: model.root !== undefined, wrap: view?.overview === true })

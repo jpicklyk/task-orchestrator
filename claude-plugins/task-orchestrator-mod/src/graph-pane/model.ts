@@ -27,6 +27,8 @@ export interface Card {
   warn: boolean
   /** Touched by a TO write in the last RECENT_MS. */
   recent: boolean
+  /** Its last change came from another session (graphRemote; SSE only). */
+  remote: boolean
 }
 
 export interface Model {
@@ -84,6 +86,7 @@ export function cardsOf(
   workers: Record<string, readonly GraphWorker[]> = {},
   changed: Record<string, number> = {},
   blocked: Record<string, GraphGateBlock> = {},
+  remote: Record<string, number> = {},
 ): Model {
   const rootNode =
     view.nodes.find(n => n.id === view.scopeId) ?? view.nodes.find(n => n.parentId === null)
@@ -129,6 +132,7 @@ export function cardsOf(
       stateText: state.text,
       warn: state.warn,
       recent: changed[node.id] !== undefined,
+      remote: remote[node.id] !== undefined,
     }
   })
 
