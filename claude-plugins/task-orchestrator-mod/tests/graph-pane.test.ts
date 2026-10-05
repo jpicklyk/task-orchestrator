@@ -5,10 +5,10 @@ import type { On } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
 import type { GateInfo, GraphEdge, GraphNode, GraphSnapshot, GraphStatus } from '../types'
-import { READ_TOOLS, trackToolCall } from '../src/graph-pane/index.ts'
+import { READ_TOOLS, WHOLE_CLICK_MAX, trackToolCall } from '../src/graph-pane/index.ts'
 import { WRITE_TOOLS } from '../src/graph-data/index.ts'
 import { emptyActivity, pruneActivity, recordActivity, rememberAgent, resolveId, seatOf, shortModel, touchedIds } from '../src/graph-pane/activity.ts'
-import { COST, ELEMENT_BUDGET, TREE_CHAR_BUDGET, edgePlan } from '../src/graph-pane/budget.ts'
+import { COST, ELEMENT_BUDGET, TREE_CHAR_BUDGET, edgePlan, extrasChars } from '../src/graph-pane/budget.ts'
 import { cellSize } from '../src/graph-pane/cell.ts'
 import { layoutTD } from '../src/graph-pane/layout.ts'
 import { cardsOf, isOpen, num, stepsOf } from '../src/graph-pane/model.ts'
@@ -1091,7 +1091,27 @@ for (const surface of SURFACES) {
   })
 }
 
-for (const [layers, width] of [[16, 6], [19, 5], [9, 10]] as const) {
+test("B3: the detail and trail are charged to the edges only: they can drop the Svg but never refuse the boxes", () => {
+  const base = { desktop: true, wholeClick: true, cards: 75, chips: 0, cells: 0, runs: 0, svgChars: 16000, svgWidth: 1000, svgHeight: 1000 }
+  expect(edgePlan(base)).toBe("full")
+  const extra = extrasChars(DETAIL("x").lines, TRAIL4.map(c => c.title))
+  expect(extra).toBeGreaterThan(2000)
+  expect(edgePlan({ ...base, extraChars: extra })).toBe("omit")
+  expect(edgePlan({ ...base, desktop: false, wholeClick: false, cards: 120, svgChars: 0, extraChars: 50000 })).toBe("omit")
+})
+
+for (const [layers, width] of [[10, 7], [19, 4], [25, 3]] as const) {
+  test(`B3: desktop ${layers}x${width} whole-click + Svg with detail and trail stays within budget across redraws`, async ($, on) => {
+    const v = layeredUuid(layers, width)
+    rig(on, { graphSnapshot: { ...asSnapshot(v), trail: TRAIL4 }, graphScope: ROOT_ID, graphShowDone: true, graphDetail: DETAIL((v.nodes[1] as GraphNode).id) })
+    const ui = await mountAt($, "desktop", 200)
+    for (let k = 0; k < 10; k++) await ui.redraw()
+    await withinBudget(ui)
+    await ui.unmount()
+  })
+}
+
+for (const [layers, width] of [[14, 6], [17, 5], [8, 11]] as const) {
   test(`B1: desktop ${layers}x${width} whole-click cards with the detail open stay within the tree budget`, async ($, on) => {
     const v = layeredUuid(layers, width)
     const first = (v.nodes[1] as GraphNode).id
@@ -1104,7 +1124,7 @@ for (const [layers, width] of [[16, 6], [19, 5], [9, 10]] as const) {
   })
 }
 
-for (const [n, whole] of [[99, true], [100, false]] as const) {
+for (const [n, whole] of [[WHOLE_CLICK_MAX - 1, true], [WHOLE_CLICK_MAX, false]] as const) {
   test(`B1: whole-click boundary: ${n} cards ${whole ? "are" : "are not"} whole-click`, async ($, on) => {
     const ns = Array.from({ length: n }, (_, i) => mk(`b${String(i).padStart(3, "0")}-xxxx`, "queue", `T${i + 1}`))
     rig(on, { graphSnapshot: asSnapshot(gview(ns)), graphScope: ROOT_ID, graphShowDone: true })

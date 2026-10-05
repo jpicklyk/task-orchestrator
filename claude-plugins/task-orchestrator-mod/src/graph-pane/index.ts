@@ -13,7 +13,7 @@ import { PLUGIN, TO_SERVER } from '../shared/constants.ts'
 import { parseToResult } from '../shared/to-client.ts'
 import { addSubscriber, bump, removeSubscriber, requestLiveSync, requestReconnect, requestRefresh, scopeTo, shouldRefresh } from '../graph-data/index.ts'
 import { WORKING_TTL_MS, RECENT_MS, pruneActivity, recordActivity, rememberAgent, resolveId, seatOf, touchedIds } from './activity.ts'
-import { edgePlan } from './budget.ts'
+import { edgePlan, extrasChars } from './budget.ts'
 import { cellSize } from './cell.ts'
 import { layoutTD } from './layout.ts'
 import { cut, titleLines } from './wrap.ts'
@@ -201,8 +201,12 @@ interface BoxSpec {
   recent: boolean
 }
 
-/** Below this many boxes every line of a box is clickable; from it on only the state line (tree budget). */
-export const WHOLE_CLICK_MAX = 100
+/**
+ * Below this many boxes every line of a box is clickable; from it on only the state line. 90 whole-click
+ * cards (COST.wholeCardChars) leave room for step chips in the tree budget; canvasOf also falls back to
+ * one Button per box whenever whole-click boxes alone would not fit.
+ */
+export const WHOLE_CLICK_MAX = 90
 
 /** One state-filled box: a pure function of its spec (an id-derived key, nothing view-wide). */
 function boxOf(ui: Ui, s: BoxSpec, open: (id: string) => void, wholeClick = true): unknown {
@@ -244,6 +248,8 @@ interface CanvasInput {
   count: number
   /** The project-root overview: the root plus one row of children, no steps. */
   overview: boolean
+  /** What the detail panel and breadcrumb add (charged to the edge drawing only). */
+  extraChars: number
 }
 
 /** The graph canvas (or a one-line notice when the tree would not fit). */
@@ -253,17 +259,19 @@ function canvasOf(ui: Ui, i: CanvasInput): unknown[] {
   const rs = routes(lay, model.cards, i.desktop ? 'px' : 'cell')
   let edges: unknown = null
   let plan: ReturnType<typeof edgePlan>
-  const wholeClick = model.cards.length < WHOLE_CLICK_MAX
+  const cardCount = lay.cards.size + (model.root !== undefined ? 1 : 0)
+  // Whole-click costs more per card: fall back to one Button per card rather than refuse the boxes.
+  const wholeClick = model.cards.length < WHOLE_CLICK_MAX && edgePlan({ desktop: i.desktop, wholeClick: true, cards: cardCount, chips: lay.chips.length, cells: 0, runs: 0, svgChars: 0, svgWidth: 0, svgHeight: 0 }) !== 'too-large'
   if (i.desktop) {
     const svg = edgeSvg(rs, i.cell, lay.width, lay.height)
-    plan = edgePlan({ desktop: true, wholeClick, cards: lay.cards.size + (model.root !== undefined ? 1 : 0), chips: lay.chips.length, cells: 0, runs: 0, svgChars: svg.length, svgWidth: px(lay.width, i.cell.w), svgHeight: px(lay.height, i.cell.h) })
+    plan = edgePlan({ desktop: true, wholeClick, extraChars: i.extraChars, cards: lay.cards.size + (model.root !== undefined ? 1 : 0), chips: lay.chips.length, cells: 0, runs: 0, svgChars: svg.length, svgWidth: px(lay.width, i.cell.w), svgHeight: px(lay.height, i.cell.h) })
     if (plan === 'full' && Svg !== undefined) {
       edges = h(Box, { key: 'edges', position: 'absolute', top: 0, left: 0 }, h(Svg, { source: svg, alt: 'dependency edges', width: px(lay.width, i.cell.w), height: px(lay.height, i.cell.h) }))
     }
   } else {
     const cells = raster(rs)
     const merged = runs(cells)
-    plan = edgePlan({ desktop: false, wholeClick, cards: lay.cards.size + (model.root !== undefined ? 1 : 0), chips: lay.chips.length, cells: cells.size, runs: merged.length, svgChars: 0, svgWidth: 0, svgHeight: 0 })
+    plan = edgePlan({ desktop: false, wholeClick, extraChars: i.extraChars, cards: lay.cards.size + (model.root !== undefined ? 1 : 0), chips: lay.chips.length, cells: cells.size, runs: merged.length, svgChars: 0, svgWidth: 0, svgHeight: 0 })
     if (plan === 'full') {
       edges = h(
         Box,
@@ -290,7 +298,7 @@ function canvasOf(ui: Ui, i: CanvasInput): unknown[] {
   if (root !== undefined) {
     const words = root.kind === 'terminal' ? 'done' : root.kind
     boxes.push(
-      boxOf(ui, { key: `card:${root.id}`, id: root.id, rect: lay.root, fill: KIND[root.kind], line1: `${root.glyph} [${root.label}] ${root.title}`, line3: i.overview ? `${words} · ${model.cards.length} children` : `${words} · ${model.cards.length} items · ${i.steps} steps`, recent: false }, i.open, model.cards.length < WHOLE_CLICK_MAX),
+      boxOf(ui, { key: `card:${root.id}`, id: root.id, rect: lay.root, fill: KIND[root.kind], line1: `${root.glyph} [${root.label}] ${root.title}`, line3: i.overview ? `${words} · ${model.cards.length} children` : `${words} · ${model.cards.length} items · ${i.steps} steps`, recent: false }, i.open, wholeClick),
     )
   }
   for (const row of lay.rows) {
@@ -310,7 +318,7 @@ function canvasOf(ui: Ui, i: CanvasInput): unknown[] {
       const card = byId.get(id) as Card
       const rect = lay.cards.get(id)
       if (rect === undefined) continue
-      boxes.push(boxOf(ui, { key: `card:${id}`, id, rect, fill: card.ready ? READY : KIND[card.kind], line1: `${card.glyph} [${card.label}] ${card.title}`, line3: card.stateText, recent: card.recent }, i.open, model.cards.length < WHOLE_CLICK_MAX))
+      boxes.push(boxOf(ui, { key: `card:${id}`, id, rect, fill: card.ready ? READY : KIND[card.kind], line1: `${card.glyph} [${card.label}] ${card.title}`, line3: card.stateText, recent: card.recent }, i.open, wholeClick))
     }
   }
 
@@ -489,7 +497,7 @@ export function registerGraphPane(on: On, options: PluginOptions = {}): void {
       if (lay.tooWide !== null) {
         body.push(h(Text, { key: 'too-wide', dimColor: true }, `Graph is ${lay.tooWide} columns wide; the pane shows ${lay.cols}. Widen the pane or open a smaller scope.`))
       }
-      body.push(...canvasOf(ui, { model, lay, desktop: e.surface !== 'terminal' && Svg !== undefined, cell, steps: steps.max, open, count: view.nodes.length, overview: view.overview === true }))
+      body.push(...canvasOf(ui, { model, lay, desktop: e.surface !== 'terminal' && Svg !== undefined, cell, steps: steps.max, open, count: view.nodes.length, overview: view.overview === true, extraChars: extrasChars(detail?.lines ?? null, trail.map(c => c.title)) }))
     }
 
     if (detail !== null) {
