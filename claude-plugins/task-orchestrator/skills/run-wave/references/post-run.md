@@ -131,6 +131,8 @@ do not dispatch the generic reviewer yourself. The generic review prompt is deli
 seat line, the owned-file diff command, which notes to fill, and which rule keys apply — it
 carries no rule text inline (the reviewer fetches those itself).
 
+**Security-assessment items.** The review-prompt helper does not know the item's schema. When the item's resolved schema has a `security-assessment` note (check `get_context` expectedNotes or the plan's `review.requiredReviewNotes`), append to the generated review prompt a line naming the worktree path beside the diff command, plus: "Apply the /security-review method to this item's owned-file diff in its worktree — `git -C <worktree> diff <baseSha>..HEAD -- <owned files>` — not by invoking the built-in command, which diffs the session cwd and is empty for a worktree branch."
+
 **Re-review after fixes.** If the original reviewer seat cannot be resumed once fixes land, dispatch a
 fresh `task-orchestrator:reviewer` scoped to the fix commits (`git diff <prevReviewedSha>..HEAD -- <owned
 files>`) plus the original blocking findings. The orchestrator never appends to or re-upserts a note

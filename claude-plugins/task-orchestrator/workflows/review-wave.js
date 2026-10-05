@@ -470,7 +470,7 @@ function promptLaneMode(stage, outs) {
   if (stage.branchScoped === true || branchScopedName) {
     const name = branchScopedName || BRANCH_SCOPED_SKILLS[0]
     lines.push(
-      `BRANCH-SCOPED SKILL ${name}: it reviews the whole branch diff; keep only findings whose file ` +
+      `BRANCH-SCOPED SKILL ${name}: apply its method to the DIFF lines above (the built-in command diffs the session cwd, which is empty for a worktree branch); keep only findings whose file ` +
         'is in this item\'s owned files, and record the filter in your note (findings total, kept, dropped, dropped files).'
     )
   }

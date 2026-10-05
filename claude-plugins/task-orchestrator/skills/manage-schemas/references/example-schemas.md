@@ -159,7 +159,7 @@ traits:
         required: true
         description: "Security review of auth, data handling, and access control."
         skill: "security-review"
-        guidance: "Run the built-in /security-review skill against the pending changes and record its findings and verdict in this note. Evaluate input validation, injection risks, access control, data handling. Flag OWASP Top 10 concerns."
+        guidance: "Apply the /security-review method to this item's owned-file diff in its worktree — `git -C <worktree> diff <baseSha>..HEAD -- <owned files>` — not by invoking the built-in command, which diffs the session cwd and is empty for a worktree branch. Record its findings and verdict in this note. Evaluate input validation, injection risks, access control, data handling. Flag OWASP Top 10 concerns."
 
   needs-perf-review:
     notes:
