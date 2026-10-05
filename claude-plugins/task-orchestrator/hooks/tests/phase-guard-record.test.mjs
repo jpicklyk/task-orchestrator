@@ -819,3 +819,35 @@ test('extractRecordableItemIds: empty/missing results yields an empty array', ()
   assert.deepEqual(extractRecordableItemIds(null), []);
   assert.deepEqual(extractRecordableItemIds({ results: [] }), []);
 });
+
+// ── T6: the task-orchestrator-mod plugin already recorded this event ───────────────────────────
+
+test('to_mod_active on stdin: emits {} and writes no marker even with agent_id, API URL and an applied result', () => {
+  const tempDir = freshTempDir();
+  const sessionId = `mod-${randomUUID()}`;
+  const agentId = 'agent-1';
+  try {
+    const res = spawnHook(
+      {
+        session_id: sessionId,
+        agent_id: agentId,
+        to_mod_active: true,
+        tool_response: { results: [{ itemId: '22222222-0000-0000-0000-000000000009', newRole: 'work', applied: true }] },
+      },
+      tempDir,
+      UNREACHABLE_API_URL,
+    );
+    assert.equal(res.status, 0);
+    assert.equal(res.stdout.trim(), '{}');
+    assert.deepEqual(readMarker(tempDir, sessionId, agentId).items, []);
+    // Control: the same payload without the flag does record.
+    spawnHook(
+      { session_id: sessionId, agent_id: agentId, tool_response: { results: [{ itemId: '22222222-0000-0000-0000-000000000009', newRole: 'work', applied: true }] } },
+      tempDir,
+      UNREACHABLE_API_URL,
+    );
+    assert.deepEqual(readMarker(tempDir, sessionId, agentId).items, ['22222222-0000-0000-0000-000000000009']);
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});

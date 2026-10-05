@@ -21,6 +21,23 @@
       "tags": ["tasks", "features", "projects", "dependencies", "workflows", "mcp-server", "ai-coding"],
       "source": "./claude-plugins/task-orchestrator",
       "strict": true
+    },
+    {
+      "name": "task-orchestrator-mod",
+      "version": "0.1.0",
+      "description": "Opt-in Claude Code mod for MCP Task Orchestrator: live work graph, gate band, and in-process orchestration hooks (early-access function-hooks API)",
+      "author": {
+        "name": "Jeff Picklyk",
+        "url": "https://github.com/jpicklyk"
+      },
+      "homepage": "https://github.com/jpicklyk/task-orchestrator",
+      "repository": "https://github.com/jpicklyk/task-orchestrator",
+      "license": "MIT",
+      "keywords": ["claude-code-mods", "task-management", "workflow", "mcp", "claude-code", "ai-agents", "function-hooks", "work-graph"],
+      "category": "productivity",
+      "tags": ["claude-code-mods", "work-graph", "mcp-server", "early-access"],
+      "source": "./claude-plugins/task-orchestrator-mod",
+      "strict": true
     }
   ]
 }

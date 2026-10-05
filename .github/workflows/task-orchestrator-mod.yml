@@ -1,0 +1,66 @@
+name: Task Orchestrator Mod
+
+# Validates and tests claude-plugins/task-orchestrator-mod with the real Claude Code CLI.
+# No secrets and no model calls: the script runs `claude plugin validate` and
+# `claude plugin test` only. All gate logic lives in the script so a local run is the
+# same run as CI. Not a required check (a path-filtered required check would hang
+# PRs that do not touch these paths).
+
+on:
+  push:
+    branches: ['**']
+    paths:
+      - 'claude-plugins/task-orchestrator-mod/**'
+      - 'claude-plugins/task-orchestrator/hooks/retro-trigger.mjs'
+      - 'claude-plugins/task-orchestrator/hooks/retro-backstop.mjs'
+      - 'claude-plugins/task-orchestrator/hooks/phase-guard-record.mjs'
+      - 'claude-plugins/task-orchestrator/hooks/phase-guard.mjs'
+      - 'claude-plugins/task-orchestrator/hooks/yaml-lite.mjs'
+      - 'scripts/ci/check-task-orchestrator-mod.mjs'
+      - '.github/workflows/task-orchestrator-mod.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'claude-plugins/task-orchestrator-mod/**'
+      - 'claude-plugins/task-orchestrator/hooks/retro-trigger.mjs'
+      - 'claude-plugins/task-orchestrator/hooks/retro-backstop.mjs'
+      - 'claude-plugins/task-orchestrator/hooks/phase-guard-record.mjs'
+      - 'claude-plugins/task-orchestrator/hooks/phase-guard.mjs'
+      - 'claude-plugins/task-orchestrator/hooks/yaml-lite.mjs'
+      - 'scripts/ci/check-task-orchestrator-mod.mjs'
+      - '.github/workflows/task-orchestrator-mod.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # Pinned on purpose. The mod targets the early-access function-hooks API of this engine
+  # (work item 11960f01), and 2.1.286 is the engine the live desktop session ran. On a moving
+  # `latest` the validator's `=?` rendering, its note format, the kit API or the flag defaults
+  # can change, turning CI red on unrelated PRs or vacuously green. Bump it deliberately,
+  # together with the mod, and never to `latest`.
+  CLAUDE_CODE_VERSION: '2.1.286'
+
+jobs:
+  mod:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install the pinned Claude Code CLI
+        run: |
+          npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
+          claude --version
+          claude --version | grep -F "${CLAUDE_CODE_VERSION}"
+
+      - name: Validate and test the mod
+        run: node scripts/ci/check-task-orchestrator-mod.mjs

@@ -961,3 +961,26 @@ test('S12: headless iteration with an existing marker and a missing-notes gate -
     rmSync(tempDir, { recursive: true, force: true });
   }
 });
+
+// ── T6: the task-orchestrator-mod plugin already guarded this stop ─────────────────────────────
+
+test('to_mod_active on stdin: emits {} without blocking or fetching, marker untouched', async () => {
+  const tempDir = freshTempDir();
+  const sessionId = `mod-${randomUUID()}`;
+  const agentId = 'agent-1';
+  const itemId = '4a468f6c-9434-4cbf-97e8-b6c546c1b199';
+  seedMarker(tempDir, sessionId, agentId, { items: [itemId], blocks: 0 });
+  const server = await startStub({ [itemId]: gateOk({ itemId, role: 'work', missing: ['implementation-notes'] }) });
+  try {
+    const res = await runHook({ session_id: sessionId, agent_id: agentId, to_mod_active: true }, tempDir, `http://127.0.0.1:${server.address().port}`);
+    assert.equal(res.status, 0);
+    assert.equal(res.stdout.trim(), '{}');
+    assert.equal(readMarker(tempDir, sessionId, agentId).blocks, 0);
+    // Control: without the flag the same setup blocks.
+    const control = await runHook({ session_id: sessionId, agent_id: agentId }, tempDir, `http://127.0.0.1:${server.address().port}`);
+    assert.equal(JSON.parse(control.stdout).decision, 'block');
+  } finally {
+    await stopStub(server);
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});

@@ -1,0 +1,104 @@
+// Cross-session change marks (T12b 6a976f10). An SSE item event carries no actor or session, so a change
+// is told apart from this session's own by time: an event that arrives while one of this session's TO
+// writes is in flight, or within LOCAL_ECHO_MS after the last one ended, is our own echo. Any other
+// event marks its item as changed elsewhere until a local write touches it again.
+//
+// The marks map is pure (same object when nothing changes, so the caller can skip the write); the
+// in-flight window is module state, which a hot reload starts over (it then only misses an echo window).
+
+/** An SSE item event this soon after a local write ended still counts as that write's echo. */
+export const LOCAL_ECHO_MS = 5_000
+/** Most remote marks kept; the oldest go first. */
+export const REMOTE_CAP = 200
+
+/** This session's TO writes: how many are running, and when the last one ended (ms; null: never). */
+export interface LocalWindow {
+  inFlight: number
+  lastEnd: number | null
+}
+
+/** Whether an event at `now` is this session's own echo under `w`. */
+export function isLocalEcho(w: LocalWindow, now: number): boolean {
+  return w.inFlight > 0 || (w.lastEnd !== null && now - w.lastEnd <= LOCAL_ECHO_MS)
+}
+
+let local: LocalWindow = { inFlight: 0, lastEnd: null }
+
+/** A local TO write starts (before `next(e)` in the write-tool hook). */
+export function beginLocal(): void {
+  local = { inFlight: local.inFlight + 1, lastEnd: local.lastEnd }
+}
+
+/** A local TO write ended at `now` (in the hook's finally, success or not). */
+export function endLocal(now: number): void {
+  local = { inFlight: Math.max(0, local.inFlight - 1), lastEnd: local.lastEnd === null ? now : Math.max(local.lastEnd, now) }
+}
+
+/** Runs one local TO write inside the window: begun before `run`, ended at `now()` after it, even when it throws. */
+export async function withLocalWrite<R>(run: () => Promise<R>, now: () => Promise<number>): Promise<R> {
+  beginLocal()
+  try {
+    return await run()
+  } finally {
+    endLocal(await now())
+  }
+}
+
+/** The current window (a copy). */
+export function localWindow(): LocalWindow {
+  return { ...local }
+}
+
+/** Forgets the window. For tests, which share this module across cases. */
+export function resetRemoteState(): void {
+  local = { inFlight: 0, lastEnd: null }
+}
+
+/** Marks `itemId` changed elsewhere at `now`. Same object when it is already marked; drops the oldest past REMOTE_CAP. */
+export function markRemote(map: Record<string, number>, itemId: string, now: number): Record<string, number> {
+  if (map[itemId] !== undefined) return map
+  const entries = Object.entries(map).sort((a, b) => a[1] - b[1])
+  const keep = entries.slice(Math.max(0, entries.length - (REMOTE_CAP - 1)))
+
+  return { ...Object.fromEntries(keep), [itemId]: now }
+}
+
+/**
+ * Clears the marks of the ids a local write touched: exact ids, and ids a 4+ char prefix names (a call
+ * may spell a prefix). Same object when nothing is removed.
+ */
+export function clearRemote(map: Record<string, number>, ids: readonly string[]): Record<string, number> {
+  const hit = (key: string): boolean => ids.some(id => key === id || (id.length >= 4 && key.startsWith(id)))
+  const keys = Object.keys(map)
+  if (!keys.some(hit)) return map
+
+  return Object.fromEntries(keys.filter(k => !hit(k)).map(k => [k, map[k] as number]))
+}
+
+type Obj = Record<string, unknown>
+const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v)
+
+/** The item ids a TO write result names: each row's `itemId` and its `cascadeEvents[].itemId`. Bad JSON gives []. */
+export function resultItemIds(text: unknown): string[] {
+  if (typeof text !== 'string') return []
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    return []
+  }
+  const rows = isObj(parsed) && Array.isArray(parsed.results) ? parsed.results : []
+  const out: string[] = []
+  for (const row of rows) {
+    if (!isObj(row)) continue
+    if (typeof row.itemId === 'string') out.push(row.itemId)
+    if (Array.isArray(row.cascadeEvents)) for (const c of row.cascadeEvents) if (isObj(c) && typeof c.itemId === 'string') out.push(c.itemId)
+  }
+
+  return out
+}
+
+/** The item id of a parsed SSE frame's data, when it names one. */
+export function eventItemId(data: unknown): string | undefined {
+  return isObj(data) && typeof data.itemId === 'string' && data.itemId.length > 0 ? data.itemId : undefined
+}

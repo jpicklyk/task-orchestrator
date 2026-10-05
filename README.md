@@ -323,6 +323,12 @@ The plugin adds workflow automation on top of the MCP server: skills, hooks, and
 
 The MCP server works without the plugin. The plugin makes it seamless with Claude Code.
 
+**Optional mod (early access):** [task-orchestrator-mod](claude-plugins/task-orchestrator-mod/README.md) is a separate, opt-in plugin of in-process function hooks: a live work-graph pane, an in-flight band and status line, and in-process retrospective, phase-guard and call-shape hooks. It relies on an early-access Claude Code API and is best paired with a current task-orchestrator plugin.
+
+```
+/plugin install task-orchestrator-mod@task-orchestrator-marketplace
+```
+
 Illustrated: [Orchestrating a Run](https://jpicklyk.github.io/task-orchestrator/field-guide/orchestrating-a-run.html) follows one feature from request to finished items. [Improvement Loop](https://jpicklyk.github.io/task-orchestrator/field-guide/improvement-loop.html) shows how friction noticed during work becomes a reviewed config change.
 
 ---

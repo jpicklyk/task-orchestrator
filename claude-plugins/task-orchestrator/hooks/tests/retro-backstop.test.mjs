@@ -190,3 +190,25 @@ test('S5 user scope: sawTerminal marker at markerPath(sessionId) blocks; one onl
     rmSync(markerPath(P), { force: true });
   }
 });
+
+// ── to_mod_retro: the task-orchestrator-mod plugin owns the event ──────────────────────
+
+test('to_mod_retro flag: emits {} and leaves the marker untouched, even with a sawTerminal marker', () => {
+  const dir = tmpConfigDir();
+  writeConfig(dir, 'retrospective:\n  mode: dispatch\n');
+  const sessionId = `test-backstop-modflag-${randomUUID()}`;
+  const marker = markerPath(sessionId);
+  try {
+    writeMarker(marker, { sawTerminal: true, pendingRoots: ['root-1'] });
+    const res = spawnHook(dir, { session_id: sessionId, to_mod_retro: true });
+    assert.equal(res.status, 0);
+    assert.equal(res.stdout.trim(), '{}');
+    const after = JSON.parse(readFileSync(marker, 'utf-8'));
+    assert.equal(after.sawTerminal, true);
+    assert.deepEqual(after.pendingRoots, ['root-1']);
+    assert.equal(after.handledAt, undefined);
+  } finally {
+    rmSync(marker, { force: true });
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
