@@ -141,10 +141,11 @@ function graphIo($: EngineInterface): GraphIo {
       await update($, graphSnapshot, () => value)
     },
     updateStatus: async change => {
+      // Pre-check only: the write applies `change` to the value current at write time, so a
+      // concurrent setLiveSource is never overwritten by a stale precomputed status.
       const current = await read($, graphStatus)
-      const next = change(current)
-      if (sameStatus(current, next)) return
-      await update($, graphStatus, () => next)
+      if (sameStatus(current, change(current))) return
+      await update($, graphStatus, change)
     },
     envApiUrl: () => $.env.get('TASK_ORCHESTRATOR_API_URL'),
     envApiToken: () => $.env.get('TASK_ORCHESTRATOR_API_TOKEN'),

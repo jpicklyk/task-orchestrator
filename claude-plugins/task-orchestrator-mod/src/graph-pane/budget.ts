@@ -10,7 +10,8 @@ export const TREE_CHAR_BUDGET = 90000
 export const COST = {
   baseChars: 3500,
   baseEls: 40,
-  cardChars: 600,
+  /** Measured ~640-655 with real 36-char UUID ids (the 9-char test ids gave 600); kept with margin. */
+  cardChars: 700,
   /** A whole-click card draws every line as a plain Button (measured ~750 with UUID ids; kept with margin). */
   wholeCardChars: 820,
   cardEls: 7,

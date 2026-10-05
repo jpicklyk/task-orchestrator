@@ -1018,9 +1018,9 @@ test('G16: desktop falls back to boxes only when the Svg would pass the host px 
 })
 
 for (const surface of SURFACES) {
-  test(`G20: ${surface} a 140-card chain draws boxes within the tree budget`, async ($, on) => {
-    const ui = await mountBig($, on, surface, chain(140))
-    expect(await ui.find({ key: 'card:n139-xxxx' })).toBeDefined()
+  test(`G20: ${surface} a 115-card chain draws boxes within the tree budget`, async ($, on) => {
+    const ui = await mountBig($, on, surface, chain(115))
+    expect(await ui.find({ key: 'card:n114-xxxx' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: 'Too large' })).toBeUndefined()
     await withinBudget(ui)
     await ui.unmount()
@@ -1052,17 +1052,51 @@ const layeredUuid = (layers: number, width: number): GraphView => {
 
 test("B1: the edge plan charges whole-click cards more", () => {
   expect(COST.wholeCardChars).toBeGreaterThan(COST.cardChars)
-  const at = (wholeClick: boolean) => edgePlan({ desktop: true, wholeClick, cards: 96, chips: 0, cells: 0, runs: 0, svgChars: 20000, svgWidth: 1000, svgHeight: 1000 })
+  const at = (wholeClick: boolean) => edgePlan({ desktop: true, wholeClick, cards: 80, chips: 0, cells: 0, runs: 0, svgChars: 20000, svgWidth: 1000, svgHeight: 1000 })
   expect(at(false)).toBe("full")
   expect(at(true)).toBe("omit")
 })
+
+const TRAIL4 = [0, 1, 2, 3].map(i => ({ id: `${i}${"0".repeat(7)}-1111-2222-3333-444455556666`, title: `Ancestor ${i} with a long title` }))
+const DETAIL = (itemId: string) => ({ itemId, lines: Array.from({ length: 12 }, (_, i) => `detail line ${i} with some text`) })
+
+/** A chain of `n` cards with UUID-length ids (the real per-card cost). */
+const chainUuid = (n: number): GraphView => {
+  const id = (i: number) => `${String(i).padStart(8, "0")}-1111-2222-3333-444455556666`
+  const ns = Array.from({ length: n }, (_, i) => mk(id(i), ["queue", "work", "review", "terminal"][i % 4] as string, `T${i + 1}`, `Node ${i} with a fairly long title to fill the box width`))
+  const es: GraphEdge[] = []
+  for (let i = 1; i < n; i++) es.push(blocks(id(i - 1), id(i)))
+
+  return gview(ns, es)
+}
+
+for (const surface of SURFACES) {
+  test(`B2: ${surface} a 115-card UUID chain with detail and trail draws within the tree budget`, async ($, on) => {
+    const v = chainUuid(115)
+    rig(on, { graphSnapshot: { ...asSnapshot(v), trail: TRAIL4 }, graphScope: ROOT_ID, graphShowDone: true, graphDetail: DETAIL((v.nodes[1] as GraphNode).id) })
+    const ui = await mountAt($, surface, 200)
+    expect(await ui.find({ type: "Text", text: "Too large to draw (116 items). Open a smaller scope." })).toBeUndefined()
+    expect(await ui.find({ key: `card:${(v.nodes[115] as GraphNode).id}` })).toBeDefined()
+    await withinBudget(ui)
+    await ui.unmount()
+  })
+
+  test(`B2: ${surface} a 143-card UUID chain with detail and trail is refused, never an oversize tree`, async ($, on) => {
+    const v = chainUuid(143)
+    rig(on, { graphSnapshot: { ...asSnapshot(v), trail: TRAIL4 }, graphScope: ROOT_ID, graphShowDone: true, graphDetail: DETAIL((v.nodes[1] as GraphNode).id) })
+    const ui = await mountAt($, surface, 200)
+    expect(await ui.find({ type: "Text", text: "Too large to draw (144 items). Open a smaller scope." })).toBeDefined()
+    await withinBudget(ui)
+    await ui.unmount()
+  })
+}
 
 for (const [layers, width] of [[16, 6], [19, 5], [9, 10]] as const) {
   test(`B1: desktop ${layers}x${width} whole-click cards with the detail open stay within the tree budget`, async ($, on) => {
     const v = layeredUuid(layers, width)
     const first = (v.nodes[1] as GraphNode).id
-    rig(on, { graphSnapshot: asSnapshot(v), graphScope: ROOT_ID, graphShowDone: true, graphDetail: { itemId: first, lines: Array.from({ length: 12 }, (_, i) => `detail line ${i} with some text`) } })
-    const ui = await mountAt($, "desktop", 140)
+    rig(on, { graphSnapshot: { ...asSnapshot(v), trail: TRAIL4 }, graphScope: ROOT_ID, graphShowDone: true, graphDetail: DETAIL(first) })
+    const ui = await mountAt($, "desktop", 200)
     // Whole-click is on: the title line is a Button.
     expect(await ui.find({ key: `open:${first}:1` })).toBeDefined()
     await withinBudget(ui)
@@ -1074,7 +1108,7 @@ for (const [n, whole] of [[99, true], [100, false]] as const) {
   test(`B1: whole-click boundary: ${n} cards ${whole ? "are" : "are not"} whole-click`, async ($, on) => {
     const ns = Array.from({ length: n }, (_, i) => mk(`b${String(i).padStart(3, "0")}-xxxx`, "queue", `T${i + 1}`))
     rig(on, { graphSnapshot: asSnapshot(gview(ns)), graphScope: ROOT_ID, graphShowDone: true })
-    const ui = await mountAt($, "desktop", 140)
+    const ui = await mountAt($, "desktop", 200)
     expect((await ui.find({ key: "open:b000-xxxx:1" })) !== undefined).toBe(whole)
     await withinBudget(ui)
     await ui.unmount()
