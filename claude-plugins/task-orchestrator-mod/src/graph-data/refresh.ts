@@ -23,6 +23,24 @@ let generation = 0
 let overdue = false
 /** Releases the single-flight queue from a running refresh. */
 let abandon: (() => void) | null = null
+/** The one pending re-snapshot at the next stall crossing (see armStallCheck). */
+let stallTimer: { cancel(): void } | null = null
+
+/**
+ * A stall needs time to pass, not a TO write: when an item listed as missing notes moved recently,
+ * re-snapshot once, 1s after the earliest such item crosses STALL_MS. Replaces the prior timer; none
+ * when nothing is pending.
+ */
+async function armStallCheck(io: GraphIo, snap: GraphSnapshot): Promise<void> {
+  stallTimer?.cancel()
+  stallTimer = null
+  if (snap.stallDueAt === undefined) return
+  const now = await io.now()
+  stallTimer = io.after(Math.max(0, snap.stallDueAt - now) + 1000, () => {
+    stallTimer = null
+    void refresh(io)
+  })
+}
 
 function schedule(io: GraphIo, ms: number): void {
   if (running) {
@@ -59,6 +77,7 @@ async function run(io: GraphIo): Promise<void> {
       const snap = await snapshot(io, scope)
       if (mine !== generation) return
       await io.setSnapshot(snap)
+      await armStallCheck(io, snap)
       await io.updateStatus(({ liveSource }) => ({ refreshing: false, liveSource, ...(snap.error !== undefined && { lastError: snap.error }) }))
     } catch (err) {
       if (mine !== generation) return
@@ -114,6 +133,8 @@ export function refreshNow(io: GraphIo, scopeId?: string | null): Promise<void> 
 export function resetRefreshState(): void {
   timer?.cancel()
   timer = null
+  stallTimer?.cancel()
+  stallTimer = null
   running = false
   overdue = false
   abandon = null

@@ -28,6 +28,12 @@ export const COST = {
   cellEls: 3,
   runChars: 260,
   runEls: 3,
+  /**
+   * One critical-path stripe Box beside its card (key `crit:<uuid>`): measured 237 with a 36-char UUID id
+   * and 1-2 digit top/left; kept with margin for 4-digit coordinates and the separator.
+   */
+  markChars: 250,
+  markEls: 1,
   /** JSON escapes the quotes inside the Svg markup. */
   svgEscape: 1.12,
 }
@@ -51,6 +57,11 @@ export interface PlanInput {
    * detail may drop the edges, but never refuses the boxes (the card cost has room for it there).
    */
   extraChars?: number
+  /**
+   * Critical-path stripes (one per path card). Charged like the detail: to the edge drawing, never to
+   * the boxes, so a long path can drop the Svg or the stripes but never refuses the scope.
+   */
+  marks?: number
 }
 
 /** What the detail panel and breadcrumb add to the tree. */
@@ -66,10 +77,33 @@ const fits = (chars: number, els: number): boolean => chars <= TREE_CHAR_BUDGET 
  * Desktop: cards + Svg when the markup and its px size fit the host's Svg limits and the tree; else cards only; else too large.
  * Terminal: per-cell edges; else merged runs; else cards only; else too large.
  */
+function boxesCost(i: PlanInput): { chars: number; els: number } {
+  return {
+    chars: COST.baseChars + i.cards * (i.wholeClick === true ? COST.wholeCardChars : COST.cardChars) + i.chips * COST.chipChars,
+    els: COST.baseEls + i.cards * COST.cardEls + i.chips * COST.chipEls,
+  }
+}
+
+const marksCost = (i: PlanInput): { chars: number; els: number } => ({ chars: (i.marks ?? 0) * COST.markChars, els: (i.marks ?? 0) * COST.markEls })
+
+/**
+ * Whether the critical-path stripes are drawn under `plan`: always with edges (edgePlan charged them),
+ * and with boxes only when the boxes, the detail and the stripes still fit. Never when too large.
+ */
+export function marksFit(i: PlanInput, plan: EdgePlan): boolean {
+  if (plan === 'too-large') return false
+  if (plan !== 'omit') return true
+  const { chars, els } = boxesCost(i)
+  const m = marksCost(i)
+
+  return fits(chars + (i.extraChars ?? 0) + m.chars, els + m.els)
+}
+
 export function edgePlan(i: PlanInput): EdgePlan {
-  const chars = COST.baseChars + i.cards * (i.wholeClick === true ? COST.wholeCardChars : COST.cardChars) + i.chips * COST.chipChars
-  const els = COST.baseEls + i.cards * COST.cardEls + i.chips * COST.chipEls
-  const withExtras = chars + (i.extraChars ?? 0)
+  const { chars, els: boxEls } = boxesCost(i)
+  const m = marksCost(i)
+  const els = boxEls + m.els
+  const withExtras = chars + (i.extraChars ?? 0) + m.chars
   if (i.desktop) {
     if (i.svgChars <= SVG_LIMIT && i.svgWidth <= SVG_PX_LIMIT && i.svgHeight <= SVG_PX_LIMIT && fits(withExtras + Math.ceil(i.svgChars * COST.svgEscape), els + 2)) return 'full'
   } else {
@@ -77,5 +111,6 @@ export function edgePlan(i: PlanInput): EdgePlan {
     if (fits(withExtras + i.runs * COST.runChars, els + i.runs * COST.runEls)) return 'runs'
   }
 
-  return fits(chars, els) ? 'omit' : 'too-large'
+  // The refusal ignores the detail and the stripes (both droppable): neither may flip a scope to refused.
+  return fits(chars, boxEls) ? 'omit' : 'too-large'
 }

@@ -1,6 +1,6 @@
 // Pure card model of the top-down graph: one card per non-root node with its dependencies, open
 // blockers, readiness and state line; plus the cycle-broken longest-path step assignment.
-import type { GraphWorker } from '../../types'
+import type { GraphGateBlock, GraphWorker } from '../../types'
 import { glyphOf, id8, kindOf, phaseText, rollupLine } from './shared.ts'
 import type { GraphView, Kind } from './shared.ts'
 import { shortModel } from './activity.ts'
@@ -23,6 +23,8 @@ export interface Card {
   openBlockers: string[]
   ready: boolean
   stateText: string
+  /** The state line is a warning (gate-blocked or stalled): drawn undimmed. */
+  warn: boolean
   /** Touched by a TO write in the last RECENT_MS. */
   recent: boolean
 }
@@ -56,7 +58,33 @@ function workerText(workers: readonly GraphWorker[]): string {
   return `» ${seat}${model !== undefined ? ` · ${model}` : ''}${workers.length > 1 ? ` +${workers.length - 1}` : ''}`
 }
 
-export function cardsOf(view: GraphView, workers: Record<string, readonly GraphWorker[]> = {}, changed: Record<string, number> = {}): Model {
+/**
+ * The state line of a non-overview card, by priority: open blockers > live worker > gate-blocked >
+ * stalled > ready > phase. A card with a live worker never reads as stalled.
+ */
+function stateOf(
+  openBlockers: readonly string[],
+  live: readonly GraphWorker[],
+  block: GraphGateBlock | undefined,
+  stalled: readonly string[] | undefined,
+  ready: boolean,
+  phase: () => string,
+): { text: string; warn: boolean } {
+  if (openBlockers.length > 0) return { text: `⊘ after ${openBlockers.join(', ')}`, warn: false }
+  if (live.length > 0) return { text: workerText(live), warn: false }
+  if (block !== undefined) return { text: `✗ gate: ${block.missing.length > 0 ? block.missing.join(', ') : (block.target ?? 'blocked')}`, warn: true }
+  if (stalled !== undefined) return { text: `⚠ stalled${stalled.length > 0 ? ` · ${stalled.join(', ')}` : ''}`, warn: true }
+  if (ready) return { text: 'ready', warn: false }
+
+  return { text: phase(), warn: false }
+}
+
+export function cardsOf(
+  view: GraphView,
+  workers: Record<string, readonly GraphWorker[]> = {},
+  changed: Record<string, number> = {},
+  blocked: Record<string, GraphGateBlock> = {},
+): Model {
   const rootNode =
     view.nodes.find(n => n.id === view.scopeId) ?? view.nodes.find(n => n.parentId === null)
   const labelOf = (n: { id: string; planLabel?: string }): string => n.planLabel ?? id8(n.id)
@@ -83,9 +111,10 @@ export function cardsOf(view: GraphView, workers: Record<string, readonly GraphW
     const ready = view.overview !== true && node.role === 'queue' && openBlockers.length === 0
     const live = workers[node.id] ?? []
     const rollup = view.overview === true ? rollupLine(node.childCounts) : ''
-    const stateText = view.overview === true
-      ? rollup !== '' ? rollup : phaseText(node, undefined)
-      : openBlockers.length > 0 ? `⊘ after ${openBlockers.join(', ')}` : live.length > 0 ? workerText(live) : ready ? 'ready' : phaseText(node, view.gates[node.id])
+    // The overview shows no warnings (it reads no gates or transitions).
+    const state = view.overview === true
+      ? { text: rollup !== '' ? rollup : phaseText(node, undefined), warn: false }
+      : stateOf(openBlockers, live, blocked[node.id], view.stalled?.[node.id], ready, () => phaseText(node, view.gates[node.id]))
 
     return {
       id: node.id,
@@ -97,7 +126,8 @@ export function cardsOf(view: GraphView, workers: Record<string, readonly GraphW
       deps,
       openBlockers,
       ready,
-      stateText,
+      stateText: state.text,
+      warn: state.warn,
       recent: changed[node.id] !== undefined,
     }
   })
@@ -169,4 +199,53 @@ export function stepsOf(cards: readonly Card[]): Steps {
   }
 
   return { step, back, max: Math.max(0, ...step.values()) }
+}
+
+/** The longest chain of open cards, as card ids in order, and its consecutive edges (`from|to`). */
+export interface CriticalPath {
+  ids: string[]
+  edges: Set<string>
+}
+
+/**
+ * The longest chain c1 -> ... -> ck of non-terminal cards where each blocks the next through an open
+ * in-scope dependency (cycle back edges excluded); empty unless k >= 2. Length counts cards. Ties go to
+ * the smaller plan number, then title, then id, both at each step and between end cards.
+ */
+export function criticalPath(cards: readonly Card[], steps: Steps): CriticalPath {
+  const byId = new Map(cards.filter(c => c.role !== 'terminal').map(c => [c.id, c]))
+  const better = (a: Card, b: Card): boolean => num(a.label) - num(b.label) < 0 || (num(a.label) === num(b.label) && (cmp(a.title, b.title) < 0 || (a.title === b.title && a.id < b.id)))
+  // Steps are a topological order of the non-back edges: a blocker's step is below its target's.
+  const order = [...byId.values()].sort((a, b) => (steps.step.get(a.id) ?? 0) - (steps.step.get(b.id) ?? 0))
+  const len = new Map<string, number>()
+  const prev = new Map<string, string>()
+  for (const c of order) {
+    let best: Card | undefined
+    let bestLen = 0
+    for (const d of c.deps) {
+      const p = byId.get(d.id)
+      if (!d.open || p === undefined || p.id === c.id || steps.back.has(`${p.id}|${c.id}`)) continue
+      const l = len.get(p.id)
+      if (l === undefined) continue
+      if (l > bestLen || (l === bestLen && best !== undefined && better(p, best))) {
+        best = p
+        bestLen = l
+      }
+    }
+    len.set(c.id, bestLen + 1)
+    if (best !== undefined) prev.set(c.id, best.id)
+  }
+  let end: Card | undefined
+  for (const c of order) {
+    const l = len.get(c.id) as number
+    const e = end === undefined ? 0 : (len.get(end.id) as number)
+    if (end === undefined || l > e || (l === e && better(c, end))) end = c
+  }
+  if (end === undefined || (len.get(end.id) as number) < 2) return { ids: [], edges: new Set() }
+  const ids: string[] = [end.id]
+  for (let p = prev.get(end.id); p !== undefined; p = prev.get(p)) ids.unshift(p)
+  const edges = new Set<string>()
+  for (let i = 1; i < ids.length; i++) edges.add(`${ids[i - 1]}|${ids[i]}`)
+
+  return { ids, edges }
 }

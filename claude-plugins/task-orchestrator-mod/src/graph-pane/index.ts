@@ -12,16 +12,18 @@ import { CONFIG_PATH, parseProjectRootId } from '../shared/config.ts'
 import { PLUGIN, TO_SERVER } from '../shared/constants.ts'
 import { parseToResult } from '../shared/to-client.ts'
 import { addSubscriber, bump, removeSubscriber, requestLiveSync, requestReconnect, requestRefresh, scopeTo, shouldRefresh } from '../graph-data/index.ts'
-import { WORKING_TTL_MS, RECENT_MS, pruneActivity, recordActivity, rememberAgent, resolveId, seatOf, touchedIds } from './activity.ts'
-import { edgePlan, extrasChars } from './budget.ts'
+import { GATE_BLOCK_MS, WORKING_TTL_MS, RECENT_MS, gateBlocks, pruneActivity, recordActivity, recordGateBlocks, rememberAgent, resolveId, seatOf, touchedIds } from './activity.ts'
+import type { GateBlockRow } from './activity.ts'
+import { edgePlan, extrasChars, marksFit } from './budget.ts'
 import { cellSize } from './cell.ts'
 import { layoutTD } from './layout.ts'
 import { cut, titleLines } from './wrap.ts'
 import type { TopDown } from './layout.ts'
-import { cardsOf, stepsOf } from './model.ts'
-import type { Card, Model } from './model.ts'
+import { cardsOf, criticalPath, stepsOf } from './model.ts'
+import type { Card, CriticalPath, Model } from './model.ts'
+import { recordFocusOrder, redirectFocus } from './focus.ts'
 import { detailLines, isDegraded, isSwitching, loadingTitle, parseScopeArg, scopeHeader, summaryLine } from './pane-model.ts'
-import { raster, runs } from './raster.ts'
+import { CRIT_COLOR, raster, runs } from './raster.ts'
 import { routes } from './route.ts'
 import { KIND, READY, id8, legendItems } from './shared.ts'
 import type { GraphView } from './shared.ts'
@@ -154,15 +156,41 @@ async function noteActivity(
   $.clock.after(WORKING_TTL_MS + 500, () => void prune())
 }
 
-/** What the tool.call hook needs of the outside world: record one call's activity. */
-export interface ActivityIo {
-  note: (e: { tool: string; agentId?: string }, changed: boolean) => Promise<void>
+/** Marks this session's gate-blocked advance_item rows on their snapshot items; they expire after GATE_BLOCK_MS. */
+async function noteGateBlocks($: EngineInterface, rows: readonly GateBlockRow[]): Promise<void> {
+  const snap = await read($, graphSnapshot)
+  if (snap === null) return
+  const known = snap.nodes.map(n => n.id)
+  const hits: { id: string; missing: string[]; target?: string }[] = []
+  for (const r of rows) {
+    const id = resolveId(r.itemId, known)
+    if (id !== null) hits.push({ id, missing: r.missing, ...(r.targetRole !== undefined ? { target: r.targetRole } : {}) })
+  }
+  if (hits.length === 0) return
+  const now = await $.clock.now()
+  const before = await read($, graphActivity)
+  if (recordGateBlocks(before, hits, now) === before) return
+  await update($, graphActivity, cur => recordGateBlocks(cur, hits, now))
+  $.clock.after(GATE_BLOCK_MS + 500, async () => {
+    const t = await $.clock.now()
+    const cur = await read($, graphActivity)
+    if (pruneActivity(cur, t) !== cur) await update($, graphActivity, c => pruneActivity(c, t))
+  })
 }
 
-const activityIo = ($: EngineInterface): ActivityIo => ({ note: (e, changed) => noteActivity($, e, changed) })
+/** What the tool.call hook needs of the outside world: record one call's activity and its gate blocks. */
+export interface ActivityIo {
+  note: (e: { tool: string; agentId?: string }, changed: boolean) => Promise<void>
+  gate: (rows: readonly GateBlockRow[]) => Promise<void>
+}
 
-/** The tool.call hook body: skips the pane's own calls, always returns the call's result untouched. */
-export async function trackToolCall<E extends { tool: string; agentId?: string }, R extends { deny?: unknown; isError?: unknown }>(
+const activityIo = ($: EngineInterface): ActivityIo => ({ note: (e, changed) => noteActivity($, e, changed), gate: rows => noteGateBlocks($, rows) })
+
+/**
+ * The tool.call hook body: skips the pane's own calls, always returns the call's result untouched.
+ * The gate blocks are recorded after the call's activity, so the call's own write does not clear them.
+ */
+export async function trackToolCall<E extends { tool: string; agentId?: string }, R extends { deny?: unknown; isError?: unknown; text?: unknown }>(
   io: ActivityIo,
   e: E,
   next: ((e: E) => Promise<R>) & { origin: { plugin: string } },
@@ -171,6 +199,8 @@ export async function trackToolCall<E extends { tool: string; agentId?: string }
   const ran = await next(e)
   try {
     await io.note(e, shouldRefresh(e.tool, next.origin.plugin, ran))
+    const blocks = ran.deny === undefined ? gateBlocks(e.tool, ran.text) : []
+    if (blocks.length > 0) await io.gate(blocks)
   } catch {
     // bookkeeping only: the model's call is never affected
   }
@@ -198,6 +228,8 @@ interface BoxSpec {
   fill: string
   line1: string
   line3: string
+  /** The state line is a warning: drawn undimmed. */
+  warn: boolean
   recent: boolean
 }
 
@@ -215,6 +247,7 @@ function boxOf(ui: Ui, s: BoxSpec, open: (id: string) => void, wholeClick = true
   // A recently changed item is marked in its title (a Button label takes no colour).
   const [first, second] = titleLines(s.recent ? `✱ ${s.line1}` : s.line1, n)
   const press = () => open(s.id)
+  const dim = s.warn ? {} : { dimColor: true }
 
   const frame = { key: s.key, position: 'absolute', top: s.rect.top, left: s.rect.left, width: s.rect.width, height: s.rect.height, backgroundColor: s.fill, flexDirection: 'column', paddingX: 1 }
   if (!wholeClick) {
@@ -223,7 +256,7 @@ function boxOf(ui: Ui, s: BoxSpec, open: (id: string) => void, wholeClick = true
       frame,
       h(Text, { color: '#ffffff', bold: true, wrap: 'truncate-end' }, first),
       h(Text, { color: '#ffffff', wrap: 'truncate-end' }, second),
-      h(Button, { key: `open:${s.id}`, label: cut(s.line3, n) || ' ', plain: true, dimColor: true, onPress: press }),
+      h(Button, { key: `open:${s.id}`, label: cut(s.line3, n) || ' ', plain: true, ...dim, onPress: press }),
     )
   }
 
@@ -234,7 +267,7 @@ function boxOf(ui: Ui, s: BoxSpec, open: (id: string) => void, wholeClick = true
     frame,
     h(Button, { key: `open:${s.id}:1`, label: first || ' ', plain: true, onPress: press }),
     h(Button, { key: `open:${s.id}:2`, label: second || ' ', plain: true, onPress: press }),
-    h(Button, { key: `open:${s.id}`, label: cut(s.line3, n) || ' ', plain: true, dimColor: true, onPress: press }),
+    h(Button, { key: `open:${s.id}`, label: cut(s.line3, n) || ' ', plain: true, ...dim, onPress: press }),
   )
 }
 
@@ -250,13 +283,17 @@ interface CanvasInput {
   overview: boolean
   /** What the detail panel and breadcrumb add (charged to the edge drawing only). */
   extraChars: number
+  /** The critical path (empty on the overview). */
+  crit: CriticalPath
 }
 
 /** The graph canvas (or a one-line notice when the tree would not fit). */
 function canvasOf(ui: Ui, i: CanvasInput): unknown[] {
   const { Box, Text, Svg } = ui
   const { model, lay } = i
-  const rs = routes(lay, model.cards, i.desktop ? 'px' : 'cell')
+  const rs = routes(lay, model.cards, i.desktop ? 'px' : 'cell', i.crit.edges)
+  const critIds = new Set(i.crit.ids.filter(id => lay.cards.has(id)))
+  const marks = critIds.size
   let edges: unknown = null
   let plan: ReturnType<typeof edgePlan>
   const cardCount = lay.cards.size + (model.root !== undefined ? 1 : 0)
@@ -264,14 +301,14 @@ function canvasOf(ui: Ui, i: CanvasInput): unknown[] {
   const wholeClick = model.cards.length < WHOLE_CLICK_MAX && edgePlan({ desktop: i.desktop, wholeClick: true, cards: cardCount, chips: lay.chips.length, cells: 0, runs: 0, svgChars: 0, svgWidth: 0, svgHeight: 0 }) !== 'too-large'
   if (i.desktop) {
     const svg = edgeSvg(rs, i.cell, lay.width, lay.height)
-    plan = edgePlan({ desktop: true, wholeClick, extraChars: i.extraChars, cards: lay.cards.size + (model.root !== undefined ? 1 : 0), chips: lay.chips.length, cells: 0, runs: 0, svgChars: svg.length, svgWidth: px(lay.width, i.cell.w), svgHeight: px(lay.height, i.cell.h) })
+    plan = edgePlan({ desktop: true, wholeClick, extraChars: i.extraChars, marks, cards: lay.cards.size + (model.root !== undefined ? 1 : 0), chips: lay.chips.length, cells: 0, runs: 0, svgChars: svg.length, svgWidth: px(lay.width, i.cell.w), svgHeight: px(lay.height, i.cell.h) })
     if (plan === 'full' && Svg !== undefined) {
       edges = h(Box, { key: 'edges', position: 'absolute', top: 0, left: 0 }, h(Svg, { source: svg, alt: 'dependency edges', width: px(lay.width, i.cell.w), height: px(lay.height, i.cell.h) }))
     }
   } else {
     const cells = raster(rs)
     const merged = runs(cells)
-    plan = edgePlan({ desktop: false, wholeClick, extraChars: i.extraChars, cards: lay.cards.size + (model.root !== undefined ? 1 : 0), chips: lay.chips.length, cells: cells.size, runs: merged.length, svgChars: 0, svgWidth: 0, svgHeight: 0 })
+    plan = edgePlan({ desktop: false, wholeClick, extraChars: i.extraChars, marks, cards: lay.cards.size + (model.root !== undefined ? 1 : 0), chips: lay.chips.length, cells: cells.size, runs: merged.length, svgChars: 0, svgWidth: 0, svgHeight: 0 })
     if (plan === 'full') {
       edges = h(
         Box,
@@ -290,7 +327,15 @@ function canvasOf(ui: Ui, i: CanvasInput): unknown[] {
       )
     }
   }
-  if (plan === 'too-large') return [h(Text, { key: 'too-large' }, `Too large to draw (${i.count} items). Open a smaller scope.`)]
+  if (plan === 'too-large') {
+    recordFocusOrder(null)
+
+    return [h(Text, { key: 'too-large' }, `Too large to draw (${i.count} items). Open a smaller scope.`)]
+  }
+  // Stripes go with the edges; with boxes only, when they still fit (they never refuse the scope).
+  const stripes = marks > 0 && marksFit({ desktop: i.desktop, wholeClick, extraChars: i.extraChars, marks, cards: cardCount, chips: lay.chips.length, cells: 0, runs: 0, svgChars: 0, svgWidth: 0, svgHeight: 0 }, plan)
+  /** Box ids in drawn order, for the one-stop-per-box focus. */
+  const order: string[] = []
 
   const byId = new Map(model.cards.map(c => [c.id, c]))
   const boxes: unknown[] = []
@@ -298,8 +343,9 @@ function canvasOf(ui: Ui, i: CanvasInput): unknown[] {
   if (root !== undefined) {
     const words = root.kind === 'terminal' ? 'done' : root.kind
     boxes.push(
-      boxOf(ui, { key: `card:${root.id}`, id: root.id, rect: lay.root, fill: KIND[root.kind], line1: `${root.glyph} [${root.label}] ${root.title}`, line3: i.overview ? `${words} · ${model.cards.length} children` : `${words} · ${model.cards.length} items · ${i.steps} steps`, recent: false }, i.open, wholeClick),
+      boxOf(ui, { key: `card:${root.id}`, id: root.id, rect: lay.root, fill: KIND[root.kind], line1: `${root.glyph} [${root.label}] ${root.title}`, line3: i.overview ? `${words} · ${model.cards.length} children` : `${words} · ${model.cards.length} items · ${i.steps} steps`, warn: false, recent: false }, i.open, wholeClick),
     )
+    order.push(root.id)
   }
   for (const row of lay.rows) {
     if (row.chip) {
@@ -318,9 +364,15 @@ function canvasOf(ui: Ui, i: CanvasInput): unknown[] {
       const card = byId.get(id) as Card
       const rect = lay.cards.get(id)
       if (rect === undefined) continue
-      boxes.push(boxOf(ui, { key: `card:${id}`, id, rect, fill: card.ready ? READY : KIND[card.kind], line1: `${card.glyph} [${card.label}] ${card.title}`, line3: card.stateText, recent: card.recent }, i.open, wholeClick))
+      boxes.push(boxOf(ui, { key: `card:${id}`, id, rect, fill: card.ready ? READY : KIND[card.kind], line1: `${card.glyph} [${card.label}] ${card.title}`, line3: card.stateText, warn: card.warn, recent: card.recent }, i.open, wholeClick))
+      order.push(id)
+      // A sibling stripe on the card's left column: the card's own subtree is untouched (G5 keys hold).
+      if (stripes && critIds.has(id)) {
+        boxes.push(h(Box, { key: `crit:${id}`, position: 'absolute', top: rect.top, left: rect.left, width: 1, height: rect.height, backgroundColor: CRIT_COLOR }))
+      }
     }
   }
+  recordFocusOrder(order)
 
   const omitted = plan === 'omit' ? [h(Text, { key: 'edges-omitted', dimColor: true }, 'Too many edges to draw here; boxes only.')] : []
 
@@ -399,6 +451,10 @@ export function registerGraphPane(on: On, options: PluginOptions = {}): void {
   // are matched too); the pane's own reads are skipped; the result is always returned as it came.
   on('tool.call', { tool: TO_TOOL }, ($, e, next) => trackToolCall(activityIo($), e, next))
 
+  // One focus stop per box: a whole-click box's title lines hand the ring to its state line (focus.ts).
+  // Matcher spelled as a literal (an imported constant stays unresolved and never matches).
+  on('ui.focus', { requestId: 'to-graph' }, async ($, e, next) => redirectFocus(e, next))
+
   on('ui.render', { component: 'Pane', requestId: PANE_ID }, async ($, e) => {
     const ui = $.ui.resolve(e)
     const { Box, Text, Button, Svg } = ui
@@ -412,8 +468,9 @@ export function registerGraphPane(on: On, options: PluginOptions = {}): void {
 
     const view: GraphView | null = snap
     const switching = isSwitching(scope, snap)
-    const model = view === null ? null : cardsOf(view, activity.working, activity.changed)
+    const model = view === null ? null : cardsOf(view, activity.working, activity.changed, activity.blocked ?? {})
     const steps = model === null ? null : stepsOf(model.cards)
+    const crit: CriticalPath = model === null || steps === null || view?.overview === true ? { ids: [], edges: new Set() } : criticalPath(model.cards, steps)
     const lay = model === null || steps === null ? null : layoutTD(model.cards, steps, { bodyColumns: (e.props as { bodyColumns?: number }).bodyColumns, showDone: showDone || view?.overview === true, hasRoot: model.root !== undefined, wrap: view?.overview === true })
 
     // Refresh is automatic (SSE or poll); Reconnect restarts the live source and shows only while degraded.
@@ -491,13 +548,14 @@ export function registerGraphPane(on: On, options: PluginOptions = {}): void {
           ...legendItems().map(item => h(Box, { key: `legend-${item.key}`, backgroundColor: item.color, paddingX: 1, marginRight: 1 }, h(Text, { color: '#ffffff' }, item.text))),
           h(Box, { key: 'legend-ready', backgroundColor: READY, paddingX: 1, marginRight: 1 }, h(Text, { color: '#ffffff' }, '○ ready')),
           h(Text, { key: 'legend-edges', dimColor: true }, '┄ contains   ╌ open blocker   ─ satisfied'),
+          ...(crit.ids.length > 0 ? [h(Text, { key: 'legend-crit', color: CRIT_COLOR }, '   ━ critical path')] : []),
           ...(view.nodes.some(n => n.planLabel !== undefined) ? [h(Text, { key: 'legend-label', dimColor: true }, '   Tn = plan label')] : []),
         ),
       )
       if (lay.tooWide !== null) {
         body.push(h(Text, { key: 'too-wide', dimColor: true }, `Graph is ${lay.tooWide} columns wide; the pane shows ${lay.cols}. Widen the pane or open a smaller scope.`))
       }
-      body.push(...canvasOf(ui, { model, lay, desktop: e.surface !== 'terminal' && Svg !== undefined, cell, steps: steps.max, open, count: view.nodes.length, overview: view.overview === true, extraChars: extrasChars(detail?.lines ?? null, trail.map(c => c.title)) }))
+      body.push(...canvasOf(ui, { model, lay, desktop: e.surface !== 'terminal' && Svg !== undefined, cell, steps: steps.max, open, count: view.nodes.length, overview: view.overview === true, extraChars: extrasChars(detail?.lines ?? null, trail.map(c => c.title)), crit }))
     }
 
     if (detail !== null) {

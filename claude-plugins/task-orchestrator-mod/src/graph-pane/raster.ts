@@ -8,16 +8,18 @@ export interface Cell {
   dim: boolean
 }
 
-export const EDGE_COLOR: Record<RouteKind, string> = { open: '#f59e0b', done: '#9ca3af', contain: '#6b7280' }
-const RANK: Record<RouteKind, number> = { open: 3, done: 2, contain: 1 }
+/** The critical path's colour (edges, card stripes and legend). */
+export const CRIT_COLOR = '#a855f7'
+export const EDGE_COLOR: Record<RouteKind, string> = { crit: CRIT_COLOR, open: '#f59e0b', done: '#9ca3af', contain: '#6b7280' }
+const RANK: Record<RouteKind, number> = { crit: 4, open: 3, done: 2, contain: 1 }
 
 const N = 1
 const E = 2
 const S = 4
 const W = 8
 
-const VERT: Record<RouteKind, string> = { done: '│', open: '╎', contain: '┆' }
-const HORZ: Record<RouteKind, string> = { done: '─', open: '╌', contain: '┄' }
+const VERT: Record<RouteKind, string> = { crit: '┃', done: '│', open: '╎', contain: '┆' }
+const HORZ: Record<RouteKind, string> = { crit: '━', done: '─', open: '╌', contain: '┄' }
 const SOLID: Record<number, string> = {
   [E | S]: '┌',
   [W | S]: '┐',
@@ -30,12 +32,29 @@ const SOLID: Record<number, string> = {
   [N | E | S | W]: '┼',
 }
 
+/** The critical path's corners and tees, heavy. */
+const HEAVY: Record<number, string> = {
+  [E | S]: '┏',
+  [W | S]: '┓',
+  [N | E]: '┗',
+  [N | W]: '┛',
+  [N | S | E]: '┣',
+  [N | S | W]: '┫',
+  [E | W | S]: '┳',
+  [E | W | N]: '┻',
+  [N | E | S | W]: '╋',
+}
+
 function glyphOf(arms: number, kind: RouteKind): string {
   if (arms === N || arms === S || arms === (N | S)) return VERT[kind]
   if (arms === E || arms === W || arms === (E | W)) return HORZ[kind]
+  if (kind === 'crit') return HEAVY[arms] ?? '╋'
 
   return SOLID[arms] ?? '┼'
 }
+
+/** Only satisfied and containment edges draw dim. */
+const dimOf = (kind: RouteKind): boolean => kind !== 'open' && kind !== 'crit'
 
 /** Cells keyed `x_y`. Coordinates are integers (cell mode). */
 export function raster(rs: readonly Route[]): Map<string, Cell> {
@@ -60,11 +79,11 @@ export function raster(rs: readonly Route[]): Map<string, Cell> {
     }
   }
   const cells = new Map<string, Cell>()
-  for (const [key, { m, kind }] of arms) cells.set(key, { glyph: glyphOf(m, kind), color: EDGE_COLOR[kind], dim: kind !== 'open' })
+  for (const [key, { m, kind }] of arms) cells.set(key, { glyph: glyphOf(m, kind), color: EDGE_COLOR[kind], dim: dimOf(kind) })
   for (const r of rs) {
     if (!r.head) continue
     const [x, y] = r.pts[r.pts.length - 1] as [number, number]
-    cells.set(`${x}_${y}`, { glyph: '▼', color: EDGE_COLOR[r.kind], dim: r.kind !== 'open' })
+    cells.set(`${x}_${y}`, { glyph: '▼', color: EDGE_COLOR[r.kind], dim: dimOf(r.kind) })
   }
 
   return cells

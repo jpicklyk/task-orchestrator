@@ -67,6 +67,13 @@ export interface GraphSnapshot {
   trail?: { id: string; title: string }[]
   /** Set when any call failed (the snapshot is then partial) or no scope could be resolved. */
   error?: string
+  /**
+   * Work/review items missing required notes with no role transition in the last STALL_MS, with their
+   * missing note keys. Absent on the overview and when the session-resume read failed.
+   */
+  stalled?: Record<string, string[]>
+  /** When the earliest listed-but-recently-moved item would cross STALL_MS (ms); the refresh re-snapshots then. */
+  stallDueAt?: number
 }
 
 export interface GraphStatus {
@@ -90,10 +97,19 @@ export interface GraphWorker {
   at: number
 }
 
-/** Who is working on which item, and which items changed recently; both expire (activity.ts). */
+/** One gate-blocked advance_item of this session on an item: when, the missing note keys, the target role. */
+export interface GraphGateBlock {
+  at: number
+  missing: string[]
+  target?: string
+}
+
+/** Who is working on which item, which items changed recently, and which were gate-blocked; all expire (activity.ts). */
 export interface GraphActivity {
   working: Record<string, GraphWorker[]>
   changed: Record<string, number>
+  /** Absent in a value written before T12a (a hot reload keeps the old value). */
+  blocked?: Record<string, GraphGateBlock>
 }
 
 /** What agent.spawn told us about a subagent, keyed by its agent id. */

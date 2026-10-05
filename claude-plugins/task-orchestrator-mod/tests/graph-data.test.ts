@@ -13,7 +13,7 @@ import type { GraphIo } from '../src/graph-data/io.ts'
 import { invalidateLabels, resetLabelState } from '../src/graph-data/labels.ts'
 import { createSseParser, curlRequest, eventsUrl, isLoopbackApiUrl, resetLiveState, resolveApiUrl, restartLive, syncLive } from '../src/graph-data/live.ts'
 import { REFRESH_TIMEOUT_MS, refresh, refreshNow, resetRefreshState, sameSnapshot, sameStatus } from '../src/graph-data/refresh.ts'
-import { NODE_CAP, snapshot, trailOf } from '../src/graph-data/snapshot.ts'
+import { NODE_CAP, STALL_MS, TRANSITION_LIMIT, snapshot, stallsOf, trailOf } from '../src/graph-data/snapshot.ts'
 
 const ROOT = '00000000-0000-4000-8000-000000000001'
 const TO = 'mcp__mcp-task-orchestrator__'
@@ -28,6 +28,9 @@ type World = {
   context?: Record<string, unknown>
   failDepsFor?: string[]
   failGetFor?: string[]
+  /** The get_context session-resume answer (stalls); failResume makes it an error result. */
+  resume?: unknown
+  failResume?: boolean
 }
 type Call = { tool: string; args: Record<string, unknown> }
 type McpResult = { content: { type: 'text'; text: string }[]; isError?: boolean }
@@ -89,6 +92,7 @@ function answer(world: World, tool: string, args: Record<string, unknown>): McpR
       })),
     })
   }
+  if (tool === 'get_context' && args.mode === 'session-resume') return world.failResume === true ? failure('resume boom') : text(world.resume ?? {})
   if (tool === 'get_context') return text(world.context?.[String(args.itemId)] ?? {})
 
   return failure(`unexpected ${tool}`)
@@ -365,7 +369,8 @@ test('gates are read for work and review nodes only, with phase-row counts', asy
   }
   const env = fake({ world })
   const s = await snapshot(env.io, 'root')
-  expect(env.calls.filter(c => c.tool === 'get_context').map(c => c.args.itemId).sort()).toEqual(['feat', 'root', 't-review', 't-work'])
+  // Per-item gate reads; the one session-resume read (stalls) names no itemId.
+  expect(env.calls.filter(c => c.tool === 'get_context' && c.args.mode !== 'session-resume').map(c => c.args.itemId).sort()).toEqual(['feat', 'root', 't-review', 't-work'])
   expect(s.gates['t-work']).toEqual({ canAdvance: false, phase: 'work', missing: ['session-tracking'], required: 3, filled: 1 })
   expect(s.gates['t-review']).toEqual({ canAdvance: true, phase: 'review', missing: [], required: 1, filled: 1 })
   expect(s.gates['t-queue']).toBe(undefined)
@@ -1008,4 +1013,110 @@ test('trailOf: ancestors root first, then the item; tolerates missing titles and
   expect(trailOf(raw, 'feat')).toEqual([{ id: 'root', title: 'Project' }, { id: 'cont', title: 'cont' }, { id: 'feat', title: 'Feature X' }])
   expect(trailOf({ id: 'solo', title: 'Solo' }, 'solo')).toEqual([{ id: 'solo', title: 'Solo' }])
   expect(trailOf(null, 'x')).toBeUndefined()
+})
+
+// ── T12a 13497d52: stalled items (session-resume) ──────────────────────────────────────
+
+const MIN = 60_000
+/** fake()'s clock starts at 1_000 ms. */
+const iso = (ms: number) => new Date(ms).toISOString()
+const resumeOf = (stalled: string[], moves: { itemId: string; at: number }[]) => ({
+  stalledItems: stalled.map(id => ({ id, title: id, role: id === 't-review' ? 'review' : 'work', missingNotes: ['implementation-notes', 'session-tracking'] })),
+  recentTransitions: moves.map(m => ({ itemId: m.itemId, fromRole: 'queue', toRole: 'work', at: iso(m.at) })),
+})
+const resumeCalls = (calls: Call[]) => calls.filter(c => c.tool === 'get_context' && c.args.mode === 'session-resume')
+
+test('S5: stalled = listed work/review items with no transition in the last 30 min; one scoped session-resume read', async () => {
+  const world = threeLevels()
+  world.resume = resumeOf(['t-work', 't-review', 'not-in-scope'], [{ itemId: 't-review', at: 1_000 - 5 * MIN }])
+  const env = fake({ world })
+  const s = await snapshot(env.io, 'root')
+  expect(s.error).toBe(undefined)
+  expect(s.stalled).toEqual({ 't-work': ['implementation-notes', 'session-tracking'] })
+  // t-review moved 5 minutes ago: it crosses 30 minutes after that move.
+  expect(s.stallDueAt).toBe(1_000 - 5 * MIN + STALL_MS)
+  const calls = resumeCalls(env.calls)
+  expect(calls).toHaveLength(1)
+  expect(calls[0]?.args).toEqual({ mode: 'session-resume', since: iso(1_000 - STALL_MS), ancestorId: 'root', limit: TRANSITION_LIMIT })
+})
+
+test('S5: stallsOf ignores non-work/review rows and unknown ids, and a move already 30 min old counts as stalled', () => {
+  const ids = new Set(['a', 'b', 'q'])
+  const raw = {
+    stalledItems: [{ id: 'a', role: 'work', missingNotes: ['x'] }, { id: 'b', role: 'review', missingNotes: [] }, { id: 'q', role: 'queue', missingNotes: ['y'] }, { id: 'zz', role: 'work' }],
+    recentTransitions: [{ itemId: 'b', at: iso(0) }],
+  }
+  expect(stallsOf(raw, ids, STALL_MS + 1)).toEqual({ stalled: { a: ['x'], b: [] } })
+  expect(stallsOf(raw, ids, 10)).toEqual({ stalled: { a: ['x'] }, dueAt: STALL_MS })
+  expect(stallsOf('junk', ids, 0)).toEqual({ stalled: {} })
+})
+
+test('S6: a full page of 200 transitions may be cut: no stalls at all', async () => {
+  const world = threeLevels()
+  const moves = Array.from({ length: TRANSITION_LIMIT }, (_, i) => ({ itemId: `other-${i}`, at: 1_000 - MIN }))
+  world.resume = resumeOf(['t-work'], moves)
+  const s = await snapshot(fake({ world }).io, 'root')
+  expect(s.stalled).toEqual({})
+  expect(s.stallDueAt).toBe(undefined)
+  // One fewer is a complete list: the stall shows.
+  world.resume = resumeOf(['t-work'], moves.slice(1))
+  expect((await snapshot(fake({ world }).io, 'root')).stalled).toEqual({ 't-work': ['implementation-notes', 'session-tracking'] })
+})
+
+test('S7: a failed session-resume read is recorded in error; stalled stays unset; the rest of the snapshot is intact', async () => {
+  const world = threeLevels()
+  world.failResume = true
+  world.context = { 't-work': { gateStatus: { canAdvance: false, phase: 'work', missing: ['x'] }, schema: [] } }
+  const s = await snapshot(fake({ world }).io, 'root')
+  expect(s.error).toContain('resume boom')
+  expect('stalled' in s).toBe(false)
+  expect(s.nodes.map(n => n.id).sort()).toEqual(['feat', 'root', 'sub', 't-queue', 't-review', 't-work'])
+  expect(s.gates['t-work']?.missing).toEqual(['x'])
+})
+
+test('S7: the overview reads no session-resume and has no stalls', async () => {
+  const env = fake({ world: projectWorld() })
+  const s = await snapshot(env.io, null)
+  expect(s.overview).toBe(true)
+  expect(resumeCalls(env.calls)).toHaveLength(0)
+  expect(s.stalled).toBe(undefined)
+})
+
+test('S8: a quiet period re-snapshots once, 1s after the earliest listed item crosses 30 min; none when nothing is pending', async () => {
+  resetRefreshState()
+  const world = threeLevels()
+  // t-work moved 5 minutes before the clock's start: it crosses at 1_000 - 5 min + 30 min.
+  const movedAt = 1_000 - 5 * MIN
+  world.resume = resumeOf(['t-work'], [{ itemId: 't-work', at: movedAt }])
+  const env = fake({ world })
+  // The timer's refresh reads the scope atom, as a live one does.
+  env.state.scope = 'root'
+  void refresh(env.io, 'root')
+  await env.advance(300)
+  expect(resumeCalls(env.calls)).toHaveLength(1)
+  expect(env.state.snapshot?.stalled).toEqual({})
+  // Just before crossing + 1s: nothing yet.
+  await env.advance(movedAt + STALL_MS + 1_000 - 1_300 - 1)
+  expect(resumeCalls(env.calls)).toHaveLength(1)
+  // The crossing timer fires, then the refresh debounce runs: one more read, and now it is stalled.
+  await env.advance(1 + 300)
+  expect(resumeCalls(env.calls)).toHaveLength(2)
+  expect(env.state.snapshot?.stalled).toEqual({ 't-work': ['implementation-notes', 'session-tracking'] })
+  // Nothing pending any more: no further re-snapshot however long it stays quiet.
+  await env.advance(2 * 60 * MIN)
+  expect(resumeCalls(env.calls)).toHaveLength(2)
+  resetRefreshState()
+})
+
+test('S8: no recently moved listed item, no crossing timer', async () => {
+  resetRefreshState()
+  const world = threeLevels()
+  world.resume = resumeOf(['t-work'], [])
+  const env = fake({ world })
+  void refresh(env.io, 'root')
+  await env.advance(300)
+  expect(resumeCalls(env.calls)).toHaveLength(1)
+  await env.advance(3 * 60 * MIN)
+  expect(resumeCalls(env.calls)).toHaveLength(1)
+  resetRefreshState()
 })

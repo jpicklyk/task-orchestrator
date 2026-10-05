@@ -8,15 +8,19 @@ export const SVG_LIMIT = 131072
 export const SVG_PX_LIMIT = 4096
 
 const STYLE: Record<RouteKind, string> = {
+  crit: 'stroke="#a855f7" stroke-width="3"',
   open: 'stroke="#f59e0b" stroke-width="2" stroke-dasharray="6 3"',
   done: 'stroke="#9ca3af" stroke-width="1.2" opacity="0.55"',
   contain: 'stroke="#6b7280" stroke-width="1" stroke-dasharray="2 3" opacity="0.7"',
 }
-const MARKER: Record<RouteKind, string> = { open: ' marker-end="url(#ao)"', done: ' marker-end="url(#ad)"', contain: '' }
+const MARKER: Record<RouteKind, string> = { crit: ' marker-end="url(#ac)"', open: ' marker-end="url(#ao)"', done: ' marker-end="url(#ad)"', contain: '' }
 
 const DEFS =
   '<defs><marker id="ad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" markerUnits="userSpaceOnUse" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/></marker>' +
-  '<marker id="ao" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#f59e0b"/></marker></defs>'
+  '<marker id="ao" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#f59e0b"/></marker>'
+/** The critical path's arrowhead, written only when a critical edge is drawn. */
+const CRIT_MARKER =
+  '<marker id="ac" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="10" markerHeight="10" markerUnits="userSpaceOnUse" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#a855f7"/></marker>'
 
 /** A cell-unit length as CSS px, to one decimal (the probe's rounding). */
 export const px = (cells: number, size: number): number => Number((cells * size).toFixed(1))
@@ -35,5 +39,5 @@ export function edgeSvg(rs: readonly Route[], cell: CellSize, width: number, hei
     return `<path d="${d}" fill="none" ${STYLE[r.kind]}${r.head ? MARKER[r.kind] : ''}/>`
   })
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${px(width, cell.w)}" height="${px(height, cell.h)}">${DEFS}${paths.join('')}</svg>`
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${px(width, cell.w)}" height="${px(height, cell.h)}">${DEFS}${rs.some(r => r.kind === 'crit') ? CRIT_MARKER : ''}</defs>${paths.join('')}</svg>`
 }

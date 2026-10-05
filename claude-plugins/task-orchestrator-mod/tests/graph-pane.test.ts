@@ -7,11 +7,12 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { GateInfo, GraphEdge, GraphNode, GraphSnapshot, GraphStatus } from '../types'
 import { READ_TOOLS, WHOLE_CLICK_MAX, trackToolCall } from '../src/graph-pane/index.ts'
 import { WRITE_TOOLS } from '../src/graph-data/index.ts'
-import { emptyActivity, pruneActivity, recordActivity, rememberAgent, resolveId, seatOf, shortModel, touchedIds } from '../src/graph-pane/activity.ts'
-import { COST, ELEMENT_BUDGET, TREE_CHAR_BUDGET, edgePlan, extrasChars } from '../src/graph-pane/budget.ts'
+import { GATE_BLOCK_MS, emptyActivity, gateBlocks, pruneActivity, recordActivity, recordGateBlocks, rememberAgent, resolveId, seatOf, shortModel, touchedIds } from '../src/graph-pane/activity.ts'
+import { COST, ELEMENT_BUDGET, TREE_CHAR_BUDGET, edgePlan, extrasChars, marksFit } from '../src/graph-pane/budget.ts'
+import { focusOrder, focusTarget, recordFocusOrder, redirectFocus, resetFocusState } from '../src/graph-pane/focus.ts'
 import { cellSize } from '../src/graph-pane/cell.ts'
 import { layoutTD } from '../src/graph-pane/layout.ts'
-import { cardsOf, isOpen, num, stepsOf } from '../src/graph-pane/model.ts'
+import { cardsOf, criticalPath, isOpen, num, stepsOf } from '../src/graph-pane/model.ts'
 import type { Card } from '../src/graph-pane/model.ts'
 import { detailLines, duration, formatDetail, isDegraded, isSwitching, loadingTitle, parseScopeArg, scopeHeader, summaryLine } from '../src/graph-pane/pane-model.ts'
 import { raster, runs } from '../src/graph-pane/raster.ts'
@@ -539,7 +540,8 @@ for (const surface of SURFACES) {
       for (const b of edgeBoxes) expect(b.props).toMatchObject({ position: 'absolute', width: 1, height: 1 })
       const head = (await found(ui, 'e:49_11')).children[0] as El
       expect(head.children).toEqual(['▼'])
-      expect(head.props.color).toBe('#f59e0b')
+      // A (work) -> C (queue) is F1's critical path (two open cards): its arrowhead is purple.
+      expect(head.props.color).toBe('#a855f7')
     } else {
       expect(edgeBoxes).toHaveLength(0)
       expect(svgs).toHaveLength(1)
@@ -1358,3 +1360,408 @@ test('overview wrap: 25 edge-free children fit a 90-column pane over several lin
   // Without wrap the same row is too wide.
   expect(layoutTD(model.cards, steps, { bodyColumns: 92, showDone: true, hasRoot: true }).tooWide).not.toBeNull()
 })
+
+// ── T12a 13497d52: critical path, stall and gate-blocked warnings, one focus stop per box ──
+
+const PURPLE = '#a855f7'
+const critOf = (v: GraphView) => {
+  const model = cardsOf(v)
+
+  return criticalPath(model.cards, stepsOf(model.cards))
+}
+
+test('S1: F2 critical path is A, B, C along consecutive edges; the direct A->C edge is not on it', () => {
+  const p = critOf(f2())
+  expect(p.ids).toEqual([A, B, C])
+  expect([...p.edges].sort()).toEqual([`${A}|${B}`, `${B}|${C}`])
+  expect(p.edges.has(`${A}|${C}`)).toBe(false)
+})
+
+test('S1: ties go to the smaller plan number, at each step and between end cards', () => {
+  // Two equal chains: T5 -> T6 and T1 -> T2; the T2 end wins.
+  const v = gview([mk('p1', 'work', 'T5'), mk('q1', 'queue', 'T6'), mk('p2', 'work', 'T1'), mk('q2', 'queue', 'T2')], [blocks('p1', 'q1'), blocks('p2', 'q2')])
+  expect(critOf(v).ids).toEqual(['p2', 'q2'])
+  // Two equal predecessors of one card: T3 beats T9.
+  const w = gview([mk('x', 'work', 'T9'), mk('y', 'work', 'T3'), mk('z', 'queue', 'T4')], [blocks('x', 'z'), blocks('y', 'z')])
+  expect(critOf(w).ids).toEqual(['y', 'z'])
+})
+
+test('S2: a terminal card breaks the chain; a length-1 result gives no path', () => {
+  // A (done) -> B (work) -> C (queue): the chain is B, C only.
+  const v = gview([mk(A, 'terminal', 'T1'), mk(B, 'work', 'T2'), mk(C, 'queue', 'T3')], [blocks(A, B), blocks(B, C)])
+  expect(critOf(v).ids).toEqual([B, C])
+  // A (work) -> C (done), B alone: no open chain of two cards.
+  const one = gview([mk(A, 'work', 'T1'), mk(B, 'queue', 'T2'), mk(C, 'terminal', 'T3')], [blocks(A, C)])
+  expect(critOf(one)).toEqual({ ids: [], edges: new Set() })
+  // A satisfied blocker (unblockAt work, blocker in work) is not an open step.
+  const early = gview([mk(A, 'work', 'T1'), mk(C, 'queue', 'T3')], [{ ...blocks(A, C), unblockAt: 'work' }])
+  expect(critOf(early).ids).toEqual([])
+})
+
+test('S4 (unit): a dependency cycle terminates; back edges never join the path', () => {
+  const cyc = gview([mk(A, 'queue', 'T1'), mk(B, 'queue', 'T2'), mk(C, 'queue', 'T3')], [blocks(A, B), blocks(B, C), blocks(C, A)])
+  const p = critOf(cyc)
+  expect(p.ids.length).toBeLessThanOrEqual(3)
+  const model = cardsOf(cyc)
+  const back = stepsOf(model.cards).back
+  for (const e of p.edges) expect(back.has(e)).toBe(false)
+})
+
+test('S4: desktop Svg strokes the two path edges purple with the ac marker; the direct edge stays amber', () => {
+  const b = build(f2())
+  const p = criticalPath(b.model.cards, b.steps)
+  const svg = edgeSvg(routes(b.lay, b.model.cards, 'px', p.edges), { w: 8.4, h: 18 }, b.lay.width, b.lay.height)
+  expect(svg.split(`stroke="${PURPLE}"`)).toHaveLength(3)
+  expect(svg.split('url(#ac)')).toHaveLength(3)
+  expect(svg).toContain('<marker id="ac"')
+  const long = svg.split('<path ').find(x => x.includes('M411.6 162.0 V189.0 H558.6'))
+  expect(long).toContain('marker-end="url(#ao)"')
+  // No path, no ac marker at all.
+  expect(edgeSvg(routes(b.lay, b.model.cards, 'px'), { w: 8.4, h: 18 }, b.lay.width, b.lay.height)).not.toContain('id="ac"')
+})
+
+test('S4: terminal path cells are heavy and purple, never dim; the A->C channel keeps its open style', () => {
+  const b = build(f2())
+  const p = criticalPath(b.model.cards, b.steps)
+  const cells = raster(routes(b.lay, b.model.cards, 'cell', p.edges))
+  // The A->B drop shares its cell with the A->C branch: a heavy tee, purple.
+  expect(at(cells, 49, 10)).toEqual({ glyph: '┣', color: PURPLE, dim: false })
+  expect(at(cells, 49, 11)).toEqual({ glyph: '▼', color: PURPLE, dim: false })
+  expect(at(cells, 49, 9)).toEqual({ glyph: '┃', color: PURPLE, dim: false })
+  for (const y of [11, 12, 13, 14, 15]) expect(at(cells, 66, y)).toEqual({ glyph: '╎', color: '#f59e0b', dim: false })
+  const heavy = new Set(['┃', '━', '┏', '┓', '┗', '┛', '┣', '┫', '┳', '┻', '╋', '▼'])
+  for (const c of cells.values()) if (c.color === PURPLE) expect(heavy.has(c.glyph)).toBe(true)
+})
+
+for (const surface of SURFACES) {
+  test(`S3: ${surface} draws a 1-wide purple stripe at each path card's left/top; card subtrees are unchanged`, async ($, on) => {
+    rig(on, { graphSnapshot: asSnapshot(f2()), graphScope: ROOT_ID })
+    const ui = await mountAt($, surface)
+    for (const id of [A, B, C]) {
+      const card = await found(ui, `card:${id}`)
+      const stripe = await found(ui, `crit:${id}`)
+      expect(stripe.props).toMatchObject({ position: 'absolute', top: card.props.top, left: card.props.left, width: 1, height: 3, backgroundColor: PURPLE })
+      expect(JSON.stringify(card)).not.toContain(PURPLE)
+    }
+    expect(await ui.find({ key: `crit:${ROOT_ID}` })).toBeUndefined()
+    const legend = await ui.find({ type: 'Text', text: '━ critical path' })
+    expect(legend?.props.color).toBe(PURPLE)
+    // The stripe follows its card in drawn order.
+    const canvas = await found(ui, 'canvas')
+    const keys = canvas.children.map(c => (c as El).props.key)
+    expect(keys.indexOf(`crit:${B}`)).toBe(keys.indexOf(`card:${B}`) + 1)
+    await ui.unmount()
+  })
+
+  test(`S3: ${surface} a card on the path draws exactly as off it (G5 method)`, async ($, on) => {
+    // A alone (no path) and A heading F2's path sit in the same cells with the same state line.
+    const r = rig(on, { graphSnapshot: asSnapshot(gview([mk(A, 'work', 'T1')])), graphScope: ROOT_ID })
+    const ui = await mountAt($, surface)
+    const alone = await json(ui, `card:${A}`)
+    expect(await ui.find({ key: `crit:${A}` })).toBeUndefined()
+    r.state.set(SLOT('graphSnapshot'), { value: asSnapshot(f2()), version: 7 })
+    await ui.redraw()
+    expect(await ui.find({ key: `crit:${A}` })).toBeDefined()
+    expect(await json(ui, `card:${A}`)).toBe(alone)
+    await ui.unmount()
+  })
+
+  test(`S3: ${surface} the root overview draws no critical path`, async ($, on) => {
+    const o = { ...ov(), edges: [blocks(A, B)] }
+    rig(on, { graphSnapshot: o, graphScope: null })
+    const ui = await mountAt($, surface)
+    expect((await ui.findAll({ type: 'Box' })).filter(b => typeof b.key === 'string' && b.key.startsWith('crit:'))).toHaveLength(0)
+    expect(await ui.find({ type: 'Text', text: 'critical path' })).toBeUndefined()
+    await ui.unmount()
+  })
+}
+
+// ── warnings ────────────────────────────────────────────────────────────────────────────
+
+test('S10: line 3 priority is open blockers > live worker > gate-blocked > stalled > ready > phase', () => {
+  const by = (m: ReturnType<typeof cardsOf>, id: string) => m.cards.find(c => c.id === id) as Card
+  const v = gview([mk(A, 'work', 'T1'), mk(B, 'work', 'T2'), mk(C, 'queue', 'T3')], [blocks(A, C)], { stalled: { A: [], [A]: ['session-tracking'], [B]: ['implementation-notes', 'session-tracking'], [C]: ['x'] } })
+  const w = { at: 1, agentId: 'main', seat: 'implementer' }
+  const blocked = { [B]: { at: 1, missing: ['review-checklist'], target: 'review' }, [C]: { at: 1, missing: ['y'] } }
+  const plain = cardsOf(v)
+  expect(by(plain, A).stateText).toBe('⚠ stalled · session-tracking')
+  expect(by(plain, A).warn).toBe(true)
+  expect(by(plain, B).stateText).toBe('⚠ stalled · implementation-notes, session-tracking')
+  // Gate-blocked beats stalled; open blockers beat both.
+  const g = cardsOf(v, {}, {}, blocked)
+  expect(by(g, B).stateText).toBe('✗ gate: review-checklist')
+  expect(by(g, B).warn).toBe(true)
+  expect(by(g, C).stateText).toBe('⊘ after T1')
+  expect(by(g, C).warn).toBe(false)
+  // A live worker beats both warnings: a worked card is never shown stalled.
+  const live = cardsOf(v, { [A]: [w], [B]: [w] }, {}, blocked)
+  expect(by(live, A).stateText).toBe('» impl')
+  expect(by(live, B).stateText).toBe('» impl')
+  expect(by(live, B).warn).toBe(false)
+  // No warning: ready, then the phase.
+  const calm = cardsOf(gview([mk(A, 'work', 'T1'), mk(B, 'queue', 'T2')]))
+  expect(by(calm, B).stateText).toBe('ready')
+  expect(by(calm, A).stateText).toBe('work')
+  expect(by(calm, A).warn).toBe(false)
+  // A gate block with no missing keys names the target role.
+  expect(by(cardsOf(v, {}, {}, { [B]: { at: 1, missing: [], target: 'review' } }), B).stateText).toBe('✗ gate: review')
+})
+
+test('S10: the overview shows no warnings', () => {
+  const o = { ...ov(), stalled: { [A]: ['x'] } }
+  const m = cardsOf(o, {}, {}, { [B]: { at: 1, missing: ['y'] } })
+  for (const c of m.cards) {
+    expect(c.warn).toBe(false)
+    expect(c.stateText.startsWith('⚠') || c.stateText.startsWith('✗')).toBe(false)
+  }
+})
+
+for (const surface of SURFACES) {
+  test(`S10: ${surface} warning lines are undimmed; other state lines stay dim; the overview draws none`, async ($, on) => {
+    const v = { ...asSnapshot(gview([mk(A, 'work', 'T1'), mk(B, 'work', 'T2'), mk(C, 'queue', 'T3')])), stalled: { [A]: ['session-tracking'] } }
+    const r = rig(on, { graphSnapshot: v, graphScope: ROOT_ID, graphActivity: { working: {}, changed: {}, blocked: { [B]: { at: 1, missing: ['review-checklist'] } } } })
+    const ui = await mountAt($, surface)
+    const a = await found(ui, `open:${A}`)
+    expect(a.props.label).toBe('⚠ stalled · session-tracking')
+    expect(a.props.dimColor).toBeUndefined()
+    const b = await found(ui, `open:${B}`)
+    expect(b.props.label).toBe('✗ gate: review-checklist')
+    expect(b.props.dimColor).toBeUndefined()
+    expect((await found(ui, `open:${C}`)).props.dimColor).toBe(true)
+    // An activity value written before gate blocks existed (no \`blocked\`) still draws.
+    r.state.set(SLOT('graphActivity'), { value: { working: {}, changed: {} }, version: 9 })
+    await ui.redraw()
+    expect((await found(ui, `open:${B}`)).props.label).toBe('work')
+    // The overview: no warning marks.
+    r.state.set(SLOT('graphSnapshot'), { value: { ...ov(), stalled: { [A]: ['x'] } }, version: 10 })
+    r.state.set(SLOT('graphScope'), { value: null, version: 10 })
+    r.state.set(SLOT('graphActivity'), { value: { working: {}, changed: {}, blocked: { [B]: { at: 1, missing: ['y'] } } }, version: 10 })
+    await ui.redraw()
+    expect(String((await found(ui, `open:${A}`)).props.label)).toBe('9 work · 4 review · 63 done')
+    expect(String((await found(ui, `open:${B}`)).props.label)).toBe('2 queue')
+    await ui.unmount()
+  })
+}
+
+test('S9: gateBlocks reads the gate_blocked rows of an advance_item result and nothing else', () => {
+  const text = JSON.stringify({
+    results: [
+      { itemId: A, trigger: 'start', applied: false, errorCode: 'gate_blocked', missingNotes: [{ key: 'implementation-notes', description: 'd' }, 'session-tracking'], targetRole: 'review' },
+      { itemId: B, trigger: 'start', applied: true, newRole: 'work' },
+      { itemId: C, trigger: 'start', applied: false, errorCode: 'dependency_blocked' },
+    ],
+    summary: { total: 3, succeeded: 1, failed: 2 },
+  })
+  expect(gateBlocks(`${TO}advance_item`, text)).toEqual([{ itemId: A, missing: ['implementation-notes', 'session-tracking'], targetRole: 'review' }])
+  expect(gateBlocks(`${TO}advance_item`, 'not json')).toEqual([])
+  expect(gateBlocks(`${TO}advance_item`, undefined)).toEqual([])
+  expect(gateBlocks(`${TO}manage_notes`, text)).toEqual([])
+  expect(gateBlocks('Bash', text)).toEqual([])
+})
+
+test('S9: trackToolCall hands the blocks to the recorder after the activity and returns the result unchanged', async () => {
+  const order: string[] = []
+  const gated: unknown[] = []
+  const io = { note: async () => void order.push('note'), gate: async (rows: unknown) => void (order.push('gate'), gated.push(rows)) }
+  const ran = { ref: 'r', result: {}, text: JSON.stringify({ results: [{ itemId: A, applied: false, errorCode: 'gate_blocked', missingNotes: ['x'] }] }) }
+  const call = Object.assign(async () => ran, { origin: { plugin: 'somebody-else' } })
+  expect(await trackToolCall(io, { tool: `${TO}advance_item`, itemId: A }, call as never)).toBe(ran)
+  expect(order).toEqual(['note', 'gate'])
+  expect(gated).toEqual([[{ itemId: A, missing: ['x'] }]])
+  // A throwing recorder never touches the result.
+  const boom = { note: async () => undefined, gate: async () => Promise.reject(new Error('down')) }
+  expect(await trackToolCall(boom, { tool: `${TO}advance_item`, itemId: A }, call as never)).toBe(ran)
+})
+
+test('S9: recordGateBlocks keeps identity on a repeat, pruneActivity expires blocks after 10 min, a later write clears one', () => {
+  const t0 = 1_000_000
+  const one = recordGateBlocks(emptyActivity(), [{ id: A, missing: ['x'], target: 'review' }], t0)
+  expect(one.blocked).toEqual({ [A]: { at: t0, missing: ['x'], target: 'review' } })
+  expect(recordGateBlocks(one, [{ id: A, missing: ['x'], target: 'review' }], t0 + 1_000)).toBe(one)
+  expect(pruneActivity(one, t0 + GATE_BLOCK_MS)).toBe(one)
+  expect(pruneActivity(one, t0 + GATE_BLOCK_MS + 1).blocked).toBeUndefined()
+  // A later TO write on the item clears it; a read does not.
+  const read = recordActivity(one, { id: A, agentId: 'main', seat: 'main', changed: false }, t0 + 20_000)
+  expect(read.blocked?.[A]).toBeDefined()
+  const wrote = recordActivity(read, { id: A, agentId: 'main', seat: 'main', changed: true }, t0 + 20_001)
+  expect(wrote.blocked).toBeUndefined()
+  // An activity value without \`blocked\` (written before T12a) is tolerated and stays without one.
+  const legacy = { working: {}, changed: {} }
+  expect(pruneActivity(legacy, t0)).toBe(legacy)
+  expect(recordActivity(legacy, { id: B, agentId: 'main', seat: 'main', changed: true }, t0).blocked).toBeUndefined()
+})
+
+test('S9: a gate-blocked advance_item marks its card; a later write on it clears the mark; the mark expires', async ($, on) => {
+  const r = rig(on, { graphSnapshot: asSnapshot(f1()), graphScope: ROOT_ID })
+  const clock = mock.clock(on, { now: 1_000_000 })
+  on('mcp.call', async () => ({ value: failed('offline') }) as never)
+  on('fs.read', async () => {
+    throw new Error('ENOENT')
+  })
+  const blockedText = JSON.stringify({ results: [{ itemId: A, trigger: 'start', applied: false, errorCode: 'gate_blocked', missingNotes: [{ key: 'implementation-notes' }], targetRole: 'review' }], summary: { total: 1, succeeded: 0, failed: 1 } })
+  const appliedText = JSON.stringify({ results: [{ itemId: A, trigger: 'complete', applied: true }], summary: { total: 1, succeeded: 1, failed: 0 } })
+  const triggerOf = (e: unknown) => ((e as { transitions?: { trigger?: string }[] }).transitions ?? [])[0]?.trigger
+  on('tool.call', async (_$, e) => ({ ref: 'r', result: {}, text: triggerOf(e) === 'start' ? blockedText : appliedText }) as never)
+  const blockedOf = () => (r.valueOf('graphActivity') as { blocked?: Record<string, unknown> } | undefined)?.blocked
+  const res = await $.tool.call({ tool: `${TO}advance_item`, transitions: [{ itemId: A, trigger: 'start' }] } as never)
+  expect(res).toMatchObject({ text: blockedText })
+  expect(blockedOf()?.[A]).toEqual({ at: 1_000_000, missing: ['implementation-notes'], target: 'review' })
+  // A later successful write on the item clears the mark. (The clock stays put: past 300ms the mod's own
+  // re-snapshot would land, and with this offline server it holds no items to attribute calls to.)
+  await $.tool.call({ tool: `${TO}advance_item`, transitions: [{ itemId: A, trigger: 'complete' }] } as never)
+  expect(blockedOf()?.[A]).toBeUndefined()
+  // Blocked again; ten minutes on the mocked clock expire it.
+  await $.tool.call({ tool: `${TO}advance_item`, transitions: [{ itemId: A, trigger: 'start' }] } as never)
+  expect(blockedOf()?.[A]).toBeDefined()
+  await clock.advance(GATE_BLOCK_MS + 1_000)
+  await clock.settle()
+  expect(blockedOf()?.[A]).toBeUndefined()
+})
+
+// ── keyboard: one focus stop per box ────────────────────────────────────────────────────
+
+test('S11: focusTarget sends each box to its one stop and walks backward box by box', () => {
+  const order = ['R', 'X', 'Y']
+  // Forward into a box (Tab from a control or the previous box): its state line.
+  expect(focusTarget(order, 'scope-project', 'open:R:1')).toBe('open:R')
+  expect(focusTarget(order, 'open:R', 'open:X:1')).toBe('open:X')
+  expect(focusTarget(order, undefined, 'open:Y:2')).toBe('open:Y')
+  // Backward from a box's stop lands on its own line 2: go to the previous box's stop.
+  expect(focusTarget(order, 'open:Y', 'open:Y:2')).toBe('open:X')
+  expect(focusTarget(order, 'open:X', 'open:X:2')).toBe('open:R')
+  // The first box backward: pass through (toward the controls above).
+  expect(focusTarget(order, 'open:R', 'open:R:2')).toBe('open:R:2')
+  // A state line, a control, an unknown box or no recorded order: pass through.
+  expect(focusTarget(order, 'open:R', 'open:X')).toBe('open:X')
+  expect(focusTarget(order, 'open:X', 'scope-project')).toBe('scope-project')
+  expect(focusTarget(order, 'open:X', 'open:Z:1')).toBe('open:Z:1')
+  expect(focusTarget(null, 'open:X', 'open:Y:1')).toBe('open:Y:1')
+  expect(focusTarget(order, 'open:X', undefined)).toBeUndefined()
+})
+
+test('S11: redirectFocus rewrites the element, and remembers it only when the move was not denied', async () => {
+  resetFocusState()
+  recordFocusOrder(['R', 'X'])
+  const seen: (string | undefined)[] = []
+  const pass = async (e: { element?: string }) => (seen.push(e.element), {})
+  expect(await redirectFocus({ element: 'open:X:1', origin: { kind: 'person' } }, pass)).toEqual({})
+  expect(seen).toEqual(['open:X'])
+  // Now on open:X, a backward move to its line 2 goes to R.
+  await redirectFocus({ element: 'open:X:2' }, pass)
+  expect(seen[1]).toBe('open:R')
+  // A denied move is not remembered: the ring is still on open:R.
+  await redirectFocus({ element: 'open:X:1' }, async () => ({ deny: 'busy' }))
+  await redirectFocus({ element: 'open:R:2' }, pass)
+  expect(seen[2]).toBe('open:R:2')
+  resetFocusState()
+})
+
+test('S12 (unit): recordFocusOrder keeps a copy; null clears it', () => {
+  resetFocusState()
+  const ids = ['R', 'X']
+  recordFocusOrder(ids)
+  ids.push('Y')
+  expect(focusOrder()).toEqual(['R', 'X'])
+  recordFocusOrder(null)
+  expect(focusOrder()).toBeNull()
+})
+
+for (const surface of SURFACES) {
+  test(`S12: ${surface} boxes draw root first, then rows top-down, left to right; Tab over the drawn Buttons stops once per box`, async ($, on) => {
+    const r = rig(on, { graphSnapshot: asSnapshot(f1()), graphScope: ROOT_ID })
+    const ui = await mountAt($, surface)
+    // The drawn order (the same loop records the focus order): root, row 1 (A, B) left to right, row 2 (C).
+    const canvas = await found(ui, 'canvas')
+    const order = canvas.children.map(c => String((c as El).props.key)).filter(k => k.startsWith('card:')).map(k => k.slice(5))
+    expect(order).toEqual([ROOT_ID, A, B, C])
+    // The person's Tab proposes the next drawn Button; the hook body sends it to the box's one stop.
+    // (The live ui.focus dispatch into the plugin cannot be driven from a mount: see implementation-notes.)
+    resetFocusState()
+    recordFocusOrder(order)
+    const buttons = (await ui.findAll({ type: 'Button' })).map(b => String(b.props.key))
+    const pass = async (e: { element?: string }) => ({ landed: e.element })
+    const walk = async (step: 1 | -1, from: string | undefined, moves: number): Promise<string[]> => {
+      const stops: string[] = []
+      let cur = from
+      for (let k = 0; k < moves; k++) {
+        const proposed = buttons[(cur === undefined ? -1 : buttons.indexOf(cur)) + step]
+        if (proposed === undefined) break
+        cur = ((await redirectFocus({ element: proposed }, pass)) as { landed?: string }).landed
+        stops.push(cur as string)
+      }
+
+      return stops
+    }
+    const forward = await walk(1, undefined, 50)
+    expect(forward.filter(k => k.startsWith('open:'))).toEqual([`open:${ROOT_ID}`, `open:${A}`, `open:${B}`, `open:${C}`])
+    // Backward, box by box, until the first box (which passes through toward the controls above).
+    expect(await walk(-1, `open:${C}`, 3)).toEqual([`open:${B}`, `open:${A}`, `open:${ROOT_ID}`])
+    expect(await walk(-1, `open:${ROOT_ID}`, 1)).toEqual([`open:${ROOT_ID}:2`])
+    // Too large to draw: no boxes at all.
+    r.state.set(SLOT('graphSnapshot'), { value: asSnapshot(chain(149)), version: 5 })
+    r.state.set(SLOT('graphShowDone'), { value: true, version: 5 })
+    await ui.redraw()
+    expect(await ui.find({ key: 'canvas' })).toBeUndefined()
+    await ui.unmount()
+    resetFocusState()
+  })
+}
+
+// ── budget with stripes (B-style, real UUID ids) ────────────────────────────────────────
+
+/** A chain of `n` open (work) cards with UUID ids: the critical path is every card. */
+const openChainUuid = (n: number): GraphView => {
+  const id = (i: number) => `${String(i).padStart(8, '0')}-1111-2222-3333-444455556666`
+  const ns = Array.from({ length: n }, (_, i) => mk(id(i), 'work', `T${i + 1}`, `Node ${i} with a fairly long title to fill the box width`))
+  const es: GraphEdge[] = []
+  for (let i = 1; i < n; i++) es.push(blocks(id(i - 1), id(i)))
+
+  return gview(ns, es)
+}
+
+test('B4: stripes are charged to the edges and never refuse a scope', () => {
+  // Too many edge cells for either terminal edge drawing: the plan is boxes only or refused.
+  const base = { desktop: false, wholeClick: false, chips: 0, cells: 5000, runs: 5000, svgChars: 0, svgWidth: 0, svgHeight: 0 }
+  // At the refusal boundary, a stripe per card still draws the boxes (the stripes are dropped instead).
+  const last = { ...base, cards: 123 }
+  expect(edgePlan(last)).toBe('omit')
+  expect(edgePlan({ ...last, marks: 122 })).toBe('omit')
+  expect(marksFit({ ...last, marks: 122 }, 'omit')).toBe(false)
+  expect(edgePlan({ ...base, cards: 124, marks: 0 })).toBe('too-large')
+  expect(marksFit({ ...base, cards: 124, marks: 0 }, 'too-large')).toBe(false)
+  // A plan that draws edges has room for its stripes; many stripes can drop the edges.
+  const small = { ...base, desktop: true, cards: 40, svgChars: 20000, svgWidth: 1000, svgHeight: 1000 }
+  expect(edgePlan(small)).toBe('full')
+  expect(marksFit({ ...small, marks: 40 }, edgePlan({ ...small, marks: 40 }))).toBe(true)
+  expect(edgePlan({ ...small, wholeClick: true, cards: 75, marks: 75 })).toBe('omit')
+  expect(COST.markChars).toBeGreaterThanOrEqual(240)
+})
+
+for (const surface of SURFACES) {
+  for (const n of [40, 60, 89, 90]) {
+    test(`B4: ${surface} a ${n}-card open UUID chain (every card on the path) with detail and trail stays within budget across redraws`, async ($, on) => {
+      const v = openChainUuid(n)
+      rig(on, { graphSnapshot: { ...asSnapshot(v), trail: TRAIL4 }, graphScope: ROOT_ID, graphShowDone: true, graphDetail: DETAIL((v.nodes[1] as GraphNode).id) })
+      const ui = await mountAt($, surface, 200)
+      for (let k = 0; k < 5; k++) await ui.redraw()
+      expect(await ui.find({ type: 'Text', text: 'Too large' })).toBeUndefined()
+      await withinBudget(ui)
+      await ui.unmount()
+    })
+  }
+
+  for (const open of [false, true]) {
+    test(`B4: ${surface} refusal cutoff unchanged with a full-length path, detail ${open ? 'open' : 'closed'}: 122 draw, 123 refused`, async ($, on) => {
+      const r = rig(on, { graphSnapshot: { ...asSnapshot(openChainUuid(122)), trail: TRAIL4 }, graphScope: ROOT_ID, graphShowDone: true, ...(open ? { graphDetail: DETAIL('x') } : {}) })
+      const ui = await mountAt($, surface, 200)
+      expect(await ui.find({ type: 'Text', text: 'Too large' })).toBeUndefined()
+      expect(await ui.find({ key: `card:${String(121).padStart(8, '0')}-1111-2222-3333-444455556666` })).toBeDefined()
+      await withinBudget(ui)
+      r.state.set(SLOT('graphSnapshot'), { value: { ...asSnapshot(openChainUuid(123)), trail: TRAIL4 }, version: 9 })
+      await ui.redraw()
+      expect(await ui.find({ type: 'Text', text: 'Too large to draw (124 items). Open a smaller scope.' })).toBeDefined()
+      await withinBudget(ui)
+      await ui.unmount()
+    })
+  }
+}

@@ -14,6 +14,10 @@ const FETCH_CEILING = 1000
 const LANES = 6
 /** Direct children of the project root the overview asks for in its one call. */
 const OVERVIEW_LIMIT = 100
+/** A work/review item missing required notes with no role transition for this long reads as stalled. */
+export const STALL_MS = 30 * 60_000
+/** Most transitions one session-resume read returns; a full page may be cut, so it reports no stalls. */
+export const TRANSITION_LIMIT = 200
 
 type Obj = Record<string, unknown>
 
@@ -204,6 +208,40 @@ async function overviewSnapshot(io: GraphIo, result: GraphSnapshot, rootId: stri
   return out
 }
 
+/**
+ * Stalls from one `get_context` session-resume read (since now - STALL_MS): items of `ids` in work or
+ * review that stalledItems lists (missing required notes) with no transition since. A full page of
+ * transitions may be cut, so it gives no stalls. `dueAt`: when the earliest listed item that did move
+ * recently would cross STALL_MS. A move already STALL_MS old counts as crossed (stalled), so the
+ * re-snapshot timer never re-arms on an old transition. Bad input gives no stalls.
+ */
+export function stallsOf(raw: unknown, ids: ReadonlySet<string>, now: number): { stalled: Record<string, string[]>; dueAt?: number } {
+  const listed = isObj(raw) && Array.isArray(raw.stalledItems) ? raw.stalledItems.filter(isObj) : []
+  const moves = isObj(raw) && Array.isArray(raw.recentTransitions) ? raw.recentTransitions.filter(isObj) : []
+  if (moves.length >= TRANSITION_LIMIT) return { stalled: {} }
+  const lastMove = new Map<string, number>()
+  for (const t of moves) {
+    const id = str(t.itemId)
+    const at = typeof t.at === 'number' ? t.at : typeof t.at === 'string' ? Date.parse(t.at) : NaN
+    if (id === undefined) continue
+    lastMove.set(id, Math.max(lastMove.get(id) ?? -Infinity, Number.isFinite(at) ? at : -Infinity))
+  }
+  const stalled: Record<string, string[]> = {}
+  let dueAt: number | undefined
+  for (const item of listed) {
+    const id = str(item.id)
+    if (id === undefined || !ids.has(id) || (item.role !== 'work' && item.role !== 'review')) continue
+    const moved = lastMove.get(id)
+    if (moved === undefined || (Number.isFinite(moved) && moved + STALL_MS <= now)) {
+      stalled[id] = Array.isArray(item.missingNotes) ? item.missingNotes.filter((k): k is string => typeof k === 'string') : []
+    } else if (Number.isFinite(moved)) {
+      dueAt = Math.min(dueAt ?? Infinity, moved + STALL_MS)
+    }
+  }
+
+  return dueAt !== undefined ? { stalled, dueAt } : { stalled }
+}
+
 /** The breadcrumb from a `query_items get` with `includeAncestors`: ancestors root first, then the item. */
 export function trailOf(raw: unknown, scope: string): { id: string; title: string }[] | undefined {
   if (!isObj(raw)) return undefined
@@ -273,6 +311,16 @@ export async function snapshot(io: GraphIo, scopeId: string | null): Promise<Gra
         errors.push(message(err))
       }
     })
+
+    // Stalls: ONE session-resume read for the whole scope. A failure leaves `stalled` unset.
+    try {
+      const raw = await io.callTool('get_context', { mode: 'session-resume', since: new Date(takenAt - STALL_MS).toISOString(), ancestorId: scope, limit: TRANSITION_LIMIT })
+      const st = stallsOf(raw, ids, takenAt)
+      result.stalled = st.stalled
+      if (st.dueAt !== undefined) result.stallDueAt = st.dueAt
+    } catch (err) {
+      errors.push(message(err))
+    }
   } catch (err) {
     errors.push(message(err))
   }

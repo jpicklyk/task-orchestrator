@@ -1,6 +1,7 @@
 // Who is working on which item, and which items changed a moment ago. Pure: index.ts owns the
 // atoms and the hooks, and the render never reads the clock (prune-on-write plus timers expire entries).
-import type { GraphActivity, GraphAgentInfo, GraphWorker } from '../../types'
+import type { GraphActivity, GraphAgentInfo, GraphGateBlock, GraphWorker } from '../../types'
+import { toToolName } from '../shared/constants.ts'
 
 /** A worker stays on an item this long after its last call about it. */
 export const WORKING_TTL_MS = 120_000
@@ -77,7 +78,46 @@ export function resolveId(raw: string, known: readonly string[]): string | null 
   return hits.length === 1 ? (hits[0] as string) : null
 }
 
-/** Drops workers silent for > WORKING_TTL_MS and changes older than RECENT_MS. Same object when nothing expired. */
+/** A gate-blocked advance_item marks its item this long (or until a later TO write on it). */
+export const GATE_BLOCK_MS = 600_000
+
+/** One gate-blocked transition of an advance_item result. */
+export interface GateBlockRow {
+  itemId: string
+  targetRole?: string
+  missing: string[]
+}
+
+/**
+ * The gate-blocked rows of an advance_item result as the model reads it (`ran.text`, the JSON text):
+ * rows with `applied: false` and `errorCode: 'gate_blocked'`. Any other tool, or text that is not
+ * that JSON, gives []. `missingNotes` entries may be `{ key }` objects or plain strings.
+ */
+export function gateBlocks(tool: string, text: unknown): GateBlockRow[] {
+  if (toToolName(tool) !== 'advance_item' || typeof text !== 'string') return []
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    return []
+  }
+  const rows = isObj(parsed) && Array.isArray(parsed.results) ? parsed.results : []
+  const out: GateBlockRow[] = []
+  for (const row of rows) {
+    if (!isObj(row) || row.applied !== false || row.errorCode !== 'gate_blocked') continue
+    const itemId = typeof row.itemId === 'string' ? row.itemId : undefined
+    if (itemId === undefined) continue
+    const missing = Array.isArray(row.missingNotes)
+      ? row.missingNotes.map(m => (typeof m === 'string' ? m : isObj(m) && typeof m.key === 'string' ? m.key : undefined)).filter((k): k is string => k !== undefined)
+      : []
+    const target = typeof row.targetRole === 'string' ? row.targetRole : undefined
+    out.push({ itemId, missing, ...(target !== undefined ? { targetRole: target } : {}) })
+  }
+
+  return out
+}
+
+/** Drops workers silent for > WORKING_TTL_MS, changes older than RECENT_MS and gate blocks older than GATE_BLOCK_MS. Same object when nothing expired. */
 export function pruneActivity(act: GraphActivity, now: number): GraphActivity {
   let dirty = false
   const working: Record<string, GraphWorker[]> = {}
@@ -91,8 +131,35 @@ export function pruneActivity(act: GraphActivity, now: number): GraphActivity {
     if (now - at <= RECENT_MS) changed[id] = at
     else dirty = true
   }
+  // A value written before gate blocks existed has no `blocked`: tolerated, and left without one.
+  const blocked: Record<string, GraphGateBlock> = {}
+  for (const [id, b] of Object.entries(act.blocked ?? {})) {
+    if (now - b.at <= GATE_BLOCK_MS) blocked[id] = b
+    else dirty = true
+  }
 
-  return dirty ? { working, changed } : act
+  return dirty ? withBlocked({ working, changed }, blocked) : act
+}
+
+const withBlocked = (act: GraphActivity, blocked: Record<string, GraphGateBlock>): GraphActivity =>
+  Object.keys(blocked).length > 0 ? { ...act, blocked } : { working: act.working, changed: act.changed }
+
+/**
+ * Records this session's gate-blocked rows on their items (prunes first). Returns the SAME object when
+ * every row is already recorded with the same keys and target under ACTIVITY_REFRESH_MS ago.
+ */
+export function recordGateBlocks(act: GraphActivity, rows: readonly { id: string; missing: string[]; target?: string }[], now: number): GraphActivity {
+  const base = pruneActivity(act, now)
+  const blocked = { ...(base.blocked ?? {}) }
+  let dirty = false
+  for (const r of rows) {
+    const cur = blocked[r.id]
+    if (cur !== undefined && cur.target === r.target && cur.missing.join('\u0000') === r.missing.join('\u0000') && now - cur.at < ACTIVITY_REFRESH_MS) continue
+    blocked[r.id] = { at: now, missing: [...r.missing], ...(r.target !== undefined ? { target: r.target } : {}) }
+    dirty = true
+  }
+
+  return dirty ? withBlocked(base, blocked) : base
 }
 
 /**
@@ -111,15 +178,21 @@ export function recordActivity(
   const workerStale = mine === undefined || mine.seat !== entry.seat || mine.model !== entry.model || now - mine.at >= ACTIVITY_REFRESH_MS
   const lastChange = base.changed[entry.id]
   const changeStale = entry.changed && (lastChange === undefined || now - lastChange >= ACTIVITY_REFRESH_MS)
-  if (!workerStale && !changeStale) return base
+  // A later TO write on a gate-blocked item clears its mark (the hook records a call's own blocks after this).
+  const unblock = entry.changed && base.blocked?.[entry.id] !== undefined
+  if (!workerStale && !changeStale && !unblock) return base
 
   const worker: GraphWorker = { agentId: entry.agentId, seat: entry.seat, at: now, ...(entry.model !== undefined ? { model: entry.model } : {}) }
   const next = workerStale ? [...list.filter(w => w.agentId !== entry.agentId), worker].slice(-MAX_WORKERS) : list
+  const { [entry.id]: _cleared, ...restBlocked } = base.blocked ?? {}
 
-  return {
-    working: workerStale ? { ...base.working, [entry.id]: next } : base.working,
-    changed: changeStale ? { ...base.changed, [entry.id]: now } : base.changed,
-  }
+  return withBlocked(
+    {
+      working: workerStale ? { ...base.working, [entry.id]: next } : base.working,
+      changed: changeStale ? { ...base.changed, [entry.id]: now } : base.changed,
+    },
+    unblock ? restBlocked : (base.blocked ?? {}),
+  )
 }
 
 /** Remembers a spawned agent, oldest dropped past MAX_AGENTS. Same object when unchanged. */
