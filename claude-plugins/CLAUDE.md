@@ -11,8 +11,11 @@ forced cache refresh — see "Plugin Discovery and Cache Refresh" below. No vers
 | Plugin | Directory | Current Version |
 |--------|-----------|-----------------|
 | `task-orchestrator` | `claude-plugins/task-orchestrator/` | `3.9.0` |
+| `task-orchestrator-mod` | `claude-plugins/task-orchestrator-mod/` | `0.1.0` |
 
 > Updated automatically by `/prepare-release`. Do not bump manually.
+>
+> `/prepare-release` step 8b (`.claude/skills/prepare-release/SKILL.md`) bumps only `task-orchestrator` today, so the `task-orchestrator-mod` version is held by hand, in both version files, until the skill learns about it.
 
 ## Version Files
 
@@ -55,3 +58,12 @@ Two skill systems — do not confuse them: **project-level skills** in `.claude/
   agent edit needs the same forced refresh above. Verify with `/workflows` listing
   `task-orchestrator:implement-wave`, `task-orchestrator:audit`, `task-orchestrator:retro-analysis`,
   and `task-orchestrator:review-wave`, and `/agents` listing the new agent definitions.
+
+## Mod plugin: loading and refresh
+
+`task-orchestrator-mod` is an opt-in plugin of in-process function hooks (see its [README](task-orchestrator-mod/README.md) and [CLAUDE.md](task-orchestrator-mod/CLAUDE.md)). It has no skills, only the runtime commands `/to-graph` and `/to-band`, so it has no skill-trigger conflicts.
+
+- A marketplace install uses the same version-keyed cache and the same `rm -rf` + `marketplace update` refresh as above, with the same lazy re-extract.
+- For development, skip the cache: `--plugin-dir` or `CLAUDE_CODE_PLUGIN_DIRS` watch the folder, and a save reloads the module. A reload re-runs `register` and `session.start` and resets module variables; `$.state` and `$.store` survive.
+- A plugin-authoring dev-mods folder is a COPY, not a link. Re-sync it after edits and check it with `diff -rq`. The "Enable hot reloading?" answer is the switch.
+- Never load two copies at once (marketplace plus dev).
