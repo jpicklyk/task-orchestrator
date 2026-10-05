@@ -374,7 +374,7 @@ export function registerGraphPane(on: On, options: PluginOptions = {}): void {
     // Refresh is automatic (SSE or poll); Reconnect restarts the live source and shows only while degraded.
     const controls = h(
       Box,
-      { key: 'controls' },
+      { key: 'controls', flexDirection: 'row', columnGap: 1, marginBottom: 1 },
       // Two-state scope toggle; the active scope draws as the primary button.
       h(Button, {
         key: 'scope-feature',
@@ -420,7 +420,7 @@ export function registerGraphPane(on: On, options: PluginOptions = {}): void {
       body.push(
         h(
           Box,
-          { key: 'legend', flexDirection: 'row', marginBottom: 1 },
+          { key: 'legend', flexDirection: 'row', flexWrap: 'wrap', rowGap: 1, marginBottom: 1 },
           ...legendItems().map(item => h(Box, { key: `legend-${item.key}`, backgroundColor: item.color, paddingX: 1, marginRight: 1 }, h(Text, { color: '#ffffff' }, item.text))),
           h(Box, { key: 'legend-ready', backgroundColor: READY, paddingX: 1, marginRight: 1 }, h(Text, { color: '#ffffff' }, '○ ready')),
           h(Text, { key: 'legend-edges', dimColor: true }, '┄ contains   ╌ open blocker   ─ satisfied'),
@@ -434,11 +434,12 @@ export function registerGraphPane(on: On, options: PluginOptions = {}): void {
     }
 
     if (detail !== null) {
-      detail.lines.forEach((line, i) => body.push(h(Text, { key: `detail-${i}` }, line)))
-      for (const w of activity.working[detail.itemId] ?? []) {
-        body.push(h(Text, { key: `working-${w.agentId}` }, `working: ${w.seat}${w.model !== undefined ? ` · ${w.model}` : ''} · ${w.agentId === 'main' ? 'main loop' : id8(w.agentId)}`))
-      }
-      body.push(
+      // The detail is its own bordered panel: title line bold, then facts, then a row of actions.
+      const facts = detail.lines.map((line, i) => h(Text, { key: `detail-${i}`, ...(i === 0 ? { bold: true } : {}) }, line))
+      const working = (activity.working[detail.itemId] ?? []).map(w =>
+        h(Text, { key: `working-${w.agentId}` }, `working: ${w.seat}${w.model !== undefined ? ` · ${w.model}` : ''} · ${w.agentId === 'main' ? 'main loop' : id8(w.agentId)}`),
+      )
+      const actions = [
         h(Button, {
           key: 'detail-copy',
           label: 'Copy UUID',
@@ -465,9 +466,24 @@ export function registerGraphPane(on: On, options: PluginOptions = {}): void {
             ]
           : []),
         h(Button, { key: 'detail-close', label: 'Close detail', onPress: () => update($, graphDetail, () => null) }),
+      ]
+      body.push(
+        h(
+          Box,
+          { key: 'detail', flexDirection: 'column', borderStyle: 'round', borderColor: '#4b5563', paddingX: 1, marginTop: 1 },
+          ...facts,
+          ...working,
+          h(Box, { key: 'detail-actions', flexDirection: 'row', columnGap: 1, marginTop: 1 }, ...actions),
+        ),
       )
     }
 
-    return h(Box, { flexDirection: 'column' }, h(Text, { key: 'header', bold: true }, header), controls, ...body)
+    return h(
+      Box,
+      { flexDirection: 'column', paddingX: 1 },
+      h(Box, { key: 'header', marginBottom: 1 }, h(Text, { bold: true }, header)),
+      controls,
+      ...body,
+    )
   })
 }
