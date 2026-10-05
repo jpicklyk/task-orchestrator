@@ -35,6 +35,28 @@ derived for that item (`null` when the item had no planner-v1 output to derive o
 untagged commit (no `[<short>]` in its subject) surfaces as a top-level `warnings` entry, not a
 per-item finding, and does not by itself fail the item.
 
+**How ownership is matched.** Declared files and changed paths are both normalized to
+repo-relative POSIX before comparison: `\` becomes `/`, a leading `./` and any trailing `/` are
+dropped, and a leading root prefix is stripped (case-insensitively for drive-letter paths). The
+roots come from git per worktree (`git rev-parse --show-toplevel`, plus the parent of
+`--git-common-dir` for the main checkout); with no roots available, the item's `worktree` is the
+only root. An absolute path outside every root never matches and is reported. A declared
+directory (with or without a trailing `/`) owns every file beneath it, new or modified, and a
+declared entry containing `*` or `?` is a glob (`**` spans segments, `*` stays within one,
+`?` is one non-`/` character) — this applies to `testFiles` globs too. **Cross-item precedence:**
+if a file is exactly declared (non-glob) by another item in the run and not exactly declared by
+the writer, it is reported as `implementer wrote <file> owned by item <short>` (or
+`test-author wrote ...`) even when the writer's own directory or glob would cover it. A file
+outside everything the writer declared stays `implementer wrote unowned <file>`.
+
+**Symbolic refs.** A stage `commits.pre`/`post` that is not a 7-40 character lowercase hex SHA
+(for example `HEAD`) is resolved in the item's worktree with `git rev-parse --verify
+<ref>^{commit}` rather than `cat-file`. Each item row carries `resolvedRefs: [{seat, field, ref,
+sha}]` recording the SHA. An unresolvable ref fails the item with `unresolved ref <ref> (<seat>
+<field>)`, and a resolved `post` that is not one of that item's `[<short>]`-tagged commits fails with
+`ref <ref> resolved to <sha7>, not a commit of this item` (for instance HEAD in a shared worktree
+now pointing at another item's commit).
+
 **Red-proofs themselves are run by you, the orchestrator**, not the helper — `verify` only
 returns the checklist (`items[].redProof.shape`, plus `items[].redProof.commands` for whichever
 of the project's `run-profile.json` → `verify[]` entries name the `orchestrator` seat) of what to
