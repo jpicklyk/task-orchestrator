@@ -473,9 +473,11 @@ function findPlannerOutput(item, outs) {
 
 /**
  * lockKeysFor(item, stage, outs, plan) -> string[]
- * Shared mode + writes:true: file:<normalizePath(p)> over the implementer's
- * mainFiles∪docFiles or the test-author's testFiles∪existingTestEdits[].file,
- * plus extraLockKeys always. Sorted, deduped.
+ * Shared mode + writes:true: file:<relativizePath(p, [item.worktree, plan.repoRoot])> over the
+ * implementer's mainFiles∪docFiles or the test-author's testFiles∪existingTestEdits[].file,
+ * plus extraLockKeys always. Sorted, deduped. A declared path that stays unrooted (outside both
+ * roots) or contains a '..' segment takes worktree:<normalizePath(item.worktree)> instead, which
+ * lockKeysConflict() treats as contending with every file: key.
  * An implementer stage on an item with no test-author-v1 stage additionally locks the
  * planner's testFiles∪existingTestEdits[].file (D5 — those tests are "unowned" by anyone else,
  * so the implementer's write locks must cover them too).
