@@ -14,11 +14,12 @@ import { collapse } from '../src/graph-pane/collapse.ts'
 import { layoutTD } from '../src/graph-pane/layout.ts'
 import { cardsOf, isOpen, num, stepsOf } from '../src/graph-pane/model.ts'
 import type { Card } from '../src/graph-pane/model.ts'
-import { detailLines, duration, formatDetail, isDegraded, parseScopeArg } from '../src/graph-pane/pane-model.ts'
+import { detailLines, duration, formatDetail, isDegraded, parseScopeArg, summaryLine } from '../src/graph-pane/pane-model.ts'
 import { raster, runs } from '../src/graph-pane/raster.ts'
 import { routes } from '../src/graph-pane/route.ts'
 import { phaseText } from '../src/graph-pane/shared.ts'
 import type { GraphView } from '../src/graph-pane/shared.ts'
+import { titleLines } from '../src/graph-pane/wrap.ts'
 import { SVG_LIMIT, SVG_PX_LIMIT, edgeSvg } from '../src/graph-pane/svg.ts'
 
 const PLUGIN = 'task-orchestrator-mod'
@@ -189,7 +190,7 @@ test('G3: the state line is open blockers, then a live worker, then ready, then 
   expect(by(plain, A).stateText).toBe('work · implementer ✓, orchestrator 0/1')
   const w = { at: 1, agentId: 'main', seat: 'implementer', model: 'claude-opus-5-5-20260101' }
   const live = cardsOf(v, { [B]: [w, { ...w, agentId: 'sub' }], [C]: [w] })
-  expect(by(live, B).stateText).toBe('» implementer · opus-5-5 +1')
+  expect(by(live, B).stateText).toBe('» impl · opus +1')
   expect(by(live, C).stateText).toBe('⊘ after T1')
   // External blockers: open ones by id8, terminal ones never.
   const ext = gview([mk(B, 'queue', 'T2')], [blocks('ext00000-1111', B), blocks('ext22222-3333', B)], {
@@ -328,6 +329,56 @@ test('G11 (unit): a chip sources one satisfied edge per target and no containmen
   expect(rs.filter(r => r.kind === 'done')).toHaveLength(1)
   expect(rs.filter(r => r.kind === 'contain')).toHaveLength(0)
   expect(rs[0]?.pts[0]).toEqual([49, 7])
+})
+
+test('polish 1 (unit): titles break at the last space that fits, never mid-word, when a space exists', () => {
+  // width 17 box -> 15 columns
+  expect(titleLines('◉ [T6] Retrospective', 15)).toEqual(['◉ [T6]', 'Retrospective'])
+  expect(titleLines('◉ [T7] Compaction pass', 14)).toEqual(['◉ [T7]', 'Compaction pa…'])
+  expect(titleLines('◉ [T1] Rewrite the graph pane top down', 20)).toEqual(['◉ [T1] Rewrite the', 'graph pane top dow…'.replace('dow…', 'down')])
+  // a single word longer than the line is hard-cut, and the overflow ends with an ellipsis
+  expect(titleLines('x'.repeat(40), 15)).toEqual(['x'.repeat(15), `${'x'.repeat(14)}…`])
+})
+
+test('polish 4 (unit): the header count and the root box count the children only', () => {
+  const v = f1()
+  expect(cardsOf(v).cards).toHaveLength(3)
+  expect(summaryLine(v).startsWith('3 items')).toBe(true)
+  // an unscoped view (scope null) excludes the parentless root the same way
+  expect(summaryLine({ ...v, scopeId: null }).startsWith('3 items')).toBe(true)
+})
+
+/** F4: step 1 = A (done) + P (work); step 2 = B (done, after A) folds into a chip; step 3 = C after B and P. */
+const f4 = (): GraphView => {
+  const P = 'pppp4444'
+
+  return gview([mk(A, 'terminal', 'T1'), mk(P, 'work', 'T4'), mk(B, 'terminal', 'T2'), mk(C, 'queue', 'T3')], [blocks(A, B), blocks(B, C), blocks(P, C)])
+}
+
+test('polish 2 (unit): edges into and out of a collapsed step attach to its chip; pass-through edges avoid it', () => {
+  const b = build(f4())
+  const chip = b.lay.chips[0]
+  expect(chip?.ids).toEqual([B])
+  const rect = chip!.rect
+  for (const mode of ['cell', 'px'] as const) {
+    const rs = routes(b.lay, b.model.cards, mode)
+    const cx = mode === 'px' ? rect.left + rect.width / 2 : rect.left + Math.floor(rect.width / 2)
+    const headY = mode === 'px' ? rect.top : rect.top - 1
+    // A -> chip: one edge ending on the chip's top centre
+    expect(rs.filter(r => r.pts[r.pts.length - 1]?.[0] === cx && r.pts[r.pts.length - 1]?.[1] === headY)).toHaveLength(1)
+    // chip -> C: one edge starting on the chip's bottom centre
+    expect(rs.filter(r => r.pts[0]?.[0] === cx && r.pts[0]?.[1] === rect.top + 1)).toHaveLength(1)
+    expect(rs.filter(r => r.kind !== 'contain')).toHaveLength(3)
+    // P -> C crosses the chip row: none of its vertical runs enters the chip's columns
+    const pass = rs.find(r => r.kind === 'open')!
+    for (let i = 0; i + 1 < pass.pts.length; i++) {
+      const [x1, y1] = pass.pts[i] as [number, number]
+      const [x2, y2] = pass.pts[i + 1] as [number, number]
+      if (x1 !== x2 || Math.min(y1, y2) > rect.top || Math.max(y1, y2) < rect.top) continue
+      const inside = mode === 'px' ? x1 > rect.left - 0.5 && x1 < rect.left + rect.width + 0.5 : x1 >= rect.left && x1 <= rect.left + rect.width - 1
+      expect(inside).toBe(false)
+    }
+  }
 })
 
 test('raster: arms build tees, crossings and style precedence', () => {
@@ -583,11 +634,25 @@ for (const surface of SURFACES) {
     const act = { working: { [B]: [{ agentId: 'main', seat: 'implementer', model: 'claude-opus-5-5', at: 1 }] }, changed: { [A]: 1 } }
     r.state.set(SLOT('graphActivity'), { value: act, version: 3 })
     await ui.redraw()
-    expect((await found(ui, `open:${B}`)).props.label).toBe('» implementer · opus-5-5')
+    expect((await found(ui, `open:${B}`)).props.label).toBe('» impl · opus')
     const a = await found(ui, `card:${A}`)
     expect((a.children[0] as El).props).toMatchObject({ color: '#fde68a', underline: true })
     for (const k of [`card:${ROOT_ID}`, `card:${C}`]) expect(await json(ui, k)).toBe(before[k])
     expect(await json(ui, `card:${B}`)).not.toBe(before[`card:${B}`])
+    await ui.unmount()
+  })
+
+  test(`polish 3: ${surface} a narrow box shows the compact worker line and never breaks a word`, async ($, on) => {
+    const six = gview([1, 2, 3, 4, 5, 6].map(i => mk(`n${i}000000`, 'queue', `T${i}`, i === 1 ? 'Retrospective' : i === 2 ? 'Compaction pass' : `Item ${i}`)))
+    const r = rig(on, { graphSnapshot: asSnapshot(six), graphScope: ROOT_ID })
+    const ui = await mountAt($, surface, 119)
+    r.state.set(SLOT('graphActivity'), { value: { working: { n1000000: [{ agentId: 'main', seat: 'implementer', model: 'claude-sonnet-5-5', at: 1 }] }, changed: {} }, version: 3 })
+    await ui.redraw()
+    expect((await found(ui, 'card:n1000000')).props.width).toBe(17)
+    expect((await found(ui, 'open:n1000000')).props.label).toBe('» impl · sonnet')
+    const c = await found(ui, 'card:n2000000')
+    const lines = c.children.filter((x): x is El => typeof x === 'object' && (x as El).type === 'Text').map(t => String(t.children[0]))
+    expect(lines.slice(0, 2).join(' ')).toContain('Compaction')
     await ui.unmount()
   })
 

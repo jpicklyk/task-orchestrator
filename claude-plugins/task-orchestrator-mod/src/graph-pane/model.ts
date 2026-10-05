@@ -45,12 +45,15 @@ export const num = (label: string): number => Number(/^T(\d+)/.exec(label)?.[1] 
 
 const cmp = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0)
 
-/** Live workers' state text: `» seat · model`, plus ` +N` for more workers. */
+const SEAT_ABBR: Record<string, string> = { implementer: 'impl', reviewer: 'rev', planner: 'plan', 'test-author': 'test', orchestrator: 'orch' }
+
+/** Live workers' state text, compact for narrow boxes: `» impl · sonnet`, plus ` +N` for more workers. */
 function workerText(workers: readonly GraphWorker[]): string {
   const first = workers[0] as GraphWorker
-  const model = shortModel(first.model)
+  const model = shortModel(first.model)?.split('-')[0]
+  const seat = SEAT_ABBR[first.seat] ?? first.seat
 
-  return `» ${first.seat}${model !== undefined ? ` · ${model}` : ''}${workers.length > 1 ? ` +${workers.length - 1}` : ''}`
+  return `» ${seat}${model !== undefined ? ` · ${model}` : ''}${workers.length > 1 ? ` +${workers.length - 1}` : ''}`
 }
 
 export function cardsOf(view: GraphView, workers: Record<string, readonly GraphWorker[]> = {}, changed: Record<string, number> = {}): Model {

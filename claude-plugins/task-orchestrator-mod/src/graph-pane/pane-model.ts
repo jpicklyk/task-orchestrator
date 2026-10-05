@@ -30,10 +30,12 @@ export function scopeTitle(view: GraphView): string {
 /** One-line counts by kind, e.g. `12 items: 3 work, 1 blocked`. */
 export function summaryLine(view: GraphView): string {
   const counts: Record<string, number> = {}
-  for (const n of view.nodes) counts[kindOf(n)] = (counts[kindOf(n)] ?? 0) + 1
+  const rootNode = view.nodes.find(n => n.id === view.scopeId) ?? view.nodes.find(n => n.parentId === null)
+  const children = view.nodes.filter(n => n.id !== rootNode?.id)
+  for (const n of children) counts[kindOf(n)] = (counts[kindOf(n)] ?? 0) + 1
   const parts = Object.entries(counts).map(([k, c]) => `${c} ${k}`)
 
-  return `${view.nodes.length} items${parts.length > 0 ? `: ${parts.join(', ')}` : ''}`
+  return `${children.length} items${parts.length > 0 ? `: ${parts.join(', ')}` : ''}`
 }
 
 type Obj = Record<string, unknown>

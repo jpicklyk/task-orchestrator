@@ -17,6 +17,7 @@ import { edgePlan } from './budget.ts'
 import { cellSize } from './cell.ts'
 import { collapse } from './collapse.ts'
 import { layoutTD } from './layout.ts'
+import { cut, titleLines } from './wrap.ts'
 import type { TopDown } from './layout.ts'
 import { cardsOf, stepsOf } from './model.ts'
 import type { Card, Model } from './model.ts'
@@ -171,17 +172,6 @@ async function ensureCommand($: EngineInterface): Promise<void> {
 }
 
 type Ui = ReturnType<EngineInterface['ui']['resolve']>
-
-const cut = (s: string, n: number): string => (s.length > n ? `${s.slice(0, Math.max(0, n - 1))}…` : s)
-
-/** Two title lines: `glyph [label] title` wrapped at the last space inside `n` (when past half), else hard-cut. */
-function titleLines(line: string, n: number): [string, string] {
-  if (line.length <= n) return [line, '']
-  const at = line.lastIndexOf(' ', n)
-  const first = line.slice(0, at > n / 2 ? at : n)
-
-  return [first, cut(line.slice(first.length).trimStart(), n)]
-}
 
 interface BoxSpec {
   key: string

@@ -71,25 +71,29 @@ export function routes(lay: TopDown, cards: readonly Card[], mode: Mode): Route[
   }
 
   const out: Route[] = []
-  const chipDone = new Set<string>()
+  const seen = new Map<string, Route>()
   const rootStart: Rect = { ...lay.root, height: BH }
   for (const c of cards) {
     const target = anchorOf(c.id)
-    if (target === null || !lay.cards.has(c.id)) continue
+    if (target === null) continue
+    const toChip = !lay.cards.has(c.id)
     for (const d of c.deps) {
       const source = anchorOf(d.id)
-      if (source === null) continue
+      if (source === null || source.rect === target.rect) continue
       const fromChip = !lay.cards.has(d.id)
-      if (fromChip) {
-        const key = `${stepOf.get(d.id)}>${c.id}`
-        if (chipDone.has(key)) continue
-        chipDone.add(key)
+      const kind: RouteKind = fromChip || !d.open ? 'done' : 'open'
+      // Folded endpoints attach to their chip (top centre in, bottom centre out), one edge per pair.
+      const key = `${fromChip ? `step:${stepOf.get(d.id)}` : d.id}>${toChip ? `step:${stepOf.get(c.id)}` : c.id}`
+      const prior = seen.get(key)
+      if (prior !== undefined) {
+        if (kind === 'open') prior.kind = 'open'
+        continue
       }
-      out.push(route(fromChip || !d.open ? 'done' : 'open', source.rect, source.row, target.rect, target.row))
+      const r = route(kind, source.rect, source.row, target.rect, target.row)
+      seen.set(key, r)
+      out.push(r)
     }
-    if (c.deps.length === 0 && lay.hasRoot) {
-      out.push(route('contain', rootStart, -1, target.rect, target.row))
-    }
+    if (!toChip && c.deps.length === 0 && lay.hasRoot) out.push(route('contain', rootStart, -1, target.rect, target.row))
   }
 
   return out
