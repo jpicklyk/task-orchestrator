@@ -6,6 +6,10 @@ import type { Card, Steps } from './model.ts'
 export const GAP = 3
 export const BH = 3
 export const RG = 3
+/** Narrowest box a wrapped (overview) line may use, in columns. */
+export const WRAP_MIN_BOX = 24
+/** Rows between the lines of one wrapped step. */
+export const WRAP_LINE_GAP = 1
 export const SWEEPS = 4
 
 export interface Rect {
@@ -48,12 +52,16 @@ export interface TopDown {
   doneSteps: number[]
   /** The widest row's extent when it exceeds `cols`, else null. */
   tooWide: number | null
+  /** Some step was split over several lines (overview wrap). */
+  wrapped: boolean
 }
 
 export interface LayoutOptions {
   bodyColumns?: number
   showDone: boolean
   hasRoot: boolean
+  /** Split a step that does not fit the pane over several lines. Only for edge-free rows (the root overview). */
+  wrap?: boolean
 }
 
 const cmp = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0)
@@ -99,7 +107,10 @@ export function layoutTD(cards: readonly Card[], steps: Steps, opts: LayoutOptio
   const collapsed = (i: number): boolean => !opts.showDone && doneSteps.includes(i + 1)
 
   const maxN = Math.max(1, ...order.filter((_, i) => !collapsed(i)).map(r => r.length))
-  const BW = Math.max(16, Math.min(34, Math.floor((cols - (maxN - 1) * GAP) / maxN)))
+  // Wrapped rows: as many boxes of at least WRAP_MIN_BOX columns as fit, the step split into lines of that many.
+  const perLine = opts.wrap === true ? Math.max(1, Math.min(maxN, Math.floor((cols + GAP) / (WRAP_MIN_BOX + GAP)))) : maxN
+  const BW = Math.max(16, Math.min(34, Math.floor((cols - (perLine - 1) * GAP) / perLine)))
+  let wrapped = false
   const rects = new Map<string, Rect>()
   const rows: Row[] = []
   const chips: Chip[] = []
@@ -118,13 +129,18 @@ export function layoutTD(cards: readonly Card[], steps: Steps, opts: LayoutOptio
 
       return
     }
-    const total = ids.length * BW + (ids.length - 1) * GAP
-    const x0 = Math.max(0, Math.floor((cols - total) / 2))
-    ids.forEach((id, j) => rects.set(id, { left: x0 + j * (BW + GAP), top: y, width: BW, height: BH }))
-    rows.push({ step, chip: false, ids, top: y, height: BH })
-    rightmost = Math.max(rightmost, x0 + total)
-    widest = Math.max(widest, total)
-    y += BH + RG
+    const lines: string[][] = []
+    for (let k = 0; k < ids.length; k += perLine) lines.push(ids.slice(k, k + perLine))
+    if (lines.length > 1) wrapped = true
+    lines.forEach((line, li) => {
+      const total = line.length * BW + (line.length - 1) * GAP
+      const x0 = Math.max(0, Math.floor((cols - total) / 2))
+      line.forEach((id, j) => rects.set(id, { left: x0 + j * (BW + GAP), top: y, width: BW, height: BH }))
+      rows.push({ step, chip: false, ids: line, top: y, height: BH })
+      rightmost = Math.max(rightmost, x0 + total)
+      widest = Math.max(widest, total)
+      y += BH + (li < lines.length - 1 ? WRAP_LINE_GAP : RG)
+    })
   })
   const last = rows[rows.length - 1]
   const RW = Math.min(cols, 56)
@@ -141,5 +157,6 @@ export function layoutTD(cards: readonly Card[], steps: Steps, opts: LayoutOptio
     boxWidth: BW,
     doneSteps,
     tooWide: widest > cols ? widest : null,
+    wrapped,
   }
 }

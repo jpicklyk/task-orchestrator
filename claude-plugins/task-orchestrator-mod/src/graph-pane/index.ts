@@ -369,7 +369,7 @@ export function registerGraphPane(on: On, options: PluginOptions = {}): void {
     const switching = isSwitching(scope, snap)
     const model = view === null ? null : cardsOf(view, activity.working, activity.changed)
     const steps = model === null ? null : stepsOf(model.cards)
-    const lay = model === null || steps === null ? null : layoutTD(model.cards, steps, { bodyColumns: (e.props as { bodyColumns?: number }).bodyColumns, showDone: showDone || view?.overview === true, hasRoot: model.root !== undefined })
+    const lay = model === null || steps === null ? null : layoutTD(model.cards, steps, { bodyColumns: (e.props as { bodyColumns?: number }).bodyColumns, showDone: showDone || view?.overview === true, hasRoot: model.root !== undefined, wrap: view?.overview === true })
 
     // Refresh is automatic (SSE or poll); Reconnect restarts the live source and shows only while degraded.
     const controls = h(

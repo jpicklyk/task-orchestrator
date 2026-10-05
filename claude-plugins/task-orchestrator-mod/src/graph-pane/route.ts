@@ -93,7 +93,8 @@ export function routes(lay: TopDown, cards: readonly Card[], mode: Mode): Route[
       seen.set(key, r)
       out.push(r)
     }
-    if (!toChip && c.deps.length === 0 && lay.hasRoot) out.push(route('contain', rootStart, -1, target.rect, target.row))
+    // A wrapped overview draws no containment lines: they would run through the wrapped lines below.
+    if (!toChip && c.deps.length === 0 && lay.hasRoot && !lay.wrapped) out.push(route('contain', rootStart, -1, target.rect, target.row))
   }
 
   return out

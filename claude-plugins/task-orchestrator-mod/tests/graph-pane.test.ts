@@ -1197,3 +1197,18 @@ for (const surface of SURFACES) {
     await ui.unmount()
   })
 }
+
+// Overview wrap: a root overview whose one row does not fit the pane splits over several lines.
+test('overview wrap: 25 edge-free children fit a 90-column pane over several lines, no containment lines', () => {
+  const kids = Array.from({ length: 25 }, (_, i) => mk(`k${String(i).padStart(7, '0')}`, 'work', `T${i + 1}`))
+  const model = cardsOf(gview(kids))
+  const steps = stepsOf(model.cards)
+  const lay = layoutTD(model.cards, steps, { bodyColumns: 92, showDone: true, hasRoot: true, wrap: true })
+  expect(lay.wrapped).toBe(true)
+  expect(lay.tooWide).toBeNull()
+  expect(lay.rows.length).toBeGreaterThan(1)
+  for (const r of lay.cards.values()) expect(r.left + r.width).toBeLessThanOrEqual(lay.cols)
+  expect(routes(lay, model.cards, 'px').filter(e => e.kind === 'contain')).toHaveLength(0)
+  // Without wrap the same row is too wide.
+  expect(layoutTD(model.cards, steps, { bodyColumns: 92, showDone: true, hasRoot: true }).tooWide).not.toBeNull()
+})
