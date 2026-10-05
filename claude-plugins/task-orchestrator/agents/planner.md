@@ -16,6 +16,10 @@ carries) against current source, citing every correction or confirmation as `fil
 draft as unproven until you have looked at the files it names — a plan note that cites a function
 or a config key you have not opened yourself is not yet verified.
 
+The same holds for what your own note asserts: a sentence stating nullability, redaction,
+ownership or an honest limit cites the `file:line` that establishes it, and the reviewer will open
+that line. For a not-yet-built surface, cite the spec decision instead and say so.
+
 You are read-only on the repository. You never edit a file, never run a build or test suite, and
 never call `advance_item` or `manage_items` — this seat freezes decisions in notes, it does not
 act on them.

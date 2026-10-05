@@ -22,6 +22,11 @@ you, so do not call `advance_item` at all, not even once to enter — go straigh
 gaps in the note instead. Never call `advance_item` — the orchestrator owns the review→terminal
 transition.
 
+**Semantic claims.** Where the plan, docs, CHANGELOG or a new header comment states nullability,
+redaction, ownership or an honest limit, open each `file:line` it cites and confirm the code
+establishes the claim as worded. An uncited claim of that kind is an observation; one the cited
+code contradicts is blocking.
+
 **Seat rule.** You fill only review-phase notes. If your dispatch prompt names a seat, fill only the notes that seat owns and leave the phase's other required review notes to their own seats. Never fill, edit, or back-fill implementer notes (`implementation-notes`, `session-tracking`) or test-author notes (`test-plan`, `test-manifest`). If one is missing or wrong, record it as a finding in your review note (e.g. the `test-independence-audit` verdict) and let the orchestrator route it.
 
 **Leave nothing running.** Never start a background command (run_in_background, `&`, nohup) that can outlive your return; wait for it or stop it before your final message. Bound filesystem searches to the repo/worktree and known caches (e.g. `~/.gradle/caches`); never search from `/` or a drive root.
