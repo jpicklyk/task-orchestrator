@@ -49,6 +49,7 @@ proposal item's own status says "terminal".
 | `82ca5395` | assertions that cannot fail given their fixture or harness | **Test author protocol** — moved to rules `forbidden-test-patterns` and `test-assertion-vacuity`; the vacuity, harness-transformation and rejection-reason checks live there and in `test-author/SKILL.md` §7 |
 | `d1484a3e` | worktree writes landing in the main checkout | **Header** — the "Write root" line and the two-checkout `git status --short` before the first commit |
 | `234b50a0` | declarations-extractor seat and its accuracy contract | **Test author protocol** — moved to rule `declarations-extractor` (extractor seat, accuracy contract, orchestrator scan) and rule `test-author` §4's public-evidence self-resolution clause |
+| `b5bc3210` (#396) | cite a source line for every security or edge-case claim | **Docs** slot (doc lines carry file:line) plus `spec-quality/SKILL.md` ("Semantic claims carry a file:line"), `review-quality/SKILL.md` (Area 2 citation check, Fail list) and the `planner`/`reviewer` agent definitions |
 | `bb191508` | sweep the whole defect class during planning | **Planning seat return template** (`defect-class-siblings` field); the `bug-fix` schema's `diagnosis` guidance carries the same requirement at note-fill time |
 | `c068c943` (#360) | per-PR CHANGELOG `[Unreleased]` bullet | **Docs** — `CHANGELOG.md` is orchestrator- or docs-seat-owned, written before review, never an implementer's; the bullet itself (`/implement` Step 4c) and the Step 6 check plus the PR body's `## Changelog` section are orchestrator-side steps, not delegated facts |
 | `27c021b1` (#318) | hand-assembled Ktor test apps diverging from production | **Test author protocol** — moved to rules `declarations-extractor` (the declarations block's `harness:` line and its accuracy-contract bullet) and `test-harness.full-wiring` (the named-helper-or-stop-and-ask clause) |
@@ -230,6 +231,9 @@ serialized docs seat makes them after the implementation wave, so two agents nev
 doc. The `CHANGELOG.md` `[Unreleased]` bullet belongs to the orchestrator or the docs seat, written
 once after the implementation wave and before review (`/implement` Step 4c), never to an implementer: parallel streams appending under the
 same `### Changed` heading collide on one shared anchor.
+
+Any CHANGELOG or doc line the docs seat writes that states nullability, redaction, ownership or an
+honest limit carries the `file:line` that establishes it; the reviewer opens each one.
 
 Docs seat for this wave: `<agent/seat, or "orchestrator">`.
 

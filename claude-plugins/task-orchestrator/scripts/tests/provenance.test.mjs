@@ -12,7 +12,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
-import { FIELD_ORDER, TAIL_ORDER, STRUCTURED_RE, formatProvenance, parseProvenance } from '../provenance-lib.mjs'
+import { FIELD_ORDER, TAIL_ORDER, STRUCTURED_RE, formatProvenance, parseProvenance, formatExtraSeats, parseExtraSeats } from '../provenance-lib.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const SKILL_PATH = join(HERE, '..', '..', 'skills', 'session-retrospective', 'SKILL.md')
@@ -230,4 +230,24 @@ test('S13 (doc-sync): the provenance example line in session-retrospective/SKILL
   assert.match(structuredLine, /\brun=r-20260928-b2d\b/)
   assert.match(structuredLine, /\bagents=5\b/)
   assert.match(structuredLine, /\borchestrator-turns=3\b/)
+})
+
+test('P5 AC4: see:<short> tokens/duration stay strings and round-trip', () => {
+  const line = 'adapter=claude-workflow run=r-1 seats=implementer:sonnet model=sonnet isolation=worktree:x agents=1 tokens=see:abcd1234 duration=see:abcd1234 deferred=0 in-run-edges=0 orchestrator-turns=1'
+  const f = parseProvenance(line)
+  assert.equal(f.tokens, 'see:abcd1234')
+  assert.equal(f.duration, 'see:abcd1234')
+  assert.equal(formatProvenance(f), line)
+})
+
+test('P5 AC5: extra-seats format/parse round-trip; parseProvenance ignores line 2', () => {
+  const list = [{ seat: 'reviewer-a1', model: 'opus', tokens: 359000 }, { seat: 'planner-a1', model: 'opus', tokens: 'unknown' }]
+  const text = formatExtraSeats(list)
+  assert.equal(text, 'extra-seats=reviewer-a1:opus:359000,planner-a1:opus:unknown')
+  assert.deepEqual(parseExtraSeats('x\n' + text), list)
+  assert.equal(formatExtraSeats([]), '')
+  assert.deepEqual(parseExtraSeats('only one line'), [])
+  assert.deepEqual(parseExtraSeats(undefined), [])
+  const line = 'adapter=claude-workflow run=r-1 seats=implementer:sonnet'
+  assert.deepEqual(parseProvenance(line + '\n' + text), parseProvenance(line))
 })

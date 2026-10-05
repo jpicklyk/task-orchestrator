@@ -206,7 +206,7 @@ traits:
         required: true
         description: "Security review of auth, data handling, and access control."
         skill: "security-review"
-        guidance: "Run the built-in /security-review skill against the branch diff before advancing past review, and record its findings and verdict in this note. A green author-written test suite is necessary but not sufficient for validation code — the author's suite tests the cases the author thought of. For any validation predicate in the diff (prefix/suffix/containment checks especially), also probe the predicate directly with adversarial bypass inputs — boundary/suffix cases, alternate separators, UNC/encoded paths, mixed case, @/. host tricks — and record the inputs tried and their results."
+        guidance: "Apply the /security-review method to this item's owned-file diff in its worktree — `git -C <worktree> diff <baseSha>..HEAD -- <owned files>` — not by invoking the built-in command, which diffs the session cwd and is empty for a worktree branch. Do this before advancing past review, and record the findings and verdict in this note. A green author-written test suite is necessary but not sufficient for validation code — the author's suite tests the cases the author thought of. For any validation predicate in the diff (prefix/suffix/containment checks especially), also probe the predicate directly with adversarial bypass inputs — boundary/suffix cases, alternate separators, UNC/encoded paths, mixed case, @/. host tricks — and record the inputs tried and their results."
 
   needs-perf-review:
     notes:

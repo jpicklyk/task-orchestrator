@@ -860,6 +860,65 @@ test('S13: run-exec-lib provenance() uses adapter=claude-agent for method B', ()
   assert.match(lines[item.id], /^adapter=claude-agent /)
 })
 
+function twoItemProvenance(runId) {
+  const mk = (short) => itemFixture({
+    short,
+    stages: [{ seat: 'implementer', phase: 'work', enters: true, writes: true, notes: [], dispatch: { model: 'sonnet' }, output: 'implementer-v1' }],
+    worktree: `/repo/.claude/worktrees/x-${short}`,
+  })
+  const a = mk('aaaaaaaa')
+  const b = mk('bbbbbbbb')
+  const doc = { contract: 'run-wave/plan-doc-v1', args: planFixture({ items: [a, b], runId }), meta: { inRunEdges: [] } }
+  const result = {
+    contract: 'implement-wave/result-v1', started: true, runId, planDocSlug: `run/${runId}`,
+    items: [a, b].map((it) => ({
+      id: it.id, short: it.short, status: 'done', reason: 'ok', outputs: {},
+      stages: [{ seat: 'implementer', status: 'done', reason: 'ok', modelReported: 'sonnet', notes: [], commits: { pre: '', post: '' }, files: [] }],
+    })),
+    refused: [], deferred: [],
+  }
+  return { doc, a, b, result }
+}
+
+test('P5 AC1: run-level usage is written once on the first item, see:<short> on the rest', () => {
+  const { doc, a, b, result } = twoItemProvenance('r-test-0101')
+  const lines = provenance({ core: realCore(), doc, result, method: 'A', turns: 1, usage: { tokens: 1000, duration: 60 } })
+  assert.match(lines[a.id], /\btokens=1000 duration=60\b/)
+  assert.match(lines[b.id], /\btokens=see:aaaaaaaa duration=see:aaaaaaaa\b/)
+})
+
+test('P5 AC2: usage.items[short] overrides the run-level value for a non-first item', () => {
+  const { doc, b, result } = twoItemProvenance('r-test-0102')
+  const usage = { tokens: 1000, duration: 60, items: { bbbbbbbb: { tokens: 7, duration: 8 } } }
+  const lines = provenance({ core: realCore(), doc, result, method: 'A', turns: 1, usage })
+  assert.match(lines[b.id], /\btokens=7 duration=8\b/)
+})
+
+test('P5 AC3: no usage keeps tokens/duration unknown on every item', () => {
+  const { doc, a, b, result } = twoItemProvenance('r-test-0103')
+  const lines = provenance({ core: realCore(), doc, result, method: 'B', turns: 1 })
+  for (const id of [a.id, b.id]) assert.match(lines[id], /\btokens=unknown duration=unknown\b/)
+})
+
+test('P5: tokens-only usage gives duration=unknown on every item', () => {
+  const { doc, a, b, result } = twoItemProvenance('r-test-0104')
+  const lines = provenance({ core: realCore(), doc, result, method: 'A', turns: 1, usage: { tokens: 5 } })
+  assert.match(lines[a.id], /\btokens=5 duration=unknown\b/)
+  assert.match(lines[b.id], /\btokens=see:aaaaaaaa duration=unknown\b/)
+})
+
+test('P5 AC6: extraSeats with a single item appends the extra-seats line; without an item it throws', () => {
+  const { doc, a, result } = twoItemProvenance('r-test-0105')
+  const extraSeats = [{ seat: 'reviewer-a1', model: 'opus', tokens: 359000 }, { seat: 'planner-a1', model: 'opus', tokens: 'unknown' }]
+  const out = provenance({ core: realCore(), doc, result, method: 'A', turns: 1, extraSeats, item: 'aaaaaaaa' })
+  assert.deepEqual(Object.keys(out), [a.id])
+  const [l1, l2, ...rest] = out[a.id].split('\n')
+  assert.match(l1, /^adapter=claude-workflow /)
+  assert.equal(l2, 'extra-seats=reviewer-a1:opus:359000,planner-a1:opus:unknown')
+  assert.equal(rest.length, 0)
+  assert.throws(() => provenance({ core: realCore(), doc, result, method: 'A', turns: 1, extraSeats }), /--item/)
+})
+
 // ── S14: CLI rows / exit codes ───────────────────────────────────────────────────────────────
 
 function writeCliDoc(dir) {
@@ -1718,4 +1777,174 @@ test('1f00ae1e: implementer prompt names orchestrator-owned notes as never-write
   const plainPrompt = harnessCore.seatPrompt(planFixture({ items: [plainItem] }), plainItem, { ...implStage, optionalNotes: undefined }, {})
   assert.equal(plainPrompt.includes('Orchestrator-owned notes'), false)
   assert.equal(plainPrompt.includes('Optional among yours'), false)
+})
+
+// ── #414: verify path normalization, directory/glob ownership, symbolic refs, cross-item ────────
+
+function v414Stages(withAuthor = false) {
+  const planner = { seat: 'planner', phase: 'queue', notes: [], writes: false, dispatch: {}, output: 'planner-v1' }
+  const impl = { seat: 'implementer', phase: 'work', enters: true, writes: true, notes: [], dispatch: {}, output: 'implementer-v1' }
+  const author = { seat: 'test-author', phase: 'work', writes: true, notes: [], dispatch: {}, output: 'test-author-v1', readsExclude: [] }
+  return withAuthor ? [planner, impl, author] : [planner, impl]
+}
+
+function v414Row(item, plannerOut, post, pre = 'aaaa000') {
+  return {
+    id: item.id, short: item.short, status: 'done', reason: 'ok',
+    stages: [
+      { seat: 'planner', status: 'done', reason: 'ok', modelReported: 'opus', notes: [], commits: { pre: '', post: '' }, files: [] },
+      { seat: 'implementer', status: 'done', reason: 'ok', modelReported: 'sonnet', notes: [], commits: { pre, post }, files: [] },
+    ],
+    outputs: { planner: plannerOut, implementer: outputFor('implementer-v1') },
+  }
+}
+
+function v414Run(items, rows, gitFacts) {
+  const doc = { contract: 'run-wave/plan-doc-v1', args: planFixture({ items }), meta: {} }
+  const result = { contract: 'implement-wave/result-v1', started: true, runId: doc.args.runId, planDocSlug: 'run/x', items: rows, refused: [], deferred: [] }
+  return verify(doc, result, gitFacts)
+}
+
+function v414Single({ planner, files, roots, post = 'bbbb111', resolved, exists = { aaaa000: true, bbbb111: true }, commitSha = 'bbbb111', worktree }) {
+  const item = itemFixture({ short: 'aaaaaaaa', stages: v414Stages(), ...(worktree ? { worktree } : {}) })
+  const gitFacts = {
+    exists,
+    commits: [{ sha: commitSha, subject: 'feat(x): implement [aaaaaaaa]', body: 'why\n\nSeat: implementer', files }],
+  }
+  if (roots) gitFacts.roots = roots
+  if (resolved) gitFacts.resolved = resolved
+  const out = v414Run([item], [v414Row(item, outputFor('planner-v1', planner), post)], gitFacts)
+  return { item, row: out.items[0] }
+}
+
+test('#414 (a): absolute declared mainFiles under the worktree root and the main checkout root verify ok', () => {
+  const wt = 'D:/repo/.claude/worktrees/feat-x'
+  const { row } = v414Single({
+    planner: { mainFiles: [`${wt}/src/a.js`, 'D:/repo/src/b.js'] },
+    files: ['src/a.js', 'src/b.js'],
+    roots: { [wt]: [wt, 'D:/repo'] },
+    worktree: wt,
+  })
+  assert.deepEqual(row.findings, [])
+  assert.equal(row.ok, true)
+})
+
+test('#414 (a2): absolute declarations fall back to argItem.worktree when gitFacts.roots is absent', () => {
+  const wt = '/tmp/wt-aaaaaaaa'
+  const { row } = v414Single({ planner: { mainFiles: [`${wt}/src/a.js`] }, files: ['src/a.js'] })
+  assert.deepEqual(row.findings, [])
+})
+
+test('#414 (b): backslash absolute path with an uppercase drive letter matches', () => {
+  const { row } = v414Single({
+    planner: { mainFiles: [String.raw`D:\repo\wt\src\a.js`] },
+    files: ['src/a.js'],
+    roots: { '/tmp/wt-aaaaaaaa': ['d:/repo/wt'] },
+  })
+  assert.deepEqual(row.findings, [])
+})
+
+test('#414 (c): a new nested file under a declared directory is owned, with and without trailing slash', () => {
+  for (const decl of ['src/pkg', 'src/pkg/']) {
+    const { row } = v414Single({ planner: { mainFiles: [decl] }, files: ['src/pkg/deep/new.js'] })
+    assert.deepEqual(row.findings, [], decl)
+  }
+  const sibling = v414Single({ planner: { mainFiles: ['src/pkg'] }, files: ['src/pkgx/new.js'] })
+  assert.ok(sibling.row.findings.includes('implementer wrote unowned src/pkgx/new.js'))
+})
+
+test('#414 (d): a test file matched by a testFiles glob is owned (D5 widening applies the matcher)', () => {
+  const { row } = v414Single({
+    planner: { mainFiles: ['src/a.js'], testFiles: ['scripts/tests/**/*.test.mjs'] },
+    files: ['src/a.js', 'scripts/tests/sub/x.test.mjs', 'scripts/tests/y.test.mjs'],
+  })
+  assert.deepEqual(row.findings, [])
+  const miss = v414Single({ planner: { testFiles: ['scripts/tests/*.test.mjs'] }, files: ['scripts/tests/sub/x.test.mjs'] })
+  assert.ok(miss.row.findings.includes('implementer wrote unowned scripts/tests/sub/x.test.mjs'))
+})
+
+test('#414 (e): a HEAD post resolves via gitFacts.resolved, is recorded in resolvedRefs, and attributes the commit', () => {
+  const sha = 'b'.repeat(40)
+  const { row } = v414Single({
+    planner: { mainFiles: ['src/a.js'] },
+    files: ['src/unowned.js'],
+    post: 'HEAD',
+    resolved: { '/tmp/wt-aaaaaaaa': { HEAD: sha } },
+    commitSha: sha,
+  })
+  assert.deepEqual(row.resolvedRefs, [{ seat: 'implementer', field: 'post', ref: 'HEAD', sha }])
+  // the range is no longer silently empty: ownership is checked on the resolved commit
+  assert.ok(row.findings.includes('implementer wrote unowned src/unowned.js'))
+})
+
+test('#414 (f): an unresolved ref produces an "unresolved ref" finding', () => {
+  const { row } = v414Single({
+    planner: { mainFiles: ['src/a.js'] }, files: ['src/a.js'], post: 'HEAD',
+    resolved: { '/tmp/wt-aaaaaaaa': { HEAD: null } },
+  })
+  assert.equal(row.ok, false)
+  assert.ok(row.findings.includes('unresolved ref HEAD (implementer post)'))
+})
+
+test('#414 (g): HEAD resolving to another item commit reports "not a commit of this item"', () => {
+  const sha = 'c'.repeat(40)
+  const { row } = v414Single({
+    planner: { mainFiles: ['src/a.js'] }, files: ['src/a.js'], post: 'HEAD',
+    resolved: { '/tmp/wt-aaaaaaaa': { HEAD: sha } },
+    commitSha: 'd'.repeat(40),
+  })
+  assert.ok(row.findings.includes(`ref HEAD resolved to ${sha.slice(0, 7)}, not a commit of this item`))
+})
+
+test('#414 (h): another item exact declaration beats this item directory coverage', () => {
+  const itemA = itemFixture({ short: 'aaaaaaaa', stages: v414Stages() })
+  const itemB = itemFixture({ short: 'bbbbbbbb', stages: v414Stages() })
+  const rowA = v414Row(itemA, outputFor('planner-v1', { mainFiles: ['src/'] }), 'bbbb111')
+  const rowB = v414Row(itemB, outputFor('planner-v1', { mainFiles: ['src/b.js'] }), 'cccc222')
+  const out = v414Run([itemA, itemB], [rowA, rowB], {
+    exists: { aaaa000: true, bbbb111: true, cccc222: true },
+    commits: [
+      { sha: 'bbbb111', subject: 'feat: a [aaaaaaaa]', body: 'Seat: implementer', files: ['src/b.js', 'src/own.js'] },
+      { sha: 'cccc222', subject: 'feat: b [bbbbbbbb]', body: 'Seat: implementer', files: ['src/b.js'] },
+    ],
+  })
+  const a = out.items.find((i) => i.short === 'aaaaaaaa')
+  assert.deepEqual(a.findings, ['implementer wrote src/b.js owned by item bbbbbbbb'])
+  assert.equal(out.items.find((i) => i.short === 'bbbbbbbb').ok, true)
+})
+
+test('#414 (i): an absolute path outside every root is still reported as unowned', () => {
+  const { row } = v414Single({
+    planner: { mainFiles: ['src/a.js'] },
+    files: ['src/a.js', 'E:/elsewhere/src/a.js'],
+    roots: { '/tmp/wt-aaaaaaaa': ['d:/repo/wt'] },
+  })
+  assert.ok(row.findings.includes('implementer wrote unowned e:/elsewhere/src/a.js'))
+})
+
+test('#414 (temp-git CLI): verify with post HEAD and absolute/directory declarations exits 0 and records the resolved SHA', () => {
+  const repo = makeTempGitRepo()
+  const baseSha = makeCommit(repo, 'README.md', '# base\n', 'chore: base commit')
+  const implSha = makeCommit(repo, 'src/pkg/new.js', 'module.exports = 1;\n', 'feat(x): implement [aaaaaaaa]', 'why\n\nSeat: implementer')
+  const top = git(repo, ['rev-parse', '--show-toplevel']).trim()
+
+  const item = itemFixture({ short: 'aaaaaaaa', stages: v414Stages(), worktree: repo })
+  const args = planFixture({ items: [item], baseSha })
+  const doc = { contract: 'run-wave/plan-doc-v1', args, meta: {} }
+  const plannerOut = outputFor('planner-v1', { mainFiles: [`${top}/src/pkg/`] })
+  const result = {
+    contract: 'implement-wave/result-v1', started: true, runId: args.runId, planDocSlug: 'run/x',
+    items: [v414Row(item, plannerOut, 'HEAD', baseSha)], refused: [], deferred: [],
+  }
+  const dir = mkdtempSync(join(tmpdir(), 'run-exec-cli-verify414-'))
+  const planPath = join(dir, 'plan.json')
+  const resultPath = join(dir, 'result.json')
+  writeFileSync(planPath, JSON.stringify(doc))
+  writeFileSync(resultPath, JSON.stringify(result))
+  const res = runCli(['verify', '--plan', planPath, '--result', resultPath])
+  assert.equal(res.status, 0, res.stdout + res.stderr)
+  const row = JSON.parse(res.stdout).items[0]
+  assert.ok(row.resolvedRefs.length > 0)
+  assert.equal(row.resolvedRefs[0].sha, git(repo, ['rev-parse', 'HEAD']).trim())
+  assert.equal(row.resolvedRefs[0].sha, implSha)
 })

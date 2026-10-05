@@ -35,6 +35,28 @@ derived for that item (`null` when the item had no planner-v1 output to derive o
 untagged commit (no `[<short>]` in its subject) surfaces as a top-level `warnings` entry, not a
 per-item finding, and does not by itself fail the item.
 
+**How ownership is matched.** Declared files and changed paths are both normalized to
+repo-relative POSIX before comparison: `\` becomes `/`, a leading `./` and any trailing `/` are
+dropped, and a leading root prefix is stripped (case-insensitively for drive-letter paths). The
+roots come from git per worktree (`git rev-parse --show-toplevel`, plus the parent of
+`--git-common-dir` for the main checkout); with no roots available, the item's `worktree` is the
+only root. An absolute path outside every root never matches and is reported. A declared
+directory (with or without a trailing `/`) owns every file beneath it, new or modified, and a
+declared entry containing `*` or `?` is a glob (`**` spans segments, `*` stays within one,
+`?` is one non-`/` character) — this applies to `testFiles` globs too. **Cross-item precedence:**
+if a file is exactly declared (non-glob) by another item in the run and not exactly declared by
+the writer, it is reported as `implementer wrote <file> owned by item <short>` (or
+`test-author wrote ...`) even when the writer's own directory or glob would cover it. A file
+outside everything the writer declared stays `implementer wrote unowned <file>`.
+
+**Symbolic refs.** A stage `commits.pre`/`post` that is not a 7-40 character lowercase hex SHA
+(for example `HEAD`) is resolved in the item's worktree with `git rev-parse --verify
+<ref>^{commit}` rather than `cat-file`. Each item row carries `resolvedRefs: [{seat, field, ref,
+sha}]` recording the SHA. An unresolvable ref fails the item with `unresolved ref <ref> (<seat>
+<field>)`, and a resolved `post` that is not one of that item's `[<short>]`-tagged commits fails with
+`ref <ref> resolved to <sha7>, not a commit of this item` (for instance HEAD in a shared worktree
+now pointing at another item's commit).
+
 **Red-proofs themselves are run by you, the orchestrator**, not the helper — `verify` only
 returns the checklist (`items[].redProof.shape`, plus `items[].redProof.commands` for whichever
 of the project's `run-profile.json` → `verify[]` entries name the `orchestrator` seat) of what to
@@ -86,7 +108,13 @@ concrete results to report):
    have run, in confirmed past tense — not as a speculative "pending verification" draft you
    intend to edit later.
 2. **`delegation-metadata`** — the single provenance line, produced by
-   `node "<helper>" provenance --plan <plan> --result <result> --method A|B --turns <n> [--usage <usage-file>] [--meta-dir <dir>]`. Pass `--meta-dir` when per-seat `*.meta.json` files with
+   `node "<helper>" provenance --plan <plan> --result <result> --method A|B --turns <n> --usage <usage-file> [--meta-dir <dir>]`. **Method A: `--usage` is mandatory.**
+   Before running the helper, write the Workflow task notification's usage (total tokens, duration in
+   ms) to `<scratchpad>/run-wave/<runId>/usage.json` as `{"tokens": N, "duration": N}`; the helper
+   records that run total once, on the run's first item, and `tokens=see:<firstItemShort>` (likewise
+   `duration=`) on every other item, so per-item sums never multiply the run total. **Method B:** pass
+   `--usage` only if a per-item file exists (`{"items": {"<short>": {"tokens": N, "duration": N}}}`);
+   omit it otherwise (tokens/duration read `unknown`). Pass `--meta-dir` when per-seat `*.meta.json` files with
    the actually-reported model exist (gives `model-source` other than `self-report`); otherwise
    the line falls back to each stage's self-reported `modelReported`. This line is what the
    session-retrospective skill's structured-provenance parser reads — do not hand-write it, and
@@ -131,6 +159,34 @@ do not dispatch the generic reviewer yourself. The generic review prompt is deli
 seat line, the owned-file diff command, which notes to fill, and which rule keys apply — it
 carries no rule text inline (the reviewer fetches those itself).
 
+**Security-assessment items.** The review-prompt helper does not know the item's schema. When the item's resolved schema has a `security-assessment` note (check `get_context` expectedNotes), append to the generated review prompt a line naming the worktree path beside the diff command, plus: "Apply the /security-review method to this item's owned-file diff in its worktree — `git -C <worktree> diff <baseSha>..HEAD -- <owned files>` — not by invoking the built-in command, which diffs the session cwd and is empty for a worktree branch."
+
+**Fix cycle after a Fail.** When a review returns Fail, run the same four seats again, in order,
+each scoped to one numbered amendment `A<n>` (A1 for the first Fail, A2 for the next). There is no
+cap on cycles.
+
+1. **Planner amends, by name.** Resume the item's planner seat with the blocking findings (via
+   `SendMessage`). It appends a section `## Amendment A<n>` to its own planning note
+   (`specification` for plugin-change, `task-scope`/`diagnosis` where the schema carries those) —
+   never a rewrite of the frozen body above it, and never a separate note key, so the independence
+   audit can still check that the note's freeze timestamp (`modifiedAt`) predates the fix commit.
+   The amendment lists every existing test file it expects edited (planner-v1 `existingTestEdits`)
+   and the mutation red-proofs the fix must satisfy. Keep amendments terse: accumulated ones made a
+   50k `task-scope` in one run.
+2. **Implementer, then blind test author, by name**, each scoped to section `A<n>` only. The test
+   author appends its own `A<n>` section to `test-plan`/`test-manifest`; the planner does not touch
+   those keys, which the test-author seat owns.
+3. **Orchestrator runs the amendment's named mutation red-proofs** in a scratch copy, never the
+   shared tree (same rule as Step 1).
+4. **Original reviewer, by name**, scoped to `git diff <prevReviewedSha>..HEAD -- <owned files>`
+   plus the blocking findings — see "Re-review after fixes" below.
+
+**Fallback.** Resume-by-name works in Method B or when seats are dispatched by hand. Method A seats
+run inside the implement-wave Workflow and generally cannot be resumed after it ends; there, and for
+any seat that cannot be resumed, dispatch a fresh seat with id `<seat>-a<n>` (e.g. `planner-a1`)
+and the same scope, so the actor audit and audit trail distinguish the cycle. The helper and verify
+do not special-case `-a<n>` ids.
+
 **Re-review after fixes.** If the original reviewer seat cannot be resumed once fixes land, dispatch a
 fresh `task-orchestrator:reviewer` scoped to the fix commits (`git diff <prevReviewedSha>..HEAD -- <owned
 files>`) plus the original blocking findings. The orchestrator never appends to or re-upserts a note
@@ -138,6 +194,16 @@ whose stored actor is a seat (`review-checklist`, `test-manifest`, `test-plan`,
 `test-independence-audit`, or any other seat-owned key) — that flips its stored actor and turns the
 seat's verdict into a self-confirmation. Any orchestrator confirmation goes under its own key,
 `orchestrator-confirmation` (role review, optional; off-schema is fine).
+
+**Recording out-of-run seats.** Every seat dispatched outside the run for an item (re-review,
+fix-cycle `<seat>-a<n>`, amendment planner) is recorded by re-running
+`node "<helper>" provenance ... --item <short> --extra-seats <seat>:<model>:<tokens>,...` — with the
+same flags as Step 3, including `--usage` under Method A (omitting it on the run's first item
+replaces the recorded run total with `tokens=unknown`) — and
+re-upserting that item's `delegation-metadata` (orchestrator-owned, so no actor flip) with the
+two-line output (grammar line, then `extra-seats=...`). The list is cumulative: each re-run passes
+every out-of-run seat so far. Take tokens from the Agent result's usage; use `unknown` if not
+reported. `--extra-seats` requires `--item`.
 
 ---
 

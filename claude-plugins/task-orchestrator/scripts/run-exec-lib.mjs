@@ -11,7 +11,7 @@
 // per the frozen contract (Appendix D, dispatch contract for f8d3232e).
 
 import { extractLastBalancedJson } from './ralph-lib.mjs'
-import { formatProvenance } from './provenance-lib.mjs'
+import { formatProvenance, formatExtraSeats, parseExtraSeats } from './provenance-lib.mjs'
 
 export const STATE_CONTRACT = 'run-wave/state-v1'
 
@@ -31,6 +31,87 @@ function normalizePath(p) {
   const m = /^([a-zA-Z]):\//.exec(s)
   if (m) s = m[1].toLowerCase() + s.slice(1)
   return s
+}
+
+// ---------------------------------------------------------------------------------------
+// Ownership matching (verify): root-relative normalization, directory and glob ownership.
+// ---------------------------------------------------------------------------------------
+
+const HEX_SHA_RE = /^[0-9a-f]{7,40}$/
+
+/**
+ * relativizePath(p, roots) -> repo-relative POSIX path. Applies normalizePath, strips the longest
+ * matching root prefix (case-insensitive when the path is a drive-letter path), then a trailing '/'.
+ * A path outside every root is returned unchanged (still absolute, so it never matches).
+ */
+function relativizePath(p, roots) {
+  let s = normalizePath(p)
+  const normRoots = (roots || [])
+    .filter((r) => r)
+    .map((r) => normalizePath(r).replace(/\/+$/, ''))
+    .filter((r) => r)
+    .sort((a, b) => b.length - a.length)
+  const drive = /^[a-z]:\//i.test(s)
+  for (const r of normRoots) {
+    const head = s.slice(0, r.length)
+    const same = drive ? head.toLowerCase() === r.toLowerCase() : head === r
+    if (same && s.charAt(r.length) === '/') {
+      s = s.slice(r.length + 1)
+      break
+    }
+  }
+  return s.replace(/\/+$/, '')
+}
+
+function isGlob(entry) {
+  return entry.includes('*') || entry.includes('?')
+}
+
+/** globToRegExp: '**' = any number of segments, '*' = within one segment, '?' = one non-'/' char. */
+function globToRegExp(glob) {
+  let re = ''
+  for (let i = 0; i < glob.length; i++) {
+    const ch = glob[i]
+    if (ch === '*') {
+      if (glob[i + 1] === '*') {
+        i++
+        if (glob[i + 1] === '/') {
+          i++
+          re += '(?:.*/)?'
+        } else {
+          re += '.*'
+        }
+      } else {
+        re += '[^/]*'
+      }
+    } else if (ch === '?') {
+      re += '[^/]'
+    } else {
+      re += ch.replace(/[.+^${}()|[\]\\]/g, '\\$&')
+    }
+  }
+  return new RegExp(`^${re}$`)
+}
+
+/** makeOwner(entries, roots) -> {exact:Set, owns(f), ownsExact(f)}; entries are raw declared paths. */
+function makeOwner(entries, roots) {
+  const exact = new Set()
+  const globs = []
+  for (const raw of entries) {
+    const e = relativizePath(raw, roots)
+    if (!e) continue
+    if (isGlob(e)) globs.push(globToRegExp(e))
+    else exact.add(e)
+  }
+  return {
+    exact,
+    ownsExact: (f) => exact.has(f),
+    owns(f) {
+      if (exact.has(f)) return true
+      for (const d of exact) if (f.startsWith(d + '/')) return true
+      return globs.some((g) => g.test(f))
+    },
+  }
 }
 
 // ---------------------------------------------------------------------------------------
@@ -756,7 +837,8 @@ function attributeCommits(itemCommits, writingStages) {
 
 /**
  * verify(doc, result, gitFacts) -> {ok, items:[{id, short, status, ok, findings, redProof}], warnings}.
- * gitFacts = {exists:{[sha]:bool}, commits:[{sha, subject, body, files[]}]} oldest-first. A
+ * gitFacts = {exists:{[sha]:bool}, commits:[{sha, subject, body, files[]}], roots?:{[worktree]:string[]},
+ * resolved?:{[worktree]:{[ref]:sha|null}}} oldest-first (roots/resolved are optional git facts). A
  * commit belongs to an item by the '[<short>]' tag in its subject; untagged -> a run-level
  * warning. Findings: missing sha, missing Seat trailer, unowned files written by the
  * implementer/test-author, test-author committing before the implementer's last commit.
@@ -778,38 +860,93 @@ export function verify(doc, result, gitFacts) {
   }
 
   const resultByItemId = new Map((result.items || []).map((r) => [r.id, r]))
+  const rootsFor = (argItem) => {
+    const r = gitFacts && gitFacts.roots && gitFacts.roots[argItem.worktree]
+    return Array.isArray(r) && r.length > 0 ? r : [argItem.worktree]
+  }
+  const declaredBy = (argItem) => {
+    const resItem = resultByItemId.get(argItem.id) || { stages: [], outputs: {} }
+    const out = outputForStageId(resItem, argItem, 'planner-v1')
+    return {
+      plannerOut: out,
+      main: (out && out.mainFiles) || [],
+      docs: (out && out.docFiles) || [],
+      tests: (out && out.testFiles) || [],
+      edits: ((out && out.existingTestEdits) || []).map((e) => e.file),
+    }
+  }
+  // Cross-item precedence: exact (non-glob) declarations by every item with planner output.
+  const exactDeclarers = new Map() // normalized path -> [{id, short}]
+  for (const other of doc.args.items) {
+    const d = declaredBy(other)
+    if (!d.plannerOut) continue
+    const roots = rootsFor(other)
+    for (const raw of [...d.main, ...d.docs, ...d.tests, ...d.edits]) {
+      const e = relativizePath(raw, roots)
+      if (!e || isGlob(e)) continue
+      if (!exactDeclarers.has(e)) exactDeclarers.set(e, [])
+      exactDeclarers.get(e).push({ id: other.id, short: other.short })
+    }
+  }
   const items = doc.args.items.map((argItem) => {
     const resItem = resultByItemId.get(argItem.id) || { stages: [], outputs: {} }
     const findings = []
     const itemCommits = commitsByShort.get(argItem.short) || []
+    const roots = rootsFor(argItem)
 
-    const plannerOut = outputForStageId(resItem, argItem, 'planner-v1')
-    const mainFiles = new Set(((plannerOut && plannerOut.mainFiles) || []).map(normalizePath))
-    const docFiles = new Set(((plannerOut && plannerOut.docFiles) || []).map(normalizePath))
-    const testFiles = new Set(((plannerOut && plannerOut.testFiles) || []).map(normalizePath))
-    const existingTestEdits = new Set(
-      ((plannerOut && plannerOut.existingTestEdits) || []).map((e) => normalizePath(e.file))
-    )
-
-    // Missing-sha check first (independent of attribution) over every declared stage.
-    const writingStages = []
-    for (const stage of argItem.stages) {
-      const stageRes = (resItem.stages || []).find((s) => s.seat === stage.seat)
-      if (!stageRes) continue
-      const pre = stageRes.commits && stageRes.commits.pre
-      const post = stageRes.commits && stageRes.commits.post
-      for (const sha of [pre, post]) {
-        if (sha && (!gitFacts.exists || gitFacts.exists[sha] !== true)) {
-          findings.push(`missing sha ${sha}`)
-        }
-      }
-      if (stage.writes) writingStages.push({ seat: stage.seat, output: stage.output, pre, post })
-    }
+    const declared = declaredBy(argItem)
+    const plannerOut = declared.plannerOut
 
     // D5: with no test-author-v1 stage on this item, the implementer's owned set widens to
     // include the planner's testFiles/existingTestEdits — those tests are "unowned" by anyone
     // else, so the implementer writing them is not a foreign-file finding.
     const hasTestAuthorStage = argItem.stages.some((s) => s.output === 'test-author-v1')
+    const implOwner = makeOwner(
+      [...declared.main, ...declared.docs, ...(hasTestAuthorStage ? [] : [...declared.tests, ...declared.edits])],
+      roots
+    )
+    const authorOwner = makeOwner([...declared.tests, ...declared.edits], roots)
+    const foreignOwner = (f, ownExactOwner) => {
+      if (ownExactOwner.ownsExact(f)) return null
+      const hit = (exactDeclarers.get(f) || []).find((o) => o.id !== argItem.id)
+      return hit ? hit.short : null
+    }
+
+    // Missing-sha check first (independent of attribution) over every declared stage. Symbolic
+    // refs are replaced by their resolved SHA (gitFacts.resolved) and recorded in resolvedRefs.
+    const resolvedRefs = []
+    const resolvedMap = (gitFacts && gitFacts.resolved && gitFacts.resolved[argItem.worktree]) || {}
+    const writingStages = []
+    for (const stage of argItem.stages) {
+      const stageRes = (resItem.stages || []).find((s) => s.seat === stage.seat)
+      if (!stageRes) continue
+      const commits = stageRes.commits || {}
+      const resolvedStage = {}
+      for (const field of ['pre', 'post']) {
+        const ref = commits[field]
+        if (!ref) {
+          resolvedStage[field] = ref
+          continue
+        }
+        if (HEX_SHA_RE.test(ref)) {
+          resolvedStage[field] = ref
+          if (!gitFacts.exists || gitFacts.exists[ref] !== true) findings.push(`missing sha ${ref}`)
+          continue
+        }
+        const sha = typeof resolvedMap[ref] === 'string' ? resolvedMap[ref] : null
+        if (!sha) {
+          findings.push(`unresolved ref ${ref} (${stage.seat} ${field})`)
+          resolvedStage[field] = undefined
+          continue
+        }
+        resolvedStage[field] = sha
+        resolvedRefs.push({ seat: stage.seat, field, ref, sha })
+        if (field === 'post' && stage.writes && !itemCommits.some((c) => c.sha === sha)) {
+          findings.push(`ref ${ref} resolved to ${sha.slice(0, 7)}, not a commit of this item`)
+        }
+      }
+      if (stage.writes) writingStages.push({ seat: stage.seat, output: stage.output, pre: resolvedStage.pre, post: resolvedStage.post })
+    }
 
     const rangeByStageSeat = attributeCommits(itemCommits, writingStages)
     for (const stage of writingStages) {
@@ -818,16 +955,15 @@ export function verify(doc, result, gitFacts) {
         if (!(commit.body || '').includes(`Seat: ${stage.seat}`)) {
           findings.push(`missing Seat trailer ${commit.sha.slice(0, 7)}`)
         }
-        const files = (commit.files || []).map(normalizePath)
-        if (stage.output === 'implementer-v1') {
+        const files = (commit.files || []).map((f) => relativizePath(f, roots))
+        const who = stage.output === 'implementer-v1' ? 'implementer' : 'test-author'
+        const owner = stage.output === 'implementer-v1' ? implOwner
+          : stage.output === 'test-author-v1' ? authorOwner : null
+        if (owner) {
           for (const f of files) {
-            const owned = mainFiles.has(f) || docFiles.has(f) ||
-              (!hasTestAuthorStage && (testFiles.has(f) || existingTestEdits.has(f)))
-            if (!owned) findings.push(`implementer wrote unowned ${f}`)
-          }
-        } else if (stage.output === 'test-author-v1') {
-          for (const f of files) {
-            if (!testFiles.has(f) && !existingTestEdits.has(f)) findings.push(`test-author wrote unowned ${f}`)
+            const foreign = foreignOwner(f, owner)
+            if (foreign) findings.push(`${who} wrote ${f} owned by item ${foreign}`)
+            else if (!owner.owns(f)) findings.push(`${who} wrote unowned ${f}`)
           }
         }
       }
@@ -856,6 +992,7 @@ export function verify(doc, result, gitFacts) {
       status,
       ok: findings.length === 0,
       findings,
+      resolvedRefs,
       redProof: {
         shape: (plannerOut && plannerOut.redProofShape) || null,
         commands: verifyCommands,
@@ -957,14 +1094,20 @@ export function auditActors(doc, observed, itemIds, opts) {
  * seats = result stages in order; model per seat from meta['<seat>:<short>'].model, else the
  * stage's modelReported, else its dispatch.model, else 'unknown'. model = the entry seat's
  * model (else the first work-stage seat's). isolation = 'worktree:<item.worktree>'. agents =
- * stage count. tokens/duration from usage.items[short] -> run-level usage -> 'unknown'.
+ * stage count. tokens/duration (each independently) from usage.items[short]; else run-level
+ * usage, written ONLY on the run's first item (doc.args.items[0]) with every other item getting
+ * 'see:<firstShort>'; else 'unknown'. Optional extraSeats=[{seat,model,tokens}] plus item
+ * (short|id) restricts the output to that item and appends the 'extra-seats=...' line 2.
  * deferred = result.deferred.length + args.deferred.length. in-run-edges =
  * doc.meta.inRunEdges.length. orchestrator-turns = turns. substituted lists seats whose meta
  * model differs from stage.dispatch.model. model-source is 'meta' only when every seat's
  * model came from meta, else 'self-report'.
  */
-export function provenance({ core, doc, result, method, turns, usage, meta, journal }) {
+export function provenance({ core, doc, result, method, turns, usage, meta, journal, extraSeats, item: onlyItem }) {
   const out = {}
+  if (extraSeats && extraSeats.length > 0 && !onlyItem) {
+    throw new Error('provenance: extraSeats requires a single item (--item)')
+  }
   const resultByItemId = new Map((result.items || []).map((r) => [r.id, r]))
 
   for (const item of doc.args.items) {
@@ -1002,8 +1145,11 @@ export function provenance({ core, doc, result, method, turns, usage, meta, jour
     const modelField = (entrySeatOut && entrySeatOut.model) || (firstWorkOut && firstWorkOut.model) || 'unknown'
 
     const usageItem = usage && usage.items && usage.items[item.short]
-    const tokens = usageItem && usageItem.tokens !== undefined ? usageItem.tokens : (usage && usage.tokens !== undefined ? usage.tokens : 'unknown')
-    const duration = usageItem && usageItem.duration !== undefined ? usageItem.duration : (usage && usage.duration !== undefined ? usage.duration : 'unknown')
+    const isFirstItem = item === doc.args.items[0]
+    const firstShort = doc.args.items[0].short
+    const runLevel = (v) => (v === undefined ? 'unknown' : (isFirstItem ? v : `see:${firstShort}`))
+    const tokens = usageItem && usageItem.tokens !== undefined ? usageItem.tokens : runLevel(usage && usage.tokens)
+    const duration = usageItem && usageItem.duration !== undefined ? usageItem.duration : runLevel(usage && usage.duration)
 
     const deferredCount = ((result.deferred && result.deferred.length) || 0) + ((doc.args.deferred && doc.args.deferred.length) || 0)
     const inRunEdges = (doc.meta && Array.isArray(doc.meta.inRunEdges)) ? doc.meta.inRunEdges.length : 0
@@ -1026,6 +1172,14 @@ export function provenance({ core, doc, result, method, turns, usage, meta, jour
     if (journal) fields.journal = journal
 
     out[item.id] = formatProvenance(fields)
+  }
+
+  if (onlyItem) {
+    const { plan } = resolvePlan(core, doc)
+    const target = findItem(plan, onlyItem)
+    const line = out[target.id]
+    const extraLine = formatExtraSeats(extraSeats)
+    return { [target.id]: extraLine ? `${line}\n${extraLine}` : line }
   }
 
   return out
@@ -1167,17 +1321,44 @@ function execVerify(argv, io) {
   const result = resolveResultDoc(core, doc, resultDoc)
   const worktrees = Array.from(new Set(doc.args.items.map((it) => it.worktree)))
   const exists = {}
+  const resolved = {}
+  const roots = {}
   const commits = []
   for (const wt of worktrees) {
+    // Roots to strip from declared/changed paths: the worktree top-level and the main checkout
+    // (parent of the git common dir).
+    const rootList = []
+    const top = io.git(wt, ['rev-parse', '--show-toplevel'])
+    if (top && top.status === 0 && String(top.stdout || '').trim()) rootList.push(String(top.stdout).trim())
+    const common = io.git(wt, ['rev-parse', '--path-format=absolute', '--git-common-dir'])
+    if (common && common.status === 0 && String(common.stdout || '').trim()) {
+      const c = normalizePath(String(common.stdout).trim()).replace(/\/+$/, '')
+      const parent = c.replace(/\/\.git$/, '')
+      if (parent !== c && parent) rootList.push(parent)
+    }
+    roots[wt] = rootList
+    resolved[wt] = {}
     for (const item of doc.args.items) {
       if (item.worktree !== wt) continue
       for (const stage of item.stages) {
         const resItem = (result.items || []).find((r) => r.id === item.id)
         const stageRes = resItem && (resItem.stages || []).find((s) => s.seat === stage.seat)
-        for (const sha of [stageRes && stageRes.commits && stageRes.commits.pre, stageRes && stageRes.commits && stageRes.commits.post]) {
-          if (sha && !(sha in exists)) {
-            const r = io.git(wt, ['cat-file', '-e', sha])
-            exists[sha] = r.status === 0
+        for (const ref of [stageRes && stageRes.commits && stageRes.commits.pre, stageRes && stageRes.commits && stageRes.commits.post]) {
+          if (!ref) continue
+          if (HEX_SHA_RE.test(ref)) {
+            if (!(ref in exists)) {
+              const r = io.git(wt, ['cat-file', '-e', ref])
+              exists[ref] = r.status === 0
+            }
+          } else if (!(ref in resolved[wt])) {
+            // Symbolic ref (HEAD, branch, tag...): resolve in the item's worktree; never cat-file it.
+            let sha = null
+            if (!ref.startsWith('-')) {
+              const r = io.git(wt, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`])
+              const out = r && r.status === 0 ? String(r.stdout || '').trim() : ''
+              sha = /^[0-9a-f]{40,64}$/.test(out) ? out : null
+            }
+            resolved[wt][ref] = sha
           }
         }
       }
@@ -1185,7 +1366,7 @@ function execVerify(argv, io) {
     const log = io.git(wt, ['log', '--reverse', '--topo-order', '--format=%H%x1f%s%x1f%b%x1e', '--name-only', `${doc.args.baseSha}..HEAD`])
     commits.push(...parseGitLog(log.stdout))
   }
-  const gitFacts = { exists, commits }
+  const gitFacts = { exists, commits, resolved, roots }
   const out = verify(doc, result, gitFacts)
   io.writeOut(JSON.stringify(out))
   io.exit(out.ok ? 0 : 3)
@@ -1232,12 +1413,18 @@ function execProvenance(argv, io) {
       if (parsed && parsed.label) meta[parsed.label] = parsed
     }
   }
+  const extraFlag = flagValue(argv, '--extra-seats')
+  const itemFlag = flagValue(argv, '--item')
+  if (extraFlag !== undefined && !itemFlag) throw new Error('provenance: --extra-seats requires --item')
+  const extraSeats = extraFlag !== undefined ? parseExtraSeats(`x\nextra-seats=${extraFlag}`) : undefined
   const out = provenance({
     core, doc, result,
     method: flagValue(argv, '--method'),
     turns: Number(flagValue(argv, '--turns', '0')),
     usage, meta,
     journal: flagValue(argv, '--journal'),
+    extraSeats,
+    item: extraFlag !== undefined ? itemFlag : undefined,
   })
   io.writeOut(JSON.stringify(out))
   io.exit(0)

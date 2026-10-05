@@ -100,6 +100,14 @@ acknowledged and justified in the implementation notes, not silent.
 **Check non-goals weren't violated.** Review the planning note's non-goals list. If the
 implementation touched areas that were explicitly scoped out, flag it.
 
+**Check semantic-claim citations.** Every sentence in the planning note, the changed docs,
+the CHANGELOG bullet and any new header or KDoc comment that states nullability, redaction,
+ownership or an honest limit should cite a `file:line`. Open each cited line and confirm it
+establishes the claim as worded (watch for inverted conditions such as ADMIN-AND vs ADMIN-OR).
+An uncited claim of this kind is an observation. A claim the cited code contradicts is
+blocking. For a NEW-SURFACE claim that cites a spec decision, confirm it against the diff.
+Prose that is not a semantic claim needs no citation.
+
 ### 3. Test Quality
 
 The planning note's test strategy defined what should be tested — happy paths, failure
@@ -213,7 +221,8 @@ Every review must end with a clear verdict:
   as the observed mode, not as a finding; it is the sanctioned outcome for Direct-tier
   single-actor runs, not a degradation to flag.
 - **Fail — blocking issues** — test failures, missing acceptance criteria, critical
-  gaps in test coverage, or (for items with the `needs-test-author` trait) a
+  gaps in test coverage, a nullability/redaction/ownership/honest-limit claim that its
+  cited line contradicts, or (for items with the `needs-test-author` trait) a
   `not-independent` independence-verification result, an unexplained implementer edit
   to test files, or an undeclared or falsely declared forbidden test pattern. These fail
   the item even when the test suite is green — a compromised separation or a false

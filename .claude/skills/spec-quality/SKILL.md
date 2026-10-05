@@ -86,6 +86,18 @@ review verdict both inherited the wrong path. If a further occurrence still orig
 plan, treat that as evidence that prose rules cannot carry this load and add a mechanical check
 (every path a plan names must resolve on disk).
 
+**Semantic claims carry a file:line.** Any sentence that states nullability, redaction,
+ownership, or an honest limit (what a guard does NOT cover) cites the `file:line` that
+establishes it. This holds for spec notes and for everything written from them — a CHANGELOG
+bullet, an API doc line, a hook or KDoc header comment. Worked case (2026-09-29, #384): the spec
+and a hook header said note attribution is shown only when the caller is ADMIN and the flag is
+false; the code redacts only when `redactNoteAttribution && !isAdmin`
+(`AttributionRedactor.kt:53`), so it is shown when ADMIN OR the flag is false. The error
+survived from spec to header because the sentence was written from intent and no line was
+opened. For a NEW-SURFACE claim with no code yet, cite the spec decision that fixes the
+behavior and mark the claim for the reviewer to confirm in the diff. Prose that is not a
+semantic claim needs no citation — this is not a blanket citation rule.
+
 ### Verification Commands
 
 Before writing a verification command into a spec, plan, or skill, run it twice: once
@@ -182,6 +194,7 @@ Validate spec completeness before advancing past queue phase:
 - [ ] At least 1 non-goal named (scope boundary explicit)
 - [ ] Downstream consumers of changed interfaces traced
 - [ ] Contracts cited (with location), not restated; any "verified" claim names what was checked
+- [ ] Every nullability, redaction, ownership or honest-limit claim cites the file:line that establishes it
 - [ ] Verification commands proven (succeed on good input, fail on bad input)
 - [ ] Automated budget/ceiling headroom measured, if the blast radius touches one
 - [ ] 1-2 concrete risk flags identified

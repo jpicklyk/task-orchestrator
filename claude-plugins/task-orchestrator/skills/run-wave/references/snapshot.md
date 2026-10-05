@@ -61,3 +61,30 @@ uses the placeholder and `--scratchpad` is omitted, `plan` refuses (exit 3):
 ```
 plan: --scratchpad is required because the profile uses <scratchpad>
 ```
+
+## The `<ownedTests>` placeholder (per-seat verify)
+
+A `profile.verify[].command` may carry `<ownedTests>`. Unlike `<worktree>` and `<scratchpad>`, `plan`
+never substitutes it: the planner has not run when `plan` builds `project.verify`, so the owned test
+files are unknown. The implement-wave seat prompt (`promptVerify`, shared by Method B through
+`wave-core.mjs`) substitutes it per seat, as a space-separated list of double-quoted paths (relative
+paths are prefixed with the item worktree; directory and glob entries pass through).
+
+- Owned set: a `test-author` seat owns planner `testFiles` plus `existingTestEdits[].file`. An
+  `implementer` on an item with no test-author stage owns the same union. An `implementer` on an item
+  WITH a test-author stage owns `existingTestEdits[].file` only.
+- `ownedTestsPattern` (optional regex source string, per entry) drops owned paths that do not match, so a
+  `node --test` entry never receives `.kt` files.
+- An empty owned set, or no planner output, renders `SKIP <name>: no owned test files` instead of a command.
+  An invalid `ownedTestsPattern` renders `SKIP <name>: invalid ownedTestsPattern "<pattern>"` — the filter
+  is never silently dropped.
+- In shared-worktree runs, a non-empty VERIFY block also carries a contract line: failures whose paths
+  are all owned by another item or seat are expected mid-wave; record them and continue.
+- The whole-suite run belongs on `orchestrator`-seat entries (run after the wave, surfaced as
+  `redProof.commands`). `<ownedTests>` is not supported on orchestrator entries.
+
+Add an `<ownedTests>` entry to a project's `run-profile.json` only once every installed plugin
+cache carries this `promptVerify`: an older cached `implement-wave.js` prints the command verbatim,
+so seats would see a literal `<ownedTests>`. For this repo, the intended entry is
+`{"name":"plugin-node-owned-tests","command":"node --test <ownedTests>","ownedTestsPattern":"\\.test\\.mjs$","seats":["implementer","test-author"]}`,
+beside the orchestrator's `plugin-node-tests`.
