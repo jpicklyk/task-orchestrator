@@ -120,7 +120,8 @@ function graphIo($: EngineInterface): GraphIo {
 
 export function registerGraphData(on: On): void {
   // Matched (the validator refuses a second unmatched `tool.call`): same names as WRITE_TOOLS.
-  on('tool.call', { tool: WRITE_TOOL_NAME }, async ($, e, next) => {
+  // Matcher spelled as a literal: the engine resolves matchers from source, and an imported or exported constant stays unresolved (never matches).
+  on('tool.call', { tool: /^mcp__.*task-orchestrator.*__(advance_item|manage_notes|create_work_tree|manage_items|manage_dependencies|complete_tree|claim_item)$/ }, async ($, e, next) => {
     if (next.origin.plugin === PLUGIN) return next(e)
     const ran = await next(e)
     // Debounced and never awaited: the model's call is not slowed by the snapshot.
@@ -140,21 +141,22 @@ export function registerGraphData(on: On): void {
   })
 
   // Consumer controls: they write these atoms, and the layer reacts once the write has landed.
-  on('state.set', { plugin: PLUGIN, key: 'graphScope' }, async ($, e, next) => {
+  // state.set matchers use the literal plugin name for the same reason (an imported PLUGIN never matched).
+  on('state.set', { plugin: 'task-orchestrator-mod', key: 'graphScope' }, async ($, e, next) => {
     const wrote = await next(e)
     if (wrote.isSet) void refreshNow(graphIo($))
 
     return wrote
   })
 
-  on('state.set', { plugin: PLUGIN, key: 'graphRefreshRequest' }, async ($, e, next) => {
+  on('state.set', { plugin: 'task-orchestrator-mod', key: 'graphRefreshRequest' }, async ($, e, next) => {
     const wrote = await next(e)
     if (wrote.isSet) void refresh(graphIo($))
 
     return wrote
   })
 
-  on('state.set', { plugin: PLUGIN, key: 'graphReconnectRequest' }, async ($, e, next) => {
+  on('state.set', { plugin: 'task-orchestrator-mod', key: 'graphReconnectRequest' }, async ($, e, next) => {
     const wrote = await next(e)
     if (wrote.isSet) {
       invalidateLabels()
@@ -165,7 +167,7 @@ export function registerGraphData(on: On): void {
     return wrote
   })
 
-  on('state.set', { plugin: PLUGIN, key: 'graphSubscribers' }, async ($, e, next) => {
+  on('state.set', { plugin: 'task-orchestrator-mod', key: 'graphSubscribers' }, async ($, e, next) => {
     const wrote = await next(e)
     if (wrote.isSet) syncLive(graphIo($), typeof e.value === 'number' ? e.value : 0)
 
