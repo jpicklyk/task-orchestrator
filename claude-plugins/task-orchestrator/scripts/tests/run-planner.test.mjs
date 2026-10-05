@@ -1774,13 +1774,13 @@ test("(3) <ownedTests> is left literal in both modes (substituted per seat at pr
             schemas: { "a1000000-0000-4000-8000-000000000000": plainSchema() },
             profile: {
                 ...placeholderProfile(),
-                verify: [{ name: "owned", command: "node --test <ownedTests>", ownedTestsPattern: "\.test\.mjs$", seats: ["implementer"] }],
+                verify: [{ name: "owned", command: "node --test <ownedTests>", ownedTestsPattern: "\\.test\\.mjs$", seats: ["implementer"] }],
             },
         });
         const result = buildPlanDoc(snap, { now: NOW, mode, scratchpad: "/scratch/run" });
         assert.equal(result.ok, true, JSON.stringify(result.errors));
         const v = result.doc.args.project.verify.find((e) => e.name === "owned");
         assert.equal(v.command, "node --test <ownedTests>", `${mode}: <ownedTests> must stay literal`);
-        assert.equal(v.ownedTestsPattern, "\.test\.mjs$");
+        assert.equal(v.ownedTestsPattern, "\\.test\\.mjs$");
     }
 });

@@ -450,7 +450,7 @@ test('O7d: an unconditional agent throw settles the milestone — runPlan resolv
 const OWNED_ENTRY = {
   name: 'plugin-node-owned-tests',
   command: 'node --test <ownedTests>',
-  ownedTestsPattern: '\.test\.mjs$',
+  ownedTestsPattern: '\\.test\\.mjs$',
   seats: ['implementer', 'test-author'],
 }
 
@@ -503,6 +503,19 @@ test('ownedTests: empty owned set (or no planner output) renders SKIP and no nod
     assert.ok(block.includes('SKIP plugin-node-owned-tests: no owned test files'), block)
     assert.ok(!block.includes('node --test'), block)
   }
+})
+
+test('ownedTests: an invalid ownedTestsPattern renders SKIP naming the pattern, never an unfiltered command', () => {
+  const prompt = ownedPrompt({
+    stageList: stages.featureTaskLike(),
+    seat: 'implementer',
+    planner: { testFiles: ['scripts/tests/a.test.mjs', 'src/B.kt'], existingTestEdits: [] },
+    verify: [{ ...OWNED_ENTRY, ownedTestsPattern: '(' }],
+  })
+  const block = verifyBlock(prompt)
+  assert.ok(block.includes('SKIP plugin-node-owned-tests: invalid ownedTestsPattern "("'), block)
+  assert.ok(!block.includes('node --test'), block)
+  assert.ok(!block.includes('B.kt'), block)
 })
 
 test('ownedTests: implementer WITH a test-author stage owns only existingTestEdits; test-author owns both', () => {

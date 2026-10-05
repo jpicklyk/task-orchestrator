@@ -809,7 +809,9 @@ function promptVerify(plan, item, stage, outsByOutput) {
       try {
         re = new RegExp(v.ownedTestsPattern)
       } catch (e) {
-        re = null
+        // Never drop the filter: an unfiltered owned set can hand the wrong files (e.g. .kt) to the runner.
+        lines.push('SKIP ' + (v.name || 'verify') + ': invalid ownedTestsPattern ' + JSON.stringify(v.ownedTestsPattern))
+        continue
       }
     }
     const seen = new Set()
