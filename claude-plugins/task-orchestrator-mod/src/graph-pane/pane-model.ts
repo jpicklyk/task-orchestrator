@@ -182,7 +182,7 @@ const idsOf = (v: unknown): string[] => (Array.isArray(v) ? v.filter(isObj).flat
  * wins, else the newest transition's item if the root is among its ancestors (transitions are not
  * scoped by the server). The owning scope is the nearest feature-implementation walking up from that
  * item; a container or project stops the walk and the last non-container seen is returned (a bug
- * under a Bugs container is its own scope). Returns null when nothing usable was found; a read that
+ * under a Bugs container is its own scope); a container or the root as the moved item itself yields null. Returns null when nothing usable was found; a read that
  * throws propagates, so the caller falls back to the legacy rule on either.
  */
 export async function activeScope(call: ToolCall, rootId: string, now: number): Promise<string | null> {
@@ -212,7 +212,7 @@ export async function activeScope(call: ToolCall, rootId: string, now: number): 
   }
   // Nearest-first chain: the item itself, then its ancestors up to (not past) the root.
   const chain = [start, ...[...ancestors].reverse()]
-  let last = start
+  let last: string | null = null
   for (const id of chain) {
     if (id === rootId) return last
     const node = await call('query_items', { operation: 'get', itemId: id })
