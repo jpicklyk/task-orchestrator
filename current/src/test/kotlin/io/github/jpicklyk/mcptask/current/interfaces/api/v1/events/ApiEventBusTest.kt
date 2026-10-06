@@ -1,5 +1,8 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
+import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
+import io.github.jpicklyk.mcptask.current.domain.model.ActorKind
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ActorClaimDto
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.take
@@ -7,6 +10,7 @@ import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.json.Json
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -414,4 +418,96 @@ class ApiEventBusTest {
         bus.unsubscribe("non-existent")
         // should not throw
     }
+
+    // -------------------------------------------------------------------------
+    // Additive actor / rootId fields (item f0e193b7)
+    // Oracle: task-scope "What to build" -- buildEvent gains actor/rootId (defaults null); the
+    // ring buffer stores the BUILT event so replay carries what live carried; the sync.lost
+    // sentinel is unchanged; proof never reaches the event.
+    // -------------------------------------------------------------------------
+
+    @Test
+    fun `buildEvent maps actor to a dto with lowercase kind and carries rootId as a string`() {
+        val bus = ApiEventBus()
+        val rootId = UUID.randomUUID()
+        val claim = ActorClaim(id = "agent-a", kind = ActorKind.SUBAGENT, parent = "orch-1", proof = "SECRET")
+
+        val event = bus.buildEvent(ApiEventType.ITEM_UPDATED, itemId = UUID.randomUUID(), actor = claim, rootId = rootId)
+
+        assertEquals(ActorClaimDto(id = "agent-a", kind = "subagent", parent = "orch-1"), event.actor)
+        assertEquals(rootId.toString(), event.rootId)
+    }
+
+    @Test
+    fun `buildEvent without actor or rootId leaves both null`() {
+        val event = ApiEventBus().buildEvent(ApiEventType.ITEM_UPDATED, itemId = UUID.randomUUID())
+
+        assertNull(event.actor)
+        assertNull(event.rootId)
+    }
+
+    @Test
+    fun `an ApiEvent with null actor and rootId serializes without those keys and never emits proof`() {
+        val bus = ApiEventBus()
+        val json = Json { explicitNulls = false }
+        val bare = json.encodeToString(ApiEvent.serializer(), bus.buildEvent(ApiEventType.ITEM_UPDATED, itemId = UUID.randomUUID()))
+        assertTrue(!bare.contains("actor") && !bare.contains("rootId"), "null fields must be absent, got: $bare")
+
+        val claim = ActorClaim(id = "agent-a", kind = ActorKind.SUBAGENT, proof = "SECRET")
+        val full =
+            json.encodeToString(
+                ApiEvent.serializer(),
+                bus.buildEvent(ApiEventType.ITEM_UPDATED, itemId = UUID.randomUUID(), actor = claim, rootId = UUID.randomUUID()),
+            )
+        assertTrue(full.contains("\"actor\"") && full.contains("\"rootId\""), "present fields must be emitted, got: $full")
+        assertTrue(!full.contains("proof") && !full.contains("SECRET") && !full.contains("verification"), "proof leaked: $full")
+    }
+
+    @Test
+    fun `the ring buffer keeps actor and rootId and replay delivers them to an unrestricted subscriber`(): Unit =
+        runBlocking {
+            val bus = ApiEventBus()
+            val rootId = UUID.randomUUID()
+            val claim = ActorClaim(id = "agent-a", kind = ActorKind.EXTERNAL, parent = "orch-1")
+            val published = bus.buildEvent(ApiEventType.ITEM_UPDATED, itemId = UUID.randomUUID(), actor = claim, rootId = rootId)
+            bus.publish(published, setOf(rootId))
+
+            val snapshot = bus.ringBufferSnapshot()
+            assertEquals(1, snapshot.size)
+            assertEquals(ActorClaimDto(id = "agent-a", kind = "external", parent = "orch-1"), snapshot[0].actor)
+            assertEquals(rootId.toString(), snapshot[0].rootId)
+
+            val flow = bus.subscribe("sub-actor-replay", emptySet(), lastEventId = 0L)
+            val replayed = withTimeout(3.seconds) { flow.take(1).toList() }
+            assertEquals(published.id, replayed[0].id)
+            assertEquals(snapshot[0].actor, replayed[0].actor)
+            assertEquals(rootId.toString(), replayed[0].rootId)
+            bus.unsubscribe("sub-actor-replay")
+        }
+
+    @Test
+    fun `the replay-gap sync_lost sentinel carries neither actor nor rootId even when evicted events had both`(): Unit =
+        runBlocking {
+            val bus = ApiEventBus(bufferSize = 3)
+            val rootId = UUID.randomUUID()
+            val claim = ActorClaim(id = "agent-a", kind = ActorKind.SUBAGENT)
+            val published =
+                (1..5).map {
+                    bus.buildEvent(ApiEventType.ITEM_UPDATED, itemId = UUID.randomUUID(), actor = claim, rootId = rootId).also { e ->
+                        bus.publish(e, setOf(rootId))
+                    }
+                }
+
+            val flow = bus.subscribe("sub-gap", emptySet(), lastEventId = published[0].id)
+            val replayed = withTimeout(3.seconds) { flow.take(4).toList() }
+
+            assertEquals(ApiEventType.SYNC_LOST, replayed[0].event, "fixture: the first frame is the sentinel, got: $replayed")
+            assertNull(replayed[0].actor)
+            assertNull(replayed[0].rootId)
+            assertTrue(
+                replayed.drop(1).all { it.actor != null && it.rootId == rootId.toString() },
+                "retained events keep both, got: $replayed"
+            )
+            bus.unsubscribe("sub-gap")
+        }
 }
