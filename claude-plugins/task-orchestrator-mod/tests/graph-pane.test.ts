@@ -14,7 +14,7 @@ import { cellSize } from '../src/graph-pane/cell.ts'
 import { layoutTD } from '../src/graph-pane/layout.ts'
 import { cardsOf, criticalPath, isOpen, num, stepsOf } from '../src/graph-pane/model.ts'
 import type { Card } from '../src/graph-pane/model.ts'
-import { SCOPE_LOOKBACK_MS, activeScope, detailLines, duration, formatDetail, isDegraded, isSwitching, loadingTitle, parseScopeArg, scopeHeader, summaryLine } from '../src/graph-pane/pane-model.ts'
+import { SCOPE_CANDIDATE_LIMIT, SCOPE_LOOKBACK_MS, activeScope, detailLines, duration, firstSpawnUuid, formatDetail, isDegraded, isSwitching, loadingTitle, owningScope, parseScopeArg, scopeHeader, summaryLine } from '../src/graph-pane/pane-model.ts'
 import { raster, runs } from '../src/graph-pane/raster.ts'
 import { routes } from '../src/graph-pane/route.ts'
 import { phaseText, rollupLine } from '../src/graph-pane/shared.ts'
@@ -2206,4 +2206,462 @@ test('S9 (int): with no project rootId the command makes no scope-resolution MCP
   const { calls } = scopeRig(on, REPRO, { config: false })
   await runToGraph($)
   expect(calls.filter(c => c.tool === 'get_context' || (c.tool === 'query_items' && c.args.operation !== 'overview'))).toEqual([])
+})
+
+// -- 8f1064d7: auto vs pinned scope; the auto scope follows this session's own TO activity --
+// Oracle: the item's summary clauses (Q1-Q4, container sentence QC) and task-scope sections (TS-n) as frozen in
+// test-plan S1-S17, never the code. Reuses the 1262993f world (WITEMS/worldReply/fakeCall/scopeRig fixtures).
+
+// Real UUID-shaped (hex) ids for the paths that parse ids from text or prefixes.
+const HF = 'abcdef01-0000-4000-8000-0000000000f1'
+const HT = 'abcdef02-0000-4000-8000-0000000000f2'
+const HA = 'abcdef03-0000-4000-8000-0000000000f3'
+const HITEMS: WItem[] = [
+  ...WITEMS,
+  { id: HF, parentId: WFEATURES, title: 'Hex feature', type: 'feature-implementation', role: 'work' },
+  { id: HT, parentId: HF, title: 'Hex task', type: 'feature-task', role: 'work' },
+  { id: HA, parentId: WFEATURES, title: 'Hex stale feature', type: 'feature-implementation', role: 'work' },
+]
+const FW = (over: WWorld = {}): WWorld => ({ items: HITEMS, ...over })
+
+/** worldReply that also accepts a unique id prefix on `query_items get` (the tool accepts one), answering with the full id. */
+const prefixReply = (w: WWorld, tool: string, args: Record<string, unknown>): unknown => {
+  if (tool === 'query_items' && args.operation === 'get') {
+    const id = String(args.itemId)
+    const hit = (w.items ?? WITEMS).filter(i => i.id.startsWith(id))
+    if (hit.length === 1 && hit[0] !== undefined) return worldReply(w, tool, { ...args, itemId: hit[0].id })
+  }
+
+  return worldReply(w, tool, args)
+}
+const pfxCall = (w: WWorld) => {
+  const calls: WCall[] = []
+  const call = async (tool: string, args: Record<string, unknown>): Promise<unknown> => {
+    calls.push({ tool, args })
+    const r = prefixReply(w, tool, args)
+    if (r === 'FAIL') throw new Error(`${tool} failed`)
+
+    return r
+  }
+
+  return { call, calls }
+}
+
+/** scopeRig with a prefix-aware TO server, a passthrough tool.call and an agent.spawn answer. */
+function followRig(on: On, w: WWorld, seed: Record<string, unknown>) {
+  const r = rig(on, seed)
+  const calls: WCall[] = []
+  on('fs.read', async (_$, e) => {
+    const path = String((e as { path: string }).path).split(String.fromCharCode(92)).join('/')
+    if (path.endsWith('.taskorchestrator/config.yaml')) return { value: WCONFIG } as never
+    throw new Error(`ENOENT ${path}`)
+  })
+  mock.env(on, {})
+  mock.clock(on, { now: WNOW })
+  on('mcp.call', async (_$, e) => {
+    calls.push({ tool: e.tool, args: e.args })
+    const out = prefixReply(w, e.tool, e.args)
+
+    return { value: out === 'FAIL' ? failed(`${e.tool} boom`) : reply(out) } as never
+  })
+  on('session.start', async (_$, e) => ({ cwd: e.cwd }) as never)
+  on('ui.open', async () => ({ value: { isPlaced: true } }) as never)
+  on('ui.close', async () => ({ value: undefined }) as never)
+  on('ui.status', async () => ({ value: undefined }) as never)
+  on('ui.toast', async () => ({ value: undefined }) as never)
+  on('command.register', async () => ({ value: undefined }) as never)
+  on('tool.call', async () => ok as never)
+  on('agent.spawn', async () => ({ model: 'claude-opus-5-5', agentId: 'sub-8f' }) as never)
+
+  return { r, calls }
+}
+
+const FSNAP: GraphSnapshot = { ...asSnapshot(gview([mk(WA, 'work', 'T1', 'Stale feature A')])), rootId: WR, scopeId: WA }
+const followSeed = (over: Record<string, unknown> = {}) => ({ graphSnapshot: FSNAP, graphScope: WA, graphPaneOpen: true, graphScopeMode: 'auto', ...over })
+const startFollow = ($: WEngine) => $.session.start({ cwd: '/work/project', surface: 'terminal', isInteractive: true } as never)
+const runToGraphArgs = async ($: WEngine, args: string) => {
+  await startFollow($)
+  await $.command.run({ command: 'to-graph', args } as never)
+}
+const touch = ($: WEngine, ...ids: string[]) =>
+  $.tool.call({ tool: `${TO}advance_item`, transitions: ids.map(itemId => ({ itemId, trigger: 'start', actor: { id: 'implementer:x:r-1', kind: 'subagent' } })) } as never)
+const spawn = ($: WEngine, description: string, prompt: string) => $.agent.spawn({ subagentType: 'task-orchestrator:implementer', description, prompt } as never)
+const getsOf = (calls: WCall[], id: string) => calls.filter(c => c.tool === 'query_items' && c.args.operation === 'get' && c.args.itemId === id)
+const anyGets = (calls: WCall[]) => calls.filter(c => c.tool === 'query_items' && c.args.operation === 'get')
+
+// -- happy --
+
+test('S1 (8f1064d7): auto mode, a touch outside the snapshot moves the scope to its owning feature', async ($, on) => {
+  const { r } = followRig(on, FW(), followSeed())
+  await startFollow($)
+  const res = await touch($, WT)
+  expect(res).toMatchObject({ result: { ok: true }, text: 'ok' })
+  expect(scopeSets(r)).toEqual([WF])
+  expect(r.valueOf('graphScope')).toBe(WF)
+})
+
+test('S1 (8f1064d7): bare /to-graph is auto: it unpins, then the next out-of-snapshot touch follows', async ($, on) => {
+  const { r } = followRig(on, FW({ active: [WA], transitions: [WA] }), followSeed({ graphScopeMode: 'pinned' }))
+  await runToGraph($)
+  expect(r.valueOf('graphScopeMode')).toBe('auto')
+  expect(r.valueOf('graphScope')).toBe(WA)
+  r.state.set(SLOT('graphSnapshot'), { value: FSNAP, version: 50 })
+  r.state.set(SLOT('graphPaneOpen'), { value: true, version: 50 })
+  await touch($, WT)
+  expect(r.valueOf('graphScope')).toBe(WF)
+})
+
+test('S2 (8f1064d7): an 8-hex id prefix touch resolves to the full owning-feature uuid', async ($, on) => {
+  const { r, calls } = followRig(on, FW(), followSeed())
+  await startFollow($)
+  await touch($, HT.slice(0, 8))
+  expect(r.valueOf('graphScope')).toBe(HF)
+  expect(getsOf(calls, HT.slice(0, 8))[0]?.args).toEqual({ operation: 'get', itemId: HT.slice(0, 8), includeAncestors: true })
+})
+
+test('S3 (8f1064d7): a bug under the Bugs container scopes to the bug itself', async ($, on) => {
+  const { r } = followRig(on, FW(), followSeed())
+  await startFollow($)
+  await touch($, WB)
+  expect(r.valueOf('graphScope')).toBe(WB)
+})
+
+test('S4 (8f1064d7): agent.spawn naming the root then a task moves to the task feature; the spawn result is untouched', async ($, on) => {
+  const { r } = followRig(on, FW(), followSeed())
+  await startFollow($)
+  const res = await spawn($, 'implement', `Project ${WR} then work on ${HT} please`)
+  expect(res).toMatchObject({ model: 'claude-opus-5-5', agentId: 'sub-8f' })
+  expect(r.valueOf('graphScope')).toBe(HF)
+  expect(scopeSets(r)).toEqual([HF])
+})
+
+test('S4 (8f1064d7): a uuid in the description wins over one in the prompt', async ($, on) => {
+  const { r } = followRig(on, FW(), followSeed())
+  await startFollow($)
+  await spawn($, `item ${HT}`, `other ${WB}`)
+  expect(r.valueOf('graphScope')).toBe(HF)
+})
+
+test('S5 (8f1064d7): pinned shows Follow; pressing it returns to auto with the bare-command scope, and later touches follow again', async ($, on) => {
+  const { r } = followRig(on, FW({ active: [WT], transitions: [WT] }), followSeed({ graphScopeMode: 'pinned' }))
+  await startFollow($)
+  const ui = await mountAt($, 'terminal')
+  expect(await ui.find({ key: 'scope-follow' })).toBeDefined()
+  await ui.press({ key: 'scope-follow' })
+  expect(r.valueOf('graphScopeMode')).toBe('auto')
+  expect(r.valueOf('graphScope')).toBe(WF)
+  r.state.set(SLOT('graphSnapshot'), { value: FSNAP, version: 60 })
+  await touch($, WB)
+  expect(r.valueOf('graphScope')).toBe(WB)
+  await ui.unmount()
+})
+
+test('S5 (8f1064d7): auto mode shows no Follow control', async ($, on) => {
+  followRig(on, FW(), followSeed())
+  await startFollow($)
+  const ui = await mountAt($, 'terminal')
+  expect(await ui.find({ key: 'scope-follow' })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('S5 (8f1064d7): Follow with no recent transitions falls back to the legacy newest-work feature, like the bare command', async ($, on) => {
+  const { r } = followRig(on, FW({ active: [], transitions: [] }), followSeed({ graphScopeMode: 'pinned', graphScope: WF }))
+  await startFollow($)
+  const ui = await mountAt($, 'terminal')
+  await ui.press({ key: 'scope-follow' })
+  expect(r.valueOf('graphScopeMode')).toBe('auto')
+  expect(r.valueOf('graphScope')).toBe(WA)
+  await ui.unmount()
+})
+
+// -- activeScope: containers and the root are skipped when choosing the moved item --
+
+const KIDS = Array.from({ length: 12 }, (_, i): WItem => ({ id: `wkont${String(i).padStart(3, '0')}-0000-4000-8000-000000000000`, parentId: WR, title: `Container ${i}`, type: 'container', role: 'work' }))
+const KONTS = KIDS.map(k => k.id)
+const KW = (over: WWorld): WWorld => ({ items: [...HITEMS, ...KIDS], ...over })
+
+test('S6 (8f1064d7): a container ahead of the task in the active transitions is skipped', async () => {
+  expect(await scopeOf({ active: [WBUGS, WT], transitions: [WBUGS, WT] })).toBe(WF)
+})
+
+test('S7 (8f1064d7): the project root ahead of the task is skipped', async () => {
+  expect(await scopeOf({ active: [WR, WT], transitions: [WR, WT] })).toBe(WF)
+})
+
+test('S8 (8f1064d7): nothing active: the newest non-container transition is used for the fallback', async () => {
+  expect(await scopeOf({ active: [], transitions: [WBUGS, WT] })).toBe(WF)
+  expect(await scopeOf({ active: [], transitions: [WR, WBUGS, WFEATURES, WB] })).toBe(WB)
+})
+
+test('S8 (8f1064d7): a container-only history is still null', async () => {
+  expect(await scopeOf({ active: [WBUGS], transitions: [WBUGS, WR] })).toBeNull()
+  expect(await scopeOf({ active: [], transitions: [WBUGS, WR] })).toBeNull()
+})
+
+test('S8 (8f1064d7): at most SCOPE_CANDIDATE_LIMIT distinct ids are examined; repeats of one id count once', async () => {
+  expect(SCOPE_CANDIDATE_LIMIT).toBe(10)
+  const nine = KONTS.slice(0, 9)
+  const ten = KONTS.slice(0, 10)
+  // Nine containers then the task: the task is the 10th distinct id, still examined.
+  expect(await activeScope(pfxCall(KW({ active: [...nine, HT], transitions: [...nine, HT] })).call, WR, WNOW)).toBe(HF)
+  expect(await activeScope(pfxCall(KW({ active: [], transitions: [...nine, HT] })).call, WR, WNOW)).toBe(HF)
+  // Ten containers then the task: the task is the 11th, never examined.
+  expect(await activeScope(pfxCall(KW({ active: [...ten, HT], transitions: [...ten, HT] })).call, WR, WNOW)).toBeNull()
+  expect(await activeScope(pfxCall(KW({ active: [], transitions: [...ten, HT] })).call, WR, WNOW)).toBeNull()
+  // Twenty rows naming one container count as one distinct id.
+  const dup = Array.from({ length: 20 }, () => WBUGS)
+  expect(await activeScope(pfxCall(KW({ active: [WBUGS, HT], transitions: [...dup, HT] })).call, WR, WNOW)).toBe(HF)
+})
+
+test('S15 (8f1064d7): the container fix keeps the read bound (root > Features > F > T: at most 3 query_items) and read tools only', async () => {
+  const { call, calls } = fakeCall({ active: [WBUGS, WT], transitions: [WBUGS, WT] })
+  expect(await activeScope(call, WR, WNOW)).toBe(WF)
+  expect(calls.filter(c => c.tool === 'get_context')).toHaveLength(1)
+  for (const c of calls) expect(READ_TOOLS).toContain(c.tool)
+  const single = fakeCall({ active: [WT], transitions: [WT] })
+  expect(await activeScope(single.call, WR, WNOW)).toBe(WF)
+  expect(single.calls.filter(c => c.tool === 'query_items').length).toBeLessThanOrEqual(3)
+})
+
+// -- pinned never moves --
+
+const PINS: [string, (ui: Awaited<ReturnType<typeof mountAt>>) => Promise<void>, Record<string, unknown>, string | null][] = [
+  ['This feature', async ui => ui.press({ key: 'scope-feature' }), {}, WF],
+  ['Whole project', async ui => ui.press({ key: 'scope-project' }), {}, null],
+  ['node click', async ui => ui.press({ key: `open:${WA}` }), { graphScope: ROOT_ID, graphSnapshot: { ...FSNAP, scopeId: ROOT_ID } }, ROOT_ID],
+  ['Open graph', async ui => ui.press({ key: 'detail-open-graph' }), { graphScope: ROOT_ID, graphSnapshot: { ...FSNAP, scopeId: ROOT_ID }, graphDetail: { itemId: WA, lines: ['x'] } }, WA],
+  ['breadcrumb', async ui => ui.press({ key: `crumb:${WFEATURES}` }), { graphSnapshot: { ...FSNAP, trail: [{ id: WR, title: 'Project' }, { id: WFEATURES, title: 'Features' }, { id: WA, title: 'Stale feature A' }] } }, WFEATURES],
+]
+for (const [name, act, seed, expected] of PINS) {
+  test(`S9 (8f1064d7): after ${name} the scope is pinned and a later out-of-snapshot touch does not move it`, async ($, on) => {
+    const { r } = followRig(on, FW({ active: [WT], transitions: [WT] }), followSeed(seed))
+    await startFollow($)
+    const ui = await mountAt($, 'terminal')
+    await act(ui)
+    expect(r.valueOf('graphScopeMode')).toBe('pinned')
+    expect(r.valueOf('graphScope')).toBe(expected)
+    const writes = scopeSets(r).length
+    await touch($, WB)
+    expect(scopeSets(r)).toHaveLength(writes)
+    expect(r.valueOf('graphScope')).toBe(expected)
+    await ui.unmount()
+  })
+}
+
+test('S9 (8f1064d7): /to-graph <id> pins and a later out-of-snapshot touch does not move it', async ($, on) => {
+  const { r } = followRig(on, FW(), followSeed())
+  await runToGraphArgs($, HA)
+  expect(r.valueOf('graphScopeMode')).toBe('pinned')
+  expect(r.valueOf('graphScope')).toBe(HA)
+  r.state.set(SLOT('graphSnapshot'), { value: FSNAP, version: 70 })
+  r.state.set(SLOT('graphPaneOpen'), { value: true, version: 70 })
+  await touch($, WB)
+  expect(r.valueOf('graphScope')).toBe(HA)
+})
+
+test('S9 (8f1064d7): the control for /to-graph <id>: a bare /to-graph then the same touch does move to the bug', async ($, on) => {
+  const { r } = followRig(on, FW({ active: [HA], transitions: [HA] }), followSeed())
+  await runToGraph($)
+  expect(r.valueOf('graphScopeMode')).toBe('auto')
+  r.state.set(SLOT('graphSnapshot'), { value: FSNAP, version: 70 })
+  r.state.set(SLOT('graphPaneOpen'), { value: true, version: 70 })
+  await touch($, WB)
+  expect(r.valueOf('graphScope')).toBe(WB)
+})
+
+test('S9 (8f1064d7): /to-graph root pins the whole project (null) and a touch does not move it', async ($, on) => {
+  const { r } = followRig(on, FW(), followSeed())
+  await runToGraphArgs($, 'root')
+  expect(r.valueOf('graphScopeMode')).toBe('pinned')
+  expect(r.valueOf('graphScope')).toBeNull()
+  r.state.set(SLOT('graphSnapshot'), { value: FSNAP, version: 70 })
+  r.state.set(SLOT('graphPaneOpen'), { value: true, version: 70 })
+  await touch($, WB)
+  expect(r.valueOf('graphScope')).toBeNull()
+})
+
+// -- guards: nothing moves, nothing throws --
+
+test('S10 (8f1064d7): a touch of an id already in the snapshot neither moves the scope nor reads it', async ($, on) => {
+  const { r, calls } = followRig(on, FW(), followSeed({ graphScope: WF }))
+  await startFollow($)
+  const res = await touch($, WA)
+  expect(res).toMatchObject({ result: { ok: true }, text: 'ok' })
+  expect(scopeSets(r)).toEqual([])
+  expect(r.valueOf('graphScope')).toBe(WF)
+  expect(getsOf(calls, WA)).toEqual([])
+})
+
+const NO_MOVE: [string, string, WWorld][] = [
+  ['a container', WBUGS, {}],
+  ['the project root', WR, {}],
+  ['an item of another project', WZ, {}],
+  ['an item whose read fails', WT, { failGetOf: WT }],
+]
+for (const [name, id, extra] of NO_MOVE) {
+  test(`S11 (8f1064d7): touching ${name} leaves the scope alone and the tool result untouched`, async ($, on) => {
+    const { r, calls } = followRig(on, FW(extra), followSeed())
+    await startFollow($)
+    const res = await touch($, id)
+    expect(res).toMatchObject({ result: { ok: true }, text: 'ok' })
+    // The path was reached (the id was looked up), and nothing was written.
+    expect(getsOf(calls, id).length).toBeGreaterThanOrEqual(1)
+    expect(scopeSets(r)).toEqual([])
+    expect(r.valueOf('graphScope')).toBe(WA)
+  })
+}
+
+test('S11 (8f1064d7): a failing read during a spawn follow leaves the scope alone and the spawn result untouched', async ($, on) => {
+  const { r, calls } = followRig(on, FW({ failGetOf: HT }), followSeed())
+  await startFollow($)
+  const res = await spawn($, 'x', `work on ${HT}`)
+  expect(res).toMatchObject({ model: 'claude-opus-5-5', agentId: 'sub-8f' })
+  expect(getsOf(calls, HT).length).toBeGreaterThanOrEqual(1)
+  expect(scopeSets(r)).toEqual([])
+})
+
+for (const [name, seed] of [['closed', { graphPaneOpen: false }], ['never opened', { graphPaneOpen: undefined }]] as const) {
+  test(`S12 (8f1064d7): with the pane ${name} a touch moves nothing and reads nothing`, async ($, on) => {
+    const { r, calls } = followRig(on, FW(), followSeed(seed))
+    await startFollow($)
+    await touch($, WT)
+    expect(scopeSets(r)).toEqual([])
+    expect(r.valueOf('graphScope')).toBe(WA)
+    expect(anyGets(calls)).toEqual([])
+  })
+}
+
+test('S12 (8f1064d7): with no snapshot yet a touch moves nothing', async ($, on) => {
+  const { r } = followRig(on, FW(), followSeed({ graphSnapshot: null }))
+  await startFollow($)
+  await touch($, WT)
+  expect(scopeSets(r)).toEqual([])
+})
+
+// -- edges --
+
+test('S13 (8f1064d7): the same out-of-snapshot touch twice reads that id at most once; reads are read tools', async ($, on) => {
+  const { r, calls } = followRig(on, FW(), followSeed())
+  await startFollow($)
+  await touch($, WT)
+  await touch($, WT)
+  expect(getsOf(calls, WT)).toHaveLength(1)
+  expect(scopeSets(r)).toEqual([WF])
+  for (const c of calls) expect(READ_TOOLS).toContain(c.tool)
+})
+
+test('S13 (8f1064d7): a touch whose owning scope already is the scope writes nothing', async ($, on) => {
+  const { r } = followRig(on, FW(), followSeed({ graphScope: WF }))
+  await startFollow($)
+  await touch($, WT)
+  expect(scopeSets(r)).toEqual([])
+})
+
+test('S14 (8f1064d7): one call naming two out-of-snapshot items makes one move, to the first by call order', async ($, on) => {
+  const { r } = followRig(on, FW(), followSeed())
+  await startFollow($)
+  await touch($, WT, WB)
+  expect(scopeSets(r)).toEqual([WF])
+})
+
+test('S14 (8f1064d7): the same item named twice in one call is one move and one read', async ($, on) => {
+  const { r, calls } = followRig(on, FW(), followSeed())
+  await startFollow($)
+  await touch($, WT, WT)
+  expect(scopeSets(r)).toEqual([WF])
+  expect(getsOf(calls, WT)).toHaveLength(1)
+})
+
+const bandProps = { hasSurvey: false, isWorking: false, maxRows: 6, bodyColumns: 100, scroll: { offset: 0, bodyRows: 6 }, view: {} } as never
+
+test('S17 (8f1064d7): the band opening the pane after a pin and close returns to auto without moving the scope', async ($, on) => {
+  const { r } = followRig(on, FW(), followSeed({ graphSnapshot: { ...f1(), rootId: WR }, graphPaneOpen: false, graphScopeMode: 'pinned' }))
+  await startFollow($)
+  const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'AbovePrompt', props: bandProps })
+  await ui.press({ key: 'band-open' })
+  expect(r.valueOf('graphScopeMode')).toBe('auto')
+  expect(scopeSets(r)).toEqual([])
+  r.state.set(SLOT('graphSnapshot'), { value: { ...f1(), rootId: WR }, version: 80 })
+  r.state.set(SLOT('graphPaneOpen'), { value: true, version: 80 })
+  await touch($, WT)
+  expect(r.valueOf('graphScope')).toBe(WF)
+  await ui.unmount()
+})
+
+test('S17 (8f1064d7): the band pressed while the pane is already open does not unpin', async ($, on) => {
+  const { r } = followRig(on, FW(), followSeed({ graphSnapshot: { ...f1(), rootId: WR }, graphPaneOpen: true, graphScopeMode: 'pinned' }))
+  await startFollow($)
+  const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'AbovePrompt', props: bandProps })
+  await ui.press({ key: 'band-open' })
+  expect(r.valueOf('graphScopeMode')).toBe('pinned')
+  expect(scopeSets(r)).toEqual([])
+  await ui.unmount()
+})
+
+// -- probes --
+
+test('probe (8f1064d7): an empty itemId reads nothing; a missing actor still follows; an uppercase uuid passes through', async ($, on) => {
+  const { r, calls } = followRig(on, FW(), followSeed())
+  await startFollow($)
+  const empty = await $.tool.call({ tool: `${TO}advance_item`, transitions: [{ itemId: '', trigger: 'start' }] } as never)
+  expect(empty).toMatchObject({ result: { ok: true } })
+  expect(anyGets(calls)).toEqual([])
+  expect(scopeSets(r)).toEqual([])
+  await $.tool.call({ tool: `${TO}advance_item`, itemId: WT, trigger: 'start' } as never)
+  expect(r.valueOf('graphScope')).toBe(WF)
+  // Uppercase uuid: the result passes through untouched (no oracle for case handling beyond that).
+  const up = await $.tool.call({ tool: `${TO}advance_item`, itemId: HT.toUpperCase(), trigger: 'start' } as never)
+  expect(up).toMatchObject({ result: { ok: true }, text: 'ok' })
+})
+
+test('probe (8f1064d7): a spawn with no uuid, or naming only the root, reads nothing and moves nothing', async ($, on) => {
+  const { r, calls } = followRig(on, FW(), followSeed())
+  await startFollow($)
+  const a = await spawn($, 'plain words', 'no ids here')
+  expect(a).toMatchObject({ agentId: 'sub-8f' })
+  const b = await spawn($, 'root only', `project ${WR}`)
+  expect(b).toMatchObject({ agentId: 'sub-8f' })
+  expect(anyGets(calls)).toEqual([])
+  expect(scopeSets(r)).toEqual([])
+})
+
+// -- pure units: owningScope and firstSpawnUuid --
+
+test('S16 (8f1064d7): owningScope resolves the nearest feature, the item itself under a container, and null for root/container/other project', async () => {
+  const own = (id: string) => owningScope(pfxCall(FW()).call, id, WR)
+  expect(await own(WT)).toBe(WF)
+  expect(await own(WT2)).toBe(WF)
+  expect(await own(WT3)).toBe(WF2)
+  expect(await own(WB)).toBe(WB)
+  expect(await own(WD)).toBe(WD)
+  expect(await own(WBUGS)).toBeNull()
+  expect(await own(WFEATURES)).toBeNull()
+  expect(await own(WR)).toBeNull()
+  expect(await own(WZ)).toBeNull()
+})
+
+test('S16 (8f1064d7): owningScope reads once with the exact shape and returns the full id for a prefix', async () => {
+  const { call, calls } = pfxCall(FW())
+  expect(await owningScope(call, HT.slice(0, 8), WR)).toBe(HF)
+  expect(calls[0]).toEqual({ tool: 'query_items', args: { operation: 'get', itemId: HT.slice(0, 8), includeAncestors: true } })
+  for (const c of calls) expect(READ_TOOLS).toContain(c.tool)
+  // Root > Features > F > T: one get for the item, at most one per ancestor below the root.
+  expect(calls.length).toBeLessThanOrEqual(3)
+})
+
+test('S16 (8f1064d7): owningScope is null for a reply without an id', async () => {
+  const call = async (): Promise<unknown> => ({ items: [] })
+  expect(await owningScope(call, HT, WR)).toBeNull()
+})
+
+test('S4 (8f1064d7): firstSpawnUuid prefers the description, then the prompt, skips the root, and ignores non-strings', () => {
+  expect(firstSpawnUuid(`item ${HT}`, `other ${HA}`, WR)).toBe(HT)
+  expect(firstSpawnUuid('nothing', `root ${WR} then ${HT}`, WR)).toBe(HT)
+  expect(firstSpawnUuid(undefined, `${HT}: do the thing`, WR)).toBe(HT)
+  expect(firstSpawnUuid('nothing', `only the root ${WR}`, WR)).toBeNull()
+  expect(firstSpawnUuid('no ids', 'no ids', WR)).toBeNull()
+  expect(firstSpawnUuid(42, null, WR)).toBeNull()
+  expect(firstSpawnUuid(undefined, undefined, WR)).toBeNull()
+  // An 8-hex prefix is not a full uuid.
+  expect(firstSpawnUuid('', `item ${HT.slice(0, 8)}`, WR)).toBeNull()
 })

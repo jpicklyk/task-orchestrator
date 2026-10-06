@@ -176,14 +176,73 @@ const SCOPE_TRANSITION_LIMIT = 200
 
 const idsOf = (v: unknown): string[] => (Array.isArray(v) ? v.filter(isObj).flatMap(a => (typeof a.id === 'string' ? [a.id] : [])) : [])
 
+/** Most distinct transition candidates activeScope examines before giving up. */
+export const SCOPE_CANDIDATE_LIMIT = 10
+
+type ReadItem = (id: string) => Promise<unknown>
+const typeOf = (n: unknown): string | undefined => (isObj(n) && typeof n.type === 'string' ? n.type : undefined)
+const isContainerType = (t: string | undefined): boolean => t === 'container' || t === 'project'
+
+/** One `query_items get` per id per call (memoized), with ancestors so a candidate's root membership is known. */
+function itemReader(call: ToolCall): ReadItem {
+  const memo = new Map<string, Promise<unknown>>()
+
+  return id => {
+    let hit = memo.get(id)
+    if (hit === undefined) {
+      hit = call('query_items', { operation: 'get', itemId: id, includeAncestors: true })
+      memo.set(id, hit)
+    }
+
+    return hit
+  }
+}
+
+/**
+ * The owning scope along a nearest-first chain (the item, then its ancestors up to the root): the nearest
+ * feature-implementation; a container or project stops the walk and the last non-container seen is
+ * returned (a bug under a Bugs container is its own scope).
+ */
+async function walkScope(read: ReadItem, chain: readonly string[], rootId: string): Promise<string | null> {
+  let last: string | null = null
+  for (const id of chain) {
+    if (id === rootId) return last
+    const type = typeOf(await read(id))
+    if (type === 'feature-implementation') return id
+    if (isContainerType(type)) return last
+    last = id
+  }
+
+  return last
+}
+
+/**
+ * The owning scope of one item under `rootId` (one `query_items get` per id on the walk). Accepts an id
+ * prefix: the reply's full id is used. Null when the reply has no id, the root is not among the item's
+ * ancestors, or the item is the root, a container or a project. A read that throws propagates.
+ */
+export async function owningScope(call: ToolCall, itemId: string, rootId: string): Promise<string | null> {
+  const first = await call('query_items', { operation: 'get', itemId, includeAncestors: true })
+  if (!isObj(first) || typeof first.id !== 'string') return null
+  const id = first.id
+  const ancestors = idsOf(first.ancestors)
+  if (id === rootId || !ancestors.includes(rootId) || isContainerType(typeOf(first))) return null
+  const rest = itemReader(call)
+  const read: ReadItem = i => (i === id ? Promise.resolve(first) : rest(i))
+
+  return walkScope(read, [id, ...[...ancestors].reverse()], rootId)
+}
+
 /**
  * The scope `/to-graph` opens with no argument: the owning scope of the most recent transition under
  * `rootId`. One session-resume read; the first transition (newest first) whose item is still active
  * wins, else the newest transition's item if the root is among its ancestors (transitions are not
- * scoped by the server). The owning scope is the nearest feature-implementation walking up from that
- * item; a container or project stops the walk and the last non-container seen is returned (a bug
- * under a Bugs container is its own scope); a container or the root as the moved item itself yields null. Returns null when nothing usable was found; a read that
- * throws propagates, so the caller falls back to the legacy rule on either.
+ * scoped by the server). Rows for the root or a container/project are skipped (a start-cascade can sort
+ * one ahead of the real item), and at most SCOPE_CANDIDATE_LIMIT distinct ids are examined. The owning
+ * scope is the nearest feature-implementation walking up from that item; a container or project stops
+ * the walk and the last non-container seen is returned (a bug under a Bugs container is its own scope).
+ * Returns null when nothing usable was found; a read that throws propagates, so the caller falls back
+ * to the legacy rule on either.
  */
 export async function activeScope(call: ToolCall, rootId: string, now: number): Promise<string | null> {
   const resume = await call('get_context', {
@@ -194,33 +253,50 @@ export async function activeScope(call: ToolCall, rootId: string, now: number): 
     limit: SCOPE_TRANSITION_LIMIT,
   })
   if (!isObj(resume)) return null
-  const moves = (Array.isArray(resume.recentTransitions) ? resume.recentTransitions : []).filter(isObj).flatMap(t => (typeof t.itemId === 'string' ? [t.itemId] : []))
+  const moves = [...new Set((Array.isArray(resume.recentTransitions) ? resume.recentTransitions : []).filter(isObj).flatMap(t => (typeof t.itemId === 'string' ? [t.itemId] : [])))].slice(0, SCOPE_CANDIDATE_LIMIT)
   const active = new Map<string, string[]>()
   for (const a of Array.isArray(resume.activeItems) ? resume.activeItems.filter(isObj) : []) {
     if (typeof a.id === 'string') active.set(a.id, idsOf(a.ancestors))
   }
-  let start: string | undefined = moves.find(id => active.has(id))
-  let ancestors = start === undefined ? [] : (active.get(start) ?? [])
-  if (start === undefined) {
-    const newest = moves[0]
-    if (newest === undefined) return null
-    const item = await call('query_items', { operation: 'get', itemId: newest, includeAncestors: true })
-    if (!isObj(item)) return null
-    ancestors = idsOf(item.ancestors)
-    if (!ancestors.includes(rootId)) return null
-    start = newest
+  const read = itemReader(call)
+  const usable = async (id: string): Promise<boolean> => id !== rootId && !isContainerType(typeOf(await read(id)))
+  let start: string | undefined
+  let ancestors: string[] = []
+  for (const id of moves) {
+    if (active.has(id) && (await usable(id))) {
+      start = id
+      ancestors = active.get(id) ?? []
+      break
+    }
   }
-  // Nearest-first chain: the item itself, then its ancestors up to (not past) the root.
-  const chain = [start, ...[...ancestors].reverse()]
-  let last: string | null = null
-  for (const id of chain) {
-    if (id === rootId) return last
-    const node = await call('query_items', { operation: 'get', itemId: id })
-    const type = isObj(node) && typeof node.type === 'string' ? node.type : undefined
-    if (type === 'feature-implementation') return id
-    if (type === 'container' || type === 'project') return last
-    last = id
+  if (start === undefined) {
+    for (const id of moves) {
+      const item = await read(id)
+      if (!isObj(item)) continue
+      const up = idsOf(item.ancestors)
+      if (!up.includes(rootId) || id === rootId || isContainerType(typeOf(item))) continue
+      start = id
+      ancestors = up
+      break
+    }
+    if (start === undefined) return null
   }
 
-  return last
+  // Nearest-first chain: the item itself, then its ancestors up to (not past) the root.
+  return walkScope(read, [start, ...[...ancestors].reverse()], rootId)
+}
+
+const UUID = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi
+
+/** The first full UUID in `description`, else in `prompt`, other than `rootId`; lower-cased. Null when none. */
+export function firstSpawnUuid(description: unknown, prompt: unknown, rootId: string): string | null {
+  for (const text of [description, prompt]) {
+    if (typeof text !== 'string') continue
+    for (const m of text.matchAll(UUID)) {
+      const id = m[0].toLowerCase()
+      if (id !== rootId.toLowerCase()) return id
+    }
+  }
+
+  return null
 }
