@@ -8,6 +8,7 @@ import io.github.jpicklyk.mcptask.current.application.service.TreeDepSpec
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeInput
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeResult
 import io.github.jpicklyk.mcptask.current.application.service.buildSchemaResponseFields
+import io.github.jpicklyk.mcptask.current.application.service.withEventActor
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.model.*
 import io.github.jpicklyk.mcptask.current.domain.repository.ChildPlacement
@@ -574,12 +575,16 @@ Call when materializing a planned hierarchy — one atomic call instead of per-i
         if (requestId != null && trustedActorId != null) {
             return context.idempotencyCache.getOrCompute(trustedActorId, requestId) {
                 runBlocking {
-                    executeCreateWorkTree(paramsObj, params, context, noteActorClaim, noteVerification)
+                    withEventActor(noteActorClaim) {
+                        executeCreateWorkTree(paramsObj, params, context, noteActorClaim, noteVerification)
+                    }
                 }
             }
         }
 
-        return executeCreateWorkTree(paramsObj, params, context, noteActorClaim, noteVerification)
+        return withEventActor(noteActorClaim) {
+            executeCreateWorkTree(paramsObj, params, context, noteActorClaim, noteVerification)
+        }
     }
 
     private suspend fun executeCreateWorkTree(

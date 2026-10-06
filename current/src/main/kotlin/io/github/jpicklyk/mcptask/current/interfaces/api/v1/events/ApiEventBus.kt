@@ -1,5 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
+import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ActorClaimDto
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -185,6 +187,8 @@ class ApiEventBus(
         modifiedAt: Instant? = null,
         newRole: String? = null,
         reason: String? = null,
+        actor: ActorClaim? = null,
+        rootId: UUID? = null,
     ): ApiEvent =
         ApiEvent(
             id = idCounter.incrementAndGet(),
@@ -193,6 +197,9 @@ class ApiEventBus(
             modifiedAt = modifiedAt?.toString(),
             newRole = newRole,
             reason = reason,
+            // Only id/kind/parent leave the process; proof is never copied into an event.
+            actor = actor?.let { ActorClaimDto(id = it.id, kind = it.kind.toJsonString(), parent = it.parent) },
+            rootId = rootId?.toString(),
         )
 
     // -------------------------------------------------------------------------

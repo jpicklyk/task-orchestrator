@@ -9,6 +9,7 @@ import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
 import io.github.jpicklyk.mcptask.current.application.service.ItemHierarchyValidator
 import io.github.jpicklyk.mcptask.current.application.service.rest.MergePatchApplier
 import io.github.jpicklyk.mcptask.current.application.service.rest.WorkItemPatchProjection
+import io.github.jpicklyk.mcptask.current.application.service.withEventActor
 import io.github.jpicklyk.mcptask.current.application.tools.items.WorkItemDeleteOutcome
 import io.github.jpicklyk.mcptask.current.application.tools.items.WorkItemDeletion
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.NoteSchemaJsonHelpers
@@ -434,6 +435,7 @@ fun Route.itemWriteRoutes(
             // Produce a CachedHttpResponse so the body is serialized once and replayed verbatim on
             // an Idempotency-Key hit (the DB write runs at most once — see runWithIdempotency).
             suspend fun executeCreate(): CachedHttpResponse {
+                val actorClaim = ApiAuditBridge.toActorClaim(call.attributes[ApiPrincipalKey])
                 val dto =
                     try {
                         McpJson.decodeFromString(ItemCreateDto.serializer(), bodyText)
@@ -529,7 +531,8 @@ fun Route.itemWriteRoutes(
                                         validationMessage = e.message ?: "Validation failed"
                                         return@inTransaction
                                     }
-                                createResult = workItemRepo.create(item)
+                                createResult =
+                                    withEventActor(actorClaim) { workItemRepo.create(item) }
                             }
                             is Result.Error -> {
                                 notFoundMessage = "Parent item $parentId not found"
@@ -549,7 +552,8 @@ fun Route.itemWriteRoutes(
                         } catch (e: Exception) {
                             return errorCaptured(HttpStatusCode.BadRequest, "validation_error", e.message ?: "Validation failed")
                         }
-                    createResult = workItemRepo.create(item)
+                    createResult =
+                        withEventActor(actorClaim) { workItemRepo.create(item) }
                 }
 
                 return when (val result = createResult!!) {
@@ -618,6 +622,7 @@ fun Route.itemWriteRoutes(
             // otherwise spuriously 412). The Content-Type 415 check above is request-shape-only and
             // stays outside (a replay carries the same Content-Type).
             suspend fun executePatch(): CachedHttpResponse {
+                val actorClaim = ApiAuditBridge.toActorClaim(call.attributes[ApiPrincipalKey])
                 val itemResult = workItemRepo.getById(id)
                 if (itemResult is Result.Error) {
                     return errorCaptured(HttpStatusCode.NotFound, "not_found", "Item $id not found")
@@ -833,46 +838,50 @@ fun Route.itemWriteRoutes(
                 var validationMessage: String? = null
                 if (parentChanged) {
                     try {
-                        workItemRepo.inTransaction {
-                            val newDepth: Int
-                            val newRootId: UUID?
-                            if (newParentId != null) {
-                                when (val placementResult = workItemRepo.resolveChildPlacement(newParentId)) {
-                                    is Result.Success -> {
-                                        newDepth = placementResult.data.depth
-                                        newRootId = placementResult.data.rootId
+                        // The actor scope encloses the whole transaction so the descendant cascade's
+                        // per-descendant updates publish item.updated events attributed to the caller.
+                        withEventActor(actorClaim) {
+                            workItemRepo.inTransaction {
+                                val newDepth: Int
+                                val newRootId: UUID?
+                                if (newParentId != null) {
+                                    when (val placementResult = workItemRepo.resolveChildPlacement(newParentId)) {
+                                        is Result.Success -> {
+                                            newDepth = placementResult.data.depth
+                                            newRootId = placementResult.data.rootId
+                                        }
+                                        is Result.Error -> {
+                                            notFoundMessage = "Parent item $newParentId not found"
+                                            return@inTransaction
+                                        }
                                     }
-                                    is Result.Error -> {
-                                        notFoundMessage = "Parent item $newParentId not found"
+                                } else {
+                                    // Explicit move-to-root — no parent to read.
+                                    newDepth = 0
+                                    newRootId = id
+                                }
+
+                                val updated =
+                                    try {
+                                        buildUpdated(newDepth, newRootId)
+                                    } catch (e: Exception) {
+                                        validationMessage = e.message ?: "Validation failed"
                                         return@inTransaction
                                     }
-                                }
-                            } else {
-                                // Explicit move-to-root — no parent to read.
-                                newDepth = 0
-                                newRootId = id
-                            }
 
-                            val updated =
-                                try {
-                                    buildUpdated(newDepth, newRootId)
-                                } catch (e: Exception) {
-                                    validationMessage = e.message ?: "Validation failed"
-                                    return@inTransaction
-                                }
-
-                            val depthDelta = newDepth - existing.depth
-                            val txResult = workItemRepo.update(updated)
-                            updateResult = txResult
-                            if (txResult is Result.Success) {
-                                when (
-                                    val cascadeResult =
-                                        hierarchyValidator.recomputeDescendantDepths(id, depthDelta, newRootId ?: id, workItemRepo)
-                                ) {
-                                    is Result.Success -> {}
-                                    is Result.Error -> {
-                                        cascadeErrorMessage = cascadeResult.error.message
-                                        throw DepthCascadeException(cascadeResult.error.message)
+                                val depthDelta = newDepth - existing.depth
+                                val txResult = workItemRepo.update(updated)
+                                updateResult = txResult
+                                if (txResult is Result.Success) {
+                                    when (
+                                        val cascadeResult =
+                                            hierarchyValidator.recomputeDescendantDepths(id, depthDelta, newRootId ?: id, workItemRepo)
+                                    ) {
+                                        is Result.Success -> {}
+                                        is Result.Error -> {
+                                            cascadeErrorMessage = cascadeResult.error.message
+                                            throw DepthCascadeException(cascadeResult.error.message)
+                                        }
                                     }
                                 }
                             }
@@ -894,7 +903,8 @@ fun Route.itemWriteRoutes(
                         } catch (e: Exception) {
                             return errorCaptured(HttpStatusCode.BadRequest, "validation_error", e.message ?: "Validation failed")
                         }
-                    updateResult = workItemRepo.update(updated)
+                    updateResult =
+                        withEventActor(actorClaim) { workItemRepo.update(updated) }
                 }
 
                 if (cascadeErrorMessage != null) {
@@ -997,7 +1007,11 @@ fun Route.itemWriteRoutes(
             // the non-recursive children guard, and the recursive all-or-nothing subtree delete are
             // all identical to the MCP `manage_items` delete operation (DeleteItemHandler).
             val deletion = WorkItemDeletion(repositoryProvider)
-            when (val outcome = deletion.delete(id, recursive)) {
+            val actorClaim = ApiAuditBridge.toActorClaim(call.attributes[ApiPrincipalKey])
+            when (
+                val outcome =
+                    withEventActor(actorClaim) { deletion.delete(id, recursive) }
+            ) {
                 is WorkItemDeleteOutcome.Deleted -> {
                     if (recursive) {
                         call.respond(
@@ -1146,17 +1160,19 @@ fun Route.itemWriteRoutes(
                     withConfigSession {
                         val advanceService = advanceServiceFactory.forItem(item, userTrigger.triggerString)
 
-                        advanceService.advance(
-                            item = item,
-                            trigger = userTrigger.triggerString,
-                            summary = transitionSummary,
-                            actorClaim = actorClaim,
-                            verification = verification,
-                            degradedModePolicy = degradedModePolicy,
-                            enforceOwnership = false,
-                            credentialRefs = credentialRefs,
-                            enforceResourceLeases = !overrideResourceLeases,
-                        )
+                        withEventActor(actorClaim) {
+                            advanceService.advance(
+                                item = item,
+                                trigger = userTrigger.triggerString,
+                                summary = transitionSummary,
+                                actorClaim = actorClaim,
+                                verification = verification,
+                                degradedModePolicy = degradedModePolicy,
+                                enforceOwnership = false,
+                                credentialRefs = credentialRefs,
+                                enforceResourceLeases = !overrideResourceLeases,
+                            )
+                        }
                     }
                 } catch (e: PerRootConfigUnavailableException) {
                     respondAdvanceConfigUnavailable(call, id, e)

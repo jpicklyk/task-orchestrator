@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.tools.workflow
 
 import io.github.jpicklyk.mcptask.current.application.service.NextItemRecommender
+import io.github.jpicklyk.mcptask.current.application.service.withEventActor
 import io.github.jpicklyk.mcptask.current.application.tools.ActorAware
 import io.github.jpicklyk.mcptask.current.application.tools.ActorParseResult
 import io.github.jpicklyk.mcptask.current.application.tools.BaseToolDefinition
@@ -413,7 +414,7 @@ Call only in claim-mode deployments, to take ownership before working an item.
         // This is safe because the claim/release logic only accesses DB repositories and never
         // re-acquires the IdempotencyCache lock.
         return context.idempotencyCache.getOrCompute(trustedAgentId, requestId) {
-            runBlocking { executeClaimRelease(paramsObj, context, trustedAgentId) }
+            runBlocking { withEventActor(actorClaim) { executeClaimRelease(paramsObj, context, trustedAgentId) } }
         }
     }
 

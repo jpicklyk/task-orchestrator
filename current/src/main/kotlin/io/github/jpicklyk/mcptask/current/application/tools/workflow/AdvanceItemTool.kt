@@ -10,6 +10,7 @@ import io.github.jpicklyk.mcptask.current.application.service.buildDispatchProfi
 import io.github.jpicklyk.mcptask.current.application.service.buildExpectedNotesJson
 import io.github.jpicklyk.mcptask.current.application.service.buildMissingBySeatJson
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
+import io.github.jpicklyk.mcptask.current.application.service.withEventActor
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.ErrorKind
@@ -414,17 +415,21 @@ Call to move an item between phases once its work is done — never edit status 
                     // operator who must bypass a lease uses the ADMIN-gated REST surface (an
                     // `overrideResourceLeases` advance, or DELETE /api/v1/resources/leases/{key}),
                     // both of which are logged at WARN.
-                    advanceService.advance(
-                        item = ready.item,
-                        trigger = ready.trigger,
-                        summary = ready.summary,
-                        actorClaim = ready.actorClaim,
-                        verification = ready.verification,
-                        degradedModePolicy = context.degradedModePolicy,
-                        enforceOwnership = true,
-                        credentialRefs = ready.credentialRefs,
-                        enforceResourceLeases = true
-                    )
+                    // Each transition carries its own actor into the SSE events its write (and
+                    // any cascade it triggers) publishes.
+                    withEventActor(ready.actorClaim) {
+                        advanceService.advance(
+                            item = ready.item,
+                            trigger = ready.trigger,
+                            summary = ready.summary,
+                            actorClaim = ready.actorClaim,
+                            verification = ready.verification,
+                            degradedModePolicy = context.degradedModePolicy,
+                            enforceOwnership = true,
+                            credentialRefs = ready.credentialRefs,
+                            enforceResourceLeases = true
+                        )
+                    }
                 } catch (e: PerRootConfigUnavailableException) {
                     failCount++
                     resultsList.add(

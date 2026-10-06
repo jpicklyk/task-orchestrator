@@ -3,6 +3,8 @@ package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeExecutor
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeInput
 import io.github.jpicklyk.mcptask.current.application.service.WorkTreeResult
+import io.github.jpicklyk.mcptask.current.application.service.currentEventActor
+import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.Role
@@ -131,13 +133,18 @@ class EventPublishingRepositoryProvider(
      * is therefore stamped at flush time, in commit order, which is what keeps the `Last-Event-ID`
      * replay contract intact. See [PendingApiEvent].
      */
-    private fun publishScoped(
+    private suspend fun publishScoped(
         eventType: String,
         itemId: UUID,
         modifiedAt: Instant?,
         roots: Set<UUID>,
         newRole: String? = null,
+        entityActor: ActorClaim? = null,
     ) {
+        // Actor resolution: the entity's own claim (Note.actorClaim), then the EventActor context
+        // element installed by the write site, then none. Captured HERE because the post-commit
+        // flush runs in a StatementInterceptor with no coroutine context.
+        val actor = entityActor ?: currentEventActor()
         deferredPublisher.publishOnCommit(
             PendingApiEvent(
                 eventType = eventType,
@@ -145,6 +152,8 @@ class EventPublishingRepositoryProvider(
                 modifiedAt = modifiedAt,
                 newRole = newRole,
                 affectedRoots = roots,
+                actor = actor,
+                rootId = roots.singleOrNull(),
             ),
         )
     }
@@ -348,6 +357,7 @@ class EventPublishingRepositoryProvider(
                     itemId = note.itemId,
                     modifiedAt = result.data.modifiedAt,
                     roots = roots,
+                    entityActor = note.actorClaim,
                 )
             }
             return result
@@ -516,6 +526,7 @@ class EventPublishingRepositoryProvider(
                     itemId = note.itemId,
                     modifiedAt = note.modifiedAt,
                     roots = resolveRoots(note.itemId),
+                    entityActor = note.actorClaim,
                 )
             }
 

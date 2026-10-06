@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.application.tools.notes
 
 import io.github.jpicklyk.mcptask.current.application.service.computePhaseNoteContext
+import io.github.jpicklyk.mcptask.current.application.service.withEventActor
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.model.PerRootConfigUnavailableException
@@ -183,9 +184,11 @@ field naming the limit and actual size; `mode: reject` fails that note with `cod
         // Must be done BEFORE the cache lookup so the cache is keyed on the verified identity,
         // not the self-reported actor.id (bug 3a fix).
         val actorObj = (params as? JsonObject)?.get("actor") as? JsonObject
+        val parsedActor = if (actorObj != null) parseActorClaim(actorObj, context) else null
+        val eventActor = (parsedActor as? ActorParseResult.Success)?.claim
         val trustedActorId: String? =
-            if (actorObj != null) {
-                val actorResult = parseActorClaim(actorObj, context)
+            if (parsedActor != null) {
+                val actorResult = parsedActor
                 when (actorResult) {
                     is ActorParseResult.Success -> {
                         when (
@@ -213,19 +216,23 @@ field naming the limit and actual size; `mode: reject` fails that note with `cod
         if (requestId != null && trustedActorId != null) {
             return context.idempotencyCache.getOrCompute(trustedActorId, requestId) {
                 runBlocking {
-                    when (operation) {
-                        "upsert" -> executeUpsert(params, context)
-                        "delete" -> executeDelete(params, context)
-                        else -> errorResponse("Invalid operation: $operation", ErrorCodes.VALIDATION_ERROR)
+                    withEventActor(eventActor) {
+                        when (operation) {
+                            "upsert" -> executeUpsert(params, context)
+                            "delete" -> executeDelete(params, context)
+                            else -> errorResponse("Invalid operation: $operation", ErrorCodes.VALIDATION_ERROR)
+                        }
                     }
                 }
             }
         }
 
-        return when (operation) {
-            "upsert" -> executeUpsert(params, context)
-            "delete" -> executeDelete(params, context)
-            else -> errorResponse("Invalid operation: $operation", ErrorCodes.VALIDATION_ERROR)
+        return withEventActor(eventActor) {
+            when (operation) {
+                "upsert" -> executeUpsert(params, context)
+                "delete" -> executeDelete(params, context)
+                else -> errorResponse("Invalid operation: $operation", ErrorCodes.VALIDATION_ERROR)
+            }
         }
     }
 

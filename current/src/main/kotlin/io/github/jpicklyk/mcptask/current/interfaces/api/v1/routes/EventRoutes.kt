@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.domain.repository.WorkItemRepository
+import io.github.jpicklyk.mcptask.current.infrastructure.config.AppConfig
 import io.github.jpicklyk.mcptask.current.infrastructure.config.EnvBoolean
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiAuthConfig
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
@@ -419,6 +420,7 @@ fun Route.eventRoutes(
         System.getenv("API_SSE_AUTH_CHECK_INTERVAL_SECONDS")?.toIntOrNull() ?: 30,
     authConfig: ApiAuthConfig = ApiAuthConfig.Disabled,
     workItemRepository: WorkItemRepository? = null,
+    redactAttribution: Boolean = AppConfig.fromEnv().apiRedactNoteAttribution,
 ) {
     // Wrap the SSE handler in a dedicated child route so the pre-flight auth plugin is scoped
     // ONLY to /events and does not affect sibling routes.
@@ -563,7 +565,20 @@ fun Route.eventRoutes(
                                 ) {
                                     return@collect
                                 }
-                                session.send(event.toServerSentEvent())
+                                // Attribution redaction, on egress only (the ring buffer keeps the
+                                // unredacted event), so live and Last-Event-ID replay are identical.
+                                // Same rule as AttributionRedactor: hidden only when the flag is on
+                                // AND the caller is not ADMIN. rootId is never redacted.
+                                val outbound =
+                                    if (redactAttribution &&
+                                        event.actor != null &&
+                                        !principal.capabilities.contains(ApiCapability.ADMIN)
+                                    ) {
+                                        event.copy(actor = null)
+                                    } else {
+                                        event
+                                    }
+                                session.send(outbound.toServerSentEvent())
                             }
                         } catch (_: CancellationException) {
                             // Normal teardown
