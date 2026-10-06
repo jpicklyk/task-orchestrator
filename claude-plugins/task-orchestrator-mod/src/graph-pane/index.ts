@@ -23,7 +23,7 @@ import { cardsOf, criticalPath, stepsOf } from './model.ts'
 import type { Card, CriticalPath, Model } from './model.ts'
 import { recordFocusOrder, redirectFocus } from './focus.ts'
 import { gateToastLines } from '../graph-data/events.ts'
-import { detailLines, isDegraded, isSwitching, loadingTitle, parseScopeArg, scopeHeader, summaryLine } from './pane-model.ts'
+import { activeScope, detailLines, isDegraded, isSwitching, loadingTitle, parseScopeArg, scopeHeader, summaryLine } from './pane-model.ts'
 import { CRIT_COLOR, raster, runs } from './raster.ts'
 import { routes } from './route.ts'
 import { KIND, READY, id8, legendItems } from './shared.ts'
@@ -56,7 +56,6 @@ const no = (): boolean => false
 /** Set once per module load, so a hot reload (which drops the registered command) registers it again. */
 let commandRegistered = false
 
-/** The most recently modified feature-implementation in work under the project root, or null. */
 /**
  * Copies `text` with the host's clipboard tool (`clip` on Windows, `pbcopy` on macOS, `wl-copy` or
  * `xclip` on Linux). Used when `$.ui.copy` cannot reach the surface, as on the desktop app today.
@@ -76,22 +75,31 @@ async function hostCopy($: EngineInterface, text: string): Promise<boolean> {
   return false
 }
 
+/**
+ * The scope `/to-graph` opens with no argument: the owning scope of the latest transition under the
+ * project root (pane-model `activeScope`), else the most recently modified feature-implementation in
+ * work, else null. A failed or empty scope read falls back to the legacy query; no root id makes no call.
+ */
 async function activeFeature($: EngineInterface): Promise<string | null> {
   try {
     const rootId = parseProjectRootId(await $.fs.read(CONFIG_PATH))
     if (rootId === null) return null
-    const found = parseToResult<{ items?: { id?: unknown }[] }>(
-      'query_items',
-      await $.mcp.call(TO_SERVER, 'query_items', {
-        operation: 'search',
-        ancestorId: rootId,
-        type: 'feature-implementation',
-        role: 'work',
-        sortBy: 'modifiedAt',
-        sortOrder: 'desc',
-        limit: 1,
-      }),
-    )
+    const call = async (tool: string, args: Record<string, unknown>): Promise<unknown> => parseToResult<unknown>(tool, await $.mcp.call(TO_SERVER, tool, args))
+    try {
+      const scope = await activeScope(call, rootId, await $.clock.now())
+      if (scope !== null) return scope
+    } catch {
+      // fall through to the legacy rule
+    }
+    const found = (await call('query_items', {
+      operation: 'search',
+      ancestorId: rootId,
+      type: 'feature-implementation',
+      role: 'work',
+      sortBy: 'modifiedAt',
+      sortOrder: 'desc',
+      limit: 1,
+    })) as { items?: { id?: unknown }[] }
     const id = found.items?.[0]?.id
 
     return typeof id === 'string' ? id : null
