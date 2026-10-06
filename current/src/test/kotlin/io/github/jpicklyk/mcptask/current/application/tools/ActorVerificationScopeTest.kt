@@ -1,6 +1,5 @@
 package io.github.jpicklyk.mcptask.current.application.tools
 
-import io.github.jpicklyk.mcptask.current.interfaces.mcp.closeInMemoryPair
 import com.nimbusds.jose.JWSAlgorithm
 import com.nimbusds.jose.JWSHeader
 import com.nimbusds.jose.crypto.RSASSASigner
@@ -27,6 +26,7 @@ import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksKeySetProvid
 import io.github.jpicklyk.mcptask.current.infrastructure.config.JwksResult
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpToolAdapter
+import io.github.jpicklyk.mcptask.current.interfaces.mcp.closeInMemoryPair
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.inMemoryTestServerOptions
 import io.mockk.Runs
 import io.mockk.coEvery

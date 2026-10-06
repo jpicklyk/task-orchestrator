@@ -35,8 +35,10 @@ import kotlin.time.Duration.Companion.seconds
  * - Failure is loud: if a server-session transport has not closed within [timeout] (for example
  *   a second client is still connected to a session of [server], which this call does not
  *   close), a [kotlinx.coroutines.TimeoutCancellationException] is thrown and `server.close()`
- *   is NOT called. The call never hangs past [timeout] plus the time `client.close()` takes, and
- *   it never swallows an exception from `client.close()` or `server.close()`.
+ *   is NOT called. The call never hangs past [timeout] plus the time `client.close()` and
+ *   `server.close()` take, and it never swallows an exception from either.
+ * - [withTimeout] measures virtual time inside a `runTest` scope, so call this helper from
+ *   `runBlocking` (as every current caller does) or run it on a real dispatcher.
  * - Idempotent: calling it again for a pair that was already torn down returns normally,
  *   because the server has no remaining sessions to await.
  * - Only sessions present when it is called are awaited; sessions created concurrently with the
@@ -51,11 +53,12 @@ internal suspend fun closeInMemoryPair(
     server: Server,
     timeout: Duration = 5.seconds
 ) {
-    val closed = server.sessions.values.map { session ->
-        val done = CompletableDeferred<Unit>()
-        session.transport?.onClose { done.complete(Unit) } ?: done.complete(Unit)
-        done
-    }
+    val closed =
+        server.sessions.values.map { session ->
+            val done = CompletableDeferred<Unit>()
+            session.transport?.onClose { done.complete(Unit) } ?: done.complete(Unit)
+            done
+        }
     client.close()
     withTimeout(timeout) { closed.awaitAll() }
     server.close()
