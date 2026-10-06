@@ -124,12 +124,19 @@ async function assertConcurrent(filesA, filesB, opts) {
 
 // ── S1-S7: runPlan lock contention (D2, D3) ──────────────────────────────────────────────────────
 
+// S1/S2 tightened by item 0836fcd9: a serialize-only check also passes when root stripping is
+// broken (the unrooted absolute path falls back to the whole-worktree key, which serializes too),
+// so each also pins the exact file key and requires a disjoint repo-relative file to run concurrently.
 test('S1: an absolute worktree-rooted declaration and the same repo-relative path serialize (D3)', async () => {
+  assert.deepEqual(implKeys([`${WT}/src/x.js`]), ['file:src/x.js'])
   await assertSerialize([`${WT}/src/x.js`], ['src/x.js'])
+  await assertConcurrent([`${WT}/src/x.js`], ['src/y.js'])
 })
 
 test('S2: a main-checkout absolute path (plan.repoRoot=/repo) and the repo-relative path serialize (D2)', async () => {
+  assert.deepEqual(implKeys([`${REPO}/src/x.js`]), ['file:src/x.js'])
   await assertSerialize([`${REPO}/src/x.js`], ['src/x.js'])
+  await assertConcurrent([`${REPO}/src/x.js`], ['src/y.js'])
 })
 
 test('S3: a directory declaration (src/) and a file under it serialize (D3 segment-ancestor)', async () => {
@@ -392,6 +399,16 @@ const REL_CASES = [
   ['/repo/.claude/worktrees/b/src/x.js', ['/repo/.claude/worktrees/b', REPO], 'src/x.js'],
   ['/repox/a.js', [REPO], '/repox/a.js'], // not under /repo (segment boundary)
   ['/Repo/src/x.js', [REPO], '/Repo/src/x.js'], // non-drive path: case-sensitive, so outside
+  // item 0836fcd9: canonical spellings ('.' / '' segments dropped, '..' kept, roots stay absolute)
+  ['.', [WT, REPO], ''],
+  ['./', [WT, REPO], ''],
+  [WT, [WT, REPO], ''],
+  [`${WT}/.`, [WT, REPO], ''],
+  ['src/./x.js', [WT, REPO], 'src/x.js'],
+  ['src//x.js', [WT, REPO], 'src/x.js'],
+  ['//h/s/x', [WT, REPO], '/h/s/x'],
+  ['src/../x.js', [WT, REPO], 'src/../x.js'],
+  ['/', [WT, REPO], '/'],
 ]
 
 test('S17: run-exec-lib relativizePath equals core.relativizePath on every input, and both match the documented results', () => {
