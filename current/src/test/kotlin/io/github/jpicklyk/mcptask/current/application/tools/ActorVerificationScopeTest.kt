@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.tools
 
+import io.github.jpicklyk.mcptask.current.interfaces.mcp.closeInMemoryPair
 import com.nimbusds.jose.JWSAlgorithm
 import com.nimbusds.jose.JWSHeader
 import com.nimbusds.jose.crypto.RSASSASigner
@@ -162,8 +163,7 @@ class ActorVerificationScopeTest {
     @AfterEach
     fun tearDown(): Unit =
         runBlocking {
-            client.close()
-            server.close()
+            closeInMemoryPair(client, server)
         }
 
     private fun sign(claimsSet: JWTClaimsSet): String {

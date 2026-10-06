@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.service
 
+import io.github.jpicklyk.mcptask.current.interfaces.mcp.closeInMemoryPair
 import io.github.jpicklyk.mcptask.current.application.tools.ToolValidationException
 import io.github.jpicklyk.mcptask.current.application.tools.compound.CreateWorkTreeTool
 import io.github.jpicklyk.mcptask.current.application.tools.config.ManagePlanDocumentsTool
@@ -384,8 +385,7 @@ class RuleBudgetStashTest {
                 val reStash = repo.planDocumentRepository().stash(root.id, "rule/x", "Updated rule body after the rejected docRef.")
                 assertTrue(reStash is Result.Success, "the document must remain re-stashable: $reStash")
             } finally {
-                client.close()
-                server.close()
+                closeInMemoryPair(client, server)
             }
         }
 

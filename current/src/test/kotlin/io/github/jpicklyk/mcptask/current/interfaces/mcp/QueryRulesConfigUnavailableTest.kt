@@ -77,8 +77,7 @@ class QueryRulesConfigUnavailableTest {
     @AfterEach
     fun tearDown(): Unit =
         runBlocking {
-            client.close()
-            server.close()
+            closeInMemoryPair(client, server)
         }
 
     private fun buildFailingContext(): Triple<ToolExecutionContext, WorkItem, FailableProjectConfigRepository> {
