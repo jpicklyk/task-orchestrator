@@ -93,6 +93,16 @@ means that item **fails this run** — do not advance it in Step 4 below, and su
 failure (missing SHA, foreign file, missing trailer, failed red-proof) rather than a generic
 "verify failed".
 
+**Applying a mutation or a narrowest revert in the scratch copy** is a text edit you must be able
+to trust, so never do it with a shell one-liner (`sed -i`, `node -e`, a heredoc-built script):
+those lose backslashes in the Bash tool and miss anchors in a CRLF checkout, and a missed anchor
+leaves the file unchanged, so the red-proof is wasted or falsely green. Write the edit spec or script with
+the Write tool into the scratchpad, normalize line endings before matching, require each anchor
+to match exactly once, dry-run first, and confirm the diff in the scratch copy before building.
+When the project ships an anchored-patch helper (this repo:
+`.claude/skills/implement/references/patch-anchored.py`, `DRY=1` first), use it instead of a
+hand-written script.
+
 ---
 
 ## Step 2 — Actor audit
@@ -204,7 +214,8 @@ cap on cycles.
    author appends its own `A<n>` section to `test-plan`/`test-manifest`; the planner does not touch
    those keys, which the test-author seat owns.
 3. **Orchestrator runs the amendment's named mutation red-proofs** in a scratch copy, never the
-   shared tree (same rule as Step 1).
+   shared tree (same rule as Step 1), applying each mutation as "Applying a mutation or a
+   narrowest revert" above describes.
 4. **Original reviewer, by name**, scoped to `git diff <prevReviewedSha>..HEAD -- <owned files>`
    plus the blocking findings — see "Re-review after fixes" below.
 
