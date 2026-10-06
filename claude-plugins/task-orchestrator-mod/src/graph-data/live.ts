@@ -3,7 +3,7 @@
 import type { GraphIo } from './io.ts'
 import { invalidateLabels } from './labels.ts'
 import { refresh, refreshNow } from './refresh.ts'
-import { eventItemId, isLocalEcho, localWindow, markRemote } from './remote.ts'
+import { REMOTE_FOLLOW_DEBOUNCE_MS, REMOTE_FOLLOW_QUIET_MS, attribute, eventItemId, localActorIds, localWindow, markRemote, remoteFollowCandidate } from './remote.ts'
 import { readRootId } from './snapshot.ts'
 
 export const POLL_MS = 15_000
@@ -109,16 +109,56 @@ export function eventsUrl(base: string, rootId: string): string {
   return `${base}/api/v1/events?root=${encodeURIComponent(rootId)}&types=${SSE_TYPES.join(',')}`
 }
 
+let remoteAdvance: ((itemId: string) => void) | null = null
+let followTimer: { cancel(): void } | null = null
+let projectRoot: string | null = null
+
+/** The pane's listener for another session's item.advanced in this project (null: none). `$`-free: the pane's closure holds `$`. */
+export function setRemoteAdvanceListener(fn: ((itemId: string) => void) | null): void {
+  remoteAdvance = fn
+}
+
+export function remoteAdvanceListener(): ((itemId: string) => void) | null {
+  return remoteAdvance
+}
+
+function cancelFollow(): void {
+  followTimer?.cancel()
+  followTimer = null
+}
+
+/** Trailing debounce: each eligible event restarts the timer; on fire the listener gets the last itemId once, unless local activity is recent. */
+function scheduleFollow(io: GraphIo, itemId: string): void {
+  cancelFollow()
+  followTimer = io.after(REMOTE_FOLLOW_DEBOUNCE_MS, () => {
+    followTimer = null
+    void (async () => {
+      try {
+        const w = localWindow()
+        if (w.inFlight > 0) return
+        if (w.lastEnd !== null && (await io.now()) - w.lastEnd < REMOTE_FOLLOW_QUIET_MS) return
+        remoteAdvance?.(itemId)
+      } catch {
+        // following is advisory
+      }
+    })()
+  })
+}
+
 /**
- * Marks an SSE event's item as changed elsewhere, unless it is this session's own echo (remote.ts).
- * Only the SSE stream marks: a poll cannot tell whose change it saw. Advisory: a failure is ignored.
+ * Marks an SSE event's item as changed elsewhere, unless it is this session's own echo (remote.ts: by actor
+ * when the event has one, else by the echo window); an item.advanced remote by actor in this project also
+ * schedules a pane follow. Only the SSE stream marks: a poll cannot tell whose change it saw. Advisory: a failure is ignored.
  */
-async function noteRemote(io: GraphIo, data: unknown): Promise<void> {
-  const itemId = eventItemId(data)
-  if (itemId === undefined || io.updateRemote === undefined) return
+async function noteRemote(io: GraphIo, name: string, data: unknown): Promise<void> {
   try {
     const now = await io.now()
-    if (isLocalEcho(localWindow(), now)) return
+    const a = attribute(data, localWindow(), localActorIds(), now)
+    if (a.origin === 'local') return
+    const follow = remoteFollowCandidate(name, data, a, projectRoot)
+    if (follow !== undefined) scheduleFollow(io, follow)
+    const itemId = eventItemId(data)
+    if (itemId === undefined || io.updateRemote === undefined) return
     await io.updateRemote(map => markRemote(map, itemId, now))
   } catch {
     // marks are advisory
@@ -162,7 +202,7 @@ async function sseLoop(io: GraphIo, url: string, token: string | undefined, gen:
       void setLiveSource(io, 'sse')
       const parse = createSseParser((name, data) => {
         if (name === 'item.updated') invalidateLabels()
-        void noteRemote(io, data)
+        void noteRemote(io, name, data)
         void (name === 'sync.lost' ? refreshNow(io) : refresh(io))
       })
       for (;;) {
@@ -208,6 +248,7 @@ async function startLive(io: GraphIo, gen: number): Promise<void> {
   }
   if (gen !== generation) return
   if (rootId === null || base === null) return startPoll(io, gen)
+  projectRoot = rootId
   const outcome = await sseLoop(io, eventsUrl(base, rootId), token, gen)
   if (outcome === 'fallback') startPoll(io, gen)
 }
@@ -224,6 +265,7 @@ export function syncLive(io: GraphIo, subscribers: number): void {
   } else if (subscribers <= 0 && running) {
     running = false
     generation++
+    cancelFollow()
     stopLive?.()
     stopLive = null
     void setLiveSource(io, 'none')
@@ -235,6 +277,7 @@ export function restartLive(io: GraphIo, subscribers: number): void {
   if (running) {
     running = false
     generation++
+    cancelFollow()
     stopLive?.()
     stopLive = null
   }
@@ -245,6 +288,9 @@ export function restartLive(io: GraphIo, subscribers: number): void {
 export function resetLiveState(): void {
   running = false
   generation++
+  cancelFollow()
+  projectRoot = null
+  remoteAdvance = null
   stopLive?.()
   stopLive = null
 }

@@ -11,7 +11,7 @@ import type { GraphActivity, GraphAgentInfo, GraphDetail, GraphSnapshot, GraphSt
 import { CONFIG_PATH, parseProjectRootId } from '../shared/config.ts'
 import { PLUGIN, TO_SERVER } from '../shared/constants.ts'
 import { parseToResult } from '../shared/to-client.ts'
-import { addSubscriber, bump, removeSubscriber, requestLiveSync, requestReconnect, requestRefresh, scopeTo, shouldRefresh } from '../graph-data/index.ts'
+import { addSubscriber, bump, removeSubscriber, requestLiveSync, requestReconnect, requestRefresh, scopeTo, setRemoteAdvanceListener, shouldRefresh } from '../graph-data/index.ts'
 import { GATE_BLOCK_MS, WORKING_TTL_MS, RECENT_MS, gateBlocks, pruneActivity, recordActivity, recordGateBlocks, rememberAgent, resolveId, seatOf, touchedIds } from './activity.ts'
 import type { GateBlockRow } from './activity.ts'
 import { edgePlan, extrasChars, marksFit } from './budget.ts'
@@ -486,6 +486,8 @@ export function registerGraphPane(on: On, options: PluginOptions = {}): void {
     requestRefresh()
     await $.ui.open({ id: PANE_ID, title: 'TO graph' })
     // Counted once per open pane: a repeat /to-graph neither double-counts nor leaks a subscriber.
+    // Another session's transition in this project (graph-data/live.ts, debounced and quiet-gated): a $-free listener over this pane's own follow.
+    setRemoteAdvanceListener(itemId => void followActivity($, () => [itemId]))
     if (!(await read($, graphPaneOpen))) {
       await update($, graphPaneOpen, yes)
       await update($, graphSubscribers, addSubscriber)
@@ -497,6 +499,7 @@ export function registerGraphPane(on: On, options: PluginOptions = {}): void {
 
   on('ui.close', { id: PANE_ID }, async ($, e, next) => {
     const closed = await next(e)
+    setRemoteAdvanceListener(null)
     if (await read($, graphPaneOpen)) {
       await update($, graphPaneOpen, no)
       await update($, graphSubscribers, removeSubscriber)

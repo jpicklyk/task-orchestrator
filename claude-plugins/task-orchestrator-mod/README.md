@@ -72,7 +72,7 @@ On all surfaces:
 ### Work graph pane: `/to-graph`
 
 - With no argument it shows the scope of the latest transition under the project: the nearest feature, or the item itself for work under a container such as Bugs. It falls back to the most recently modified feature in work when that read fails. Other arguments are `root` or an item id.
-- The scope is auto or pinned. A bare `/to-graph`, or the band opening the pane, starts in auto: while the pane is open, a TO call or a spawned agent that names an item outside the graph moves the pane to that item's owning scope. An id argument, `root`, `This feature`, `Whole project`, a breadcrumb, `Open graph` or a click on a box pins the scope, and a pinned scope never moves; the `Follow` button (shown only while pinned) or a bare `/to-graph` returns to auto. Only this session's own activity is followed, not other sessions' agents.
+- The scope is auto or pinned. A bare `/to-graph`, or the band opening the pane, starts in auto: while the pane is open, a TO call or a spawned agent that names an item outside the graph moves the pane to that item's owning scope. An id argument, `root`, `This feature`, `Whole project`, a breadcrumb, `Open graph` or a click on a box pins the scope, and a pinned scope never moves; the `Follow` button (shown only while pinned) or a bare `/to-graph` returns to auto. Besides this session's own activity, an item transition made by another session in this project moves an auto pane after a 3 second pause, when the server sends the writer's actor and this session has been quiet for 30 seconds; without an actor only the echo window applies and nothing is followed.
 - A scope toggle switches between `This feature` and `Whole project`. The whole-project view is an overview of the root's children with role roll-ups, from a single call limited to 100 children; past that it shows "More children than shown."
 - Items are drawn top-down as state-filled boxes. An amber dashed box has an open blocker. Plan badges come from the item's `properties.planLabel` (1 to 12 characters).
 - Phase and seat text, a legend, and a `Show done steps` / `Hide done steps` toggle.
@@ -143,7 +143,7 @@ The API URL is resolved in this order:
 2. `.taskorchestrator/client.json` in the working directory (a bare loopback origin only).
 3. The user-level `client.json` under `TASK_ORCHESTRATOR_HOME`, `HOME` or `USERPROFILE`.
 
-A bearer token from `TASK_ORCHESTRATOR_API_TOKEN` is passed to `curl` on stdin, never on the command line. The mod streams `GET /api/v1/events` for the project root.
+A bearer token from `TASK_ORCHESTRATOR_API_TOKEN` is passed to `curl` on stdin, never on the command line. The mod streams `GET /api/v1/events` for the project root. An event that carries the writer's `actor` is this session's own when that actor (or its parent) is one this session wrote with; only an event without an actor falls back to a 5 second echo window after this session's last write.
 
 With no URL, or after three failed connects, a 15 second poll takes over. `Reconnect` in the pane restarts the stream.
 
