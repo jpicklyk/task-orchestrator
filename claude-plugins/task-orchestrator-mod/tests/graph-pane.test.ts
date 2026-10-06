@@ -2861,3 +2861,128 @@ test('S17 (087c6077): an advance for an item already in the snapshot reads nothi
   expect(owner(WB)).toBeGreaterThanOrEqual(1)
   expect(r.valueOf('graphScope')).toBe(WB)
 })
+
+// -- 087c6077 A1: a pane opened through the band's 'band-open' press follows other sessions too --
+// Oracles: [RM] README scope bullet (another session's transitions in this project are followed in auto mode) and
+// task-scope B + Amendment A1 (the Pane draw registers the one-slot listener). The rig's ui.open stub draws nothing,
+// so mounting the Pane (requestId 'to-graph') stands in for the host's draw. The listener is not observable from the
+// test realm, so every case runs end to end: SSE frame -> debounce -> followActivity -> graphScope.
+
+/** Press the band's open control on a closed pane (the band alone opens it; it does not draw the Pane). */
+const bandOpen = async ($: WEngine) => {
+  const band = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'AbovePrompt', props: bandProps })
+  await band.press({ key: 'band-open' })
+
+  return band
+}
+
+test('A1-S1 (087c6077): a pane opened by the band press and drawn follows another session; actorless and other-root frames on the same fixture do not', SSE_TIME, async ($, on) => {
+  const { r, push, advancedFrame, settleBy } = sseFollowRig(on, FOLLOW_ACTIVE(WA), followSeed(CLOSED))
+  await startFollow($)
+  const band = await bandOpen($)
+  const pane = await mountAt($, 'terminal')
+  await settleBy(1_000)
+  expect(r.valueOf('graphScopeMode')).toBe('auto')
+  expect(r.valueOf('graphScope')).toBe(WA)
+  // Window-attributed (no actor) and other-root frames are never followed: the actor frame below is the falsifier.
+  push(advancedFrame(WB, { actor: null }))
+  push(advancedFrame(WB, { rootId: WZ }))
+  await settleBy(10_000)
+  expect(r.valueOf('graphScope')).toBe(WA)
+  const before = scopeSets(r).length
+  push(advancedFrame(WT))
+  await settleBy(2_000)
+  expect(r.valueOf('graphScope')).toBe(WA)
+  await settleBy(1_500)
+  expect(r.valueOf('graphScope')).toBe(WF)
+  expect(scopeSets(r).slice(before)).toEqual([WF])
+  await pane.unmount()
+  await band.unmount()
+})
+
+test('A1-S2 (087c6077): /to-graph, close, then a band reopen follows again; the same frame did not move anything before the reopen', SSE_WITH_CLOSER, async ($, on) => {
+  const { r, push, advancedFrame, settleBy } = sseFollowRig(on, FOLLOW_ACTIVE(WA), followSeed(CLOSED))
+  await runToGraph($)
+  await settleBy(1_000)
+  push(advancedFrame(WB))
+  await settleBy(4_000)
+  expect(r.valueOf('graphScope')).toBe(WB)
+  await $.command.run({ command: 'close-graph', args: '' } as never)
+  await settleBy(1_000)
+  const closedWrites = scopeSets(r).length
+  push(advancedFrame(WT))
+  await settleBy(5_000)
+  expect(scopeSets(r)).toHaveLength(closedWrites)
+  expect(r.valueOf('graphScope')).toBe(WB)
+  const band = await bandOpen($)
+  const pane = await mountAt($, 'terminal')
+  await settleBy(1_000)
+  expect(r.valueOf('graphScope')).toBe(WB)
+  const reopened = scopeSets(r).length
+  push(advancedFrame(WT))
+  await settleBy(4_000)
+  expect(r.valueOf('graphScope')).toBe(WF)
+  expect(scopeSets(r).slice(reopened)).toEqual([WF])
+  await pane.unmount()
+  await band.unmount()
+})
+
+test('A1-S3 (087c6077): regression: a /to-graph pane that is then drawn still follows, once; a window-attributed frame first does not', SSE_TIME, async ($, on) => {
+  const { r, push, advancedFrame, settleBy } = sseFollowRig(on, FOLLOW_ACTIVE(WA), followSeed(CLOSED))
+  await runToGraph($)
+  const pane = await mountAt($, 'terminal')
+  await settleBy(1_000)
+  const before = scopeSets(r).length
+  push(advancedFrame(WB, { actor: null }))
+  await settleBy(10_000)
+  expect(scopeSets(r).slice(before)).toEqual([])
+  expect(r.valueOf('graphScope')).toBe(WA)
+  push(advancedFrame(WT))
+  await settleBy(4_000)
+  expect(r.valueOf('graphScope')).toBe(WF)
+  expect(scopeSets(r).slice(before)).toEqual([WF])
+  await pane.unmount()
+})
+
+test('A1-S4 (087c6077): repeated Pane draws leave one listener: a wave of frames moves the scope once, to the last item; actorless frames first move nothing', SSE_TIME, async ($, on) => {
+  const { r, push, advancedFrame, settleBy } = sseFollowRig(on, FOLLOW_ACTIVE(WA), followSeed(CLOSED))
+  await startFollow($)
+  const band = await bandOpen($)
+  // The kit allows one Pane per requestId, so repeated draws are mount/unmount/mount cycles (three draws in all).
+  await (await mountAt($, 'terminal')).unmount()
+  await (await mountAt($, 'terminal')).unmount()
+  const pane = await mountAt($, 'terminal')
+  await settleBy(1_000)
+  const before = scopeSets(r).length
+  push(advancedFrame(WB, { actor: null }))
+  await settleBy(10_000)
+  expect(scopeSets(r).slice(before)).toEqual([])
+  push(advancedFrame(WB))
+  await settleBy(1_000)
+  push(advancedFrame(WT3))
+  await settleBy(1_000)
+  push(advancedFrame(WT))
+  await settleBy(4_000)
+  expect(r.valueOf('graphScope')).toBe(WF)
+  expect(scopeSets(r).slice(before)).toEqual([WF])
+  await pane.unmount()
+  await band.unmount()
+})
+
+test('A1-S5 (087c6077): a band-opened pane that is closed follows nothing; while open, the same kind of frame moved the scope', SSE_WITH_CLOSER, async ($, on) => {
+  const { r, push, advancedFrame, settleBy } = sseFollowRig(on, FOLLOW_ACTIVE(WA), followSeed(CLOSED))
+  await startFollow($)
+  await bandOpen($)
+  await mountAt($, 'terminal')
+  await settleBy(1_000)
+  push(advancedFrame(WB))
+  await settleBy(4_000)
+  expect(r.valueOf('graphScope')).toBe(WB)
+  await $.command.run({ command: 'close-graph', args: '' } as never)
+  await settleBy(1_000)
+  const writes = scopeSets(r).length
+  push(advancedFrame(WT))
+  await settleBy(5_000)
+  expect(scopeSets(r)).toHaveLength(writes)
+  expect(r.valueOf('graphScope')).toBe(WB)
+})
