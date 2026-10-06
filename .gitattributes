@@ -1,3 +1,14 @@
+# Every text file is stored and checked out with LF on every platform, whatever a clone's
+# core.autocrlf says. CRLF working trees made exact-text edits by agents and scripts miss their
+# anchors (trend 39b33f07). Git still detects binary files itself (text=auto).
+* text=auto eol=lf
+# Windows batch files keep CRLF: cmd.exe can mis-parse labels and GOTOs in an LF .bat file.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# The explicit LF pins below predate the repo-wide rule above; each records why its files must
+# never be CRLF, so keep them if the rule above ever changes.
+
 # Force LF line endings for shell scripts (required for bash heredocs)
 *.sh text eol=lf
 *.mjs text eol=lf
