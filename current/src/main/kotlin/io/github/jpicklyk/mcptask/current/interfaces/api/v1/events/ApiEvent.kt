@@ -27,7 +27,7 @@ import kotlinx.serialization.Serializable
  *   null (absent) when no actor was resolved, for bus-level events, or when redacted on egress.
  * @param rootId The depth-0 ancestor of the affected item (for `scope.left` the OLD root, for
  *   `scope.entered` the NEW one). Absent when the root could not be resolved (no subscriber was
- *   connected at publish time, or the ancestor query failed) — live and on replay alike. Never
+ *   connected at publish time, or the ancestor query failed) - live and on replay alike. Never
  *   redacted.
  */
 @Serializable
