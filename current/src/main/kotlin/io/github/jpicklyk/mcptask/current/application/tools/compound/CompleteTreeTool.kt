@@ -6,6 +6,7 @@ import io.github.jpicklyk.mcptask.current.application.service.AdvanceFailure
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceOutcome
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceResult
 import io.github.jpicklyk.mcptask.current.application.service.AdvanceService
+import io.github.jpicklyk.mcptask.current.application.service.withEventActor
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.github.jpicklyk.mcptask.current.application.tools.workflow.NoteSchemaJsonHelpers
 import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
@@ -556,17 +557,19 @@ Call when closing out a finished hierarchy — one atomic call instead of per-it
             try {
                 val advanceService = context.advanceServiceFactory().forItem(item, trigger)
 
-                advanceService.advance(
-                    item = item,
-                    trigger = trigger,
-                    summary = null,
-                    actorClaim = actorClaim,
-                    verification = verification,
-                    degradedModePolicy = context.degradedModePolicy,
-                    enforceOwnership = true,
-                    credentialRefs = emptyList(),
-                    enforceResourceLeases = true
-                )
+                withEventActor(actorClaim) {
+                    advanceService.advance(
+                        item = item,
+                        trigger = trigger,
+                        summary = null,
+                        actorClaim = actorClaim,
+                        verification = verification,
+                        degradedModePolicy = context.degradedModePolicy,
+                        enforceOwnership = true,
+                        credentialRefs = emptyList(),
+                        enforceResourceLeases = true
+                    )
+                }
             } catch (e: PerRootConfigUnavailableException) {
                 resultsList.add(buildConfigUnavailableResult(item, e))
                 return ItemOutcome.REJECTED

@@ -684,6 +684,7 @@ internal fun Application.installRestApiRoutes(
                     authCheckIntervalSeconds = appConfig.apiSseAuthCheckIntervalSeconds,
                     authConfig = apiConfig,
                     workItemRepository = effectiveProvider.workItemRepository(),
+                    redactAttribution = appConfig.apiRedactNoteAttribution,
                 )
             }
         }

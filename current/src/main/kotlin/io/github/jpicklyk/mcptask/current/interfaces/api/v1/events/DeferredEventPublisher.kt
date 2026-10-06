@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
+import io.github.jpicklyk.mcptask.current.domain.model.ActorClaim
 import org.jetbrains.exposed.v1.core.Transaction
 import org.jetbrains.exposed.v1.core.statements.StatementInterceptor
 import org.jetbrains.exposed.v1.jdbc.JdbcTransaction
@@ -30,6 +31,10 @@ data class PendingApiEvent(
     val modifiedAt: Instant? = null,
     val newRole: String? = null,
     val affectedRoots: Set<UUID> = emptySet(),
+    /** Actor captured at ENQUEUE time (the flush has no coroutine context); null = none. */
+    val actor: ActorClaim? = null,
+    /** `affectedRoots.singleOrNull()`; null when unresolved. */
+    val rootId: UUID? = null,
 )
 
 /**
@@ -133,6 +138,8 @@ class DeferredEventPublisher(
                 itemId = pending.itemId,
                 modifiedAt = pending.modifiedAt,
                 newRole = pending.newRole,
+                actor = pending.actor,
+                rootId = pending.rootId,
             )
         // Identical to the pre-deferral call: an empty affectedRoots means the producer could not
         // resolve them, which is precisely what rootsResolved=false denotes on the bus.

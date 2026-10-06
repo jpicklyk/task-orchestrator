@@ -1,6 +1,7 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
 import io.github.jpicklyk.mcptask.current.application.service.IdempotencyCache
+import io.github.jpicklyk.mcptask.current.application.service.withEventActor
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Note
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
@@ -255,7 +256,12 @@ fun Route.noteWriteRoutes(
                 return@delete
             }
 
-            when (val result = noteRepo.delete(existingNote.id)) {
+            when (
+                val result =
+                    withEventActor(
+                        ApiAuditBridge.toActorClaim(call.attributes[ApiPrincipalKey])
+                    ) { noteRepo.delete(existingNote.id) }
+            ) {
                 is Result.Error -> {
                     noteWriteLogger.warn("DELETE /items/{}/notes/{} DB error: {}", id, key, result.error.message)
                     call.respond(HttpStatusCode.InternalServerError, ErrorDto("db_error", "Failed to delete note"))

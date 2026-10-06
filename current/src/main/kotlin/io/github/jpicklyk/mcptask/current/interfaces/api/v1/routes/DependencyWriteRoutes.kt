@@ -1,12 +1,15 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes
 
+import io.github.jpicklyk.mcptask.current.application.service.EventActor
 import io.github.jpicklyk.mcptask.current.domain.model.DegradedModePolicy
 import io.github.jpicklyk.mcptask.current.domain.model.Dependency
 import io.github.jpicklyk.mcptask.current.domain.model.DependencyType
 import io.github.jpicklyk.mcptask.current.domain.repository.Result
 import io.github.jpicklyk.mcptask.current.domain.validation.DuplicateDependencyException
 import io.github.jpicklyk.mcptask.current.infrastructure.repository.RepositoryProvider
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.audit.ApiAuditBridge
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiCapability
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.ApiPrincipalKey
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.enforceScopeForItem
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.auth.requireCapability
 import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.DependencyCreateDto
@@ -170,7 +173,7 @@ fun Route.dependencyWriteRoutes(
 
             val created: Dependency? =
                 try {
-                    withContext(Dispatchers.IO) {
+                    withContext(Dispatchers.IO + EventActor(ApiAuditBridge.toActorClaim(call.attributes[ApiPrincipalKey]))) {
                         // suspendTransaction, not transaction: the repo methods below are suspend and
                         // cannot be called from Exposed's non-suspend transaction lambda. The outer
                         // transaction is still ONE transaction — each repo method opens its own
@@ -235,7 +238,10 @@ fun Route.dependencyWriteRoutes(
                 return@delete
             }
 
-            val deleted: Boolean = withContext(Dispatchers.IO) { depRepo.delete(id) }
+            val deleted: Boolean =
+                withContext(
+                    Dispatchers.IO + EventActor(ApiAuditBridge.toActorClaim(call.attributes[ApiPrincipalKey]))
+                ) { depRepo.delete(id) }
             if (!deleted) {
                 depWriteLogger.warn("DELETE /dependencies/{} returned false (race?)", id)
                 call.respond(HttpStatusCode.NotFound, ErrorDto("not_found", "Dependency $id not found or already deleted"))

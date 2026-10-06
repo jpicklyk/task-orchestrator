@@ -945,9 +945,13 @@ One row per lease hold INTERVAL, not per lease event — append-only, never prun
   "event": "item.updated",
   "itemId": "<uuid>|null",
   "modifiedAt": "ISO-8601|null",
-  "newRole": "work|null"
+  "newRole": "work|null",
+  "actor": { "id": "api:dashboard-editor", "kind": "external", "parent": "..." },
+  "rootId": "<uuid>"
 }
 ```
+
+`actor` and `rootId` are additive and are absent from the JSON when null (see §21 "Actor and rootId").
 
 ---
 
@@ -2070,6 +2074,13 @@ events on the same item. See §25 for the `item.deleted` fail-closed gap this sc
 
 Both `sync.lost` and `auth.expired` are **control events** — they always bypass the `?types=` filter (see Query parameters above). All other event types additionally carry a `reason` field of `null`, and (because the SSE payload is encoded with `explicitNulls = false`) it is absent from their JSON entirely rather than present as `null`.
 
+**Actor and rootId (domain events only).** Every domain event (`item.*`, `note.*`, `dependency.*`, `scope.*`) may carry two additive fields; the control events (`sync.lost`, `auth.expired`) never do.
+
+- `actor` — `{id, kind, parent?}`: who performed the write. Never `proof` or `verification`. Resolution order at the moment the event is queued: the note's own `actorClaim` (`note.upserted`), then the actor of the enclosing write (the MCP tool's `actor`, per transition for `advance_item` — a cascaded parent advance carries the triggering transition's actor — or the synthesized `api:<tokenId>` / `external` claim for REST writes), then none. A write with no actor (a tool call without `actor`, a background sweep) emits no `actor` field.
+- `rootId` — the item's depth-0 ancestor (`scope.left` carries the OLD root, `scope.entered` the NEW root). Absent when the root could not be resolved: events published while no SSE client was connected skip the ancestor query (a performance guard), so they have no `rootId` — live and again on `Last-Event-ID` replay, since the buffered event is replayed as built. `rootId` is scope metadata and is never redacted.
+
+**Redaction.** Applied per connection, on egress only, identically for live delivery and `Last-Event-ID` replay: `actor` is omitted when `API_REDACT_NOTE_ATTRIBUTION=true` and the caller lacks `ADMIN`; otherwise it is delivered (`API_AUTH_MODE=none` callers are ADMIN).
+
 **`item.advanced` note:** This event is emitted on role change (via `POST /items/{id}/advance` or any write path that triggers `RoleTransitionHandler`). It carries the `newRole` field. This is distinct from `item.updated` — a role change emits `item.advanced` (not `item.updated`).
 
 **Claim/release note:** A successful claim or release through the MCP `claim_item` tool (its `claims` and `releases` arrays) emits `item.updated` for the claimed/released item — and, for a claim that auto-releases the agent's other held items, one additional `item.updated` per auto-released item.
@@ -2097,6 +2108,7 @@ All write endpoints (POST, PATCH, PUT, DELETE) synthesize an actor server-side f
 
 **Redaction env vars:**
 - `API_REDACT_NOTE_ATTRIBUTION` (default `true`) — when `true`, non-admin callers see no attribution
+  (this includes the `actor` field on SSE events; see §21)
 
 **Independence violations (A2) are redacted by construction, not by policy.** `IndependenceViolationDto`
 carries only seat names and note keys (`key`, `seat`, `constraint`, `conflictingSeat`, `waived`) —
@@ -2150,6 +2162,10 @@ ownership, or per-item lifecycle exceptions for `{rootId}`'s items either.
 ---
 
 ## 25. Known Limitations
+
+**SSE `rootId` is absent for events published with no connected subscriber.** The no-subscriber
+performance guard skips the ancestor-chain query, so such events carry no `rootId` (and are treated
+as unresolved for root-scoped delivery) both live and when later replayed; `actor` is still present.
 
 **SSE dependency-event root resolution falls back to the database on a cold cache.** Live
 root-filtering and `Last-Event-ID` replay are both correctly root-scoped — ring-buffer entries

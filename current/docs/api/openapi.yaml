@@ -3478,7 +3478,11 @@ paths:
                   scope.entered, scope.left, sync.lost, auth.expired
 
                   ApiEvent JSON fields: id, event, itemId (null for sync.lost/auth.expired),
-                  modifiedAt, newRole (item.advanced only), and reason — set only on sync.lost,
+                  modifiedAt, newRole (item.advanced only), actor ({id, kind, parent?}, the writer;
+                  domain events only; omitted when unknown, or for a non-admin caller when
+                  API_REDACT_NOTE_ATTRIBUTION is true; never proof/verification), rootId (depth-0
+                  ancestor of the item; domain events only; omitted when unresolved, e.g. events
+                  published while no client was connected, live and on replay; never redacted), and reason — set only on sync.lost,
                   one of queue_overflow (per-connection queue overflowed), buffer_evicted
                   (resumed Last-Event-ID older than the retained ring buffer), or
                   unknown_event_id (resumed Last-Event-ID above the high-water mark or

@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.interfaces.api.v1.events
 
+import io.github.jpicklyk.mcptask.current.interfaces.api.v1.dto.ActorClaimDto
 import kotlinx.serialization.Serializable
 
 /**
@@ -22,6 +23,12 @@ import kotlinx.serialization.Serializable
  * @param reason Machine-readable cause code. Currently set only on [ApiEventType.SYNC_LOST]
  *   events â€” one of [SyncLostReason]. Null (and, because the SSE encoder runs with
  *   `explicitNulls = false`, absent from the JSON) for every other event type.
+ * @param actor Who performed the write (`{id, kind, parent?}`; never proof or verification), or
+ *   null (absent) when no actor was resolved, for bus-level events, or when redacted on egress.
+ * @param rootId The depth-0 ancestor of the affected item (for `scope.left` the OLD root, for
+ *   `scope.entered` the NEW one). Absent when the root could not be resolved (no subscriber was
+ *   connected at publish time, or the ancestor query failed) — live and on replay alike. Never
+ *   redacted.
  */
 @Serializable
 data class ApiEvent(
@@ -31,6 +38,8 @@ data class ApiEvent(
     val modifiedAt: String? = null,
     val newRole: String? = null,
     val reason: String? = null,
+    val actor: ActorClaimDto? = null,
+    val rootId: String? = null,
 )
 
 /**

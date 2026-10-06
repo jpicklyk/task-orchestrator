@@ -1,5 +1,6 @@
 package io.github.jpicklyk.mcptask.current.application.tools.items
 
+import io.github.jpicklyk.mcptask.current.application.service.withEventActor
 import io.github.jpicklyk.mcptask.current.application.tools.*
 import io.modelcontextprotocol.kotlin.sdk.types.ToolAnnotations
 import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
@@ -225,9 +226,11 @@ Unified write operations for WorkItems (create, update, delete).
         // Must be done BEFORE the cache lookup so the cache is keyed on the verified identity,
         // not the self-reported actor.id (bug 3a fix).
         val actorObj = (params as? JsonObject)?.get("actor") as? JsonObject
+        val parsedActor = if (actorObj != null) parseActorClaim(actorObj, context) else null
+        val eventActor = (parsedActor as? ActorParseResult.Success)?.claim
         val trustedActorId: String? =
-            if (actorObj != null) {
-                val actorResult = parseActorClaim(actorObj, context)
+            if (parsedActor != null) {
+                val actorResult = parsedActor
                 when (actorResult) {
                     is ActorParseResult.Success -> {
                         when (
@@ -254,11 +257,11 @@ Unified write operations for WorkItems (create, update, delete).
         // re-acquires the IdempotencyCache lock.
         if (requestId != null && trustedActorId != null) {
             return context.idempotencyCache.getOrCompute(trustedActorId, requestId) {
-                runBlocking { executeOperation(operation, params, context) }
+                runBlocking { withEventActor(eventActor) { executeOperation(operation, params, context) } }
             }
         }
 
-        return executeOperation(operation, params, context)
+        return withEventActor(eventActor) { executeOperation(operation, params, context) }
     }
 
     private suspend fun executeOperation(
