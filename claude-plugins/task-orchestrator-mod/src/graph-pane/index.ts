@@ -540,6 +540,8 @@ export function registerGraphPane(on: On, options: PluginOptions = {}): void {
   on('ui.focus', { requestId: 'to-graph' }, async ($, e, next) => redirectFocus(e, next))
 
   on('ui.render', { component: 'Pane', requestId: PANE_ID }, async ($, e) => {
+    // Cross-session follow: (re)set the one-slot listener on every draw so a pane opened from the band or redrawn after a hot reload still follows (a draw after close is harmless: followActivity checks graphPaneOpen).
+    setRemoteAdvanceListener(itemId => void followActivity($, () => [itemId]))
     const ui = $.ui.resolve(e)
     const { Box, Text, Button, Svg } = ui
     const snap = await read($, graphSnapshot)
