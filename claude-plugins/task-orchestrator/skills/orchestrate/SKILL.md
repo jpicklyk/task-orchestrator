@@ -83,6 +83,14 @@ Delegation prompts must include entity IDs and full context — subagents start 
 
 **Parallel-tier dispatches follow a dispatch contract.** Where the project's `/implement` skill ships a dispatch-contract template, generate the run's plan file from it; otherwise write one plan file for the wave that pins branch, worktree, file ownership, commit form, build self-check and review scoping. Either way, point every dispatch prompt at that file by absolute path instead of restating those rules inline. Under a run plan (`/task-orchestrator:run-wave`) seat prompts are generated and never reference this file; the contract then serves the orchestrator (fallback hand-dispatches, the post-run commit map) and the reviewers, and anything a seat must know goes in the item's `specification`/`task-scope` note.
 
+### Hand-dispatched seats carry the project's verify commands
+
+`/task-orchestrator:run-wave` reads the project's `.taskorchestrator/run-profile.json` and a project dispatch contract pins its own build self-check. A seat you dispatch **by hand**, outside both of those, gets neither unless you put it there. When that file exists:
+
+- For each `verify` entry whose `seats` lists the seat you are dispatching (`implementer`, `test-author`, ...), paste its `command` into the seat's prompt verbatim, substituting `<worktree>` and `<scratchpad>`, as the check the seat runs before committing. If the command calls a wrapper that a wave's setup creates (a lock script in the scratchpad, say) and that file is absent, give the seat the same tasks through the build tool directly: the task list is what matters, not the wrapper.
+- Run every entry whose `seats` lists `orchestrator` yourself, on the item's worktree, before dispatching the reviewer and again before pushing. A failure there goes back to the owning seat before review, not to the reviewer.
+- Without a run-profile, mirror the project's CI checks instead (its workflow files): a seat prompt that asks only for the test task misses any lint or format gate CI runs first.
+
 ### Verification
 
 **Do not delegate verification.** Do not dispatch subagents to verify or double-check your own work. Verification belongs to the schema's review phase (a separate reviewer) or to inline review on Direct tier. Current models self-verify well, so a redundant verification agent adds cost without catching more. This does not cover independent test authoring under the `needs-test-author` trait — dispatching a separate test author is production work the trait requires, not re-verification; the separation between writing code and writing its tests is the point. Redundant double-checking of your own edits remains discouraged.

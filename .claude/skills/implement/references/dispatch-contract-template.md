@@ -150,6 +150,10 @@ Run ONCE, via the lock helper, before committing:
 - `EXIT≠0` with at least one error in a file you own → fix and re-run, **max 3 invocations
   total**. Still red on your own files: commit nothing, report the error verbatim, return.
 - `:current:ktlintFormat` may reformat files you do not own. Never stage those.
+- **Report the classification you just made**, in the return line's `compile:` field: `EXIT=0`, or
+  `EXIT=<n> (foreign-only)`, or `EXIT=<n> (own-file-errors: <files>)`. A bare `EXIT=1` reads as
+  routine foreign noise to the orchestrator; an own-file failure reported that way surfaces only
+  at the full-suite run (proposal `b82537e4`).
 
 **Who runs gradle in this wave** (the single statement; every other slot, prompt and skill step
 points here instead of restating it):
@@ -213,7 +217,7 @@ runtime call order: <MCP: the pinned sentence below | REST: the route's check or
 `readsExclude` keys (the queue-phase keys the author's `query_notes` calls are restricted to):
 `["task-scope","diagnosis","test-plan"]`.
 
-Return line (rule 13): `<short-uuid>: commit <sha> | files: <list> | scenarios: <covered>/<total> | compile: EXIT=<n> | missing-declaration: <none or name>`
+Return line (rule 13): `<short-uuid>: commit <sha> | files: <list> | scenarios: <covered>/<total> | compile: EXIT=<n> [(foreign-only) | (own-file-errors: <files>)] | missing-declaration: <none or name>`
 
 ## Contract-change sweep
 
