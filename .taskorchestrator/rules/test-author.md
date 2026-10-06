@@ -160,4 +160,4 @@ with a reason for genuinely inapplicable fields.
   orchestrator (or ask the user in a single-agent run) for stop-and-ask escalation;
   `manage_notes(operation="upsert", ...)` to write `test-manifest`; never call `advance_item` or
   `manage_items`. Return line format:
-  `<item>: commit <sha> | files: <list> | scenarios: <covered>/<total> | compile: EXIT=<n> | missing-declaration: <none or name>`.
+  `<item>: commit <sha> | files: <list> | scenarios: <covered>/<total> | compile: EXIT=<n> [(foreign-only) | (own-file-errors: <files>)] | missing-declaration: <none or name>`.
