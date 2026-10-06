@@ -214,6 +214,64 @@ class CloseInMemoryPairTest {
     }
 
     @Test
+    fun `S5b a timed-out helper does not close the server`() {
+        capturing { captured ->
+            runBlocking {
+                var client2: Client? = null
+                var server2: Server? = null
+                try {
+                    val server =
+                        Server(
+                            serverInfo = Implementation(name = "two-client-server-b", version = "1.0.0"),
+                            options = inMemoryTestServerOptions(),
+                        )
+                    server2 = server
+
+                    suspend fun attach(label: String): Client {
+                        val c =
+                            Client(
+                                clientInfo = Implementation(name = label, version = "1.0.0"),
+                                options = ClientOptions(capabilities = ClientCapabilities()),
+                            )
+                        val (ct, st) = ChannelTransport.createLinkedPair()
+                        server.createSession(st)
+                        c.connect(ct)
+                        return c
+                    }
+                    val client1 = attach("client-1")
+                    val client2Live = attach("client-2")
+                    client2 = client2Live
+                    server.addTool(name = "still_alive", description = "probe") { CallToolResult(content = emptyList()) }
+
+                    var failure: Throwable? = null
+                    try {
+                        closeInMemoryPair(client1, server, 300.milliseconds)
+                    } catch (t: Throwable) {
+                        failure = t
+                    }
+                    assertTrue(failure is TimeoutCancellationException, "expected timeout but got $failure")
+
+                    // server.close() was not called: client2's session is still registered and serving.
+                    assertTrue(server.sessions.isNotEmpty(), "server sessions were cleared after timeout")
+                    val result = client2Live.callTool(name = "still_alive", arguments = emptyMap())
+                    assertFalse(result.isError == true, "client2 tool call reported isError")
+                } catch (t: Throwable) {
+                    captured.thrown += t
+                } finally {
+                    try {
+                        val c2 = client2
+                        val s2 = server2
+                        if (c2 != null && s2 != null) {
+                            closeInMemoryPair(c2, s2)
+                        }
+                    } catch (_: Throwable) {
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
     fun `S6 calling the helper twice on the same pair is fine`() {
         capturing { captured ->
             runBlocking {
