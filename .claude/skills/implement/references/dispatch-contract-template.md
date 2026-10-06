@@ -282,5 +282,7 @@ violation.
 
 Build state reviewers rely on: `<:current:test N tests / 0 failed and :current:ktlintCheck green
 at <sha>>`. Reviewers run no gradle — see the Compile self-check slot's "Who runs gradle" table.
-Red-proof results (orchestrator-run, fix reverted in a scratch worktree, item tests only):
+Red-proof results (orchestrator-run, fix reverted in a scratch worktree, item tests only; every
+mutation or partial revert applied with `.claude/skills/implement/references/patch-anchored.py`,
+spec written with the Write tool, `DRY=1` first):
 `<per item — "N/M failed", or "compile-red (tests bind to NEW surface <name>)">`.
