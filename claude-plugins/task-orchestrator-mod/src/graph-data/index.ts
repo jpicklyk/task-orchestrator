@@ -17,7 +17,7 @@ import type { GraphIo } from './io.ts'
 import { invalidateLabels } from './labels.ts'
 import { restartLive, syncLive } from './live.ts'
 import { refresh, refreshNow, sameSnapshot, sameStatus } from './refresh.ts'
-import { clearRemote, resultItemIds, withLocalWrite } from './remote.ts'
+import { actorIdsOf, clearRemote, rememberLocalActors, resultItemIds, withLocalWrite } from './remote.ts'
 
 export type { GateInfo, GraphEdge, GraphNode, GraphSnapshot, GraphStatus } from '../../types'
 // ── Atoms: the control and data surface for T3 (pane) and T4 (band) ──
@@ -68,6 +68,7 @@ export const scopeTo =
 export type { GraphIo } from './io.ts'
 export { snapshot } from './snapshot.ts'
 export { invalidateLabels } from './labels.ts'
+export { remoteAdvanceListener, setRemoteAdvanceListener } from './live.ts'
 
 /** TO tools whose calls can change the graph; a successful call re-snapshots. */
 export const WRITE_TOOLS: ReadonlySet<string> = new Set([
@@ -190,6 +191,8 @@ export function registerGraphData(on: On, options: PluginOptions = {}): void {
   // Matcher spelled as a literal: the engine resolves matchers from source, and an imported or exported constant stays unresolved (never matches).
   on('tool.call', { tool: /^mcp__.*task-orchestrator.*__(advance_item|manage_notes|create_work_tree|manage_items|manage_dependencies|complete_tree|claim_item)$/ }, async ($, e, next) => {
     if (next.origin.plugin === PLUGIN) return next(e)
+    // This session's actor ids, recorded before the call: an echo can arrive before it returns (remote.ts).
+    rememberLocalActors(actorIdsOf(e))
     // The local-write window: SSE events for this write (its echo) are not marked as remote (remote.ts).
     const ran = await withLocalWrite(() => next(e), () => $.clock.now())
     // Debounced and never awaited: the model's call is not slowed by the snapshot.
