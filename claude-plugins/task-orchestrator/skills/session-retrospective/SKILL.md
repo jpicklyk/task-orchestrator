@@ -1,7 +1,7 @@
 ---
 name: session-retrospective
 description: "Analyzes the current implementation run — evaluates schema effectiveness, delegation alignment, note quality, and plan-to-execution fit. Captures cross-session trends and proposes improvements when patterns repeat. Use after implementation runs, or when user says 'retrospective', 'session review', 'what did we learn', 'analyze this run', 'how did that go', 'evaluate our process', 'wrap up', 'end of session review'. Also use when the retrospective nudge fires after complete_tree."
-argument-hint: "[optional: root item UUID] [--dry-run to preview without creating items]"
+argument-hint: "[optional: root item UUID] [--dry-run to preview without creating items] [--deep: workflow-backed matching, main session only]"
 ---
 
 # Session Retrospective
@@ -221,11 +221,12 @@ Match each Step 3 dimension finding against the listing by title. For each candi
 
 Only when `$ARGUMENTS` contains `--deep`, the user invoked this skill in the main session (never a hook-dispatched or background run), and the Workflow tool is callable — otherwise ignore the flag and match inline as above. The `retro-analysis` workflow then replaces the inline matching; it is read-only, and Step 6 still does every write.
 
-1. Build `retro-analysis/args-v1`: `contract`, `runId: "ra-<YYYYMMDD>-<HHMM>"`, `date`, `mode: "deep"`, `rootId` (when a project root is known), `findings` (each Step 3 finding as `{fid: "f<n>", dimension, text, keywords}`), `trends` (the 4.2 listing as `{id, short, title}`), `observations` (one unscoped `query_items(operation="search", tags="agent-observation", limit=100)`, terminal ones dropped), `retros` (the 10 most recent `tags="session-retrospective"` items). Only ids and titles go in; the workflow's agents read summaries and notes themselves.
+1. Build `retro-analysis/args-v1`: `contract`, `runId: "ra-<YYYYMMDD>-<HHMM>"`, `date`, `mode: "deep"`, `rootId` (when a project root is known), `findings` (each Step 3 finding as `{fid: "f<n>", dimension, text, keywords}`; `dimension` maps 3a `schema-effectiveness`, 3b `delegation`, 3c `note-quality`, 3d `plan-to-execution`, 3e `friction`), `trends` (the 4.2 listing as `{id, short, title}`), `observations` (one unscoped `query_items(operation="search", tags="agent-observation", limit=100)`, terminal ones dropped), `retros` (`query_items(operation="search", tags="session-retrospective", sortBy="createdAt", sortOrder="desc", limit=10)`). Only ids and titles go in; the workflow's agents read summaries and notes themselves.
 2. Unless dry-run, and only when `rootId` is known: stash `{findings, retroScope}` (retroScope = the Step 1 root and item ids) with `manage_plan_documents(operation="stash", rootId, slug="retro/<runId>", body=<JSON>)` and add `planDocSlug: "retro/<runId>"` to the args.
 3. Launch `Workflow({name: "task-orchestrator:retro-analysis", args})` with args as a real object, then end the turn.
 4. On the task notification: if `started: false`, report its `reason` and match inline as above. Otherwise the result echoes `findings` (after compaction, re-read `retro/<runId>` with `manage_plan_documents(operation="get", ...)` if needed); resume at Step 5 with it:
    - `matched` entries are the 4.3 recurrences — Step 6 increments `Sessions: N` from `sessionsBefore`, or from a `get` when it is null;
+   - `stats.unmatchedShards` (`[{label, kind, targetIds}]`) are shards whose Match agent returned nothing: match the findings against those `targetIds` inline per 4.3 before calling any finding new, and report `stats.missing`;
    - `newTrends` and `unresolved` fids are new-pattern candidates;
    - `staleTrends` are retire candidates; `observationLinks` feed the report.
 5. Skip 4.4 for matched trends whose `evidence` the result already carries.
@@ -345,7 +346,7 @@ manage_items(operation="create", items=[{
 }])
 ```
 
-`<dimension>` is one of `schema-effectiveness | delegation | note-quality | friction | extension-candidate`; append `,positive` for a positive pattern. The kebab key in the title is the stable identity to match on across sessions — not exact summary text. Batch up to ~10 creates per call.
+`<dimension>` is one of `schema-effectiveness | delegation | note-quality | plan-to-execution | friction | extension-candidate`; append `,positive` for a positive pattern. The kebab key in the title is the stable identity to match on across sessions — not exact summary text. Batch up to ~10 creates per call.
 
 Then upsert its first evidence note:
 
@@ -388,6 +389,8 @@ Replaces the old pointer/history-split migration entirely — any `memory/retros
 6. **Record it** in the current retrospective's `actions-taken` note (Step 8b) — entry count migrated, container UUID.
 
 **Multi-project note.** `retrospectives.md` was per-project memory (one file per Claude Code project directory); the Trends container is per-DATABASE. Users running several projects against one MCP server converge on one shared Trends container once each project has migrated — this is intended, the same process-global model already used for `Session Retrospectives` and `Improvement Proposals`.
+
+**Audit sweep.** The `retro-analysis` workflow's audit mode (a standalone sweep, no findings) returns the same `newTrends`, `staleTrends` and `observationLinks` shapes. Present that result to the user first; only after they confirm, apply this step's create and retire shapes to it.
 
 ---
 

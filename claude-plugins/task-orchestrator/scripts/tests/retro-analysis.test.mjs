@@ -140,18 +140,21 @@ test('RA3: a null matcher lists its shard in stats.unmatchedShards and the run s
   }
   const { result, logLines } = await runWithResponder(plan, responder)
   assert.equal(result.started, true)
-  assert.equal(result.stats.unmatchedShards, 1)
+  assert.deepEqual(result.stats.unmatchedShards, [{ label: 'match:trend:1', kind: 'trend', targetIds: ['t1'] }])
   assert.ok(logLines.some((l) => l.includes('WARNING: no result from match:trend:1')))
 })
 
 // ── RA4: determinism / idempotence ───────────────────────────────────────────
 
 test('RA4: assembleResult is deterministic under fifo vs reverse completion order, and idempotent given the same ctx', async () => {
-  const trends = [entry('t1', 'Trend one'), entry('t2', 'Trend two')]
+  const trends = Array.from({ length: 7 }, (_, i) => entry('t' + (i + 1), 'Trend ' + (i + 1)))
+  const observations = Array.from({ length: 6 }, (_, i) => entry('o' + (i + 1), 'Obs ' + (i + 1)))
   const findings = [findingFx('f1'), findingFx('f2')]
-  const plan = buildPlan({ mode: 'deep', findings, trends, shardSize: 5 })
+  const plan = buildPlan({ mode: 'deep', findings, trends, observations, shardSize: 5 })
+  assert.ok(CORE.makeShards(plan).filter((s) => s.kind === 'trend').length >= 2)
+  assert.ok(CORE.makeShards(plan).filter((s) => s.kind === 'observation').length >= 2)
   const responder = async (label) => {
-    if (label.startsWith('match:')) {
+    if (label === 'match:trend:1') {
       return matchResult({
         matches: [
           { fid: 'f1', targetId: 't1', strength: 'weak', evidence: 'e1', sessionsSeen: 2 },
@@ -160,6 +163,10 @@ test('RA4: assembleResult is deterministic under fifo vs reverse completion orde
         ],
       })
     }
+    if (label === 'match:trend:2') {
+      return matchResult({ matches: [{ fid: 'f2', targetId: 't6', strength: 'weak', evidence: 'e4', sessionsSeen: 1 }] })
+    }
+    if (label.startsWith('match:')) return matchResult()
     if (label === 'adjudicate:f2') return adjudicateResult({ decision: 'match', trendId: 't2' })
     if (label === 'cluster') return clusterResultFx()
     throw new Error('unexpected label ' + label)
@@ -167,6 +174,8 @@ test('RA4: assembleResult is deterministic under fifo vs reverse completion orde
   const a = await runWithResponder(plan, responder, 'fifo')
   const b = await runWithResponder(plan, responder, 'reverse')
   assert.deepEqual(a.result, b.result)
+  assert.ok(a.result.matched.length >= 2)
+  assert.ok(a.result.matched.some((m) => m.fid === 'f2' && m.trendId === 't2'))
 
   const shards = CORE.makeShards(plan)
   const collected = CORE.collectMatches(plan, shards, shards.map(() => matchResult()))
@@ -194,6 +203,11 @@ test('RA5: no forbidden APIs in script text; every prompt starts READ-ONLY. and 
     'manage_items', 'manage_notes', 'advance_item', 'create_work_tree', 'manage_plan_documents',
     'manage_dependencies', 'complete_tree', 'claim_item', 'manage_project_config',
   ]
+  const text = scriptText(SCRIPT_PATH)
+  for (const w of WRITE_TOOLS) assert.equal(text.includes(w), false, `script text must not name ${w}`)
+  assert.equal(text.includes('select:'), false)
+  assert.equal(text.includes('isolation'), false)
+
   for (const p of [mp, ap, cp]) {
     assert.ok(p.startsWith('READ-ONLY.'), 'prompt must start with READ-ONLY.')
     for (const w of WRITE_TOOLS) assert.equal(p.includes(w), false, `prompt must not name ${w}`)
@@ -207,6 +221,29 @@ test('RA5: no forbidden APIs in script text; every prompt starts READ-ONLY. and 
     throw new Error('unexpected ' + label)
   })
   for (const c of calls) assert.equal(c.opts.isolation, undefined)
+})
+
+test('RA5b (O4): the match prompt defines strong vs weak, sessionsSeen, lastSeen, and (deep mode only) clusters', () => {
+  const trends = [entry('t1', 'Trend one')]
+  const deepPlan = buildPlan({ mode: 'deep', findings: [findingFx('f1')], trends, shardSize: 5 })
+  const auditPlan = buildPlan({ mode: 'audit', trends, shardSize: 5 })
+  for (const plan of [deepPlan, auditPlan]) {
+    const p = CORE.matchPrompt(plan, CORE.makeShards(plan)[0])
+    assert.match(p, /"strong" means/)
+    assert.match(p, /"weak" means/)
+    assert.match(p, /sessionsSeen is the number from a "Sessions: N" line[^.]*else 0/)
+    assert.match(p, /lastSeen[^.]*YYYY-MM-DD/)
+  }
+  assert.match(CORE.matchPrompt(deepPlan, CORE.makeShards(deepPlan)[0]), /clusters: 2 or more shard targets that share a pattern no finding covers/)
+  assert.doesNotMatch(CORE.matchPrompt(auditPlan, CORE.makeShards(auditPlan)[0]), /no finding covers/)
+})
+
+test('RA14b (D1/O9): plan-to-execution is an accepted finding dimension, in DIMENSIONS and the cluster prompt', () => {
+  assert.ok(CORE.DIMENSIONS.includes('plan-to-execution'))
+  const r = CORE.normalizeArgs(baseArgs({ mode: 'deep', findings: [findingFx('f1', { dimension: 'plan-to-execution' })], trends: [entry('t1', 'T')] }))
+  assert.equal(r.ok, true, r.reason)
+  const plan = r.plan
+  assert.match(CORE.clusterPrompt(plan, { orphans: [], uncovered: [], clusters: [] }), /plan-to-execution/)
 })
 
 // ── RA6: audit mode, empty findings ──────────────────────────────────────────
@@ -291,6 +328,11 @@ test('RA8: matched, newTrends.fids, and unresolved are a disjoint partition of e
   const union = matchedFids.concat(newTrendFids).concat(result.unresolved)
   assert.deepEqual(union.slice().sort(), allFids.slice().sort())
   assert.equal(new Set(union).size, union.length)
+  const viaOf = (fid) => (result.matched.find((m) => m.fid === fid) || {}).via
+  assert.equal(viaOf('f1'), 'match')
+  assert.equal(result.newTrends.find((n) => n.kebabKey === 'brand-new').fids.includes('f2'), true)
+  assert.equal(viaOf('f3'), 'cap')
+  assert.equal(result.newTrends.find((n) => n.kebabKey === 'orphan-cluster').fids.includes('f4'), true)
 })
 
 // ── RA9: capping ───────────────────────────────────────────────────────────────
@@ -338,6 +380,109 @@ test('RA10: a new-trend kebabKey equal to an existing trend\'s trendKey(title) r
   assert.equal(m.via, 'key-collision')
   assert.equal(m.trendId, 't1')
   assert.equal(m.confidence, 'weak')
+})
+
+test('RA10b (O3): a key-collision match keeps its fid\'s non-trend evidence refs and the new trend\'s evidenceRefs', async () => {
+  const trends = [entry('t1', 'trend: shared-pattern narrative title')]
+  const observations = [entry('o1', 'Obs one')]
+  const retros = [entry('r1', 'Retro one'), entry('r2', 'Retro two')]
+  const findings = [findingFx('f1')]
+  const plan = buildPlan({ mode: 'deep', findings, trends, observations, retros, shardSize: 5 })
+  const responder = async (label) => {
+    if (label === 'match:observation:1') {
+      return matchResult({ matches: [{ fid: 'f1', targetId: 'o1', strength: 'weak', evidence: 'e', sessionsSeen: 0 }] })
+    }
+    if (label.startsWith('match:')) return matchResult()
+    if (label === 'cluster') {
+      return clusterResultFx({ newTrends: [{ kebabKey: 'shared-pattern', claim: 'c', dimension: 'friction', fids: ['f1'], observationIds: ['o1'], evidenceRefs: ['r1'] }] })
+    }
+    throw new Error('unexpected ' + label)
+  }
+  const { result } = await runWithResponder(plan, responder)
+  const m = result.matched.find((mm) => mm.fid === 'f1')
+  assert.equal(m.via, 'key-collision')
+  assert.deepEqual(m.evidenceRefs.slice().sort(), ['o1', 'r1'])
+  assert.equal(result.observationLinks.find((l) => l.observationId === 'o1').trendId, 't1')
+})
+
+test('RA10c (O3): an audit-mode key-collision with no fids still links its observationIds to the colliding trend', async () => {
+  const trends = [entry('t1', 'trend: shared-pattern narrative title')]
+  const observations = [entry('o1', 'Obs one'), entry('o2', 'Obs two')]
+  const plan = buildPlan({ mode: 'audit', trends, observations, shardSize: 5 })
+  const responder = async (label) => {
+    if (label.startsWith('match:')) return matchResult()
+    if (label === 'cluster') {
+      return clusterResultFx({ newTrends: [{ kebabKey: 'shared-pattern', claim: 'c', dimension: 'friction', fids: [], observationIds: ['o1'], evidenceRefs: [] }] })
+    }
+    throw new Error('unexpected ' + label)
+  }
+  const { result } = await runWithResponder(plan, responder)
+  assert.equal(result.newTrends.length, 0)
+  const byId = Object.fromEntries(result.observationLinks.map((l) => [l.observationId, l]))
+  assert.equal(byId.o1.trendId, 't1')
+  assert.equal(byId.o2.trendId, null)
+})
+
+// ── RA17 (O1): buildMatchedEntry precedence ──────────────────────────────────────
+
+test('RA17 (O1): sessionsBefore prefers trendState, then the first sessionsSeen, then null; strong evidence wins; evidenceRefs are distinct non-trend targets', () => {
+  const mk = (byFid, trendState) => ({ byFid, trendState })
+  const weak = { kind: 'trend', targetId: 't1', strength: 'weak', evidence: 'weak-ev', sessionsSeen: 4 }
+  const strong = { kind: 'trend', targetId: 't1', strength: 'strong', evidence: 'strong-ev', sessionsSeen: 9 }
+
+  const a = CORE.buildMatchedEntry(mk({ f1: [weak, strong] }, { t1: { sessions: 7 } }), 'f1', 't1', 'match')
+  assert.equal(a.sessionsBefore, 7)
+  const b = CORE.buildMatchedEntry(mk({ f1: [weak, strong] }, {}), 'f1', 't1', 'match')
+  assert.equal(b.sessionsBefore, 4)
+  const c = CORE.buildMatchedEntry(mk({ f1: [{ ...weak, sessionsSeen: undefined }] }, {}), 'f1', 't1', 'match')
+  assert.equal(c.sessionsBefore, null)
+
+  assert.equal(a.evidence, 'strong-ev')
+  assert.equal(a.confidence, 'strong')
+  const w = CORE.buildMatchedEntry(mk({ f1: [weak] }, {}), 'f1', 't1', 'match')
+  assert.equal(w.confidence, 'weak')
+  assert.equal(w.evidence, 'weak-ev')
+
+  const refs = CORE.buildMatchedEntry(mk({ f1: [
+    weak,
+    { kind: 'observation', targetId: 'o1', strength: 'weak', evidence: 'x' },
+    { kind: 'observation', targetId: 'o1', strength: 'strong', evidence: 'y' },
+    { kind: 'retro', targetId: 'r1', strength: 'weak', evidence: 'z' },
+  ] }, {}), 'f1', 't1', 'match')
+  assert.deepEqual(refs.evidenceRefs, ['o1', 'r1'])
+})
+
+test('RA17b (O1): end to end, match, cap and adjudicate paths each carry sessionsBefore and confidence from the collected entries', async () => {
+  const trends = [entry('t1', 'Trend one'), entry('t2', 'Trend two'), entry('t3', 'Trend three')]
+  const findings = [findingFx('f1'), findingFx('f2'), findingFx('f3')]
+  const plan = buildPlan({ mode: 'deep', findings, trends, shardSize: 5, maxAdjudicate: 1 })
+  const responder = async (label) => {
+    if (label.startsWith('match:')) {
+      return matchResult({
+        matches: [
+          { fid: 'f1', targetId: 't1', strength: 'strong', evidence: 'ev1', sessionsSeen: 5 },
+          { fid: 'f2', targetId: 't2', strength: 'weak', evidence: 'ev2a', sessionsSeen: 2 },
+          { fid: 'f2', targetId: 't3', strength: 'strong', evidence: 'ev2b', sessionsSeen: 8 },
+          { fid: 'f3', targetId: 't2', strength: 'weak', evidence: 'ev3a', sessionsSeen: 2 },
+          { fid: 'f3', targetId: 't3', strength: 'weak', evidence: 'ev3b', sessionsSeen: 8 },
+        ],
+        trendState: [{ trendId: 't1', sessions: 6, lastSeen: '2026-09-27' }],
+      })
+    }
+    if (label === 'adjudicate:f2') return adjudicateResult({ decision: 'match', trendId: 't2' })
+    if (label === 'cluster') return clusterResultFx()
+    throw new Error('unexpected ' + label)
+  }
+  const { result } = await runWithResponder(plan, responder)
+  const by = (fid) => result.matched.find((m) => m.fid === fid)
+  assert.equal(by('f1').via, 'match')
+  assert.equal(by('f1').sessionsBefore, 6)
+  assert.equal(by('f1').confidence, 'strong')
+  assert.equal(by('f2').via, 'adjudicate')
+  assert.equal(by('f2').sessionsBefore, 2)
+  assert.equal(by('f2').confidence, 'weak')
+  assert.equal(by('f3').via, 'cap')
+  assert.equal(typeof by('f3').sessionsBefore, 'number')
 })
 
 // ── RA11: staleTrends ───────────────────────────────────────────────────────────
@@ -442,6 +587,18 @@ test('RA14: normalizeArgs enforces every documented reason in order, with string
   assert.equal(N(withContract({ ...validCore, shardSize: 4 })).reason, 'invalid args: shardSize must be 5-30')
   assert.equal(N(withContract({ ...validCore, shardSize: 31 })).reason, 'invalid args: shardSize must be 5-30')
   assert.equal(N(withContract({ ...validCore, shardSize: 5.5 })).reason, 'invalid args: shardSize must be 5-30')
+
+  for (const bad of [0, -1, 2.5, 'x']) {
+    assert.equal(N(withContract({ ...validCore, maxAgents: bad })).reason, 'invalid args: maxAgents must be a positive integer')
+    assert.equal(N(withContract({ ...validCore, staleDays: bad })).reason, 'invalid args: staleDays must be a positive integer')
+  }
+  for (const bad of [-1, 1.5, 'x']) {
+    assert.equal(N(withContract({ ...validCore, maxAdjudicate: bad })).reason, 'invalid args: maxAdjudicate must be an integer, 0 or more')
+  }
+  assert.equal(N(withContract({ ...validCore, maxAdjudicate: 0, trends: [entry('t1', 'T')] })).ok, true)
+  assert.equal(CORE.kebab(undefined), '')
+  assert.equal(CORE.kebab(null), '')
+  assert.equal(CORE.kebab('Hello World!'), 'hello-world')
 
   assert.equal(N(withContract({ ...validCore, findings: 'nope' })).reason, 'invalid args: findings must be an array')
   const tooManyFindings = Array.from({ length: 41 }, (_, i) => findingFx('f' + i))
@@ -626,4 +783,17 @@ test('T-deep: the Deep mode heading appears exactly once, between 4.3 and 4.4, a
 
   assert.match(block, /retro\/<runId>/)
   assert.match(block, /retro-analysis\/args-v1/)
+})
+
+// ── T-skill-followups (D1/D2/D4/O10/O11) ─────────────────────────────────────
+
+test('T-skill-followups: session-retrospective names plan-to-execution, --deep in its hint, the audit sweep, unmatchedShards, and the sorted retro query', () => {
+  const text = readFileSync(SKILL_PATH, 'utf8')
+  assert.match(text.split('\n').find((l) => l.startsWith('argument-hint:')), /--deep/)
+  assert.match(text, /3d `plan-to-execution`/)
+  assert.match(text, /`<dimension>` is one of [^\n]*plan-to-execution/)
+  assert.match(text, /\*\*Audit sweep\.\*\*[^\n]*only after they confirm/)
+  assert.match(text, /stats\.unmatchedShards[^\n]*targetIds/)
+  assert.match(text, /tags="session-retrospective", sortBy="createdAt", sortOrder="desc", limit=10/)
+  assert.equal((text.match(/task-orchestrator:retro-analysis/g) || []).length, 1)
 })
