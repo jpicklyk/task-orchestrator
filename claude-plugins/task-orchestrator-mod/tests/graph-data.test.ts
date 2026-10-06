@@ -1474,3 +1474,470 @@ test('S13: a successful local write clears the marks of its items and cascades; 
   await clock.settle()
   expect(st.sets.filter(k => k === 'graphRemote')).toHaveLength(writes)
 })
+
+// -- 087c6077: actor-based echo attribution and cross-session follow from SSE --
+// Oracles (frozen in the item's test-plan, never the code): [AR] api-rest.md section 21 'Actor and rootId';
+// [TS] the task-scope A/B clauses. Every 'remote' or 'local' assertion is paired with its opposite on the same fixture.
+import { setRemoteAdvanceListener, remoteAdvanceListener } from '../src/graph-data/live.ts'
+import { LOCAL_ACTOR_CAP, REMOTE_FOLLOW_DEBOUNCE_MS, REMOTE_FOLLOW_QUIET_MS, actorIdsOf, attribute, localActorIds, rememberLocalActors, remoteFollowCandidate } from '../src/graph-data/remote.ts'
+
+const IDLE = { inFlight: 0, lastEnd: null as number | null }
+
+// -- pure: actorIdsOf (S6) --
+
+test('S6 (087c6077): actorIdsOf reads the top-level actor then every object element of every top-level array, deduped in first-seen order', () => {
+  expect(actorIdsOf({ actor: { id: 'a' }, notes: [{ itemId: 'x', actor: { id: 'b' } }, { actor: { id: 'a' } }], items: [{ title: 't', actor: { id: 'c' } }] })).toEqual(['a', 'b', 'c'])
+  // An element without an itemId (a create element) still counts.
+  expect(actorIdsOf({ items: [{ title: 'new', actor: { id: 'creator' } }] })).toEqual(['creator'])
+  expect(actorIdsOf({ transitions: [{ itemId: 'x', actor: { id: 'first' } }], claims: [{ actor: { id: 'z' } }] })).toEqual(['first', 'z'])
+})
+
+test('S6 (087c6077): actorIdsOf ignores garbage, non-string and empty ids, non-object elements, and nested non-top-level arrays', () => {
+  for (const bad of [null, undefined, 'x', 5, true, [], {}, { actor: null }, { actor: 'str' }, { actor: {} }]) expect(actorIdsOf(bad)).toEqual([])
+  expect(actorIdsOf({ actor: { id: '' }, notes: [{ actor: { id: 5 } }, 'str', null, 7, { actor: { id: '' } }, { actor: { id: 'z' } }] })).toEqual(['z'])
+  // Only top-level arrays are scanned.
+  expect(actorIdsOf({ wrapper: { inner: [{ actor: { id: 'q' } }] } })).toEqual([])
+  // Control on the same shape: the same array one level up is read.
+  expect(actorIdsOf({ inner: [{ actor: { id: 'q' } }] })).toEqual(['q'])
+})
+
+// -- pure: the local actor set (S7) --
+
+test('S7 (087c6077): the local actor set caps at LOCAL_ACTOR_CAP, the oldest dropped; resetRemoteState clears it', () => {
+  resetRemoteState()
+  expect(LOCAL_ACTOR_CAP).toBe(200)
+  rememberLocalActors(Array.from({ length: 200 }, (_, i) => `a${i}`))
+  expect(localActorIds()).toHaveLength(200)
+  expect(localActorIds()).toContain('a0')
+  rememberLocalActors(['a200'])
+  const ids = localActorIds()
+  expect(ids).toHaveLength(200)
+  expect(ids).not.toContain('a0')
+  expect(ids).toContain('a1')
+  expect(ids).toContain('a200')
+  // 201 distinct ids in one call: the first goes, the 200 newest stay.
+  resetRemoteState()
+  rememberLocalActors(Array.from({ length: 201 }, (_, i) => `b${i}`))
+  expect(localActorIds()).toHaveLength(200)
+  expect(localActorIds()).not.toContain('b0')
+  expect(localActorIds()).toContain('b200')
+  resetRemoteState()
+  expect(localActorIds()).toEqual([])
+})
+
+test('S7 (087c6077): remembering an id twice keeps it once', () => {
+  resetRemoteState()
+  rememberLocalActors(['me:1', 'x'])
+  rememberLocalActors(['me:1'])
+  expect(localActorIds().filter(id => id === 'me:1')).toHaveLength(1)
+  expect(localActorIds().sort()).toEqual(['me:1', 'x'])
+  resetRemoteState()
+})
+
+// -- pure: attribute (S3, S4, S5) --
+
+test('S3 (087c6077): attribute by actor: own id or own parent is local, any other actor is remote, whatever the window says', () => {
+  const busy = { inFlight: 1, lastEnd: 100 }
+  expect(attribute({ actor: { id: 'me:1' } }, IDLE, ['me:1'], 50_000)).toEqual({ origin: 'local', by: 'actor' })
+  expect(attribute({ actor: { id: 'sub:2', parent: 'me:1' } }, IDLE, ['me:1'], 50_000)).toEqual({ origin: 'local', by: 'actor' })
+  // Opposites on the same set: a stranger, and a stranger whose parent is also a stranger.
+  expect(attribute({ actor: { id: 'other:1' } }, IDLE, ['me:1'], 50_000)).toEqual({ origin: 'remote', by: 'actor' })
+  expect(attribute({ actor: { id: 'sub:2', parent: 'other:1' } }, IDLE, ['me:1'], 50_000)).toEqual({ origin: 'remote', by: 'actor' })
+  // The window is not consulted when an actor is present: a write in flight cannot make a stranger local.
+  expect(attribute({ actor: { id: 'other:1' } }, busy, ['me:1'], 101)).toEqual({ origin: 'remote', by: 'actor' })
+  // ... and an idle window cannot make our own actor remote.
+  expect(attribute({ actor: { id: 'me:1' } }, IDLE, ['me:1'], 999_999)).toEqual({ origin: 'local', by: 'actor' })
+  // Ids are exact: case differs, so remote.
+  expect(attribute({ actor: { id: 'ME:1' } }, IDLE, ['me:1'], 1)).toEqual({ origin: 'remote', by: 'actor' })
+})
+
+test('S4 (087c6077): attribute without an actor falls back to the window: local up to LOCAL_ECHO_MS after a write ended, remote after', () => {
+  const end = 100_000
+  const w = { inFlight: 0, lastEnd: end }
+  expect(attribute({ itemId: 'x' }, w, [], end + 4_999)).toEqual({ origin: 'local', by: 'window' })
+  expect(attribute({ itemId: 'x' }, w, [], end + 6_000)).toEqual({ origin: 'remote', by: 'window' })
+  expect(attribute({ itemId: 'x' }, { inFlight: 1, lastEnd: null }, [], end)).toEqual({ origin: 'local', by: 'window' })
+  expect(attribute({ itemId: 'x' }, IDLE, [], end)).toEqual({ origin: 'remote', by: 'window' })
+  // Our own actor ids in the set do not matter without an actor on the event.
+  expect(attribute({ itemId: 'x' }, IDLE, ['me:1'], end)).toEqual({ origin: 'remote', by: 'window' })
+})
+
+test('S5 (087c6077): an empty, empty-id, non-string-id, null or non-object actor counts as absent (window rule); a real id does not', () => {
+  const busy = { inFlight: 1, lastEnd: null as number | null }
+  for (const actor of [{}, { id: '' }, { id: 5 }, null, 'str', { id: null }, []]) {
+    expect(attribute({ itemId: 'x', actor }, IDLE, ['me:1'], 1)).toEqual({ origin: 'remote', by: 'window' })
+    expect(attribute({ itemId: 'x', actor }, busy, ['me:1'], 1)).toEqual({ origin: 'local', by: 'window' })
+  }
+  for (const data of [undefined, null, 'x', 5, []]) expect(attribute(data, IDLE, [], 1).by).toBe('window')
+  // Control: the same fixture with a real id is decided by actor, and the window is ignored.
+  expect(attribute({ itemId: 'x', actor: { id: 'other:1' } }, busy, ['me:1'], 1)).toEqual({ origin: 'remote', by: 'actor' })
+})
+
+// -- pure: remoteFollowCandidate (S9, S10, S11) --
+
+const REMOTE_ACTOR = { origin: 'remote', by: 'actor' } as const
+const advanced = (over: Record<string, unknown> = {}) => ({ id: 1, event: 'item.advanced', itemId: 'X', actor: { id: 'other:1' }, rootId: ROOT, ...over })
+
+test('S9 (087c6077): an item.advanced event attributed remote by actor, in this project, yields its itemId', () => {
+  expect(remoteFollowCandidate('item.advanced', advanced(), REMOTE_ACTOR, ROOT)).toBe('X')
+})
+
+test('S10 (087c6077): not eligible: window attribution, local origin, another event name, missing/other rootId, no project root, bad rootId text, no itemId', () => {
+  expect(remoteFollowCandidate('item.advanced', advanced(), REMOTE_ACTOR, ROOT)).toBe('X')
+  expect(remoteFollowCandidate('item.advanced', advanced(), { origin: 'remote', by: 'window' }, ROOT)).toBeUndefined()
+  expect(remoteFollowCandidate('item.advanced', advanced(), { origin: 'local', by: 'actor' }, ROOT)).toBeUndefined()
+  expect(remoteFollowCandidate('item.advanced', advanced(), { origin: 'local', by: 'window' }, ROOT)).toBeUndefined()
+  for (const name of ['item.updated', 'item.created', 'item.deleted', 'note.upserted', 'dependency.added']) expect(remoteFollowCandidate(name, advanced({ event: name }), REMOTE_ACTOR, ROOT)).toBeUndefined()
+  const { rootId: _drop, ...noRoot } = advanced()
+  expect(remoteFollowCandidate('item.advanced', noRoot, REMOTE_ACTOR, ROOT)).toBeUndefined()
+  expect(remoteFollowCandidate('item.advanced', advanced({ rootId: '00000000-0000-4000-8000-0000000000ff' }), REMOTE_ACTOR, ROOT)).toBeUndefined()
+  expect(remoteFollowCandidate('item.advanced', advanced(), REMOTE_ACTOR, null)).toBeUndefined()
+  // Probes: whitespace around an otherwise matching rootId, a non-string rootId, an empty or absent itemId, no data.
+  expect(remoteFollowCandidate('item.advanced', advanced({ rootId: ` ${ROOT} ` }), REMOTE_ACTOR, ROOT)).toBeUndefined()
+  expect(remoteFollowCandidate('item.advanced', advanced({ rootId: 5 }), REMOTE_ACTOR, ROOT)).toBeUndefined()
+  expect(remoteFollowCandidate('item.advanced', advanced({ itemId: '' }), REMOTE_ACTOR, ROOT)).toBeUndefined()
+  expect(remoteFollowCandidate('item.advanced', advanced({ itemId: undefined }), REMOTE_ACTOR, ROOT)).toBeUndefined()
+  expect(remoteFollowCandidate('item.advanced', undefined, REMOTE_ACTOR, ROOT)).toBeUndefined()
+})
+
+test('S11 (087c6077): the rootId comparison is case-insensitive in both directions', () => {
+  const upperRoot = 'ABCDEF01-0000-4000-8000-0000000000AA'
+  expect(remoteFollowCandidate('item.advanced', advanced({ rootId: upperRoot.toLowerCase() }), REMOTE_ACTOR, upperRoot)).toBe('X')
+  expect(remoteFollowCandidate('item.advanced', advanced({ rootId: upperRoot }), REMOTE_ACTOR, upperRoot.toLowerCase())).toBe('X')
+  // Control: a different root in either case stays out.
+  expect(remoteFollowCandidate('item.advanced', advanced({ rootId: upperRoot }), REMOTE_ACTOR, ROOT)).toBeUndefined()
+})
+
+// -- live rig: frames through the spawn script --
+
+const frameOf = (event: string, itemId: string, extra: Record<string, unknown> = {}) => `event: ${event}\ndata: ${JSON.stringify({ id: 1, event, itemId, ...extra })}\n\n`
+const remoteFrame = (itemId: string, over: Record<string, unknown> = {}) => frameOf('item.advanced', itemId, { actor: { id: 'other:1', kind: 'subagent' }, rootId: ROOT, ...over })
+
+/** An SSE-connected live rig that records the marks and the follow-listener calls. */
+async function sseLive() {
+  resetRefreshState()
+  resetLiveState()
+  resetRemoteState()
+  setRemoteAdvanceListener(null)
+  const queue: string[] = []
+  let wake: () => void = () => undefined
+  const push = (t: string) => {
+    queue.push(t)
+    wake()
+  }
+  const env = fake({
+    env: { TASK_ORCHESTRATOR_API_URL: 'http://localhost:3001' },
+    spawn: async function* () {
+      for (;;) {
+        while (queue.length === 0) await new Promise<void>(resolve => (wake = resolve))
+        yield { stream: 'stdout' as const, text: queue.shift() as string }
+      }
+    },
+  })
+  env.state.scope = 'root'
+  let marks: Record<string, number> = {}
+  const io: GraphIo = {
+    ...env.io,
+    updateRemote: async step => {
+      marks = step(marks)
+    },
+  }
+  const followed: string[] = []
+  setRemoteAdvanceListener(id => void followed.push(id))
+  syncLive(io, 1)
+  await env.advance(0)
+  const done = async () => {
+    syncLive(io, 0)
+    await env.advance(0)
+    setRemoteAdvanceListener(null)
+    resetRemoteState()
+    resetRefreshState()
+    resetLiveState()
+  }
+
+  return { env, io, push, marks: () => marks, followed, done }
+}
+
+test('S1 (087c6077): an item.advanced frame with another actor, pushed INSIDE a local write, is marked remote; an actorless frame in the same window is our echo', async () => {
+  const rig = await sseLive()
+  await withLocalWrite(async () => {
+    rig.push(remoteFrame('X'))
+    await rig.env.advance(0)
+    rig.push(frameOf('item.advanced', 'Y'))
+    await rig.env.advance(0)
+  }, () => rig.io.now())
+  expect(Object.keys(rig.marks())).toEqual(['X'])
+  await rig.done()
+})
+
+test('S2 (087c6077): a frame whose actor is one of ours is not marked 10s after a write; a stranger and an actorless frame at the same moment are', async () => {
+  const rig = await sseLive()
+  rememberLocalActors(['me:1'])
+  await withLocalWrite(async () => undefined, () => rig.io.now())
+  await rig.env.advance(10_000)
+  rig.push(remoteFrame('mine', { actor: { id: 'me:1' } }))
+  await rig.env.advance(0)
+  expect(rig.marks().mine).toBeUndefined()
+  rig.push(remoteFrame('theirs', { actor: { id: 'other:1' } }))
+  rig.push(frameOf('item.updated', 'plain'))
+  await rig.env.advance(0)
+  expect(Object.keys(rig.marks()).sort()).toEqual(['plain', 'theirs'])
+  // A subagent of ours (parent is ours) is also not marked.
+  rig.push(frameOf('item.updated', 'child', { actor: { id: 'sub:2', parent: 'me:1' } }))
+  await rig.env.advance(0)
+  expect(rig.marks().child).toBeUndefined()
+  await rig.done()
+})
+
+test('S4 (087c6077): an actorless frame 6s after a write is marked; 4s after it is not (window fallback kept)', async () => {
+  const rig = await sseLive()
+  await withLocalWrite(async () => undefined, () => rig.io.now())
+  await rig.env.advance(4_000)
+  rig.push(frameOf('item.updated', 'early'))
+  await rig.env.advance(0)
+  expect(rig.marks().early).toBeUndefined()
+  await rig.env.advance(2_000)
+  rig.push(frameOf('item.updated', 'late'))
+  await rig.env.advance(0)
+  expect(Object.keys(rig.marks())).toEqual(['late'])
+  await rig.done()
+})
+
+test('probe (087c6077): actor ids are exact (ME:1 is remote when me:1 is ours); a duplicate frame marks once', async () => {
+  const rig = await sseLive()
+  rememberLocalActors(['me:1'])
+  rig.push(remoteFrame('lower', { actor: { id: 'me:1' } }))
+  rig.push(remoteFrame('upper', { actor: { id: 'ME:1' } }))
+  rig.push(remoteFrame('upper', { actor: { id: 'ME:1' } }))
+  await rig.env.advance(0)
+  expect(Object.keys(rig.marks())).toEqual(['upper'])
+  await rig.done()
+})
+
+test('probe (087c6077): a replayed frame after sync.lost carrying an actor is attributed the same way', async () => {
+  const rig = await sseLive()
+  rememberLocalActors(['me:1'])
+  rig.push('event: sync.lost\ndata: {"id":9,"event":"sync.lost","reason":"queue_overflow"}\n\n')
+  await rig.env.advance(0)
+  rig.push(remoteFrame('replay-theirs'))
+  rig.push(remoteFrame('replay-mine', { actor: { id: 'me:1' } }))
+  await rig.env.advance(0)
+  expect(Object.keys(rig.marks())).toEqual(['replay-theirs'])
+  await rig.done()
+})
+
+// -- live rig: the follow listener (S12, S13, S14, S10 live) --
+
+test('S12 (087c6077): three eligible frames 1s apart give no listener call until 3s after the last, then exactly one with the last itemId', async () => {
+  const rig = await sseLive()
+  expect(REMOTE_FOLLOW_DEBOUNCE_MS).toBe(3_000)
+  rig.push(remoteFrame('A'))
+  await rig.env.advance(1_000)
+  rig.push(remoteFrame('B'))
+  await rig.env.advance(1_000)
+  rig.push(remoteFrame('C'))
+  await rig.env.advance(2_999)
+  expect(rig.followed).toEqual([])
+  await rig.env.advance(1)
+  expect(rig.followed).toEqual(['C'])
+  // It fires once only.
+  await rig.env.advance(10_000)
+  expect(rig.followed).toEqual(['C'])
+  await rig.done()
+})
+
+test('S10 (087c6077) live: window-remote, local, other-root, rootId-less and non-advance frames never reach the listener; a real remote advance does', async () => {
+  const rig = await sseLive()
+  rememberLocalActors(['me:1'])
+  rig.push(frameOf('item.advanced', 'win', { rootId: ROOT }))
+  rig.push(remoteFrame('mine', { actor: { id: 'me:1' } }))
+  rig.push(remoteFrame('otherroot', { rootId: '00000000-0000-4000-8000-0000000000ff' }))
+  rig.push(remoteFrame('noroot', { rootId: undefined }))
+  rig.push(frameOf('item.updated', 'upd', { actor: { id: 'other:1' }, rootId: ROOT }))
+  rig.push(frameOf('note.upserted', 'note', { actor: { id: 'other:1' }, rootId: ROOT }))
+  await rig.env.advance(10_000)
+  expect(rig.followed).toEqual([])
+  // Control: these frames did arrive (the stream is alive: the stranger ones are marked), and a real one follows.
+  expect(Object.keys(rig.marks()).sort()).toEqual(['noroot', 'note', 'otherroot', 'upd', 'win'])
+  rig.push(remoteFrame('real'))
+  await rig.env.advance(3_000)
+  expect(rig.followed).toEqual(['real'])
+  await rig.done()
+})
+
+test('S11 (087c6077) live: an upper-case rootId on the frame still follows', async () => {
+  const rig = await sseLive()
+  rig.push(remoteFrame('U', { rootId: ROOT.toUpperCase() }))
+  await rig.env.advance(3_000)
+  expect(rig.followed).toEqual(['U'])
+  await rig.done()
+})
+
+test('S13 (087c6077): stopping live (syncLive 0, restartLive, resetLiveState) before the debounce fires cancels the pending call; an uninterrupted one fires', async () => {
+  // Control: uninterrupted.
+  let rig = await sseLive()
+  rig.push(remoteFrame('A'))
+  await rig.env.advance(0)
+  await rig.env.advance(3_000)
+  expect(rig.followed).toEqual(['A'])
+  await rig.done()
+  // syncLive 0.
+  rig = await sseLive()
+  rig.push(remoteFrame('A'))
+  await rig.env.advance(1_000)
+  syncLive(rig.io, 0)
+  await rig.env.advance(5_000)
+  expect(rig.followed).toEqual([])
+  await rig.done()
+  // restartLive.
+  rig = await sseLive()
+  rig.push(remoteFrame('A'))
+  await rig.env.advance(1_000)
+  restartLive(rig.io, 1)
+  await rig.env.advance(5_000)
+  expect(rig.followed).toEqual([])
+  await rig.done()
+  // resetLiveState.
+  rig = await sseLive()
+  rig.push(remoteFrame('A'))
+  await rig.env.advance(1_000)
+  resetLiveState()
+  await rig.env.advance(5_000)
+  expect(rig.followed).toEqual([])
+  await rig.done()
+})
+
+test('S14 (087c6077): own activity wins: a write that ended under 30s before the fire drops it, 30s or more delivers it, one still in flight drops it', async () => {
+  expect(REMOTE_FOLLOW_QUIET_MS).toBe(30_000)
+  const cases: [string, number, number][] = [
+    ['ended 10s before the fire', 7_000, 0],
+    ['ended 29.999s before the fire', 26_999, 0],
+    ['ended exactly 30s before the fire', 27_000, 1],
+    ['ended 31s before the fire', 28_000, 1],
+  ]
+  for (const [label, delay, expected] of cases) {
+    const rig = await sseLive()
+    await withLocalWrite(async () => undefined, () => rig.io.now())
+    await rig.env.advance(delay)
+    rig.push(remoteFrame('F'))
+    await rig.env.advance(0)
+    await rig.env.advance(3_000)
+    expect([label, rig.followed.length]).toEqual([label, expected])
+    await rig.done()
+  }
+  // In flight at fire time.
+  const rig = await sseLive()
+  let release: () => void = () => undefined
+  const held = withLocalWrite(() => new Promise<void>(resolve => (release = resolve)), () => rig.io.now())
+  rig.push(remoteFrame('F'))
+  await rig.env.advance(0)
+  await rig.env.advance(3_000)
+  expect(rig.followed).toEqual([])
+  release()
+  await held
+  await rig.done()
+})
+
+test('probe (087c6077): a listener that throws does not kill the stream; the next frame still marks', async () => {
+  const rig = await sseLive()
+  setRemoteAdvanceListener(() => {
+    throw new Error('listener boom')
+  })
+  expect(remoteAdvanceListener()).not.toBeNull()
+  rig.push(remoteFrame('A'))
+  await rig.env.advance(3_000)
+  rig.push(remoteFrame('B'))
+  await rig.env.advance(0)
+  expect(Object.keys(rig.marks()).sort()).toEqual(['A', 'B'])
+  await rig.done()
+})
+
+test('087c6077: setRemoteAdvanceListener stores and clears the listener', () => {
+  const fn = (_id: string) => undefined
+  setRemoteAdvanceListener(fn)
+  expect(remoteAdvanceListener()).toBe(fn)
+  setRemoteAdvanceListener(null)
+  expect(remoteAdvanceListener()).toBeNull()
+})
+
+// -- loaded plugin: the tool.call hook records actors before next() (S8) --
+
+// The loaded plugin has its own module instance (a fresh one per test), so the actor set is observed through
+// its effect: the SSE stream is the test's process.spawn handler, the marks land in $.state graphRemote.
+// With an actor on the frame the window is not consulted, so a frame carrying one of our actors can only stay
+// unmarked if that actor was recorded; pushed from inside the write it can only stay unmarked if it was
+// recorded BEFORE next(e) (task-scope A: an echo can arrive before the call returns).
+function loadedSse(on: On) {
+  serveHooks(on)
+  const st = stateRig(on, { graphSubscribers: 1, graphPaneOpen: true, bandSubscribed: true, graphStatus: { refreshing: false, liveSource: 'sse' } })
+  mock.env(on, { TASK_ORCHESTRATOR_API_URL: 'http://localhost:3001' })
+  const clock = mock.clock(on, { now: 1_000_000 })
+  const queue: string[] = []
+  let wake: () => void = () => undefined
+  const push = (t: string) => {
+    queue.push(t)
+    wake()
+  }
+  on('process.spawn', async function* () {
+    for (;;) {
+      while (queue.length === 0) await new Promise<void>(resolve => (wake = resolve))
+      yield { stream: 'stdout' as const, text: queue.shift() as string }
+    }
+  } as never)
+  on('session.start', async (_$, e) => ({ cwd: e.cwd }) as never)
+  on('ui.open', async () => ({ value: { isPlaced: true } }) as never)
+  on('ui.close', async () => ({ value: undefined }) as never)
+  on('ui.status', async () => ({ value: undefined }) as never)
+  on('ui.toast', async () => ({ value: undefined }) as never)
+  on('command.register', async () => ({ value: undefined }) as never)
+
+  return { st, clock, push }
+}
+const SSE_TIME = { timeoutMs: 30_000 } as never
+const settleBy = async (clock: ReturnType<typeof mock.clock>, ms: number) => {
+  await clock.advance(ms)
+  await clock.settle()
+}
+
+test('S8 (087c6077): an element actor with no itemId (a create) is recorded as ours: its later frame is not marked, a stranger frame at the same moment is', SSE_TIME, async ($, on) => {
+  const { st, clock, push } = loadedSse(on)
+  on('tool.call', async () => ok as never)
+  await $.session.start({ cwd: '/work/project', surface: 'terminal', isInteractive: true } as never)
+  await settleBy(clock, 1_000)
+  await $.tool.call({ tool: `${TO}manage_items`, operation: 'create', items: [{ title: 'new', actor: { id: 'creator:c' } }], actor: { id: 'orch:o', kind: 'orchestrator' } } as never)
+  // Well past the 5s window: only the actor can still make these local.
+  await settleBy(clock, 20_000)
+  push(frameOf('item.updated', 'mine-element', { actor: { id: 'creator:c' }, rootId: ROOT }))
+  push(frameOf('item.updated', 'mine-top', { actor: { id: 'orch:o' }, rootId: ROOT }))
+  push(frameOf('item.updated', 'theirs', { actor: { id: 'other:1' }, rootId: ROOT }))
+  await settleBy(clock, 1_000)
+  expect(Object.keys((st.valueOf('graphRemote') ?? {}) as object).sort()).toEqual(['theirs'])
+})
+
+test('S8 (087c6077): the actors are recorded BEFORE next(e): a frame carrying our actor that arrives while the write is still running is not marked', SSE_TIME, async ($, on) => {
+  const { st, clock, push } = loadedSse(on)
+  on('tool.call', async () => {
+    push(frameOf('item.updated', 'echo', { actor: { id: 'creator:c' }, rootId: ROOT }))
+    push(frameOf('item.updated', 'stranger', { actor: { id: 'other:1' }, rootId: ROOT }))
+    await settleBy(clock, 500)
+
+    return ok as never
+  })
+  await $.session.start({ cwd: '/work/project', surface: 'terminal', isInteractive: true } as never)
+  await settleBy(clock, 1_000)
+  await $.tool.call({ tool: `${TO}manage_items`, operation: 'create', items: [{ title: 'new', actor: { id: 'creator:c' } }] } as never)
+  await settleBy(clock, 1_000)
+  expect(Object.keys((st.valueOf('graphRemote') ?? {}) as object).sort()).toEqual(['stranger'])
+})
+
+test('S8 (087c6077): a read tool records no actor: its actor is a stranger afterwards', SSE_TIME, async ($, on) => {
+  const { st, clock, push } = loadedSse(on)
+  on('tool.call', async () => ok as never)
+  await $.session.start({ cwd: '/work/project', surface: 'terminal', isInteractive: true } as never)
+  await settleBy(clock, 1_000)
+  await $.tool.call({ tool: `${TO}query_items`, operation: 'get', itemId: 'x', actor: { id: 'reader:r' } } as never)
+  await settleBy(clock, 20_000)
+  push(frameOf('item.updated', 'by-reader', { actor: { id: 'reader:r' }, rootId: ROOT }))
+  await settleBy(clock, 1_000)
+  expect(Object.keys((st.valueOf('graphRemote') ?? {}) as object)).toEqual(['by-reader'])
+})

@@ -2665,3 +2665,199 @@ test('S4 (8f1064d7): firstSpawnUuid prefers the description, then the prompt, sk
   // An 8-hex prefix is not a full uuid.
   expect(firstSpawnUuid('', `item ${HT.slice(0, 8)}`, WR)).toBeNull()
 })
+
+// -- 087c6077: another session's transition follows the auto scope, through the loaded plugin --
+// Oracles (frozen in the item's test-plan): [RM] README scope bullet, [TS] task-scope B (eligible event, 3s trailing
+// debounce, listener = followActivity), 8f1064d7 owningScope. The loaded plugin has its own module instance, so the
+// live-to-pane listener is exercised end to end: SSE frames come from the test's process.spawn handler.
+
+// A pane that is not open yet, so /to-graph opens it, counts a subscriber and starts the events stream.
+const CLOSED = { graphPaneOpen: false }
+const API_URL = 'http://localhost:3001'
+const SSE_TIME = { timeoutMs: 30_000 } as never
+
+/** The world's reads, plus the snapshot's subtree search (the shared world answers it with no rows). */
+const subtreeReply = (w: WWorld, tool: string, args: Record<string, unknown>): unknown => {
+  if (tool === 'query_items' && args.operation === 'search' && args.type === undefined && typeof args.ancestorId === 'string') {
+    const items = w.items ?? WITEMS
+    const inTree = (id: string | null): boolean => id !== null && (id === args.ancestorId || inTree(items.find(i => i.id === id)?.parentId ?? null))
+    const rows = items.filter(i => inTree(i.id)).map(i => ({ ...i, depth: ancestorsOf(items, i.id).length, priority: 'medium' }))
+    const offset = Number(args.offset ?? 0)
+    const limit = Number(args.limit ?? 50)
+
+    return { items: rows.slice(offset, offset + limit), total: rows.length, returned: Math.min(limit, Math.max(0, rows.length - offset)), limit, offset }
+  }
+
+  return prefixReply(w, tool, args)
+}
+
+/** followRig with an events stream: process.spawn yields whatever `push` queues. */
+function sseFollowRig(on: On, w: WWorld, seed: Record<string, unknown>) {
+  const r = rig(on, seed)
+  const calls: WCall[] = []
+  on('fs.read', async (_$, e) => {
+    const path = String((e as { path: string }).path).split(String.fromCharCode(92)).join('/')
+    if (path.endsWith('.taskorchestrator/config.yaml')) return { value: WCONFIG } as never
+    throw new Error(`ENOENT ${path}`)
+  })
+  mock.env(on, { TASK_ORCHESTRATOR_API_URL: API_URL })
+  const clock = mock.clock(on, { now: WNOW })
+  on('mcp.call', async (_$, e) => {
+    calls.push({ tool: e.tool, args: e.args })
+    const out = subtreeReply(w, e.tool, e.args)
+
+    return { value: out === 'FAIL' ? failed(`${e.tool} boom`) : reply(out) } as never
+  })
+  const queue: string[] = []
+  let wake: () => void = () => undefined
+  on('process.spawn', async function* () {
+    for (;;) {
+      while (queue.length === 0) await new Promise<void>(resolve => (wake = resolve))
+      yield { stream: 'stdout' as const, text: queue.shift() as string }
+    }
+  } as never)
+  on('session.start', async (_$, e) => ({ cwd: e.cwd }) as never)
+  on('ui.open', async () => ({ value: { isPlaced: true } }) as never)
+  on('ui.close', async () => ({ value: undefined }) as never)
+  on('ui.status', async () => ({ value: undefined }) as never)
+  on('ui.toast', async () => ({ value: undefined }) as never)
+  on('command.register', async () => ({ value: undefined }) as never)
+  on('tool.call', async () => ok as never)
+  on('agent.spawn', async () => ({ model: 'claude-opus-5-5', agentId: 'sub-8f' }) as never)
+  const push = (t: string) => {
+    queue.push(t)
+    wake()
+  }
+  /** One item.advanced frame for this project root; `actor: null` leaves the actor out (an older server). */
+  const advancedFrame = (itemId: string, over: { actor?: { id: string; parent?: string } | null; rootId?: string } = {}) => {
+    const data: Record<string, unknown> = { id: 1, event: 'item.advanced', itemId, rootId: over.rootId ?? WR }
+    if (over.actor !== null) data.actor = over.actor ?? { id: 'other-session:9', kind: 'orchestrator' }
+
+    return `event: item.advanced\ndata: ${JSON.stringify(data)}\n\n`
+  }
+  const settleBy = async (ms: number) => {
+    await clock.advance(ms)
+    await clock.settle()
+  }
+
+  return { r, calls, push, advancedFrame, settleBy }
+}
+
+const FOLLOW_ACTIVE = (id: string): WWorld => FW({ active: [id], transitions: [id] })
+
+test('S15 (087c6077): auto mode: another session\'s item.advanced for an out-of-snapshot task moves the scope to its owning feature once the debounce has passed', SSE_TIME, async ($, on) => {
+  const { r, push, advancedFrame, settleBy } = sseFollowRig(on, FOLLOW_ACTIVE(WA), followSeed(CLOSED))
+  await runToGraph($)
+  await settleBy(1_000)
+  expect(r.valueOf('graphScopeMode')).toBe('auto')
+  expect(r.valueOf('graphScope')).toBe(WA)
+  push(advancedFrame(WT))
+  await settleBy(2_000)
+  // Not yet: the trailing debounce is 3s.
+  expect(r.valueOf('graphScope')).toBe(WA)
+  await settleBy(1_500)
+  expect(r.valueOf('graphScope')).toBe(WF)
+  expect(scopeSets(r).at(-1)).toBe(WF)
+})
+
+test('S15 (087c6077): the same frame without an actor (window attribution) or for another root never moves the scope; the actor frame right after does', SSE_TIME, async ($, on) => {
+  const { r, push, advancedFrame, settleBy } = sseFollowRig(on, FOLLOW_ACTIVE(WA), followSeed(CLOSED))
+  await runToGraph($)
+  await settleBy(1_000)
+  push(advancedFrame(WB, { actor: null }))
+  push(advancedFrame(WB, { rootId: WZ }))
+  await settleBy(10_000)
+  expect(r.valueOf('graphScope')).toBe(WA)
+  // Control on the same fixture: a remote-by-actor frame for the same item follows.
+  push(advancedFrame(WB))
+  await settleBy(3_500)
+  expect(r.valueOf('graphScope')).toBe(WB)
+})
+
+test('S15 (087c6077): a wave of frames moves the scope once, to the owning scope of the last item', SSE_TIME, async ($, on) => {
+  const { r, push, advancedFrame, settleBy } = sseFollowRig(on, FOLLOW_ACTIVE(WA), followSeed(CLOSED))
+  await runToGraph($)
+  await settleBy(1_000)
+  const before = scopeSets(r).length
+  push(advancedFrame(WB))
+  await settleBy(1_000)
+  push(advancedFrame(WT3))
+  await settleBy(1_000)
+  push(advancedFrame(WT))
+  await settleBy(4_000)
+  expect(r.valueOf('graphScope')).toBe(WF)
+  expect(scopeSets(r).slice(before)).toEqual([WF])
+})
+
+test('S16 (087c6077): pinned scope never moves for a remote advance; after an unpin (bare /to-graph) the same frame moves it', SSE_TIME, async ($, on) => {
+  const { r, push, advancedFrame, settleBy } = sseFollowRig(on, FOLLOW_ACTIVE(HA), followSeed(CLOSED))
+  await runToGraphArgs($, HA)
+  await settleBy(1_000)
+  expect(r.valueOf('graphScopeMode')).toBe('pinned')
+  expect(r.valueOf('graphScope')).toBe(HA)
+  push(advancedFrame(WB))
+  await settleBy(5_000)
+  expect(r.valueOf('graphScopeMode')).toBe('pinned')
+  expect(r.valueOf('graphScope')).toBe(HA)
+  // Control on the same fixture: unpinned, the same kind of frame follows.
+  await $.command.run({ command: 'to-graph', args: '' } as never)
+  await settleBy(1_000)
+  expect(r.valueOf('graphScopeMode')).toBe('auto')
+  push(advancedFrame(WB))
+  await settleBy(4_000)
+  expect(r.valueOf('graphScope')).toBe(WB)
+})
+
+// The test's `$` carries no `ui.close` (the kit raises it only from a plugin's `$.ui.close`), so an inline plugin
+// closes the pane on a command of its own, as live-sync.test.ts does.
+const CLOSER = {
+  name: 'graph-closer',
+  tier: 'append',
+  register(on: On) {
+    on('command.run', async ($, e, next) => {
+      if ((e as { command: string }).command !== 'close-graph') return next(e)
+      await $.ui.close({ id: 'to-graph' } as never)
+
+      return { text: 'closed' } as never
+    })
+  },
+} as const
+const SSE_WITH_CLOSER = { plugins: [CLOSER], timeoutMs: 30_000 } as never
+
+test('S16 (087c6077): after the pane is closed a remote advance moves nothing; with it open the same frame moved the scope', SSE_WITH_CLOSER, async ($, on) => {
+  const { r, push, advancedFrame, settleBy } = sseFollowRig(on, FOLLOW_ACTIVE(WA), followSeed(CLOSED))
+  await runToGraph($)
+  await settleBy(1_000)
+  push(advancedFrame(WB))
+  await settleBy(4_000)
+  expect(r.valueOf('graphScope')).toBe(WB)
+  await $.command.run({ command: 'close-graph', args: '' } as never)
+  await settleBy(1_000)
+  const writes = scopeSets(r).length
+  push(advancedFrame(WT))
+  await settleBy(5_000)
+  expect(scopeSets(r)).toHaveLength(writes)
+  expect(r.valueOf('graphScope')).toBe(WB)
+})
+
+test('S17 (087c6077): an advance for an item already in the snapshot reads nothing and keeps the scope; one outside it reads the item', SSE_TIME, async ($, on) => {
+  const { r, calls, push, advancedFrame, settleBy } = sseFollowRig(on, FOLLOW_ACTIVE(WT), followSeed(CLOSED))
+  await runToGraph($)
+  await settleBy(1_000)
+  expect(r.valueOf('graphScope')).toBe(WF)
+  const snapshotIds = (r.valueOf('graphSnapshot') as GraphSnapshot).nodes.map(n => n.id)
+  expect(snapshotIds).toContain(WT)
+  expect(snapshotIds).not.toContain(WB)
+  // The ownership lookup is the get with includeAncestors (plan-label reads are plain gets and are not the follow's).
+  const owner = (id: string) => getsOf(calls, id).filter(c => c.args.includeAncestors === true).length
+  const before = owner(WT)
+  push(advancedFrame(WT))
+  await settleBy(5_000)
+  expect(owner(WT)).toBe(before)
+  expect(r.valueOf('graphScope')).toBe(WF)
+  // Control on the same fixture: an item outside the snapshot is looked up and the scope moves.
+  push(advancedFrame(WB))
+  await settleBy(4_000)
+  expect(owner(WB)).toBeGreaterThanOrEqual(1)
+  expect(r.valueOf('graphScope')).toBe(WB)
+})
