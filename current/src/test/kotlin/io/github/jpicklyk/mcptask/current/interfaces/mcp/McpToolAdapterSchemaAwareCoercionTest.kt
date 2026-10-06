@@ -303,8 +303,7 @@ class McpToolAdapterSchemaAwareCoercionTest {
         @AfterEach
         fun tearDown(): Unit =
             runBlocking {
-                client.close()
-                server.close()
+                closeInMemoryPair(client, server)
             }
 
         private val dummyContext =

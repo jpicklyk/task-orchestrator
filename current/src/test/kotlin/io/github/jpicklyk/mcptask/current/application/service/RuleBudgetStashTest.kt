@@ -18,6 +18,7 @@ import io.github.jpicklyk.mcptask.current.interfaces.api.v1.routes.makeWriteAuth
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.CompositionResult
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.McpToolAdapter
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.ServerComposition
+import io.github.jpicklyk.mcptask.current.interfaces.mcp.closeInMemoryPair
 import io.github.jpicklyk.mcptask.current.interfaces.mcp.installRestApiRoutes
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -384,8 +385,7 @@ class RuleBudgetStashTest {
                 val reStash = repo.planDocumentRepository().stash(root.id, "rule/x", "Updated rule body after the rejected docRef.")
                 assertTrue(reStash is Result.Success, "the document must remain re-stashable: $reStash")
             } finally {
-                client.close()
-                server.close()
+                closeInMemoryPair(client, server)
             }
         }
 

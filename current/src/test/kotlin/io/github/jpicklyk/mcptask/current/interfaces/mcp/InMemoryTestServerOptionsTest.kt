@@ -43,8 +43,7 @@ class InMemoryTestServerOptionsTest {
                     server.createSession(serverTransport)
                     client.connect(clientTransport)
                     server.addTool(name = "probe_$i", description = "probe") { CallToolResult(content = emptyList()) }
-                    client.close()
-                    server.close()
+                    closeInMemoryPair(client, server)
                 }
             }
             // The notification job runs on Dispatchers.Default after teardown; give it time to fail.

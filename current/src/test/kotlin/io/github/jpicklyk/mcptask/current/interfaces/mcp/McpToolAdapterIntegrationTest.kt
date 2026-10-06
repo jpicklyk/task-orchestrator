@@ -63,8 +63,7 @@ class McpToolAdapterIntegrationTest {
     @AfterEach
     fun tearDown(): Unit =
         runBlocking {
-            client.close()
-            server.close()
+            closeInMemoryPair(client, server)
         }
 
     // ──────────────────────────────────────────────
