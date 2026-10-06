@@ -21,12 +21,14 @@ const PANE_ID = 'to-graph'
 const graphSnapshot = atom({ plugin: 'task-orchestrator-mod', key: 'graphSnapshot' } as const, null as GraphSnapshot | null)
 const graphSubscribers = atom({ plugin: 'task-orchestrator-mod', key: 'graphSubscribers' } as const, 0)
 const graphPaneOpen = atom({ plugin: 'task-orchestrator-mod', key: 'graphPaneOpen' } as const, false)
+const graphScopeMode = atom({ plugin: 'task-orchestrator-mod', key: 'graphScopeMode' } as const, 'auto' as 'auto' | 'pinned')
 const bandHidden = atom({ plugin: 'task-orchestrator-mod', key: 'bandHidden' } as const, false)
 const bandSubscribed = atom({ plugin: 'task-orchestrator-mod', key: 'bandSubscribed' } as const, false)
 
 const toggle = (hidden: boolean): boolean => !hidden
 const hide = (): boolean => true
 const yes = (): boolean => true
+const auto = (): 'auto' | 'pinned' => 'auto'
 
 /** Set once per module load, so a hot reload (which drops the registered command) registers it again. */
 let commandRegistered = false
@@ -57,6 +59,8 @@ async function sync($: EngineInterface): Promise<void> {
 async function openPane($: EngineInterface): Promise<void> {
   await $.ui.open({ id: PANE_ID, title: 'TO graph' })
   if (!(await read($, graphPaneOpen))) {
+    // The band opens the pane on the current scope without choosing one: follow this session's activity.
+    await update($, graphScopeMode, auto)
     await update($, graphPaneOpen, yes)
     await update($, graphSubscribers, addSubscriber)
     requestLiveSync(await read($, graphSubscribers))

@@ -155,6 +155,8 @@ declare module 'claude-code' {
       // ── graph-data (T2 32492bfa) state ──
       /** The item id in view; null means the project root. */
       graphScope: string | null
+      /** 'auto' follows this session's own TO activity; 'pinned' (an explicit id, This feature, Whole project, a node click) never moves. Default 'auto'. */
+      graphScopeMode: 'auto' | 'pinned'
       graphSnapshot: GraphSnapshot | null
       graphStatus: GraphStatus
       /** Consumers currently showing the graph (pane, band); the live source runs while this is above 0. */

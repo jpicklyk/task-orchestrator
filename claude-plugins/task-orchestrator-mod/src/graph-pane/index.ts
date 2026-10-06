@@ -23,7 +23,8 @@ import { cardsOf, criticalPath, stepsOf } from './model.ts'
 import type { Card, CriticalPath, Model } from './model.ts'
 import { recordFocusOrder, redirectFocus } from './focus.ts'
 import { gateToastLines } from '../graph-data/events.ts'
-import { activeScope, detailLines, isDegraded, isSwitching, loadingTitle, parseScopeArg, scopeHeader, summaryLine } from './pane-model.ts'
+import { activeScope, detailLines, firstSpawnUuid, isDegraded, isSwitching, loadingTitle, owningScope, parseScopeArg, scopeHeader, summaryLine } from './pane-model.ts'
+import type { ToolCall } from './pane-model.ts'
 import { CRIT_COLOR, raster, runs } from './raster.ts'
 import { routes } from './route.ts'
 import { KIND, READY, id8, legendItems } from './shared.ts'
@@ -38,6 +39,7 @@ export const READ_TOOLS: readonly string[] = ['query_items', 'get_context', 'que
 const graphSnapshot = atom({ plugin: 'task-orchestrator-mod', key: 'graphSnapshot' } as const, null as GraphSnapshot | null)
 const graphStatus = atom({ plugin: 'task-orchestrator-mod', key: 'graphStatus' } as const, { refreshing: false, liveSource: 'none' } as GraphStatus)
 const graphScope = atom({ plugin: 'task-orchestrator-mod', key: 'graphScope' } as const, null as string | null)
+const graphScopeMode = atom({ plugin: 'task-orchestrator-mod', key: 'graphScopeMode' } as const, 'auto' as 'auto' | 'pinned')
 const graphSubscribers = atom({ plugin: 'task-orchestrator-mod', key: 'graphSubscribers' } as const, 0)
 const graphReconnectRequest = atom({ plugin: 'task-orchestrator-mod', key: 'graphReconnectRequest' } as const, 0)
 const graphPaneOpen = atom({ plugin: 'task-orchestrator-mod', key: 'graphPaneOpen' } as const, false)
@@ -52,6 +54,12 @@ const TO_TOOL = /^mcp__.*task-orchestrator.*__[a-z_]+$/
 
 const yes = (): boolean => true
 const no = (): boolean => false
+const pinned = (): 'auto' | 'pinned' => 'pinned'
+const auto = (): 'auto' | 'pinned' => 'auto'
+
+/** Items already resolved to an owning scope (null: none). Capped; a repeat touch of an id reads nothing. */
+const SCOPE_MEMO_MAX = 200
+const scopeMemo = new Map<string, string | null>()
 
 /** Set once per module load, so a hot reload (which drops the registered command) registers it again. */
 let commandRegistered = false
@@ -112,6 +120,8 @@ const message = (err: unknown): string => (err instanceof Error ? err.message : 
 
 /** Reads the three read-only calls for one node into the detail atom. Each failure is tolerated. In-pane, read-only. */
 async function openDetail($: EngineInterface, itemId: string): Promise<void> {
+  // Clicking a node is a choice of focus: stop following this session's activity.
+  await update($, graphScopeMode, pinned)
   const call = async (tool: string, args: Record<string, unknown>): Promise<unknown> => parseToResult<unknown>(tool, await $.mcp.call(TO_SERVER, tool, args))
   const [ctx, item, notes] = await Promise.allSettled([
     call('get_context', { itemId }),
@@ -130,6 +140,42 @@ async function openDetail($: EngineInterface, itemId: string): Promise<void> {
           ...(notes.status === 'fulfilled' ? { notes: notes.value } : { notesFailed: true }),
         })
   await update($, graphDetail, () => ({ itemId, lines }))
+}
+
+/**
+ * Auto mode only, pane open: re-scopes the pane to the owning scope of the first candidate id the
+ * snapshot cannot place (one attempt per call). Never throws; the caller's result is untouched.
+ */
+async function followActivity($: EngineInterface, pick: (rootId: string) => string[]): Promise<void> {
+  try {
+    if ((await read($, graphScopeMode)) !== 'auto' || !(await read($, graphPaneOpen))) return
+    const snap = await read($, graphSnapshot)
+    if (snap === null) return
+    const rootId = parseProjectRootId(await $.fs.read(CONFIG_PATH))
+    if (rootId === null) return
+    const known = snap.nodes.map(n => n.id)
+    const target = pick(rootId).find(c => resolveId(c, known) === null)
+    if (target === undefined) return
+    const key = `${rootId}:${target}`
+    let scope: string | null
+    if (scopeMemo.has(key)) scope = scopeMemo.get(key) ?? null
+    else {
+      const call: ToolCall = async (tool, args) => parseToResult<unknown>(tool, await $.mcp.call(TO_SERVER, tool, args))
+      try {
+        scope = await owningScope(call, target, rootId)
+      } catch {
+        scope = null
+      }
+      if (scopeMemo.size >= SCOPE_MEMO_MAX) scopeMemo.delete(scopeMemo.keys().next().value as string)
+      scopeMemo.set(key, scope)
+    }
+    if (scope === null || scope === (await read($, graphScope))) return
+    await update($, graphDetail, () => null)
+    await update($, graphScope, scopeTo(scope))
+    requestRefresh()
+  } catch {
+    // following is best effort: the model's call is never affected
+  }
 }
 
 /** Seat and expiry bookkeeping of one TO tool call: who is working on which snapshot item, what changed. */
@@ -201,7 +247,10 @@ export interface ActivityIo {
 
 /** The toast goes first: a block on an item outside the snapshot is still worth one, and marking it may throw. */
 const activityIo = ($: EngineInterface, toasts: boolean): ActivityIo => ({
-  note: (e, changed) => noteActivity($, e, changed),
+  note: async (e, changed) => {
+    await noteActivity($, e, changed)
+    await followActivity($, () => touchedIds(e).map(t => t.id))
+  },
   gate: async rows => {
     if (toasts) await toastGateBlocks($, rows)
     await noteGateBlocks($, rows)
@@ -432,6 +481,7 @@ export function registerGraphPane(on: On, options: PluginOptions = {}): void {
     const scope = arg.kind === 'id' ? arg.id : arg.kind === 'root' ? null : await activeFeature($)
 
     await update($, graphDetail, () => null)
+    await update($, graphScopeMode, arg.kind === 'active' ? auto : pinned)
     await update($, graphScope, scopeTo(scope))
     requestRefresh()
     await $.ui.open({ id: PANE_ID, title: 'TO graph' })
@@ -469,6 +519,11 @@ export function registerGraphPane(on: On, options: PluginOptions = {}): void {
         // bookkeeping only: the spawn is never affected
       }
     }
+    await followActivity($, rootId => {
+      const id = firstSpawnUuid(e.description, e.prompt, rootId)
+
+      return id === null ? [] : [id]
+    })
 
     return spawned
   })
@@ -487,6 +542,7 @@ export function registerGraphPane(on: On, options: PluginOptions = {}): void {
     const snap = await read($, graphSnapshot)
     const status = await read($, graphStatus)
     const scope = await read($, graphScope)
+    const mode = await read($, graphScopeMode)
     const detail = await read($, graphDetail)
     const activity = await read($, graphActivity)
     const showDone = await read($, graphShowDone)
@@ -513,15 +569,25 @@ export function registerGraphPane(on: On, options: PluginOptions = {}): void {
           const feature = await activeFeature($)
           if (feature === null) $.ui.toast('No active feature in this project.')
           else {
+            await update($, graphScopeMode, pinned)
             await update($, graphScope, scopeTo(feature))
             requestRefresh()
           }
         },
       }),
       h(Button, { key: 'scope-project', label: 'Whole project', ...(scope === null ? { variant: 'primary' } : {}), onPress: async () => {
+        await update($, graphScopeMode, pinned)
         await update($, graphScope, scopeTo(null))
         requestRefresh()
       } }),
+      // Shown only while pinned: back to following this session's own TO activity (the bare /to-graph result).
+      ...(mode === 'pinned'
+        ? [h(Button, { key: 'scope-follow', label: 'Follow', onPress: async () => {
+            await update($, graphScopeMode, auto)
+            await update($, graphScope, scopeTo(await activeFeature($)))
+            requestRefresh()
+          } })]
+        : []),
       ...(lay !== null && view?.overview !== true && lay.doneSteps.length > 0
         ? [h(Button, { key: 'done-steps', label: showDone ? 'Hide done steps' : 'Show done steps', onPress: () => update($, graphShowDone, v => !v) })]
         : []),
@@ -555,6 +621,7 @@ export function registerGraphPane(on: On, options: PluginOptions = {}): void {
           plain: true,
           onPress: async () => {
             await update($, graphDetail, () => null)
+            await update($, graphScopeMode, pinned)
             await update($, graphScope, scopeTo(target))
             requestRefresh()
           },
@@ -618,6 +685,7 @@ export function registerGraphPane(on: On, options: PluginOptions = {}): void {
                 label: 'Open graph',
                 onPress: async () => {
                   await update($, graphDetail, () => null)
+                  await update($, graphScopeMode, pinned)
                   await update($, graphScope, scopeTo(detail.itemId))
                   requestRefresh()
                 },
