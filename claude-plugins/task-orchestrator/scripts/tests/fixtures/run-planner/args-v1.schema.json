@@ -8,6 +8,7 @@
     "rootId": { "type": "string" },
     "planDocSlug": { "type": "string" },
     "baseSha": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" },
+    "repoRoot": { "type": "string" },
     "worktreeMode": { "enum": ["shared", "per-item"] },
     "entryMode": { "enum": ["seat", "pre-entered"] },
     "capabilities": {

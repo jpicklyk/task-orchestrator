@@ -46,8 +46,21 @@ declared entry containing `*` or `?` is a glob (`**` spans segments, `*` stays w
 `?` is one non-`/` character) — this applies to `testFiles` globs too. **Cross-item precedence:**
 if a file is exactly declared (non-glob) by another item in the run and not exactly declared by
 the writer, it is reported as `implementer wrote <file> owned by item <short>` (or
-`test-author wrote ...`) even when the writer's own directory or glob would cover it. A file
+`test-author wrote ...`) even when the writer's own directory or glob would cover it. When the
+writer covers a file only through a directory or glob and another item's directory or glob covers
+it too, it is reported as `implementer wrote <file> also covered by item <short>`; two items that
+both declare the same file exactly are not flagged (their writes are serialized by locks). A file
 outside everything the writer declared stays `implementer wrote unowned <file>`.
+
+**Lock keys and the review diff use the same normalization.** In shared mode a writer stage locks
+`file:<repo-relative path>` per declared entry, relativized against the item worktree and then
+`args.repoRoot` (the main checkout, filled from the snapshot's `git.repoRoot`). Locks are
+conservative: a directory or glob contends with every path under its wildcard-free base
+(case-insensitive), so `src/*.js` waits on `src/x.js`; an entry outside both roots, one containing
+`..`, or an empty declaration locks the whole worktree (`worktree:<path>`); `extraLockKeys` need an
+exact match. The reviewer's `git diff` pathspec covers mainFiles, docFiles, testFiles and
+existingTestEdits, each double-quoted with `:(literal)` or (for a glob) `:(glob)` magic; entries
+outside both roots are named on an `UNROOTED (not in pathspec): ...` line instead.
 
 **Symbolic refs.** A stage `commits.pre`/`post` that is not a 7-40 character lowercase hex SHA
 (for example `HEAD`) is resolved in the item's worktree with `git rev-parse --verify

@@ -50,7 +50,7 @@ const CORE_EXPORT_NAMES = [
   'ENVELOPE_VERSION', 'OUTPUT_SCHEMAS', 'normalizeArgs', 'normalizePath', 'preflight',
   'makeMilestones', 'makeLocks', 'lockKeysFor', 'overlapDeferral', 'envelopeSchema',
   'mapEntry', 'mapStageResult', 'seatActor', 'seatPrompt', 'handoff', 'runItem', 'runPlan',
-  'scanDeclarations',
+  'scanDeclarations', 'relativizePath', 'lockKeysConflict',
 ]
 
 export function loadCore(path) {

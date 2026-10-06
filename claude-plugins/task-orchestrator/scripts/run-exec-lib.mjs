@@ -43,8 +43,10 @@ const HEX_SHA_RE = /^[0-9a-f]{7,40}$/
  * relativizePath(p, roots) -> repo-relative POSIX path. Applies normalizePath, strips the longest
  * matching root prefix (case-insensitive when the path is a drive-letter path), then a trailing '/'.
  * A path outside every root is returned unchanged (still absolute, so it never matches).
+ * Duplicated from implement-wave.js's core relativizePath (verify has no core parameter); a
+ * parity test pins the two copies together.
  */
-function relativizePath(p, roots) {
+export function relativizePath(p, roots) {
   let s = normalizePath(p)
   const normRoots = (roots || [])
     .filter((r) => r)
@@ -65,6 +67,21 @@ function relativizePath(p, roots) {
 
 function isGlob(entry) {
   return entry.includes('*') || entry.includes('?')
+}
+
+/** The roots an item's declared paths are relativized against: its worktree, then args.repoRoot. */
+function itemRootsOf(plan, item) {
+  return [item && item.worktree, plan && plan.repoRoot].filter((r) => typeof r === 'string' && r)
+}
+
+/** Empty, still absolute, or containing a '..' segment: not a repo-relative location. */
+function isUnrooted(rel) {
+  return !rel || /^\//.test(rel) || /^[a-z]:\//i.test(rel) || rel.split('/').includes('..')
+}
+
+/** Double-quotes a pathspec for a POSIX shell, escaping the characters still live inside quotes. */
+function shellQuote(s) {
+  return '"' + s.replace(/(["\\$`])/g, '\\$1') + '"'
 }
 
 /** globToRegExp: '**' = any number of segments, '*' = within one segment, '?' = one non-'/' char. */
@@ -380,9 +397,9 @@ export function next(core, doc, state) {
         const earlierPlanner = earlier.stages.find((s) => s.output === 'planner-v1')
         const pStatus = earlierPlanner ? stageStateStatus(state, earlier, earlierPlanner) : null
         const output = pStatus === 'done' ? outsBySeat(earlier, state)[earlierPlanner.seat] : null
-        return { short: earlier.short, output }
+        return { short: earlier.short, output, roots: itemRootsOf(plan, earlier) }
       })
-      const mine = { short: item.short, output: outsBySeat(item, state)[plannerStage.seat] }
+      const mine = { short: item.short, output: outsBySeat(item, state)[plannerStage.seat], roots: itemRootsOf(plan, item) }
       const overlap = core.overlapDeferral(mine, higher, plan.worktreeMode)
       if (overlap) {
         settled.push({ item: item.short, status: 'deferred', reason: overlap.reason })
@@ -392,7 +409,9 @@ export function next(core, doc, state) {
 
     // lock gating
     const keys = core.lockKeysFor(item, stage, outsBySeat(item, state), plan)
-    const conflict = keys.find((k) => inFlightLockKeys.has(k) || chosenLockKeys.has(k))
+    // D3: a key contends with any held key it may overlap (directory/glob bases, worktree: keys).
+    const held = [...inFlightLockKeys, ...chosenLockKeys]
+    const conflict = keys.find((k) => held.some((h) => core.lockKeysConflict(h, k)))
     if (conflict) {
       waiting.push({ item: item.short, seat: stage.seat, on: `lock ${conflict}` })
       continue
@@ -841,7 +860,9 @@ function attributeCommits(itemCommits, writingStages) {
  * resolved?:{[worktree]:{[ref]:sha|null}}} oldest-first (roots/resolved are optional git facts). A
  * commit belongs to an item by the '[<short>]' tag in its subject; untagged -> a run-level
  * warning. Findings: missing sha, missing Seat trailer, unowned files written by the
- * implementer/test-author, test-author committing before the implementer's last commit.
+ * implementer/test-author, a file the writer covers only by directory/glob that another item's
+ * directory/glob also covers ('<who> wrote <f> also covered by item <short>'), test-author
+ * committing before the implementer's last commit.
  */
 export function verify(doc, result, gitFacts) {
   const project = (doc.args && doc.args.project) || {}
@@ -877,10 +898,13 @@ export function verify(doc, result, gitFacts) {
   }
   // Cross-item precedence: exact (non-glob) declarations by every item with planner output.
   const exactDeclarers = new Map() // normalized path -> [{id, short}]
+  // D6: every item's full declared set, for pattern-vs-pattern (directory/glob) coverage.
+  const patternOwners = [] // [{id, short, owner}]
   for (const other of doc.args.items) {
     const d = declaredBy(other)
     if (!d.plannerOut) continue
     const roots = rootsFor(other)
+    patternOwners.push({ id: other.id, short: other.short, owner: makeOwner([...d.main, ...d.docs, ...d.tests, ...d.edits], roots) })
     for (const raw of [...d.main, ...d.docs, ...d.tests, ...d.edits]) {
       const e = relativizePath(raw, roots)
       if (!e || isGlob(e)) continue
@@ -909,6 +933,13 @@ export function verify(doc, result, gitFacts) {
     const foreignOwner = (f, ownExactOwner) => {
       if (ownExactOwner.ownsExact(f)) return null
       const hit = (exactDeclarers.get(f) || []).find((o) => o.id !== argItem.id)
+      return hit ? hit.short : null
+    }
+    // D6: the writer covers f only through a directory or glob, and another item's directory or
+    // glob covers it too (two items' exact declarations of one file are serialized by locks instead).
+    const patternCoOwner = (f, owner) => {
+      if (owner.ownsExact(f) || !owner.owns(f)) return null
+      const hit = patternOwners.find((o) => o.id !== argItem.id && !o.owner.ownsExact(f) && o.owner.owns(f))
       return hit ? hit.short : null
     }
 
@@ -964,6 +995,10 @@ export function verify(doc, result, gitFacts) {
             const foreign = foreignOwner(f, owner)
             if (foreign) findings.push(`${who} wrote ${f} owned by item ${foreign}`)
             else if (!owner.owns(f)) findings.push(`${who} wrote unowned ${f}`)
+            else {
+              const co = patternCoOwner(f, owner)
+              if (co) findings.push(`${who} wrote ${f} also covered by item ${co}`)
+            }
           }
         }
       }
@@ -1187,9 +1222,10 @@ export function provenance({ core, doc, result, method, turns, usage, meta, jour
 
 /**
  * reviewPrompt(core, doc, idOrShort, result?) -> text joined by '\n\n'.
- * Seat line, the owned-file diff command (planner output's mainFiles+docFiles+testFiles as
- * the pathspec when a result is given, else a bare diff noting 'owned files: planner
- * output'), a line to fill the review-phase notes, REVIEW_RULES by key (no rule text), and
+ * Seat line, the owned-file diff command (planner output's mainFiles+docFiles+testFiles+
+ * existingTestEdits, relativized against the worktree and args.repoRoot, as quoted ':(literal)'/
+ * ':(glob)' pathspecs when a result is given, plus an 'UNROOTED (not in pathspec): ...' part for
+ * entries outside both roots; else a bare diff noting 'owned files: planner output'), a line to fill the review-phase notes, REVIEW_RULES by key (no rule text), and
  * the reviewer actor.
  */
 export function reviewPrompt(core, doc, idOrShort, result) {
@@ -1203,9 +1239,30 @@ export function reviewPrompt(core, doc, idOrShort, result) {
     const resItem = (result.items || []).find((r) => r.id === item.id)
     const plannerOut = resItem ? outputForStageId(resItem, item, 'planner-v1') : null
     if (plannerOut) {
-      const owned = [].concat(plannerOut.mainFiles || [], plannerOut.docFiles || [], plannerOut.testFiles || [])
-      const pathspec = owned.length > 0 ? ` -- ${owned.join(' ')}` : ''
+      // D5: every owned path (main + docs + tests + existing-test edits), relativized against the
+      // worktree and repo root, deduped in order, with explicit pathspec magic so a literal path
+      // never globs and a glob never matches across '/'. Unrooted entries are named, not passed.
+      const owned = [].concat(
+        plannerOut.mainFiles || [], plannerOut.docFiles || [], plannerOut.testFiles || [],
+        ((plannerOut.existingTestEdits || []).filter((e) => e && e.file).map((e) => e.file))
+      )
+      const roots = itemRootsOf(plan, item)
+      const specs = []
+      const seen = new Set()
+      const unrooted = []
+      for (const raw of owned) {
+        const rel = relativizePath(raw, roots)
+        if (isUnrooted(rel)) {
+          if (rel && !unrooted.includes(rel)) unrooted.push(rel)
+          continue
+        }
+        if (seen.has(rel)) continue
+        seen.add(rel)
+        specs.push(shellQuote(`${isGlob(rel) ? ':(glob)' : ':(literal)'}${rel}`))
+      }
+      const pathspec = specs.length > 0 ? ` -- ${specs.join(' ')}` : ''
       parts.push(`git -C ${item.worktree} diff ${plan.baseSha}..HEAD${pathspec}`)
+      if (unrooted.length > 0) parts.push(`UNROOTED (not in pathspec): ${unrooted.join(' ')}`)
     } else {
       parts.push(`git -C ${item.worktree} diff ${plan.baseSha}..HEAD (owned files: planner output)`)
     }
