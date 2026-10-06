@@ -166,3 +166,61 @@ export function detailLines(i: DetailInput): string[] {
 
   return lines
 }
+
+/** A parsed read-only TO call, closed over `$` in index.ts so this module stays `$`-free. */
+export type ToolCall = (tool: string, args: Record<string, unknown>) => Promise<unknown>
+
+/** How far back the default-scope read looks for the latest transition under the root. */
+export const SCOPE_LOOKBACK_MS = 14 * 24 * 60 * 60 * 1000
+const SCOPE_TRANSITION_LIMIT = 200
+
+const idsOf = (v: unknown): string[] => (Array.isArray(v) ? v.filter(isObj).flatMap(a => (typeof a.id === 'string' ? [a.id] : [])) : [])
+
+/**
+ * The scope `/to-graph` opens with no argument: the owning scope of the most recent transition under
+ * `rootId`. One session-resume read; the first transition (newest first) whose item is still active
+ * wins, else the newest transition's item if the root is among its ancestors (transitions are not
+ * scoped by the server). The owning scope is the nearest feature-implementation walking up from that
+ * item; a container or project stops the walk and the last non-container seen is returned (a bug
+ * under a Bugs container is its own scope); a container or the root as the moved item itself yields null. Returns null when nothing usable was found; a read that
+ * throws propagates, so the caller falls back to the legacy rule on either.
+ */
+export async function activeScope(call: ToolCall, rootId: string, now: number): Promise<string | null> {
+  const resume = await call('get_context', {
+    mode: 'session-resume',
+    since: new Date(now - SCOPE_LOOKBACK_MS).toISOString(),
+    ancestorId: rootId,
+    includeAncestors: true,
+    limit: SCOPE_TRANSITION_LIMIT,
+  })
+  if (!isObj(resume)) return null
+  const moves = (Array.isArray(resume.recentTransitions) ? resume.recentTransitions : []).filter(isObj).flatMap(t => (typeof t.itemId === 'string' ? [t.itemId] : []))
+  const active = new Map<string, string[]>()
+  for (const a of Array.isArray(resume.activeItems) ? resume.activeItems.filter(isObj) : []) {
+    if (typeof a.id === 'string') active.set(a.id, idsOf(a.ancestors))
+  }
+  let start: string | undefined = moves.find(id => active.has(id))
+  let ancestors = start === undefined ? [] : (active.get(start) ?? [])
+  if (start === undefined) {
+    const newest = moves[0]
+    if (newest === undefined) return null
+    const item = await call('query_items', { operation: 'get', itemId: newest, includeAncestors: true })
+    if (!isObj(item)) return null
+    ancestors = idsOf(item.ancestors)
+    if (!ancestors.includes(rootId)) return null
+    start = newest
+  }
+  // Nearest-first chain: the item itself, then its ancestors up to (not past) the root.
+  const chain = [start, ...[...ancestors].reverse()]
+  let last: string | null = null
+  for (const id of chain) {
+    if (id === rootId) return last
+    const node = await call('query_items', { operation: 'get', itemId: id })
+    const type = isObj(node) && typeof node.type === 'string' ? node.type : undefined
+    if (type === 'feature-implementation') return id
+    if (type === 'container' || type === 'project') return last
+    last = id
+  }
+
+  return last
+}

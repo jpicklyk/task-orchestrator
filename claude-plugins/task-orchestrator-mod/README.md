@@ -71,7 +71,7 @@ On all surfaces:
 
 ### Work graph pane: `/to-graph`
 
-- With no argument it shows the active feature. Other arguments are `root` or an item id.
+- With no argument it shows the scope of the latest transition under the project: the nearest feature, or the item itself for work under a container such as Bugs. It falls back to the most recently modified feature in work when that read fails. Other arguments are `root` or an item id.
 - A scope toggle switches between `This feature` and `Whole project`. The whole-project view is an overview of the root's children with role roll-ups, from a single call limited to 100 children; past that it shows "More children than shown."
 - Items are drawn top-down as state-filled boxes. An amber dashed box has an open blocker. Plan badges come from the item's `properties.planLabel` (1 to 12 characters).
 - Phase and seat text, a legend, and a `Show done steps` / `Hide done steps` toggle.
