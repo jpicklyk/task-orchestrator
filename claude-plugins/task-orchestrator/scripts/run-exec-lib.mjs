@@ -40,29 +40,48 @@ function normalizePath(p) {
 const HEX_SHA_RE = /^[0-9a-f]{7,40}$/
 
 /**
- * relativizePath(p, roots) -> repo-relative POSIX path. Applies normalizePath, strips the longest
- * matching root prefix (case-insensitive when the path is a drive-letter path), then a trailing '/'.
- * A path outside every root is returned unchanged (still absolute, so it never matches).
+ * relativizePath(p, roots) -> canonical repo-relative POSIX path ('' = the whole worktree).
+ * Canonicalization (applied to p and to every root):
+ *   1. every '\' becomes '/';
+ *   2. an absolute prefix is kept ('/' or a drive 'x:/'); the remainder is split on '/', empty
+ *      segments (from '//' runs, leading/trailing '/') and '.' segments are dropped, and '..'
+ *      segments are kept verbatim (never resolved); the pieces are rejoined with '/';
+ *   3. a drive letter is lowercased (normalizePath).
+ *   So '.', './', './/' and '' -> ''; 'src/.' -> 'src'; 'src/./x.js' and 'src//x.js' ->
+ *   'src/x.js'; '././x' -> 'x'; '//h/s/x' -> '/h/s/x'; 'src/../x' is unchanged; the filesystem
+ *   roots '/' and 'x:/' stay '/' and 'x:/' (absolute, never '' or 'x:').
+ * Root stripping: falsy roots and roots that canonicalize to '' or to a filesystem root ('/' or
+ * 'x:/') are ignored. Roots are tried longest first; the comparison is case-insensitive when the
+ * canonical path is a drive-letter path, exact otherwise. A path equal to a root returns ''; a
+ * path under a root ('<root>/...') returns the remainder after '<root>/'. The first match wins.
+ * A path under no root is returned in canonical form (an absolute path stays absolute, so callers
+ * treat it as unrooted).
  * Duplicated from implement-wave.js's core relativizePath (verify has no core parameter); a
  * parity test pins the two copies together.
  */
 export function relativizePath(p, roots) {
-  let s = normalizePath(p)
+  const canon = (x) => {
+    const t = String(x).replace(/\\/g, '/')
+    const m = /^[a-zA-Z]:\//.exec(t) || /^\//.exec(t)
+    const prefix = m ? m[0] : ''
+    const segs = t.slice(prefix.length).split('/').filter((g) => g !== '' && g !== '.')
+    return normalizePath(prefix + segs.join('/'))
+  }
+  const s = canon(p)
   const normRoots = (roots || [])
     .filter((r) => r)
-    .map((r) => normalizePath(r).replace(/\/+$/, ''))
-    .filter((r) => r)
+    .map(canon)
+    .filter((r) => r && !r.endsWith('/'))
     .sort((a, b) => b.length - a.length)
   const drive = /^[a-z]:\//i.test(s)
+  const fold = (x) => (drive ? x.toLowerCase() : x)
   for (const r of normRoots) {
-    const head = s.slice(0, r.length)
-    const same = drive ? head.toLowerCase() === r.toLowerCase() : head === r
-    if (same && s.charAt(r.length) === '/') {
-      s = s.slice(r.length + 1)
-      break
-    }
+    const fs = fold(s)
+    const fr = fold(r)
+    if (fs === fr) return ''
+    if (fs.startsWith(fr + '/')) return s.slice(r.length + 1)
   }
-  return s.replace(/\/+$/, '')
+  return s
 }
 
 function isGlob(entry) {
@@ -1224,9 +1243,14 @@ export function provenance({ core, doc, result, method, turns, usage, meta, jour
  * reviewPrompt(core, doc, idOrShort, result?) -> text joined by '\n\n'.
  * Seat line, the owned-file diff command (planner output's mainFiles+docFiles+testFiles+
  * existingTestEdits, relativized against the worktree and args.repoRoot, as quoted ':(literal)'/
- * ':(glob)' pathspecs when a result is given, plus an 'UNROOTED (not in pathspec): ...' part for
- * entries outside both roots; else a bare diff noting 'owned files: planner output'), a line to fill the review-phase notes, REVIEW_RULES by key (no rule text), and
- * the reviewer actor.
+ * ':(glob)' pathspecs when a result is given, deduped after relativizePath canonicalization (so
+ * 'src/./a.js' and 'src//a.js' give one ':(literal)src/a.js'), plus an 'UNROOTED (not in
+ * pathspec): ...' part naming each distinct non-empty unrooted entry (still absolute, or
+ * containing '..'); else a bare diff noting 'owned files: planner output'), a line to fill the
+ * review-phase notes, REVIEW_RULES by key (no rule text), and the reviewer actor.
+ * Whole tree (D5): when any owned entry relativizes to '' ('.', './', the worktree or repo root
+ * itself), the diff line is the bare `git -C <worktree> diff <base>..HEAD` with no ' -- '
+ * pathspec at all; non-empty unrooted entries are still named on the UNROOTED line.
  */
 export function reviewPrompt(core, doc, idOrShort, result) {
   const { plan } = resolvePlan(core, doc)
@@ -1249,18 +1273,22 @@ export function reviewPrompt(core, doc, idOrShort, result) {
       const roots = itemRootsOf(plan, item)
       const specs = []
       const seen = new Set()
+      // An owned entry that relativizes to '' ('.', './', the worktree or repo root itself) owns the
+      // whole tree, so the diff gets no pathspec at all rather than a narrowed one.
       const unrooted = []
+      let wholeTree = false
       for (const raw of owned) {
         const rel = relativizePath(raw, roots)
         if (isUnrooted(rel)) {
-          if (rel && !unrooted.includes(rel)) unrooted.push(rel)
+          if (!rel) wholeTree = true
+          else if (!unrooted.includes(rel)) unrooted.push(rel)
           continue
         }
         if (seen.has(rel)) continue
         seen.add(rel)
         specs.push(shellQuote(`${isGlob(rel) ? ':(glob)' : ':(literal)'}${rel}`))
       }
-      const pathspec = specs.length > 0 ? ` -- ${specs.join(' ')}` : ''
+      const pathspec = !wholeTree && specs.length > 0 ? ` -- ${specs.join(' ')}` : ''
       parts.push(`git -C ${item.worktree} diff ${plan.baseSha}..HEAD${pathspec}`)
       if (unrooted.length > 0) parts.push(`UNROOTED (not in pathspec): ${unrooted.join(' ')}`)
     } else {
