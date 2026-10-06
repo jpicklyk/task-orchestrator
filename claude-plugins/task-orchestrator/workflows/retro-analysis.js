@@ -9,13 +9,14 @@ export const meta = {
 
 // @core-begin
 
-const DIMENSIONS = ['schema-effectiveness', 'delegation', 'note-quality', 'friction', 'extension-candidate']
+const DIMENSIONS = ['schema-effectiveness', 'delegation', 'note-quality', 'plan-to-execution', 'friction', 'extension-candidate']
 const KINDS = [{ key: 'trends', kind: 'trend' }, { key: 'observations', kind: 'observation' }, { key: 'retros', kind: 'retro' }]
 const CAPS = { findings: 40, trends: 200, observations: 200, retros: 30 }
 const DEFAULTS = { shardSize: 15, maxAgents: 30, allowLarge: false, maxAdjudicate: 12, staleDays: 60 }
 
 /** kebab(s) -> string (lowercase, non-alphanumeric runs -> '-', trimmed) */
 function kebab(s) {
+  if (s === null || s === undefined) return ''
   return String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
 }
 
@@ -68,6 +69,15 @@ function normalizeArgs(raw) {
   const shardSize = A.shardSize != null ? A.shardSize : DEFAULTS.shardSize
   if (!Number.isInteger(shardSize) || shardSize < 5 || shardSize > 30) {
     return { ok: false, reason: 'invalid args: shardSize must be 5-30' }
+  }
+  if (A.maxAgents != null && (!Number.isInteger(A.maxAgents) || A.maxAgents < 1)) {
+    return { ok: false, reason: 'invalid args: maxAgents must be a positive integer' }
+  }
+  if (A.staleDays != null && (!Number.isInteger(A.staleDays) || A.staleDays < 1)) {
+    return { ok: false, reason: 'invalid args: staleDays must be a positive integer' }
+  }
+  if (A.maxAdjudicate != null && (!Number.isInteger(A.maxAdjudicate) || A.maxAdjudicate < 0)) {
+    return { ok: false, reason: 'invalid args: maxAdjudicate must be an integer, 0 or more' }
   }
 
   let findingsIn = A.findings
@@ -354,7 +364,10 @@ function matchPrompt(plan, shard) {
     out += 'AUDIT MODE: fid is \'\' -- you are not matching against specific findings. Instead, report clusters of at least two targets in your shard that share one recurring pattern (label, claim, dimension, targetIds).\n\n'
   } else {
     out += 'FINDINGS:\n' + JSON.stringify(plan.findings) + '\n\n'
+    out += 'DEEP MODE: besides matches, report clusters: 2 or more shard targets that share a pattern no finding covers (clusters may be an empty array).\n\n'
   }
+  out += 'strength: "strong" means the target states the same recurring pattern in its own words; "weak" means only topical or keyword overlap. '
+  out += 'sessionsSeen is the number from a "Sessions: N" line on a trend target, else 0. lastSeen is the date from a "Last seen:" line, formatted YYYY-MM-DD.\n\n'
   out += 'YOUR SHARD (' + shard.kind + '):\n' + JSON.stringify(shard.targets.map((t) => ({ id: t.id, short: t.short, title: t.title })))
   return out
 }
@@ -491,15 +504,22 @@ function assembleResult(plan, ctx) {
   }
 
   const newTrends = []
+  const collisionObsLinks = new Map()
   for (const m of mergedOrder) {
     const collideTrendId = trendKeyMap.get(m.kebabKey)
     if (collideTrendId) {
+      for (const oid of m.observationIds) if (!collisionObsLinks.has(oid)) collisionObsLinks.set(oid, collideTrendId)
       for (const fid of m.fids) {
         const ts = collected.trendState[collideTrendId]
+        const refs = []
+        for (const e of (collected.byFid[fid] || [])) {
+          if (e.kind !== 'trend' && refs.indexOf(e.targetId) === -1) refs.push(e.targetId)
+        }
+        for (const r of m.evidenceRefs) if (refs.indexOf(r) === -1) refs.push(r)
         matched.push({
           fid, trendId: collideTrendId,
           sessionsBefore: ts && ts.sessions != null ? ts.sessions : null,
-          evidence: '', confidence: 'weak', evidenceRefs: [], via: 'key-collision',
+          evidence: '', confidence: 'weak', evidenceRefs: refs, via: 'key-collision',
         })
         matchedFidSet.add(fid)
       }
@@ -521,6 +541,8 @@ function assembleResult(plan, ctx) {
     const m = matched.find((mm) => mm.evidenceRefs && mm.evidenceRefs.indexOf(o.id) !== -1)
     if (m) {
       trendId = m.trendId
+    } else if (collisionObsLinks.has(o.id)) {
+      trendId = collisionObsLinks.get(o.id)
     } else {
       const link = observationLinksFromCluster.find((l) => l.observationId === o.id && l.trendId && knownTrendIds.has(l.trendId))
       if (link) trendId = link.trendId
@@ -545,7 +567,7 @@ function assembleResult(plan, ctx) {
     matched, newTrends, observationLinks, staleTrends, unresolved,
     stats: {
       mode: plan.mode, projectedAgents: projected.total, shards: shards.length,
-      matchReturned: collected.returned, unmatchedShards: collected.unmatchedShards.length,
+      matchReturned: collected.returned, unmatchedShards: collected.unmatchedShards,
       droppedMatches: collected.dropped, adjudicators: routed.adjudicate.length,
       adjudicationCapped: routed.capped.map((c) => c.fid), missing,
     },
