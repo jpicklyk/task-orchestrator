@@ -14,7 +14,7 @@ import { cellSize } from '../src/graph-pane/cell.ts'
 import { layoutTD } from '../src/graph-pane/layout.ts'
 import { cardsOf, criticalPath, isOpen, num, stepsOf } from '../src/graph-pane/model.ts'
 import type { Card } from '../src/graph-pane/model.ts'
-import { detailLines, duration, formatDetail, isDegraded, isSwitching, loadingTitle, parseScopeArg, scopeHeader, summaryLine } from '../src/graph-pane/pane-model.ts'
+import { SCOPE_LOOKBACK_MS, activeScope, detailLines, duration, formatDetail, isDegraded, isSwitching, loadingTitle, parseScopeArg, scopeHeader, summaryLine } from '../src/graph-pane/pane-model.ts'
 import { raster, runs } from '../src/graph-pane/raster.ts'
 import { routes } from '../src/graph-pane/route.ts'
 import { phaseText, rollupLine } from '../src/graph-pane/shared.ts'
@@ -1919,3 +1919,291 @@ for (const surface of SURFACES) {
     })
   }
 }
+
+// ── 1262993f: the default scope follows the latest transition (activeScope, /to-graph, This feature) ──
+// Oracle: the item's summary rule and the frozen diagnosis decisions D1-D6 (test-plan S1-S17), never the code.
+
+const WR = 'wroot000-0000-4000-8000-000000000000'
+const WFEATURES = 'wfeats00-0000-4000-8000-000000000000'
+const WBUGS = 'wbugs000-0000-4000-8000-000000000000'
+const WF = 'wfeat000-0000-4000-8000-000000000001'
+const WT = 'wtask000-0000-4000-8000-000000000002'
+const WU = 'wsubt000-0000-4000-8000-000000000003'
+const WT2 = 'wtask000-0000-4000-8000-000000000004'
+const WF2 = 'wfeat000-0000-4000-8000-000000000005'
+const WT3 = 'wtask000-0000-4000-8000-000000000006'
+const WB = 'wbug0000-0000-4000-8000-000000000007'
+const WA = 'wstale00-0000-4000-8000-000000000008'
+const WD = 'wdirect0-0000-4000-8000-000000000009'
+const WW = 'wnotype0-0000-4000-8000-00000000000a'
+const WZ = 'wother00-0000-4000-8000-00000000000b'
+const WO = 'wotherr0-0000-4000-8000-00000000000c'
+const WNOW = 1_760_000_000_000
+
+type WItem = { id: string; parentId: string | null; title: string; type?: string; role: string }
+const WITEMS: WItem[] = [
+  { id: WR, parentId: null, title: 'Project', type: 'project', role: 'work' },
+  { id: WFEATURES, parentId: WR, title: 'Features', type: 'container', role: 'work' },
+  { id: WBUGS, parentId: WR, title: 'Bugs', type: 'container', role: 'work' },
+  { id: WF, parentId: WFEATURES, title: 'Feature F', type: 'feature-implementation', role: 'work' },
+  { id: WA, parentId: WFEATURES, title: 'Stale feature A', type: 'feature-implementation', role: 'work' },
+  { id: WT, parentId: WF, title: 'Task T', type: 'feature-task', role: 'work' },
+  { id: WU, parentId: WF, title: 'Subtask U', type: 'feature-task', role: 'work' },
+  { id: WT2, parentId: WU, title: 'Task T2', type: 'feature-task', role: 'work' },
+  { id: WF2, parentId: WF, title: 'Nested feature F2', type: 'feature-implementation', role: 'work' },
+  { id: WT3, parentId: WF2, title: 'Task T3', type: 'feature-task', role: 'work' },
+  { id: WB, parentId: WBUGS, title: 'Bug B', type: 'bug-fix', role: 'work' },
+  { id: WD, parentId: WR, title: 'Bug directly under the root', type: 'bug-fix', role: 'work' },
+  { id: WW, parentId: WR, title: 'Item with no type', role: 'work' },
+  { id: WO, parentId: null, title: 'Other project', type: 'project', role: 'work' },
+  { id: WZ, parentId: WO, title: 'Other project task', type: 'feature-task', role: 'work' },
+]
+
+type WWorld = { items?: WItem[]; active?: string[]; transitions?: string[] | null; failResume?: boolean; failGetOf?: string }
+const ancestorsOf = (items: WItem[], id: string): { id: string; title: string; depth: number }[] => {
+  const out: { id: string; title: string; depth: number }[] = []
+  let cur = items.find(i => i.id === id)?.parentId ?? null
+  while (cur !== null) {
+    const p = items.find(i => i.id === cur)
+    if (p === undefined) break
+    out.unshift({ id: p.id, title: p.title, depth: 0 })
+    cur = p.parentId
+  }
+  out.forEach((a, i) => {
+    a.depth = i
+  })
+
+  return out
+}
+
+/** The TO server's reads for this item: replies are parsed JSON, a failure is the string 'FAIL'. */
+function worldReply(w: WWorld, tool: string, args: Record<string, unknown>): unknown {
+  const items = w.items ?? WITEMS
+  if (tool === 'get_context' && args.mode === 'session-resume') {
+    if (w.failResume === true) return 'FAIL'
+    const active = (w.active ?? []).map(id => ({ id, title: items.find(i => i.id === id)?.title ?? id, role: 'work', ancestors: ancestorsOf(items, id) }))
+    const rows = w.transitions === null ? undefined : (w.transitions ?? []).map((itemId, k) => ({ itemId, fromRole: 'queue', toRole: 'work', transitionedAt: new Date(WNOW - k * 1000).toISOString() }))
+
+    return { activeItems: active, ...(rows !== undefined ? { recentTransitions: rows } : {}) }
+  }
+  if (tool === 'query_items' && args.operation === 'get') {
+    const id = String(args.itemId)
+    if (w.failGetOf === id) return 'FAIL'
+    const it = items.find(i => i.id === id)
+    if (it === undefined) return 'FAIL'
+
+    return { id: it.id, title: it.title, role: it.role, ...(it.type !== undefined ? { type: it.type } : {}), ...(args.includeAncestors === true ? { ancestors: ancestorsOf(items, id) } : {}) }
+  }
+  // The legacy rule: newest work-role feature-implementation under the root.
+  if (tool === 'query_items' && args.operation === 'search' && args.type === 'feature-implementation') return { items: [{ id: WA, title: 'Stale feature A', type: 'feature-implementation', role: 'work' }], total: 1, returned: 1 }
+  if (tool === 'query_items') return { items: [], total: 0, returned: 0, limit: 50, offset: 0 }
+  if (tool === 'query_dependencies') return { dependencies: [] }
+
+  return 'FAIL'
+}
+
+type WCall = { tool: string; args: Record<string, unknown> }
+const fakeCall = (w: WWorld) => {
+  const calls: WCall[] = []
+  const call = async (tool: string, args: Record<string, unknown>): Promise<unknown> => {
+    calls.push({ tool, args })
+    const r = worldReply(w, tool, args)
+    if (r === 'FAIL') throw new Error(`${tool} failed`)
+
+    return r
+  }
+
+  return { call, calls }
+}
+
+const scopeOf = (w: WWorld) => activeScope(fakeCall(w).call, WR, WNOW)
+
+test('S1 (unit): a task in work resolves to its feature', async () => {
+  expect(await scopeOf({ active: [WT], transitions: [WT] })).toBe(WF)
+})
+
+test('S2 (unit): a bug under a container resolves to the bug itself, never the stale feature', async () => {
+  expect(await scopeOf({ active: [WA, WB], transitions: [WB, WA] })).toBe(WB)
+})
+
+test('S3 (unit): the first ACTIVE transition wins over a newer inactive one; duplicates and order are taken as returned', async () => {
+  // WB is not active (terminal), so the newer transitions on it are skipped; the first active one names WT.
+  expect(await scopeOf({ active: [WT], transitions: [WB, WB, WT, WA] })).toBe(WF)
+  // The first active in returned order wins even when a later row is also active.
+  expect(await scopeOf({ active: [WT, WB], transitions: [WB, WT] })).toBe(WB)
+  expect(await scopeOf({ active: [WT, WB], transitions: [WT, WB] })).toBe(WF)
+})
+
+test('S4 (unit): nothing active, the newest transition (terminal) still names its feature via the ancestors read', async () => {
+  const { call, calls } = fakeCall({ active: [], transitions: [WT, WB] })
+  expect(await activeScope(call, WR, WNOW)).toBe(WF)
+  expect(calls.filter(c => c.tool === 'query_items' && c.args.operation === 'get' && c.args.itemId === WT && c.args.includeAncestors === true)).toHaveLength(1)
+})
+
+test('S7 (unit): a newest transition belonging to another project resolves to null', async () => {
+  expect(await scopeOf({ active: [], transitions: [WZ] })).toBeNull()
+})
+
+test('S10 (unit): a feature left in queue by a gate-blocked start cascade still owns its task', async () => {
+  const items = WITEMS.map(i => (i.id === WF ? { ...i, role: 'queue' } : i))
+  expect(await scopeOf({ items, active: [WT], transitions: [WT] })).toBe(WF)
+})
+
+test('S11 (unit): an item directly under the root resolves to itself', async () => {
+  expect(await scopeOf({ active: [WD], transitions: [WD] })).toBe(WD)
+})
+
+test('S12 (unit): non-container intermediates are skipped on the way to the feature', async () => {
+  expect(await scopeOf({ active: [WT2], transitions: [WT2] })).toBe(WF)
+})
+
+test('S13 (unit): the nearest feature wins; the root-first ancestors are walked nearest-first', async () => {
+  expect(await scopeOf({ active: [WT3], transitions: [WT3] })).toBe(WF2)
+})
+
+test('S14 (unit): a moved item that is itself a container resolves to null', async () => {
+  expect(await scopeOf({ active: [WBUGS], transitions: [WBUGS] })).toBeNull()
+})
+
+test('S15 (unit): a node reply with no type counts as a non-container', async () => {
+  expect(await scopeOf({ active: [WW], transitions: [WW] })).toBe(WW)
+})
+
+test('probe (unit): empty and absent replies are all "no candidate"; repeat calls agree', async () => {
+  expect(await scopeOf({ active: [], transitions: [] })).toBeNull()
+  expect(await scopeOf({ active: [], transitions: null })).toBeNull()
+  expect(await scopeOf({ active: [WT], transitions: [] })).toBeNull()
+  const w: WWorld = { active: [WB], transitions: [WB] }
+  expect(await scopeOf(w)).toBe(WB)
+  expect(await scopeOf(w)).toBe(WB)
+})
+
+test('S16 (unit): one session-resume read with the exact request shape, read tools only, bounded gets', async () => {
+  expect(SCOPE_LOOKBACK_MS).toBe(14 * 24 * 60 * 60 * 1000)
+  const { call, calls } = fakeCall({ active: [WT], transitions: [WT] })
+  expect(await activeScope(call, WR, WNOW)).toBe(WF)
+  expect(calls[0]).toEqual({ tool: 'get_context', args: { mode: 'session-resume', since: new Date(WNOW - SCOPE_LOOKBACK_MS).toISOString(), ancestorId: WR, includeAncestors: true, limit: 200 } })
+  expect(calls.filter(c => c.tool === 'get_context')).toHaveLength(1)
+  for (const c of calls) expect(READ_TOOLS).toContain(c.tool)
+  // Chain is root > Features > F > T: at most one get per ancestor below the root.
+  expect(calls.filter(c => c.tool === 'query_items').length).toBeLessThanOrEqual(3)
+})
+
+// Integration: the command and the button, with the TO server and project config under the loaded plugin.
+
+const WCONFIG = `project:\n  rootId: ${WR}\n`
+
+function scopeRig(on: On, w: WWorld, opts: { config?: boolean; seed?: Record<string, unknown> } = {}) {
+  const r = rig(on, opts.seed ?? {})
+  const calls: WCall[] = []
+  const toasts: string[] = []
+  on('fs.read', async (_$, e) => {
+    const path = String((e as { path: string }).path).split(String.fromCharCode(92)).join('/')
+    if (opts.config !== false && path.endsWith('.taskorchestrator/config.yaml')) return { value: WCONFIG } as never
+    throw new Error(`ENOENT ${path}`)
+  })
+  mock.env(on, {})
+  mock.clock(on, { now: WNOW })
+  on('mcp.call', async (_$, e) => {
+    calls.push({ tool: e.tool, args: e.args })
+    const out = worldReply(w, e.tool, e.args)
+
+    return { value: out === 'FAIL' ? failed(`${e.tool} boom`) : reply(out) } as never
+  })
+  on('session.start', async (_$, e) => ({ cwd: e.cwd }) as never)
+  on('ui.open', async () => ({ value: { isPlaced: true } }) as never)
+  on('ui.close', async () => ({ value: undefined }) as never)
+  on('ui.status', async () => ({ value: undefined }) as never)
+  on('ui.toast', async (_$, e) => {
+    toasts.push(e.text)
+
+    return { value: undefined } as never
+  })
+  on('command.register', async () => ({ value: undefined }) as never)
+
+  return { r, calls, toasts }
+}
+
+type WEngine = Parameters<Parameters<typeof test>[1]>[0]
+const runToGraph = async ($: WEngine) => {
+  await $.session.start({ cwd: '/work/project', surface: 'terminal', isInteractive: true } as never)
+  await $.command.run({ command: 'to-graph', args: '' } as never)
+}
+const scopeSets = (r: ReturnType<typeof rig>) => r.sets.filter(s => s.key === 'graphScope').map(s => s.value)
+const paneSeed = { graphSnapshot: { ...asSnapshot(f1()), rootId: WR }, graphScope: null }
+const pressFeature = async ($: WEngine) => {
+  const ui = await mountAt($, 'terminal')
+  await ui.press({ key: 'scope-feature' })
+  await ui.unmount()
+}
+
+// The live repro: stale feature A (work) is what the legacy rule returns; bug B is what moved.
+const REPRO: WWorld = { active: [WA, WB], transitions: [WB, WA] }
+
+test('S2 (int): /to-graph with no argument scopes to the bug that moved, not the stale feature', async ($, on) => {
+  const { r } = scopeRig(on, REPRO)
+  await runToGraph($)
+  expect(r.valueOf('graphScope')).toBe(WB)
+  expect(scopeSets(r)).not.toContain(WA)
+})
+
+test('S1 (int): /to-graph resolves a task in work to its feature', async ($, on) => {
+  const { r } = scopeRig(on, { active: [WT], transitions: [WT] })
+  await runToGraph($)
+  expect(r.valueOf('graphScope')).toBe(WF)
+})
+
+test('S4 (int): nothing active, the newest move is a terminal task: its feature', async ($, on) => {
+  const { r } = scopeRig(on, { active: [], transitions: [WT] })
+  await runToGraph($)
+  expect(r.valueOf('graphScope')).toBe(WF)
+})
+
+test('S17 (int): the This feature button picks the bug that moved, as the command does', async ($, on) => {
+  const { r } = scopeRig(on, REPRO, { seed: paneSeed })
+  await pressFeature($)
+  expect(scopeSets(r)).toContain(WB)
+  expect(scopeSets(r)).not.toContain(WA)
+})
+
+test('S1 (int): the This feature button resolves a task in work to its feature', async ($, on) => {
+  const { r } = scopeRig(on, { active: [WT], transitions: [WT] }, { seed: paneSeed })
+  await pressFeature($)
+  expect(scopeSets(r)).toContain(WF)
+})
+
+test('S5 (int): a failed session-resume read falls back to the legacy newest-work feature', async ($, on) => {
+  const { r } = scopeRig(on, { ...REPRO, failResume: true })
+  await runToGraph($)
+  expect(r.valueOf('graphScope')).toBe(WA)
+})
+
+test('S6 (int): no recent transitions falls back to the legacy rule', async ($, on) => {
+  const { r } = scopeRig(on, { active: [WB], transitions: [] })
+  await runToGraph($)
+  expect(r.valueOf('graphScope')).toBe(WA)
+})
+
+test('S7 (int): a newest transition from another project falls back to the legacy rule', async ($, on) => {
+  const { r } = scopeRig(on, { active: [], transitions: [WZ] })
+  await runToGraph($)
+  expect(r.valueOf('graphScope')).toBe(WA)
+})
+
+test('S8 (int): a failing read during the walk falls back to the legacy rule (command)', async ($, on) => {
+  const { r } = scopeRig(on, { active: [], transitions: [WT], failGetOf: WT })
+  await runToGraph($)
+  expect(r.valueOf('graphScope')).toBe(WA)
+})
+
+test('S8 (int): the button also falls back when the walk fails', async ($, on) => {
+  const { r } = scopeRig(on, { active: [], transitions: [WT], failGetOf: WT }, { seed: paneSeed })
+  await pressFeature($)
+  expect(scopeSets(r)).toContain(WA)
+})
+
+test('S9 (int): with no project rootId the command makes no scope-resolution MCP call', async ($, on) => {
+  const { calls } = scopeRig(on, REPRO, { config: false })
+  await runToGraph($)
+  expect(calls.filter(c => c.tool === 'get_context' || (c.tool === 'query_items' && c.args.operation !== 'overview'))).toEqual([])
+})
