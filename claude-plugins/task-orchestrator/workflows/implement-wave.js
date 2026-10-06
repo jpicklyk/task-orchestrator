@@ -135,28 +135,47 @@ function isAbsolutePath(p) {
 }
 
 /**
- * relativizePath(p, roots) -> repo-relative POSIX path. Applies normalizePath, strips the longest
- * matching root prefix (case-insensitive when the path is a drive-letter path), then a trailing '/'.
- * A path outside every root is returned unchanged (still absolute, so it never matches).
+ * relativizePath(p, roots) -> canonical repo-relative POSIX path ('' = the whole worktree).
+ * Canonicalization (applied to p and to every root):
+ *   1. every '\' becomes '/';
+ *   2. an absolute prefix is kept ('/' or a drive 'x:/'); the remainder is split on '/', empty
+ *      segments (from '//' runs, leading/trailing '/') and '.' segments are dropped, and '..'
+ *      segments are kept verbatim (never resolved); the pieces are rejoined with '/';
+ *   3. a drive letter is lowercased (normalizePath).
+ *   So '.', './', './/' and '' -> ''; 'src/.' -> 'src'; 'src/./x.js' and 'src//x.js' ->
+ *   'src/x.js'; '././x' -> 'x'; '//h/s/x' -> '/h/s/x'; 'src/../x' is unchanged; the filesystem
+ *   roots '/' and 'x:/' stay '/' and 'x:/' (absolute, never '' or 'x:').
+ * Root stripping: falsy roots and roots that canonicalize to '' or to a filesystem root ('/' or
+ * 'x:/') are ignored. Roots are tried longest first; the comparison is case-insensitive when the
+ * canonical path is a drive-letter path, exact otherwise. A path equal to a root returns ''; a
+ * path under a root ('<root>/...') returns the remainder after '<root>/'. The first match wins.
+ * A path under no root is returned in canonical form (an absolute path stays absolute, so callers
+ * treat it as unrooted — see isUnrootedPath).
  * Kept byte-for-byte in parity with scripts/run-exec-lib.mjs's relativizePath (verify has no core).
  */
 function relativizePath(p, roots) {
-  let s = normalizePath(p)
+  const canon = (x) => {
+    const t = String(x).replace(/\\/g, '/')
+    const m = /^[a-zA-Z]:\//.exec(t) || /^\//.exec(t)
+    const prefix = m ? m[0] : ''
+    const segs = t.slice(prefix.length).split('/').filter((g) => g !== '' && g !== '.')
+    return normalizePath(prefix + segs.join('/'))
+  }
+  const s = canon(p)
   const normRoots = (roots || [])
     .filter((r) => r)
-    .map((r) => normalizePath(r).replace(/\/+$/, ''))
-    .filter((r) => r)
+    .map(canon)
+    .filter((r) => r && !r.endsWith('/'))
     .sort((a, b) => b.length - a.length)
   const drive = /^[a-z]:\//i.test(s)
+  const fold = (x) => (drive ? x.toLowerCase() : x)
   for (const r of normRoots) {
-    const head = s.slice(0, r.length)
-    const same = drive ? head.toLowerCase() === r.toLowerCase() : head === r
-    if (same && s.charAt(r.length) === '/') {
-      s = s.slice(r.length + 1)
-      break
-    }
+    const fs = fold(s)
+    const fr = fold(r)
+    if (fs === fr) return ''
+    if (fs.startsWith(fr + '/')) return s.slice(r.length + 1)
   }
-  return s.replace(/\/+$/, '')
+  return s
 }
 
 function isGlobPath(entry) {
@@ -475,9 +494,13 @@ function findPlannerOutput(item, outs) {
  * lockKeysFor(item, stage, outs, plan) -> string[]
  * Shared mode + writes:true: file:<relativizePath(p, [item.worktree, plan.repoRoot])> over the
  * implementer's mainFiles∪docFiles or the test-author's testFiles∪existingTestEdits[].file,
- * plus extraLockKeys always. Sorted, deduped. A declared path that stays unrooted (outside both
- * roots) or contains a '..' segment takes worktree:<normalizePath(item.worktree)> instead, which
- * lockKeysConflict() treats as contending with every file: key.
+ * plus extraLockKeys always. Sorted, deduped. Paths are canonicalized by relativizePath, so every
+ * spelling of one path ('src/x.js', 'src/./x.js', 'src//x.js', '<worktree>/src/x.js',
+ * '<repoRoot>/src/x.js') yields the same file:src/x.js key. A declared path that is unrooted per
+ * isUnrootedPath — it relativizes to '' ('.', './', the worktree or repo root itself), stays
+ * absolute (outside both roots), or contains a '..' segment — takes
+ * worktree:<normalizePath(item.worktree)> instead, which lockKeysConflict() treats as contending
+ * with every file: key.
  * An implementer stage on an item with no test-author-v1 stage additionally locks the
  * planner's testFiles∪existingTestEdits[].file (D5 — those tests are "unowned" by anyone else,
  * so the implementer's write locks must cover them too).
@@ -521,6 +544,15 @@ function lockKeysFor(item, stage, outs, plan) {
   return Array.from(keys).sort()
 }
 
+/**
+ * collectFiles(output, roots) -> string[] of overlap claims for per-item deferral.
+ * Takes output.mainFiles ∪ docFiles ∪ testFiles ∪ existingTestEdits[].file (in that order),
+ * relativizes each against roots, and returns one claim per entry: the repo-relative path, or
+ * '**' (a whole-tree claim whose literal base '' overlaps every path) when the entry is unrooted
+ * per isUnrootedPath — it canonicalizes to '' (e.g. '.', './', the worktree or repo root itself),
+ * stays absolute (outside every root), or contains a '..' segment. A null output, or one that
+ * declares no entries at all, yields [] (claims nothing — D6).
+ */
 function collectFiles(output, roots) {
   if (!output) return []
   const raw = [].concat(output.mainFiles || [], output.docFiles || [], output.testFiles || [])
@@ -530,7 +562,7 @@ function collectFiles(output, roots) {
   const files = []
   for (const f of raw) {
     const rel = relativizePath(f, roots || [])
-    if (rel) files.push(rel)
+    files.push(isUnrootedPath(rel) ? '**' : rel)
   }
   return files
 }
@@ -538,10 +570,16 @@ function collectFiles(output, roots) {
 /**
  * overlapDeferral(mine, higher, mode) -> null | {reason}
  * mine = {short, output, roots?}; higher = [{short, output|null, roots?}] in args order. Each
- * entry's declared paths are relativized against its own roots (its worktree, then the repo root).
- * mode 'shared' -> always null. Else: the first higher item with a file that overlaps one of mine
- * under the lockKeysConflict predicate (equal, or a directory/glob base containing the other)
- * -> {reason:'overlap <short>'}.
+ * entry's declared paths are relativized against its own roots (its worktree, then the repo root)
+ * and turned into file:<claim> keys by collectFiles.
+ * mode 'shared' -> always null. Else: the first higher item (skipping those with a null output)
+ * with a claim that overlaps one of mine under the lockKeysConflict predicate (equal, or a
+ * directory/glob base containing the other, case-insensitive) -> {reason:'overlap <short>'};
+ * none -> null.
+ * Whole-tree claims (D6): an unrooted entry on either side — one that relativizes to '' ('.',
+ * './', a root itself), stays absolute, or contains '..' — overlaps every entry on the other side,
+ * including another whole-tree claim. A side whose declared set is entirely empty claims nothing,
+ * so it never causes or suffers an overlap.
  */
 function overlapDeferral(mine, higher, mode) {
   if (mode === 'shared') return null

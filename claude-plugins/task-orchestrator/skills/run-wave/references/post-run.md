@@ -36,14 +36,22 @@ untagged commit (no `[<short>]` in its subject) surfaces as a top-level `warning
 per-item finding, and does not by itself fail the item.
 
 **How ownership is matched.** Declared files and changed paths are both normalized to
-repo-relative POSIX before comparison: `\` becomes `/`, a leading `./` and any trailing `/` are
-dropped, and a leading root prefix is stripped (case-insensitively for drive-letter paths). The
+repo-relative POSIX before comparison: `\` becomes `/`, empty segments (`//` runs, a leading or
+trailing `/` after an absolute prefix) and `.` segments are dropped, `..` segments are kept as
+written (never resolved), a drive letter is lowercased, and a leading root prefix is stripped
+(case-insensitively for drive-letter paths). So `src/./x.js`, `src//x.js` and
+`<worktree>/src/x.js` are all `src/x.js`, and `.`, `./` and a path equal to the worktree or repo
+root are `''` (the whole tree); the filesystem roots `/` and `x:/` stay absolute. The
 roots come from git per worktree (`git rev-parse --show-toplevel`, plus the parent of
 `--git-common-dir` for the main checkout); with no roots available, the item's `worktree` is the
 only root. An absolute path outside every root never matches and is reported. A declared
+whole-tree entry (`.`, `./`, the worktree itself) owns nothing in verification, so every file its
+seat writes is reported `unowned` — declare real paths. A declared
 directory (with or without a trailing `/`) owns every file beneath it, new or modified, and a
 declared entry containing `*` or `?` is a glob (`**` spans segments, `*` stays within one,
-`?` is one non-`/` character) — this applies to `testFiles` globs too. **Cross-item precedence:**
+`?` is one non-`/` character) — this applies to `testFiles` globs too. Only `*` and `?` are
+wildcards: `[`, `]`, `{` and `}` are literal characters everywhere (ownership, lock keys and the
+review pathspec), so `src/[ab].js` names one file called `[ab].js`, not `a.js` or `b.js`. **Cross-item precedence:**
 if a file is exactly declared (non-glob) by another item in the run and not exactly declared by
 the writer, it is reported as `implementer wrote <file> owned by item <short>` (or
 `test-author wrote ...`) even when the writer's own directory or glob would cover it. When the
@@ -56,11 +64,17 @@ outside everything the writer declared stays `implementer wrote unowned <file>`.
 `file:<repo-relative path>` per declared entry, relativized against the item worktree and then
 `args.repoRoot` (the main checkout, filled from the snapshot's `git.repoRoot`). Locks are
 conservative: a directory or glob contends with every path under its wildcard-free base
-(case-insensitive), so `src/*.js` waits on `src/x.js`; an entry outside both roots, one containing
-`..`, or an empty declaration locks the whole worktree (`worktree:<path>`); `extraLockKeys` need an
-exact match. The reviewer's `git diff` pathspec covers mainFiles, docFiles, testFiles and
+(case-insensitive), so `src/*.js` waits on `src/x.js`; every spelling of one path gets the same
+key, so `src//x.js` waits on `src/x.js`. An entry outside both roots, one containing `..`, one
+that names the whole tree (`.`, `./`, the worktree or repo root), or an empty declaration locks
+the whole worktree (`worktree:<path>`); `extraLockKeys` need an exact match. In `per-item`
+worktree mode the planner's declared files decide overlap deferral instead of locks: an entry
+outside both roots, one containing `..`, or a whole-tree entry claims the whole tree and overlaps
+every entry of the other item, but an item that declares no files at all claims nothing (a
+deferral stops the lower-priority item for this run, which is heavier than a lock wait). The reviewer's `git diff` pathspec covers mainFiles, docFiles, testFiles and
 existingTestEdits, each double-quoted with `:(literal)` or (for a glob) `:(glob)` magic; entries
-outside both roots are named on an `UNROOTED (not in pathspec): ...` line instead.
+outside both roots are named on an `UNROOTED (not in pathspec): ...` line instead, and when any
+entry names the whole tree the diff has no pathspec at all.
 
 **Symbolic refs.** A stage `commits.pre`/`post` that is not a 7-40 character lowercase hex SHA
 (for example `HEAD`) is resolved in the item's worktree with `git rev-parse --verify
