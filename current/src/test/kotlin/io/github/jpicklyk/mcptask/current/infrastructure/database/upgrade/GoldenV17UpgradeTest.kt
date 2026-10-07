@@ -132,7 +132,7 @@ class GoldenV17UpgradeTest {
                             "(SELECT rowid FROM work_items_fts_text WHERE work_items_fts_text MATCH '${BaselineDataset.ITEM_FTS_TOKEN}') " +
                             "AND title LIKE '%${BaselineDataset.ITEM_FTS_TOKEN}%'"
                     )
-                assertEquals(1, itemHits, "work_items FTS must resolve the seeded token to its row after compaction")
+                assertEquals(1, itemHits, "work_items FTS must resolve the seeded token to its row after startup")
                 val noteHits =
                     scalar(
                         conn,
@@ -140,7 +140,7 @@ class GoldenV17UpgradeTest {
                             "(SELECT rowid FROM notes_fts_trigram WHERE notes_fts_trigram MATCH '${BaselineDataset.NOTE_FTS_TOKEN}') " +
                             "AND body LIKE '%${BaselineDataset.NOTE_FTS_TOKEN}%'"
                     )
-                assertEquals(1, noteHits, "notes FTS must resolve the seeded token to its row after compaction")
+                assertEquals(1, noteHits, "notes FTS must resolve the seeded token to its row after startup")
             }
 
             val provider = DefaultRepositoryProvider(manager)

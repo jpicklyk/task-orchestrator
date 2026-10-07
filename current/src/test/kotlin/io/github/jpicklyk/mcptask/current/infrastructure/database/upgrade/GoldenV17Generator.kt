@@ -49,8 +49,9 @@ object GoldenV17 {
             UpgradeHarness.migrate(url, target = 17)
             DriverManager.getConnection(url).use { conn ->
                 // Rowid gap: a sacrificial work item and note are inserted BEFORE the baseline and deleted after, so the
-                // seeded rows start at rowid 2 and a later VACUUM has to renumber them (and the rowid-keyed FTS indexes
-                // have to be rebuilt to match). See GoldenV17UpgradeTest (real startup).
+                // seeded rows start at rowid 2 and rowids differ from row position. The bundled SQLite's VACUUM keeps
+                // implicit rowids (observed: the gap survives), so S15 asserts the FTS rebuild through rowids directly.
+                // See GoldenV17UpgradeTest (real startup).
                 BaselineDataset.insert(
                     conn,
                     "work_items",
