@@ -70,13 +70,17 @@ import io.modelcontextprotocol.kotlin.sdk.server.mcpStreamableHttp
 import io.modelcontextprotocol.kotlin.sdk.types.Implementation
 import io.modelcontextprotocol.kotlin.sdk.types.McpJson
 import io.modelcontextprotocol.kotlin.sdk.types.ServerCapabilities
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.io.asSink
 import kotlinx.io.asSource
 import kotlinx.io.buffered
 import kotlinx.serialization.json.JsonObject
 import org.slf4j.LoggerFactory
+import java.io.InputStream
+import java.io.OutputStream
 import java.nio.file.Paths
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -95,12 +99,18 @@ import java.util.concurrent.atomic.AtomicBoolean
  * @param onBeforeTransportStart Test seam invoked as the first statement inside the try block
  *   wrapping the actual transport start (arg "stdio" or "http"), before the real start is
  *   attempted. No-op by default; production behaviour is unchanged.
+ * @param stdioInput Test seam supplying the stdio transport's input stream; a lambda so constructing
+ *   the server never touches System.in. Defaults to System.in.
+ * @param stdioOutput Test seam supplying the stdio transport's output stream; a lambda so constructing
+ *   the server never touches System.out. Defaults to System.out.
  */
 class CurrentMcpServer(
     private val version: String,
     private val shutdownCoordinator: ShutdownCoordinator? = null,
     private val appConfig: AppConfig = AppConfig.fromEnv(),
-    internal val onBeforeTransportStart: (String) -> Unit = {}
+    internal val onBeforeTransportStart: (String) -> Unit = {},
+    internal val stdioInput: () -> InputStream = { System.`in` },
+    internal val stdioOutput: () -> OutputStream = { System.out }
 ) {
     private val logger = LoggerFactory.getLogger(CurrentMcpServer::class.java)
 
@@ -248,13 +258,22 @@ class CurrentMcpServer(
 
         val transport =
             StdioServerTransport(
-                inputStream = System.`in`.asSource().buffered(),
-                outputStream = System.out.asSink().buffered()
+                inputStream = stdioInput().asSource().buffered(),
+                outputStream = stdioOutput().asSink().buffered()
             )
 
         registerCommonCleanup(server)
 
         val done = Job()
+
+        // Registered BEFORE createSession: the transport fires its close callback exactly once, and an
+        // immediate EOF (e.g. empty stdin) could otherwise fire it before a late handler is attached.
+        // Server.onClose runs only from Server.close(), so stdin EOF needs this transport-level hook.
+        transport.onClose {
+            logger.info("stdio transport closed")
+            done.complete()
+        }
+
         server.onClose {
             logger.info("Server closed")
             done.complete()
@@ -284,6 +303,18 @@ class CurrentMcpServer(
             logger.error("Error in stdio server connection: ${e.message}", e)
         } finally {
             readinessMarker.clear()
+        }
+
+        // Reached on stdin EOF (or any other close). If a signal already started shutdown, skip it so
+        // the log does not misattribute the cause. Run off the runBlocking thread: the coordinator's
+        // "Close MCP Server" action itself calls runBlocking { server.close() }.
+        val coordinator = shutdownCoordinator
+        if (coordinator != null) {
+            if (!coordinator.isShutdownInitiated()) {
+                withContext(Dispatchers.IO) { coordinator.initiateShutdown("stdin EOF") }
+            }
+        } else {
+            runCatching { server.close() }
         }
         return Started
     }
